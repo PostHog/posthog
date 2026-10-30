@@ -252,6 +252,24 @@ class TestWarehouseSourcesFacade(BaseTest):
         results = api.list_schemas_for_source(self.source.id, self.team.pk)
         assert [r.id for r in results] == [self.schema.id]
 
+    @parameterized.expand(["active", "deleted_schema", "deleted_source", "deleted_table", "other_team", "direct"])
+    def test_list_imported_schema_snapshots_filters_unavailable_imports(self, state: str) -> None:
+        self.table.queryable_folder = "queryable_2026_01_01"
+        self.table.deleted = state == "deleted_table"
+        self.table.save()
+        self.source.deleted = state == "deleted_source"
+        if state == "direct":
+            self.source.access_method = "direct"
+        self.source.save()
+        self.schema.deleted = state == "deleted_schema"
+        self.schema.save()
+        results = api.list_imported_schema_snapshots(self.team.pk + (1 if state == "other_team" else 0))
+        assert results == (
+            [contracts.ImportedSchemaSnapshot(schema_id=self.schema.id, queryable_folder=self.table.queryable_folder)]
+            if state == "active"
+            else []
+        )
+
     def test_get_table_maps_to_contract(self) -> None:
         result = api.get_table(self.table.id, self.team.pk)
         assert isinstance(result, contracts.DataWarehouseTable)
@@ -310,6 +328,9 @@ class TestWarehouseSourcesFacade(BaseTest):
         with self.assertNumQueries(0):
             assert api.allowed_table_ids(self.team.id, access, required_level=required_level) == expected
 
+        # Without resource access every table is a candidate, soft-deleted ones included.
+        assert api.denied_table_ids(self.team.id, access) == frozenset({overridden.id, ungranted.id})
+
         narrowed = api.allowed_table_ids(
             self.team.id, access, required_level=required_level, ids=[granted.id, ungranted.id]
         )
@@ -323,6 +344,44 @@ class TestWarehouseSourcesFacade(BaseTest):
         assert api.allowed_table_ids(self.team.id, admin, required_level=required_level) == frozenset(
             {self.table.id, granted.id, overridden.id, ungranted.id, owned.id}
         )
+
+    @parameterized.expand([("legacy", False), ("most_specific", True)])
+    def test_denied_table_ids_resolves_rule_named_tables_through_their_source(
+        self, _name: str, most_specific: bool
+    ) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.uses_most_specific_access_resolution = most_specific
+        self.organization.save(update_fields=["available_product_features", "uses_most_specific_access_resolution"])
+        member = self._create_user("member@example.com")
+        membership = OrganizationMembership.objects.get(user=member, organization=self.organization)
+        access = UserAccessControl(member, team=self.team)
+        assert api.denied_table_ids(self.team.id, access) == frozenset()
+
+        granted = DataWarehouseTable.objects.create(
+            team=self.team, name="granted", format="Parquet", external_data_source=self.source
+        )
+        deleted = DataWarehouseTable.objects.create(
+            team=self.team, name="deleted", format="Parquet", external_data_source=self.source, deleted=True
+        )
+        denied = DataWarehouseTable.objects.create(team=self.team, name="denied", format="Parquet")
+        DataWarehouseTable.objects.create(team=self.team, name="untouched", format="Parquet")
+        for resource, resource_id, level in [
+            ("external_data_source", self.source.id, "none"),
+            ("warehouse_table", granted.id, "viewer"),
+            ("warehouse_table", denied.id, "none"),
+        ]:
+            AccessControl.objects.create(
+                team=self.team,
+                resource=resource,
+                resource_id=str(resource_id),
+                organization_member=membership,
+                access_level=level,
+            )
+
+        access = UserAccessControl(member, team=self.team)
+        assert api.denied_table_ids(self.team.id, access) == frozenset({self.table.id, deleted.id, denied.id})
 
     def test_list_jobs_for_source_carries_source_fields(self) -> None:
         job = ExternalDataJob.objects.create(

@@ -50,7 +50,6 @@ export interface CrossProjectTileProps extends React.HTMLAttributes<HTMLDivEleme
     showTimezone?: boolean
     missingPropertyKeys?: string[]
     dashboardFilters?: CrossProjectDashboardFilters
-    isResizing?: boolean
     canEnterEditModeFromEdge?: boolean
     onEnterEditModeFromEdge?: (event: React.MouseEvent<HTMLDivElement>, edge: EditModeEdge) => void
     onDragHandleMouseDown?: React.MouseEventHandler<HTMLDivElement>
@@ -67,7 +66,6 @@ function CrossProjectTileInternal(
         showTimezone,
         missingPropertyKeys,
         dashboardFilters,
-        isResizing,
         canEnterEditModeFromEdge,
         onEnterEditModeFromEdge,
         onDragHandleMouseDown,
@@ -151,7 +149,6 @@ function CrossProjectTileInternal(
                 setOverride={onSetOverride}
                 removeFromDashboard={onRemove}
                 showResizeHandles={showResizeHandles}
-                isResizing={isResizing}
                 canEnterEditModeFromEdge={canEnterEditModeFromEdge}
                 onEnterEditModeFromEdge={onEnterEditModeFromEdge}
                 onDragHandleMouseDown={onDragHandleMouseDown}

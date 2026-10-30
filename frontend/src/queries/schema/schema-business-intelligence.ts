@@ -31,6 +31,8 @@ export type BIQueryLimit = 100 | 1000 | 10000 | 50000
 
 export type BISortDirection = 'asc' | 'desc'
 
+export type BICatalogMetricStatus = 'approved' | 'proposed'
+
 export interface BISort {
     key: string
     direction: BISortDirection
@@ -139,8 +141,30 @@ export interface BIFilter {
     enabled?: boolean
 }
 
+export interface BIPaneSettings {
+    /** Ordered dimension IDs used to split returned groups into separate charts. */
+    fields: string[]
+    /** Use a separate value scale for each pane instead of a shared primary scale. */
+    independentAxes?: boolean
+    /** Calculate reference lines from each pane or from all returned worksheet marks. */
+    referenceLines?: 'pane' | 'worksheet'
+}
+
 export interface BIConfig {
     source: BIDataSource | null
+    /** Executable catalog query snapshot. Dates and grouping belong to the definition, not the shelves. */
+    querySnapshot?: HogQLQuery
+    /** Catalog provenance only: the snapshot does not track subsequent definition edits. */
+    catalogMetric?: string
+    /** Catalog metadata at copy time, not a live approval of the worksheet. */
+    catalogMetricContext?: {
+        id: string
+        status: BICatalogMetricStatus
+        isDrifted: boolean
+        unit: string
+        owner: string | null
+        updatedAt: string | null
+    }
     /** Reusable expressions owned by this worksheet only. */
     localFields?: BIField[]
     /** Named dimension sequences saved with the worksheet; imports are independent copies. */
@@ -153,6 +177,8 @@ export interface BIConfig {
     }[]
     memberAliases?: { field: BIField; aliases: { value: string | null; label: string }[] }[]
     colorBy?: string | null
+    /** Split the returned groups into charts using these ordered dimension IDs. */
+    panes?: BIPaneSettings
     /** Column that receives the worksheet and dashboard date range. */
     dateField?: BIField | null
     dateRange?: DateRange

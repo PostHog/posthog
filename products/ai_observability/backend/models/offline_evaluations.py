@@ -5,6 +5,7 @@ from django.db.models.lookups import Exact
 from django.utils import timezone
 
 from posthog.models.scoping.manager import EnvironmentScopedManager
+from posthog.models.tagged_items_relation import Taggable
 from posthog.models.utils import UUIDModel
 
 
@@ -14,7 +15,7 @@ class PayloadState(models.TextChoices):
     EXPIRED = "expired", "Expired"
 
 
-class OfflineExperiment(models.Model):
+class OfflineExperiment(Taggable):
     class Status(models.TextChoices):
         UPLOADING = "uploading", "Uploading"
         COMPLETED = "completed", "Completed"
@@ -32,6 +33,9 @@ class OfflineExperiment(models.Model):
     status = models.CharField(max_length=16, choices=Status.choices, default=Status.UPLOADING)
     started_at = models.DateTimeField()
     created_at = models.DateTimeField(default=timezone.now, editable=False)
+    created_by = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
+    )
     finished_at = models.DateTimeField(null=True, blank=True)
     expected_item_count = models.PositiveBigIntegerField(null=True, blank=True)
     expected_result_count = models.PositiveBigIntegerField(null=True, blank=True)
@@ -119,6 +123,7 @@ class OfflineExperimentItem(OfflinePayloadOwner):
     experiment = models.ForeignKey(OfflineExperiment, on_delete=models.CASCADE, related_name="items", db_index=False)
     case_key = models.CharField(max_length=255, null=True, blank=True)
     trial = models.CharField(max_length=255, null=True, blank=True)
+    model_version = models.CharField(max_length=255, null=True, blank=True)
     dataset_item_identifier = models.CharField(max_length=255, null=True, blank=True)
     dataset_item_version_identifier = models.CharField(max_length=255, null=True, blank=True)
     dataset_item_version = models.ForeignKey(
@@ -211,6 +216,26 @@ class OfflineEvaluationResult(OfflinePayloadOwner, UUIDModel):
             models.Index(
                 fields=["team", "scorer_version", "-accepted_at", "id"], name="aio_offline_result_history_idx"
             ),
+        ]
+
+
+class OfflineEvaluationUsageLedger(UUIDModel):
+    team_id = models.BigIntegerField(editable=False)
+    organization_id = models.UUIDField(editable=False)
+    experiment_id = models.UUIDField(editable=False)
+    accepted_at = models.DateTimeField(default=timezone.now, editable=False)
+    quantity = models.PositiveBigIntegerField(editable=False)
+
+    objects = EnvironmentScopedManager()
+
+    class Meta:
+        db_table = "llm_analytics_offlineevaluationusageledger"
+        constraints = [
+            models.CheckConstraint(condition=Q(quantity__gt=0), name="aio_offline_usage_quantity_pos"),
+        ]
+        indexes = [
+            models.Index(fields=["accepted_at"], name="aio_offline_usage_accepted_idx"),
+            models.Index(fields=["team_id", "accepted_at"], name="aio_offline_usage_team_idx"),
         ]
 
 

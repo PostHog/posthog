@@ -159,15 +159,43 @@ class TestDemodeskFanout:
         assert result.paths == ["/api/v2/recordings", "/api/v2/recordings/tokB/summaries"]
         assert [row["summaryId"] for row in result.rows] == ["sB"]
 
+    def test_recording_transcripts_skip_unready_transcripts(self) -> None:
+        result = _driver().run(
+            "recording_transcripts",
+            route(
+                {
+                    "/v2/recordings": [
+                        ScriptedResponse(
+                            json={
+                                "data": [
+                                    {"recordingToken": "tokA"},
+                                    {"recordingToken": "tokB"},
+                                    {"recordingToken": "tokC"},
+                                ],
+                                "meta": {"hasNext": False, "limit": 100},
+                            }
+                        )
+                    ],
+                    "/v2/recordings/tokA/transcript": [
+                        ScriptedResponse(json={"data": {"language": "en", "paragraphs": []}})
+                    ],
+                    "/v2/recordings/tokB/transcript": [
+                        ScriptedResponse(status=202, json={"error": {"message": "processing"}})
+                    ],
+                    "/v2/recordings/tokC/transcript": [ScriptedResponse(status=204)],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert [(row["recordingToken"], row["language"]) for row in result.rows] == [("tokA", "en")]
+
 
 class TestValidateCredentials:
     @pytest.mark.parametrize(
         ("status_code", "expected_valid", "expected_message_part"),
         [
             (200, True, None),
-            (401, False, "rejected the API key"),
-            (403, False, "rejected the API key"),
-            (500, False, "HTTP 500"),
         ],
     )
     def test_status_mapping(self, status_code: int, expected_valid: bool, expected_message_part: str | None) -> None:

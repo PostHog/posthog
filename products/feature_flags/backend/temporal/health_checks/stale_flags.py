@@ -1,4 +1,4 @@
-from collections.abc import Collection, Iterable
+from collections.abc import Iterable
 from datetime import datetime
 
 from django.db.models import Q
@@ -10,15 +10,13 @@ import posthoganalytics
 from posthog.clickhouse.query_tagging import Product
 from posthog.job_owners import JobOwners
 from posthog.models.health_issue import HealthIssue
-from posthog.models.team import Team
 from posthog.ph_client import get_feature_flag_or_none
 from posthog.temporal.health_checks.detectors import HealthExecutionPolicy
 from posthog.temporal.health_checks.framework import AlertContent, HealthCheck, Remediation
 from posthog.temporal.health_checks.models import HealthCheckResult
 from posthog.utils import get_instance_region
 
-from products.early_access_features.backend.models import EarlyAccessFeature
-from products.experiments.backend.models.experiment import Experiment
+from products.feature_flags.backend.cleanup_blockers import excluded_flag_ids
 from products.feature_flags.backend.facade.config import is_v1_config
 from products.feature_flags.backend.facade.filters import EVALUATED_BEFORE_RELEASE_CONDITIONS
 from products.feature_flags.backend.flag_status import (
@@ -30,11 +28,7 @@ from products.feature_flags.backend.flag_status import (
     filter_stale_flags,
     stale_flag_threshold,
 )
-from products.feature_flags.backend.flag_version_sync import direct_flag_dependency_ids, flags_with_flag_dependencies
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.feature_flags.backend.session_recording_links import replay_gated_flags_for_projects
-from products.product_tours.backend.models import ProductTour
-from products.surveys.backend.models import Survey
 
 logger = structlog.get_logger(__name__)
 
@@ -72,18 +66,16 @@ class StaleFeatureFlagsCheck(HealthCheck):
     owner = JobOwners.TEAM_FEATURE_FLAGS
     product = Product.FEATURE_FLAGS
     schedule = "0 6 * * 1"  # weekly, Mondays 06:00 UTC
-    # Payloads carry flag keys and names.
+    # Each payload carries one flag's key, name and rollout state.
     access_controlled_resource = "feature_flag"
+    access_controlled_object_key = "flag_id"
+    access_controlled_object_model = FeatureFlag
+    # A team's first run writes one issue per stale flag, and alerts would bypass the per-flag gate
+    # above. The feature-flags scout reads these issues through the Health API instead.
+    emits_alerts = False
     # Postgres-heavy and one issue per stale flag rather than per team, so smaller
     # batches than the default policy.
     policy = HealthExecutionPolicy(batch_size=250, max_concurrent=2)
-    # Both stay for one more deploy, so the gate reaches every worker before anything can write.
-    # Web's migrate job copies these into the schedule's workflow inputs, and the health-check
-    # worker deploys as a separate app behind it. A worker still on the previous release has no
-    # `eligible_team_ids`, so removing them in this release would let a run that starts inside
-    # that window write live issues for every active team. The follow-up removes both.
-    dry_run = True
-    rollout_percentage = 0.01
     remediation = Remediation(
         human="""
             Open the flag and confirm the staleness evidence is still current. Check every
@@ -134,7 +126,7 @@ class StaleFeatureFlagsCheck(HealthCheck):
                 f"{evidence_text}.{rollout_sentence} "
                 "Review code references and linked systems before removing anything."
             ),
-            link=f"/feature_flags/{flag_id}" if flag_id is not None else "/feature_flags",
+            link=f"/feature-flags/{flag_id}" if flag_id is not None else "/feature-flags",
         )
 
     @classmethod
@@ -225,7 +217,7 @@ class StaleFeatureFlagsCheck(HealthCheck):
         if not candidates:
             return {}
 
-        excluded_ids = _excluded_flag_ids(candidates)
+        excluded_ids = excluded_flag_ids(candidates)
         full_rollout_ids = {flag.id for flag in full_rollout_candidates}
 
         now = timezone.now()
@@ -318,90 +310,6 @@ def _serves_more_than_one_result(flag: FeatureFlag) -> bool:
         return True
     groups = filters.get("groups") or []
     return any(group.get("aggregation_group_type_index") is not None for group in groups)
-
-
-def _excluded_flag_ids(candidates: list[FeatureFlag]) -> set[int]:
-    """Flag ids that known blockers reference, not limited to the candidate ids.
-
-    Every lookup is scoped by team or project rather than by candidate flag id, so each
-    one binds a handful of parameters per batch and can return ids for flags outside it.
-
-    Every lookup is one set-wise query over the batch; the count stays fixed as the
-    candidate volume grows. These exclusions remove known blockers only. They do not prove
-    the remaining flags are free of repository references or product intent.
-
-    The bulk-delete guard in ``products/feature_flags/backend/api/feature_flag.py`` blocks
-    the same references and must stay in step with this list. Where the two differ it is on
-    purpose, and this list is the stricter one: the guard blocks only running experiments
-    where this excludes every non-deleted one, the guard's ``find_dependent_flags_batch``
-    counts only active dependent flags where this also lets disabled dependents block, and
-    the guard matches a replay gate only within the flag's own project where this matches a
-    stored id across every project scanned.
-
-    A survey's user-created ``linked_flag`` is deliberately not excluded, unlike the
-    survey flags PostHog generates itself. It is user-managed, bulk delete permits it, and
-    the remediation tells the investigator to check surveys. A reported flag is evidence
-    to investigate, not a verdict that removal is safe.
-    """
-    team_ids = {flag.team_id for flag in candidates}
-    # Product tours, replay links, and flag dependencies are scoped by project, not by team:
-    # another team in the same project can reference a flag this batch's teams own. A product
-    # tour stays on the environment that created it, while a flag moves to the project root.
-    # Surveys stay on team scope: Survey and FeatureFlag both inherit RootTeamMixin, so both
-    # rows always sit on the project root team and their team ids line up.
-    team_projects = dict(Team.objects.filter(id__in=team_ids).values_list("id", "project_id"))
-    project_ids = set(team_projects.values())
-
-    excluded: set[int] = set()
-    excluded |= Survey.get_internal_flag_ids(team_ids=team_ids)
-    excluded |= set(
-        ProductTour.all_objects.filter(
-            team__project_id__in=project_ids, internal_targeting_flag__isnull=False
-        ).values_list("internal_targeting_flag_id", flat=True)
-    )
-    excluded |= set(
-        Experiment.objects.filter(team_id__in=team_ids, deleted=False).values_list("feature_flag_id", flat=True)
-    )
-    excluded |= set(
-        EarlyAccessFeature.objects.filter(team_id__in=team_ids, feature_flag_id__isnull=False).values_list(
-            "feature_flag_id", flat=True
-        )
-    )
-    excluded |= _depended_on_flag_ids(project_ids)
-    # A trigger group counts here as much as the linked-flag column: both gate recording, so a
-    # flag either one names must not be reported as a cleanup candidate.
-    replay_gates = replay_gated_flags_for_projects(project_ids)
-    # A stored id is matched against every project scanned, because flag ids are globally unique.
-    # Only the stored key reaches an SDK, so a team holding another project's flag id gates no
-    # recording on that flag. The candidate is withheld anyway, because a hard delete leaves that
-    # reference unrepairable. `repair_replay_linked_flag_keys` reports such a row as
-    # `FLAG_IN_OTHER_PROJECT` and has no key it can safely adopt.
-    excluded |= {flag_id for gates in replay_gates.values() for flag_id in gates.flag_ids}
-    # A stored key is matched only within its own project, because a key names one flag only
-    # there, and pooling keys would let a key stored in one project protect a same-keyed flag in
-    # another.
-    excluded |= {
-        flag.id
-        for flag in candidates
-        if (project_id := team_projects.get(flag.team_id)) is not None
-        and (gates := replay_gates.get(project_id)) is not None
-        and flag.key in gates.flag_keys
-    }
-    return excluded
-
-
-def _depended_on_flag_ids(project_ids: Collection[int]) -> set[int]:
-    """Ids of flags that at least one non-deleted flag has a flag-type condition on.
-
-    Matches local-evaluation payload semantics (all non-deleted flags, active or not):
-    a disabled dependent still ships in the payload and can be re-enabled, so it must
-    keep protecting its dependency from cleanup.
-    """
-    dependents = flags_with_flag_dependencies(project_ids)
-    depended_on: set[int] = set()
-    for dependent in dependents:
-        depended_on |= direct_flag_dependency_ids(dependent)
-    return depended_on
 
 
 def _build_result(flag: FeatureFlag, now: datetime, stale_threshold: datetime) -> HealthCheckResult:

@@ -93,7 +93,7 @@ Use HTTP Basic auth with a REST Web Service User (or an API key as the username 
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
@@ -112,7 +112,7 @@ Use HTTP Basic auth with a REST Web Service User (or an API key as the username 
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # Only `events` carries incremental fields; every endpoint is merge/full-refresh (no append).
+        # Only `events` and `signals` carry incremental fields; every endpoint is merge/full-refresh (no append).
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only=ENDPOINTS)
 
     def validate_credentials(

@@ -1,9 +1,11 @@
 import dagster
 
-from products.signals.dags.inbox_ranking.common import is_inbox_ranking_registered
+from products.signals.dags.inbox_ranking.common import is_inbox_ranking_mirror_registered, is_inbox_ranking_registered
 from products.signals.dags.inbox_ranking.dataset import dag as inbox_ranking_dataset
+from products.signals.dags.inbox_ranking.mirror import dag as inbox_ranking_mirror
 from products.signals.dags.inbox_ranking.training import (
     dag as inbox_ranking_training,
+    promote as inbox_ranking_promote,
     served as inbox_ranking_served,
 )
 
@@ -23,9 +25,9 @@ if is_inbox_ranking_registered():
             inbox_ranking_dataset.inbox_report_reviewers,
             inbox_ranking_dataset.inbox_user_report_interactions,
             inbox_ranking_dataset.inbox_project_vectors,
-            inbox_ranking_training.inbox_ranking_training_examples,
-            inbox_ranking_training.inbox_ranking_model_candidate,
-            inbox_ranking_training.inbox_ranking_model_champion,
+            inbox_ranking_dataset.inbox_user_vectors,
+            inbox_ranking_dataset.inbox_engagement_export,
+            inbox_ranking_dataset.inbox_activity_summary_vectors,
             inbox_ranking_training.inbox_ranking_serving_manifest,
             inbox_ranking_served.inbox_ranking_served_scores,
             inbox_ranking_training.inbox_ranking_unseen_graded,
@@ -34,12 +36,22 @@ if is_inbox_ranking_registered():
             inbox_ranking_dataset.inbox_ranking_dataset_job,
             inbox_ranking_dataset.inbox_ranking_labels_refresh_job,
             inbox_ranking_training.inbox_ranking_training_job,
+            inbox_ranking_promote.inbox_ranking_promote_job,
         ],
         schedules=[
             inbox_ranking_dataset.inbox_ranking_dataset_schedule,
             inbox_ranking_training.inbox_ranking_training_schedule,
         ],
         sensors=[inbox_ranking_dataset.inbox_ranking_labels_refresh_sensor],
+        loggers=loggers,
+        resources=resources,
+    )
+# EU trains nothing, but it builds its own project vectors from its own report embeddings.
+elif is_inbox_ranking_mirror_registered():
+    defs = dagster.Definitions(
+        assets=[inbox_ranking_mirror.inbox_mirror_project_vectors],
+        jobs=[inbox_ranking_mirror.inbox_ranking_mirror_job],
+        schedules=[inbox_ranking_mirror.inbox_ranking_mirror_schedule],
         loggers=loggers,
         resources=resources,
     )

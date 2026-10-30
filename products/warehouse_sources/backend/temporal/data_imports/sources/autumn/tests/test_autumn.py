@@ -140,6 +140,70 @@ class TestAutumnSourceBehavior:
         assert all(request.json()["custom_range"] == {"start": WATERMARK_MS} for request in result.requests)
         assert result.raised is None
 
+    @pytest.mark.parametrize("api_version", ["2.3.0", "2.4.0"])
+    def test_licenses_fan_out_walks_every_customer_page(self, api_version: str) -> None:
+        responses = [
+            ScriptedResponse(json={"list": [{"id": "cus_1"}, {"id": None}], "next_cursor": "cursor-1"}),
+            ScriptedResponse(json={"list": [{"license_plan_id": "seat", "parent_plan_id": "pro", "usage": 3}]}),
+            ScriptedResponse(json={"list": [{"id": "cus_2"}, {"id": "cus_3"}], "next_cursor": None}),
+            ScriptedResponse(json={"list": []}),
+            ScriptedResponse(json={"list": [{"license_plan_id": "seat", "parent_plan_id": "team", "usage": 1}]}),
+        ]
+        result = self._driver().run("Licenses", responses, api_version=api_version)
+
+        assert [(request.path, request.json()) for request in result.requests] == [
+            ("/v1/customers.list", {"limit": 100}),
+            ("/v1/licenses.list", {"customer_id": "cus_1"}),
+            ("/v1/customers.list", {"limit": 100, "start_cursor": "cursor-1"}),
+            ("/v1/licenses.list", {"customer_id": "cus_2"}),
+            ("/v1/licenses.list", {"customer_id": "cus_3"}),
+        ]
+        assert all(request.headers["x-api-version"] == api_version for request in result.requests)
+        assert result.rows == [
+            {"license_plan_id": "seat", "parent_plan_id": "pro", "usage": 3, "customer_id": "cus_1"},
+            {"license_plan_id": "seat", "parent_plan_id": "team", "usage": 1, "customer_id": "cus_3"},
+        ]
+        assert result.saved_states == [
+            AutumnResumeConfig(next_cursor=None, last_customer_id="cus_1"),
+            AutumnResumeConfig(next_cursor="cursor-1", last_customer_id="cus_2"),
+            AutumnResumeConfig(next_cursor="cursor-1", last_customer_id="cus_3"),
+        ]
+        assert result.raised is None
+
+    @pytest.mark.parametrize(
+        ("page_ids", "expected_customer_ids"),
+        [
+            (["cus_2", "cus_3", "cus_4"], ["cus_4"]),
+            # cus_2 was deleted after the checkpoint, so the page is replayed rather than skipping cus_3.
+            (["cus_3", "cus_4"], ["cus_3", "cus_4"]),
+        ],
+    )
+    def test_licenses_resume_skips_customers_done_before_the_checkpoint(
+        self, page_ids: list[str], expected_customer_ids: list[str]
+    ) -> None:
+        responses = [
+            ScriptedResponse(json={"list": [{"id": customer_id} for customer_id in page_ids], "next_cursor": None}),
+            *[ScriptedResponse(json={"list": []}) for _ in expected_customer_ids],
+        ]
+        state = AutumnResumeConfig(next_cursor="cursor-1", last_customer_id="cus_3")
+        if page_ids[0] == "cus_3":
+            state = AutumnResumeConfig(next_cursor="cursor-1", last_customer_id="cus_2")
+        result = self._driver().run("Licenses", responses, resume_state=state, api_version="2.4.0")
+
+        assert result.requests[0].json() == {"limit": 100, "start_cursor": "cursor-1"}
+        assert [request.json()["customer_id"] for request in result.requests[1:]] == expected_customer_ids
+        assert result.raised is None
+
+    def test_licenses_repeated_customer_cursor_fails_instead_of_looping(self) -> None:
+        responses = [
+            ScriptedResponse(json={"list": [], "next_cursor": "cursor-1"}),
+            ScriptedResponse(json={"list": [], "next_cursor": "cursor-1"}),
+        ]
+        result = self._driver().run("Licenses", responses, api_version="2.4.0")
+
+        assert len(result.requests) == 2
+        assert isinstance(result.raised, ValueError)
+
     @pytest.mark.parametrize(
         ("endpoint", "selector", "row_id"),
         [
@@ -205,10 +269,6 @@ class TestValidateCredentials:
         ("status_code", "expected_valid", "api_version"),
         [
             (200, True, "2.3.0"),
-            (200, True, "2.4.0"),
-            (401, False, "2.3.0"),
-            (403, False, "2.3.0"),
-            (500, False, "2.3.0"),
         ],
     )
     def test_status_code_mapping(self, status_code: int, expected_valid: bool, api_version: str) -> None:

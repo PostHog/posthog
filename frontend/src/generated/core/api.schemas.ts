@@ -7,6 +7,30 @@
  * PostHog API - core
  * OpenAPI spec version: 1.0.0
  */
+export interface ConnectedAppApi {
+    /** The OAuth application ID */
+    id: string
+    /** The application name */
+    name: string
+    /**
+     * URL to the application's logo
+     * @nullable
+     */
+    logo_uri: string | null
+    /** Scopes granted to this application */
+    scopes: string[]
+    /** When the user first authorized this application */
+    authorized_at: string
+    /** Whether this application has been verified by PostHog */
+    is_verified: boolean
+    /** Whether this is a first-party PostHog application */
+    is_first_party: boolean
+    /** Whether the user must choose to keep or disconnect this application, because it set up one of the user's organizations and PostHog has not verified it */
+    requires_access_confirmation: boolean
+    /** Whether the application registered itself, through dynamic client registration or a client ID metadata document. MCP clients connect this way; applications PostHog registers do not. */
+    is_self_registered: boolean
+}
+
 /**
  * * `engineering` - Engineering
  * * `data` - Data
@@ -1344,6 +1368,7 @@ export const PropertyOperatorApi = {
     In: 'in',
     NotIn: 'not_in',
     IsCleanedPathExact: 'is_cleaned_path_exact',
+    IsCleanedPathNotExact: 'is_cleaned_path_not_exact',
     FlagEvaluatesTo: 'flag_evaluates_to',
     SemverEq: 'semver_eq',
     SemverNeq: 'semver_neq',
@@ -1377,6 +1402,10 @@ export interface PersonPropertyFilterApi {
 }
 
 export interface CohortPropertyFilterApi {
+    /** Set by the feature flag API when the cohort is deleted or does not exist. */
+    cohort_deleted?: boolean | null
+    /** Set by the feature flag API when the cohort does not exist, so it cannot be restored. */
+    cohort_missing?: boolean | null
     cohort_name?: string | null
     key?: 'id'
     label?: string | null
@@ -1669,6 +1698,7 @@ export interface TeamMarketingAnalyticsConfigApi {
 /**
  * * `custom_property` - Custom property
  * * `relationship` - Relationship
+ * * `account_field` - Account field
  */
 export type AccountPropertyPinKindEnumApi =
     (typeof AccountPropertyPinKindEnumApi)[keyof typeof AccountPropertyPinKindEnumApi]
@@ -1676,15 +1706,20 @@ export type AccountPropertyPinKindEnumApi =
 export const AccountPropertyPinKindEnumApi = {
     CustomProperty: 'custom_property',
     Relationship: 'relationship',
+    AccountField: 'account_field',
 } as const
 
 export interface TeamCustomerAnalyticsPinnedAccountPropertyApi {
-    /** Definition type for this default pinned account property.
+    /** Type of this default pinned account property: a custom property, a relationship, or a built-in account field.
      *
      * * `custom_property` - Custom property
-     * * `relationship` - Relationship */
+     * * `relationship` - Relationship
+     * * `account_field` - Account field */
     kind: AccountPropertyPinKindEnumApi
-    /** Project-scoped custom property or relationship definition UUID. */
+    /**
+     * Project-scoped custom property or relationship definition UUID. For an account_field pin, the account field name, such as stripe_customer_id.
+     * @maxLength 64
+     */
     id: string
 }
 
@@ -1722,6 +1757,29 @@ export const EmailTrackingConsentModeEnumApi = {
     OptIn: 'opt_in',
 } as const
 
+export interface EmailUtmParamsApi {
+    /**
+     * Default utm_source. Supports Liquid variables.
+     * @maxLength 500
+     */
+    utm_source?: string
+    /**
+     * Default utm_medium. Supports Liquid variables.
+     * @maxLength 500
+     */
+    utm_medium?: string
+    /**
+     * Default utm_campaign. Empty uses the broadcast or workflow name. Supports Liquid variables.
+     * @maxLength 500
+     */
+    utm_campaign?: string
+    /**
+     * Default utm_content. Empty uses the email step name. Supports Liquid variables.
+     * @maxLength 500
+     */
+    utm_content?: string
+}
+
 export interface TeamWorkflowsConfigApi {
     /** When enabled, workflows engagement activity (email sends, opens, clicks, bounces, spam reports, unsubscribes) is captured as standard PostHog events ($workflows_email_*) alongside the existing workflow metrics. */
     capture_workflows_engagement_events?: boolean
@@ -1731,6 +1789,10 @@ export interface TeamWorkflowsConfigApi {
      * * `opt_out` - Opt Out
      * * `opt_in` - Opt In */
     email_tracking_consent_mode?: EmailTrackingConsentModeEnumApi
+    /** Whether new email steps and broadcasts start with UTM tags on their links. Each email can still change it. Existing emails change only through apply_utm_defaults. */
+    email_utm_tags_enabled?: boolean
+    /** Default UTM values that new email steps and broadcasts copy. An empty value keeps the built-in default for that tag. */
+    email_utm_params?: EmailUtmParamsApi
     /**
      * How many AI tasks one workflow can create in a rolling 24 hours. Null uses the default of 100; zero pauses task creation for every workflow in the project. Support raises the limit above 500.
      * @minimum 0
@@ -1743,6 +1805,18 @@ export interface TeamWorkflowsConfigApi {
      * @nullable
      */
     workflow_task_team_rate_limit_per_day?: number | null
+    /**
+     * How many Replay Vision scans one workflow can request in a rolling 24 hours. Null uses the default of 100; zero pauses scans for every workflow in the project. Support raises the limit above 500.
+     * @minimum 0
+     * @nullable
+     */
+    replay_vision_scan_rate_limit_per_day?: number | null
+    /**
+     * How many Replay Vision scans all workflows in the project request together in a rolling 24 hours. Null uses the default of 500; zero pauses scans for the project. Support raises the limit above 2500.
+     * @minimum 0
+     * @nullable
+     */
+    replay_vision_scan_team_rate_limit_per_day?: number | null
     /**
      * ID of the verified email integration that new broadcasts and workflow email steps use as their sender. Null means no default. Set automatically when the project's first email sender is verified, and cleared when that integration is deleted.
      * @nullable
@@ -1767,6 +1841,18 @@ export interface TeamWorkflowsConfigApi {
 export interface TeamFeatureFlagPolicyConfigApi {
     /** When enabled, a new feature flag needs at least one tag, and a tagged flag cannot lose its last one. A create that declares it comes from a survey, experiment, early access feature, product tour, or web experiment is exempt, because those forms have no tag input. The caller sets that declaration, so a flag can still be created without a tag. */
     require_tags?: boolean
+    /**
+     * Domains to block from feature flag requests (/flags and /decide), up to 100. A domain also covers its subdomains. It is compared with the Origin header, or with the Referer header when Origin is missing. Entries are stored lowercase without duplicates. A pasted URL is reduced to its domain, and an internationalized domain is stored as punycode.
+     * @maxItems 1000
+     * @items.maxLength 2000
+     */
+    blocked_hosts?: string[]
+    /**
+     * IPv4 or IPv6 addresses or CIDR ranges to block from feature flag requests (/flags and /decide), up to 100. Ranges can be /8 or narrower for IPv4 and /16 or narrower for IPv6. Entries are stored in canonical form without duplicates, and an IPv4-mapped IPv6 address is stored as IPv4.
+     * @maxItems 1000
+     * @items.maxLength 2000
+     */
+    blocked_ips?: string[]
 }
 
 /**
@@ -2429,7 +2515,6 @@ export interface ProjectCreateRequestApi {
      * @items.maxLength 400
      */
     person_display_name_properties?: string[] | null
-    correlation_config?: unknown
     /**
      * Disables posthog-js autocapture (clicks, page views) when true.
      * @nullable
@@ -2680,7 +2765,6 @@ export type ProjectBackwardCompatApiManagedViewsets = { [key: string]: boolean }
  * * `create_early_access_feature` - create_early_access_feature
  * * `update_feature_stage` - update_feature_stage
  * * `use_posthog_ai` - use_posthog_ai
- * * `use_posthog_code` - use_posthog_code
  * * `use_posthog_mcp` - use_posthog_mcp
  * * `use_posthog_in_slack` - use_posthog_in_slack
  */
@@ -2751,7 +2835,6 @@ export const AvailableSetupTaskIdsEnumApi = {
     CreateEarlyAccessFeature: 'create_early_access_feature',
     UpdateFeatureStage: 'update_feature_stage',
     UsePosthogAi: 'use_posthog_ai',
-    UsePosthogCode: 'use_posthog_code',
     UsePosthogMcp: 'use_posthog_mcp',
     UsePosthogInSlack: 'use_posthog_in_slack',
 } as const
@@ -2779,6 +2862,11 @@ export interface ProjectBackwardCompatApi {
      * @maxLength 200
      */
     name?: string
+    /**
+     * ID of an image uploaded to this project, shown as the project's logo. Set to null to show a lettermark instead.
+     * @nullable
+     */
+    logo_media_id?: string | null
     /**
      * Short description of what the project is about. This is helpful to give our AI agents context about your project.
      * @maxLength 1000
@@ -3423,7 +3511,6 @@ export interface ProjectBackwardCompatApi {
      * @items.maxLength 400
      */
     person_display_name_properties?: string[] | null
-    correlation_config?: unknown
     /**
      * Disables posthog-js autocapture (clicks, page views) when true.
      * @nullable
@@ -3589,6 +3676,8 @@ export interface ProjectBackwardCompatApi {
     readonly managed_viewsets: ProjectBackwardCompatApiManagedViewsets
     /** Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table. */
     readonly flag_evaluations_mode: FlagEvaluationsModeEnumApi
+    /** Host the PostHog SDKs send events to, set as their `api_host` option. It is `https://us.i.posthog.com` on US Cloud, `https://eu.i.posthog.com` on EU Cloud, and the instance URL when self-hosted. */
+    readonly api_host: string
     revenue_analytics_config?: TeamRevenueAnalyticsConfigApi
     marketing_analytics_config?: TeamMarketingAnalyticsConfigApi
     customer_analytics_config?: TeamCustomerAnalyticsConfigApi
@@ -3663,6 +3752,11 @@ export interface PatchedProjectBackwardCompatApi {
      * @maxLength 200
      */
     name?: string
+    /**
+     * ID of an image uploaded to this project, shown as the project's logo. Set to null to show a lettermark instead.
+     * @nullable
+     */
+    logo_media_id?: string | null
     /**
      * Short description of what the project is about. This is helpful to give our AI agents context about your project.
      * @maxLength 1000
@@ -4307,7 +4401,6 @@ export interface PatchedProjectBackwardCompatApi {
      * @items.maxLength 400
      */
     person_display_name_properties?: string[] | null
-    correlation_config?: unknown
     /**
      * Disables posthog-js autocapture (clicks, page views) when true.
      * @nullable
@@ -4473,6 +4566,8 @@ export interface PatchedProjectBackwardCompatApi {
     readonly managed_viewsets?: PatchedProjectBackwardCompatApiManagedViewsets
     /** Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table. */
     readonly flag_evaluations_mode?: FlagEvaluationsModeEnumApi
+    /** Host the PostHog SDKs send events to, set as their `api_host` option. It is `https://us.i.posthog.com` on US Cloud, `https://eu.i.posthog.com` on EU Cloud, and the instance URL when self-hosted. */
+    readonly api_host?: string
     revenue_analytics_config?: TeamRevenueAnalyticsConfigApi
     marketing_analytics_config?: TeamMarketingAnalyticsConfigApi
     customer_analytics_config?: TeamCustomerAnalyticsConfigApi
@@ -4526,6 +4621,11 @@ export interface ProjectApi {
      * @maxLength 200
      */
     name?: string
+    /**
+     * ID of the uploaded image shown as this project's logo. Null when the project has no logo.
+     * @nullable
+     */
+    readonly logo_media_id: string | null
     /**
      * @maxLength 1000
      * @nullable
@@ -4634,6 +4734,8 @@ export interface SharingConfigurationApi {
      * @nullable
      */
     readonly user_access_level: string | null
+    /** Whether the project has configured access controls for shared content or its underlying data. */
+    readonly has_relevant_access_controls: boolean
 }
 
 /**
@@ -5019,6 +5121,35 @@ export interface FileSystemHomeFolderApi {
     readonly path: string | null
 }
 
+export interface FileSystemRankedSearchItemApi {
+    /** The matching file system entry. */
+    entry: FileSystemApi
+    /** Sort key of the match. Lower sorts first. Compare element by element with other results. */
+    rank: number[]
+}
+
+export interface FileSystemRankedSearchTypeCountApi {
+    /** File system type, for example insight or dashboard. */
+    type: string
+    /** Number of matches of this type. */
+    count: number
+}
+
+export interface FileSystemRankedSearchResponseApi {
+    /** Matches, best first. */
+    results: FileSystemRankedSearchItemApi[]
+    /** True when every result contains every search word. False when no entry matched every word and the results match only some words. */
+    matched_all_words: boolean
+    /** Search words that the best result matched. Use it to tell the user which words were dropped when matched_all_words is false. */
+    matched_words: string[]
+    /** Number of matches for each type, largest first. */
+    type_counts: FileSystemRankedSearchTypeCountApi[]
+    /** True when no entry matched the words as typed, so every result is a close spelling. */
+    matched_with_typos: boolean
+    /** True when the search stopped at its candidate limit, so type_counts are lower bounds. */
+    counts_capped: boolean
+}
+
 export interface FileSystemShortcutApi {
     readonly id: string
     /** Display path of the shortcut in the sidebar. */
@@ -5181,6 +5312,11 @@ export interface ProjectSecretAPIKeyApi {
     readonly last_rolled_at: string | null
     /** Project-wide API scopes granted to this key. Project secret API keys do not honor object-level access controls, so a scope can access resources of that type even when per-resource RBAC would hide them from an individual user. */
     scopes: string[]
+    /**
+     * Value the AI gateway stamps as $ai_credential on generations made with this key, so gateway spend can be grouped by key. Derived from the key's hash, so it changes when the key is rolled.
+     * @nullable
+     */
+    readonly ai_credential: string | null
 }
 
 export interface PaginatedProjectSecretAPIKeyListApi {
@@ -5207,6 +5343,11 @@ export interface PatchedProjectSecretAPIKeyApi {
     readonly last_rolled_at?: string | null
     /** Project-wide API scopes granted to this key. Project secret API keys do not honor object-level access controls, so a scope can access resources of that type even when per-resource RBAC would hide them from an individual user. */
     scopes?: string[]
+    /**
+     * Value the AI gateway stamps as $ai_credential on generations made with this key, so gateway spend can be grouped by key. Derived from the key's hash, so it changes when the key is rolled.
+     * @nullable
+     */
+    readonly ai_credential?: string | null
 }
 
 /**
@@ -5399,28 +5540,6 @@ export interface SearchIntentResponseApi {
      * @nullable
      */
     model_query: string | null
-}
-
-export interface EventMatchRequestApi {
-    /**
-     * What the person typed into the events list search box, which matched no event name.
-     * @maxLength 200
-     */
-    query: string
-}
-
-export interface EventMatchApi {
-    /** The event name to select, such as $autocapture. */
-    name: string
-    /** The event's display name, such as Autocapture. */
-    display_name: string
-    /** How likely the search means this event, from 0 to 1. */
-    probability: number
-}
-
-export interface EventMatchResponseApi {
-    /** PostHog core events the search most likely means, strongest first. Empty when nothing is likely. */
-    matches: EventMatchApi[]
 }
 
 /**
@@ -5886,6 +6005,7 @@ export const ShortcutPositionEnumApi = {
  * * `later` - Skipped for later
  * * `other` - Other
  * * `provisioned` - Account provisioned by a partner
+ * * `connector` - Signed up through an OAuth connector
  */
 export type OnboardingSkippedReasonEnumApi =
     (typeof OnboardingSkippedReasonEnumApi)[keyof typeof OnboardingSkippedReasonEnumApi]
@@ -5895,6 +6015,7 @@ export const OnboardingSkippedReasonEnumApi = {
     Later: 'later',
     Other: 'other',
     Provisioned: 'provisioned',
+    Connector: 'connector',
 } as const
 
 /**
@@ -5990,7 +6111,7 @@ export interface UserApi {
     passkeys_enabled_for_2fa?: boolean | null
     /** When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions. */
     hide_mcp_hints?: boolean
-    /** Per-user UI customization, validated against the `UserUIConfiguration` schema. Covers sidebar section and item visibility, and SQL editor settings such as Vim mode and the vimrc. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown. Once `sidebar.starred_products_setup_completed` is true, an update that omits it keeps it true. */
+    /** Per-user UI customization, validated against the `UserUIConfiguration` schema. Covers SQL editor settings such as Vim mode and the vimrc. Send the complete object: it replaces the stored value wholesale. Null means no customization. */
     ui_configuration?: unknown
     /** @nullable */
     readonly onboarding_skipped_at: string | null
@@ -6011,8 +6132,10 @@ export interface UserApi {
     /** Real-time notification types that currently have a live dispatch site. Drives the in-app notifications settings UI. Read-only. */
     readonly active_realtime_notification_types: readonly string[]
     readonly pending_invites: readonly PendingInviteApi[]
-    /** True if the user has at least one Personal API Key or passkey, or a third-party OAuth application that can currently act as them, and has not yet acknowledged that access. Used to gate a one-shot review screen on first post-provisioning login. Becomes False once the user POSTs to `/api/users/@me/credentials_review_complete/`. Read-only. */
+    /** True if the user belongs to an organization that a partner provisioned, has not yet acknowledged the access on their account, and has at least one Personal API Key or passkey, or a third-party OAuth application that can currently act as them. Used to gate a one-shot review screen on first post-provisioning login. Becomes False once the user POSTs to `/api/users/@me/credentials_review_complete/`. Read-only. */
     readonly requires_credential_review: boolean
+    /** How many personal API keys the user may hold, from the `personal_api_keys` billing entitlement of the user's organizations. The highest limit across their organizations applies, and 10 when no organization grants a limit. Creating a key beyond it is rejected with a validation error. Read-only. */
+    readonly personal_api_keys_limit: number
 }
 
 export interface PaginatedUserListApi {
@@ -6106,7 +6229,7 @@ export interface PatchedUserApi {
     passkeys_enabled_for_2fa?: boolean | null
     /** When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions. */
     hide_mcp_hints?: boolean
-    /** Per-user UI customization, validated against the `UserUIConfiguration` schema. Covers sidebar section and item visibility, and SQL editor settings such as Vim mode and the vimrc. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown. Once `sidebar.starred_products_setup_completed` is true, an update that omits it keeps it true. */
+    /** Per-user UI customization, validated against the `UserUIConfiguration` schema. Covers SQL editor settings such as Vim mode and the vimrc. Send the complete object: it replaces the stored value wholesale. Null means no customization. */
     ui_configuration?: unknown
     /** @nullable */
     readonly onboarding_skipped_at?: string | null
@@ -6127,8 +6250,10 @@ export interface PatchedUserApi {
     /** Real-time notification types that currently have a live dispatch site. Drives the in-app notifications settings UI. Read-only. */
     readonly active_realtime_notification_types?: readonly string[]
     readonly pending_invites?: readonly PendingInviteApi[]
-    /** True if the user has at least one Personal API Key or passkey, or a third-party OAuth application that can currently act as them, and has not yet acknowledged that access. Used to gate a one-shot review screen on first post-provisioning login. Becomes False once the user POSTs to `/api/users/@me/credentials_review_complete/`. Read-only. */
+    /** True if the user belongs to an organization that a partner provisioned, has not yet acknowledged the access on their account, and has at least one Personal API Key or passkey, or a third-party OAuth application that can currently act as them. Used to gate a one-shot review screen on first post-provisioning login. Becomes False once the user POSTs to `/api/users/@me/credentials_review_complete/`. Read-only. */
     readonly requires_credential_review?: boolean
+    /** How many personal API keys the user may hold, from the `personal_api_keys` billing entitlement of the user's organizations. The highest limit across their organizations applies, and 10 when no organization grants a limit. Creating a key beyond it is rejected with a validation error. Read-only. */
+    readonly personal_api_keys_limit?: number
 }
 
 export interface UserGithubLoginApi {
@@ -6191,6 +6316,13 @@ export interface UserGitHubIntegrationItemApi {
      * * `connected` - connected
      * * `unavailable` - unavailable */
     installation_status: InstallationStatusEnumApi
+    /** True when GitHub rejected the stored credentials and PostHog dropped them. The installation is still on GitHub, but PostHog cannot act as the user until they authorize it again. */
+    needs_reauthorization: boolean
+    /**
+     * When the stored credentials stopped working, or null while they still work.
+     * @nullable
+     */
+    needs_reauthorization_at: string | null
     /** When this integration row was created. */
     created_at: string
 }
@@ -6489,6 +6621,18 @@ export const OnboardingSkipRequestReasonEnumApi = {
 } as const
 
 /**
+ * * `legacy` - Default onboarding
+ * * `simple` - Simple onboarding
+ */
+export type OnboardingFlowVariantEnumApi =
+    (typeof OnboardingFlowVariantEnumApi)[keyof typeof OnboardingFlowVariantEnumApi]
+
+export const OnboardingFlowVariantEnumApi = {
+    Legacy: 'legacy',
+    Simple: 'simple',
+} as const
+
+/**
  * Request body for POST /api/users/{id}/onboarding/skip/.
  *
  * Source of truth for OpenAPI / generated TS / zod / MCP — bind this serializer at
@@ -6506,6 +6650,11 @@ export interface OnboardingSkipRequestApi {
      * @maxLength 64
      */
     step_at_skip?: string
+    /** Which onboarding flow the user skipped from, for analytics only.
+     *
+     * * `legacy` - Default onboarding
+     * * `simple` - Simple onboarding */
+    flow_variant?: OnboardingFlowVariantEnumApi
 }
 
 /**
@@ -6827,6 +6976,10 @@ export type FileSystemListParams = {
      */
     include_content_type?: boolean
     /**
+     * Include meta.tags, the tag names, for dashboards and insights on this page.
+     */
+    include_tags?: boolean
+    /**
      * Number of results to return per page.
      */
     limit?: number
@@ -6845,6 +6998,40 @@ export type FileSystemDestroyParams = {
      * Delete folder contents too (default: true). Set false to delete only empty folders. Nonempty folders return HTTP 409 with code directory_not_empty.
      */
     recursive?: boolean
+}
+
+export type FileSystemFrequentListParams = {
+    /**
+     * Maximum number of frequently viewed items to return.
+     * @minimum 1
+     * @maximum 20
+     */
+    limit?: number
+    /**
+     * A search term.
+     */
+    search?: string
+}
+
+export type FileSystemSearchRetrieveParams = {
+    /**
+     * Maximum number of results to return, best first.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
+    /**
+     * Also include the best matches of every type, up to this many per type, so each type can show a preview.
+     * @minimum 0
+     * @maximum 10
+     */
+    per_type?: number
+    /**
+     * Search text. Supports the same field filters as the list search (type:, user:, path:, name:, negation with - or !). Free words are ranked by relevance.
+     * @minLength 1
+     * @maxLength 200
+     */
+    search: string
 }
 
 export type FileSystemShortcutListParams = {
@@ -6993,6 +7180,7 @@ export type UploadedMediaListPurpose = (typeof UploadedMediaListPurpose)[keyof t
 export const UploadedMediaListPurpose = {
     Canvas: 'canvas',
     Email: 'email',
+    Experiment: 'experiment',
 } as const
 
 /**
@@ -7004,6 +7192,7 @@ export type UploadedMediaCreateBodyPurpose =
 export const UploadedMediaCreateBodyPurpose = {
     Email: 'email',
     Canvas: 'canvas',
+    Experiment: 'experiment',
 } as const
 
 export type UploadedMediaCreateBody = {

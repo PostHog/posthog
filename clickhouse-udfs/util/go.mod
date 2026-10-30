@@ -1,6 +1,6 @@
 module github.com/PostHog/posthog/clickhouse-udfs/util
 
-go 1.27.1
+go 1.27.3
 
 require (
 	github.com/klauspost/compress v1.19.1

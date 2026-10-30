@@ -87,7 +87,13 @@ export const SqlBarGraph = (props: SqlChartProps): JSX.Element => {
                         <ReferenceLines lines={model.config.referenceLines ?? []} />
                         {props.children}
                         {hasValueLabels(props.chartSettings, props.yData) && (
-                            <ValueLabels valueFormatter={valueLabelFormatter} />
+                            <ValueLabels
+                                valueFormatter={valueLabelFormatter}
+                                position={props.chartSettings.valueLabelPosition}
+                                background={props.chartSettings.valueLabelBackground}
+                                fontSize={props.chartSettings.valueLabelFontSize}
+                                rotation={props.chartSettings.valueLabelRotation}
+                            />
                         )}
                     </BarChart>
                 ) : (

@@ -1,4 +1,5 @@
 from typing import TYPE_CHECKING
+from uuid import UUID
 
 from django.apps import AppConfig
 
@@ -19,13 +20,21 @@ class SignalsConfig(AppConfig):
         # receivers: post_save receiver that closes a report's implementation PR on suppression/snooze.
         from . import (
             activity_logging,  # noqa: F401
+            implementation_pr_cache,
             receivers,  # noqa: F401
         )
 
         receivers.connect_task_run_assignment_sync()
+        implementation_pr_cache.connect_implementation_pr_cache_receivers()
+        self._register_task_spend_updates()
         self._register_signal_emission_gate()
         self._register_scout_skill_archive_guard()
         self._register_scout_skill_rename_hook()
+
+    def _register_task_spend_updates(self) -> None:
+        from products.tasks.backend.facade.task_run_signals import connect_task_run_cost_updated
+
+        connect_task_run_cost_updated(_record_task_spend_delta, dispatch_uid="signals.task_spend_delta")
 
     def _register_signal_emission_gate(self) -> None:
         """Let the data-import pipeline ask whether to emit signals for a source without
@@ -87,3 +96,16 @@ class SignalsConfig(AppConfig):
                 raise SkillRenameConflict(str(err)) from err
 
         register_skill_rename_hook(_hook)
+
+
+def _record_task_spend_delta(
+    *, team_id: int, run_id: UUID, cost_delta_microusd: int, origin_product: str, **kwargs: object
+) -> None:
+    if origin_product not in {"signal_report", "signals_scout"}:
+        return
+
+    from products.signals.backend.spend import (
+        record_task_cost_delta,  # noqa: PLC0415 — keeps accounting off Django startup
+    )
+
+    record_task_cost_delta(team_id=team_id, run_id=run_id, cost_delta_microusd=cost_delta_microusd)

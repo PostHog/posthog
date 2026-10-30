@@ -1,5 +1,6 @@
+import io
 import json
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 
 import pytest
 from posthog.test.base import APIBaseTest
@@ -11,6 +12,7 @@ from django.test.client import RequestFactory
 from django.utils import timezone
 
 from parameterized import parameterized
+from PIL import Image
 from slack_sdk.errors import SlackApiError
 from slack_sdk.models.blocks import Block
 from slack_sdk.web.slack_response import SlackResponse
@@ -25,6 +27,7 @@ from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
 from posthog.models.user_integration import UserIntegration
 from posthog.object_tags.kinds import ObjectRef
+from posthog.storage import object_storage
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.canvas.backend.facade import testing as canvas_testing
@@ -33,18 +36,20 @@ from products.conversations.backend.models.ticket import Ticket
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.error_tracking.backend.facade import testing as error_tracking_testing
+from products.experiments.backend.facade.contracts import StoredArmResult, StoredPrimaryResult
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
 from products.signals.backend.models import SignalReport
 from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region
-from products.slack_app.backend.models import SlackChannel
+from products.slack_app.backend.models import SlackChannel, SlackThreadTaskMapping
 from products.slack_app.backend.services.slack_auth import write_auth_state_ok
 from products.slack_app.backend.services.slack_scopes import REQUIRED_SLACK_SCOPES
 from products.slack_app.backend.slack_link_unfurl import (
     _card_blocks,
     _date_range,
+    _experiment_chart,
     _flag_chart,
     _insight_resource_label,
     _question_list,
@@ -53,13 +58,52 @@ from products.slack_app.backend.slack_link_unfurl import (
     handle_posthog_link_unfurl,
     parse_posthog_resource_link,
 )
-from products.slack_app.backend.tasks import start_slack_unfurl_charts
+from products.slack_app.backend.tasks import add_slack_unfurl_artifact_image, start_slack_unfurl_charts
 from products.surveys.backend.models import Survey
 from products.tasks.backend.models import Channel, Task, TaskRun
 
 _TASK_ID = "c76f58f4-4c64-4cd7-825d-4ef89f6dd4ac"
 _CHANNEL_ID = "0192f0a0-0000-4000-8000-000000000001"
 _CANVAS_ID = "0192f0a0-0000-4000-8000-000000000002"
+_RUN_ID = "0192f0a0-0000-4000-8000-000000000003"
+
+
+def _create_task_artifact(
+    team: Team,
+    user: User,
+    run_state: dict | None = None,
+    project_id: int | None = None,
+    name: str = "report.md",
+    content_type: str = "text/markdown",
+    artifacts_tab_link: bool = False,
+) -> str:
+    task = Task.objects.create(
+        team=team,
+        created_by=user,
+        title="Fix checkout",
+        description="",
+        origin_product=Task.OriginProduct.USER_CREATED,
+    )
+    run = TaskRun.objects.create(
+        task=task,
+        team=team,
+        state=run_state or {},
+        artifacts=[
+            {
+                "id": "file-1",
+                "name": name,
+                "type": "artifact",
+                "size": 2048,
+                "content_type": content_type,
+                "storage_path": f"tasks/artifacts/run_1/file-1_{name}",
+                "uploaded_at": "2026-10-01T12:00:00+00:00",
+            }
+        ],
+    )
+    project = project_id or team.pk
+    if artifacts_tab_link:
+        return f"http://testserver/project/{project}/ai?task={task.id}&artifact={name}"
+    return f"http://testserver/api/projects/{project}/tasks/{task.id}/runs/{run.id}/artifacts/file-1/download/"
 
 
 class TestParsePosthogResourceLink:
@@ -81,6 +125,24 @@ class TestParsePosthogResourceLink:
             ("desktop_task", f"https://us.posthog.com/code/task/{_TASK_ID}", "task", _TASK_ID),
             ("space_task", f"https://us.posthog.com/code/channel/{_CHANNEL_ID}/tasks/{_TASK_ID}", "task", _TASK_ID),
             ("ai_task", f"https://us.posthog.com/project/42/ai?task={_TASK_ID}", "task", _TASK_ID),
+            (
+                "task_artifact",
+                f"https://us.posthog.com/api/projects/42/tasks/{_TASK_ID}/runs/{_RUN_ID}/artifacts/file-1/download/",
+                "task_artifact",
+                "file-1",
+            ),
+            (
+                "task_artifacts_tab",
+                f"https://us.posthog.com/project/42/ai?task={_TASK_ID}&artifact=report.md",
+                "task_artifact",
+                "report.md",
+            ),
+            (
+                "task_artifacts_tab_version",
+                f"https://us.posthog.com/project/42/ai?task={_TASK_ID}&artifact=report.md&artifact_version=file-1",
+                "task_artifact",
+                "file-1",
+            ),
             ("canvas", f"https://us.posthog.com/project/42/canvases/{_CANVAS_ID}", "canvas", _CANVAS_ID),
             ("desktop_canvas", f"https://us.posthog.com/code/canvas/{_CHANNEL_ID}/{_CANVAS_ID}", "canvas", _CANVAS_ID),
             ("notebook", "https://us.posthog.com/project/42/notebooks/Xy12", "notebook", "Xy12"),
@@ -224,6 +286,42 @@ class TestCardText:
         questions = [{"question": f"Question {index}"} for index in range(7)]
         assert _question_list(questions) == "1. Question 0\n2. Question 1\n3. Question 2\n+ 4 more"
 
+    @parameterized.expand(
+        [
+            (
+                "variant_without_data",
+                "funnel",
+                0.2,
+                (0.25, None),
+                ["control  ████████████████░░░░  20.0%", "empty    ░░░░░░░░░░░░░░░░░░░░  —"],
+            ),
+            ("negative_means", "mean", -10.0, (-5.0, -20.0), ["control    -10.00", "test       -5.00"]),
+        ]
+    )
+    def test_experiment_chart_shows_measured_values_only(
+        self,
+        _name: str,
+        metric_type: str,
+        control: float,
+        means: tuple[float | None, float | None],
+        expected: list[str],
+    ) -> None:
+        stats = StoredPrimaryResult(
+            metric_name="Metric",
+            metric_type=metric_type,
+            proportion=metric_type == "funnel",
+            goal=None,
+            baseline=StoredArmResult(key="control", number_of_samples=100, mean=control),
+            variants=(
+                StoredArmResult(key="test", number_of_samples=100, mean=means[0]),
+                StoredArmResult(key="empty", number_of_samples=0, mean=means[1]),
+            ),
+        )
+
+        lines = (_experiment_chart(stats) or "").splitlines()
+
+        assert all(line in lines for line in expected)
+
 
 @pytest.mark.django_db
 class TestHandlePosthogLinkUnfurl(APIBaseTest):
@@ -278,25 +376,29 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("allowed", True, True, True),
-            ("flag_off", False, True, False),
-            ("public_sharing_off", True, False, False),
+            ("allowed", True, None, True),
+            ("public_sharing_off", False, None, False),
+            (
+                "edited_in_editor",
+                True,
+                {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", "dateRange": {"date_from": "-90d"}}},
+                True,
+            ),
+            ("unchanged_in_editor", True, {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery"}}, True),
         ]
     )
     @patch("products.slack_app.backend.tasks.start_slack_unfurl_charts.delay")
     @patch("products.slack_app.backend.slack_link_unfurl.sync_connect")
-    @patch("products.slack_app.backend.slack_link_unfurl.is_slack_app_insight_unfurl_charts_enabled")
     @patch("products.slack_app.backend.api.resolve_slack_user")
     @patch("products.slack_app.backend.slack_link_unfurl.SlackIntegration")
     def test_insight_unfurl_starts_the_chart_workflow_only_when_allowed(
         self,
         _name: str,
-        flag_on: bool,
         public_sharing: bool,
+        link_query: dict | None,
         expect_started: bool,
         mock_slack_integration_class: MagicMock,
         mock_resolve: MagicMock,
-        mock_flag: MagicMock,
         mock_sync_connect: MagicMock,
         mock_delay: MagicMock,
     ) -> None:
@@ -305,9 +407,10 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
         self.organization.allow_publicly_shared_resources = public_sharing
         self.organization.save()
         mock_resolve.return_value = MagicMock(user=self.user)
-        mock_flag.return_value = flag_on
         mock_sync_connect.return_value.start_workflow = AsyncMock()
         url = f"http://testserver/project/{self.team.pk}/insights/{self.insight.short_id}"
+        if link_query is not None:
+            url += f"/edit?dashboard=1#q={quote(json.dumps(link_query))}"
 
         handle_posthog_link_unfurl(
             {"channel": "C1", "message_ts": "123.456", "user": "U1", "links": [{"url": url}]},
@@ -319,7 +422,10 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
             start_workflow.assert_not_called()
             return
         inputs = start_workflow.call_args.args[1]
-        assert [chart.insight_id for chart in inputs.charts] == [self.insight.id]
+        edited = link_query is not None and link_query != self.insight.query
+        assert [(chart.insight_id, chart.query) for chart in inputs.charts] == [
+            (None, link_query) if edited else (self.insight.id, None)
+        ]
         assert (
             inputs.unfurls == mock_slack_integration_class.return_value.client.chat_unfurl.call_args.kwargs["unfurls"]
         )
@@ -327,7 +433,6 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
     @parameterized.expand([("query_access", True), ("no_query_access", False)])
     @patch("products.slack_app.backend.tasks.start_slack_unfurl_charts.delay")
     @patch("products.slack_app.backend.slack_link_unfurl.sync_connect")
-    @patch("products.slack_app.backend.slack_link_unfurl.is_slack_app_insight_unfurl_charts_enabled", return_value=True)
     @patch("products.slack_app.backend.api.resolve_slack_user")
     @patch("products.slack_app.backend.slack_link_unfurl.SlackIntegration")
     def test_adhoc_insight_link_posts_no_card_and_queues_its_chart(
@@ -336,7 +441,6 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
         query_access: bool,
         mock_slack_integration_class: MagicMock,
         mock_resolve: MagicMock,
-        _mock_flag: MagicMock,
         mock_sync_connect: MagicMock,
         mock_delay: MagicMock,
     ) -> None:
@@ -370,14 +474,12 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
 
     @patch("products.slack_app.backend.tasks.start_slack_unfurl_charts.delay")
     @patch("products.slack_app.backend.slack_link_unfurl.sync_connect")
-    @patch("products.slack_app.backend.slack_link_unfurl.is_slack_app_insight_unfurl_charts_enabled", return_value=True)
     @patch("products.slack_app.backend.api.resolve_slack_user")
     @patch("products.slack_app.backend.slack_link_unfurl.SlackIntegration")
     def test_adhoc_link_beside_another_link_is_not_unfurled(
         self,
         mock_slack_integration_class: MagicMock,
         mock_resolve: MagicMock,
-        _mock_flag: MagicMock,
         mock_sync_connect: MagicMock,
         mock_delay: MagicMock,
     ) -> None:
@@ -512,6 +614,78 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
         )
 
         mock_client.chat_unfurl.assert_not_called()
+
+    @parameterized.expand(
+        [
+            # (event author, run told to link, thread has a run, author resolved)
+            ("placeholder_linking_run", "U00", True, True, "U_ACTOR"),
+            ("placeholder_run_not_told_to_link", "U00", False, True, "U00"),
+            ("placeholder_no_run_in_thread", "U00", True, False, "U00"),
+            ("our_bot_linking_run", "U_OUR_BOT", True, True, "U_ACTOR"),
+            ("our_bot_no_run_in_thread", "U_OUR_BOT", True, False, "U_OUR_BOT"),
+        ]
+    )
+    @patch("products.slack_app.backend.api.resolve_slack_user")
+    @patch("products.slack_app.backend.slack_link_unfurl.SlackIntegration")
+    def test_bot_reply_link_unfurls_for_the_thread_actor(
+        self,
+        _name: str,
+        author: str,
+        run_links: bool,
+        has_run: bool,
+        expected_resolved: str,
+        mock_slack_integration_class: MagicMock,
+        mock_resolve: MagicMock,
+    ) -> None:
+        # Slack credits a bot-posted message to our bot user or to a placeholder author, and neither
+        # resolves to a PostHog user, so without this path a chart link in the agent's answer never
+        # unfurls. The attribution stays narrow: a thread whose run was told to share links, and the
+        # actor is the one the run recorded rather than the mapping's stale column.
+        write_auth_state_ok(self.integration.id, bot_user_id="U_OUR_BOT")
+        mock_resolve.side_effect = lambda _slack, _integration, uid, *_a, **_k: (
+            MagicMock(user=self.user) if uid == "U_ACTOR" else None
+        )
+        mock_client = MagicMock()
+        mock_slack_integration_class.return_value.client = mock_client
+        if has_run:
+            task = Task.objects.create(
+                team=self.team,
+                created_by=self.user,
+                title="Chart the signups",
+                description="",
+                origin_product=Task.OriginProduct.USER_CREATED,
+            )
+            run = TaskRun.objects.create(
+                task=task,
+                team=self.team,
+                state={"slack_chart_links": run_links, "slack_actor_slack_user_id": "U_ACTOR"},
+            )
+            SlackThreadTaskMapping.objects.create(
+                team=self.team,
+                integration=self.integration,
+                slack_workspace_id=self.integration.integration_id,
+                channel="C1",
+                thread_ts="100.000",
+                task=task,
+                task_run=run,
+                mentioning_slack_user_id="U_ASKER",
+                latest_actor_slack_user_id="U_STALE",
+            )
+        url = f"http://testserver/project/{self.team.pk}/insights/{self.insight.short_id}"
+
+        handle_posthog_link_unfurl(
+            {
+                "channel": "C1",
+                "message_ts": "123.456",
+                "thread_ts": "100.000",
+                "user": author,
+                "links": [{"url": url}],
+            },
+            self.integration,
+        )
+
+        assert mock_resolve.call_args.args[2] == expected_resolved
+        assert mock_client.chat_unfurl.called == (expected_resolved == "U_ACTOR")
 
     @patch("products.slack_app.backend.api.resolve_slack_user")
     @patch("products.slack_app.backend.slack_link_unfurl.SlackIntegration")
@@ -815,6 +989,22 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
                     "*Completed*",
                     "View pull request",
                 ]
+            case "task_artifacts_tab":
+                return _create_task_artifact(self.team, self.user, artifacts_tab_link=True), [
+                    "report.md",
+                    "Task: Fix checkout",
+                    "artifact_version=file-1",
+                    "Download",
+                ]
+            case "task_artifact":
+                return _create_task_artifact(self.team, self.user), [
+                    "report.md",
+                    "2.0 KB",
+                    "Task: Fix checkout",
+                    "/ai?task=",
+                    "artifact=report.md",
+                    "Download",
+                ]
             case "report":
                 report = SignalReport.objects.create(
                     team=self.team,
@@ -826,14 +1016,90 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
                     "Checkout drop",
                     "*In progress*",
                     "0 signals",
-                    "Fewer orders",
+                    "/static/icons/self-driving.png",
                 ]
         raise ValueError(kind)
+
+    @parameterized.expand([("deactivated", "user"), ("task_access_removed", "access_control")])
+    @patch("products.slack_app.backend.slack_link_unfurl.SlackIntegration")
+    def test_artifact_image_job_rechecks_access(
+        self, _name: str, revoke: str, mock_slack_integration_class: MagicMock
+    ) -> None:
+        url = _create_task_artifact(self.team, self.user, name="chart.png", content_type="image/png")
+        member = User.objects.create_and_join(self.organization, "member@posthog.com", "password")
+        Task.objects.filter(team=self.team).update(created_by=member)
+        if revoke == "user":
+            member.is_active = False
+            member.save()
+        else:
+            self.organization.available_product_features = [
+                {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+            ]
+            self.organization.save()
+            AccessControl.objects.create(resource="task", team=self.team, access_level="none")
+
+        with patch("posthog.storage.object_storage.read_bytes") as mock_read_bytes:
+            add_slack_unfurl_artifact_image(
+                team_id=self.team.pk,
+                integration_id=self.integration.id,
+                user_id=member.pk,
+                event={"channel": "C1", "message_ts": "123.456", "user": "U1"},
+                unfurls={url: {"blocks": []}},
+                url=url,
+                title="chart.png",
+            )
+
+        mock_read_bytes.assert_not_called()
+        mock_slack_integration_class.return_value.client.chat_unfurl.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("task_hidden_from_sharer", None, None, True),
+            ("run_with_analytics_context", {"analytics_query_context": {"kind": "metric"}}, None, False),
+            ("other_project", None, 999999, False),
+        ]
+    )
+    @patch("products.slack_app.backend.api.resolve_slack_user")
+    @patch("products.slack_app.backend.slack_link_unfurl.SlackIntegration")
+    def test_skips_task_artifact_the_sharer_cannot_download(
+        self,
+        _name: str,
+        run_state: dict | None,
+        project_id: int | None,
+        shared_by_other_member: bool,
+        mock_slack_integration_class: MagicMock,
+        mock_resolve: MagicMock,
+    ) -> None:
+        url = _create_task_artifact(self.team, self.user, run_state, project_id)
+        sharer = (
+            User.objects.create_and_join(self.organization, "other-member@posthog.com", "password")
+            if shared_by_other_member
+            else self.user
+        )
+        mock_resolve.return_value = MagicMock(user=sharer)
+        mock_client = MagicMock()
+        mock_slack_integration_class.return_value.client = mock_client
+
+        self._unfurl_links([url])
+
+        mock_client.chat_unfurl.assert_not_called()
 
     @parameterized.expand(
         [
             (kind,)
-            for kind in ("canvas", "notebook", "flag", "experiment", "survey", "cohort", "error", "report", "task")
+            for kind in (
+                "canvas",
+                "notebook",
+                "flag",
+                "experiment",
+                "survey",
+                "cohort",
+                "error",
+                "report",
+                "task",
+                "task_artifact",
+                "task_artifacts_tab",
+            )
         ]
     )
     @patch("products.slack_app.backend.api.resolve_slack_user")
@@ -861,6 +1127,8 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
             ("cohort", "cohort"),
             ("error", "error_tracking"),
             ("report", "task"),
+            ("task", "task"),
+            ("task_artifact", "task"),
         ]
     )
     @patch("products.slack_app.backend.api.resolve_slack_user")
@@ -932,6 +1200,65 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
         text = self._unfurl_text(mock_client.chat_unfurl.call_args.kwargs["unfurls"][url])
         assert "*Paused*" in text
 
+    @parameterized.expand(
+        [
+            ("winner", 0.15, True, ["*Winner so far: test.* +15.0% vs control.", "20.0%", "23.0%  +15.0% ✓"]),
+            ("too_early", None, None, ["*Too early to call.* 10,400 exposed so far.", "23.0%  +15.0%"]),
+        ]
+    )
+    @patch("products.slack_app.backend.api.resolve_slack_user")
+    @patch("products.slack_app.backend.slack_link_unfurl.SlackIntegration")
+    def test_experiment_card_shows_the_stored_primary_result(
+        self,
+        _name: str,
+        change: float | None,
+        significant: bool | None,
+        expected: list[str],
+        mock_slack_integration_class: MagicMock,
+        mock_resolve: MagicMock,
+    ) -> None:
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="checkout-copy",
+            created_by=self.user,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "rollout_percentage": 50},
+                        {"key": "test", "rollout_percentage": 50},
+                    ]
+                },
+            },
+        )
+        experiment = Experiment.objects.create(team=self.team, name="Checkout copy", feature_flag=flag)
+        stored = StoredPrimaryResult(
+            metric_name="Completed checkout",
+            metric_type="funnel",
+            proportion=True,
+            goal=None,
+            baseline=StoredArmResult(key="control", number_of_samples=5200, mean=0.2),
+            variants=(
+                StoredArmResult(key="test", number_of_samples=5200, mean=0.23, change=change, significant=significant),
+            ),
+        )
+        mock_resolve.return_value = MagicMock(user=self.user)
+        mock_client = MagicMock()
+        mock_slack_integration_class.return_value.client = mock_client
+        url = f"http://testserver/project/{self.team.pk}/experiments/{experiment.pk}"
+
+        with patch(
+            "products.slack_app.backend.slack_link_unfurl.experiments_facade.get_stored_primary_result",
+            return_value=stored,
+        ):
+            self._unfurl_links([url])
+
+        text = self._unfurl_text(mock_client.chat_unfurl.call_args.kwargs["unfurls"][url])
+        assert "Metric: Completed checkout" in text
+        assert "Split 50/50" in text
+        for fragment in expected:
+            assert fragment in text
+
     @staticmethod
     def _assert_slack_accepts(unfurl: dict) -> None:
         for block in unfurl["blocks"]:
@@ -975,7 +1302,7 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
             if block["type"] == "section":
                 parts.extend(field["text"] for field in [block.get("text"), *block.get("fields", [])] if field)
             elif block["type"] == "context":
-                parts.extend(element["text"] for element in block["elements"])
+                parts.extend(element.get("text") or element["image_url"] for element in block["elements"])
             elif block["type"] == "actions":
                 parts.extend(element["text"]["text"] for element in block["elements"])
         return "\n".join(parts)
@@ -1153,6 +1480,88 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
 
         text = self._unfurl_text(mock_client.chat_unfurl.call_args.kwargs["unfurls"][url])
         assert "internal only" not in text
+
+
+# Kept apart from TestHandlePosthogLinkUnfurl: that class builds a TrendsQuery in setUp, and the
+# model-crossing invariant counts it as run by any test in the class that calls the test client.
+@pytest.mark.django_db
+class TestTaskArtifactImageUnfurl(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="TSlack01",
+            sensitive_config={"access_token": "xoxb-test"},
+        )
+
+    @parameterized.expand(
+        [
+            ("png", "chart.png", "image/png", "PNG", True, True),
+            ("jpeg_shown_as_png", "photo.jpg", "image/jpeg", "JPEG", True, True),
+            ("cmyk_jpeg_shown_as_png", "print.jpg", "image/jpeg", "CMYK", True, True),
+            ("bytes_are_not_an_image", "chart.png", "image/png", None, True, False),
+            ("public_sharing_off", "chart.png", "image/png", "PNG", False, False),
+            ("file_type_is_not_an_image", "report.md", "text/markdown", None, True, False),
+        ]
+    )
+    @override_settings(SITE_URL="https://app.example.com", OBJECT_STORAGE_ENABLED=False)
+    @patch("products.slack_app.backend.tasks.add_slack_unfurl_artifact_image.delay")
+    @patch("products.slack_app.backend.api.resolve_slack_user")
+    @patch("products.slack_app.backend.slack_link_unfurl.SlackIntegration")
+    def test_task_artifact_image_shows_in_its_card(
+        self,
+        _name: str,
+        name: str,
+        content_type: str,
+        image_format: str | None,
+        public_sharing: bool,
+        expect_image: bool,
+        mock_slack_integration_class: MagicMock,
+        mock_resolve: MagicMock,
+        mock_delay: MagicMock,
+    ) -> None:
+        # Runs the queued task in process, through JSON like the Celery broker.
+        mock_delay.side_effect = lambda **kwargs: add_slack_unfurl_artifact_image(**json.loads(json.dumps(kwargs)))
+        self.organization.allow_publicly_shared_resources = public_sharing
+        self.organization.save()
+        content = b"<html>not an image</html>"
+        if image_format:
+            buffer = io.BytesIO()
+            mode = "CMYK" if image_format == "CMYK" else "RGB"
+            Image.new(mode, (4, 4)).save(buffer, format="JPEG" if image_format == "CMYK" else image_format)
+            content = buffer.getvalue()
+        url = _create_task_artifact(self.team, self.user, name=name, content_type=content_type)
+        mock_resolve.return_value = MagicMock(user=self.user)
+        mock_client = mock_slack_integration_class.return_value.client
+        read_bytes = object_storage.read_bytes
+
+        with patch(
+            "posthog.storage.object_storage.read_bytes",
+            side_effect=lambda path, *args, **kwargs: (
+                content if path.startswith("tasks/artifacts/") else read_bytes(path, *args, **kwargs)
+            ),
+        ):
+            handle_posthog_link_unfurl(
+                {"channel": "C1", "message_ts": "123.456", "user": "U1", "links": [{"url": url}]},
+                self.integration,
+            )
+
+            if not expect_image:
+                mock_client.chat_unfurl.assert_called_once()
+                return
+            unfurl = mock_client.chat_unfurl.call_args.kwargs["unfurls"][url]
+            TestHandlePosthogLinkUnfurl._assert_slack_accepts(unfurl)
+            types = [block["type"] for block in unfurl["blocks"]]
+            assert types.index("image") == types.index("actions") - 1
+            image_url = urlparse(unfurl["blocks"][types.index("image")]["image_url"])
+            assert image_url.netloc == "app.example.com"
+            self.client.logout()
+            response = self.client.get(f"{image_url.path}?{image_url.query}")
+
+        assert response.status_code == 200
+        with Image.open(io.BytesIO(response.getvalue())) as served:
+            assert served.format == "PNG"
 
 
 @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")

@@ -1,7 +1,11 @@
 import type { ReactNode } from 'react'
 
 export interface MetricChange {
+    /** Percent change, so `8` means +8% and `-3` means -3%. The sign sets the pill's direction,
+     *  and `goodDirection` on the card decides whether that direction reads as good. */
     value: number
+    /** Replaces the formatted `value` in the pill, for example `+1.1 pts` for a change in
+     *  percentage points. */
     label?: ReactNode
 }
 

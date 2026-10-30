@@ -17,7 +17,7 @@ from gates import (
     is_size_exempt,
     substantive_size,
 )
-from policy import OwnershipSource, load_policy, repo_root
+from policy import OwnershipSource, bundled_defaults_dir, load_policy, merge_policy, repo_root
 
 # ── False positives that should NOT trigger ──────────────────────
 
@@ -336,7 +336,10 @@ def test_title_scrutiny_flags(subject: str, expected_flags: list[str]) -> None:
 
 @pytest.fixture
 def deny_exceptions(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    raw = yaml.safe_load((repo_root() / ".stamphog" / "policy.yml").read_text())
+    raw = merge_policy(
+        yaml.safe_load((bundled_defaults_dir() / "policy.yml").read_text()),
+        yaml.safe_load((repo_root() / ".stamphog" / "policy.yml").read_text()),
+    )
     raw["deny"]["billing"]["match"]["any"][0] = "Billing"
     raw["deny_exceptions"] = {
         "billing": [
@@ -398,12 +401,8 @@ def test_deny_exceptions_are_per_pattern_and_per_file(deny_exceptions, files: li
     assert detect_deny_categories(files) == expected
 
 
-def test_disabling_deny_exceptions_preserves_legacy_exemptions_and_ignored_files(deny_exceptions) -> None:
-    files = [
-        "apps/billing/values.yaml",
-        "products/warehouse_sources/backend/temporal/data_imports/sources/stripe/auth.py",
-        "posthog/migrations/0999_add_column.py",
-    ]
+def test_disabling_deny_exceptions_keeps_ignored_files(deny_exceptions) -> None:
+    files = ["apps/billing/values.yaml", "posthog/migrations/0999_add_column.py"]
     ignored = {"posthog/migrations/0999_add_column.py"}
 
     assert detect_deny_categories(files, ignored_files=ignored) == []
@@ -752,30 +751,40 @@ def test_owners_candidates_are_fixed_offsets_from_this_file() -> None:
     # controls. The sandbox would then import that directory, and the sandbox holds the run's LLM
     # credentials. Both candidates must stay fixed offsets from the engine's own file.
     engine_dir = Path(gates.__file__).resolve().parent
-    assert gates._OWNERS_PKG_CANDIDATES[0] == engine_dir.parents[3] / "packages" / "owners-yaml"
-    assert gates._OWNERS_PKG_CANDIDATES[1] == engine_dir.parent / "owners"
+    assert gates._OWNERS_PKG_CANDIDATES == (
+        engine_dir.parent / "owners",
+        engine_dir.parents[3] / "packages" / "owners-yaml",
+    )
 
 
 @pytest.mark.parametrize(
-    "engine_file, resolver_dir",
+    "engine_file, resolver_dir, planted_dirs",
     [
         pytest.param(
             "root/products/stamphog/packages/pr-approval-agent/gates.py",
             "root/packages/owners-yaml",
+            (),
             id="monorepo",
         ),
-        pytest.param("root/tools/pr-approval-agent/gates.py", "root/tools/owners", id="sandbox-and-vendored"),
+        pytest.param("root/tools/pr-approval-agent/gates.py", "root/tools/owners", (), id="sandbox-and-vendored"),
+        pytest.param(
+            "root/a/b/c/pr-approval-agent/gates.py",
+            "root/a/b/c/owners",
+            ("root/packages/owners-yaml",),
+            id="sandbox-engine-moved-by-pr-symlink",
+        ),
     ],
 )
 def test_the_owners_package_is_found_in_both_engine_layouts(
-    tmp_path: Path, engine_file: str, resolver_dir: str
+    tmp_path: Path, engine_file: str, resolver_dir: str, planted_dirs: tuple[str, ...]
 ) -> None:
     expected = tmp_path / resolver_dir
-    (expected / "owners_yaml").mkdir(parents=True)
+    for package_dir in (resolver_dir, *planted_dirs):
+        (tmp_path / package_dir / "owners_yaml").mkdir(parents=True)
     engine_path = tmp_path / engine_file
     engine_path.parent.mkdir(parents=True)
     engine_path.touch()
 
     found = [candidate for candidate in gates._owners_pkg_candidates(engine_path) if candidate.is_dir()]
 
-    assert found == [expected.resolve()]
+    assert found[0] == expected.resolve()

@@ -21,10 +21,14 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { ActivityScope } from '~/types'
 
 import { SOURCE_PREFILL_PARAM } from '../Broadcasts/broadcastAudiencePrefill'
+import { DRAFT_SOURCE_PARAM } from '../MessageAudience/aiEmailDraft'
 import { EMAIL_PREFILL_PARAM } from '../MessageAudience/messageDrafts'
 import { batchWorkflowJobsLogic } from './batchWorkflowJobsLogic'
+import { WorkflowImportNotesBanner } from './import/WorkflowImportNotesBanner'
 import { NewWorkflowAgent } from './NewWorkflowAgent'
 import { newWorkflowLogic } from './newWorkflowLogic'
+import { WorkflowBatchOverview } from './overview/WorkflowBatchOverview'
+import { WorkflowOverview } from './overview/WorkflowOverview'
 import { WorkflowSuggestions } from './suggestions/WorkflowSuggestions'
 import { workflowSuggestionsAvailabilityLogic } from './suggestions/workflowSuggestionsAvailabilityLogic'
 import { WorkflowSuggestionsNotice } from './suggestions/WorkflowSuggestionsNotice'
@@ -38,7 +42,9 @@ import {
     buildWorkflowAgentContext,
     isEditingEmailAction,
 } from './workflowAgentContext'
+import { WorkflowAiEmailDraftStatus } from './WorkflowAiEmailDraftStatus'
 import { WorkflowAssets } from './WorkflowAssets'
+import { WorkflowBroadcastMoveBanner } from './WorkflowBroadcastMoveBanner'
 import { WorkflowEmailPauseBanner } from './WorkflowEmailPauseBanner'
 import { WorkflowInvocations } from './WorkflowInvocations'
 import { WorkflowLogicProps, workflowLogic } from './workflowLogic'
@@ -77,12 +83,16 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
     const rawEmailPrefill = searchParams[EMAIL_PREFILL_PARAM]
     const emailPrefill =
         rawEmailPrefill && typeof rawEmailPrefill !== 'string' ? JSON.stringify(rawEmailPrefill) : rawEmailPrefill
+    const rawDraftSource = searchParams[DRAFT_SOURCE_PARAM]
+    const draftSource =
+        rawDraftSource && typeof rawDraftSource !== 'string' ? JSON.stringify(rawDraftSource) : rawDraftSource
     const workflowProps: WorkflowLogicProps = {
         id: workflowSceneProps.id,
         templateId,
         editTemplateId,
         triggerPrefill,
         emailPrefill,
+        draftSource,
         entrySource: typeof entrySource === 'string' ? entrySource : undefined,
     }
 
@@ -164,6 +174,18 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
     }
 
     const tabs: (LemonTab<WorkflowTab> | null)[] = [
+        originalWorkflow.status === 'active'
+            ? {
+                  label: 'Overview',
+                  key: 'overview',
+                  content:
+                      originalWorkflow.trigger?.type === 'batch' ? (
+                          <WorkflowBatchOverview id={workflowSceneProps.id!} />
+                      ) : (
+                          <WorkflowOverview id={workflowSceneProps.id!} />
+                      ),
+              }
+            : null,
         {
             label: 'Workflow',
             key: 'workflow',
@@ -223,12 +245,14 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
 
     // A deep link to a tab the flag hides would leave LemonTabs with no active tab and a blank page.
     const activeTab = tabs.some((tab) => tab?.key === currentTab) ? currentTab : 'workflow'
-
     return (
         <SceneContent className="h-full flex flex-col grow" data-attr="workflow-scene">
             <BindLogic logic={workflowLogic} props={workflowProps}>
                 <WorkflowSceneHeader {...props} />
                 <WorkflowEmailPauseBanner />
+                {isSavedWorkflow && <WorkflowImportNotesBanner id={props.id!} />}
+                {isSavedWorkflow && <WorkflowBroadcastMoveBanner id={props.id!} />}
+                {!isSavedWorkflow && <WorkflowAiEmailDraftStatus {...workflowProps} />}
                 {suggestionsAvailable && isSavedWorkflow && <WorkflowSuggestionsNotice id={props.id!} />}
                 {/* Only show Logs and Metrics tabs if the workflow has already been created */}
                 {!props.id || props.id === 'new' ? (
@@ -240,7 +264,8 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
                         tabs={tabs}
                         sceneInset
                         className={clsx({
-                            'flex flex-col grow [&>div]:flex [&>div]:flex-col [&>div]:grow': currentTab === 'workflow',
+                            'flex min-h-0 flex-1 flex-col [&>div]:flex [&>div]:min-h-0 [&>div]:flex-1 [&>div]:flex-col':
+                                activeTab === 'workflow',
                         })}
                     />
                 )}

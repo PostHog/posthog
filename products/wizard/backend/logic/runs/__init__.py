@@ -11,7 +11,7 @@ from products.wizard.backend.logic.runs.lifecycle import (
     update_run_stage,
     update_run_task_list,
 )
-from products.wizard.backend.logic.runs.validation import validate_git_repository_name
+from products.wizard.backend.logic.runs.validation import validate_git_branch_name, validate_git_repository_name
 
 __all__ = [
     "cancel_run",
@@ -24,6 +24,7 @@ __all__ = [
     "start_run",
     "transition_run",
     "update_run_stage",
+    "validate_git_branch_name",
     "validate_git_repository_name",
     "update_run_task_list",
 ]

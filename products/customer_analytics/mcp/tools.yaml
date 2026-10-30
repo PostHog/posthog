@@ -1088,6 +1088,25 @@ tools:
             the caller cannot access are removed or redacted. HogQL `system.feature_request_history` exposes entry
             metadata and changed field names, but not before and after values.
         feature_flag: customer-analytics-feature-requests
+    feature-requests-link-github-create:
+        operation: feature_requests_link_github_create
+        enabled: true
+        scopes:
+            - customer_analytics:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        enrich_url: feature-requests/{id}
+        title: Link feature request to GitHub issue
+        description: >
+            Link a Customer analytics feature request to one GitHub issue. Pass the request id, its current
+            `expected_version`, the id of a GitHub integration connected to the project, and the issue URL. Pull request
+            URLs are rejected, and a request can have only one linked issue. Link an issue only when it describes the
+            same customer problem and one feature would close both. The link syncs the issue state to the request: a
+            closed issue sets the status to completed or won't fix, and a reopened issue restores the earlier status.
+            The response contains the request with its `github_link` and the next version.
+        feature_flag: customer-analytics-feature-requests
     feature-requests-list:
         operation: feature_requests_list
         enabled: true

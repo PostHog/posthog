@@ -42,6 +42,7 @@ CHAMELEON_ENDPOINTS: dict[str, ChameleonEndpointConfig] = {
     "tooltips": ChameleonEndpointConfig(name="tooltips", path="/edit/tooltips", data_key="tooltips"),
     "tags": ChameleonEndpointConfig(name="tags", path="/edit/tags", data_key="tags"),
     "event_names": ChameleonEndpointConfig(name="event_names", path="/edit/event_names", data_key="event_names"),
+    "deliveries": ChameleonEndpointConfig(name="deliveries", path="/edit/deliveries", data_key="deliveries"),
     # /edit/properties requires `kind` and returns the whole matching set in one un-paginated
     # response, so a complete table means one request per documented kind.
     "properties": ChameleonEndpointConfig(

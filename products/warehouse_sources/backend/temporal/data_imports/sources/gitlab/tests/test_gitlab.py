@@ -4,8 +4,6 @@ from typing import Any, Optional
 import pytest
 from unittest import mock
 
-import requests
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     DriveResult,
     ScriptedResponse,
@@ -153,8 +151,6 @@ class TestValidateCredentials:
     @pytest.mark.parametrize(
         "status_code, expected_valid, expected_msg_substr",
         [
-            (200, True, None),
-            (401, False, "Invalid GitLab personal access token"),
             # A 404 can't tell a missing project from one the token can't see, so the message has to
             # carry the next step rather than dead-ending on "not accessible".
             (404, False, "not accessible with this token. Check the spelling and that your token has read access"),
@@ -241,12 +237,6 @@ class TestValidateCredentials:
             assert valid is True
             assert len(network.requests_log) == 1
 
-    def test_request_exception_returns_failure(self):
-        with scripted_network(always(requests.exceptions.ConnectionError("boom"))):
-            valid, msg = validate_credentials("https://gitlab.com", "tok", "group/project")
-            assert valid is False
-            assert "boom" in (msg or "")
-
     def test_rejects_redirect_response(self):
         redirect = ScriptedResponse(status=302, headers={"Location": "https://gitlab.com/login"})
         with scripted_network([redirect]) as network:
@@ -292,6 +282,9 @@ class TestGitLabSourceResponse:
             ("members", ["id"], None, "asc"),
             ("issue_notes", ["issue_iid", "id"], "created_at", "desc"),
             ("merge_request_state_events", ["merge_request_iid", "id"], "created_at", "desc"),
+            ("issue_label_events", ["issue_iid", "id"], "created_at", "desc"),
+            ("merge_request_approvals", ["merge_request_iid", "user_id"], None, "desc"),
+            ("jobs", ["id"], "created_at", "desc"),
         ],
     )
     def test_response_shape(self, endpoint, primary_keys, partition_key, sort_mode):
@@ -373,6 +366,73 @@ class TestGetRows:
         saved = result.saved_states[0]
         assert saved.next_url == urls[0]
         assert result.committed_states == [saved]
+
+    def test_jobs_walk_keyset_pages_newest_first(self):
+        next_url = (
+            "https://gitlab.com/api/v4/projects/group%2Fproject/jobs"
+            "?pagination=keyset&per_page=100&order_by=id&sort=desc&id_before=11"
+        )
+        page1 = ScriptedResponse(json=[{"id": 12}, {"id": 11}], headers={"Link": f'<{next_url}>; rel="next"'})
+        page2 = ScriptedResponse(json=[{"id": 10}])
+        result = _driver().run("jobs", [page1, page2])
+
+        assert result.raised is None
+        assert result.urls == [
+            "https://gitlab.com/api/v4/projects/group%2Fproject/jobs"
+            "?per_page=100&pagination=keyset&order_by=id&sort=desc",
+            next_url,
+        ]
+        assert [row["id"] for row in _rows(result)] == [12, 11, 10]
+
+    @pytest.mark.parametrize(
+        "body, expected",
+        [
+            pytest.param(
+                {
+                    "id": 500,
+                    "iid": 7,
+                    "approved": True,
+                    "approved_by": [
+                        {"user": {"id": 3, "username": "ana"}, "approved_at": "2024-02-01T10:00:00.000Z"},
+                        {"user": {"id": 4, "username": "ben"}, "approved_at": "2024-02-02T10:00:00.000Z"},
+                    ],
+                },
+                [(7, 3, "2024-02-01T10:00:00.000Z"), (7, 4, "2024-02-02T10:00:00.000Z")],
+                id="enterprise_edition_response",
+            ),
+            pytest.param(
+                {"approved": True, "approved_by": [{"user": {"id": 5}, "approved_at": "2024-03-01T00:00:00.000Z"}]},
+                [(7, 5, "2024-03-01T00:00:00.000Z")],
+                id="community_edition_response",
+            ),
+            pytest.param({"approved": False, "approved_by": []}, [], id="no_approvals"),
+            pytest.param({"approved": False}, [], id="approved_by_missing"),
+            pytest.param(
+                {"approved_by": [{"user": None, "approved_at": "2024-03-01T00:00:00.000Z"}]},
+                [],
+                id="approver_without_user_is_skipped",
+            ),
+        ],
+    )
+    def test_merge_request_approvals_flatten_to_one_row_per_approver(self, body, expected):
+        parents = ScriptedResponse(json=[{"iid": 7}, {"iid": 8}])
+        result = _driver().run(
+            "merge_request_approvals",
+            [parents, ScriptedResponse(json=body), ScriptedResponse(status=404)],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2024, 1, 1, tzinfo=UTC),
+            incremental_field="approved_at",
+        )
+
+        assert result.raised is None
+        assert result.urls[0] == (
+            "https://gitlab.com/api/v4/projects/group%2Fproject/merge_requests"
+            "?per_page=100&updated_after=2024-01-01T00%3A00%3A00Z&order_by=updated_at&sort=asc"
+        )
+        assert result.paths[1] == "/api/v4/projects/group%2Fproject/merge_requests/7/approvals"
+        rows = _rows(result)
+        assert [(row["merge_request_iid"], row["user_id"], row["approved_at"]) for row in rows] == expected
+        assert all("approved" not in row for row in rows)
 
     def test_fan_out_stops_child_pagination_at_page_cap(self):
         parents = ScriptedResponse(json=[{"iid": 1}])

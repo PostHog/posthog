@@ -22,6 +22,8 @@ from temporalio import workflow
 from temporalio.common import RetryPolicy
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_random_exponential
 
+from posthog.clickhouse.client.connection import ClickHouseUser
+from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
 from posthog.errors import CH_TRANSIENT_ERRORS
 from posthog.models import Team
@@ -121,7 +123,7 @@ def _release_inbox_notification_claim(team_id: int, report_id: str) -> None:
     reraise=True,
 )
 def _fetch_signals_for_notification(team: Team, report_id: str) -> list[dict]:
-    return fetch_signals_for_report_sync(team, report_id)
+    return fetch_signals_for_report_sync(team, report_id, ch_user=ClickHouseUser.SIGNALS, workload=Workload.OFFLINE)
 
 
 def _send_report_inbox_notifications(team_id: int, report_id: str) -> int:
@@ -144,9 +146,8 @@ def _send_report_inbox_notifications(team_id: int, report_id: str) -> int:
         logger.info("inbox notification skipped: team gone", report_id=report_id, team_id=team_id)
         return 0
 
-    # Re-derive source products at send time so a deferred notification reflects the current signals.
+    # Re-fetched at send time so a deferred write-back reflects the current signals.
     signals = _fetch_signals_for_notification(team, report_id)
-    source_products = sorted({s["source_product"] for s in signals if s.get("source_product")})
 
     # Point any support ticket that raised this report at it. Shares this function's READY guard.
     # This runs above the claim, so it also runs on a settle that sends no card. A note is per ticket
@@ -169,12 +170,7 @@ def _send_report_inbox_notifications(team_id: int, report_id: str) -> int:
         return 0
 
     try:
-        sent = dispatch_inbox_item_notifications(
-            report_id=report_id,
-            team_id=team_id,
-            source_products=source_products,
-            signals=signals,
-        )
+        sent = dispatch_inbox_item_notifications(report_id=report_id, team_id=team_id)
     except Exception:
         # Release so a retry or a later settle can still send the card.
         _release_inbox_notification_claim(team_id, report_id)

@@ -31,6 +31,7 @@ from posthog.scoping_audit import skip_team_scope_audit
 from posthog.tasks.utils import CeleryQueue
 from posthog.utils import variables_override_requested_by_client
 
+from products.access_control.backend.facade.contracts import UserNotOrganizationMemberError
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.product_analytics.backend.facade.api import insight_variables_for_team
 from products.product_analytics.backend.facade.models import Insight
@@ -310,9 +311,11 @@ def warm_insight_cache_task(insight_id: int, dashboard_id: Optional[int]):
         except RETRIABLE_WARMING_ERRORS:
             raise
         except Exception as e:
-            # A revoked creator's access-denied error is a known limitation - report it as an event
+            # A revoked creator's access error is a known limitation - report it as an event
             # rather than surfacing it in error tracking.
-            if isinstance(e, TableAccessDeniedError) and creator_access_revoked(insight.created_by, insight.team):
+            if isinstance(e, (TableAccessDeniedError, UserNotOrganizationMemberError)) and creator_access_revoked(
+                insight.created_by, insight.team
+            ):
                 report_creator_access_revoked(
                     user=insight.created_by,
                     team=insight.team,

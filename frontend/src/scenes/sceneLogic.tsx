@@ -19,10 +19,12 @@ import { useEffect, useState } from 'react'
 import api from 'lib/api'
 import type { SupportTicketExceptionEvent } from 'lib/components/Support/supportLogic'
 import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
+import { listenForGoldRingsKeys } from 'lib/holidayGoldRings'
 import { trackFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { markBootPhase } from 'lib/utils/bootTiming'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { isChunkLoadError } from 'lib/utils/isChunkLoadError'
 import { addProjectIdIfMissing, getProjectIdentifierInPath, removeProjectIdIfPresent } from 'lib/utils/kea-router'
@@ -52,11 +54,11 @@ import { urls } from 'scenes/urls'
 
 import { isSharedView } from '~/exporter/exporterViewLogic'
 import { FileSystemIconType, ProductKey } from '~/queries/schema/schema-general'
-import { AccessControlLevel } from '~/types'
+import { AccessControlLevel, UserType } from '~/types'
 
-import { handleLoginRedirect } from './authentication/login/loginLogic'
+import { handleLoginRedirect } from './authentication/auth/loginLogic'
 import { parseCouponCampaign } from './coupons/utils'
-import { isOnboardingRedirectSuppressed } from './onboarding/legacy/onboardingDelegationState'
+import { isOnboardingRedirectSuppressed } from './onboarding/onboardingDelegationState'
 import { organizationLogic } from './organizationLogic'
 import { preflightLogic } from './PreflightCheck/preflightLogic'
 import { isPathOpenWhileProjectPendingDeletion, projectLogic } from './projectLogic'
@@ -181,6 +183,20 @@ const pathPrefixesOnboardingNotRequiredFor = [
 function isRefusedProjectPath(pathname: string): boolean {
     const refusedProject = getAppContext()?.project_access_denied
     return !!refusedProject && getProjectIdentifierInPath(pathname) === refusedProject
+}
+
+function isFirstProjectWithoutData(user: UserType): boolean {
+    const { currentTeam, hasOnboardedAnyProduct } = teamLogic.values
+    return (
+        !user.is_impersonated &&
+        user.organization?.teams.length === 1 &&
+        !!currentTeam &&
+        !currentTeam.is_demo &&
+        !hasOnboardedAnyProduct &&
+        !currentTeam.ingested_event &&
+        // The access denied page must show, else the link silently opens the onboarding of the user's own project.
+        !isRefusedProjectPath(router.values.location.pathname)
+    )
 }
 
 export function isOnboardingNotRequiredForPath(pathname: string): boolean {
@@ -330,8 +346,8 @@ export interface sceneLogicActions {
         sceneId: string
         sceneKey: string | undefined
     }
-    reloadBrowserDueToImportError: () => {
-        value: true
+    reloadBrowserDueToImportError: (error: unknown) => {
+        error: unknown
     }
     resetUnavailableHomepage: (pathname: string) => {
         pathname: string
@@ -441,6 +457,11 @@ export const sceneLogic = kea<sceneLogicType>([
         cache.lastTrackedScene = null as { sceneId?: string; sceneKey?: string } | null
         cache.homepageSave = Promise.resolve()
         cache.homepageRequest = 0
+        cache.disposables.add(() =>
+            listenForGoldRingsKeys(
+                () => featureFlagLogic.values.featureFlags[FEATURE_FLAGS.CHRISTMAS_GOLD_RINGS] === true
+            )
+        )
     }),
     actions({
         /* 1. Prepares to open the scene, as the listener may override and do something
@@ -483,7 +504,7 @@ export const sceneLogic = kea<sceneLogicType>([
             sceneKey,
             params,
         }),
-        reloadBrowserDueToImportError: true,
+        reloadBrowserDueToImportError: (error: unknown) => ({ error }),
 
         setHomepage: (tab: SceneTab | null, homepageSource?: 'dashboards list') => ({ tab, homepageSource }),
         homepageSaved: (tab: SceneTab | null) => ({ tab }),
@@ -804,6 +825,10 @@ export const sceneLogic = kea<sceneLogicType>([
             await cache.homepageSave
         },
         setScene: ({ sceneKey, sceneId, exportedScene, params, scrollToTop }, _, __, previousState) => {
+            if (exportedScene) {
+                markBootPhase('scene_loaded', { scene: sceneId })
+            }
+
             const {
                 sceneId: lastSceneId,
                 sceneKey: lastSceneKey,
@@ -990,19 +1015,13 @@ export const sceneLogic = kea<sceneLogicType>([
                         }
                     } else if (
                         // Or redirect to onboarding in case we detect people have to do onboarding for their first project
-                        user.organization?.teams.length === 1 &&
-                        teamLogic.values.currentTeam &&
-                        !teamLogic.values.currentTeam.is_demo &&
-                        !teamLogic.values.hasOnboardedAnyProduct &&
-                        !teamLogic.values.currentTeam?.ingested_event &&
+                        isFirstProjectWithoutData(user) &&
                         // Suppress the redirect when the user has explicitly exited onboarding
                         // (skipped for later, or delegated to a teammate with a pending invite).
                         // If the delegation invite is cancelled or expires, the backend clears
                         // onboarding_delegated_to_invite and the redirect re-fires.
                         !isOnboardingRedirectSuppressed(user) &&
-                        !isOnboardingNotRequiredForPath(location.pathname) &&
-                        // The access denied page must show, else the link silently opens the onboarding of the user's own project.
-                        !isRefusedProjectPath(router.values.location.pathname)
+                        !isOnboardingNotRequiredForPath(location.pathname)
                     ) {
                         const nextUrl =
                             getRelativeNextPath(params.searchParams.next, location) ??
@@ -1016,6 +1035,22 @@ export const sceneLogic = kea<sceneLogicType>([
                         }
 
                         router.actions.replace(urls.onboarding(), nextUrl ? { next: nextUrl } : undefined)
+                        return
+                    } else if (
+                        isFirstProjectWithoutData(user) &&
+                        user.onboarding_skipped_reason === 'connector' &&
+                        user.onboarding_skipped_organization_id === user.organization?.id &&
+                        // Only the homepage redirects, so a deep link the connecting assistant hands out still opens.
+                        removeProjectIdIfPresent(router.values.location.pathname) === urls.projectHomepage()
+                    ) {
+                        router.actions.replace(
+                            withForwardedHashAndSearchParams(
+                                urls.onboardingWelcome(),
+                                params.searchParams,
+                                params.hashParams,
+                                forwardedRedirectQueryParams
+                            )
+                        )
                         return
                     }
                 }
@@ -1066,7 +1101,7 @@ export const sceneLogic = kea<sceneLogicType>([
                             actions.setScene(Scene.ErrorNetwork, undefined, emptySceneParams, clickedLink)
                         } else {
                             console.error('App assets regenerated. Reloading this page.')
-                            actions.reloadBrowserDueToImportError()
+                            actions.reloadBrowserDueToImportError(error)
                         }
                         return
                     }
@@ -1114,8 +1149,8 @@ export const sceneLogic = kea<sceneLogicType>([
             }
             actions.setScene(sceneId, sceneKey, params, clickedLink || wasNotLoaded, exportedScene)
         },
-        reloadBrowserDueToImportError: () => {
-            reloadAfterChunkLoadError()
+        reloadBrowserDueToImportError: ({ error }) => {
+            reloadAfterChunkLoadError(error)
         },
     })),
 
@@ -1161,7 +1196,7 @@ export const sceneLogic = kea<sceneLogicType>([
         // already at it, which also guards against loops when the homepage is the launchpad itself.
         const redirectToConfiguredHomepage = (searchParams: Params, hashParams: Params): boolean => {
             const homepage = values.homepage
-            // The rail nav makes /home the Today briefing and has no control to change the homepage,
+            // The rail nav makes /home the Today page and has no control to change the homepage,
             // so a homepage saved before the rail would hide Today with no way back.
             if (!homepage || values.featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV]) {
                 return false

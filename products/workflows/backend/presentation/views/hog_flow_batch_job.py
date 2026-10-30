@@ -28,6 +28,14 @@ class HogFlowBatchJobSerializer(serializers.Serializer):
     created_by = UserBasicSerializer(read_only=True, help_text="User who started the batch run.")
     updated_at = serializers.DateTimeField(read_only=True, help_text="When the batch run was last updated.")
 
+    def validate_status(self, value: str) -> str:
+        # A waiting run is one PostHog has not dispatched yet, and stopping it skips the workers.
+        if value == HogFlowBatchJobState.WAITING:
+            raise serializers.ValidationError(
+                "PostHog sets 'waiting' itself while the audience's cohort calculates. Leave the status out."
+            )
+        return value
+
 
 class HogFlowBatchJobCancelResponseSerializer(serializers.Serializer):
     """

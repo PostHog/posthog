@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
-import { useState } from 'react'
+import { FormEvent, useState } from 'react'
 
 import * as construction2Png from '@posthog/brand/hoggies/png/construction-2'
 import * as imTheDriverPng from '@posthog/brand/hoggies/png/im-the-driver'
@@ -11,7 +11,6 @@ import * as trenchcoatPng from '@posthog/brand/hoggies/png/trenchcoat'
 import * as xRayPng from '@posthog/brand/hoggies/png/x-ray'
 import { IconSparkles } from '@posthog/icons'
 import {
-    LemonBanner,
     LemonButton,
     LemonCard,
     LemonInput,
@@ -25,11 +24,9 @@ import {
 import { pngHoggie } from 'lib/brand/hoggies'
 import { GuidedWizardStepper } from 'lib/components/GuidedWizard/GuidedWizardStepper'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { pluralize } from 'lib/utils/strings'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -48,22 +45,17 @@ import { getReplayVisionEditDisabledReason } from '../utils/accessControl'
 import { ExampleObservations } from './components/ExampleObservations'
 import { ScannerBudget } from './components/ScannerBudget'
 import { ScannerDraftStatus } from './components/ScannerDraftStatus'
-import { ScannerGoalDraft } from './components/ScannerGoalDraft'
 import { ScannerGoalFlow } from './components/ScannerGoalFlow'
 import { ScannerGoalOverview } from './components/ScannerGoalOverview'
-import { ScannerTemplatePicker } from './components/ScannerTemplatePicker'
 import { ScannerTriggers } from './components/ScannerTriggers'
 import { ScannerTypeConfigEditor } from './components/ScannerTypeConfigEditor'
-import { parseExperimentScannerParams } from './experimentTargeting'
 import { leaveScannerEditor, replayScannerLogic } from './replayScannerLogic'
 import {
-    SCANNER_EDITOR_STEPS,
-    SCANNER_EDITOR_STEP_ORDER,
-    SCANNER_STEPPER_STEPS,
-    STEP_LABELS,
     ScannerEditorStep,
-    UNVALIDATED_SCANNER_STEPS,
+    advancesWithoutSubmit,
+    nextScannerEditorStep,
     scannerEditorSceneLogic,
+    scannerEditorStepOrder,
     scannerStepUrlWithParams,
 } from './scannerEditorSceneLogic'
 import { scannerSelfDrivingStatsLogic } from './scannerSelfDrivingStatsLogic'
@@ -82,9 +74,9 @@ export const scene: SceneExport = {
     productKey: ProductKey.REPLAY_VISION,
 }
 
-// Template renders its own header, and overview renders none, so only the form steps need one here.
+// The goal step renders its own header, and overview renders none, so only the form steps need one here.
 const STEP_HEADERS: Record<
-    Exclude<ScannerEditorStep, 'template' | 'overview'>,
+    Exclude<ScannerEditorStep, 'goal' | 'overview'>,
     { hedgehog: JSX.Element; title: string; subtitle: string }
 > = {
     details: {
@@ -108,15 +100,15 @@ const STEP_HEADERS: Record<
         subtitle: 'How much of the matching traffic to scan, and what to spend on it.',
     },
 }
+const RECORDINGS_FIRST_STEP_TITLES: Partial<Record<keyof typeof STEP_HEADERS, string>> = {
+    configure: 'Tell it what to look for',
+    budget: 'Set sampling and limits',
+}
 
 export function ScannerEditorSceneComponent(): JSX.Element {
-    const { scannerId, step, isNew } = useValues(scannerEditorSceneLogic)
+    // Read before the loading return, so every entry into a new scanner reports the experiment exposure.
+    const { scannerId, step, isNew, recordingsFirst, steps, stepperSteps } = useValues(scannerEditorSceneLogic)
     const { searchParams } = useValues(router)
-    const { featureFlags } = useValues(featureFlagLogic)
-    // Multivariate flag; a truthy check would turn the goal flow on for control too.
-    const goalFlow = featureFlags[FEATURE_FLAGS.VISION_GOAL_FLOW_V3] === 'test'
-    // Read once on mount, because the wizard strips the deep-link params as soon as it consumes them.
-    const [experimentDeepLink] = useState(() => parseExperimentScannerParams(router.values.searchParams) !== null)
     // Reached a form step by clicking Edit on the goal overview: the overview is home, not a wizard
     // stop, so the linear stepper is hidden and the footer returns there instead of marching on.
     const fromOverview = searchParams.from === 'overview'
@@ -124,17 +116,18 @@ export function ScannerEditorSceneComponent(): JSX.Element {
     const scannerLogic = replayScannerLogic({ id: scannerId })
     useAttachedLogic(scannerLogic, scannerEditorSceneLogic)
 
-    const { scanner, scannerLoading, isScannerSubmitting, stepErrors, experimentContext } = useValues(scannerLogic)
+    const {
+        scanner,
+        scannerLoading,
+        isScannerSubmitting,
+        stepErrors,
+        lockedToExperimentScanner,
+        scannerValidationErrors,
+        durationValidationError,
+    } = useValues(scannerLogic)
     const { submitScanner } = useActions(scannerLogic)
 
-    // An experiment cross-sell entry point has already said what to watch and deep-linked the
-    // targeting. Asking for that goal again as free text loses the prefill from view and makes the
-    // user restate it, so those entries get the template picker with the prefill already applied.
-    // Only the deep link decides this. A context that arrives later (the experiment fetch, or a
-    // restored draft that carries targeting) would swap the layout under someone already typing.
-    const showGoalEntry = step === 'template' && goalFlow && !experimentDeepLink
-
-    if (step !== 'template' && (scannerLoading || !scanner)) {
+    if (step !== 'goal' && (scannerLoading || !scanner)) {
         return (
             <SceneContent>
                 <SceneTitleSection name="Loading…" resourceType={{ type: 'replay_vision' }} />
@@ -147,12 +140,16 @@ export function ScannerEditorSceneComponent(): JSX.Element {
     // Validate the current step and move on: submit routes to the next step on success. A step with
     // nothing to validate navigates straight on, so it can't fail on fields the user hasn't reached.
     const advance = (): void => {
-        if (UNVALIDATED_SCANNER_STEPS.includes(step)) {
-            const next = SCANNER_EDITOR_STEPS[SCANNER_EDITOR_STEPS.indexOf(step) + 1]
-            if (next) {
-                router.actions.push(scannerStepUrlWithParams(next, scannerId, searchParams))
-                return
-            }
+        const next = nextScannerEditorStep(step, steps)
+        if (
+            next &&
+            advancesWithoutSubmit(step, recordingsFirst, {
+                ...scannerValidationErrors,
+                duration: durationValidationError,
+            })
+        ) {
+            router.actions.push(scannerStepUrlWithParams(next, scannerId, searchParams))
+            return
         }
         submitScanner()
     }
@@ -161,8 +158,9 @@ export function ScannerEditorSceneComponent(): JSX.Element {
         if (isScannerSubmitting) {
             return
         }
-        if (SCANNER_EDITOR_STEP_ORDER[next] > SCANNER_EDITOR_STEP_ORDER[step]) {
-            if (step === 'template') {
+        const stepOrder = scannerEditorStepOrder(recordingsFirst)
+        if (stepOrder[next] > stepOrder[step]) {
+            if (step === 'goal') {
                 router.actions.push(urls.replayVisionScannerDetails(scannerId))
                 return
             }
@@ -181,55 +179,36 @@ export function ScannerEditorSceneComponent(): JSX.Element {
                         resourceType={{ type: 'replay_vision' }}
                         actions={<ReplayVisionFeedbackButton />}
                     />
-                    {showGoalEntry || step === 'overview' || fromOverview ? null : (
+                    {step === 'goal' || step === 'overview' || fromOverview ? null : (
                         <GuidedWizardStepper
-                            steps={SCANNER_STEPPER_STEPS}
+                            steps={stepperSteps}
                             currentStep={step}
                             onStepClick={goToStep}
                             stepErrors={stepErrors}
                             disabledSteps={
-                                isNew
-                                    ? undefined
-                                    : { template: 'A saved scanner keeps the template it was created from' }
+                                !isNew
+                                    ? { goal: 'Only a new scanner starts from a goal' }
+                                    : lockedToExperimentScanner
+                                      ? { goal: 'A scanner started from an experiment is an experiment scanner' }
+                                      : undefined
                             }
                             className="flex-wrap justify-center gap-y-1"
                             aria-label="Scanner editor progress"
                         />
                     )}
-                    {step === 'template' ? (
-                        showGoalEntry ? (
-                            <>
-                                <div className="text-center space-y-3">
-                                    <div className="flex justify-center mb-2">
-                                        <HedgehogXRay className="w-32 h-32" />
-                                    </div>
-                                    <h1 className="text-2xl font-bold m-0">What should the scanner find out?</h1>
-                                    <p className="text-base text-secondary max-w-2xl mx-auto m-0">
-                                        Describe the goal, and the agent drafts the whole scanner for you to review.
-                                    </p>
+                    {step === 'goal' ? (
+                        <>
+                            <div className="text-center space-y-3">
+                                <div className="flex justify-center mb-2">
+                                    <HedgehogXRay className="w-32 h-32" />
                                 </div>
-                                <ScannerGoalFlow />
-                            </>
-                        ) : (
-                            <>
-                                <div className="text-center space-y-3">
-                                    <div className="flex justify-center mb-2">
-                                        <HedgehogXRay className="w-32 h-32" />
-                                    </div>
-                                    <h1 className="text-2xl font-bold m-0">Choose a scanner template</h1>
-                                    <p className="text-base text-secondary max-w-2xl mx-auto m-0">
-                                        Pick a pre-configured template to get started quickly, or create a fully custom
-                                        scanner from scratch.
-                                    </p>
-                                </div>
-                                <ExperimentScopeNote experimentName={experimentContext?.experiment.name} />
-                                <ScannerTemplatePicker />
-                                {/* The goal flow supersedes this box, so someone who has already
-                                    turned it down to build by hand should not be offered it again.
-                                    An experiment entry never saw the goal flow, so it keeps the box. */}
-                                {(!goalFlow || experimentDeepLink) && <ScannerGoalDraft />}
-                            </>
-                        )
+                                <h1 className="text-2xl font-bold m-0">What should the scanner find out?</h1>
+                                <p className="text-base text-secondary max-w-2xl mx-auto m-0">
+                                    Describe the goal, and the agent drafts the whole scanner for you to review.
+                                </p>
+                            </div>
+                            <ScannerGoalFlow />
+                        </>
                     ) : step === 'overview' ? (
                         <div className="@container w-full">
                             <div className="grid grid-cols-1 @3xl:grid-cols-[minmax(0,1fr)_18rem] gap-6">
@@ -253,12 +232,24 @@ export function ScannerEditorSceneComponent(): JSX.Element {
                             formKey="scanner"
                             enableFormOnSubmit
                             className="max-w-4xl w-full mx-auto"
+                            // Enter must act like Next, or the recordings step would flag the prompt it comes before.
+                            {...(recordingsFirst
+                                ? {
+                                      onSubmit: (event: FormEvent<HTMLFormElement>) => {
+                                          event.preventDefault()
+                                          advance()
+                                      },
+                                  }
+                                : {})}
                         >
                             <div className="bg-bg-light border rounded-lg shadow-sm p-4 sm:p-6 flex flex-col gap-6 [&_.Field--error_.input-like]:!border-danger">
                                 <div className="flex items-center gap-3">
                                     {STEP_HEADERS[step].hedgehog}
                                     <div>
-                                        <div className="text-base font-semibold">{STEP_HEADERS[step].title}</div>
+                                        <div className="text-base font-semibold">
+                                            {(recordingsFirst && RECORDINGS_FIRST_STEP_TITLES[step]) ||
+                                                STEP_HEADERS[step].title}
+                                        </div>
                                         <div className="text-sm text-muted">{STEP_HEADERS[step].subtitle}</div>
                                     </div>
                                 </div>
@@ -285,20 +276,6 @@ export function ScannerEditorSceneComponent(): JSX.Element {
                 </div>
             </div>
         </SceneContent>
-    )
-}
-
-/** Tells an experiment entry that the targeting came with it, so the template step doesn't read as
- * a blank start that dropped the experiment. The variant picker itself lives on the Recordings step. */
-function ExperimentScopeNote({ experimentName }: { experimentName?: string }): JSX.Element | null {
-    if (!experimentName) {
-        return null
-    }
-    return (
-        <LemonBanner type="info">
-            This scanner watches sessions of people exposed to {experimentName}. That holds whichever way you set it up
-            below, and you can narrow it to one variant on the Recordings step.
-        </LemonBanner>
     )
 }
 
@@ -362,10 +339,9 @@ function SelfDrivingOutcomesLine({ scannerId }: { scannerId: string }): JSX.Elem
 
 function ConfigureStep(): JSX.Element {
     const { scannerId } = useValues(scannerEditorSceneLogic)
-    const { scanner, isNew, goalDraft } = useValues(replayScannerLogic({ id: scannerId }))
+    const { scanner, isNew, goalDraft, lockedToExperimentScanner } = useValues(replayScannerLogic({ id: scannerId }))
     const { setScannerType } = useActions(replayScannerLogic({ id: scannerId }))
-    const { searchParams } = useValues(router)
-    const isTypeSelectable = isNew && !searchParams.template
+    const isTypeSelectable = isNew && !lockedToExperimentScanner
     const experimentScanners = useFeatureFlag('VISION_EXPERIMENT_SCANNER')
 
     if (!scanner) {
@@ -429,14 +405,9 @@ function ConfigureStep(): JSX.Element {
                             scanner.scanner_type}
                     </LemonTag>
                     <div className="text-xs text-muted">
-                        {isNew ? (
-                            <>
-                                Type is set by the template you picked. To use a different type,{' '}
-                                <Link to={urls.replayVisionTemplates()}>start from another template</Link>.
-                            </>
-                        ) : (
-                            'Scanner type is fixed after creation.'
-                        )}
+                        {isNew
+                            ? 'A scanner started from an experiment is an experiment scanner.'
+                            : 'Scanner type is fixed after creation.'}
                     </div>
                 </div>
             )}
@@ -501,8 +472,11 @@ function EditorFooter({
     onAdvance: () => void
     onSave: () => void
 }): JSX.Element {
-    const { scanner, durationValidationError, hasUnsavedChanges } = useValues(replayScannerLogic({ id: scannerId }))
+    const { scanner, durationValidationError, hasUnsavedChanges, lockedToExperimentScanner } = useValues(
+        replayScannerLogic({ id: scannerId })
+    )
     const { searchParams } = useValues(router)
+    const { steps, stepLabels } = useValues(scannerEditorSceneLogic)
     const { discardScannerDraft } = useActions(replayScannerLogic({ id: scannerId }))
     const { dataProcessingAccepted, dataProcessingApprovalDisabledReason } = useValues(aiConsentLogic)
     const [consentRequested, setConsentRequested] = useState(false)
@@ -510,14 +484,14 @@ function EditorFooter({
     // Save instead of letting the request 400.
     const needsConsent = isNew && !dataProcessingAccepted
     const canApproveConsent = !dataProcessingApprovalDisabledReason
-    const stepIndex = SCANNER_EDITOR_STEPS.indexOf(step)
-    const previous = stepIndex > 0 ? SCANNER_EDITOR_STEPS[stepIndex - 1] : null
-    const prevStep = previous === 'template' && !isNew ? null : previous
-    const nextStep = stepIndex < SCANNER_EDITOR_STEPS.length - 1 ? SCANNER_EDITOR_STEPS[stepIndex + 1] : null
+    const stepIndex = steps.indexOf(step)
+    const previous = stepIndex > 0 ? steps[stepIndex - 1] : null
+    const prevStep = previous === 'goal' && (!isNew || lockedToExperimentScanner) ? null : previous
+    const nextStep = nextScannerEditorStep(step, steps)
     // A broken duration filter blocks the save, but only from the triggers step onward: gating an
     // earlier step's button on it blocks the wizard with a reason nothing on screen explains. RBAC
     // takes priority and must match the backend's create/update requirement exactly.
-    const ownsDurationFilter = step === 'triggers' || step === 'budget'
+    const ownsDurationFilter = stepIndex !== -1 && stepIndex >= steps.indexOf('triggers')
     const durationError = ownsDurationFilter ? durationValidationError : null
     const saveDisabledReason = getReplayVisionEditDisabledReason(scanner?.user_access_level) ?? durationError
     // Editing one section from the goal overview: the edit is already in the form state, so the only
@@ -547,8 +521,8 @@ function EditorFooter({
 
     return (
         <div className="flex flex-col gap-2">
-            {/* The duration field lives on the recordings step, so budget needs the error spelled out. */}
-            {step === 'budget' && durationError ? <div className="text-danger text-sm">{durationError}</div> : null}
+            {/* The duration field lives on the recordings step, so later steps need the error spelled out. */}
+            {step !== 'triggers' && durationError ? <div className="text-danger text-sm">{durationError}</div> : null}
             {fromOverview ? (
                 <div className="flex flex-wrap items-center justify-end gap-2">
                     <ScannerDraftStatus scannerId={scannerId} fromOverview />
@@ -598,7 +572,7 @@ function EditorFooter({
                                 onClick={onAdvance}
                                 data-attr="vision-editor-next"
                             >
-                                Next: {STEP_LABELS[nextStep]}
+                                Next: {stepLabels[nextStep]}
                             </LemonButton>
                         ) : (
                             <AIConsentPopoverWrapper

@@ -51,6 +51,7 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSchema,
     ExternalDataSource,
 )
+from products.warehouse_sources.backend.facade.source_inputs import SourceInputsStore, UnreadableSourceInputsError
 from products.warehouse_sources.backend.facade.source_management import SourceRegistry, SourceSchema
 from products.warehouse_sources.backend.facade.types import (
     ExternalDataSourceAccessMethod,
@@ -163,7 +164,7 @@ def _set_dynamic_source_auth(source: ExternalDataSource, *, lifecycle_generation
     source.access_method = ExternalDataSourceAccessMethod.DIRECT
     source.direct_query_enabled = True
     source.connection_metadata = _dynamic_source_metadata(lifecycle_generation=lifecycle_generation)
-    source.job_inputs = {}
+    SourceInputsStore.assign(source, {})
     source.deleted = False
     source.deleted_at = None
     source.save(
@@ -265,14 +266,14 @@ def _ensure_managed_source_locked(
         if tombstoned_legacy is not None:
             return _set_dynamic_source_auth(tombstoned_legacy, lifecycle_generation=lifecycle_generation)
 
-    return ExternalDataSource.objects.create(
+    return SourceInputsStore.create(
         source_id=str(uuid4()),
         connection_id=str(uuid4()),
         destination_id=str(uuid4()),
         team_id=team_id,
         status=ExternalDataSourceStatus.RUNNING,
         source_type=ExternalDataSourceType.POSTGRES,
-        job_inputs={},
+        inputs={},
         prefix=MANAGED_WAREHOUSE_SOURCE_PREFIX,
         description=MANAGED_WAREHOUSE_SOURCE_DESCRIPTION,
         access_method=ExternalDataSourceAccessMethod.DIRECT,
@@ -296,6 +297,22 @@ def _locked_source_lifecycle(organization_id: str | UUID) -> ManagedWarehouseSou
     return ManagedWarehouseSourceLifecycle.objects.select_for_update().get(pk=lifecycle.pk)
 
 
+def reserve_internal_warehouse(*, organization_id: str | UUID) -> bool:
+    with transaction.atomic():
+        lifecycle = _locked_source_lifecycle(organization_id)
+        if not lifecycle.internal_only and (
+            lifecycle.generation > 0
+            and lifecycle.desired_active
+            or DuckgresServer.objects.filter(organization_id=organization_id).exists()
+        ):
+            return False
+        lifecycle.internal_only = True
+        lifecycle.background_loading_enabled = True
+        lifecycle.desired_active = True
+        lifecycle.save(update_fields=["internal_only", "background_loading_enabled", "desired_active"])
+        return True
+
+
 def get_active_managed_warehouse_source_generation(*, organization_id: str | UUID) -> int | None:
     """Capture the current active generation before onboarding an additional team."""
     with transaction.atomic():
@@ -309,17 +326,31 @@ def get_managed_warehouse_source_generation(*, organization_id: str | UUID) -> i
         return _locked_source_lifecycle(organization_id).generation
 
 
-def activate_managed_warehouse_source_lifecycle(*, organization_id: str | UUID, expected_generation: int) -> int | None:
+def activate_managed_warehouse_source_lifecycle(
+    *, organization_id: str | UUID, expected_generation: int, internal_only: bool = False
+) -> int | None:
     """Conditionally advance after provision, unless a newer lifecycle operation won."""
     with transaction.atomic():
         lifecycle = _locked_source_lifecycle(organization_id)
-        if lifecycle.generation != expected_generation:
+        if lifecycle.generation != expected_generation or (
+            lifecycle.internal_only and lifecycle.desired_active and not internal_only
+        ):
             return None
         was_inactive = not lifecycle.desired_active
         lifecycle.generation += 1
         lifecycle.desired_active = True
+        lifecycle.internal_only = internal_only
+        lifecycle.background_loading_enabled = internal_only
         lifecycle.legacy_conversion_generation = lifecycle.generation if was_inactive else None
-        lifecycle.save(update_fields=["generation", "desired_active", "legacy_conversion_generation"])
+        lifecycle.save(
+            update_fields=[
+                "generation",
+                "desired_active",
+                "internal_only",
+                "background_loading_enabled",
+                "legacy_conversion_generation",
+            ]
+        )
         return lifecycle.generation
 
 
@@ -352,7 +383,7 @@ def ensure_managed_warehouse_direct_source(
     Team.objects.only("id", "organization_id").get(id=team_id, organization_id=organization_id)
     with transaction.atomic():
         lifecycle = _locked_source_lifecycle(organization_id)
-        if not lifecycle.desired_active or lifecycle.generation != expected_generation:
+        if not lifecycle.desired_active or lifecycle.internal_only or lifecycle.generation != expected_generation:
             return None
         # Deliberately NOT select_for_update: FOR UPDATE on a posthog_team row blocks the
         # FK KEY SHARE lock every team-scoped INSERT takes, so a long hold here stalls all
@@ -463,7 +494,7 @@ def _discover_postgres_schemas(
             "password": dynamic_connection.password,
         }
         if dynamic_connection is not None
-        else dict(source.job_inputs or {})
+        else SourceInputsStore.load(source)
     )
     config = source_impl.parse_config(source_config)
     return source_impl.get_schemas(
@@ -527,9 +558,13 @@ def update_managed_warehouse_root_password(*, organization_id: str | UUID, passw
                 MANAGED_WAREHOUSE_PROJECT_READER_CREDENTIAL_KIND,
             }:
                 continue
-            if source.job_inputs != config:
-                source.job_inputs = config
-                source.save(update_fields=["job_inputs", "updated_at"])
+            try:
+                current = SourceInputsStore.load(source)
+            except UnreadableSourceInputsError:
+                # Malformed legacy inputs are replaced with the valid config, not left to block rotation.
+                current = None
+            if current != config:
+                SourceInputsStore.save(source, config)
 
 
 def soft_delete_managed_warehouse_sources(*, organization_id: str | UUID, expected_generation: int) -> None:

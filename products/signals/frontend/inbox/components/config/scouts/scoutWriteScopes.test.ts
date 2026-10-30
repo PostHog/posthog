@@ -19,9 +19,18 @@ describe('scoutWriteScopes', () => {
                 'dashboard:write',
                 'replay_scanner:write',
                 'customer_task:write',
+                'ticket:write',
                 'cohort:write',
             ])
-        ).toEqual(['Notebooks', 'Dashboards', 'Insights', 'Customer tasks', 'Skills', 'Replay vision scanners'])
+        ).toEqual([
+            'Notebooks',
+            'Dashboards',
+            'Insights',
+            'Customer tasks',
+            'Skills',
+            'Replay vision scanners',
+            'Support tickets',
+        ])
     })
 
     it('leaves the default grant out of what sets a scout apart', () => {

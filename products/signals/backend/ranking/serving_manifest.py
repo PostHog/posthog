@@ -14,6 +14,8 @@ not act on is refused by the dag that composed it.
 
 from __future__ import annotations
 
+import datetime
+
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from products.signals.backend.artefact_schemas import MAX_RANKING_MODEL_RESULTS, RANKING_SERVED_ROLE
@@ -21,9 +23,13 @@ from products.signals.backend.artefact_schemas import MAX_RANKING_MODEL_RESULTS,
 # The one role a reader acts on, taken from the artefact schema so the manifest and the
 # `ranking_score` rows it produces name the served model the same way.
 SERVED_ROLE = RANKING_SERVED_ROLE
-# The served family's model for the partition being trained, carried so a paired read compares the
-# champion against the day's fit without a second scoring pass.
-DAILY_CANDIDATE_ROLE = "daily_candidate"
+# One of the newest versions of the served model's family, carried so each version collects online
+# scores for several days and a paired read compares it against the served model without a second
+# scoring pass.
+RECENT_ROLE = "recent"
+# The newest version of another trained family, scored alongside so its online grade reads the same
+# reports as the served model's, before anyone promotes it.
+CHALLENGER_ROLE = "challenger"
 # Another family's champion, scored alongside so a later interleaving needs no rescoring.
 CROSS_FAMILY_ROLE = "cross_family"
 # A model an owner keeps in the manifest through the `pin` override, so a `served` override can
@@ -47,8 +53,18 @@ HEAD_FILE_SUFFIX = ".ubj"
 MANIFEST_FILE = "manifest.json"
 METADATA_FILE = "metadata.json"
 PROJECT_VECTORS_FILE = "project_vectors.parquet"
+USER_VECTORS_FILE = "user_vectors.parquet"
+ENGAGEMENT_FILE = "engagement.parquet"
 
 _SERVING_SEGMENT = "serving"
+
+# The object metadata a mirror region stamps on its own project vectors day. The region that trains
+# reads only these, through `head_object`, before its mirror manifest names the day. The schema
+# version key is the one `write_parquet` stamps.
+PROJECT_VECTORS_SCHEMA_VERSION_METADATA_KEY = "feature-schema-version"
+PROJECT_VECTORS_ENGAGEMENT_DATE_METADATA_KEY = "engagement-export-date"
+# The same key, stamped on the serving copy of a user vectors day.
+USER_VECTORS_SCHEMA_VERSION_METADATA_KEY = PROJECT_VECTORS_SCHEMA_VERSION_METADATA_KEY
 
 
 def serving_manifest_key(prefix: str) -> str:
@@ -65,6 +81,28 @@ def serving_project_vectors_key(prefix: str, partition_key: str) -> str:
     """Where one day of `inbox_project_vectors` sits. Keyed by its `dt`, so a day is published once
     however many manifests name it."""
     return f"{prefix}/{_SERVING_SEGMENT}/project_vectors/{partition_key}/{PROJECT_VECTORS_FILE}"
+
+
+def serving_user_vectors_key(prefix: str, partition_key: str) -> str:
+    """Where one day of `inbox_user_vectors` sits. Keyed by its `dt`, like the project vectors."""
+    return f"{prefix}/{_SERVING_SEGMENT}/user_vectors/{partition_key}/{USER_VECTORS_FILE}"
+
+
+def serving_engagement_key(prefix: str, partition_key: str) -> str:
+    """Where one day of the engagement export for another region's reports sits. The US dataset dag
+    writes it to the mirror store, and the mirror region reads it to build its own project vectors."""
+    return f"{prefix}/{_SERVING_SEGMENT}/engagement/{partition_key}/{ENGAGEMENT_FILE}"
+
+
+def serving_project_vectors_date(key: str) -> datetime.date | None:
+    """The `dt` of a `serving_project_vectors_key`, or None when the key has another shape."""
+    parts = key.rsplit("/", 2)
+    if len(parts) != 3 or parts[2] != PROJECT_VECTORS_FILE:
+        return None
+    try:
+        return datetime.date.fromisoformat(parts[1])
+    except ValueError:
+        return None
 
 
 def model_key(model_name: str, model_version: str) -> str:
@@ -144,6 +182,13 @@ class ServingManifest(BaseModel):
         description=(
             "Object key of the one `inbox_project_vectors` day that every entry with `reads_project_vectors` reads. "
             "Null when no entry reads them, or when this store has no copy, and then those entries score nothing."
+        ),
+    )
+    user_vectors: str | None = Field(
+        default=None,
+        description=(
+            "Object key of the one `inbox_user_vectors` day this store holds. "
+            "Null when this store has no copy. No model reads it yet, so it never blocks a publish."
         ),
     )
 

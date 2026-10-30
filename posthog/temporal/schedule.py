@@ -79,7 +79,11 @@ from posthog.temporal.warehouse_sources_queue_partition_management.schedule impo
 )
 from posthog.temporal.weekly_digest.types import WeeklyDigestInput
 
-from products.alerts_platform.backend.facade.temporal import create_alerts_platform_tick_schedule
+from products.alerts_platform.backend.facade.temporal import (
+    create_alerts_platform_expired_holds_schedule,
+    create_alerts_platform_inventory_schedule,
+    create_alerts_platform_tick_schedule,
+)
 from products.autoresearch.backend.facade.temporal import create_autoresearch_daily_schedule
 from products.billing_alerts.backend.temporal.schedule import create_schedule_due_billing_alert_checks_schedule
 from products.business_knowledge.backend.temporal.schedule import (
@@ -92,6 +96,7 @@ from products.conversations.backend.temporal.schedule import create_support_repl
 from products.customer_analytics.backend.facade.temporal import (
     create_account_track_rule_coordinator_schedule,
     create_calendar_sync_coordinator_schedule,
+    create_membership_coordinator_schedule,
     create_ownership_claims_coordinator_schedule,
 )
 from products.data_catalog.backend.facade.temporal import create_data_catalog_weekly_digest_schedule
@@ -105,6 +110,7 @@ from products.engineering_analytics.backend.facade.temporal import (
 )
 from products.error_tracking.backend.facade.temporal import (
     RecommendationsRefreshInputs,
+    create_error_tracking_built_in_filters_refresh_schedule,
     create_error_tracking_spike_event_cleanup_schedule,
     create_error_tracking_symbol_set_cleanup_schedule,
     create_error_tracking_weekly_digest_schedule,
@@ -114,7 +120,6 @@ from products.experiments.backend.temporal.schedule import (
     create_experiment_precompute_enrollment_census_schedule,
     create_experiment_scheduled_recalculation_schedules,
 )
-from products.exports.backend.temporal.subscriptions.types import ScheduleAllSubscriptionsWorkflowInputs
 from products.growth.backend.temporal.signup_enrichment.schedule import (
     create_harmonic_status_poll_schedule,
     create_icp_reenrichment_sweep_schedule,
@@ -127,21 +132,22 @@ from products.replay_vision.backend.temporal.estimates import create_replay_visi
 from products.replay_vision.backend.temporal.gemini_cleanup_sweep import (
     create_replay_vision_gemini_cleanup_sweep_schedule,
 )
-from products.replay_vision.backend.temporal.jev_watch_rank import create_replay_vision_jev_watch_rank_schedule
 from products.replay_vision.backend.temporal.learned_rules import create_replay_vision_learned_rules_schedule
 from products.replay_vision.backend.temporal.read_meter import create_replay_vision_read_meter_schedule
 from products.replay_vision.backend.temporal.reconciler import create_replay_vision_reconciler_schedule
-from products.replay_vision.backend.temporal.search_suggestions import create_replay_vision_search_suggestions_schedule
 from products.replay_vision.backend.temporal.vision_alerts.schedule import create_vision_alert_check_schedule
 from products.review_hog.backend.facade.temporal import create_review_hog_finding_outcomes_schedule
 from products.security.backend.facade.temporal import create_sync_access_rules_schedule
+from products.signals.backend.activity_summary.schedule import create_activity_summary_tick_schedule
+from products.signals.backend.anomaly_scores.schedule import create_anomaly_scoring_tick_schedule
 from products.signals.backend.emission.conversations_schedule import create_conversations_signals_coordinator_schedule
 from products.signals.backend.ranking.schedule import create_inbox_ranking_scoring_schedule
 from products.signals.backend.temporal.agentic.schedule import (
     create_scout_suggestions_coordinator_schedule,
     create_signals_scout_coordinator_schedule,
 )
-from products.today.backend.facade.temporal import create_today_briefing_schedule
+from products.subscriptions.backend.facade.temporal import create_schedule_all_subscriptions_schedule
+from products.today.backend.facade.temporal import delete_today_briefing_schedule
 from products.warehouse_suggestions.backend.facade.temporal import create_warehouse_suggestions_schedule
 from products.web_analytics.backend.temporal.digest_notification.types import WADigestNotificationInput
 from products.web_analytics.backend.temporal.page_history.schedule import create_heatmap_page_history_schedule
@@ -159,6 +165,17 @@ async def cleanup_sync_vectors_schedule(client: Client):
     """Disabled: delete the actions embedding sync schedule. Any in-flight runs die on their own execution_timeout."""
     if await a_schedule_exists(client, "ai-sync-vectors-schedule"):
         await a_delete_schedule(client, "ai-sync-vectors-schedule")
+
+
+async def cleanup_retired_replay_vision_schedules(client: Client):
+    """Delete Replay Vision schedules whose workflows are gone. Any in-flight run ends on its own execution timeout."""
+    retired_schedule_ids = [
+        "replay-vision-search-suggestions-refresher-schedule",
+        "replay-vision-jev-watch-rank-schedule",
+    ]
+    for schedule_id in retired_schedule_ids:
+        if await a_schedule_exists(client, schedule_id):
+            await a_delete_schedule(client, schedule_id)
 
 
 async def create_run_quota_limiting_schedule(client: Client):
@@ -187,35 +204,6 @@ async def create_run_quota_limiting_schedule(client: Client):
     else:
         await a_create_schedule(
             client, "run-quota-limiting-schedule", run_quota_limiting_schedule, trigger_immediately=False
-        )
-
-
-async def create_schedule_all_subscriptions_schedule(client: Client):
-    """Create or update the schedule for the ScheduleAllSubscriptionsWorkflow.
-
-    This schedule runs twice an hour, shortly before each supported delivery slot.
-    """
-    schedule_all_subscriptions_schedule = Schedule(
-        action=ScheduleActionStartWorkflow(
-            "schedule-all-subscriptions",
-            asdict(ScheduleAllSubscriptionsWorkflowInputs()),
-            id="schedule-all-subscriptions-schedule",
-            task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
-        ),
-        spec=ScheduleSpec(cron_expressions=["25,55 * * * *"]),  # Run shortly before :30 and :00 deliveries
-        # ALLOW_ALL: if a previous run is still executing, start the new one anyway.
-        # Deterministic subscription child IDs prevent duplicate starts while a child is open.
-        policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.ALLOW_ALL),
-    )
-
-    if await a_schedule_exists(client, "schedule-all-subscriptions-schedule"):
-        await a_update_schedule(client, "schedule-all-subscriptions-schedule", schedule_all_subscriptions_schedule)
-    else:
-        await a_create_schedule(
-            client,
-            "schedule-all-subscriptions-schedule",
-            schedule_all_subscriptions_schedule,
-            trigger_immediately=False,
         )
 
 
@@ -854,6 +842,51 @@ async def create_finalize_usage_reports_schedule(client: Client):
         )
 
 
+async def create_reconcile_organization_active_state_schedule(client: Client):
+    """Nightly realignment of billing's deactivated flags with Organization.is_active, 04:45 UTC.
+
+    The Organization post_save signal is the real-time path; this sweep catches missed
+    flips (dispatch failures, writes that skip signals). Same slot as the Celery schedule
+    it replaces.
+    """
+    from posthog.temporal.billing_active_sync.sync_organization_active_state import (
+        ReconcileOrganizationActiveStateInputs,
+    )
+
+    reconcile_schedule = Schedule(
+        action=ScheduleActionStartWorkflow(
+            "reconcile-organization-active-state-to-billing",
+            asdict(ReconcileOrganizationActiveStateInputs()),
+            id="reconcile-organization-active-state-schedule",
+            task_queue=settings.BILLING_TASK_QUEUE,
+            retry_policy=common.RetryPolicy(
+                maximum_attempts=3,
+                initial_interval=timedelta(minutes=5),
+            ),
+        ),
+        spec=ScheduleSpec(
+            calendars=[
+                ScheduleCalendarSpec(
+                    comment="Daily at 04:45 UTC",
+                    hour=[ScheduleRange(start=4, end=4)],
+                    minute=[ScheduleRange(start=45, end=45)],
+                )
+            ]
+        ),
+        policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
+    )
+
+    if await a_schedule_exists(client, "reconcile-organization-active-state-schedule"):
+        await a_update_schedule(client, "reconcile-organization-active-state-schedule", reconcile_schedule)
+    else:
+        await a_create_schedule(
+            client,
+            "reconcile-organization-active-state-schedule",
+            reconcile_schedule,
+            trigger_immediately=False,
+        )
+
+
 async def create_count_all_playlists_schedule(client: Client):
     """Create or update the schedule for the playlist counting workflow.
 
@@ -908,8 +941,9 @@ async def create_error_tracking_recommendations_refresh_schedule(client: Client)
             retry_policy=common.RetryPolicy(maximum_attempts=1),
         ),
         spec=ScheduleSpec(
-            intervals=[ScheduleIntervalSpec(every=timedelta(hours=1), offset=timedelta(minutes=2))],
-            jitter=timedelta(minutes=10),
+            # Runs at :20 to keep it away from the API query surge at the top of the hour.
+            intervals=[ScheduleIntervalSpec(every=timedelta(hours=1), offset=timedelta(minutes=20))],
+            jitter=timedelta(minutes=5),
         ),
         policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
     )
@@ -967,33 +1001,38 @@ schedules = [
     create_error_tracking_symbol_set_cleanup_schedule,
     create_error_tracking_spike_event_cleanup_schedule,
     create_error_tracking_weekly_digest_schedule,
+    create_error_tracking_built_in_filters_refresh_schedule,
     create_wa_weekly_digest_schedule,
     create_wa_digest_notification_schedule,
     create_heatmap_page_history_schedule,
     create_data_catalog_weekly_digest_schedule,
     create_alerts_platform_tick_schedule,
+    create_alerts_platform_inventory_schedule,
+    create_alerts_platform_expired_holds_schedule,
     create_logs_alert_check_schedule,
     disable_logs_volume_tick_schedule,
     create_schedule_due_alert_checks_schedule,
     create_run_investigation_safety_net_schedule,
     create_cleanup_alert_checks_schedule,
     create_autoresearch_daily_schedule,
-    create_today_briefing_schedule,
+    delete_today_briefing_schedule,
     create_signals_scout_coordinator_schedule,
     create_inbox_ranking_scoring_schedule,
+    create_activity_summary_tick_schedule,
+    create_anomaly_scoring_tick_schedule,
     create_scout_suggestions_coordinator_schedule,
     create_support_reply_coordinator_schedule,
     create_channel_summary_coordinator_schedule,
     create_account_track_rule_coordinator_schedule,
     create_calendar_sync_coordinator_schedule,
     create_ownership_claims_coordinator_schedule,
+    create_membership_coordinator_schedule,
     create_replay_vision_reconciler_schedule,
     create_replay_vision_estimates_schedule,
-    create_replay_vision_search_suggestions_schedule,
+    cleanup_retired_replay_vision_schedules,
     create_replay_vision_learned_rules_schedule,
     create_vision_alert_check_schedule,
     create_replay_vision_read_meter_schedule,
-    create_replay_vision_jev_watch_rank_schedule,
     create_github_job_logs_coordinator_schedule,
     create_review_hog_finding_outcomes_schedule,
     create_ci_signals_coordinator_schedule,
@@ -1020,6 +1059,7 @@ if settings.CLOUD_DEPLOYMENT:
     schedules.append(create_replay_vision_gemini_cleanup_sweep_schedule)
     schedules.append(create_run_usage_reports_schedule)
     schedules.append(create_finalize_usage_reports_schedule)
+    schedules.append(create_reconcile_organization_active_state_schedule)
     if should_register_checkpoint_compaction_schedule():
         schedules.append(create_checkpoint_compaction_schedule)
     # The sweep re-fetches each region's own orgs from Harmonic, and only US and EU carry the key.

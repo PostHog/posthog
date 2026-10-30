@@ -12,6 +12,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sync_window import SyncWindow
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.gusto.settings import (
+    FAN_OUT_PARENT_KEYS,
     GUSTO_ENDPOINTS,
     GustoEndpointConfig,
 )
@@ -43,13 +44,15 @@ FUTURE_WINDOW_DAYS = 365
 WINDOW_CHUNK_SIZE = 1000
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class GustoResumeConfig:
     # Index into the ordered company list to restart at.
     company_index: int = 0
-    # Next 1-indexed page to fetch within that company.
+    # Next 1-indexed page to fetch within that company, or within the current parent of a
+    # paginated fan-out endpoint.
     next_page: int = 1
-    # For endpoints fanned out over employees: index into that company's ordered employee list.
+    # For fan-out endpoints: index into that company's ordered parent list (employees, or company
+    # benefits). The name predates fan-out over other parents and is kept so saved state still loads.
     employee_index: int = 0
 
 
@@ -225,6 +228,15 @@ def extract_rows(config: GustoEndpointConfig, body: Any) -> list[dict[str, Any]]
     if not isinstance(body, dict):
         return []
 
+    if config.name == "earning_types":
+        # Default and custom earning types arrive as two lists; keep which list each one came from.
+        return [
+            {**row, "is_default": kind == "default"}
+            for kind in ("default", "custom")
+            for row in body.get(kind) or []
+            if isinstance(row, dict)
+        ]
+
     if config.data_key is None:
         return _normalize_rows(config, [body])
 
@@ -275,14 +287,18 @@ def _paginate(
         client.logger.warning(f"Gusto page cap reached, stopping early. endpoint={config.name}, path={path}")
 
 
-def _company_employees(client: GustoClient, company_uuid: str) -> list[dict[str, Any]]:
-    """Every employee of a company, ordered by uuid so fan-out resumes deterministically."""
-    config = GUSTO_ENDPOINTS["employees"]
+def _company_parents(client: GustoClient, parent_endpoint: str, company_uuid: str) -> list[dict[str, Any]]:
+    """Every fan-out parent row of a company, ordered by uuid so fan-out resumes deterministically."""
+    config = GUSTO_ENDPOINTS[parent_endpoint]
     path = config.path.format(company_uuid=company_uuid)
-    employees: list[dict[str, Any]] = []
-    for batch in _paginate(client, config, path, {}, first_page=1):
-        employees.extend(batch)
-    return sorted(employees, key=lambda employee: str(employee.get("uuid") or ""))
+    parents: list[dict[str, Any]] = []
+    if config.paginated:
+        for batch in _paginate(client, config, path, {}, first_page=1):
+            parents.extend(batch)
+    else:
+        body, _ = client.get_json(path)
+        parents.extend(extract_rows(config, body))
+    return sorted(parents, key=lambda parent: str(parent.get("uuid") or ""))
 
 
 def _windowed_rows(
@@ -343,6 +359,14 @@ def get_rows(
 
         return save
 
+    def checkpoint_parent_page(company_index: int, parent_index: int) -> Callable[[int], None]:
+        def save(page: int) -> None:
+            resumable_source_manager.save_state(
+                GustoResumeConfig(company_index=company_index, employee_index=parent_index, next_page=page)
+            )
+
+        return save
+
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     if resume is not None:
         logger.debug(
@@ -363,20 +387,42 @@ def get_rows(
             rows = extract_rows(config, body)
             if rows:
                 yield rows
-        elif config.fans_out_over_employees:
-            employees = _company_employees(client, company_uuid)
-            first_employee = resume.employee_index if (resuming_here and resume is not None) else 0
-            for employee_index, employee in enumerate(employees):
-                if employee_index < first_employee:
+        elif config.fan_out_parent is not None:
+            parent_key = FAN_OUT_PARENT_KEYS[config.fan_out_parent]
+            fan_out_parents = _company_parents(client, config.fan_out_parent, company_uuid)
+            first_parent = resume.employee_index if (resuming_here and resume is not None) else 0
+            for parent_index, parent in enumerate(fan_out_parents):
+                if parent_index < first_parent:
                     continue
-                employee_uuid = str(employee.get("uuid") or "")
-                body, _ = client.get_json(config.path.format(employee_uuid=employee_uuid))
-                rows = _stamp_parents(extract_rows(config, body), {**parents, "_employee_uuid": employee_uuid})
-                if rows:
-                    yield rows
+                parent_uuid = str(parent.get("uuid") or "")
+                path = config.path.format(**{parent_key: parent_uuid})
+                child_parents = {**parents, f"_{parent_key}": parent_uuid}
+                if config.paginated:
+                    yield from _paginate(
+                        client,
+                        config,
+                        path,
+                        child_parents,
+                        first_page=resume.next_page
+                        if (resuming_here and resume is not None and parent_index == first_parent)
+                        else 1,
+                        extra_params=config.extra_params,
+                        on_page=checkpoint_parent_page(company_index, parent_index),
+                    )
+                else:
+                    body, _ = client.get_json(path)
+                    rows = _stamp_parents(extract_rows(config, body), child_parents)
+                    if rows:
+                        yield rows
                 resumable_source_manager.save_state(
-                    GustoResumeConfig(company_index=company_index, employee_index=employee_index + 1)
+                    GustoResumeConfig(company_index=company_index, employee_index=parent_index + 1)
                 )
+        elif not config.paginated:
+            # These lists document no `page`/`per` and return everything at once, so one request covers them.
+            body, _ = client.get_json(config.path.format(company_uuid=company_uuid))
+            rows = _stamp_parents(extract_rows(config, body), parents)
+            if rows:
+                yield rows
         else:
             first_page = resume.next_page if (resuming_here and resume is not None) else 1
             yield from _paginate(
@@ -385,6 +431,7 @@ def get_rows(
                 config.path.format(company_uuid=company_uuid),
                 parents,
                 first_page=first_page,
+                extra_params=config.extra_params,
                 on_page=checkpoint_page(company_index),
             )
 

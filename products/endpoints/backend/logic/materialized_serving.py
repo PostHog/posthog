@@ -46,6 +46,10 @@ class MaterializedServingState:
             return False
         if data.refresh == EndpointRefreshMode.DIRECT:
             return False
+        if data.filters_override is not None and data.filters_override.model_dump(
+            exclude={"properties"}, exclude_none=True
+        ):
+            return False
         if data.variables:
             requested = set(data.variables.keys())
             if not self.servable_variables or not requested.issubset(self.servable_variables):

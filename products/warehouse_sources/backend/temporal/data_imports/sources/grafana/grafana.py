@@ -10,19 +10,21 @@ from urllib.parse import quote, urlencode, urlparse
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 from urllib3.util.retry import Retry
 
 from posthog.dataclasses import frozen
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.grafana.settings import (
     ANNOTATIONS_LIMIT,
     DASHBOARD_VERSIONS_PAGE_SIZE,
-    DEFAULT_PAGE_SIZE,
     GRAFANA_ENDPOINTS,
     GrafanaEndpointConfig,
 )
@@ -276,15 +278,42 @@ def _extract_items(data: Any, data_key: str | None) -> list[dict[str, Any]]:
 
     Most list endpoints return a bare JSON array; the search-style endpoints
     (``/api/teams/search``, ``/api/serviceaccounts/search``) wrap it, e.g.
-    ``{"teams": [...], "totalCount": N}``.
+    ``{"teams": [...], "totalCount": N}``, and ``/api/library-elements`` nests it one level deeper
+    (``{"result": {"elements": [...]}}``, addressed as ``result.elements``).
     """
     if data_key is not None:
-        if isinstance(data, dict) and isinstance(data.get(data_key), list):
-            return [item for item in data[data_key] if isinstance(item, dict)]
+        for key in data_key.split("."):
+            data = data.get(key) if isinstance(data, dict) else None
+        if isinstance(data, list):
+            return [item for item in data if isinstance(item, dict)]
         return []
     if isinstance(data, list):
         return [item for item in data if isinstance(item, dict)]
     return []
+
+
+def _permission_subject(row: dict[str, Any]) -> str:
+    if row.get("userId"):
+        return f"user:{row['userId']}"
+    if row.get("teamId"):
+        return f"team:{row['teamId']}"
+    if row.get("builtInRole"):
+        return f"role:{row['builtInRole']}"
+    return f"role:{row.get('roleName') or 'unknown'}"
+
+
+def _shape_resource_permissions(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Add the `subject` key column and drop rows that repeat a key within one resource.
+
+    A subject can repeat when Grafana appends its implicit Admin grant next to a managed one, or
+    when the same grant is inherited from more than one ancestor folder.
+    """
+    shaped: dict[tuple[str, bool, Any], dict[str, Any]] = {}
+    for row in rows:
+        subject = _permission_subject(row)
+        key = (subject, bool(row.get("isInherited")), row.get("permission"))
+        shaped.setdefault(key, {**row, "subject": subject, "isInherited": key[1]})
+    return list(shaped.values())
 
 
 def _permission_error_from_response(response: requests.Response) -> str:
@@ -348,7 +377,7 @@ def _check_host(host: str, team_id: int) -> None:
 
 
 def _make_fetch(session: requests.Session, headers: dict[str, str], logger: FilteringBoundLogger):
-    @retry(
+    @retry_with_deadline(
         retry=retry_if_exception_type((GrafanaRetryableError, requests.ReadTimeout, requests.ConnectionError)),
         stop=stop_after_attempt(MAX_RETRIES),
         wait=wait_exponential_jitter(initial=1, max=30),
@@ -458,7 +487,11 @@ def _probe_params(config: GrafanaEndpointConfig) -> dict[str, Any]:
 
 
 def _probe(
-    session: requests.Session, url: str, headers: dict[str, str], read_body: bool = False
+    session: requests.Session,
+    url: str,
+    headers: dict[str, str],
+    read_body: bool = False,
+    not_found_reason: str | None = None,
 ) -> tuple[str | None, Any]:
     """Return (reason the credentials can't reach `url`, parsed body when requested and reachable)."""
     # stream=True so a hostile host can't buffer an unbounded probe body; bodies are only read
@@ -468,6 +501,8 @@ def _probe(
             return "Your Grafana credentials are invalid or expired.", None
         if response.status_code == 403:
             return _permission_error_from_response(response), None
+        if response.status_code == 404 and not_found_reason is not None:
+            return not_found_reason, None
         if read_body and response.status_code == 200:
             try:
                 return None, _read_json_bounded(response)
@@ -499,7 +534,10 @@ def get_endpoint_permissions(
         try:
             if config.fan_out is None:
                 results[endpoint], _ = _probe(
-                    session, f"{base_url}{config.path}?{urlencode(_probe_params(config))}", headers
+                    session,
+                    f"{base_url}{config.path}?{urlencode(_probe_params(config))}",
+                    headers,
+                    not_found_reason=config.not_found_reason,
                 )
                 continue
             # A child needs its own permission (e.g. `dashboards:write` for versions), so probe it
@@ -539,14 +577,14 @@ def _get_paged_rows(
     pages_this_run = 0
     deadline = time.monotonic() + MAX_WALK_SECONDS
     while True:
-        params = {**config.params, config.page_size_param: DEFAULT_PAGE_SIZE, "page": page}
+        params = {**config.params, config.page_size_param: config.page_size, "page": page}
         data = fetch(f"{base_url}{config.path}?{urlencode(params)}")
         items = _extract_items(data, config.data_key)
 
         if items:
             yield items
 
-        if len(items) < DEFAULT_PAGE_SIZE:
+        if len(items) < config.page_size:
             break
 
         page += 1
@@ -677,6 +715,8 @@ def _get_child_rows(
 
         if config.pagination != "continue_token":
             items = _extract_items(data, config.data_key)
+            if config.resource_permissions:
+                items = _shape_resource_permissions(items)
             has_more = False
         elif isinstance(data, list):
             # Grafana releases before unified storage return a bare array and page by `start` offset.
@@ -716,7 +756,7 @@ def _get_fan_out_rows(
     # after each parent lets the next sync continue from there.
     budget = _WalkBudget(max_requests=MAX_PAGES_PER_RUN, deadline=time.monotonic() + MAX_WALK_SECONDS)
     while not budget.exhausted:
-        params = {**parent.params, parent.page_size_param: DEFAULT_PAGE_SIZE, "page": page}
+        params = {**parent.params, parent.page_size_param: parent.page_size, "page": page}
         budget.spend()
         parents = _extract_items(fetch(f"{base_url}{parent.path}?{urlencode(params)}"), parent.data_key)
 
@@ -736,7 +776,7 @@ def _get_fan_out_rows(
             resumable_source_manager.safe_point()
         if cut_short:
             break
-        if len(parents) < DEFAULT_PAGE_SIZE:
+        if len(parents) < parent.page_size:
             return
         page += 1
         start_index = 0

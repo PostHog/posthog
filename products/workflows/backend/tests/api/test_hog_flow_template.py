@@ -251,6 +251,7 @@ class TestHogFlowTemplateAPI(APIBaseTest):
     @parameterized.expand(
         [
             ("schedule", {"type": "schedule"}, 201),
+            ("cohort", {"type": "cohort", "cohort_id": 1, "transition": "entered"}, 201),
             (
                 "slack_message",
                 {
@@ -259,6 +260,20 @@ class TestHogFlowTemplateAPI(APIBaseTest):
                         "source": "internal-events",
                         "events": [{"id": "$slack_message_received", "type": "events"}],
                         "properties": [{"key": "bot_id", "operator": "is_set", "type": "event"}],
+                    },
+                },
+                201,
+            ),
+            (
+                "support_reply",
+                {
+                    "type": "internal-event",
+                    "filters": {
+                        "source": "internal-events",
+                        "events": [{"id": "$conversation_message_sent", "type": "events"}],
+                        "properties": [
+                            {"key": "customer_email_verified", "value": ["true"], "operator": "exact", "type": "event"}
+                        ],
                     },
                 },
                 201,

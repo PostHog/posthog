@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from types import SimpleNamespace
 
 from unittest.mock import MagicMock, patch
@@ -176,7 +177,10 @@ class TestCreateGroup(SimpleTestCase):
     @patch(_CONVERTER_PATCH)
     @patch(_CLIENT_PATCH)
     def test_builds_request_converts_response_and_writes_clickhouse(self, mock_get_client, mock_convert, mock_ch):
-        proto_group = _make_proto_group(id=42, team_id=self.team_id, group_key=self.group_key)
+        timestamp = datetime(2026, 1, 2, 3, 4, 5, 678000, tzinfo=UTC)
+        proto_group = _make_proto_group(
+            id=42, team_id=self.team_id, group_key=self.group_key, created_at=int(timestamp.timestamp() * 1000)
+        )
         mock_client = MagicMock()
         mock_client.create_group.return_value = MagicMock(group=proto_group)
         mock_get_client.return_value = mock_client
@@ -188,6 +192,7 @@ class TestCreateGroup(SimpleTestCase):
             group_type_index=self.group_type_index,
             group_key=self.group_key,
             properties=self.properties,
+            timestamp=timestamp,
         )
 
         assert result is fake_model

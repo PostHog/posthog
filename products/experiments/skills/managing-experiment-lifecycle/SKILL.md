@@ -214,10 +214,10 @@ Creating a new experiment and copying the metrics over produces a second feature
 `experiment-migrate` reuses the original flag, so the migrated experiment keeps its audience from the first minute.
 
 - **Preconditions**: the experiment must be legacy. A 400 says it is already on the new engine.
-- **What happens**: a new experiment is created with the same configuration and the metrics converted to the new format. The legacy one is left untouched and keeps its results, so the project ends up with two experiments on one feature flag.
+- **What happens**: a new experiment is created with the same configuration and the metrics converted to the new format. The legacy one is left untouched, so the project ends up with two experiments on one feature flag. Legacy experiments no longer show results, so migrating is the only way to get results for one.
 - **Legacy shared metrics**: converted in the same call. Each gets a new shared metric that the migrated experiment links to.
 - **Variants**: unchanged — the flag is shared, so users keep the variant they have.
-- **Analysis**: the migrated experiment reads the same exposures. Results are recomputed by the new engine, so numbers can differ from the legacy view.
+- **Analysis**: the migrated experiment reads the same exposures. Results are computed by the new engine, so numbers can differ from what the legacy view used to show.
 
 **Tell the user there will be two experiments before you call it**, and link both afterwards.
 Calling it again returns the experiment the first call created, so a retry is safe.
@@ -226,7 +226,7 @@ No request body.
 
 A legacy experiment also refuses most edits: `experiment-update` returns 400 for anything but name, description and end_date.
 Those three still work on the legacy experiment, so edit it directly and do not migrate for them.
-Migrate only when the user asks for it, or when a requested change touches a field the guard blocks, and then apply the change to the migrated experiment.
+Migrate only when the user asks for it, wants results for the experiment, or requests a change to a field the guard blocks. Apply that change to the migrated experiment.
 
 ## Decision framework
 

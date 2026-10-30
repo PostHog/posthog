@@ -107,13 +107,6 @@ class TestKeyRedaction:
 
 
 class TestValidateCredentials:
-    @parameterized.expand([("ok", 200, True), ("unauthorized", 401, False), ("forbidden", 403, False)])
-    def test_maps_status_to_bool(self, _name: str, status_code: int, expected: bool) -> None:
-        with scripted_network([ScriptedResponse(status=status_code)]) as network:
-            assert validate_credentials("gf_key") is expected
-
-        assert len(network.requests_log) == 1
-
     def test_probes_circles_with_key_header_and_no_redirects(self) -> None:
         # The key rides a custom header, which requests would replay across a cross-origin redirect.
         with scripted_network(

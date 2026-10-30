@@ -108,6 +108,8 @@ It affects every behavioral leaf: a matching event in the gap is missing from th
 
 For a disaster-recovery run the operator must pin `B`, at the point where live coverage restarted after the store loss.
 Without it the run waits in `awaiting_boundary`.
+That point is the `covered_since` instant of the `reconcile_withheld` markers the lost partitions produce, which the seeder also records in each withheld participation's error.
+The processor applies the same rule to every run: a partition whose history begins after a run's `B` withholds that run.
 
 ### Rule 2: tiles are absolute counts, merged with max
 
@@ -138,12 +140,16 @@ So every event in the tile that live will ever count is already counted, and `ma
 Without the fence, a tile could apply while an event it already counted is still waiting in the live topic.
 When that event arrived, live would add 1 on top of the tile and double count it.
 A shuffler stall longer than the margin can still cause that.
+This applies to both shufflers.
+When a run reads flag calls from `flag_evaluations`, a tile counts flag calls that reach the live path through `cohort-event-shuffler-realtime-only`.
+A stall of that shuffler alone opens the fence early in the same way.
 
 One residue remains.
 A late event that reaches ClickHouse after `S_chunk` is not in the tile.
 If live folds it before the tile applies, `max` takes the larger of two disjoint counts instead of their sum, so the day is under-counted.
 If live folds it after the tile applies, live adds it on top of the tile, which is correct.
 That is bounded to late arrivals on old days.
+The day before the boundary day is claimed first, so when `B` falls just after the team's midnight, its events still in ingestion reach ClickHouse after the scan.
 It can drop a person out of a `gte` or `gt` cohort, and wrongly keep one in an `lt`, `lte`, `eq` or negated one.
 
 ### Rule 4: person seeds are judged by time, with a margin
@@ -197,7 +203,7 @@ Downstream, the membership consumer also uses the full snapshot to find and dele
 [Membership output and readers](membership-output-and-readers.md) explains that sweep.
 
 A reconcile request carries the pinned shape hash of the run's kind.
-A processor whose catalog holds a different hash for that kind discards the request without a marker.
+A processor whose catalog holds a different hash for that kind withholds the request with a `reconcile_withheld` marker, after a catalog refresh that began after the request arrived.
 That hash is the processor's only check on the definition.
 The walk composes the cohort's current tree, so an edit that leaves this kind's hash alone does not stop it.
 The final guard against stamping a stale definition is Django's: supersession on edit, and the finalizer's hash and composition checks.
@@ -255,7 +261,7 @@ Every backfill gate is on, and the default timings apply: a 5-minute save deboun
    The seeder picks up R and sets `B` to 10:05:10.
    It plans one chunk per day from 2026-03-03 through 2026-03-09.
 4. **10:05:25, scan.**
-   Workers claim chunks oldest day first.
+   Workers claim chunks newest day first.
    The 2026-03-05 chunk is claimed at 10:05:25, so its `S_chunk` is 10:05:25.
    ClickHouse returns p-1's 4 pageviews, all of which arrived long ago.
    The seeder produces a tile: p-1, condition H, 2026-03-05, count 4.
@@ -299,5 +305,6 @@ A backlog, a failure or a slow catalog refresh makes it longer.
 - A chunk is confirmed when Kafka acknowledges its seeds, not when the processor applies them.
   So reconcile is dispatched long before most seeds apply, and the ordering on each partition is what keeps a reconcile behind its run's held seeds.
 - Reconcile requests are not fenced.
-  A request that reaches a partition before the processor has loaded the cohort's current definition is discarded without a marker, and the run ends with a retryable shortfall.
-- Every chunk of every run is claimed oldest day first, so a small new cohort's recent days wait behind a large team run's older days.
+  A request that reaches a partition before the processor has loaded the cohort's current definition waits for the next catalog refresh, up to one refresh interval, and is withheld only if that refresh still disagrees.
+- Behavioral chunks are claimed newest day first across every run, so the older days of a long-window run wait behind the newer days of every other run.
+  They are claimed only once no newer day waits, so under sustained load the wait has no bound.

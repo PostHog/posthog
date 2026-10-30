@@ -9,10 +9,8 @@ fails an asset.
 """
 
 import datetime
-from collections.abc import Collection, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from typing import Any
-
-import dagster
 
 from posthog import settings
 from posthog.cloud_utils import is_cloud
@@ -20,25 +18,28 @@ from posthog.dataclasses import frozen
 from posthog.ph_client import get_client
 
 from products.signals.backend.ranking.serving_manifest import ServingManifest
-from products.signals.dags.inbox_ranking.common import snapshot_bounds
-from products.signals.dags.inbox_ranking.training.examples import ConsentExclusion
-from products.signals.dags.inbox_ranking.training.promotion import PromotionDecision, PromotionOutcome
+from products.signals.dags.inbox_ranking.common import RunContext, snapshot_bounds
+from products.signals.dags.inbox_ranking.training.families import PAIR_GRAIN
+from products.signals.dags.inbox_ranking.training.promotion import PromotionDecision
 from products.signals.dags.inbox_ranking.training.unseen import CANDIDATE_ROLE, HeadGrade
 
 # Not a person: one fixed id for the whole dag, and no person profile is created for it. Local dev
 # runs get their own id so they never blend into the prod series.
 DISTINCT_ID = "inbox_ranking_training"
-LOCAL_DISTINCT_ID = "inbox_ranking_training_local"
+LOCAL_SUFFIX = "_local"
+LOCAL_DISTINCT_ID = f"{DISTINCT_ID}{LOCAL_SUFFIX}"
 LOCAL_ENVIRONMENT = "local"
 CANDIDATE_TRAINED_EVENT = "inbox_ranking_candidate_trained"
-EXAMPLES_BUILT_EVENT = "inbox_ranking_examples_built"
 PROMOTION_DECIDED_EVENT = "inbox_ranking_promotion_decided"
+MODEL_PROMOTED_EVENT = "inbox_ranking_model_promoted"
 UNSEEN_HEAD_GRADED_EVENT = "inbox_ranking_unseen_head_graded"
 UNSEEN_HEAD_EVALUATED_EVENT = "inbox_ranking_unseen_head_evaluated"
 UNSEEN_REPORT_GRADED_EVENT = "inbox_ranking_unseen_report_graded"
 UNSEEN_CALIBRATION_EVENT = "inbox_ranking_unseen_calibration"
 HOLDOUT_CALIBRATION_EVENT = "inbox_ranking_holdout_calibration"
 SERVING_MANIFEST_PUBLISHED_EVENT = "inbox_ranking_serving_manifest_published"
+EXPERIMENT_COMPARED_EVENT = "inbox_ranking_experiment_compared"
+ENGAGEMENT_EXPORT_PUBLISHED_EVENT = "inbox_ranking_engagement_export_published"
 
 # Candidate metadata copied onto every per-head event so a chart can filter or break down on it.
 _CANDIDATE_CONTEXT_KEYS = (
@@ -49,6 +50,7 @@ _CANDIDATE_CONTEXT_KEYS = (
     "feature_schema_version",
     "lookback_days",
     "holdout_days",
+    "recipe_hash",
 )
 # Object names inside the models prefix; meaningless on a chart.
 _HEAD_FILE_KEYS = ("file", "holdout_file")
@@ -61,17 +63,16 @@ class TrainingEvent:
 
 
 @frozen
-class HeadExampleCounts:
-    rows: int
-    positives: int
-    # Of the positives, how many sit on their report's birth day: most outcomes land there, so a
-    # drop in this share is the first sign the birth-day rule stopped keeping them.
-    birth_day_positives: int
-    # The earliest report-creation day the head kept, and whether the row budget dropped older days,
-    # so a chart shows when the budget starts to cut history.
-    example_window_start: datetime.date | None
-    example_cap_bound: bool
-    pairs_skipped_missing_label_columns: int
+class MirrorPublication:
+    """What one serving publish did in the mirror store."""
+
+    published: bool
+    # The mirror region's own project vectors day that the mirror manifest names, or None.
+    project_vectors_key: str | None = None
+    project_vectors_date: str | None = None
+    engagement_export_date: str | None = None
+    # Why the mirror keeps its previous manifest, or None when it published.
+    skip_reason: str | None = None
 
 
 def candidate_events(metadata: Mapping[str, Any]) -> list[TrainingEvent]:
@@ -102,66 +103,24 @@ def candidate_events(metadata: Mapping[str, Any]) -> list[TrainingEvent]:
     return [*trained, *skipped]
 
 
-def examples_events(
-    *,
-    partition_key: str,
-    run_id: str,
-    feature_set: str,
-    snapshots: int,
-    backfilled_rows: int,
-    excluded: ConsentExclusion,
-    per_head: Mapping[str, HeadExampleCounts],
-) -> list[TrainingEvent]:
-    """One event per head with its example and positive counts; the run-level counts repeat on each.
-
-    Examples are per feature set, not per model family: every family on a set trains on one
-    Parquet, so `feature_set` is the dimension that separates two of these series.
-    """
-    return [
-        TrainingEvent(
-            event=EXAMPLES_BUILT_EVENT,
-            properties={
-                "model_version": partition_key,
-                "feature_set": feature_set,
-                "run_id": run_id,
-                "snapshots": snapshots,
-                "backfilled_state_rows_excluded": backfilled_rows,
-                "excluded_no_training_consent_reports": excluded.reports,
-                "excluded_no_training_consent_teams": excluded.teams,
-                "head": head,
-                "rows": counts.rows,
-                "positives": counts.positives,
-                "birth_day_positives": counts.birth_day_positives,
-                "example_window_start": counts.example_window_start.isoformat()
-                if counts.example_window_start
-                else None,
-                "example_cap_bound": counts.example_cap_bound,
-                "pairs_skipped_missing_label_columns": counts.pairs_skipped_missing_label_columns,
-            },
-        )
-        for head, counts in per_head.items()
-    ]
-
-
 def promotion_event(
     *,
     partition_key: str,
     run_id: str,
     model_name: str,
     decision: PromotionDecision,
-    outcome: PromotionOutcome,
-    promoted: bool,
-    champion_version: str,
     incumbent_champion_version: str,
     champion_aucs: Mapping[str, float],
     champion_eces: Mapping[str, float],
-    skipped_gates: Collection[str] = (),
+    recipe_hash: str | None = None,
+    incumbent_recipe_hash: str | None = None,
 ) -> TrainingEvent:
-    """`champion_aucs` and `champion_eces` were scored by the incumbent on this candidate's holdout; after a promotion
-    `champion_version` is the candidate, so the incumbent is carried separately. Every version here
-    belongs to `model_name`: promotion compares a candidate to the champion of its own family.
+    """`champion_aucs` and `champion_eces` were scored by the incumbent on this candidate's holdout.
+    The incumbent is the served model when it has `model_name`, else `none`.
 
-    `reason` is always the rule's reason, so a forced promotion still records why the rule refused it."""
+    Training never moves the served pointer, so `promoted` is always false. A person promotes
+    through `inbox_ranking_promote_job`, which captures `MODEL_PROMOTED_EVENT`.
+    The two recipe hashes are None for a version written before the hash existed."""
     return TrainingEvent(
         event=PROMOTION_DECIDED_EVENT,
         properties={
@@ -170,16 +129,90 @@ def promotion_event(
             "run_id": run_id,
             "would_promote": decision.promote,
             "gates_passed": decision.gates_passed,
-            "promoted": promoted,
+            "promoted": False,
             "reason": decision.reason,
-            "override": outcome.override,
-            "override_skipped_gates": sorted(skipped_gates),
             "skipped_heads": list(decision.skipped_heads),
-            "champion_version": champion_version,
+            "champion_version": incumbent_champion_version,
             "incumbent_champion_version": incumbent_champion_version,
+            "recipe_hash": recipe_hash,
+            "incumbent_recipe_hash": incumbent_recipe_hash,
             **{f"champion_{head}_auc_on_this_holdout": auc for head, auc in champion_aucs.items()},
             **{f"champion_{head}_ece_on_this_holdout": ece for head, ece in champion_eces.items()},
         },
+    )
+
+
+_DELTA_KEYS = ("paired_seeds", "mean_delta_auc", "min_delta_auc", "max_delta_auc", "wins")
+
+
+def _pair_comparison_events(block: Mapping[str, Any], context: Mapping[str, Any]) -> list[TrainingEvent]:
+    """One event per head, scope and slice of a pair experiment's `vs_baseline` block, so a chart
+    filters to one slice (such as `non_dogfood` users with 10 or more prior views) and reads its
+    within-user deltas against the baseline and the reference."""
+    events: list[TrainingEvent] = []
+    for head, grade in (block.get("heads") or {}).items():
+        for scope, slices in (grade.get("scopes") or {}).items():
+            for slice_name, cell in slices.items():
+                properties: dict[str, Any] = {
+                    **context,
+                    "grain": block.get("grain"),
+                    "baseline_model_name": block.get("baseline"),
+                    "reference_model_name": block.get("reference"),
+                    "seeds": len(block.get("seeds", [])),
+                    "head": head,
+                    **{key: grade.get(key) for key in ("train_rows", "holdout_rows", "holdout_positives")},
+                    "scope": scope,
+                    "slice": slice_name,
+                    **{f"slice_{key}": cell.get(key) for key in ("rows", "positives", "users", "teams")},
+                }
+                for comparison in ("vs_baseline", "vs_reference"):
+                    deltas = cell.get(comparison) or {}
+                    for read in ("macro", "pooled"):
+                        properties |= {
+                            f"{comparison}_within_user_{read}_{key}": (deltas.get(read) or {}).get(key)
+                            for key in _DELTA_KEYS
+                        }
+                    interval = deltas.get("macro_team_interval") or {}
+                    properties |= {
+                        f"{comparison}_within_user_macro_interval_{key}": interval.get(key)
+                        for key in ("low", "high", "teams")
+                    }
+                events.append(TrainingEvent(event=EXPERIMENT_COMPARED_EVENT, properties=properties))
+    return events
+
+
+def experiment_comparison_events(metadata: Mapping[str, Any]) -> list[TrainingEvent]:
+    """One event per head of an experiment candidate's `vs_baseline` block. The per-seed AUC lists
+    stay in `metadata.json`: an insight cannot chart a JSON array, so the event carries the gaps.
+    A pair experiment's block gives one event per head, scope and slice instead."""
+    block = metadata.get("vs_baseline") or {}
+    context = {key: metadata.get(key) for key in ("model_name", "model_version", "run_id", "recipe_hash")}
+    if block.get("grain") == PAIR_GRAIN:
+        return _pair_comparison_events(block, context)
+    return [
+        TrainingEvent(
+            event=EXPERIMENT_COMPARED_EVENT,
+            properties={
+                **context,
+                "baseline_model_name": block.get("baseline"),
+                "seeds": len(block.get("seeds", [])),
+                "head": head,
+                **{key: grade.get(key) for key in ("train_rows", "holdout_rows", "holdout_positives")},
+                **{
+                    f"{read}_{key}": (grade.get(read) or {}).get(key)
+                    for read in ("within_team", "pooled")
+                    for key in ("paired_seeds", "mean_delta_auc", "min_delta_auc", "max_delta_auc", "wins")
+                },
+            },
+        )
+        for head, grade in (block.get("heads") or {}).items()
+    ]
+
+
+def model_promoted_event(*, model_key: str, previous_key: str | None, reason: str, run_id: str) -> TrainingEvent:
+    return TrainingEvent(
+        event=MODEL_PROMOTED_EVENT,
+        properties={"model_key": model_key, "previous_key": previous_key, "reason": reason, "run_id": run_id},
     )
 
 
@@ -193,11 +226,13 @@ def serving_manifest_event(
     copied_keys: Sequence[str] = (),
     present_keys: Sequence[str] = (),
     bytes_copied: int = 0,
-    mirror_published: bool | None = None,
+    mirror: MirrorPublication | None = None,
+    recipe_hashes: Mapping[str, str | None] | None = None,
 ) -> TrainingEvent:
     """What the day's manifest published. A run that wrote nothing still reports, with `reason`:
     the manifest is what makes the sweep serve anything, so a silent gap in this series would read
-    the same as a day of ordinary publishing."""
+    the same as a day of ordinary publishing. `recipe_hashes` maps a model key to the `recipe_hash`
+    of its `metadata.json`."""
     properties: dict[str, object] = {
         "model_version": partition_key,
         "run_id": run_id,
@@ -214,10 +249,45 @@ def serving_manifest_event(
             "served_key": manifest.served.key,
             "model_keys": [entry.key for entry in manifest.models],
             "model_roles": {entry.key: entry.roles for entry in manifest.models},
+            "model_recipe_hashes": {entry.key: (recipe_hashes or {}).get(entry.key) for entry in manifest.models},
+            "user_vectors_key": manifest.user_vectors,
         }
-    if mirror_published is not None:
-        properties["mirror_published"] = mirror_published
+    if mirror is not None:
+        properties |= {
+            "mirror_published": mirror.published,
+            "mirror_project_vectors_key": mirror.project_vectors_key,
+            "mirror_project_vectors_date": mirror.project_vectors_date,
+            "mirror_engagement_export_date": mirror.engagement_export_date,
+        }
+        if mirror.skip_reason is not None:
+            properties["mirror_skip_reason"] = mirror.skip_reason
     return TrainingEvent(event=SERVING_MANIFEST_PUBLISHED_EVENT, properties=properties)
+
+
+def engagement_export_event(
+    *,
+    written: bool,
+    skip_reason: str | None,
+    rows: int,
+    excluded_rows: int,
+    local_share: float | None,
+    bytes_written: int,
+    schema_version: int,
+) -> TrainingEvent:
+    """What the day's engagement export sent to the mirror store. It carries counts only, never a
+    report id or a team id."""
+    return TrainingEvent(
+        event=ENGAGEMENT_EXPORT_PUBLISHED_EVENT,
+        properties={
+            "written": written,
+            "skip_reason": skip_reason,
+            "rows": rows,
+            "excluded_rows": excluded_rows,
+            "local_share": local_share,
+            "bytes": bytes_written,
+            "schema_version": schema_version,
+        },
+    )
 
 
 def unseen_head_graded_events(*, run_id: str, grades: Sequence[HeadGrade]) -> list[TrainingEvent]:
@@ -311,16 +381,24 @@ def capture_allowed() -> bool:
 
 
 def capture_training_events(
-    context: dagster.AssetExecutionContext, partition_key: str, events: list[TrainingEvent]
+    context: RunContext,
+    partition_key: str,
+    events: list[TrainingEvent],
+    *,
+    timestamp: datetime.datetime | None = None,
+    distinct_id: str = DISTINCT_ID,
 ) -> None:
     """Best-effort: a failed capture is logged, never raised, so telemetry cannot fail a training
     run. Local runs are marked twice, by `environment` and by their own distinct id, so a chart
-    that forgets to filter still shows them as a separate series."""
+    that forgets to filter still shows them as a separate series. `timestamp` defaults to the
+    partition's midday; an event about a person's action passes the moment it happened. Another
+    pipeline of this dag passes its own fixed `distinct_id`."""
     if not capture_allowed():
         return
     environment = settings.CLOUD_DEPLOYMENT or LOCAL_ENVIRONMENT
-    distinct_id = DISTINCT_ID if environment != LOCAL_ENVIRONMENT else LOCAL_DISTINCT_ID
-    timestamp = event_timestamp(partition_key)
+    if environment == LOCAL_ENVIRONMENT:
+        distinct_id = f"{distinct_id}{LOCAL_SUFFIX}"
+    timestamp = timestamp or event_timestamp(partition_key)
     base = {"$process_person_profile": False, "partition": partition_key, "environment": environment}
     # A fresh client per call, flushed on shutdown, for the same reason `ph_scoped_capture` builds
     # one: the step process exits right after the asset, before a shared client's background

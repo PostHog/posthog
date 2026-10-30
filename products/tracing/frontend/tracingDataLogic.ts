@@ -50,7 +50,7 @@ import {
     visibleDurationRange,
 } from './durationBuckets'
 import { type HeatmapBrushSelection, heatmapBrushToFilters } from './heatmapBrush'
-import { traceLookupDateRange } from './traceLinks'
+import { resolveTraceLookupRange } from './traceLinks'
 import { traceRows } from './traceRows'
 import {
     type TracingFilters,
@@ -96,19 +96,17 @@ const DEFAULT_PAGE_SIZE = 100
 const OPERATIONS_AGGREGATION_LIMIT = 5000
 export const PREFETCH_SPANS = 20
 
-// A ts hint (from a shared/cold link) bounds the lookup tightly around the trace. Without one, the
-// lookup sends no date range, so the backend finds the trace by id in all retained spans instead of
-// only in the scene's current window. Guard validity: a hand-edited/corrupted ts would otherwise make
-// dayjs throw on toISOString().
-function resolveTraceLookupRange(ts: string | null | undefined): { date_from: string; date_to: string } | undefined {
-    return ts && dayjs(ts).isValid() ? traceLookupDateRange(ts) : undefined
-}
-
 function captureTracingResults(count: number, queryType: 'spans' | 'aggregation'): void {
     if (count === 0) {
         posthog.capture('tracing no results returned', { query_type: queryType })
     } else {
         posthog.capture('tracing results returned', { count, query_type: queryType })
+        // $set_once keeps the first value, so one send per browser is enough for survey targeting.
+        const stampKey = `ph_first_used_tracing_stamp_${posthog.get_distinct_id()}`
+        if (!localStorage.getItem(stampKey)) {
+            posthog.setPersonProperties(undefined, { first_used_tracing_at: new Date().toISOString() })
+            localStorage.setItem(stampKey, Date.now().toString())
+        }
     }
 }
 
@@ -310,9 +308,11 @@ export interface tracingDataLogicActions {
     fetchAggregation: (
         options?: {
             fullRange?: boolean
+            groupByEndpoint?: boolean
         } | null
     ) => {
         fullRange?: boolean
+        groupByEndpoint?: boolean
     } | null
     fetchAggregationFailure: (
         error: string,
@@ -328,6 +328,7 @@ export interface tracingDataLogicActions {
         },
         payload?: {
             fullRange?: boolean
+            groupByEndpoint?: boolean
         } | null
     ) => {
         aggregation: {
@@ -336,6 +337,7 @@ export interface tracingDataLogicActions {
         }
         payload?: {
             fullRange?: boolean
+            groupByEndpoint?: boolean
         } | null
     }
     fetchDurationHistogram: () => any
@@ -1124,11 +1126,12 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                 // `fullRange` (the Operations tab) ignores any active comparison: the aggregate
                 // covers the whole selected range with no compare period, matching the rate
                 // denominator the OperationsTable divides by.
-                fetchAggregation: async (options?: { fullRange?: boolean } | null) => {
+                fetchAggregation: async (options?: { fullRange?: boolean; groupByEndpoint?: boolean } | null) => {
                     const controller = new AbortController()
                     actions.cancelInProgressAggregation(controller)
 
                     const fullRange = options?.fullRange ?? false
+                    const groupByEndpoint = options?.groupByEndpoint || undefined
                     const currentWindow = fullRange ? values.sparklineWindowMs : values.currentWindowMs
                     const compare = !fullRange && values.timeComparison !== null
 
@@ -1169,6 +1172,8 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                             // Only the Operations table renders the Sessions and Users columns, and
                             // the aggregates read attribute maps the rest of the query never touches.
                             includeImpact: fullRange && !!values.featureFlags[FEATURE_FLAGS.TRACING_IMPACT_STRIP],
+                            groupByEndpoint,
+                            includeHealth: groupByEndpoint,
                         },
                         controller.signal
                     )

@@ -1,5 +1,5 @@
 import time
-from typing import NotRequired, TypedDict
+from typing import NotRequired, TypedDict, cast
 
 from django.core.management.base import BaseCommand
 from django.core.paginator import Paginator
@@ -200,7 +200,8 @@ class Command(BaseCommand):
 
                 # A single destination with uncompilable (e.g. hand-edited) hog must not abort the whole run.
                 try:
-                    new_bytecode = compile_hog(new_hog, destination.type)
+                    # The queryset filters on type="destination", so the type is set.
+                    new_bytecode = compile_hog(new_hog, cast(str, destination.type))
                 except Exception as e:
                     failed.append((str(destination.id), destination.team_id, destination.enabled, str(e)))
                     continue

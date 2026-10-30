@@ -29,18 +29,39 @@ def _response(embedded_key: str, items: list[dict[str, Any]], next_url: str | No
 
 
 class TestPagination:
-    def test_paginates_via_hal_next_link(self) -> None:
-        next_url = "https://api.mollie.com/v2/payments?from=tr_next&limit=250"
+    @pytest.mark.parametrize(
+        "endpoint, path, partition_field, partition_value",
+        [
+            ("payments", "payments", "createdAt", "2025-03-01T10:00:00+00:00"),
+            ("payouts", "payouts", "createdAt", "2026-05-04T08:30:00+00:00"),
+            # Invoices carry only date fields, no createdAt.
+            ("invoices", "invoices", "issuedAt", "2025-02-01"),
+        ],
+    )
+    def test_paginates_via_hal_next_link(
+        self, endpoint: str, path: str, partition_field: str, partition_value: str
+    ) -> None:
+        next_url = f"https://api.mollie.com/v2/{path}?from=obj_next&limit=250"
         result = _driver().run(
-            "payments",
+            endpoint,
             [
-                _response("payments", [{"id": "tr_1"}, {"id": "tr_2"}], next_url=next_url),
-                _response("payments", [{"id": "tr_3"}]),
+                _response(
+                    endpoint,
+                    [
+                        {"id": "obj_1", partition_field: partition_value},
+                        {"id": "obj_2", partition_field: partition_value},
+                    ],
+                    next_url=next_url,
+                ),
+                _response(endpoint, [{"id": "obj_3", partition_field: partition_value}]),
             ],
         )
 
         assert result.raised is None
-        assert [row["id"] for row in result.rows] == ["tr_1", "tr_2", "tr_3"]
+        assert [row["id"] for row in result.rows] == ["obj_1", "obj_2", "obj_3"]
+        assert result.paths[0] == f"/v2/{path}"
+        assert result.response is not None
+        assert all(row[key] for row in result.rows for key in result.response.partition_keys or [])
         # The next link is self-contained — the second request targets it directly.
         assert result.urls[1] == next_url
         # Checkpoint saved once after the first page (points at the next link); the short
@@ -68,34 +89,85 @@ class TestPagination:
         assert result.rows == []
 
 
+# Each payment carries amountCaptured, so the captures fan-out keeps every parent.
+_CAPTURABLE = {"amountCaptured": {"currency": "EUR", "value": "10.00"}}
+
+
 class TestFanOut:
-    def test_mandates_walk_every_customer_and_carry_customer_id(self) -> None:
-        child_next = "https://api.mollie.com/v2/customers/cst_1/mandates?from=mdt_2&limit=250"
+    @pytest.mark.parametrize(
+        "endpoint, parent_key, child_key, parent_id_column, parent_path, child_suffix, parent_extra",
+        [
+            ("mandates", "customers", "mandates", "customerId", "customers", "mandates", {}),
+            ("captures", "payments", "captures", "paymentId", "payments", "captures", _CAPTURABLE),
+            ("settlement_payments", "settlements", "payments", "settlementId", "settlements", "payments", {}),
+        ],
+    )
+    def test_walks_every_parent_and_carries_parent_id(
+        self,
+        endpoint: str,
+        parent_key: str,
+        child_key: str,
+        parent_id_column: str,
+        parent_path: str,
+        child_suffix: str,
+        parent_extra: dict[str, Any],
+    ) -> None:
+        child_next = f"https://api.mollie.com/v2/{parent_path}/p_1/{child_suffix}?from=c_2&limit=250"
         result = _driver().run(
-            "mandates",
+            endpoint,
             [
-                _response("customers", [{"id": "cst_1"}, {"id": "cst_2"}]),
-                _response("mandates", [{"id": "mdt_1"}], next_url=child_next),
-                _response("mandates", [{"id": "mdt_2"}]),
-                _response("mandates", [{"id": "mdt_3"}]),
+                _response(parent_key, [{"id": "p_1", **parent_extra}, {"id": "p_2", **parent_extra}]),
+                _response(child_key, [{"id": "c_1"}], next_url=child_next),
+                _response(child_key, [{"id": "c_2"}]),
+                _response(child_key, [{"id": "c_3"}]),
             ],
         )
 
         assert result.raised is None
-        assert [(r["customerId"], r["id"]) for r in result.rows] == [
-            ("cst_1", "mdt_1"),
-            ("cst_1", "mdt_2"),
-            ("cst_2", "mdt_3"),
+        assert [(r[parent_id_column], r["id"]) for r in result.rows] == [
+            ("p_1", "c_1"),
+            ("p_1", "c_2"),
+            ("p_2", "c_3"),
         ]
-        assert all("_customers_id" not in r for r in result.rows)
+        assert all(f"_{parent_key}_id" not in r for r in result.rows)
         assert result.response is not None
-        assert result.response.primary_keys == ["customerId", "id"]
-        assert result.paths[1] == "/v2/customers/cst_1/mandates"
+        assert result.response.primary_keys == [parent_id_column, "id"]
+        assert result.paths[1] == f"/v2/{parent_path}/p_1/{child_suffix}"
         assert result.urls[2] == child_next
-        assert result.paths[3] == "/v2/customers/cst_2/mandates"
+        assert result.paths[3] == f"/v2/{parent_path}/p_2/{child_suffix}"
         last_state = result.saved_states[-1]
         assert last_state.next_url is None
-        assert last_state.fanout_state["completed"] == ["/customers/cst_1/mandates", "/customers/cst_2/mandates"]
+        assert last_state.fanout_state["completed"] == [
+            f"/{parent_path}/p_1/{child_suffix}",
+            f"/{parent_path}/p_2/{child_suffix}",
+        ]
+
+    @pytest.mark.parametrize(
+        "payments, expected_paths",
+        [
+            # Payments whose method does not support captures carry no amountCaptured.
+            (
+                [{"id": "tr_1"}, {"id": "tr_2", **_CAPTURABLE}, {"id": "tr_3", "amountCaptured": None}],
+                ["/v2/payments", "/v2/payments/tr_2/captures"],
+            ),
+            # A zero amountCaptured still means the payment supports captures, which can be pending.
+            (
+                [{"id": "tr_1", "amountCaptured": {"currency": "EUR", "value": "0.00"}}],
+                ["/v2/payments", "/v2/payments/tr_1/captures"],
+            ),
+            ([{"id": "tr_1"}, {"id": "tr_2"}], ["/v2/payments"]),
+        ],
+    )
+    def test_captures_skip_payments_without_capture_support(
+        self, payments: list[dict[str, Any]], expected_paths: list[str]
+    ) -> None:
+        responses = [_response("payments", payments)]
+        responses += [_response("captures", [{"id": f"cpt_{i}"}]) for i in range(len(expected_paths) - 1)]
+        result = _driver().run("captures", responses)
+
+        assert result.raised is None
+        assert result.paths == expected_paths
+        assert len(result.rows) == len(expected_paths) - 1
 
     def test_resume_skips_balances_already_finished(self) -> None:
         result = _driver().run(

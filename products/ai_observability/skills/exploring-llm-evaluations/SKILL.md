@@ -101,14 +101,34 @@ For evaluations that don't support N/A, this property may be `null` — treat nu
 For boolean evaluations, `output_config.true_is_failure: false` maps `true` to pass and `false` to fail.
 Set it to `true` for detector-style evaluations where `true` means the evaluator found a problem.
 
+### The fail predicate
+
+Events store the raw result, not pass or fail. PostHog applies the evaluation's current `output_type` and
+`output_config` when it reads them. Build `<fail predicate>` from the config that `llma-evaluation-get`
+returns, and use it wherever the queries below filter for fails:
+
+| Evaluation                                       | `<fail predicate>`                                                    |
+| ------------------------------------------------ | --------------------------------------------------------------------- |
+| `boolean`, `true_is_failure` false or unset      | `properties.$ai_evaluation_result = 'false'`                          |
+| `boolean`, `true_is_failure: true` (detector)    | `properties.$ai_evaluation_result = 'true'`                           |
+| `numeric`, `passing_rule` `gte` threshold `T`    | `toFloat(properties.$ai_evaluation_numeric_result) < T`               |
+| `numeric`, `passing_rule` `lte` threshold `T`    | `toFloat(properties.$ai_evaluation_numeric_result) > T`               |
+| `categorical`, `passing_rule.categories` `[a,b]` | `NOT (notEmpty(<cats>) AND hasAll(['a', 'b'], <cats>))`               |
+| `categorical`, `passing_rule.categories` `[]`    | `notEmpty(<cats>)`                                                    |
+| `numeric` or `categorical` with no passing rule  | None. Read the score or categories directly, there is no pass or fail |
+
+`<cats>` is `JSONExtract(ifNull(properties.$ai_evaluation_categorical_result, '[]'), 'Array(String)')`.
+Always add `(isNull(properties.$ai_evaluation_skipped) OR properties.$ai_evaluation_skipped != 'true')`, because a skipped run can still store
+`result = false`. Compare these properties to the strings `'true'` and `'false'`: a project without Boolean
+property definitions reads them as strings, and a comparison to a bare `true` or `false` then fails.
+
 ## Workflow: investigate why an evaluation is failing
 
-Works the same way for boolean `llm_judge` and `hog` evaluations — the differences
+Works the same way for `llm_judge` and `hog` evaluations — the differences
 only matter when you eventually go to fix the evaluator (edit the prompt vs. edit
 the Hog source). Sentiment evaluations should be inspected by sentiment label and
 score rather than pass/fail filters.
-The SQL pass/fail examples below use boolean results.
-For numeric and categorical evaluations, read their result property and current passing rule instead of `$ai_evaluation_result`.
+The queries below take the evaluation's `<fail predicate>` from the table above.
 
 ### Step 1 — Find the evaluation
 
@@ -130,20 +150,13 @@ before assuming the failure is in the generation.
 ```sql
 posthog:execute-sql
 SELECT
-    countIf(properties.$ai_evaluation_applicable = false) AS na_count,
-    countIf(
-        (properties.$ai_evaluation_applicable IS NULL
-            OR properties.$ai_evaluation_applicable != false)
-        AND properties.$ai_evaluation_result = true
-    ) AS pass_count,
-    countIf(
-        (properties.$ai_evaluation_applicable IS NULL
-            OR properties.$ai_evaluation_applicable != false)
-        AND properties.$ai_evaluation_result = false
-    ) AS fail_count
+    countIf(properties.$ai_evaluation_applicable = 'false') AS na_count,
+    countIf((isNull(properties.$ai_evaluation_applicable) OR properties.$ai_evaluation_applicable != 'false') AND NOT (<fail predicate>)) AS pass_count,
+    countIf((isNull(properties.$ai_evaluation_applicable) OR properties.$ai_evaluation_applicable != 'false') AND (<fail predicate>)) AS fail_count
 FROM events
 WHERE event = '$ai_evaluation'
     AND properties.$ai_evaluation_id = '<evaluation_uuid>'
+    AND (isNull(properties.$ai_evaluation_skipped) OR properties.$ai_evaluation_skipped != 'true')
     AND timestamp >= now() - INTERVAL 7 DAY
 ```
 
@@ -166,11 +179,9 @@ SELECT
 FROM events
 WHERE event = '$ai_evaluation'
     AND properties.$ai_evaluation_id = '<evaluation_uuid>'
-    AND properties.$ai_evaluation_result = false
-    AND (
-        properties.$ai_evaluation_applicable IS NULL
-        OR properties.$ai_evaluation_applicable != false
-    )
+    AND (<fail predicate>)
+    AND (isNull(properties.$ai_evaluation_applicable) OR properties.$ai_evaluation_applicable != 'false')
+    AND (isNull(properties.$ai_evaluation_skipped) OR properties.$ai_evaluation_skipped != 'true')
     AND timestamp >= now() - INTERVAL 7 DAY
 ORDER BY timestamp DESC
 LIMIT 25
@@ -344,7 +355,9 @@ identical.
    FROM events
    WHERE event = '$ai_evaluation'
        AND properties.$ai_evaluation_id = '<uuid>'
-       AND properties.$ai_evaluation_result = false
+       AND (<fail predicate>)
+       AND (isNull(properties.$ai_evaluation_applicable) OR properties.$ai_evaluation_applicable != 'false')
+       AND (isNull(properties.$ai_evaluation_skipped) OR properties.$ai_evaluation_skipped != 'true')
        AND timestamp >= now() - INTERVAL 30 DAY
    GROUP BY day
    ORDER BY day
@@ -354,8 +367,8 @@ identical.
 
 ### "Are passes and fails caused by the same root content?"
 
-1. Pull two samples with the Step 3 query, flipping `$ai_evaluation_result` between
-   `true` and `false`
+1. Pull two samples with the Step 3 query, once with `<fail predicate>` and once with
+   `NOT (<fail predicate>)`
 2. If the passing and failing runs describe similar content:
    - For an `llm_judge`: the prompt or rubric is probably ambiguous — reword
      `evaluation_config.prompt` and use `llma-evaluation-update`
@@ -390,7 +403,7 @@ SELECT
 FROM events
 WHERE event = '$ai_evaluation'
     AND properties.$ai_evaluation_id = '<evaluation_uuid>'
-    AND properties.$ai_evaluation_applicable = false
+    AND properties.$ai_evaluation_applicable = 'false'
     AND timestamp >= now() - INTERVAL 7 DAY
 ORDER BY timestamp DESC
 LIMIT 25

@@ -32,6 +32,10 @@ from posthog.settings import (
 )
 
 from products.access_control.backend.facade.testing import add_role_member, create_role
+from products.error_tracking.backend.facade import (
+    contracts,
+    summaries as summaries_facade,
+)
 from products.error_tracking.backend.models import (
     ErrorTrackingAlert,
     ErrorTrackingAlertThread,
@@ -607,6 +611,83 @@ class TestErrorTracking(APIBaseTest):
         )
 
         assert response.status_code == 404
+
+    @parameterized.expand(
+        [
+            ("read_none_started", "get", "", False, True, "generating"),
+            ("read_none_blocked", "get", "", False, False, "unavailable"),
+            ("read_stale_refreshes", "get", "", True, True, "ready"),
+            ("read_fresh", "get", "", True, False, "ready"),
+            ("regenerate_started", "post", "/regenerate", True, True, "generating"),
+            ("regenerate_fresh", "post", "/regenerate", True, False, "ready"),
+            ("regenerate_blocked", "post", "/regenerate", False, False, "unavailable"),
+        ]
+    )
+    def test_issue_summary_status(
+        self, _name: str, method: str, suffix: str, stored: bool, started: bool, expected_status: str
+    ) -> None:
+        issue = self.create_issue()
+        summary = contracts.ErrorTrackingIssueSummary(
+            issue_id=issue.id,
+            what_happened="A TypeError in checkout.",
+            likely_cause="",
+            who_is_affected="Signed-in users on Safari.",
+            suggested_next_step="Guard the null cart.",
+            category=contracts.IssueSummaryCategory.OWN_CODE,
+            model="gpt-4.1-mini",
+            generated_at=datetime(2026, 10, 20, 12, 0, tzinfo=UTC),
+            checked_at=datetime(2026, 10, 21, 12, 0, tzinfo=UTC),
+        )
+        with (
+            patch.object(summaries_facade, "get_issue_summary", return_value=summary if stored else None) as get,
+            patch.object(summaries_facade, "start_issue_summary_generation", return_value=started) as start,
+        ):
+            response = getattr(self.client, method)(
+                f"/api/projects/{self.team.id}/error_tracking/issues/{issue.id}/summary{suffix}"
+            )
+
+        assert response.status_code == 200
+        get.assert_called_once_with(self.team.id, issue.id, user=self.user)
+        start.assert_called_once_with(self.team.id, issue.id, user=self.user)
+        expected_summary = (
+            {
+                "what_happened": "A TypeError in checkout.",
+                "likely_cause": "",
+                "who_is_affected": "Signed-in users on Safari.",
+                "suggested_next_step": "Guard the null cart.",
+                "category": "own_code",
+                "model": "gpt-4.1-mini",
+                "generated_at": "2026-10-20T12:00:00Z",
+                "checked_at": "2026-10-21T12:00:00Z",
+            }
+            if stored
+            else None
+        )
+        assert response.json() == {"status": expected_status, "summary": expected_summary}
+
+    @parameterized.expand(
+        [
+            ("other_team_get", "get", "", True),
+            ("other_team_post", "post", "/regenerate", True),
+            ("malformed_id_get", "get", "", False),
+            ("malformed_id_post", "post", "/regenerate", False),
+        ]
+    )
+    def test_issue_summary_is_scoped_to_team(self, _name: str, method: str, suffix: str, other_team: bool) -> None:
+        if other_team:
+            issue_id = str(
+                ErrorTrackingIssue.objects.create(team=Team.objects.create(organization=self.organization)).id
+            )
+        else:
+            issue_id = "not-a-uuid"
+
+        with patch.object(summaries_facade, "start_issue_summary_generation") as start:
+            response = getattr(self.client, method)(
+                f"/api/projects/{self.team.id}/error_tracking/issues/{issue_id}/summary{suffix}"
+            )
+
+        assert response.status_code == 404
+        start.assert_not_called()
 
     @parameterized.expand(
         [
@@ -1705,10 +1786,14 @@ class TestErrorTracking(APIBaseTest):
         )
 
         new_chunk_id = str(uuid7())
+        upload_attempt_id = str(uuid7())
+        upload_run_id = str(uuid7())
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/error_tracking/symbol_sets/bulk_start_upload",
             data={
+                "upload_attempt_id": upload_attempt_id,
+                "upload_run_id": upload_run_id,
                 "symbol_sets": [
                     {
                         "chunk_id": existing_chunk_id,
@@ -1720,7 +1805,7 @@ class TestErrorTracking(APIBaseTest):
                         "release_id": str(release.id),
                         "content_hash": "new_hash",
                     },
-                ]
+                ],
             },
             format="json",
         )
@@ -1751,6 +1836,9 @@ class TestErrorTracking(APIBaseTest):
             "skip_on_conflict": False,
             "total_chunks": 2,
             "chunks_skipped": 1,
+            "chunks_to_upload": 1,
+            "upload_attempt_id": upload_attempt_id,
+            "upload_run_id": upload_run_id,
         }
 
     @parameterized.expand(
@@ -1760,8 +1848,9 @@ class TestErrorTracking(APIBaseTest):
             ("used_within_the_refresh_interval", timedelta(hours=1), False),
         ]
     )
+    @patch("products.error_tracking.backend.presentation.views.symbol_sets.posthoganalytics.capture")
     def test_bulk_start_upload_marks_unchanged_symbol_sets_as_used(
-        self, _name: str, last_used_age: timedelta | None, expect_refresh: bool
+        self, _name: str, last_used_age: timedelta | None, expect_refresh: bool, patched_capture: Mock
     ) -> None:
         chunk_id = str(uuid7())
         last_used = None if last_used_age is None else timezone.now() - last_used_age
@@ -1774,15 +1863,23 @@ class TestErrorTracking(APIBaseTest):
         )
 
         before_upload = timezone.now()
+        upload_run_id = str(uuid7())
         response = self.client.post(
             f"/api/environments/{self.team.id}/error_tracking/symbol_sets/bulk_start_upload",
-            data={"symbol_sets": [{"chunk_id": chunk_id, "content_hash": "already_uploaded"}]},
+            data={
+                "upload_run_id": upload_run_id,
+                "symbol_sets": [{"chunk_id": chunk_id, "content_hash": "already_uploaded"}],
+            },
             format="json",
         )
         after_upload = timezone.now()
 
         assert response.status_code == status.HTTP_201_CREATED
         assert response.json()["id_map"] == {}
+        assert patched_capture.call_args.args[0] == "error_tracking_symbol_set_upload_skipped"
+        assert patched_capture.call_args.kwargs["properties"]["chunks_to_upload"] == 0
+        assert patched_capture.call_args.kwargs["properties"]["chunks_skipped"] == 1
+        assert patched_capture.call_args.kwargs["properties"]["upload_run_id"] == upload_run_id
 
         symbol_set.refresh_from_db()
         if expect_refresh:
@@ -2296,7 +2393,13 @@ class TestErrorTracking(APIBaseTest):
         self, patched_object_storage, patched_capture: Mock
     ) -> None:
         symbol_set = ErrorTrackingSymbolSet.objects.create(team=self.team, ref=str(uuid7()), storage_ptr="file/name")
-        request_data = {"content_hashes": {str(symbol_set.id): "hash"}}
+        upload_attempt_id = str(uuid7())
+        upload_run_id = str(uuid7())
+        request_data = {
+            "content_hashes": {str(symbol_set.id): "hash"},
+            "upload_attempt_id": upload_attempt_id,
+            "upload_run_id": upload_run_id,
+        }
 
         patched_object_storage.side_effect = [None, {"ContentLength": 1000}]
 
@@ -2318,6 +2421,8 @@ class TestErrorTracking(APIBaseTest):
             "file_count": 1,
             "failure_reason": "ValidationError",
             "failure_code": "file_not_found",
+            "upload_attempt_id": upload_attempt_id,
+            "upload_run_id": upload_run_id,
         }
 
         symbol_set.refresh_from_db()
@@ -2330,6 +2435,9 @@ class TestErrorTracking(APIBaseTest):
         )
 
         assert retry_response.status_code == status.HTTP_201_CREATED
+        assert patched_capture.call_args.kwargs["properties"]["upload_attempt_id"] == upload_attempt_id
+        assert patched_capture.call_args.kwargs["properties"]["upload_run_id"] == upload_run_id
+        assert patched_capture.call_args.kwargs["properties"]["success"] is True
         symbol_set.refresh_from_db()
         assert symbol_set.content_hash == "hash"
 

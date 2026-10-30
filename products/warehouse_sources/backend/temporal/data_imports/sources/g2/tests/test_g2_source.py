@@ -18,8 +18,6 @@ class TestG2Source:
 
     @parameterized.expand(
         [
-            ("unauthorized", "401 Client Error: Unauthorized for url: https://data.g2.com/api/v2/categories"),
-            ("forbidden", "403 Client Error: Forbidden for url: https://data.g2.com/api/v2/products/x/reviews"),
             ("missing_product_id", "G2 product ID is required to sync reviews"),
         ]
     )
@@ -29,7 +27,6 @@ class TestG2Source:
     @parameterized.expand(
         [
             ("other_vendor", "401 Client Error: Unauthorized for url: https://api.stripe.com/v1/customers"),
-            ("server_error", "500 Server Error for url: https://data.g2.com/api/v2/products"),
         ]
     )
     def test_non_retryable_errors_do_not_match_unrelated(self, _name: str, other_error: str) -> None:

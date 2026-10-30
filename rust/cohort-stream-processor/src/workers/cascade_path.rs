@@ -38,6 +38,7 @@ use crate::workers::worker::{produce_cascades, produce_membership};
 /// Re-evaluate every referrer of the flipped cohort carried by one `cohort_cascade_events` message,
 /// emit their flips, continue the chain, and settle the cascade offset.
 #[allow(clippy::too_many_arguments)]
+#[hotpath::measure]
 pub(crate) async fn handle_cascade(
     partition_id: u16,
     handle: &StoreHandle,
@@ -148,7 +149,7 @@ pub(crate) async fn handle_cascade(
             person_id: message.change.person_id.clone(),
             last_updated: last_updated.to_string(),
             status,
-            origin: None,
+            origin: message.change.origin,
             run_id: None,
         });
         // The external flip above is unconditional; only the onward hop is depth/cycle bounded.
@@ -264,13 +265,14 @@ fn clickhouse_millis(ts: &str) -> i64 {
 mod tests {
     use super::*;
     use chrono_tz::UTC;
+    use cohort_core::seed::RunId;
     use serde_json::{json, Value};
     use tempfile::TempDir;
 
     use crate::cascade::first_cascade;
     use crate::filters::{FilterCatalog, TeamFiltersBuilder};
     use crate::producer::{
-        CaptureCascadeSink, CaptureSink, CaptureStreamEventSink, CaptureTransferSink,
+        CaptureCascadeSink, CaptureSink, CaptureStreamEventSink, CaptureTransferSink, ChangeOrigin,
         MembershipStatus,
     };
     use crate::stage1::key::LeafStateKey;
@@ -501,7 +503,10 @@ mod tests {
         let membership = CaptureSink::new();
         let cascade = CaptureCascadeSink::new();
         let (sink, deps) = deps(&membership, &cascade, true, 1000);
-        let msg = first_cascade(incoming(2, alice, 1, vec![2]).change, 99);
+        let mut flipped = incoming(2, alice, 1, vec![2]).change;
+        flipped.origin = Some(ChangeOrigin::Seed);
+        flipped.run_id = Some(RunId(Uuid::nil()));
+        let msg = first_cascade(flipped, 99);
 
         handle_cascade(
             PARTITION,
@@ -520,6 +525,12 @@ mod tests {
         assert_eq!(changes[0].cohort_id, 1);
         assert_eq!(changes[0].status, MembershipStatus::Entered);
         assert_eq!(changes[0].person_id, alice.to_string());
+        assert_eq!(
+            changes[0].origin,
+            Some(ChangeOrigin::Seed),
+            "a seed flip's cascade stays a seed change"
+        );
+        assert_eq!(changes[0].run_id, None, "B is not part of A's run");
 
         let onward = cascade.messages();
         assert_eq!(onward.len(), 1, "one onward cascade for B");

@@ -18,7 +18,9 @@ MAX_REFUSAL_ATTEMPTS = 3
 
 
 def refusal_review_key(signal: EmitSignalInputs) -> str:
-    fingerprint = hashlib.sha256(json.dumps(asdict(signal), sort_keys=True).encode()).hexdigest()
+    payload = asdict(signal)
+    payload.pop("signal_id", None)
+    fingerprint = hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
     return f"signals/refusal_review/{signal.team_id}/{fingerprint}.json"
 
 

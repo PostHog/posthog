@@ -58,10 +58,7 @@ Most of these are not enforced by a single test, and a violation usually shows u
 
 - Why: reads must see the worker's own previous writes, with no locks or snapshots.
 - Kept by: every event, merge, cascade, sweep, backfill and reconcile step for the partition runs on its worker.
-  A revoke wipes a slice after its worker exits, and a partition that moves in after boot is wiped just before its worker spawns.
-- Limit: with durable restore on, nothing makes boot recovery finish before workers start.
-  The events consumer dispatches polls that arrive before its assignment settles, and the followers start once the catalog loads, so a worker can run while the boot redrive clears outbox rows.
-  This is a gap in the ordering, not a reproduced failure.
+  Boot recovery wipes unowned slices and redrives the outbox before the first poll, and workers spawn only after it.
   See [processor runtime](processor-runtime.md#startup).
 
 **8. A committed offset never runs ahead of state on disk.**
@@ -70,7 +67,7 @@ Most of these are not enforced by a single test, and a violation usually shows u
 - Kept by: every consumer forces the write-ahead log to disk before each commit, and skips the commit if that fails.
 - If broken: a crash loses writes whose inputs are never redelivered.
 - Limit: it covers writes that succeeded.
-  A live event skipped on a store error, the batch the events consumer drops when boot recovery settles, a wiped slice, and a follower rewind that failed after a checkpoint restore are outside it.
+  A live event skipped on a store error, the batch the events consumer drops when boot recovery settles, and a wiped slice are outside it.
 - See [state store and durability](state-store-and-durability.md#the-durability-invariant).
 
 **9. A later success never commits past an earlier failure that set a floor.**
@@ -98,9 +95,12 @@ Most of these are not enforced by a single test, and a violation usually shows u
 **12. A redelivered event changes nothing.**
 
 - Why: input is at least once.
-- Kept by: per-row replay marks, the highest firehose offset applied from each firehose partition.
-- Assumes: one person's events from one firehose partition arrive in offset order.
-  An event overtaken by a later one from the same firehose partition is skipped as a replay.
+- Kept by: per-row replay marks, the highest offset applied from each source partition, and the shuffler's partition numbering, which gives each input topic its own source partitions.
+- Assumes: one person's events from one source partition arrive in offset order.
+  An event overtaken by a later one from the same source partition is skipped as a replay.
+- Assumes: each event reaches the pipeline on only one input topic.
+  An event that arrives on two topics has a different source partition on each, so it is folded twice.
+- See [live evaluation](live-evaluation.md#replay-safety).
 - Limit: the marks live inside their row.
   Once the sweep deletes a row, or the person record time-to-live expires a record, a redelivered old event is folded again.
 
@@ -189,10 +189,14 @@ Most of these are not enforced by a single test, and a violation usually shows u
 
 - Why: live output is at most once, so only a full re-telling repairs downstream, and a stale definition must never be certified.
 - Kept by: the walk emits members and explicit non-members alike, and each request carries the pinned shape hash of its kind, checked on every drain.
+  The request also carries its run's boundary, and the guard withholds it when the partition's [slice coverage](state-store-and-durability.md#slice-coverage) begins after that boundary.
+  A withheld request emits a `reconcile_withheld` marker and no rows.
 - Limit: the walk composes the processor's current tree, and the guard ignores the composition and the other kind's hash.
   Django's finalizer checks those before it stamps.
 - Limit: the walk covers only rows the store holds.
   It cannot restore a skipped event or find a person whose first Stage 2 row was never written.
+  Coverage catches a slice that lost its history, but not a stale slice, one whose partition another writer advanced while this store held older state.
+  Nothing in one pod produces a stale slice except a rollback of the store.
 
 **25. A run completes only with proof.**
 
@@ -202,6 +206,8 @@ Most of these are not enforced by a single test, and a violation usually shows u
   Every outcome write is fenced by the dispatch epoch, and `reconcile_observed_at` is written last.
 - Limit: the proof covers planned days, not persons.
   Raising the seeder's band count while a run is seeding leaves persons unscanned, and every chunk still confirms.
+- Limit: a chunk skips a person's tile on a condition where only the newest day counts, once a newer day's chunk of the run has scanned that person.
+  If the newer chunk fails and the person's events on its day are deleted before the retry, neither day sends the person, and every chunk still confirms.
 - See [completion and readiness](completion-and-readiness.md).
 
 **26. A readiness stamp vouches only for the definition its run replayed.**
@@ -254,7 +260,7 @@ Most of these are not enforced by a single test, and a violation usually shows u
 | Merge membership output, composed sweep output, first-hop cascades from the live, merge and sweep paths | At most once                                                                           | Reconcile                                     |
 | Single-leaf sweep output                                                                                | At least once while the worker runs, and across a restart only with durable restore on | Retries within the path                       |
 | Cascade messages consumed                                                                               | At least once                                                                          | Holds and replays                             |
-| Merge state and its transfer                                                                            | At least once while the partition stays assigned. A revoke deletes a pending transfer  | The outbox and its redrive                    |
+| Merge state and its transfer                                                                            | At least once while the slice survives. A store wipe deletes a pending transfer        | The outbox and its redrive                    |
 | Seeds and reconcile, including their first-hop cascades                                                 | At least once                                                                          | Replays after holds                           |
 | Membership consumer                                                                                     | At least once, applied idempotently                                                    | The version guard, when version writes are on |
 
@@ -264,6 +270,7 @@ It does not rule out duplicates: a store that loses unflushed writes, or is wipe
 Reconcile repairs lost output, not lost state.
 It re-tells the rows the store holds.
 An event that Stage 1 skipped needs a later seed that covers it, and a person whose first Stage 2 row was never written needs a seed or a leaf flip that touches them.
+A person seed that changes nothing still recomposes a composed cohort with no row for the person, so a cohort added over already-seeded leaves gets its rows from its own run.
 
 The system is built on one bargain: live paths favor speed and may lose a change, and every backfill ends with a reconcile that re-tells everything the store holds.
 Anything that stops reconcile from running, or from covering a cohort, leaves downstream wrong with no signal.

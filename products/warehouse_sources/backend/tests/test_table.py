@@ -1,4 +1,10 @@
+import ssl
+import datetime
+import threading
+import contextlib
 import subprocess
+import socketserver
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -9,6 +15,10 @@ from django.core.exceptions import ValidationError
 from django.test import SimpleTestCase
 
 from clickhouse_driver.errors import ServerException
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.x509.oid import NameOID
 from parameterized import parameterized
 
 from posthog.hogql.database.direct_clickhouse_table import DirectClickHouseTable
@@ -23,10 +33,18 @@ from posthog.models import Team
 from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import (
+    HISTORY_HIDDEN_COLUMNS,
     DataWarehouseTable,
     classify_warehouse_read_error,
     get_hogql_field_for_column,
     run_chdb_query,
+)
+from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
+    CDC_OP_COLUMN,
+    CDC_SEQ_COLUMN,
+    CDC_TIMESTAMP_COLUMN,
+    DELETED_AT_COLUMN,
+    HISTORY_NAMING,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
     TransientObjectStoreError,
@@ -176,6 +194,11 @@ class TestSafeExposeChError:
         [
             ("DB::Exception: Access Denied: while reading key: my-data/file.csv, S3 exception", "s3:GetObject"),
             ("DB::Exception: Could not list objects in bucket my-bucket, S3 exception", "s3:ListBucket"),
+            (
+                "S3 error occurred. (DB::Exception: Failed to get object info: No response body.. "
+                "HTTP response code: 403: while reading 'my-data/file.csv')",
+                "s3:GetObject",
+            ),
         ],
     )
     def test_native_s3_access_denials_name_the_iam_action_to_check(
@@ -243,6 +266,15 @@ class TestWarehouseReadErrorClassification:
                     code=47,
                 ),
                 "isn't in your files any more",
+            ),
+            (
+                ServerException(
+                    "DB::Exception: The table structure cannot be extracted from a Parquet format file: "
+                    "std::exception. Code: 1001, type: Azure::Storage::StorageException, e.what() = 404 "
+                    "The specified blob does not exist.",
+                    code=636,
+                ),
+                "doesn't exist in the container",
             ),
             (
                 ServerException("DB::Exception: A failure shape nobody has classified yet.", code=999),
@@ -341,6 +373,155 @@ class TestGetCountEngineChoice:
             assert "s3Cluster(" in mock_sync_execute.call_args.args[0]
 
 
+class TestChdbEngineChoiceByFormat:
+    def _table(
+        self, table_format: str, has_credential: bool, url_pattern: str = "https://bucket.example.com/t/"
+    ) -> DataWarehouseTable:
+        return DataWarehouseTable(
+            name="t",
+            format=table_format,
+            team=Team(id=1),
+            url_pattern=url_pattern,
+            credential=DataWarehouseCredential(access_key="key", access_secret="secret") if has_credential else None,
+        )
+
+    @pytest.mark.parametrize("method,clickhouse_result", [("get_columns", [("id", "String")]), ("get_count", [(7,)])])
+    def test_azure_reads_run_on_the_cluster(self, method: str, clickhouse_result: list[tuple]) -> None:
+        table = self._table(
+            DataWarehouseTable.TableFormat.Parquet, True, "https://acct.blob.core.windows.net/container/t/*.parquet"
+        )
+        with (
+            patch("products.warehouse_sources.backend.models.table.TEST", False),
+            patch("products.warehouse_sources.backend.models.table.run_chdb_query") as mock_run_chdb,
+            patch(
+                "products.warehouse_sources.backend.models.table.sync_execute", return_value=clickhouse_result
+            ) as mock_sync_execute,
+        ):
+            getattr(table, method)()
+
+        assert not mock_run_chdb.called
+        assert "azureBlobStorage(" in mock_sync_execute.call_args.args[0]
+
+    @pytest.mark.parametrize(
+        "table_format,has_credential,uses_chdb",
+        [
+            (DataWarehouseTable.TableFormat.Delta, True, False),
+            (DataWarehouseTable.TableFormat.DeltaS3Wrapper, True, False),
+            (DataWarehouseTable.TableFormat.Delta, False, True),
+            (DataWarehouseTable.TableFormat.DeltaS3Wrapper, False, True),
+            (DataWarehouseTable.TableFormat.Parquet, True, True),
+            (DataWarehouseTable.TableFormat.CSVWithNames, True, True),
+            (DataWarehouseTable.TableFormat.JSON, True, True),
+        ],
+    )
+    def test_get_columns_reads_customer_delta_urls_on_the_cluster(
+        self, table_format: str, has_credential: bool, uses_chdb: bool
+    ) -> None:
+        with (
+            patch("products.warehouse_sources.backend.models.table.TEST", False),
+            patch(
+                "products.warehouse_sources.backend.models.table.run_chdb_query", return_value="id,String\n"
+            ) as mock_run_chdb,
+            patch(
+                "products.warehouse_sources.backend.models.table.sync_execute", return_value=[("id", "String")]
+            ) as mock_sync_execute,
+        ):
+            columns = self._table(table_format, has_credential).get_columns()
+
+        assert columns["id"]["clickhouse"] == "String"
+        assert mock_run_chdb.called is uses_chdb
+        assert mock_sync_execute.called is not uses_chdb
+
+    @pytest.mark.parametrize(
+        "table_format,has_credential,uses_chdb",
+        [
+            (DataWarehouseTable.TableFormat.Delta, True, False),
+            (DataWarehouseTable.TableFormat.Delta, False, True),
+            # A count of a DeltaS3Wrapper table reads its parquet files through s3(), not deltaLake().
+            (DataWarehouseTable.TableFormat.DeltaS3Wrapper, True, True),
+            (DataWarehouseTable.TableFormat.Parquet, True, True),
+        ],
+    )
+    def test_get_count_reads_customer_delta_urls_on_the_cluster(
+        self, table_format: str, has_credential: bool, uses_chdb: bool
+    ) -> None:
+        with (
+            patch("products.warehouse_sources.backend.models.table.TEST", False),
+            patch(
+                "products.warehouse_sources.backend.models.table.run_chdb_query", return_value="7\n"
+            ) as mock_run_chdb,
+            patch(
+                "products.warehouse_sources.backend.models.table.sync_execute", return_value=[(7,)]
+            ) as mock_sync_execute,
+        ):
+            count = self._table(table_format, has_credential).get_count()
+
+        assert count == 7
+        assert mock_run_chdb.called is uses_chdb
+        assert mock_sync_execute.called is not uses_chdb
+
+    @pytest.mark.parametrize(
+        "table_format,file_pattern,chdb_codec",
+        [
+            (DataWarehouseTable.TableFormat.Parquet, "*.parquet", "none"),
+            (DataWarehouseTable.TableFormat.CSVWithNames, "*.csv.gz", "gzip"),
+            (DataWarehouseTable.TableFormat.Parquet, "*", "none"),
+            (DataWarehouseTable.TableFormat.CSVWithNames, "*", None),
+            (DataWarehouseTable.TableFormat.JSON, "**", None),
+        ],
+    )
+    def test_chdb_reads_with_the_codec_the_url_pattern_names(
+        self, table_format: str, file_pattern: str, chdb_codec: str | None
+    ) -> None:
+        table = self._table(table_format, has_credential=True)
+        table.url_pattern = f"https://bucket.example.com/t/{file_pattern}"
+        with (
+            patch("products.warehouse_sources.backend.models.table.TEST", False),
+            patch(
+                "products.warehouse_sources.backend.models.table.run_chdb_query",
+                side_effect=lambda query: "7\n" if "count()" in query else "id,String\n",
+            ) as mock_run_chdb,
+            patch(
+                "products.warehouse_sources.backend.models.table.sync_execute",
+                side_effect=lambda query, **_: [(7,)] if "count()" in query else [("id", "String")],
+            ) as mock_sync_execute,
+        ):
+            assert table.get_columns()["id"]["clickhouse"] == "String"
+            assert table.get_count() == 7
+
+        if chdb_codec is None:
+            assert not mock_run_chdb.called
+            assert mock_sync_execute.call_count == 2
+        else:
+            chdb_queries = [call.args[0] for call in mock_run_chdb.call_args_list]
+            assert len(chdb_queries) == 2
+            assert all(query.endswith(f"'auto', '{chdb_codec}')") for query in chdb_queries), chdb_queries
+            assert not mock_sync_execute.called
+
+
+def _test_certificate(
+    name: str,
+    key: ec.EllipticCurvePrivateKey,
+    signing_key: ec.EllipticCurvePrivateKey,
+    issuer: x509.Name | None = None,
+) -> x509.Certificate:
+    subject = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, name)])
+    now = datetime.datetime.now(datetime.UTC)
+    builder = (
+        x509.CertificateBuilder()
+        .subject_name(subject)
+        .issuer_name(issuer or subject)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now - datetime.timedelta(hours=1))
+        .not_valid_after(now + datetime.timedelta(hours=1))
+        .add_extension(x509.BasicConstraints(ca=issuer is None, path_length=None), critical=True)
+    )
+    if issuer is not None:
+        builder = builder.add_extension(x509.SubjectAlternativeName([x509.DNSName(name)]), critical=False)
+    return builder.sign(signing_key, hashes.SHA256())
+
+
 class TestRunChdbQuery:
     def test_hung_query_is_killed_and_raises_instead_of_blocking(self) -> None:
         # Real subprocess: chdb import alone exceeds the timeout, so this exercises the
@@ -349,10 +530,13 @@ class TestRunChdbQuery:
         with pytest.raises(RuntimeError, match="timed out"):
             run_chdb_query("SELECT sleep(2)", timeout=0.5)
 
-    def test_child_process_does_not_inherit_a_preloaded_allocator(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_child_process_runs_with_hardened_environment_and_settings(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("LD_PRELOAD", "/usr/lib/aarch64-linux-gnu/libjemalloc.so.2")
         monkeypatch.setenv("MALLOC_CONF", "background_thread:false")
         monkeypatch.setenv("AWS_REGION", "us-east-1")
+        monkeypatch.setenv("AWS_EC2_METADATA_DISABLED", "false")
+        monkeypatch.setenv("HTTPS_PROXY", "http://web-1:x@egress-proxy.example:4750/")
+        monkeypatch.delenv("https_proxy", raising=False)
         completed = subprocess.CompletedProcess(args=[], returncode=0, stdout="1\n", stderr="")
         with patch(
             "products.warehouse_sources.backend.models.table.subprocess.run", return_value=completed
@@ -363,6 +547,57 @@ class TestRunChdbQuery:
         assert "LD_PRELOAD" not in child_env
         assert "MALLOC_CONF" not in child_env
         assert child_env["AWS_REGION"] == "us-east-1"
+        assert child_env["AWS_EC2_METADATA_DISABLED"] == "true"
+        assert child_env["https_proxy"] == "http://web-1:x@egress-proxy.example:4750/"
+        assert mock_run.call_args.kwargs["input"] == "SET s3_max_redirects = 0; SET s3_retry_attempts = 0; SELECT 1"
+
+    def test_read_rejects_a_certificate_issued_for_another_host(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        # The proxy answers every CONNECT with a certificate the test CA issued for other.invalid. An engine
+        # that checks the chain but not the hostname accepts that certificate and reads the body.
+        ca_key = ec.generate_private_key(ec.SECP256R1())
+        ca = _test_certificate("Test CA", ca_key, ca_key)
+        leaf_key = ec.generate_private_key(ec.SECP256R1())
+        leaf = _test_certificate("other.invalid", leaf_key, ca_key, issuer=ca.subject)
+        (tmp_path / "ca.pem").write_bytes(ca.public_bytes(serialization.Encoding.PEM))
+        (tmp_path / "leaf.pem").write_bytes(
+            leaf.public_bytes(serialization.Encoding.PEM)
+            + leaf_key.private_bytes(
+                serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()
+            )
+        )
+        tls_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        tls_context.load_cert_chain(tmp_path / "leaf.pem")
+
+        class TlsTerminatingProxy(socketserver.BaseRequestHandler):
+            def handle(self) -> None:
+                request = b""
+                while b"\r\n\r\n" not in request:
+                    chunk = self.request.recv(4096)
+                    if not chunk:
+                        return
+                    request += chunk
+                self.request.sendall(b"HTTP/1.1 200 Connection established\r\n\r\n")
+                with contextlib.suppress(OSError), tls_context.wrap_socket(self.request, server_side=True) as tls:
+                    tls.recv(65536)
+                    tls.sendall(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok")
+
+        with socketserver.ThreadingTCPServer(("127.0.0.1", 0), TlsTerminatingProxy) as proxy:
+            threading.Thread(target=proxy.serve_forever, daemon=True).start()
+            monkeypatch.setenv("HTTPS_PROXY", f"http://127.0.0.1:{proxy.server_address[1]}")
+            monkeypatch.delenv("NO_PROXY", raising=False)
+            monkeypatch.delenv("no_proxy", raising=False)
+            monkeypatch.setenv("SSL_CERT_FILE", str(tmp_path / "ca.pem"))
+            try:
+                # Retries back off on each failed handshake and would outlast run_chdb_query's timeout.
+                with pytest.raises(RuntimeError, match="Unacceptable certificate from wrong.invalid"):
+                    run_chdb_query(
+                        "SET s3_retry_attempts = 0; "
+                        "SELECT * FROM s3('https://wrong.invalid/bucket/data.csv', 'RawBLOB')"
+                    )
+            finally:
+                proxy.shutdown()
 
     @pytest.mark.parametrize(
         "stderr",
@@ -373,6 +608,8 @@ class TestRunChdbQuery:
             # wording, so a ClickHouse rephrasing has to fail the test rather than pass silently.
             "Code: 48. DB::Exception: Reading from files with different schema is not possible. "
             "The table has 23 columns, which is different from 24 columns in the file. (NOT_IMPLEMENTED)",
+            "Code: 579. DB::Exception: Too many redirects while trying to access "
+            "https://s3.amazonaws.com/bucket/table/. (TOO_MANY_REDIRECTS)",
         ],
     )
     def test_suppressed_chdb_error_classification_survives_subprocess_boundary(self, stderr: str) -> None:
@@ -516,6 +753,17 @@ class TestSchemaInferenceMode(BaseTest):
                     self._table(DataWarehouseTable.TableFormat.JSON).get_columns()
 
         assert mock_sync_execute.call_count == 5
+
+
+class TestHistoryHiddenColumns(SimpleTestCase):
+    def test_names_match_the_columns_capture_writes(self) -> None:
+        assert HISTORY_HIDDEN_COLUMNS == {
+            CDC_OP_COLUMN,
+            CDC_SEQ_COLUMN,
+            CDC_TIMESTAMP_COLUMN,
+            DELETED_AT_COLUMN,
+            HISTORY_NAMING.partition_column,
+        }
 
 
 class TestGetHogqlFieldForColumn(SimpleTestCase):

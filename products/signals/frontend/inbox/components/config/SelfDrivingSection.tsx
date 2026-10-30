@@ -11,7 +11,6 @@ import {
     Link,
 } from '@posthog/lemon-ui'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { GitHubBranchCombobox } from 'lib/integrations/GitHubBranchCombobox'
 import { GitHubRepositoryCombobox } from 'lib/integrations/GitHubRepositoryCombobox'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
@@ -23,31 +22,13 @@ import { IntegrationType } from '~/types'
 
 import { signalTeamConfigLogic } from '../../logics/signalTeamConfigLogic'
 import { userAutonomyLogic } from '../../logics/userAutonomyLogic'
-import {
-    DEFAULT_PULL_REQUEST_LABEL,
-    GITHUB_LABEL_NAME_MAX_LENGTH,
-    PRIORITY_THRESHOLD_OPTIONS,
-    SignalReportPriority,
-} from '../../types'
+import { DEFAULT_PULL_REQUEST_LABEL, GITHUB_LABEL_NAME_MAX_LENGTH, SignalReportPriority } from '../../types'
+import { AUTONOMY_PRIORITY_OPTIONS } from '../../utils/autonomyPriorityOptions'
 import { AutonomySettingGroup } from './AutonomySettingGroup'
 import { AutonomySettingRow } from './AutonomySettingRow'
 
-/** Compact segmented-control label per priority. P4 (the lowest bar) reads as "All". */
-const THRESHOLD_SEGMENT_LABELS: Record<SignalReportPriority, string> = {
-    P0: 'P0',
-    P1: 'P1+',
-    P2: 'P2+',
-    P3: 'P3+',
-    P4: 'All',
-}
-/** Segments derived from the shared priority list, so the value set and order stay single-sourced. */
-const THRESHOLD_SEGMENTS = PRIORITY_THRESHOLD_OPTIONS.map(({ value }) => ({
-    value,
-    label: THRESHOLD_SEGMENT_LABELS[value],
-}))
-
 const MY_THRESHOLD_DEFAULT_VALUE = '__default__'
-const MY_THRESHOLD_SEGMENTS = [{ value: MY_THRESHOLD_DEFAULT_VALUE, label: 'Default' }, ...THRESHOLD_SEGMENTS]
+const MY_THRESHOLD_SEGMENTS = [{ value: MY_THRESHOLD_DEFAULT_VALUE, label: 'Default' }, ...AUTONOMY_PRIORITY_OPTIONS]
 
 const PR_STATE_SEGMENTS = [
     { value: 'draft', label: 'Draft' },
@@ -232,6 +213,140 @@ function BaseBranchesRow(): JSX.Element {
                                     onClick={() => setBaseBranchPickerOpen(true)}
                                 >
                                     Add override
+                                </LemonButton>
+                            </div>
+                        ))}
+                </div>
+            )}
+        </AutonomySettingRow>
+    )
+}
+
+function ImplementationRepositoryPicker(): JSX.Element {
+    const {
+        draftImplementationRepositoryIntegrationId,
+        draftImplementationRepository,
+        addImplementationRepositoryDisabledReason,
+        teamConfigUpdating,
+    } = useValues(signalTeamConfigLogic)
+    const {
+        setDraftImplementationRepositoryIntegrationId,
+        setDraftImplementationRepository,
+        addImplementationRepository,
+        setImplementationRepositoryPickerOpen,
+    } = useActions(signalTeamConfigLogic)
+    const { githubIntegrations } = useValues(integrationsLogic)
+
+    const integrationId = draftImplementationRepositoryIntegrationId ?? githubIntegrations[0].id
+
+    return (
+        <div className="flex flex-wrap items-center gap-1">
+            {githubIntegrations.length > 1 && (
+                <LemonSelect
+                    size="small"
+                    value={integrationId}
+                    options={githubIntegrations.map((integration) => ({
+                        value: integration.id,
+                        label: integration.display_name,
+                    }))}
+                    disabledReason={teamConfigUpdating ? 'Saving changes' : undefined}
+                    onChange={(next) => next != null && setDraftImplementationRepositoryIntegrationId(next)}
+                    aria-label="GitHub organization"
+                />
+            )}
+            <GitHubRepositoryCombobox
+                integrationId={integrationId}
+                value={draftImplementationRepository}
+                disabled={teamConfigUpdating}
+                onChange={(repo) => setDraftImplementationRepository(repo ?? '')}
+                placeholder="Repository"
+            />
+            <LemonButton
+                type="secondary"
+                size="small"
+                icon={<IconPlus />}
+                disabledReason={addImplementationRepositoryDisabledReason ?? undefined}
+                loading={teamConfigUpdating}
+                data-attr="signals-implementation-repository-add"
+                onClick={() => addImplementationRepository()}
+            >
+                Add
+            </LemonButton>
+            <LemonButton
+                type="tertiary"
+                size="small"
+                disabledReason={teamConfigUpdating ? 'Saving changes' : undefined}
+                onClick={() => setImplementationRepositoryPickerOpen(false)}
+            >
+                Cancel
+            </LemonButton>
+        </div>
+    )
+}
+
+/**
+ * Repositories every implementation task may also write to, such as an assets repository for PR
+ * screenshots. Same list-plus-picker shape as the base branch overrides above, and for the same
+ * reason the picker mounts only on request.
+ */
+function ImplementationRepositoriesRow(): JSX.Element {
+    const { githubIntegrations } = useValues(integrationsLogic)
+    const { implementationRepositories, implementationRepositoryPickerOpen, teamConfigUpdating } =
+        useValues(signalTeamConfigLogic)
+    const { setImplementationRepositoryPickerOpen, removeImplementationRepository } = useActions(signalTeamConfigLogic)
+
+    return (
+        <AutonomySettingRow
+            title="Extra repositories"
+            description={
+                githubIntegrations.length > 0 ? (
+                    "Agents can also read and write these repositories, for example to upload PR screenshots. They aren't cloned, and PRs still go to the report's repository. Only repositories from the same GitHub organization as the report's repository apply."
+                ) : (
+                    <span>
+                        Agents can also read and write these repositories, for example to upload PR screenshots.{' '}
+                        <Link to={urls.settings('project-integrations')}>Connect GitHub</Link> to add one.
+                    </span>
+                )
+            }
+        >
+            {(githubIntegrations.length > 0 || implementationRepositories.length > 0) && (
+                <div className="flex flex-col gap-2 py-3">
+                    {implementationRepositories.length > 0 && (
+                        <ul className="m-0 flex list-none flex-col gap-1 p-0">
+                            {implementationRepositories.map((repo) => (
+                                <li key={repo} className="flex flex-wrap items-center gap-2">
+                                    <span
+                                        className="min-w-0 flex-1 basis-40 truncate text-sm text-default"
+                                        title={repo}
+                                    >
+                                        {repo}
+                                    </span>
+                                    <LemonButton
+                                        type="tertiary"
+                                        size="small"
+                                        icon={<IconX />}
+                                        loading={teamConfigUpdating}
+                                        aria-label={`Remove ${repo}`}
+                                        data-attr="signals-implementation-repository-remove"
+                                        onClick={() => removeImplementationRepository(repo)}
+                                    />
+                                </li>
+                            ))}
+                        </ul>
+                    )}
+                    {githubIntegrations.length > 0 &&
+                        (implementationRepositoryPickerOpen ? (
+                            <ImplementationRepositoryPicker />
+                        ) : (
+                            <div>
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    icon={<IconPlus />}
+                                    data-attr="signals-implementation-repository-open"
+                                    onClick={() => setImplementationRepositoryPickerOpen(true)}
+                                >
+                                    Add repository
                                 </LemonButton>
                             </div>
                         ))}
@@ -619,6 +734,31 @@ function PullRequestLabelRow(): JSX.Element {
 }
 
 /**
+ * Team-wide opt-out of anomaly scoring. PostHog decides which projects scoring covers, so the row
+ * only renders for a covered project, and the switch can stop scoring but cannot start it.
+ */
+function AnomalyScoringRow(): JSX.Element {
+    const { anomalyScoringEnabled, teamConfigUpdating } = useValues(signalTeamConfigLogic)
+    const { patchTeamConfig } = useActions(signalTeamConfigLogic)
+
+    return (
+        <AutonomySettingRow
+            title="Anomaly scoring"
+            description="Check your active trends insights for anomalies every hour. Results are saved as $anomaly_score events, which are free. Turn this off to stop new events. Events already saved stay."
+            control={
+                <LemonSwitch
+                    checked={anomalyScoringEnabled}
+                    loading={teamConfigUpdating}
+                    onChange={(enabled) => patchTeamConfig({ anomaly_scoring_enabled: enabled })}
+                    aria-label="Score active trends insights for anomalies"
+                    data-attr="signals-anomaly-scoring-enabled"
+                />
+            }
+        />
+    )
+}
+
+/**
  * Per-user opt-in to being added as a GitHub assignee on the implementation PR for reports that
  * suggest this user as reviewer. Off by default, because being assigned is visible to everybody on
  * the pull request. Renders regardless of the auto-start toggle: a PR opened by hand from the inbox
@@ -721,7 +861,7 @@ function ProjectThresholdRow(): JSX.Element {
                     size="small"
                     fullWidth
                     value={defaultAutostartPriority}
-                    options={THRESHOLD_SEGMENTS}
+                    options={AUTONOMY_PRIORITY_OPTIONS}
                     disabledReason={teamConfigUpdating ? 'Saving changes' : undefined}
                     onChange={(next) => patchTeamConfig({ default_autostart_priority: next })}
                 />
@@ -802,25 +942,18 @@ function PullRequestGenerationRow(): JSX.Element {
  * applies to, and every row shares one shape (`AutonomySettingRow`).
  */
 export function SelfDrivingSection(): JSX.Element {
-    // The Settings tab wraps this in its own card; the legacy setup rail does not.
-    const redesign = useFeatureFlag('INBOX_REDESIGN')
-    const { teamConfig, teamConfigLoading } = useValues(signalTeamConfigLogic)
+    const { teamConfig, teamConfigLoading, anomalyScoringAvailable } = useValues(signalTeamConfigLogic)
 
     if (teamConfigLoading && teamConfig === null) {
         return <LemonSkeleton className="h-20 w-full rounded" />
     }
 
     return (
-        <div
-            className={
-                redesign
-                    ? 'flex flex-col divide-y divide-primary'
-                    : 'flex flex-col divide-y divide-primary rounded border border-primary bg-surface-primary px-3 py-3'
-            }
-        >
+        <div className="flex flex-col divide-y divide-primary">
             <AutonomySettingGroup title="Pull requests" description="Applies to everyone in this project.">
                 <PullRequestGenerationRow />
                 <BaseBranchesRow />
+                <ImplementationRepositoriesRow />
                 <ProjectPullRequestStateRow />
                 <GitHubIssueWritebackRow />
                 <PullRequestLabelRow />
@@ -836,6 +969,7 @@ export function SelfDrivingSection(): JSX.Element {
             </AutonomySettingGroup>
             <AutonomySettingGroup title="Reports" description="Applies to everyone in this project.">
                 <DailyReportLimitRow />
+                {anomalyScoringAvailable && <AnomalyScoringRow />}
             </AutonomySettingGroup>
         </div>
     )

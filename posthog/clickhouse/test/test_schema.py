@@ -14,7 +14,8 @@ from posthog.hogql.database.schema.flag_evaluations import FLAG_EVALUATIONS_CLIC
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.kafka_engine import CONSUMER_GROUP_EVENTS_JSON_NATIVE_JSON, KAFKA_COLUMNS_WITH_PARTITION
-from posthog.clickhouse.logs import LOGS34_TO_VOLUME_BUCKETS_MV_SELECT
+from posthog.clickhouse.logs import LOGS34_TO_PATTERN_BUCKETS_MV_SELECT, LOGS34_TO_VOLUME_BUCKETS_MV_SELECT
+from posthog.clickhouse.property_groups import flag_evaluations_property_group_definitions, iter_groups
 from posthog.clickhouse.schema import (
     CREATE_KAFKA_TABLE_QUERIES,
     CREATE_MERGETREE_TABLE_QUERIES,
@@ -134,7 +135,8 @@ def test_logs_volume_bucket_retention_covers_raw_expiry(
                 observed_timestamp + toIntervalDay(arrayJoin(%(retentions)s)) AS original_expiry_timestamp,
                 'checkout' AS service_name,
                 'INFO' AS severity_text,
-                CAST(map(), 'Map(String, String)') AS resource_attributes
+                CAST(map(), 'Map(String, String)') AS resource_attributes,
+                '' AS internal_source
         )
         SELECT retention_days, log_count FROM ("""
         + select
@@ -150,6 +152,41 @@ def test_logs_volume_bucket_retention_covers_raw_expiry(
         assert bucket_start + timedelta(days=max(42, rows[0][0])) >= observed_timestamp + timedelta(
             days=max(retentions)
         )
+
+
+@pytest.mark.usefixtures("clickhouse_database")
+def test_logs_pattern_buckets_keep_stamped_empty_patterns_and_drop_unstamped_rows() -> None:
+    select = LOGS34_TO_PATTERN_BUCKETS_MV_SELECT().replace(
+        f"FROM {django_settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.logs34", "FROM pattern_input"
+    )
+    rows = sync_execute(
+        """
+        WITH pattern_input AS (
+            SELECT
+                42 AS team_id,
+                toDateTime64('2026-01-02 12:01:00', 6, 'UTC') AS timestamp,
+                timestamp + toIntervalDay(row.3) AS original_expiry_timestamp,
+                'checkout' AS service_name,
+                'INFO' AS severity_text,
+                CAST(map(), 'Map(String, String)') AS resource_attributes,
+                toUInt8(row.1) AS pattern_version,
+                row.2 AS pattern,
+                row.4 AS internal_source
+            FROM (
+                SELECT arrayJoin([
+                    (0, '', 14, ''),
+                    (5, '', 14, ''),
+                    (5, 'GET <N>', 14, ''),
+                    (5, 'GET <N>', 30, ''),
+                    (5, 'GET <N>', 14, 'hog_flow')
+                ]) AS row
+            )
+        )
+        SELECT pattern_version, pattern, internal_source, retention_days, log_count FROM ("""
+        + select
+        + ") ORDER BY pattern, internal_source"
+    )
+    assert rows == [(5, "", "", 15, 1), (5, "GET <N>", "", 31, 2), (5, "GET <N>", "hog_flow", 15, 1)]
 
 
 def _column_definition_lines(block: str) -> Iterator[str]:
@@ -249,6 +286,12 @@ def test_flag_evaluations_read_table_declares_every_stored_column():
 # The comment above _COPIED_COLUMNS gives the reason the backfill leaves out each of these columns.
 _FLAG_EVALUATIONS_COLUMNS_THE_BACKFILL_LEAVES_OUT = {"inserted_at", "_offset", "_partition"}
 
+# MATERIALIZED, so no insert can name them, and every shard computes them from the JSON.
+_FLAG_EVALUATIONS_PROPERTY_GROUP_COLUMN_NAMES = {
+    group.definition.get_column_name(group.source_column, group.group_name)
+    for group in iter_groups(flag_evaluations_property_group_definitions)
+}
+
 
 def test_flag_evaluations_backfill_copies_every_stored_column():
     # A column that the backfill does not copy gets its DEFAULT on every backfilled row. No error
@@ -258,7 +301,12 @@ def test_flag_evaluations_backfill_copies_every_stored_column():
     typed = set(_declared_column_names(_FLAG_EVALUATIONS_TYPED_COLUMNS))
 
     assert typed
-    assert stored == set(_COPIED_COLUMNS) | typed | _FLAG_EVALUATIONS_COLUMNS_THE_BACKFILL_LEAVES_OUT
+    assert stored == (
+        set(_COPIED_COLUMNS)
+        | typed
+        | _FLAG_EVALUATIONS_COLUMNS_THE_BACKFILL_LEAVES_OUT
+        | _FLAG_EVALUATIONS_PROPERTY_GROUP_COLUMN_NAMES
+    )
 
 
 def _hogql_column_names(table: Table) -> set[str]:
@@ -272,16 +320,11 @@ def _hogql_column_names(table: Table) -> set[str]:
 
 
 # _timestamp, _offset and _partition are Kafka metadata, deliberately not exposed to customers.
-# The person columns stay hidden until every stored row carries the values the producer writes.
-# Older rows hold '{}', epoch and 'full'. Read as values, those rows let internal users through
-# test-account filters and keep lifecycle from counting anyone as new.
 _FLAG_EVALUATIONS_COLUMNS_HIDDEN_FROM_HOGQL = {
     "_timestamp",
     "_offset",
     "_partition",
-    "person_properties",
-    "person_created_at",
-    "person_mode",
+    *_FLAG_EVALUATIONS_PROPERTY_GROUP_COLUMN_NAMES,
 }
 
 

@@ -88,6 +88,8 @@ PERSONHOG_STATE_TABLES = [
     *LIFECYCLE_OP_TABLES,
     "person_pg_cleanup_queue",
     "person_tombstone_publish_queue",
+    "person_publish_outbox",
+    "person_publish_outbox_tmp",
 ]
 
 

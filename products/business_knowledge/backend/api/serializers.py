@@ -24,6 +24,7 @@ from ..models import (
     REFRESH_INTERVAL_TIMEDELTAS,
     CrawlMode,
     EmbeddingStatus,
+    KnowledgeLibrarySource,
     KnowledgeSource,
     RefreshInterval,
     SafetyVerdict,
@@ -117,6 +118,9 @@ class KnowledgeSourceSerializer(serializers.ModelSerializer):
     learned_from_ticket_url = serializers.SerializerMethodField(
         help_text="App URL of the originating support ticket. Null for sources you added yourself.",
     )
+    library_ids = serializers.SerializerMethodField(
+        help_text="Libraries this source belongs to. Empty when the source is in none.",
+    )
 
     class Meta:
         model = KnowledgeSource
@@ -148,6 +152,7 @@ class KnowledgeSourceSerializer(serializers.ModelSerializer):
             "file_content_type",
             "file_size_bytes",
             "always_include",
+            "library_ids",
         ]
         read_only_fields = fields
 
@@ -174,6 +179,21 @@ class KnowledgeSourceSerializer(serializers.ModelSerializer):
         source_team_id = getattr(obj, "_learned_source_team_id", None)
         team_id = source_team_id if source_team_id is not None else obj.team_id
         return f"{settings.SITE_URL}/project/{team_id}/support/tickets/{ticket_number}"
+
+    @extend_schema_field(serializers.ListField(child=serializers.UUIDField()))
+    def get_library_ids(self, obj: KnowledgeSource) -> list[str]:
+        # The list annotation is NULL when a source is in no library, and
+        # missing entirely when a create or update returns the row directly.
+        if "_library_ids" in obj.__dict__:
+            raw = obj.__dict__["_library_ids"] or []
+        else:
+            raw = (
+                KnowledgeLibrarySource.objects.for_team(obj.team_id)
+                .filter(source_id=obj.id)
+                .order_by("library_id")
+                .values_list("library_id", flat=True)
+            )
+        return [str(item) for item in raw]
 
     @extend_schema_field(serializers.ChoiceField(choices=EmbeddingStatus.choices))
     def get_embedding_status(self, obj: KnowledgeSource) -> str:
@@ -251,6 +271,11 @@ class UpdateTextSourceSerializer(_NameValidationMixin, serializers.Serializer):
         required=False,
         help_text="When true, this source's content is injected into every support reply prompt as general context.",
     )
+    library_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        required=False,
+        help_text="Replaces the libraries this source belongs to. Omit to leave membership unchanged. An empty list removes it from every library.",
+    )
 
     def validate_text(self, value: str) -> str:
         if not value.strip():
@@ -262,8 +287,10 @@ class UpdateTextSourceSerializer(_NameValidationMixin, serializers.Serializer):
         return value
 
     def validate(self, attrs: dict) -> dict:
-        if "name" not in attrs and "text" not in attrs and "always_include" not in attrs:
-            raise serializers.ValidationError("Provide at least one of `name`, `text`, or `always_include`.")
+        if "name" not in attrs and "text" not in attrs and "always_include" not in attrs and "library_ids" not in attrs:
+            raise serializers.ValidationError(
+                "Provide at least one of `name`, `text`, `always_include`, or `library_ids`."
+            )
         return attrs
 
 

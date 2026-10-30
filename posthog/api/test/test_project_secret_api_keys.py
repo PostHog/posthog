@@ -7,7 +7,12 @@ from posthog.api.project_secret_api_key import MAX_PROJECT_SECRET_API_KEYS_PER_T
 from posthog.models import Organization, OrganizationMembership, Team
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
-from posthog.models.utils import generate_random_token_personal, generate_random_token_secret, hash_key_value
+from posthog.models.utils import (
+    ai_credential_value,
+    generate_random_token_personal,
+    generate_random_token_secret,
+    hash_key_value,
+)
 
 
 class TestProjectSecretAPIKeysAPIMember(APIBaseTest):
@@ -76,13 +81,20 @@ class TestProjectSecretAPIKeysAPI(APIBaseTest):
         assert data["last_used_at"] is None
         assert data["value"].startswith("phs_")
 
-    def test_create_feature_flag_read_scope(self):
+    @parameterized.expand(
+        [
+            ("feature_flag_local_evaluation", "feature_flag:read"),
+            # A service that polls a transactional email's status must not need a key that can also send.
+            ("transactional_email_status", "hog_flow:read"),
+        ]
+    )
+    def test_create_read_only_scope(self, _name, scope):
         response = self.client.post(
             f"/api/projects/{self.team.id}/project_secret_api_keys",
-            {"label": "local eval key", "scopes": ["feature_flag:read"]},
+            {"label": "read only key", "scopes": [scope]},
         )
-        assert response.status_code == 201
-        assert response.json()["scopes"] == ["feature_flag:read"]
+        assert response.status_code == 201, response.json()
+        assert response.json()["scopes"] == [scope]
 
     def test_create_too_many_api_keys(self):
         for i in range(0, MAX_PROJECT_SECRET_API_KEYS_PER_TEAM):
@@ -243,13 +255,9 @@ class TestProjectSecretAPIKeysAPI(APIBaseTest):
         )
         assert response.status_code == 400, response.json()
 
-    @parameterized.expand([("wizard_blocklist", True, False), ("security_rule", False, True)])
-    def test_banned_staff_cannot_grant_llm_gateway_scope(self, _name, wizard_blocked, security_refused):
+    def test_banned_staff_cannot_grant_llm_gateway_scope(self):
         self._make_staff()
-        with (
-            patch("posthog.api.project_secret_api_key.wizard_identity_blocked", return_value=wizard_blocked),
-            patch("posthog.api.project_secret_api_key.security_access_refused", return_value=security_refused),
-        ):
+        with patch("posthog.api.project_secret_api_key.security_access_refused", return_value=True):
             create = self.client.post(
                 f"/api/projects/{self.team.id}/project_secret_api_keys",
                 {"label": "my key", "scopes": ["llm_gateway:read"]},
@@ -264,9 +272,8 @@ class TestProjectSecretAPIKeysAPI(APIBaseTest):
         assert update.status_code == 403, update.json()
         assert not ProjectSecretAPIKey.objects.filter(team=self.team, label="my key").exists()
 
-    @patch("posthog.api.project_secret_api_key.security_access_refused", return_value=False)
-    @patch("posthog.api.project_secret_api_key.wizard_identity_blocked", return_value=True)
-    def test_ban_checks_skip_kept_and_other_scopes(self, mock_blocked, mock_refused):
+    @patch("posthog.api.project_secret_api_key.security_access_refused", return_value=True)
+    def test_ban_checks_skip_kept_and_other_scopes(self, mock_refused):
         self._make_staff()
         key = self._key(["llm_gateway:read"])
         kept = self.client.patch(
@@ -279,7 +286,6 @@ class TestProjectSecretAPIKeysAPI(APIBaseTest):
         )
         assert kept.status_code == 200, kept.json()
         assert other.status_code == 201, other.json()
-        mock_blocked.assert_not_called()
         mock_refused.assert_not_called()
 
     def test_llm_gateway_write_scope_rejected(self):
@@ -338,6 +344,8 @@ class TestProjectSecretAPIKeysAPI(APIBaseTest):
         key_id = data["id"]
         original_mask = data["mask_value"]
         original_secure_value = ProjectSecretAPIKey.objects.get(id=key_id).secure_value
+        assert original_secure_value is not None
+        assert data["ai_credential"] == ai_credential_value(original_secure_value)
 
         response = self.client.post(f"/api/projects/{self.team.id}/project_secret_api_keys/{key_id}/roll")
         assert response.status_code == 200
@@ -350,8 +358,12 @@ class TestProjectSecretAPIKeysAPI(APIBaseTest):
         assert rolled["value"] is not None
         assert rolled["value"].startswith("phs_")
 
-        key = ProjectSecretAPIKey.objects.get(id=key_id)
-        assert key.secure_value != original_secure_value
+        rolled_secure_value = ProjectSecretAPIKey.objects.get(id=key_id).secure_value
+        assert rolled_secure_value is not None
+        assert rolled_secure_value != original_secure_value
+        # The gateway attribution follows the secret, so a rolled key reports a new value.
+        assert rolled["ai_credential"] == ai_credential_value(rolled_secure_value)
+        assert rolled["ai_credential"] != data["ai_credential"]
 
     def test_list_only_current_team_keys(self):
         self.client.post(

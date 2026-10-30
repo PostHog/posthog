@@ -1,7 +1,7 @@
 from datetime import date
 from typing import cast
 
-from posthog.models.integration import Integration
+from posthog.integrations import IntegrationNotFound
 
 from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
@@ -45,8 +45,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.m
     META_ADS_API_VERSION_V25,
     META_ADS_API_VERSION_V26,
     META_AUTH_ERROR_MESSAGE,
+    META_CHECKPOINT_ERROR_MESSAGE,
     META_INVALID_CURSOR_ERROR_MESSAGE,
     META_RATE_LIMIT_ERROR_MESSAGE,
+    META_TOKEN_REFRESH_ERROR_MESSAGE,
     SHRINK_EXHAUSTED_ERROR_MESSAGE,
     MetaAdsAuthError,
     MetaAdsRateLimitError,
@@ -133,7 +135,7 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig], O
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
-            "Failed to refresh token for Meta Ads integration. Please re-authorize the integration.": None,
+            META_TOKEN_REFRESH_ERROR_MESSAGE: None,
             # The data warehouse source still references a `meta_ads_integration_id` whose
             # Integration row no longer exists for the team (the integration was deleted or
             # de-authorized). `get_integration` then raises Django's `Integration.DoesNotExist`
@@ -142,18 +144,18 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig], O
             "Integration matching query does not exist.": (
                 "The Meta Ads integration for this source no longer exists. Please reconnect the Meta Ads integration."
             ),
-            # Permanent auth/permission failures from the Graph API (e.g. revoked or expired
-            # access tokens, checkpoint-required, invalidated sessions, permission denials).
-            # `meta_ads._raise_meta_api_error` prefixes these with this exact message.
-            META_AUTH_ERROR_MESSAGE: META_AUTH_ERROR_MESSAGE,
+            # `_fetch_integration_row` raises `IntegrationNotFound("Integration not found: <id>")` for the same case.
+            "Integration not found": (
+                "The Meta Ads integration for this source no longer exists. Please reconnect the Meta Ads integration."
+            ),
+            META_CHECKPOINT_ERROR_MESSAGE: META_CHECKPOINT_ERROR_MESSAGE,
             # Graph API code 200: "Ad account owner has NOT granted ads_management or ads_read
             # permission." The connected Meta user can't read this ad account's data. Retrying
             # can't grant the permission — the account owner has to. Without a message here the
             # raw Graph API JSON blob surfaces to the user, so give actionable guidance instead.
             "Ad account owner has NOT": (
-                "Meta denied access to this ad account — the connected Meta account is missing the "
-                "ads_read permission needed to sync its data. Ask the ad account owner to grant that "
-                "access, then reconnect the Meta Ads integration."
+                "The Meta account you connected doesn't have ads_read access to this ad account. Ask "
+                "the ad account owner to grant it, then reconnect your Meta Ads account."
             ),
             # Graph API code 100: "This endpoint cannot be loaded due to missing permissions." A
             # specific endpoint can't be read with the permissions the user granted. Same as above:
@@ -176,10 +178,8 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig], O
             # `AD_ACCOUNT_FIELDS` in meta_ads.py). Only the account owner granting
             # `business_management`, or PostHog dropping the field that needs it, fixes this.
             "Requires business_management permission": (
-                "Meta rejected part of this request because it needs the business_management "
-                "permission, which this integration does not request and cannot request without "
-                "widening OAuth consent for every customer. Re-authorizing will not fix this — "
-                "contact PostHog support if this table keeps failing."
+                "Meta needs the business_management permission for part of this table, which PostHog "
+                "doesn't request, so reconnecting won't fix it. Contact PostHog support about this table."
             ),
             # Graph API code 100: the source's "Attribution windows for insights" setting (a
             # free-text field, see `SourceFieldInputConfig` above) contains a value Meta's
@@ -220,6 +220,12 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig], O
                 "Choose date_start as the incremental field in the table's sync settings, or switch "
                 "it to full refresh, then run the sync again."
             ),
+            # Permanent auth/permission failures from the Graph API (e.g. revoked or expired
+            # access tokens, invalidated sessions, permission denials).
+            # `meta_ads._raise_meta_api_error` prefixes these with this exact message. Last, because
+            # the first matching entry supplies the message, and the code 200 entries above match
+            # the same prefixed errors with more specific guidance.
+            META_AUTH_ERROR_MESSAGE: META_AUTH_ERROR_MESSAGE,
         }
 
     def get_retryable_errors(self) -> set[str]:
@@ -252,6 +258,18 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig], O
             ENTITY_PAGE_REFUSED_ERROR_MESSAGE: (
                 "Meta was too busy to return this table's data, so this sync run did not finish. "
                 "This usually clears on its own and the next sync runs on schedule."
+            ),
+            # Graph API code 100, subcode 2446211: Meta refuses to serve an Advantage+ creative
+            # ("degrees of freedom") ad whose asset feed disagrees with its object story spec. The
+            # raw 400 body lands in the stored error otherwise. Keyed on the subcode because Meta
+            # localizes the title and message to the connected user's language.
+            '"error_subcode":2446211': (
+                "Meta refused to return an Advantage+ creative ad whose asset variations don't match "
+                "its main creative. Fix that ad in Ads Manager; the next sync runs on schedule."
+            ),
+            '"error_subcode":1443048': (
+                "Meta refused to return an ad creative whose story is incomplete, such as one with no "
+                "Page. Fix or delete that creative in Ads Manager; the next sync runs on schedule."
             ),
         }
 
@@ -327,6 +345,7 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig], O
                     ),
                     SourceFieldInputConfig(
                         name="sync_lookback_days",
+                        sync_setting=True,
                         label="Sync history for insights (days) - applies to every stats table",
                         type=SourceFieldInputConfigType.NUMBER,
                         required=False,
@@ -342,6 +361,7 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig], O
                     # reconcile PostHog's numbers with Ads Manager, which reports on a specific window.
                     SourceFieldInputConfig(
                         name="action_attribution_windows",
+                        sync_setting=True,
                         label="Attribution windows for insights (comma-separated, e.g. 7d_click,1d_view)",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
@@ -350,6 +370,7 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig], O
                     ),
                     SourceFieldSelectConfig(
                         name="use_unified_attribution_setting",
+                        sync_setting=True,
                         label="Use Meta's unified attribution setting",
                         required=False,
                         defaultValue="",
@@ -380,7 +401,7 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig], O
         # A Meta user's ad accounts are few, so `search` is ignored here and the endpoint filters the list.
         try:
             integration = get_integration_by_id(integration_id, team_id)
-        except Integration.DoesNotExist as e:
+        except IntegrationNotFound as e:
             raise IntegrationAccountListingError(
                 "The linked Meta Ads integration could not be found. Please reconnect your Meta Ads integration."
             ) from e
@@ -390,9 +411,7 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig], O
         try:
             accounts = list_ad_accounts(integration)
         except MetaAdsAuthError as e:
-            raise IntegrationAccountListingError(
-                f"{META_AUTH_ERROR_MESSAGE} Make sure the connected account can access your ad accounts."
-            ) from e
+            raise IntegrationAccountListingError(META_AUTH_ERROR_MESSAGE) from e
         except MetaAdsRateLimitError as e:
             # Throttling is not a bug: surface it as an actionable 400 the user can retry, rather
             # than a 500 that pages us.

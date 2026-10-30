@@ -65,7 +65,14 @@ def cluster(django_db_setup) -> Iterator[ClickhouseCluster]:
             id="token_first_default_bootstraps_on_token",
         ),
         pytest.param(
-            ClickHouseUser.DEFAULT, "static-only", False, None, {}, {}, False, id="static_default_uses_password"
+            ClickHouseUser.DEFAULT,
+            "static-only",
+            False,
+            None,
+            {"user": "default", "password": "static-only"},
+            {},
+            False,
+            id="static_default_uses_password",
         ),
         pytest.param(
             ClickHouseUser.DEFAULT,
@@ -753,6 +760,49 @@ def test_discovery_retries_a_rejected_login_only_with_a_fresh_token(
         else:
             with pytest.raises(ServerException):
                 discover()
+
+    assert presented == expected_presented
+
+
+@pytest.mark.parametrize(
+    "credential_provider_set, caller_retry_policy_set, expected_presented",
+    [
+        pytest.param(True, True, ["expired", "live"], id="token_task_retries_a_rejected_login_with_the_live_token"),
+        pytest.param(True, False, ["expired"], id="token_task_without_a_caller_policy_fails"),
+        pytest.param(False, True, ["static"], id="static_task_fails_on_a_rejected_login"),
+    ],
+)
+def test_host_task_retries_a_rejected_login_only_with_a_fresh_token(
+    credential_provider_set: bool, caller_retry_policy_set: bool, expected_presented: list[str]
+) -> None:
+    bootstrap_client_mock = Mock()
+    bootstrap_client_mock.execute = Mock(return_value=[("host1", 9000, 1, 1, "online", "data")])
+    token_file = {"token": "expired"}
+    presented: list[str] = []
+
+    def wait_for_mutation(client: Client) -> None:
+        presented.append(client.connection.password)
+        if len(presented) == 1:
+            token_file["token"] = "live"
+            raise ServerException("Authentication failed", code=AUTHENTICATION_FAILED)
+
+    cluster = ClickhouseCluster(
+        bootstrap_client_mock,
+        cluster="posthog",
+        retry_policy=RetryPolicy(max_attempts=2, delay=0, exceptions=(TimeoutError,))
+        if caller_retry_policy_set
+        else None,
+        connection_overrides={"credential_provider": lambda: token_file["token"]}
+        if credential_provider_set
+        else {"password": "static"},
+    )
+
+    task = cluster.any_host(wait_for_mutation)
+    if credential_provider_set and caller_retry_policy_set:
+        task.result()
+    else:
+        with pytest.raises(ServerException):
+            task.result()
 
     assert presented == expected_presented
 

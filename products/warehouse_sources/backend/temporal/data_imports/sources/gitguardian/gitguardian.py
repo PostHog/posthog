@@ -6,11 +6,14 @@ from urllib.parse import quote, urlencode, urljoin, urlsplit
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from posthog.dataclasses import frozen
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.gitguardian.settings import (
@@ -80,7 +83,7 @@ def _build_url(base_url: str, path: str, params: dict[str, Any]) -> str:
     return f"{base_url}{path}?{urlencode(params)}"
 
 
-@retry(
+@retry_with_deadline(
     retry=retry_if_exception_type(
         (
             GitGuardianRetryableError,
@@ -164,8 +167,20 @@ def check_endpoint_access(api_key: str, base_url: str, endpoint: str) -> str | N
     """
     config = GITGUARDIAN_ENDPOINTS[endpoint]
     # Fan-out children share their parent's scope, and their path needs a real parent id.
-    probe_path = GITGUARDIAN_ENDPOINTS[config.parent_endpoint].path if config.parent_endpoint else config.path
-    url = _build_url(base_url, probe_path, {"per_page": 1})
+    probe = GITGUARDIAN_ENDPOINTS[config.parent_endpoint] if config.parent_endpoint else config
+    probes = [(probe, config.required_scope)]
+    probes += [
+        (GITGUARDIAN_ENDPOINTS[name], GITGUARDIAN_ENDPOINTS[name].required_scope) for name in config.also_requires
+    ]
+    for probe_config, scope in probes:
+        reason = _probe_endpoint(api_key, base_url, probe_config, scope)
+        if reason:
+            return reason
+    return None
+
+
+def _probe_endpoint(api_key: str, base_url: str, probe: GitGuardianEndpointConfig, scope: str) -> str | None:
+    url = _build_url(base_url, probe.path, {"per_page": 1} if probe.page_size else {})
     try:
         # capture=False keeps GitGuardian security metadata (repo names, file paths, secret hashes)
         # out of the HTTP sample bucket — the name-based scrubbers can't recognise these fields.
@@ -180,11 +195,11 @@ def check_endpoint_access(api_key: str, base_url: str, endpoint: str) -> str | N
     detail = _error_detail(response)
     if detail:
         return detail
-    return f"Your API token is missing the `{config.required_scope}` scope required for this table."
+    return f"Your API token is missing the `{scope}` scope required for this table."
 
 
 def _list_params(config: GitGuardianEndpointConfig) -> dict[str, Any]:
-    params: dict[str, Any] = {"per_page": config.page_size}
+    params: dict[str, Any] = {"per_page": config.page_size} if config.page_size else {}
     if config.ordering:
         params["ordering"] = config.ordering
     return params
@@ -242,7 +257,10 @@ def _get_fan_out_rows(
                     session, _build_url(base_url, path, _list_params(config)), headers, base_url, config.name, logger
                 ):
                     if page.rows:
-                        yield page.rows
+                        if config.parent_id_field:
+                            yield [{**row, config.parent_id_field: parent_id} for row in page.rows]
+                        else:
+                            yield page.rows
             except requests.HTTPError as e:
                 # The parent can be deleted between listing it and fetching its children.
                 if e.response is not None and e.response.status_code == 404:
@@ -340,9 +358,9 @@ def gitguardian_source(
             incremental_field=incremental_field,
         ),
         primary_keys=endpoint_config.primary_keys,
-        # Incremental endpoints request `ordering=date` explicitly, so rows arrive oldest-first
+        # Most incremental endpoints request `ordering=date` explicitly, so rows arrive oldest-first
         # and the incremental watermark can checkpoint per batch.
-        sort_mode="asc",
+        sort_mode=endpoint_config.sort_mode,
         partition_count=1,
         partition_size=1,
         partition_mode="datetime" if endpoint_config.partition_key else None,

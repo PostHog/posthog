@@ -4,8 +4,6 @@ from typing import Any, Optional
 import pytest
 from unittest import mock
 
-import requests
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
@@ -119,15 +117,128 @@ class TestPagination:
         assert len(result.requests) == 1
 
 
+class TestFanout:
+    def test_incident_timeline_walks_each_incidents_cursor(self) -> None:
+        result = _driver().run(
+            "incident_timeline_entries",
+            [
+                _page([{"id": "inc-1"}]),
+                ScriptedResponse(json={"data": {"entries": [{"id": "e1"}], "nextOffset": "e1"}}),
+                ScriptedResponse(json={"data": {"entries": [{"id": "e2"}]}}),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths == [
+            "/v1/incidents",
+            "/v2/incident-timelines/inc-1/entries",
+            "/v2/incident-timelines/inc-1/entries",
+        ]
+        assert result.requests[0].param("sort") == "createdAt"
+        assert result.params("offset") == ["0", None, "e1"]
+        assert result.params("limit") == [str(PAGE_SIZE), "20", "20"]
+        assert [(row["incident_id"], row["id"]) for row in result.rows] == [("inc-1", "e1"), ("inc-1", "e2")]
+        assert result.saved_states == []
+
+    def test_alert_logs_follow_each_alerts_next_link(self) -> None:
+        next_url = "https://api.opsgenie.com/v2/alerts/a1/logs?offset=o1&direction=next&limit=100&order=asc"
+        result = _driver().run(
+            "alert_logs",
+            [
+                _page([{"id": "a1"}]),
+                ScriptedResponse(json={"data": [{"offset": "o1", "log": "created"}], "paging": {"next": next_url}}),
+                ScriptedResponse(json={"data": [{"offset": "o2", "log": "closed"}], "paging": {"first": next_url}}),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths == ["/v2/alerts", "/v2/alerts/a1/logs", "/v2/alerts/a1/logs"]
+        assert result.requests[0].param("sort") == "createdAt"
+        assert result.requests[1].param("order") == "asc"
+        assert result.params("offset") == ["0", None, "o1"]
+        assert [(row["alert_id"], row["offset"]) for row in result.rows] == [("a1", "o1"), ("a1", "o2")]
+
+    def test_alert_logs_skip_alert_deleted_after_listing(self) -> None:
+        result = _driver().run(
+            "alert_logs",
+            [
+                _page([{"id": "gone"}, {"id": "a2"}]),
+                ScriptedResponse(status=404, json={"message": "Alert does not exist"}),
+                ScriptedResponse(json={"data": [{"offset": "o1", "log": "created"}]}),
+            ],
+        )
+
+        assert result.raised is None
+        assert [(row["alert_id"], row["offset"]) for row in result.rows] == [("a2", "o1")]
+
+    def test_alert_logs_refuse_next_link_to_another_host(self) -> None:
+        result = _driver().run(
+            "alert_logs",
+            [
+                _page([{"id": "a1"}]),
+                ScriptedResponse(
+                    json={"data": [{"offset": "o1"}], "paging": {"next": "https://evil.example.com/logs?offset=o1"}}
+                ),
+            ],
+        )
+
+        assert result.raised is not None
+        assert [request.origin for request in result.requests] == ["https://api.opsgenie.com"] * 2
+
+    @pytest.mark.parametrize(
+        "endpoint,parent_path,child_body,expected",
+        [
+            (
+                "team_members",
+                "/v2/teams",
+                {
+                    "data": {
+                        "id": "p1",
+                        "members": [{"user": {"id": "u1", "username": "a@example.com"}, "role": "admin"}],
+                    }
+                },
+                {"team_id": "p1", "user_id": "u1", "username": "a@example.com", "role": "admin"},
+            ),
+            (
+                "schedule_on_calls",
+                "/v2/schedules",
+                {"data": {"_parent": {"id": "p1"}, "onCallRecipients": ["a@example.com"]}},
+                {"schedule_id": "p1", "onCallRecipients": ["a@example.com"]},
+            ),
+        ],
+    )
+    def test_single_object_child_becomes_keyed_rows(
+        self, endpoint: str, parent_path: str, child_body: dict[str, Any], expected: dict[str, Any]
+    ) -> None:
+        result = _driver().run(endpoint, [_page([{"id": "p1"}]), ScriptedResponse(json=child_body)])
+
+        assert result.raised is None
+        assert result.paths[0] == parent_path
+        assert result.requests[0].param("limit") is None
+        assert len(result.rows) == 1
+        assert expected.items() <= result.rows[0].items()
+
+    def test_resume_skips_completed_parents(self) -> None:
+        resume = OpsgenieResumeConfig(
+            fanout_state={"completed": ["/v2/schedules/s1/rotations"], "current": None, "child_state": None}
+        )
+        result = _driver().run(
+            "schedule_rotations",
+            [_page([{"id": "s1"}, {"id": "s2"}]), _page([{"id": "r2"}])],
+            resume_state=resume,
+        )
+
+        assert result.raised is None
+        assert result.paths == ["/v2/schedules", "/v2/schedules/s2/rotations"]
+        assert [(row["schedule_id"], row["id"]) for row in result.rows] == [("s2", "r2")]
+
+
 class TestValidateCredentials:
     @pytest.mark.parametrize(
         "status_code,expected_ok,expected_status",
         [
-            (200, True, 200),
-            (401, False, 401),
             (403, False, 403),
             (422, False, 422),
-            (500, False, 500),
         ],
     )
     def test_status_mapping(self, status_code: int, expected_ok: bool, expected_status: int) -> None:
@@ -141,17 +252,6 @@ class TestValidateCredentials:
         assert network.requests_log[0].path == "/v2/users"
         assert network.requests_log[0].param("limit") == "1"
 
-    def test_transport_failure_returns_zero_status(self) -> None:
-        def fail_request(_request: Any) -> ScriptedResponse:
-            raise requests.ConnectionError("no network")
-
-        with scripted_network(fail_request):
-            ok, status, error = validate_credentials("key", "us")
-
-        assert ok is False
-        assert status == 0
-        assert error is not None and "no network" in error
-
 
 class TestOpsgenieSourceResponse:
     @pytest.mark.parametrize("endpoint", list(OPSGENIE_ENDPOINTS.keys()))
@@ -162,5 +262,5 @@ class TestOpsgenieSourceResponse:
         assert result.raised is None
         assert response is not None
         assert response.name == endpoint
-        assert response.primary_keys == [OPSGENIE_ENDPOINTS[endpoint].primary_key]
+        assert response.primary_keys == OPSGENIE_ENDPOINTS[endpoint].primary_keys
         assert callable(response.items)

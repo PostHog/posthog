@@ -21,20 +21,32 @@ from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationConfig,
     AlertDestinationData,
     AlertDestinationGroup,
+    DeliveryPath,
     DestinationType,
     EventKindSpec,
     OwnedAlertDestination,
+    SourceKind,
 )
 
 from ..logic import (
+    alert_email,
     delivery_destinations,
+    delivery_path,
     destination_bucket_report,
     destination_configs,
     destination_eligibility,
     destinations,
     insight_alert_destinations,
+    insight_alert_message,
 )
-from .contracts import DestinationBucket, DestinationEligibility
+from .contracts import (
+    AlertEmailRecipientResolver,
+    AlertInternalEvent,
+    DeliveryPathChoice,
+    DestinationBucket,
+    DestinationEligibility,
+    DestinationHoldBack,
+)
 
 ALERT_NOTIFICATION_FLUSH_TIMEOUT_SECONDS: Final = 10.0
 
@@ -100,6 +112,43 @@ def build_insight_alert_slack_config(
     )
 
 
+def insight_alert_slack_properties(
+    *,
+    breaches: list[str],
+    metric_name: str,
+    is_anomaly: bool = False,
+    tags: list[str] | None = None,
+    breach_details: list[dict[str, str]] | None = None,
+    affected_dates: list[str] | None = None,
+    affected_interval: str | None = None,
+    project_timezone: str = "UTC",
+    metric_description: str | None = None,
+    next_step: str | None = None,
+    summary: str | None,
+    verdict: str | None,
+    investigation_status: str | None,
+    detected_at: str,
+    allowed_root: str,
+) -> dict[str, Any]:
+    return insight_alert_message.insight_alert_slack_properties(
+        breaches=breaches,
+        metric_name=metric_name,
+        is_anomaly=is_anomaly,
+        tags=tags,
+        breach_details=breach_details,
+        affected_dates=affected_dates,
+        affected_interval=affected_interval,
+        project_timezone=project_timezone,
+        metric_description=metric_description,
+        next_step=next_step,
+        summary=summary,
+        verdict=verdict,
+        investigation_status=investigation_status,
+        detected_at=detected_at,
+        allowed_root=allowed_root,
+    )
+
+
 def create_alert_destination_hog_functions(
     configs: list[AlertDestinationConfig],
     *,
@@ -145,6 +194,14 @@ def list_alert_destination_groups(
     """The destinations configured for one alert, one entry per destination a person added."""
     return destinations.list_alert_destination_groups(
         team_id=team_id, alert_id=alert_id, allowed_event_ids=allowed_event_ids
+    )
+
+
+def owned_alert_destination_ids(
+    *, team_id: int, alert_id: str, allowed_event_ids: Collection[str], hog_function_ids: Collection[UUID]
+) -> frozenset[UUID]:
+    return destinations.owned_alert_destination_ids(
+        team_id=team_id, alert_id=alert_id, allowed_event_ids=allowed_event_ids, hog_function_ids=hog_function_ids
     )
 
 
@@ -219,6 +276,18 @@ def alert_internal_event_delivered(
     )
 
 
+def emit_alert_internal_events(
+    *, team_id: int, alert_id: str, events: Sequence[AlertInternalEvent], flush_timeout_seconds: float
+) -> None:
+    """Enqueue the events and wait for the broker. Raises `AlertInternalEventsNotDelivered` when it took not all of them.
+
+    Each event's `uuid` is what lets a receiver drop the copy a retry emits.
+    """
+    destinations.emit_alert_internal_events(
+        team_id=team_id, alert_id=alert_id, events=events, flush_timeout_seconds=flush_timeout_seconds
+    )
+
+
 def list_delivery_destination_groups(
     *, team_id: int, alert_id: str, allowed_event_ids: Collection[str]
 ) -> list[AlertDestinationGroup]:
@@ -227,6 +296,16 @@ def list_delivery_destination_groups(
     return delivery_destinations.list_delivery_destination_groups(
         team_id=team_id, alert_id=alert_id, allowed_event_ids=allowed_event_ids
     )
+
+
+def register_email_recipient_resolver(*, event_ids: Collection[str], resolver: AlertEmailRecipientResolver) -> None:
+    """Platform delivery of these events also emails the addresses `resolver` returns for the alert.
+
+    Register the events a source maps firing and resolved onto, and not its incident events, or an
+    incident would send a second email. Call it from the source's `ready()`. Raises when another
+    resolver already owns one of the events.
+    """
+    alert_email.register_recipient_resolver(event_ids=event_ids, resolver=resolver)
 
 
 def classify_alert_destinations(
@@ -238,9 +317,29 @@ def classify_alert_destinations(
     )
 
 
-def unbound_alert_destinations(*, team_id: int, allowed_event_ids: Collection[str]) -> tuple[UUID, ...]:
-    """Enabled functions that take a source's alert events without being bound to one alert."""
-    return destination_eligibility.unbound_alert_destinations(team_id=team_id, allowed_event_ids=allowed_event_ids)
+def customized_alert_destination_ids(
+    *, team_id: int, alert_id: str, allowed_event_ids: Collection[str]
+) -> frozenset[UUID]:
+    """The destination functions of one alert that send something other than the stock message.
+
+    A refused address is not an edit: such a function still sends the stock message.
+    """
+    return frozenset(
+        eligibility.hog_function_id
+        for eligibility in destination_eligibility.classify_alert_destinations(
+            team_id=team_id, alert_id=alert_id, allowed_event_ids=allowed_event_ids
+        )
+        if set(eligibility.hold_backs) - {DestinationHoldBack.REFUSED_ADDRESS}
+    )
+
+
+def unbound_alert_destinations(
+    *, team_id: int, allowed_event_ids: Collection[str], include_disabled: bool = False
+) -> tuple[UUID, ...]:
+    """Functions that take a source's alert events without being bound to one alert, enabled ones only by default."""
+    return destination_eligibility.unbound_alert_destinations(
+        team_id=team_id, allowed_event_ids=allowed_event_ids, include_disabled=include_disabled
+    )
 
 
 def bucket_for(eligibility: DestinationEligibility) -> DestinationBucket:
@@ -251,3 +350,21 @@ def bucket_for(eligibility: DestinationEligibility) -> DestinationBucket:
 def bucket_report_lines(team_alerts: Iterable[tuple[int, str]], *, allowed_event_ids: Collection[str]) -> Iterator[str]:
     """One line per destination of the given (team id, alert id) pairs, then the count per bucket and per reason."""
     return destination_bucket_report.bucket_report_lines(team_alerts, allowed_event_ids=allowed_event_ids)
+
+
+def team_delivery_paths(
+    *, source: SourceKind, team_id: int, alert_ids: Sequence[str], allowed_event_ids: Collection[str]
+) -> dict[str, DeliveryPathChoice]:
+    """Whether native delivery may send each alert's destinations now, and why not when it may not."""
+    return delivery_path.team_delivery_paths(
+        source=source, team_id=team_id, alert_ids=alert_ids, allowed_event_ids=allowed_event_ids
+    )
+
+
+def choose_delivery_path(
+    *, source: SourceKind, team_id: int, alert_id: str, allowed_event_ids: Collection[str]
+) -> DeliveryPath:
+    """The platform's delivery path chooser, which `products.alerts` registers when Django starts."""
+    return delivery_path.delivery_path(
+        source=source, team_id=team_id, alert_id=alert_id, allowed_event_ids=allowed_event_ids
+    )

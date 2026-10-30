@@ -2,7 +2,7 @@ import { convertPropertyGroupToProperties } from 'lib/components/PropertyFilters
 import { uuid } from 'lib/utils/dom'
 
 import { AnyEntityNode, GroupNode, NodeKind } from '~/queries/schema/schema-general'
-import { ActionFilter, Entity, EntityTypes, FilterType } from '~/types'
+import { ActionFilter, EntityTypes, FilterType } from '~/types'
 
 import {
     SeriesNode,
@@ -138,8 +138,8 @@ export function seriesToLegacyFilters(series: SeriesNode[]): FilterType {
 }
 
 /**
- * The legacy row shape, still used by `cleanFilters` for the persons-modal URL path and by
- * replay's playlist summary. Both go in the PR that deletes the converter.
+ * The legacy row shape. Replay's playlist summary (`summarizePlaylistFilters`) still builds it
+ * with `toLocalFilters` to name its event and action filters.
  */
 export type LocalFilter = ActionFilter & {
     order: number
@@ -147,8 +147,6 @@ export type LocalFilter = ActionFilter & {
     table_name?: string
     [key: string]: any
 }
-
-export type BareEntity = Pick<Entity, 'id' | 'name'>
 
 export function toLocalFilters(filters: Partial<FilterType>): LocalFilter[] {
     const localFilters = [
@@ -168,20 +166,4 @@ export function toLocalFilters(filters: Partial<FilterType>): LocalFilter[] {
               }
             : { ...filter, uuid: uuid() }
     )
-}
-
-export function toFilters(localFilters: LocalFilter[]): FilterType {
-    const filters = localFilters.map((filter, index) => ({
-        ...filter,
-        order: index,
-        // The first step of a funnel cannot be optional
-        optionalInFunnel: index == 0 ? undefined : filter.optionalInFunnel,
-    }))
-
-    return {
-        [EntityTypes.ACTIONS]: filters.filter((filter) => filter.type === EntityTypes.ACTIONS),
-        [EntityTypes.EVENTS]: filters.filter((filter) => filter.type === EntityTypes.EVENTS),
-        [EntityTypes.DATA_WAREHOUSE]: filters.filter((filter) => filter.type === EntityTypes.DATA_WAREHOUSE),
-        [EntityTypes.GROUPS]: filters.filter((filter) => filter.type === EntityTypes.GROUPS),
-    } as FilterType
 }

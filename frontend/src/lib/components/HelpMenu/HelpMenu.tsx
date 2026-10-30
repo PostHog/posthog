@@ -22,22 +22,13 @@ import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePane
 import { SidePanelTab } from '~/types'
 
 import { ScrollableShadows } from '../ScrollableShadows/ScrollableShadows'
-import { RenderKeybind } from '../Shortcuts/ShortcutMenu'
+import { RenderKeybind } from '../Shortcuts/RenderKeybind'
 import { keyBinds } from '../Shortcuts/shortcuts'
 import { openCHQueriesDebugModal } from '../Shortcuts/utils/DebugCHQueries'
+import { healthSummaryLabel } from './healthSummaryLabel'
 import { healthSummaryLogic } from './healthSummaryLogic'
 import { helpMenuLogic } from './helpMenuLogic'
 import { posthogStatusLogic } from './posthogStatusLogic'
-
-function healthTooltip(unsnoozedCount: number, snoozedCount: number): string {
-    if (unsnoozedCount > 0) {
-        return `${unsnoozedCount} health issue${unsnoozedCount === 1 ? '' : 's'}`
-    }
-    if (snoozedCount > 0) {
-        return `${snoozedCount} snoozed health issue${snoozedCount === 1 ? '' : 's'}`
-    }
-    return 'All systems healthy'
-}
 
 export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Element {
     const { openSidePanel } = useActions(sidePanelStateLogic)
@@ -49,7 +40,7 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
     const { billing } = useValues(billingLogic)
     const { postHogStatusTooltip, postHogStatusBadgeStatus, postHogStatusBadgeContent, statusPageUrl } =
         useValues(posthogStatusLogic)
-    const { unsnoozedCount, snoozedCount } = useValues(healthSummaryLogic)
+    const { healthSummary, unsnoozedCount, snoozedCount } = useValues(healthSummaryLogic)
 
     return (
         <Menu.Root open={isHelpMenuOpen} onOpenChange={setHelpMenuOpen}>
@@ -183,17 +174,23 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
                                             {...props}
                                             to={urls.health()}
                                             buttonProps={{ menuItem: true }}
-                                            tooltip={healthTooltip(unsnoozedCount, snoozedCount)}
+                                            tooltip={
+                                                healthSummary
+                                                    ? healthSummaryLabel(unsnoozedCount, snoozedCount)
+                                                    : undefined
+                                            }
                                             tooltipPlacement="right"
                                             tooltipCloseDelayMs={0}
                                             data-attr="more-menu-health-button"
                                         >
                                             Health
-                                            <LemonBadge
-                                                size="small"
-                                                content={triggerBadgeContent}
-                                                status={triggerBadgeStatus}
-                                            />
+                                            {healthSummary && (
+                                                <LemonBadge
+                                                    size="small"
+                                                    content={triggerBadgeContent}
+                                                    status={triggerBadgeStatus}
+                                                />
+                                            )}
                                         </Link>
                                     )}
                                 />

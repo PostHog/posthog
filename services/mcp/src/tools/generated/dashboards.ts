@@ -3,8 +3,8 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/dashboards/api'
-import { DashboardTileCreateSchema } from '@/schema/tool-inputs'
-import { castStringToInt } from '@/tools/cast-helpers'
+import { DashboardInsightTileIdsSchema, DashboardTileCreateSchema } from '@/schema/tool-inputs'
+import { castStringToInt, normalizeParamAliases } from '@/tools/cast-helpers'
 import {
     withPostHogUrl,
     withAgentNote,
@@ -20,13 +20,7 @@ import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 const DashboardCreateSchema = () => {
     const DashboardsCreateBody = orvalSchemas.DashboardsCreateBody()
     const DashboardsCreateQueryParams = orvalSchemas.DashboardsCreateQueryParams()
-    return DashboardsCreateQueryParams.omit({ format: true })
-        .extend(DashboardsCreateBody.shape)
-        .extend({
-            restriction_level: DashboardsCreateBody.shape['restriction_level'].describe(
-                'Set to 21 for everyone in the project to edit. Legacy value 37 is deprecated and rejected by the API.'
-            ),
-        })
+    return DashboardsCreateQueryParams.omit({ format: true }).extend(DashboardsCreateBody.shape)
 }
 
 const dashboardCreate = (): ToolBase<
@@ -56,9 +50,6 @@ const dashboardCreate = (): ToolBase<
         if (params.tags !== undefined) {
             body['tags'] = params.tags
         }
-        if (params.restriction_level !== undefined) {
-            body['restriction_level'] = params.restriction_level
-        }
         if (params.quick_filter_ids !== undefined) {
             body['quick_filter_ids'] = params.quick_filter_ids
         }
@@ -68,8 +59,11 @@ const dashboardCreate = (): ToolBase<
         if (params.layout_compaction !== undefined) {
             body['layout_compaction'] = params.layout_compaction
         }
-        if (params.group_titles !== undefined) {
-            body['group_titles'] = params.group_titles
+        if (params.group_display !== undefined) {
+            body['group_display'] = params.group_display
+        }
+        if (params.groups !== undefined) {
+            body['groups'] = params.groups
         }
         if (params.use_template !== undefined) {
             body['use_template'] = params.use_template
@@ -90,11 +84,7 @@ const dashboardCreate = (): ToolBase<
         })
         const filtered = stripNullFields(
             omitResponseFields(result, [
-                'effective_restriction_level',
-                'effective_privilege_level',
                 'user_access_level',
-                'access_control_version',
-                'restriction_level',
                 'creation_mode',
                 'deleted',
                 'breakdown_colors',
@@ -115,8 +105,6 @@ const dashboardCreate = (): ToolBase<
                 'tiles.*.insight.filters_hash',
                 'tiles.*.insight.dashboards',
                 'tiles.*.insight.dashboard_tiles',
-                'tiles.*.insight.effective_restriction_level',
-                'tiles.*.insight.effective_privilege_level',
                 'tiles.*.insight.user_access_level',
                 'tiles.*.insight.filters',
                 'tiles.*.insight.is_sample',
@@ -127,6 +115,7 @@ const dashboardCreate = (): ToolBase<
                 'tiles.*.insight.last_viewed_at',
                 'tiles.*.insight.timezone',
                 'tiles.*.insight.resolved_date_range',
+                'tiles.*.insight.resolved_compare_date_range',
                 'tiles.*.insight.filter_override_context',
                 'created_by.uuid',
                 'created_by.distinct_id',
@@ -277,11 +266,7 @@ const dashboardGet = (): ToolBase<
         })
         const filtered = stripNullFields(
             omitResponseFields(result, [
-                'effective_restriction_level',
-                'effective_privilege_level',
                 'user_access_level',
-                'access_control_version',
-                'restriction_level',
                 'creation_mode',
                 'deleted',
                 'breakdown_colors',
@@ -302,8 +287,6 @@ const dashboardGet = (): ToolBase<
                 'tiles.*.insight.filters_hash',
                 'tiles.*.insight.dashboards',
                 'tiles.*.insight.dashboard_tiles',
-                'tiles.*.insight.effective_restriction_level',
-                'tiles.*.insight.effective_privilege_level',
                 'tiles.*.insight.user_access_level',
                 'tiles.*.insight.filters',
                 'tiles.*.insight.is_sample',
@@ -312,6 +295,7 @@ const dashboardGet = (): ToolBase<
                 'tiles.*.insight.alerts',
                 'tiles.*.insight.timezone',
                 'tiles.*.insight.resolved_date_range',
+                'tiles.*.insight.resolved_compare_date_range',
                 'tiles.*.insight.filter_override_context',
                 'created_by.uuid',
                 'created_by.distinct_id',
@@ -356,23 +340,38 @@ const dashboardGet = (): ToolBase<
 const DashboardInsightsRunSchema = () => {
     const DashboardsRunInsightsRetrieveParams = orvalSchemas.DashboardsRunInsightsRetrieveParams()
     const DashboardsRunInsightsRetrieveQueryParams = orvalSchemas.DashboardsRunInsightsRetrieveQueryParams()
-    return DashboardsRunInsightsRetrieveParams.omit({ project_id: true })
-        .extend(DashboardsRunInsightsRetrieveQueryParams.omit({ format: true }).shape)
-        .extend({ id: z.preprocess(castStringToInt, DashboardsRunInsightsRetrieveParams.shape['id']) })
-        .extend({
-            filters_override: z
-                .union([z.string(), z.record(z.string(), z.unknown())])
-                .optional()
-                .describe(
-                    'Object (or pre-encoded JSON string) to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.'
-                ),
-            variables_override: z
-                .union([z.string(), z.record(z.string(), z.unknown())])
-                .optional()
-                .describe(
-                    'Object (or pre-encoded JSON string) to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.'
-                ),
-        })
+    return z.preprocess(
+        normalizeParamAliases({ dashboard_tile_ids: ['tile_ids'], id: ['dashboard_id', 'dashboardId'] }),
+        DashboardsRunInsightsRetrieveParams.omit({ project_id: true })
+            .extend(DashboardsRunInsightsRetrieveQueryParams.omit({ format: true }).shape)
+            .extend({
+                tile_ids: DashboardInsightTileIdsSchema,
+                id: z.preprocess(castStringToInt, DashboardsRunInsightsRetrieveParams.shape['id']),
+            })
+            .omit({ tile_ids: true })
+            .extend({
+                dashboard_tile_ids: DashboardsRunInsightsRetrieveParams.omit({ project_id: true })
+                    .extend(DashboardsRunInsightsRetrieveQueryParams.omit({ format: true }).shape)
+                    .extend({
+                        tile_ids: DashboardInsightTileIdsSchema,
+                        id: z.preprocess(castStringToInt, DashboardsRunInsightsRetrieveParams.shape['id']),
+                    }).shape['tile_ids'],
+            })
+            .extend({
+                filters_override: z
+                    .union([z.string(), z.record(z.string(), z.unknown())])
+                    .optional()
+                    .describe(
+                        'Object (or pre-encoded JSON string) to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.'
+                    ),
+                variables_override: z
+                    .union([z.string(), z.record(z.string(), z.unknown())])
+                    .optional()
+                    .describe(
+                        'Object (or pre-encoded JSON string) to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.'
+                    ),
+            })
+    )
 }
 
 const dashboardInsightsRun = (): ToolBase<
@@ -391,7 +390,7 @@ const dashboardInsightsRun = (): ToolBase<
                 max_result_chars: params.max_result_chars,
                 output_format: params.output_format,
                 refresh: params.refresh,
-                tile_ids: params.tile_ids,
+                tile_ids: params.dashboard_tile_ids,
                 variables_override: params.variables_override,
             },
         })
@@ -576,8 +575,8 @@ const DashboardUpdateSchema = () => {
         .extend(DashboardsPartialUpdateBody.shape)
         .extend({
             id: z.preprocess(castStringToInt, DashboardsPartialUpdateParams.shape['id']),
-            restriction_level: DashboardsPartialUpdateBody.shape['restriction_level'].describe(
-                'Set to 21 for everyone in the project to edit. Legacy value 37 is deprecated and rejected by the API.'
+            tiles: DashboardsPartialUpdateBody.shape['tiles'].describe(
+                "Dashboard tiles to update, each identified by its tile id. Any tile type accepts `layouts` to set its grid position and size. To change a widget tile's config, name, or description, use dashboard-widgets-batch-update."
             ),
         })
 }
@@ -612,9 +611,6 @@ const dashboardUpdate = (): ToolBase<
         if (params.tags !== undefined) {
             body['tags'] = params.tags
         }
-        if (params.restriction_level !== undefined) {
-            body['restriction_level'] = params.restriction_level
-        }
         if (params.quick_filter_ids !== undefined) {
             body['quick_filter_ids'] = params.quick_filter_ids
         }
@@ -624,8 +620,11 @@ const dashboardUpdate = (): ToolBase<
         if (params.layout_compaction !== undefined) {
             body['layout_compaction'] = params.layout_compaction
         }
-        if (params.group_titles !== undefined) {
-            body['group_titles'] = params.group_titles
+        if (params.group_display !== undefined) {
+            body['group_display'] = params.group_display
+        }
+        if (params.groups !== undefined) {
+            body['groups'] = params.groups
         }
         if (params.tiles !== undefined) {
             body['tiles'] = params.tiles
@@ -649,11 +648,7 @@ const dashboardUpdate = (): ToolBase<
         })
         const filtered = stripNullFields(
             omitResponseFields(result, [
-                'effective_restriction_level',
-                'effective_privilege_level',
                 'user_access_level',
-                'access_control_version',
-                'restriction_level',
                 'creation_mode',
                 'deleted',
                 'breakdown_colors',
@@ -674,8 +669,6 @@ const dashboardUpdate = (): ToolBase<
                 'tiles.*.insight.filters_hash',
                 'tiles.*.insight.dashboards',
                 'tiles.*.insight.dashboard_tiles',
-                'tiles.*.insight.effective_restriction_level',
-                'tiles.*.insight.effective_privilege_level',
                 'tiles.*.insight.user_access_level',
                 'tiles.*.insight.filters',
                 'tiles.*.insight.is_sample',
@@ -684,6 +677,7 @@ const dashboardUpdate = (): ToolBase<
                 'tiles.*.insight.alerts',
                 'tiles.*.insight.timezone',
                 'tiles.*.insight.resolved_date_range',
+                'tiles.*.insight.resolved_compare_date_range',
                 'tiles.*.insight.filter_override_context',
                 'created_by.uuid',
                 'created_by.distinct_id',
@@ -766,7 +760,10 @@ const dashboardUpdateTextTile = (): ToolBase<
     },
 })
 
-const DashboardWidgetCatalogListSchema = () => z.object({})
+const DashboardWidgetCatalogListSchema = () => {
+    const DashboardsWidgetCatalogRetrieveQueryParams = orvalSchemas.DashboardsWidgetCatalogRetrieveQueryParams()
+    return DashboardsWidgetCatalogRetrieveQueryParams.omit({ format: true })
+}
 
 const dashboardWidgetCatalogList = (): ToolBase<
     ReturnType<typeof DashboardWidgetCatalogListSchema>,
@@ -774,11 +771,16 @@ const dashboardWidgetCatalogList = (): ToolBase<
 > => ({
     name: 'dashboard-widget-catalog-list',
     schema: DashboardWidgetCatalogListSchema(),
-    handler: async (context: Context, _params: z.infer<ReturnType<typeof DashboardWidgetCatalogListSchema>>) => {
+    handler: async (context: Context, params: z.infer<ReturnType<typeof DashboardWidgetCatalogListSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.WidgetCatalogResponse>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/dashboards/widget_catalog/`,
+            query: {
+                widget_type: Array.isArray(params.widget_type)
+                    ? params.widget_type.join(',') || undefined
+                    : params.widget_type,
+            },
         })
         return result
     },
@@ -869,6 +871,35 @@ const dashboardWidgetsRun = (): ToolBase<
     },
 })
 
+const DashboardsBulkDeleteSchema = () => {
+    const DashboardsBulkDeleteCreateBody = orvalSchemas.DashboardsBulkDeleteCreateBody()
+    return DashboardsBulkDeleteCreateBody
+}
+
+const dashboardsBulkDelete = (): ToolBase<
+    ReturnType<typeof DashboardsBulkDeleteSchema>,
+    Schemas.DashboardBulkDeleteResponse
+> => ({
+    name: 'dashboards-bulk-delete',
+    schema: DashboardsBulkDeleteSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof DashboardsBulkDeleteSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.ids !== undefined) {
+            body['ids'] = params.ids
+        }
+        if (params.delete_insights !== undefined) {
+            body['delete_insights'] = params.delete_insights
+        }
+        const result = await context.api.request<Schemas.DashboardBulkDeleteResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/dashboards/bulk_delete/`,
+            body,
+        })
+        return result
+    },
+})
+
 const DashboardsGetAllSchema = () => {
     const DashboardsListQueryParams = orvalSchemas.DashboardsListQueryParams()
     return DashboardsListQueryParams.omit({ format: true }).extend({
@@ -930,5 +961,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'dashboard-widgets-batch-add': dashboardWidgetsBatchAdd,
     'dashboard-widgets-batch-update': dashboardWidgetsBatchUpdate,
     'dashboard-widgets-run': dashboardWidgetsRun,
+    'dashboards-bulk-delete': dashboardsBulkDelete,
     'dashboards-get-all': dashboardsGetAll,
 }

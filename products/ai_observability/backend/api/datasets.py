@@ -1,6 +1,8 @@
+from functools import partial
 from typing import NoReturn, cast
 from uuid import UUID
 
+from django.db import transaction
 from django.db.models import F, OuterRef, Q, QuerySet, Subquery
 from django.db.models.functions import Coalesce
 from django.http import Http404
@@ -31,6 +33,7 @@ from posthog.permissions import (
     APIScopePermission,
     PostHogFeatureFlagPermission,
     TeamMemberAccessPermission,
+    get_authenticator_client,
 )
 from posthog.rate_limit import PersonalApiKeyOrUserRateThrottle
 
@@ -38,6 +41,7 @@ from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
 )
+from products.ai_observability.backend.api.analytics import report_on_commit
 from products.ai_observability.backend.api.dataset_exports import (
     DatasetExportCreateSerializer,
     DatasetExportErrorSerializer,
@@ -49,12 +53,18 @@ from products.ai_observability.backend.api.dataset_exports import (
 )
 from products.ai_observability.backend.api.dataset_serializers import StrictDatasetSerializer
 from products.ai_observability.backend.api.metrics import llma_track_latency
+from products.ai_observability.backend.api.resource_tags import (
+    ResourceTagFilterSerializer,
+    ResourceTagsReadSerializer,
+    ResourceTagsWriteSerializer,
+)
 from products.ai_observability.backend.dataset_queries import (
     consistent_dataset_item_versions,
     dataset_item_versions_at_revision,
 )
 from products.ai_observability.backend.dataset_service import (
     UNSET,
+    DatasetItemMutationResult,
     DatasetLimitExceeded,
     DatasetMutationConflict,
     DatasetValidationError,
@@ -63,12 +73,14 @@ from products.ai_observability.backend.dataset_service import (
     archive_dataset_item,
     create_dataset,
     create_dataset_item,
+    max_datasets_for_team,
     restore_dataset,
     restore_dataset_item,
     update_dataset,
     update_dataset_item,
 )
 from products.ai_observability.backend.models.datasets import Dataset, DatasetItemVersion, DatasetRevision
+from products.ai_observability.backend.resource_tags import ResourceTags
 from products.exports.backend.facade.api import get_export_asset_content_response
 
 
@@ -186,7 +198,7 @@ def _resolved_dataset_revision_id(dataset: Dataset) -> UUID | None:
     return dataset.current_revision_id
 
 
-class DatasetReadSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
+class DatasetReadSerializer(ResourceTagsReadSerializer, UserAccessControlSerializerMixin, serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True, allow_null=True)
     metadata = JSONObjectField(read_only=True, help_text="JSON object with descriptive dataset metadata.")
     current_revision = serializers.SerializerMethodField(
@@ -204,6 +216,7 @@ class DatasetReadSerializer(UserAccessControlSerializerMixin, serializers.ModelS
             "name",
             "description",
             "metadata",
+            "tags",
             "archived",
             "current_revision",
             "current_revision_id",
@@ -224,7 +237,7 @@ class DatasetReadSerializer(UserAccessControlSerializerMixin, serializers.ModelS
         return _resolved_dataset_revision_id(instance)
 
 
-class DatasetCreateSerializer(DatasetMutationSerializer):
+class DatasetCreateSerializer(ResourceTagsWriteSerializer, DatasetMutationSerializer):
     name = serializers.CharField(
         max_length=400,
         trim_whitespace=True,
@@ -244,7 +257,7 @@ class DatasetCreateSerializer(DatasetMutationSerializer):
     )
 
 
-class DatasetUpdateSerializer(DatasetMutationSerializer):
+class DatasetUpdateSerializer(ResourceTagsWriteSerializer, DatasetMutationSerializer):
     name = serializers.CharField(
         required=False,
         max_length=400,
@@ -263,7 +276,7 @@ class DatasetUpdateSerializer(DatasetMutationSerializer):
     )
 
 
-class DatasetListQuerySerializer(serializers.Serializer):
+class DatasetListQuerySerializer(ResourceTagFilterSerializer):
     id__in = RepeatedOrCommaSeparatedListField(
         child=serializers.UUIDField(),
         required=False,
@@ -597,6 +610,7 @@ def _dataset_queryset() -> QuerySet[Dataset, Dataset]:
     return (
         Dataset.objects.unscoped()
         .select_related("created_by", "current_revision")
+        .prefetch_related(ResourceTags.prefetch())
         .annotate(
             resolved_current_revision=Coalesce(
                 F("current_revision__revision"),
@@ -656,6 +670,23 @@ class DatasetViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, GenericV
             return DatasetRevisionReadSerializer
         return DatasetReadSerializer
 
+    def _report_action(self, event: str, dataset: Dataset, properties: dict[str, object] | None = None) -> None:
+        report_on_commit(
+            partial(
+                report_user_action,
+                self.request.user,
+                event,
+                {
+                    "dataset_id": str(dataset.id),
+                    "has_description": bool(dataset.description),
+                    "has_metadata": bool(dataset.metadata),
+                    **(properties or {}),
+                },
+                team=self.team,
+                request=self.request,
+            )
+        )
+
     @extend_schema(
         parameters=[
             DatasetListQuerySerializer,
@@ -694,6 +725,7 @@ class DatasetViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, GenericV
             queryset = queryset.filter(
                 Q(name__icontains=search) | Q(description__icontains=search) | Q(metadata__icontains=search)
             )
+        queryset = ResourceTags.filter(queryset, self.team_id, query.get("tags", []), query["tag_match"])
         queryset = queryset.order_by(query["order_by"], "id")
 
         page = self.paginate_queryset(queryset)
@@ -728,30 +760,29 @@ class DatasetViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, GenericV
         serializer = DatasetCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
+        max_datasets = max_datasets_for_team(
+            team=self.team,
+            user=cast(User, request.user),
+            caller_properties=get_authenticator_client(request.successful_authenticator),
+        )
         try:
-            dataset = create_dataset(
-                team=self.team,
-                created_by=cast(User, request.user),
-                name=data["name"],
-                description=data["description"],
-                metadata=data["metadata"],
-            )
+            with transaction.atomic():
+                dataset = create_dataset(
+                    team=self.team,
+                    created_by=cast(User, request.user),
+                    max_datasets=max_datasets,
+                    name=data["name"],
+                    description=data["description"],
+                    metadata=data["metadata"],
+                )
+                if "tags" in data:
+                    ResourceTags.set(dataset, data["tags"])
         except DatasetValidationError as error:
             _validation_error_response(error)
         except (DatasetMutationConflict, DatasetLimitExceeded) as error:
             return _conflict_response(error)
 
-        report_user_action(
-            request.user,
-            "llma dataset created",
-            {
-                "dataset_id": str(dataset.id),
-                "has_description": bool(dataset.description),
-                "has_metadata": bool(dataset.metadata),
-            },
-            team=self.team,
-            request=request,
-        )
+        self._report_action("llma dataset created", dataset)
         return Response(
             DatasetReadSerializer(dataset, context=self.get_serializer_context()).data,
             status=status.HTTP_201_CREATED,
@@ -774,13 +805,22 @@ class DatasetViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, GenericV
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
         try:
-            dataset = update_dataset(
-                team_id=self.team.id,
-                dataset_id=current.id,
-                name=data.get("name", UNSET),
-                description=data.get("description", UNSET),
-                metadata=data.get("metadata", UNSET),
-            )
+            with transaction.atomic():
+                result = update_dataset(
+                    team_id=self.team.id,
+                    dataset_id=current.id,
+                    name=data.get("name", UNSET),
+                    description=data.get("description", UNSET),
+                    metadata=data.get("metadata", UNSET),
+                )
+                dataset = result.dataset
+                changed_fields = list(result.changed_fields)
+                if "tags" in data:
+                    if set(data["tags"]) != set(ResourceTags.names(dataset)):
+                        changed_fields.append("tags")
+                    ResourceTags.set(dataset, data["tags"])
+                if changed_fields:
+                    self._report_action("llma dataset updated", dataset, {"changed_fields": changed_fields})
         except DatasetValidationError as error:
             _validation_error_response(error)
         except DatasetMutationConflict as error:
@@ -798,8 +838,10 @@ class DatasetViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, GenericV
     @action(detail=True, methods=["post"])
     def archive(self, request: Request, *args: object, **kwargs: object) -> Response:
         current = self.get_object()
-        dataset = archive_dataset(team_id=self.team.id, dataset_id=current.id)
-        return Response(DatasetReadSerializer(dataset, context=self.get_serializer_context()).data)
+        result = archive_dataset(team_id=self.team.id, dataset_id=current.id)
+        if result.changed_fields:
+            self._report_action("llma dataset archived", result.dataset)
+        return Response(DatasetReadSerializer(result.dataset, context=self.get_serializer_context()).data)
 
     @extend_schema(
         operation_id="datasets_restore",
@@ -811,8 +853,10 @@ class DatasetViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, GenericV
     @action(detail=True, methods=["post"])
     def restore(self, request: Request, *args: object, **kwargs: object) -> Response:
         current = self.get_object()
-        dataset = restore_dataset(team_id=self.team.id, dataset_id=current.id)
-        return Response(DatasetReadSerializer(dataset, context=self.get_serializer_context()).data)
+        result = restore_dataset(team_id=self.team.id, dataset_id=current.id)
+        if result.changed_fields:
+            self._report_action("llma dataset restored", result.dataset)
+        return Response(DatasetReadSerializer(result.dataset, context=self.get_serializer_context()).data)
 
     @extend_schema(
         operation_id="datasets_revisions_list",
@@ -864,6 +908,11 @@ class DatasetViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, GenericV
             )
         except DatasetExportUnavailableError as error:
             return Response({"detail": str(error)}, status=status.HTTP_409_CONFLICT)
+        self._report_action(
+            "llma dataset export requested",
+            dataset,
+            {"export_id": asset.id, "dataset_revision": (asset.export_context or {}).get("dataset_revision")},
+        )
         return Response(DatasetExportReadSerializer(asset).data, status=status.HTTP_201_CREATED)
 
     @extend_schema(
@@ -925,7 +974,13 @@ class DatasetViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, GenericV
                 {"detail": "The export is still being prepared."},
                 status=status.HTTP_409_CONFLICT,
             )
-        return get_export_asset_content_response(asset=asset, download=True)
+        response = get_export_asset_content_response(asset=asset, download=True)
+        self._report_action(
+            "llma dataset export downloaded",
+            dataset,
+            {"export_id": asset.id, "dataset_revision": (asset.export_context or {}).get("dataset_revision")},
+        )
+        return response
 
 
 class DatasetItemViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
@@ -1003,6 +1058,31 @@ class DatasetItemViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             raise Http404 from error
         self.check_object_permissions(self.request, dataset)
         return dataset
+
+    def _report_mutation(
+        self, event: str, result: DatasetItemMutationResult, properties: dict[str, object] | None = None
+    ) -> None:
+        if not result.created:
+            return
+        report_on_commit(
+            partial(
+                report_user_action,
+                self.request.user,
+                event,
+                {
+                    "dataset_item_id": str(result.item.id),
+                    "dataset_id": str(result.item.dataset_id),
+                    "version": result.version.version,
+                    "dataset_revision": result.version.dataset_revision.revision,
+                    "has_expected_output": result.version.expected_output is not None,
+                    "has_source_output": result.version.source_output is not None,
+                    "has_provenance": result.version.source_trace_id is not None,
+                    **(properties or {}),
+                },
+                team=self.team,
+                request=self.request,
+            )
+        )
 
     @extend_schema(
         parameters=[DatasetItemListQuerySerializer],
@@ -1133,20 +1213,7 @@ class DatasetItemViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         except (DatasetMutationConflict, DatasetLimitExceeded) as error:
             return _conflict_response(error)
 
-        if result.created:
-            report_user_action(
-                request.user,
-                "llma dataset item created",
-                {
-                    "dataset_item_id": str(result.item.id),
-                    "dataset_id": str(dataset.id),
-                    "has_expected_output": result.version.expected_output is not None,
-                    "has_source_output": result.version.source_output is not None,
-                    "has_provenance": result.version.source_trace_id is not None,
-                },
-                team=self.team,
-                request=request,
-            )
+        self._report_mutation("llma dataset item created", result)
         response_status = status.HTTP_201_CREATED if result.created else status.HTTP_200_OK
         return Response(DatasetItemReadSerializer(result.version).data, status=response_status)
 
@@ -1181,6 +1248,7 @@ class DatasetItemViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             _validation_error_response(error)
         except (DatasetMutationConflict, DatasetLimitExceeded) as error:
             return _conflict_response(error)
+        self._report_mutation("llma dataset item updated", result)
         return Response(DatasetItemReadSerializer(result.version).data)
 
     @extend_schema(
@@ -1208,6 +1276,7 @@ class DatasetItemViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             )
         except (DatasetMutationConflict, DatasetLimitExceeded) as error:
             return _conflict_response(error)
+        self._report_mutation("llma dataset item archived", result)
         return Response(DatasetItemReadSerializer(result.version).data)
 
     @extend_schema(
@@ -1238,6 +1307,9 @@ class DatasetItemViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             raise Http404("Dataset item version not found.") from error
         except (DatasetMutationConflict, DatasetLimitExceeded) as error:
             return _conflict_response(error)
+        self._report_mutation(
+            "llma dataset item restored", result, {"source_version": serializer.validated_data.get("source_version")}
+        )
         return Response(DatasetItemReadSerializer(result.version).data)
 
     @extend_schema(

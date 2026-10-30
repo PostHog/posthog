@@ -17,7 +17,7 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 from types_aiobotocore_s3.client import S3Client
 
-from products.batch_exports.backend.service import BatchExportModel
+from products.batch_exports.backend.service import BatchExportEventsModel
 from products.batch_exports.backend.temporal.batch_exports import finish_batch_export_run
 from products.batch_exports.backend.temporal.destinations.s3_batch_export import (
     ConcurrentS3Consumer,
@@ -246,7 +246,7 @@ async def test_s3_export_workflow_with_request_timeouts(
     We run the S3 batch export workflow with a mocked session that will raise a `ClientError` due
     to a `RequestTimeout` on the first run of the batch export. The second run should work normally.
     """
-    batch_export_model = BatchExportModel(name="events", schema=None)
+    batch_export_model = BatchExportEventsModel()
 
     raised = 0
 
@@ -359,11 +359,6 @@ async def test_s3_export_workflow_with_request_timeouts(
     assert key.startswith(expected_key_prefix)
 
     sort_key = "event"
-    if batch_export_model is not None:
-        if batch_export_model.name == "persons":
-            sort_key = "person_id"
-        elif batch_export_model.name == "sessions":
-            sort_key = "session_id"
 
     await assert_clickhouse_records_in_s3(
         s3_compatible_client=object_storage_client,

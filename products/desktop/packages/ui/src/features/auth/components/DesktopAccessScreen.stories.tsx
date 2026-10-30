@@ -46,6 +46,12 @@ export const PrepaidCredits: Story = {
   },
 };
 
+export const SignupsPaused: Story = {
+  args: {
+    access: { projectId: 1, status: "blocked", reason: null },
+  },
+};
+
 export const TechnicalError: Story = {
   args: {
     access: { projectId: 1, status: "error", reason: null },

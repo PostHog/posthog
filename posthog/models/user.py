@@ -1,6 +1,6 @@
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from functools import cached_property
-from typing import TYPE_CHECKING, Any, NoReturn, Optional, TypedDict, cast
+from typing import TYPE_CHECKING, Any, NoReturn, Optional, Self, TypedDict, cast
 
 from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.core.management.base import CommandError
@@ -52,6 +52,10 @@ class Notifications(TypedDict, total=False):
     ]  # Maps team_id (str) to enabled status (True = included). None/missing = not configured (auto-select on first digest).
     discussions_mentioned: bool
     task_comments_slack_dm: bool  # Slack DM for task comment mentions, replies, and owned items
+    mobile_push_enabled: bool
+    mobile_push_tasks_enabled: bool
+    mobile_push_reports_enabled: bool
+    mobile_push_report_updates_enabled: bool
     project_weekly_digest_disabled: dict[str, Any]  # Maps project ID to disabled status, str is the team_id as a string
     all_weekly_digest_disabled: bool
     data_pipeline_error_threshold: (
@@ -85,6 +89,10 @@ NOTIFICATION_DEFAULTS: Notifications = {
     "error_tracking_weekly_digest": True,  # Error tracking weekly digest enabled by default
     "discussions_mentioned": True,  # Mentions in comments enabled by default
     "task_comments_slack_dm": True,
+    "mobile_push_enabled": True,
+    "mobile_push_tasks_enabled": True,
+    "mobile_push_reports_enabled": True,
+    "mobile_push_report_updates_enabled": True,
     "project_weekly_digest_disabled": {},  # Empty dict by default - no projects disabled
     "all_weekly_digest_disabled": False,  # Weekly digests enabled by default
     "data_pipeline_error_threshold": 0.01,  # Default: notify when failure rate exceeds 1%
@@ -141,7 +149,6 @@ class UserManager(BaseUserManager):
             raise ValueError("Email must be provided!")
         email = EmailNormalizer.normalize(email)
         extra_fields.setdefault("distinct_id", generate_random_token())
-        extra_fields.setdefault("ui_configuration", default_ui_configuration_for_new_users())
         user = cast("User", self.model(email=email, first_name=first_name, **extra_fields))
         if password is not None:
             # nosemgrep: python.django.security.audit.unvalidated-password.unvalidated-password (validation happens at serializer/view layer before reaching this method)
@@ -217,47 +224,6 @@ def events_column_config_default() -> dict[str, Any]:
     return {"active": "DEFAULT"}
 
 
-# New users start with a slimmer sidebar. Existing users keep ui_configuration NULL, which the
-# frontend resolves as "everything shown" (their pre-customization experience). Absent keys also
-# mean "shown", so this only lists the elements hidden by default for new accounts. The shape must
-# stay valid against the UserUIConfiguration schema (see frontend/src/queries/schema/schema-general.ts).
-def default_ui_configuration_for_new_users() -> dict[str, Any]:
-    return {
-        "version": 1,
-        "sidebar": {
-            "items": {
-                "files": {"visible": False},
-                "starred": {"visible": False},
-            },
-        },
-    }
-
-
-def preserve_starred_products_setup(
-    user: Optional["User"], configuration: Optional[dict[str, Any]]
-) -> Optional[dict[str, Any]]:
-    """Carry the completed starred products setup into a new configuration that omits it.
-
-    Writers send the whole configuration, so a client that does not know this key (an API call,
-    the MCP tool, an older frontend) would otherwise drop it and show the setup again.
-    Sending the key explicitly, even as false, still wins.
-    """
-    stored = user.ui_configuration if user else None
-    if not isinstance(stored, dict):
-        return configuration
-    stored_sidebar = stored.get("sidebar")
-    if not (isinstance(stored_sidebar, dict) and stored_sidebar.get("starred_products_setup_completed")):
-        return configuration
-    if configuration is None:
-        return {"version": stored.get("version", 1), "sidebar": {"starred_products_setup_completed": True}}
-    sidebar = configuration.get("sidebar") if isinstance(configuration, dict) else None
-    if not isinstance(configuration, dict) or not isinstance(sidebar, dict | None):
-        return configuration
-    if sidebar is not None and "starred_products_setup_completed" in sidebar:
-        return configuration
-    return {**configuration, "sidebar": {**(sidebar or {}), "starred_products_setup_completed": True}}
-
-
 class ThemeMode(models.TextChoices):
     LIGHT = "light", "Light"
     DARK = "dark", "Dark"
@@ -275,6 +241,14 @@ class OnboardingSkippedReason(models.TextChoices):
     LATER = "later", "Skipped for later"
     OTHER = "other", "Other"
     PROVISIONED = "provisioned", "Account provisioned by a partner"
+    CONNECTOR = "connector", "Signed up through an OAuth connector"
+
+
+class OnboardingFlowVariant(models.TextChoices):
+    # pinned: analytics property values. "legacy" names the default flow, because funnel
+    # insights filter on it.
+    LEGACY = "legacy", "Default onboarding"
+    SIMPLE = "simple", "Simple onboarding"
 
 
 class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore[django-manager-missing]
@@ -333,13 +307,11 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
         blank=False,
         help_text="When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.",
     )
-    # No field default on purpose: existing rows must stay NULL so long-time users keep seeing
-    # everything. New accounts get default_ui_configuration_for_new_users() via UserManager.create_user.
     ui_configuration = models.JSONField(
         null=True,
         blank=True,
-        help_text="Per-user UI customization (currently sidebar element visibility), shaped like the "
-        "UserUIConfiguration schema. NULL means the user has no customization and every element shows.",
+        help_text="Per-user UI customization, such as SQL editor settings, shaped like the "
+        "UserUIConfiguration schema. NULL means the user has no customization.",
     )
 
     # Onboarding exit tracking. Set when the user explicitly leaves the onboarding flow (skip or delegate).
@@ -404,8 +376,8 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
     _original_is_active: bool
 
     @classmethod
-    def from_db(cls, db, field_names, values):
-        instance = super().from_db(db, field_names, values)
+    def from_db(cls, db: str | None, field_names: Collection[str], values: Collection[Any], **kwargs: Any) -> Self:
+        instance = super().from_db(db, field_names, values, **kwargs)
         instance._original_is_active = instance.is_active
         return instance
 
@@ -560,11 +532,11 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
 
         # After role assignment, so role-granted project access is included. Covers joins
         # that don't go through an invite (e.g. domain/SSO auto-join).
-        from posthog.models.file_system.user_product_list import (  # noqa: PLC0415 - avoids a circular import
-            add_default_products_for_accessible_teams,
+        from posthog.models.file_system.starred_products import (  # noqa: PLC0415 - avoids a circular import
+            star_default_products_for_accessible_teams,
         )
 
-        add_default_products_for_accessible_teams(self, organization)
+        star_default_products_for_accessible_teams(self, organization)
 
         return membership
 
@@ -637,6 +609,9 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
             "organization_id": str(self.organization.id) if self.organization else None,
             "current_organization_membership_level": (
                 current_organization_membership.level if current_organization_membership else None
+            ),
+            "current_organization_membership_level_name": (
+                current_organization_membership.get_level_display() if current_organization_membership else None
             ),
             "project_id": str(self.team.uuid) if self.team else None,
             "project_setup_complete": project_setup_complete,
