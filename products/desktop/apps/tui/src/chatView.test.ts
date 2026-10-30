@@ -4,7 +4,7 @@ import {
   setCapabilities,
   stripTerminalSequences,
 } from "@earendil-works/pi-tui";
-import { afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { ChatView, overlayBottom, shimmer } from "./chatView";
 import type { TranscriptLine } from "./transcript";
 
@@ -374,6 +374,17 @@ describe("ChatView", () => {
       "● bash cmd",
       "● bash pnpm test",
     ]);
+    // The running call's dot pulses; the finished one holds still.
+    const frameAt = (now: number): string[] => {
+      const clock = vi.spyOn(Date, "now").mockReturnValue(now);
+      const rows = chat.render(60, 5).slice(3, 5);
+      clock.mockRestore();
+      return rows;
+    };
+    const [done, running] = frameAt(0);
+    const [doneLater, runningLater] = frameAt(500);
+    expect(doneLater).toBe(done);
+    expect(runningLater).not.toBe(running);
   });
 });
 
