@@ -1192,6 +1192,19 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             {"recipient": "test2@posthog.com", "raw_email": "test2@posthog.com", "distinct_id": str(user2.distinct_id)}
         ]
 
+    @parameterized.expand([("unmanaged", None, 1), ("product_managed", "example_product", 0)])
+    def test_send_hog_function_disabled_skips_product_managed_functions(
+        self, MockEmailMessage: MagicMock, _name: str, managed_by: str | None, expected_emails: int
+    ) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        hog_function = HogFunction.objects.create(
+            team=self.team, name="Test Hog Function", enabled=True, managed_by=managed_by
+        )
+
+        send_hog_function_disabled(str(hog_function.id))
+
+        assert len(mocked_email_messages) == expected_emails
+
     def test_send_hog_function_filters_uncompilable_reaches_admins_and_the_creator(
         self, MockEmailMessage: MagicMock
     ) -> None:

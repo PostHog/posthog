@@ -756,6 +756,8 @@ def send_hog_function_disabled(hog_function_id: str) -> None:
     if not is_email_available(with_absolute_urls=True):
         return
     hog_function: HogFunction = HogFunction.objects.prefetch_related("team").get(id=hog_function_id)
+    if hog_function.managed_by is not None:
+        return
     team = hog_function.team
 
     pipeline_id = f"hog_function:{hog_function_id}"
@@ -2382,9 +2384,12 @@ def send_team_hog_functions_digest(team_id: int, hog_function_ids: list[str] | N
         logger.info(f"No functions with failures found for team {team_id}")
         return
 
-    # Get all active HogFunctions for the team that had failures
+    # Get all active HogFunctions for the team that had failures. A product-managed function is
+    # hidden from the project, so the owning product reports its failures instead.
     hog_functions = (
-        HogFunction.objects.filter(team_id=team_id, enabled=True, deleted=False, id__in=failed_function_ids)
+        HogFunction.objects.filter(
+            team_id=team_id, enabled=True, deleted=False, managed_by__isnull=True, id__in=failed_function_ids
+        )
         .select_related("created_by")
         .values("id", "team_id", "name", "type", "created_by__email")
     )
