@@ -543,20 +543,22 @@ class TestSourceInputsStoreCredentialsMirror(BaseTest):
 
     @parameterized.expand(
         [
-            ("both_flags_on", (DUAL_WRITE_FLAG, READ_FLAG), "integration", "fake-row-password"),
-            ("read_flag_off", (DUAL_WRITE_FLAG,), None, "fake-password"),
-            ("dual_write_flag_off", (READ_FLAG,), "fallback_dual_write_off", "fake-password"),
-            ("no_flags", (), None, "fake-password"),
+            ("both_flags_on", (DUAL_WRITE_FLAG, READ_FLAG), "fake-password", "integration"),
+            # `job_inputs` still holds the connection fields, so a row that differs from them is old.
+            ("both_flags_on_row_differs", (DUAL_WRITE_FLAG, READ_FLAG), "fake-row-password", "fallback_mismatch"),
+            ("read_flag_off", (DUAL_WRITE_FLAG,), "fake-row-password", None),
+            ("dual_write_flag_off", (READ_FLAG,), "fake-row-password", "fallback_dual_write_off"),
+            ("no_flags", (), "fake-row-password", None),
         ]
     )
-    def test_read_flag_takes_connection_fields_from_the_integration(
-        self, _name: str, flags: tuple[str, ...], expected_result: str | None, expected_password: str
+    def test_read_flag_takes_connection_fields_from_a_matching_integration(
+        self, _name: str, flags: tuple[str, ...], row_password: str, expected_result: str | None
     ) -> None:
         with self._flags(DUAL_WRITE_FLAG):
             source = self._create()
         # The row also holds `schema`, a sync setting. Settings and runtime keys always come from job_inputs.
-        _write_row(source, {**POSTGRES_CONNECTION_FIELDS, "password": "fake-row-password", "schema": "fake-row-schema"})
-        expected = {**STORED_POSTGRES_INPUTS, "password": expected_password, REF: _reference(source)}
+        _write_row(source, {**POSTGRES_CONNECTION_FIELDS, "password": row_password, "schema": "fake-row-schema"})
+        expected = {**STORED_POSTGRES_INPUTS, REF: _reference(source)}
 
         with self._flags(*flags):
             for load in self._loads(source):
@@ -624,6 +626,22 @@ class TestSourceInputsStoreCredentialsMirror(BaseTest):
                 reset_caches()
                 assert load() == inputs
 
+    def test_a_write_with_the_dual_write_flag_off_does_not_make_reads_return_the_old_row(self) -> None:
+        with self._flags(DUAL_WRITE_FLAG, READ_FLAG):
+            source = self._create()
+        reset_caches()
+        with self._flags(READ_FLAG):
+            SourceInputsStore.save(
+                ExternalDataSource.objects.get(pk=source.pk), {**STORED_POSTGRES_INPUTS, "password": "fake-rotated"}
+            )
+
+        with self._flags(DUAL_WRITE_FLAG, READ_FLAG):
+            for load in self._loads(source):
+                reset_caches()
+                before = _read_count("fallback_mismatch")
+                assert load()["password"] == "fake-rotated"
+                assert _read_count("fallback_mismatch") - before == 1
+
     def test_read_falls_back_to_job_inputs_when_the_credentials_store_fails(self) -> None:
         with self._flags(DUAL_WRITE_FLAG, READ_FLAG):
             source = self._create()
@@ -641,30 +659,30 @@ class TestSourceInputsStoreCredentialsMirror(BaseTest):
     def test_load_many_reads_the_integration_rows_in_one_query(self) -> None:
         with self._flags(DUAL_WRITE_FLAG, READ_FLAG):
             sources = [self._create() for _ in range(3)]
-            for source in sources:
-                _write_row(source, {**POSTGRES_CONNECTION_FIELDS, "password": "fake-row"})
             loaded_sources = list(ExternalDataSource.objects.filter(pk__in=[source.pk for source in sources]))
             SourceInputsStore.load(loaded_sources[0])
 
+            before = _read_count("integration")
             with _assert_selects(1):
                 loaded = SourceInputsStore.load_many(loaded_sources)
 
-        assert {inputs["password"] for inputs in loaded.values()} == {"fake-row"}
+        assert _read_count("integration") - before == 3
+        assert {inputs["password"] for inputs in loaded.values()} == {"fake-password"}
         assert set(loaded) == {source.id for source in sources}
 
     def test_preload_reads_the_integration_rows_once_for_later_loads(self) -> None:
         with self._flags(DUAL_WRITE_FLAG, READ_FLAG):
             sources = [self._create() for _ in range(3)]
-            for source in sources:
-                _write_row(source, {**POSTGRES_CONNECTION_FIELDS, "password": "fake-row"})
             loaded_sources = list(ExternalDataSource.objects.filter(pk__in=[source.pk for source in sources]))
             SourceInputsStore.load(loaded_sources[0])
 
             with _assert_selects(1):
                 SourceInputsStore.preload(loaded_sources)
+            before = _read_count("integration")
             with _assert_selects(0):
                 for source in loaded_sources * 2:
-                    assert SourceInputsStore.load(source)["password"] == "fake-row"
+                    assert SourceInputsStore.load(source)["password"] == "fake-password"
+            assert _read_count("integration") - before == 6
 
             SourceInputsStore.save(loaded_sources[0], {**STORED_POSTGRES_INPUTS, "password": "fake-rotated"})
             assert SourceInputsStore.load(loaded_sources[0])["password"] == "fake-rotated"

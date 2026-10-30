@@ -178,8 +178,9 @@ def mirror_connection_fields(
 
     Returns the inputs to stage: ``inputs``, with the reference to the row that now holds the fields. When
     ``inputs`` has no reference, the reference that the database holds for the source decides the row. A
-    failure is counted and logged, and the caller continues with its `job_inputs` write. An edit of a row
-    that other objects also use follows ``shared_credentials``.
+    failure is counted and logged, and the caller continues with its `job_inputs` write, except when the
+    team reads from the row: then the failure raises before `job_inputs` changes. An edit of a row that
+    other objects also use follows ``shared_credentials``.
     """
     staged = dict(inputs)
     source.__dict__.pop(_PRELOADED_ROW_ATTR, None)
@@ -450,6 +451,10 @@ def _merge(
     connection = {
         key: value for key, value in _split(source.source_type, stored).connection.items() if key not in kept_elsewhere
     }
+    if split.connection and not same_connection_fields(split.connection, connection):
+        # `job_inputs` still holds the connection fields, and a write can skip the row (the dual-write flag
+        # was off, a shared row, an event loop thread). The row is then old, so the read keeps `job_inputs`.
+        return "fallback_mismatch", inputs
     return "integration", merge_job_inputs(
         SplitJobInputs(
             connection=connection,

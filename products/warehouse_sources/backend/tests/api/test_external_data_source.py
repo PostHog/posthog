@@ -25,7 +25,7 @@ from sshtunnel import BaseSSHTunnelForwarderError
 
 from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models import OrganizationMembership, Team
-from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration, OauthIntegration
+from posthog.models.integration import ANY, ERROR_TOKEN_REFRESH_FAILED, Integration, OauthIntegration
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.project import Project
 from posthog.models.utils import generate_random_token_personal
@@ -15384,6 +15384,15 @@ class TestExternalDataSourceAPIKeyScopes(APIBaseTest):
 
 
 class TestExternalDataSourceReadsCredentialsFromIntegration(APIBaseTest):
+    INPUTS: dict[str, str] = {
+        "host": "db.example.com",
+        "port": "5432",
+        "database": "mydb",
+        "user": "dbuser",
+        "password": "fake-password",
+        "schema": "public",
+    }
+
     def setUp(self) -> None:
         super().setUp()
         reset_caches()
@@ -15402,62 +15411,50 @@ class TestExternalDataSourceReadsCredentialsFromIntegration(APIBaseTest):
             source_type="Postgres",
             created_by=self.user,
             prefix="read_switch",
-            inputs={
-                "host": "db.example.com",
-                "port": "5432",
-                "database": "mydb",
-                "user": "dbuser",
-                "password": "fake-stale-password",
-                "schema": "public",
-            },
+            inputs=self.INPUTS,
         )
         self.reference = self.source.job_inputs[CREDENTIALS_REFERENCE_KEY]
-        # The row has a newer password than job_inputs, so each assertion shows which storage the API read.
-        WarehouseSourceCredentialsStore.update(
-            self.source,
-            self.reference,
-            {
-                "host": "db.example.com",
-                "port": "5432",
-                "database": "mydb",
-                "user": "dbuser",
-                "password": "fake-integration-password",
-            },
-        )
 
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.PostgresSource.validate_credentials",
         return_value=(True, None),
     )
-    def test_update_without_password_keeps_the_integration_password(self, _mock_validate_credentials) -> None:
+    def test_update_without_password_keeps_the_job_inputs_password_when_the_row_is_old(
+        self, _mock_validate_credentials
+    ) -> None:
+        # A write skipped the row (for example, the dual-write flag was off), so the row holds an old password.
+        connection = {key: value for key, value in self.INPUTS.items() if key != "schema"}
+        Integration.objects._with_auth(ANY).filter(id=self.reference).update(
+            sensitive_config={"fields": {**connection, "password": "fake-old-password"}}
+        )
+
         response = self.client.patch(
             f"/api/environments/{self.team.pk}/external_data_sources/{self.source.pk}/",
             data={"job_inputs": {"schema": "analytics", "password": None}},
         )
 
         assert response.status_code == 200, response.content
-        assert "fake-integration-password" not in response.content.decode()
         self.source.refresh_from_db()
-        assert self.source.job_inputs["password"] == "fake-integration-password"
+        assert self.source.job_inputs["password"] == "fake-password"
         assert self.source.job_inputs["schema"] == "analytics"
         assert self.source.job_inputs[CREDENTIALS_REFERENCE_KEY] == str(self.reference)
         row = WarehouseSourceCredentialsStore.get(self.source, self.reference)
         assert row is not None
-        assert row["password"] == "fake-integration-password"
+        assert row["password"] == "fake-password"
 
-    def test_errors_redact_the_integration_password(self) -> None:
+    def test_errors_redact_the_password_that_reads_return(self) -> None:
         ExternalDataSchema.objects.create(
             team_id=self.team.pk,
             source=self.source,
             name="users",
-            latest_error="connection failed for password fake-integration-password",
+            latest_error="connection failed for password fake-password",
         )
 
-        assert "fake-integration-password" in get_error_redaction_values(self.source)
+        assert "fake-password" in get_error_redaction_values(self.source)
         response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{self.source.pk}/")
 
         assert response.status_code == 200, response.content
-        assert "fake-integration-password" not in response.content.decode()
+        assert "fake-password" not in response.content.decode()
         assert response.json()["job_inputs"].get("password") is None
 
 
