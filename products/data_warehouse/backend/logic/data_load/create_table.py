@@ -12,6 +12,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.sync import database_sync_to_async, database_sync_to_async_pool
 from posthog.temporal.common.logger import get_logger
 
+from products.data_modeling.backend.facade import api as modeling_api
 from products.data_modeling.backend.facade.models import (
     DataModelingJob,
     DataWarehouseSavedQuery,
@@ -122,6 +123,7 @@ async def create_table_from_saved_query(
         # TODO: handle dlt columns schemas. Need to refactor dag pipeline to pass through schema or propagate from upstream tables
         # set_columns records the DESCRIBE column order (which follows the view's SELECT order for
         # materialized backing tables) alongside `columns`, since jsonb loses key order.
+        published_columns = (table_created.columns, table_created.column_order)
         table_created.set_columns(await sync_to_async(table_created.get_columns)())
         table_created.row_count = await database_sync_to_async(table_created.get_count)()
 
@@ -155,6 +157,10 @@ async def create_table_from_saved_query(
             await logger.adebug(str(e))
 
         await asave_datawarehousetable(table_created)
+        if (table_created.columns, table_created.column_order) != published_columns:
+            await database_sync_to_async(modeling_api.schedule_downstream_view_column_refresh)(
+                team_id, saved_query.id, None
+            )
 
         return CreateTableResult(
             table=table_created,

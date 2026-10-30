@@ -516,7 +516,9 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         """Whether ``set_columns(columns)`` would leave this view's stored columns unchanged."""
         return columns == self.columns and list(columns.keys()) == self.column_order
 
-    def get_columns(self, user: Optional["User"] = None) -> dict[str, dict[str, Any]]:
+    def get_columns(
+        self, user: Optional["User"] = None, *, bypass_warehouse_access_control: bool = False
+    ) -> dict[str, dict[str, Any]]:
         from posthog.hogql.query import execute_hogql_query  # noqa: PLC0415 — keeps the heavy dep off the import path
 
         query = self.query or {}
@@ -540,6 +542,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
                     user=user,
                     query_type="HogQLQuery",
                     refresh_stale_view_columns=False,
+                    bypass_warehouse_access_control=bypass_warehouse_access_control,
                 )
         result = response.types
 

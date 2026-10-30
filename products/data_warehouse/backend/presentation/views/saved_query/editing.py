@@ -557,10 +557,15 @@ class DataWarehouseSavedQuerySerializer(
                 self._write_view_description(view, description)
 
             if inferred_columns is not None:
+                columns_changed = not before_update.stores_columns(inferred_columns)
                 view.set_columns(inferred_columns)
                 view.external_tables = inferred_external_tables
                 view.status = DataWarehouseSavedQuery.Status.MODIFIED
                 view.save()
+                if columns_changed:
+                    modeling_api.schedule_downstream_view_column_refresh(
+                        view.team_id, view.id, self.context["request"].user.id
+                    )
 
             team = Team.objects.get(id=view.team_id)
 

@@ -84,6 +84,7 @@ from posthog.hogql.warehouse_warnings import record_warnings
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags, tag_queries
 from posthog.dataclasses import frozen
 from posthog.direct_query_cancellation import build_direct_query_cancellation_token
@@ -1093,12 +1094,14 @@ class HogQLQueryExecutor:
 
     def _refreshed_stale_view_columns(self, started_at: datetime) -> bool:
         view_ids = self.context.referenced_saved_query_ids
-        if not self.refresh_stale_view_columns or not view_ids:
+        if not self.refresh_stale_view_columns or not view_ids or self.user is None:
             return False
         try:
             if data_modeling_api.refresh_view_columns(self.team, view_ids, self.user):
                 return True
             return data_modeling_api.views_updated_since(self.team, view_ids, started_at)
+        except ConcurrencyLimitExceeded:
+            return False
         except Exception as e:
             capture_exception(e, {"team_id": self.team.pk})
             return False
