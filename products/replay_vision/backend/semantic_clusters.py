@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 from typing import Any, cast
 
 from django.db import models
-from django.db.models import CharField, Count, F, Max, Min, Q, QuerySet, Value, Window
+from django.db.models import CharField, Count, Exists, F, Max, Min, OuterRef, Q, QuerySet, Value, Window
 from django.db.models.fields.json import KeyTextTransform
 from django.db.models.functions import Coalesce, RowNumber
 
@@ -30,10 +30,8 @@ from products.replay_vision.backend.watch_rank import current_ranks
 
 EXAMPLES_PER_CLUSTER = 3
 
-# A cluster this young is still forming, whatever its size.
-EMERGING_AGE = timedelta(days=7)
-# With no member for this long, a cluster no longer describes something people run into.
-DORMANT_AFTER = timedelta(days=14)
+# A cluster with no member before this is still forming, and one with none in twice this long is dormant.
+STATUS_WEEK = timedelta(days=7)
 # Last week's members below this share of the week before's mean the problem is fading.
 FADING_SHARE = 0.5
 
@@ -110,12 +108,11 @@ class ClusterPage:
     has_more: bool
 
 
-def cluster_status(
-    *, now: datetime, first_member_at: datetime, last_member_at: datetime, last_week: int, week_before: int
-) -> ClusterStatus:
-    if now - last_member_at >= DORMANT_AFTER:
+def cluster_status(*, last_week: int, week_before: int, has_older_member: bool) -> ClusterStatus:
+    """From the counted members of the last two weeks and whether any came before last week."""
+    if last_week + week_before == 0:
         return ClusterStatus.DORMANT
-    if now - first_member_at < EMERGING_AGE:
+    if not has_older_member:
         return ClusterStatus.EMERGING
     if week_before > 0 and last_week < week_before * FADING_SHARE:
         return ClusterStatus.FADING
@@ -144,9 +141,8 @@ def summarize_clusters(
     rows = _readable_ranks(kind, team_id, access, scanner_ids, scope)
     # A pruned cluster's members keep its id, so they are left out before ranking rather than leaving a short page.
     live = _CLUSTER_MODEL[kind].objects.for_team(team_id).filter(scanner_id__in=scanner_ids).values("id")
-    rows = rows.filter(
-        **{f"{column}__in": live}
-    )  # nosemgrep: semgrep.rules.security.orm-field-injection -- column comes from the fixed _MEMBER_COLUMN map, never from input
+    # nosemgrep: semgrep.rules.security.orm-field-injection -- column comes from the fixed _MEMBER_COLUMN map, never from input
+    rows = rows.filter(**{f"{column}__in": live})
     if cluster_id is not None:
         rows = rows.filter(**{column: cluster_id})
     # Only growth ranks on the window before, so the other orders read the window alone.
@@ -190,10 +186,9 @@ def summarize_clusters(
             scanner_name=F("scanner__name"),
         )
     }
-    members = rows.filter(
-        **{f"{column}__in": cluster_ids}
-    )  # nosemgrep: semgrep.rules.security.orm-field-injection -- column comes from the fixed _MEMBER_COLUMN map, never from input
-    activity = _activity(members, column, now)
+    # nosemgrep: semgrep.rules.security.orm-field-injection -- column comes from the fixed _MEMBER_COLUMN map, never from input
+    members = rows.filter(**{f"{column}__in": cluster_ids})
+    activity = _activity(kind, team_id, cluster_ids, members, column, now)
     previous = (
         {row["cluster"]: row["previous_count"] for row in page}
         if order == ClusterOrder.GROWTH
@@ -216,7 +211,7 @@ def summarize_clusters(
                 scanner_id=cluster["scanner_id"],
                 scanner_name=cluster["scanner_name"] or "",
                 name=cluster.get("name") or None,
-                status=cluster_status(now=now, **cluster_activity),
+                status=cluster_status(**cluster_activity),
                 observation_count=row["window_count"],
                 people_count=row["people"],
                 previous_observation_count=previous.get(row["cluster"], 0),
@@ -288,23 +283,43 @@ def _counts(members: QuerySet[ReplayObservationRank], column: str) -> dict[uuid.
     return {row["cluster"]: row["n"] for row in members.values(cluster=F(column)).annotate(n=Count("pk"))}
 
 
-def _activity(members: QuerySet[ReplayObservationRank], column: str, now: datetime) -> dict[uuid.UUID, dict[str, Any]]:
-    """Each cluster's first and last member and its last two weeks, over the members the summary counts."""
-    week_ago = now - timedelta(days=7)
-    rows = members.values(cluster=F(column)).annotate(
-        first_member_at=Min("created_at"),
-        last_member_at=Max("created_at"),
-        last_week=Count("pk", filter=Q(created_at__gte=week_ago)),
-        week_before=Count("pk", filter=Q(created_at__gte=now - timedelta(days=14), created_at__lt=week_ago)),
+def _activity(
+    kind: ClusterKind,
+    team_id: int,
+    cluster_ids: list[uuid.UUID],
+    members: QuerySet[ReplayObservationRank],
+    column: str,
+    now: datetime,
+) -> dict[uuid.UUID, dict[str, Any]]:
+    """Each cluster's counted members over the last two weeks, and whether any came before last week."""
+    week_ago = now - STATUS_WEEK
+    weeks: dict[uuid.UUID, tuple[int, int]] = {
+        row["cluster"]: (row["last_week"], row["week_before"])
+        for row in members.filter(created_at__gte=now - 2 * STATUS_WEEK)
+        .values(cluster=F(column))
+        .annotate(
+            last_week=Count("pk", filter=Q(created_at__gte=week_ago)),
+            week_before=Count("pk", filter=Q(created_at__lt=week_ago)),
+        )
+    }
+    # An existence check stops at the first older member, so a long-lived cluster costs no more than a new one.
+    older = (
+        _CLUSTER_MODEL[kind]
+        .objects.for_team(team_id)
+        .annotate(
+            has_older_member=Exists(
+                # nosemgrep: semgrep.rules.security.orm-field-injection -- column comes from the fixed _MEMBER_COLUMN map, never from input
+                members.filter(**{column: OuterRef("id")}, created_at__lt=week_ago)
+            )
+        )
     )
     return {
-        row["cluster"]: {
-            "first_member_at": row["first_member_at"],
-            "last_member_at": row["last_member_at"],
-            "last_week": row["last_week"],
-            "week_before": row["week_before"],
+        cluster_id: {
+            "last_week": weeks.get(cluster_id, (0, 0))[0],
+            "week_before": weeks.get(cluster_id, (0, 0))[1],
+            "has_older_member": has_older_member,
         }
-        for row in rows
+        for cluster_id, has_older_member in older.filter(id__in=cluster_ids).values_list("id", "has_older_member")
     }
 
 

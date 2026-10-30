@@ -5939,21 +5939,14 @@ class TestClusterViewSets(_VisionAPITestCase):
 class TestClusterStatus(SimpleTestCase):
     @parameterized.expand(
         [
-            ("dormant_wins_over_young", 3, 15, 0, 0, "dormant"),
-            ("emerging_while_young", 3, 0, 5, 0, "emerging"),
-            ("fading_under_half_the_week_before", 30, 0, 2, 5, "fading"),
-            ("active_at_half_the_week_before", 30, 0, 3, 6, "active"),
+            ("dormant_with_no_member_in_two_weeks", 0, 0, True, "dormant"),
+            ("emerging_with_no_member_before_last_week", 5, 0, False, "emerging"),
+            ("fading_under_half_the_week_before", 2, 5, True, "fading"),
+            ("active_at_half_the_week_before", 3, 6, True, "active"),
         ]
     )
     def test_status_from_member_activity(
-        self, _name: str, age_days: int, idle_days: int, last_week: int, week_before: int, expected: str
+        self, _name: str, last_week: int, week_before: int, has_older_member: bool, expected: str
     ) -> None:
-        now = datetime(2026, 10, 1, tzinfo=UTC)
-        status = cluster_status(
-            now=now,
-            first_member_at=now - timedelta(days=age_days),
-            last_member_at=now - timedelta(days=idle_days),
-            last_week=last_week,
-            week_before=week_before,
-        )
+        status = cluster_status(last_week=last_week, week_before=week_before, has_older_member=has_older_member)
         self.assertEqual(status, expected)
