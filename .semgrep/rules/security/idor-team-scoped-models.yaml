@@ -350,12 +350,15 @@ rules:
                               |QueueSchedulerState
                               |QuickFilter
                               |QuickFilterContext
+                              |ReplayHighlightFeedEntry
+                              |ReplayHighlightFeedState
                               |ReplayObservation
                               |ReplayObservationAnchorSimilarity
                               |ReplayObservationFeedDismissal
                               |ReplayObservationFeedImpression
                               |ReplayObservationLabel
                               |ReplayObservationMedia
+                              |ReplayObservationRank
                               |ReplayObservationRequest
                               |ReplayObservationUsage
                               |ReplayObservationView
@@ -839,12 +842,15 @@ rules:
                         |QueueSchedulerState
                         |QuickFilter
                         |QuickFilterContext
+                        |ReplayHighlightFeedEntry
+                        |ReplayHighlightFeedState
                         |ReplayObservation
                         |ReplayObservationAnchorSimilarity
                         |ReplayObservationFeedDismissal
                         |ReplayObservationFeedImpression
                         |ReplayObservationLabel
                         |ReplayObservationMedia
+                        |ReplayObservationRank
                         |ReplayObservationRequest
                         |ReplayObservationUsage
                         |ReplayObservationView
@@ -1216,6 +1222,7 @@ rules:
                         |QueueSchedulerState
                         |QuickFilter
                         |QuickFilterContext
+                        |RealtimeCohortTeamAccess
                         |RemoteConfig
                         |ReplayObservation
                         |ReplayObservationLabel
@@ -1709,6 +1716,7 @@ rules:
                               |InsightViewed
                               |KernelRuntime
                               |MCPServerInstallation
+                              |PersonalInboxRanking
                               |Reminder
                               |SessionRecordingViewed
                               |UserActivitySummary
@@ -1784,6 +1792,7 @@ rules:
                         |FileSystemViewLog
                         |InsightViewed
                         |KernelRuntime
+                        |PersonalInboxRanking
                         |Reminder
                         |SessionRecordingViewed
                         |UserActivitySummary

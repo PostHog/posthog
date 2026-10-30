@@ -286,7 +286,7 @@ class PropertySwapper(CloningVisitor):
         table_type = type.field_type.table_type
         if not isinstance(table_type, ast.BaseTableType):
             return False
-        return isinstance(table_type.resolve_database_table(self.context), EventsTable)
+        return isinstance(table_type.resolve_database_table(self.context), EventsTable | FlagEvaluationsTable)
 
     @staticmethod
     def _extract_string_array(field: ast.Expr) -> ast.Call:

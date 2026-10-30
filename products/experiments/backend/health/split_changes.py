@@ -28,7 +28,7 @@ from products.feature_flags.backend.facade.edits import (
 
 
 class SplitChangeShape(StrEnum):
-    # pinned: the finding's subcodes. The page sends them as `finding_variant` on the health finding events.
+    # pinned: the finding's subcodes. The page sends them as `finding_subcode` on the health finding events.
     VARIANT_ROLLED_OUT = "variant_rolled_out"
     VARIANT_REMOVED = "variant_removed"
     VARIANT_ADDED = "variant_added"

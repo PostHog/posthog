@@ -18,10 +18,7 @@ import {
 } from './sessionRecordingsPlaylistLogic'
 import { getRecommendedFilterChange, getSortChangedEvent } from './SessionRecordingsPlaylistSettings'
 
-/**
- * The watch layout's sort options. Clicks, keystrokes, mouse activity, expiration, active and inactive duration
- * were dropped for low use. A list already sorted by one of them keeps it until the sort changes.
- */
+// A list already sorted by an order outside this set keeps it until the sort changes.
 const WATCH_SORTS: { label: string; order: NonNullable<RecordingUniversalFilters['order']> }[] = [
     { label: 'Latest', order: 'start_time' },
     { label: 'Activity', order: 'activity_score' },
