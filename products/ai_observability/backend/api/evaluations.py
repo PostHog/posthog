@@ -126,6 +126,10 @@ logger = structlog.get_logger(__name__)
                         "nullable": True,
                         "description": "Judge method. Omit to keep the saved method; null restores automatic routing.",
                     },
+                    "include_media": {
+                        "type": "boolean",
+                        "description": "Set to false to judge text only.",
+                    },
                     "reasoning_level": {
                         "type": "string",
                         "enum": ["minimal", "low", "medium", "high"],
@@ -602,10 +606,10 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             if not isinstance(config, dict):
                 raise serializers.ValidationError({"evaluation_config": "Must be an object."})
             if self.partial and self.instance is not None and evaluation_type == EvaluationType.LLM_JUDGE.value:
-                # A prompt-only PATCH must not reset the saved judge settings.
+                # A prompt-only PATCH must not reset the saved judge settings or image opt-out.
                 saved = {
                     key: self.instance.evaluation_config[key]
-                    for key in ("judge_method", "reasoning_level")
+                    for key in ("judge_method", "reasoning_level", "include_media")
                     if key not in config and key in self.instance.evaluation_config
                 }
                 data["evaluation_config"] = {**saved, **config}
