@@ -60,6 +60,10 @@ class GNewsSource(ResumableSource[GNewsSourceConfig, GNewsResumeConfig]):
         return ExternalDataSourceType.GNEWS
 
     @property
+    def credential_kind(self) -> str | None:
+        return "gnews"
+
+    @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=ExternalDataSourceType.GNEWS,

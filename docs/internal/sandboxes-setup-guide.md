@@ -307,10 +307,10 @@ access. A parent project's flag does not enable its child environments, even tho
 their settings and reviews under the shared parent project.
 
 Newly enabled projects get every ReviewHog part: manual Full and Flash reviews, automatic Flash reviews,
-the `posthog-review` label trigger, resolution, Inbox reviews, the tiered review models, and the Stamphog
+the Stamphog handoff, resolution, Inbox reviews, the tiered review models, and the Stamphog
 Inbox switch.
 Each project needs a GitHub App integration covering the repository; review skills seed automatically.
-Automatic reviews and the label trigger also need the project to claim the repository in the Code review
+Automatic reviews and the Stamphog handoff also need the project to claim the repository in the Code review
 settings. No environment variable or shared secret picks the project.
 
 Use resolution only for explicitly enabled trusted projects reviewing repositories their teams own.

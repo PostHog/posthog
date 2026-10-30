@@ -9,11 +9,13 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.extensions import get_or_create_team_extension
 
 from products.signals.backend.agent_instructions import AGENT_STEERING_MAX_LENGTH, STEERING_FIELDS
 from products.signals.backend.facade.api import set_default_slack_notification_channel
+from products.signals.backend.implementation_repositories import MAX_IMPLEMENTATION_REPOSITORIES
 from products.signals.backend.models import SignalReport, SignalTeamConfig
 from products.signals.backend.serializers import MAX_AUTOSTART_BASE_BRANCH_ENTRIES, SignalTeamConfigSerializer
 from products.signals.backend.views import SignalTeamConfigViewSet
@@ -61,6 +63,8 @@ class TestSignalTeamConfigAPI(APIBaseTest):
         for field in STEERING_FIELDS.values():
             response = self.client.post(self._url(), {field: "New rules."}, format="json")
             assert response.status_code == 403, response.content
+        response = self.client.post(self._url(), {"implementation_repositories": ["acme/assets"]}, format="json")
+        assert response.status_code == 403, response.content
         assert self.client.post(self._url(), {"autostart_enabled": False}, format="json").status_code == 200
 
     def test_steering_save_preserves_a_concurrent_autonomy_change(self) -> None:
@@ -88,6 +92,15 @@ class TestSignalTeamConfigAPI(APIBaseTest):
         assert data["default_autostart_priority"] == "P4"
         # Null until a team explicitly opts out; the guard treats null as autostart-on.
         assert data["autostart_enabled"] is None
+        assert data["anomaly_scoring_enabled"] is True
+
+    @parameterized.expand([("covered", True), ("not_covered", False)])
+    def test_anomaly_scoring_available_follows_the_scoring_payload(self, _name, covered):
+        payload = {"enabled": True, "organization_ids": [str(self.organization.id)] if covered else []}
+        with patch("products.signals.backend.serializers.read_payload", return_value=payload):
+            data = self.client.get(self._url()).json()
+
+        assert data["anomaly_scoring_available"] is covered
 
     def test_get_config_lazily_creates_when_no_config_exists(self):
         self.config.delete()
@@ -322,6 +335,7 @@ class TestSignalTeamConfigAPI(APIBaseTest):
                 False,
                 True,
             ),
+            ("anomaly_scoring", "anomaly_scoring_enabled", False, "anomaly scoring", "changed", True, False),
         ]
     )
     def test_update_is_recorded_in_the_activity_log(self, _name, field, sent, label, action, before, after):
@@ -376,8 +390,53 @@ class TestSignalTeamConfigAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert len(self._activity()) == 1
 
+    @parameterized.expand(
+        [
+            (
+                "reachable_entries_are_normalized",
+                [],
+                ["Acme/Assets", "acme/assets", "acme/docs"],
+                status.HTTP_200_OK,
+                ["acme/assets", "acme/docs"],
+            ),
+            ("unreachable_entry_is_rejected", [], ["acme/assets", "other/secret"], status.HTTP_400_BAD_REQUEST, []),
+            # A stored entry that lost access can still be removed, and kept, without a fresh check.
+            ("stored_entry_skips_the_check", ["acme/gone"], ["acme/gone"], status.HTTP_200_OK, ["acme/gone"]),
+        ]
+    )
+    def test_update_implementation_repositories_checks_new_entries_against_the_installation(
+        self, _name: str, stored: list[str], sent: list[str], expected_status: int, expected: list[str]
+    ) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.config.implementation_repositories = stored
+        self.config.save(update_fields=["implementation_repositories"])
+        Integration.objects.create(team=self.team, kind="github", config={"account": {"name": "acme"}})
+
+        with patch.object(
+            GitHubIntegration,
+            "list_all_cached_repositories",
+            return_value=[{"full_name": "acme/assets"}, {"full_name": "acme/docs"}],
+        ):
+            response = self.client.post(self._url(), {"implementation_repositories": sent}, format="json")
+
+        assert response.status_code == expected_status, response.content
+        self.config.refresh_from_db()
+        assert self.config.implementation_repositories == (expected or stored)
+
 
 class TestSignalTeamConfigSerializerValidation(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("not_owner_slash_repo", ["assets"]),
+            ("too_many_entries", [f"acme/repo{i}" for i in range(MAX_IMPLEMENTATION_REPOSITORIES + 1)]),
+        ]
+    )
+    def test_implementation_repositories_rejects_malformed_input(self, _name: str, value: list[str]) -> None:
+        serializer = SignalTeamConfigSerializer(data={"implementation_repositories": value}, partial=True)
+        assert not serializer.is_valid()
+        assert "implementation_repositories" in serializer.errors
+
     @parameterized.expand(list(STEERING_FIELDS.values()))
     def test_steering_rejects_oversized_instructions(self, field: str) -> None:
         serializer = SignalTeamConfigSerializer(data={field: "x" * AGENT_STEERING_MAX_LENGTH}, partial=True)

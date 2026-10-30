@@ -13,6 +13,7 @@ from django.db.models import F, Lookup, Q, QuerySet
 import structlog
 
 from posthog.dataclasses import frozen
+from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
 from posthog.models.github_integration_base import GitHubIntegrationBase
 from posthog.models.integration import GitHubIntegration
@@ -49,7 +50,12 @@ if TYPE_CHECKING:
 # A report in one of these statuses is finished with its pull request. Anything else still holds
 # it open — a status this list doesn't know about keeps the PR, which is the safe direction.
 _FINISHED_REPORT_STATUSES = frozenset(
-    {SignalReport.Status.RESOLVED, SignalReport.Status.SUPPRESSED, SignalReport.Status.DELETED}
+    {
+        SignalReport.Status.RESOLVED,
+        SignalReport.Status.CLOSED,
+        SignalReport.Status.SUPPRESSED,
+        SignalReport.Status.DELETED,
+    }
 )
 
 _PULL_REQUEST_URL_BODY = (
@@ -422,7 +428,6 @@ def _pr_close_comment(
             if actor_mention
             else f"🔕 Closing this PR because the {report_link} was resolved without it."
         )
-        # A resolved report never reopens, so the restore advice below does not apply to it.
         return f"{opening}\n\nIf that wasn't intended, reopen this PR."
     opening = (
         f"🔕 Closing this PR because {actor_mention} {reason} the {report_link}."
@@ -443,15 +448,15 @@ def _close_implementation_pr(
     expected_head_sha: str | None = None,
     comment_marker: str | None = None,
     before_close: Callable[[], bool] | None = None,
-) -> bool:
+    priority: Priority = Priority.CRITICAL,
+) -> bool | None:
     """Best-effort: comment on and close the GitHub PR attached to this report.
 
     Called when a report is suppressed, snoozed, or resolved without its PR — the open PR shouldn't linger. Only acts on a PR
     that is still open: an already-closed or merged PR is left untouched (no comment, no close), so
     we never leave a confusing "closing this PR" note on a PR that shipped months ago. Leaves an
-    explanatory comment, then closes the PR. Returns True when the PR was closed, False when there
-    was nothing to close or the close couldn't be completed. Never raises: the state transition
-    must succeed regardless.
+    explanatory comment, then closes the PR. Returns True when closed, None when no close is
+    needed, and False on failure. Batch rate limits propagate so scheduled delivery can back off.
     """
     try:
         if not SignalReport.objects.filter(id=report_id, team_id=team_id).exists():
@@ -462,7 +467,7 @@ def _close_implementation_pr(
                 report_id=str(report_id),
                 actor_kind=pr.actor_kind,
             )
-            return False
+            return None
         pr_url = pr.url
 
         parsed = GitHubIntegrationBase.parse_pull_request_url(pr_url)
@@ -478,10 +483,10 @@ def _close_implementation_pr(
                 report_id=str(report_id),
                 pr_url=pr_url,
             )
-            return False
+            return None
 
         github = GitHubIntegration.first_for_team_repository(
-            team_id, parsed.repository, source="signals_implementation_pr", priority=Priority.CRITICAL
+            team_id, parsed.repository, source="signals_implementation_pr", priority=priority
         )
         if github is None:
             logger.info(
@@ -518,7 +523,7 @@ def _close_implementation_pr(
                 state=pr_status.get("state"),
                 merged=pr_status.get("merged"),
             )
-            return False
+            return None if pr_status.get("state") == "closed" or pr_status.get("merged") else False
 
         if expected_head_sha is not None and pr_status.get("head_sha") != expected_head_sha:
             return False
@@ -570,6 +575,10 @@ def _close_implementation_pr(
             pr_state="closed",
         )
         return True
+    except (GitHubEgressBudgetExhausted, GitHubRateLimitError):
+        if priority == Priority.BATCH:
+            raise
+        return False
     except Exception:
         logger.exception("close_implementation_pr_unexpected_error", report_id=str(report_id))
         return False
@@ -583,26 +592,37 @@ def close_implementation_pr_for_report(
     actor_user_id: int | None = None,
     pr_url: str | None = None,
     replacement_pr_url: str | None = None,
+    comment_marker: str | None = None,
+    before_close: Callable[[], bool] | None = None,
+    priority: Priority = Priority.CRITICAL,
+    require_all: bool = False,
 ) -> bool:
     try:
         if not SignalReport.objects.filter(team_id=team_id, id=report_id).exists():
             return False
         closed = False
+        failed = False
         for pr in fetch_implementation_prs_for_reports([str(report_id)], team_id=team_id).get(str(report_id), []):
             if pr_url is not None and pr.url != pr_url:
                 continue
-            closed = (
-                _close_implementation_pr(
-                    team_id,
-                    report_id,
-                    reason=reason,
-                    pr=pr,
-                    actor_user_id=actor_user_id,
-                    replacement_pr_url=replacement_pr_url,
-                )
-                or closed
+            outcome = _close_implementation_pr(
+                team_id,
+                report_id,
+                reason=reason,
+                pr=pr,
+                actor_user_id=actor_user_id,
+                replacement_pr_url=replacement_pr_url,
+                comment_marker=comment_marker,
+                before_close=before_close,
+                priority=priority,
             )
-        return closed
+            closed = outcome is True or closed
+            failed = outcome is False or failed
+        return not failed if require_all else closed
+    except (GitHubEgressBudgetExhausted, GitHubRateLimitError):
+        if priority == Priority.BATCH:
+            raise
+        return False
     except Exception:
         logger.exception("close_implementation_pr_lookup_failed", report_id=str(report_id))
         return False

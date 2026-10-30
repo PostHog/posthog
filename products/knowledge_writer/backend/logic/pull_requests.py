@@ -7,8 +7,9 @@ import structlog
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted
 from posthog.egress.limiter.policies import Priority
 from posthog.exceptions_capture import capture_exception
+from posthog.integrations import IntegrationManager
 from posthog.models.instance_setting import get_instance_setting
-from posthog.models.integration import GitHubIntegration, Integration
+from posthog.models.integration import GitHubIntegration
 
 from products.tasks.backend.facade import api as tasks_facade
 
@@ -78,7 +79,7 @@ def joined_source_comment(request: DocsRequest) -> str:
 
 
 def docs_github(team_id: int, docs_owner: str, *, priority: Priority) -> GitHubIntegration | None:
-    for integration in Integration.objects.filter(team_id=team_id, kind="github").order_by("id"):
+    for integration in IntegrationManager.github.oauth.list(team_id):
         if str(integration.config.get("account", {}).get("name", "")).lower() == docs_owner.lower():
             return GitHubIntegration(integration, source="knowledge_writer", priority=priority)
     return None

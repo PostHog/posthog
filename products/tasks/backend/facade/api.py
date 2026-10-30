@@ -104,7 +104,7 @@ from products.tasks.backend.constants import (
 )
 from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.facade.gateway import mint_private_gateway_token, revoke_private_gateway_token
-from products.tasks.backend.facade.profiles import TaskProfile, resolve_task_origin
+from products.tasks.backend.facade.profiles import TaskProfile, TaskRunOptions, TaskSource, resolve_task_origin
 from products.tasks.backend.feature_flags import (
     get_model_access_error,
     own_subscription_cloud_enabled as own_subscription_cloud_enabled,
@@ -200,6 +200,7 @@ from products.tasks.backend.repository_config_analytics import (
     capture_space_context_changed,
     repositories_differ,
 )
+from products.tasks.backend.task_sources import apply_task_source
 from products.tasks.backend.visibility import (
     PRODUCT_PRIVATE_ORIGIN_PRODUCTS,
     TEAM_READABLE_ORIGIN_PRODUCTS,
@@ -1361,16 +1362,6 @@ def task_owned_by_user(task_id: str | UUID, team_id: int, user_id: int) -> bool:
     return Task.objects.filter(id=task_id, team_id=team_id, created_by_id=user_id).exists()
 
 
-def filter_task_ids_created_by(task_ids: Iterable[str | UUID], team_id: int, user_id: int) -> frozenset[UUID]:
-    """The ids among `task_ids` of the team's tasks that the user started."""
-    ids = [str(t) for t in task_ids]
-    if not ids:
-        return frozenset()
-    return frozenset(
-        Task.objects.filter(id__in=ids, team_id=team_id, created_by_id=user_id).values_list("id", flat=True)
-    )
-
-
 def get_task_creator_ids(task_ids: Iterable[str | UUID], team_ids: Iterable[int]) -> dict[str, int]:
     """The id of the user who started each task, without loading the full task."""
     ids = [str(t) for t in task_ids]
@@ -2030,6 +2021,7 @@ def create_and_run_task(
     internal: bool | None = None,
     sandbox_environment_id: str | None = None,
     channel_id: str | UUID | None = None,
+    source: TaskSource | None = None,
     **extra,
 ) -> contracts.CreatedTaskDTO:
     """Create a task and (optionally) kick off its processing workflow.
@@ -2053,6 +2045,10 @@ def create_and_run_task(
     origin = resolve_task_origin(profile=profile, origin_product=origin_product, internal=internal)
     origin_product = cast("Task.OriginProduct", origin.origin_product)
     internal = origin.internal
+    columns = apply_task_source(source, signal_report_id=signal_report_id, hog_flow_id=extra.get("hog_flow_id"))
+    signal_report_id = columns.signal_report_id
+    if columns.hog_flow_id is not None:
+        extra["hog_flow_id"] = columns.hog_flow_id
     # create_pr=False sessions (research, repo selection, custom agents) can never open the
     # billable PR, so the quota gate must not block them.
     if origin_product == Task.OriginProduct.SIGNAL_REPORT and create_pr:
@@ -2282,6 +2278,8 @@ def create_task_without_run(
     repository: str | None = None,
     mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
     channel: Channel | None = None,
+    options: TaskRunOptions | None = None,
+    source: TaskSource | None = None,
 ) -> UUID:
     """Create a Task row with no initial run, returning its id.
 
@@ -2305,6 +2303,8 @@ def create_task_without_run(
         repository=repository,
         channel=channel,
         mcp_builtin_agent_key=mcp_builtin_agent_key,
+        options=options,
+        source=source,
     )
     return task.id
 
@@ -3058,6 +3058,8 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         TASK_OWNERSHIP_VERSION_STATE_KEY,
         "pr_authorship_mode",
         "repositories",
+        # Decides which repositories the run's GitHub token can write to.
+        "github_access_repositories",
         "verified_pr_urls",
         "prewarmed",
         "await_user_message",
@@ -8187,7 +8189,13 @@ def create_task(
         and validated_data.get("origin_product") == Task.OriginProduct.SIGNAL_REPORT
     )
     if (validated_data.get("repository") or entitled_report_task) and not validated_data.get("github_integration"):
-        default_integration = Integration.objects.filter(team=team, kind="github").first()
+        if signal_report is not None:
+            integration_id = _report_task_github_integration_id(team, code_access_allowed=True)
+            default_integration = (
+                Integration.objects.filter(id=integration_id).first() if integration_id is not None else None
+            )
+        else:
+            default_integration = Integration.objects.filter(team=team, kind="github").first()
         if default_integration:
             validated_data["github_integration"] = default_integration
 
@@ -8236,6 +8244,26 @@ def create_task(
     if refuse_without_repository and signal_report is not None:
         _capture_report_task_refused_without_repository(team=team, report_id=str(signal_report.id))
         raise ValidationError({"repository": REPORT_IMPLEMENTATION_REPOSITORY_UNRESOLVED})
+
+    if signal_report is not None and signal_report_task_relationship in (None, "implementation"):
+        from products.signals.backend.facade.github_optional import (  # noqa: PLC0415 - keeps the signals model graph out of tasks facade initialization
+            github_optional_pilot_enabled,
+            pilot_repository_integration_id,
+        )
+
+        if github_optional_pilot_enabled(team_id):
+            integration_id = (
+                pilot_repository_integration_id(team_id, validated_data["repository"])
+                if validated_data.get("repository")
+                else None
+            )
+            if integration_id is None:
+                raise ValidationError(
+                    {
+                        "repository": "Connect or repair GitHub access to the selected repository before creating a pull request."
+                    }
+                )
+            validated_data["github_integration"] = Integration.objects.get(team_id=team_id, id=integration_id)
 
     logger.info("Creating task with data: %s", validated_data)
     with transaction.atomic():
@@ -9054,6 +9082,12 @@ def _activate_warm_run(
 def _report_task_github_integration_id(team: Team, *, code_access_allowed: bool) -> int | None:
     if not code_access_allowed:
         return None
+    from products.signals.backend.facade.github_optional import (
+        github_optional_pilot_enabled,  # noqa: PLC0415 - keeps the signals model graph out of tasks facade initialization
+    )
+
+    if github_optional_pilot_enabled(team.id):
+        return readonly_github_integration_id(team.id)
     integration = Integration.objects.filter(team=team, kind="github").first()
     return integration.id if integration is not None else None
 
@@ -9418,7 +9452,13 @@ def warm_task_resume_sandbox(
         "custom_image_id": custom_image_id,
     }
     extra_state.update(_github_credential_source_extra_state(resolved_pr_authorship_mode, None))
-    for protected_key in ("wizard_head_branch", "self_driving_head_branch", "stack_base_branch", "github_read_access"):
+    for protected_key in (
+        "wizard_head_branch",
+        "self_driving_head_branch",
+        "stack_base_branch",
+        "github_read_access",
+        "github_access_repositories",
+    ):
         if protected_key in (previous_run.state or {}):
             extra_state[protected_key] = (previous_run.state or {})[protected_key]
     if "imported_from" in (previous_run.state or {}):
@@ -9813,6 +9853,11 @@ def run_task(
         prev_stack_base_branch = (previous_run.state or {}).get("stack_base_branch")
         if prev_stack_base_branch:
             extra_state["stack_base_branch"] = prev_stack_base_branch
+        # The resumed agent still works with the repositories it was told about, so its token must
+        # keep covering them. The key is PATCH-protected, so this copy is the only way it carries.
+        prev_github_access_repositories = (previous_run.state or {}).get("github_access_repositories")
+        if prev_github_access_repositories:
+            extra_state["github_access_repositories"] = prev_github_access_repositories
         if pipeline_rerun and is_implementation:
             extra_state["ai_stage"] = "implementation"
 

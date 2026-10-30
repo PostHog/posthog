@@ -35,7 +35,7 @@ const LIFECYCLE_DAYS = ['2024-06-10', '2024-06-11', '2024-06-12', '2024-06-13', 
 const LIFECYCLE_LABELS = ['10-Jun', '11-Jun', '12-Jun', '13-Jun', '14-Jun']
 
 const buildLifecycleSeries = (status: 'new' | 'returning' | 'resurrecting' | 'dormant', data: number[]): object => ({
-    action: { id: '$pageview', type: 'events', name: '$pageview', order: 0 },
+    order: 0,
     label: `$pageview - ${status}`,
     count: data.reduce((a, b) => a + b, 0),
     aggregated_value: data.reduce((a, b) => a + b, 0),
