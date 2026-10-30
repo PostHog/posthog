@@ -34,7 +34,7 @@ from posthog.permissions import (
 from posthog.user_permissions import UserPermissions
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.reminders.backend.constants import MAX_ACTIVE_REMINDERS_PER_USER, RESOURCE_MODELS, RESOURCE_TYPES
+from products.reminders.backend.constants import MAX_ACTIVE_REMINDERS_PER_USER, RESOURCE_LOOKUPS, RESOURCE_TYPES
 from products.reminders.backend.models import Reminder
 from products.reminders.backend.scheduling import compute_next_fire_at, exceeds_daily_frequency_cap, resolve_timezone
 
@@ -297,18 +297,21 @@ class ReminderSerializer(serializers.ModelSerializer):
             raise ValidationError("resource_type and resource_id must be provided together.")
         if team is None:
             raise ValidationError("A team must be set to attach a resource to a reminder.")
-        if resource_type not in RESOURCE_MODELS:
+        if resource_type not in RESOURCE_LOOKUPS:
             raise ValidationError(f"Unknown resource_type: {resource_type}")
-
-        model, lookup_field, _ = RESOURCE_MODELS[resource_type]
-        resource = model._default_manager.filter(team=team, **{lookup_field: resource_id}).first()
-        if resource is None:
-            raise ValidationError(f"No {resource_type} with id {resource_id} in this project.")
 
         # Membership in the project is not access to every object in it. Report an object the
         # caller cannot view as missing, so the message does not confirm that it exists.
-        user = cast(User, self.context["request"].user)
-        if not UserAccessControl(user=user, team=team).check_access_level_for_object(resource, "viewer"):
+        access = UserAccessControl(user=cast(User, self.context["request"].user), team=team)
+        lookup, _ = RESOURCE_LOOKUPS[resource_type]
+        if isinstance(lookup, tuple):
+            model, lookup_field = lookup
+            resource = model._default_manager.filter(team=team, **{lookup_field: resource_id}).first()
+            can_view = resource is not None and access.check_access_level_for_object(resource, "viewer")
+        else:
+            ref = lookup(team, resource_id)
+            can_view = ref is not None and access.check_access_level_for_ref(ref, "viewer")
+        if not can_view:
             raise ValidationError(f"No {resource_type} with id {resource_id} in this project.")
 
     def _validate_active_cap(self) -> None:
