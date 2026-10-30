@@ -13,6 +13,7 @@ A question tool needs at least two options. When only one holds, add a second th
 - **Launch the experiment.** Drafts only. Picking it is the user asking for a launch. Follow the launch steps in `managing-experiment-lifecycle`, including the pre-launch checklist.
 - **Set a reminder to check the results on <date>.** Launched experiments only. A draft has no start date to count from, so `managing-experiment-lifecycle` offers the reminder once the experiment launches. See [Set the reminder](#set-the-reminder).
 - **End <name>.** Only when you found a running A/A test or other experiment that should end, and the user hasn't said to keep it. Call `experiment-end`. It freezes that experiment's results and leaves its feature flag as it is.
+- **Ask users what they think, with a short survey linked to the experiment's flag.** Only for a user-facing change that passes Gate 1 in [qualitative-feedback.md](../../diagnosing-experiment-health/references/qualitative-feedback.md), and only once: at launch, leave it out if you offered it at creation. See [Create the survey](#create-the-survey).
 
 ## Set the reminder
 
@@ -30,3 +31,10 @@ Call `reminder-create` with these fields. Load `managing-reminders` for the othe
 
 Then tell the user the date, and that the reminder is an in-app notification only they see.
 `reminder-create` returns no link, so link the experiment with its `_posthogUrl`.
+
+## Create the survey
+
+Follow [qualitative-feedback.md](../../diagnosing-experiment-health/references/qualitative-feedback.md) for its shape, and load `creating-surveys` for the rest.
+Attach it the way the app does. Pass the experiment's `feature_flag.id`, from `experiment-get`, as `linked_flag_id`, whatever the rollout, and leave out `linkedFlagVariant` so it reaches everyone in the experiment.
+Before you create it, warn the user about the exposure interaction in Decision 2 there, on a draft experiment too.
+Then link the survey with its `_posthogUrl`, and tell the user its responses show on the experiment's User feedback tab, which lists only surveys linked to its flag.
