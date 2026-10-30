@@ -2,7 +2,6 @@ import json
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
-import pytest
 import time_machine
 from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
 from unittest import mock
@@ -36,8 +35,6 @@ from posthog.session_recordings.session_recording_playlist_api import (
     _attach_empty_recordings_counts,
     _empty_saved_filters_counts,
     count_collection_recordings,
-    parse_non_negative_int,
-    parse_positive_int,
     precompute_recordings_counts,
 )
 from posthog.session_recordings.synthetic_playlists import ExpiringPlaylistSource
@@ -915,16 +912,24 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
         assert response.status_code == status.HTTP_200_OK
         assert {x["id"] for x in response.json()["results"]} == set(sessions_newest_first[:2])
 
-    @parameterized.expand([("non_numeric_limit", {"limit": "abc"}), ("negative_offset", {"offset": -1})])
-    def test_recordings_rejects_bad_paging_params(self, _name: str, params: dict[str, str | int]) -> None:
-        playlist = SessionRecordingPlaylist.objects.create(
-            team=self.team, name="collection", created_by=self.user, type="collection"
-        )
+    @parameterized.expand(
+        [
+            ("recordings_non_numeric_limit", True, {"limit": "abc"}),
+            ("recordings_negative_offset", True, {"offset": -1}),
+            ("list_non_numeric_limit", False, {"limit": "abc"}),
+            ("list_negative_limit", False, {"limit": -5}),
+            ("list_negative_offset", False, {"offset": -1}),
+        ]
+    )
+    def test_rejects_bad_paging_params(self, _name: str, recordings: bool, params: dict[str, str | int]) -> None:
+        url = f"/api/projects/{self.team.id}/session_recording_playlists"
+        if recordings:
+            playlist = SessionRecordingPlaylist.objects.create(
+                team=self.team, name="collection", created_by=self.user, type="collection"
+            )
+            url = f"{url}/{playlist.short_id}/recordings"
 
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/session_recording_playlists/{playlist.short_id}/recordings",
-            data=params,
-        )
+        response = self.client.get(url, data=params)
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
@@ -1900,31 +1905,3 @@ class TestPrecomputeRecordingsCounts(APIBaseTest):
         # and certainly no self-referential loop.
         assert data["next"] is None
         assert len(data["results"]) == data["count"]
-
-
-@pytest.mark.parametrize(
-    "value,expected",
-    [
-        ("30", 30),
-        ("0", 0),
-        ("-5", 0),
-        ("abc", 100),
-        (None, 100),
-    ],
-)
-def test_parse_non_negative_int(value: object, expected: int) -> None:
-    assert parse_non_negative_int(value, 100) == expected
-
-
-@pytest.mark.parametrize(
-    "value,expected",
-    [
-        ("30", 30),
-        ("0", 100),  # limit=0 would loop pagination -> default
-        ("-5", 100),  # non-positive -> default
-        ("abc", 100),
-        (None, 100),
-    ],
-)
-def test_parse_positive_int(value: object, expected: int) -> None:
-    assert parse_positive_int(value, 100) == expected

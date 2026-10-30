@@ -134,21 +134,6 @@ def playlist_name_sort_key(playlist: SessionRecordingPlaylist) -> str:
     return (playlist.name or playlist.derived_name or "").lower()
 
 
-def parse_non_negative_int(value: Any, default: int) -> int:
-    try:
-        return max(0, int(value))
-    except (TypeError, ValueError):
-        return default
-
-
-def parse_positive_int(value: Any, default: int) -> int:
-    """Like parse_non_negative_int but rejects 0. A limit of 0 makes the paginator's
-    next link point back at the same offset — an infinite-paging loop — so non-positive
-    input falls back to the default, matching DRF's LimitOffsetPagination."""
-    parsed = parse_non_negative_int(value, default)
-    return parsed if parsed > 0 else default
-
-
 def create_synthetic_playlist_instance(
     synthetic_def: SyntheticPlaylistDefinition, team: Team, user: User
 ) -> SessionRecordingPlaylist:
@@ -684,6 +669,18 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer, UserAccess
         return updated_playlist
 
 
+class SessionRecordingPlaylistListQuerySerializer(serializers.Serializer):
+    limit = serializers.IntegerField(
+        required=False,
+        default=SessionRecordingPlaylistPagination.default_limit,
+        min_value=0,
+        help_text=f"Number of playlists to return. Defaults to 100, also for 0. Values above {PLAYLIST_LIST_MAX_LIMIT} are capped.",
+    )
+    offset = serializers.IntegerField(
+        required=False, default=0, min_value=0, help_text="Number of playlists to skip. Defaults to 0."
+    )
+
+
 class SessionRecordingPlaylistRecordingsQuerySerializer(serializers.Serializer):
     limit = serializers.IntegerField(
         required=False, default=50, min_value=1, help_text="Number of recordings to return. Defaults to 50."
@@ -763,8 +760,13 @@ class SessionRecordingPlaylistViewSet(
         synth_count = len(sorted_synthetics)
         total_count = db_count + synth_count
 
-        limit = min(parse_positive_int(request.GET.get("limit"), 100), PLAYLIST_LIST_MAX_LIMIT)
-        offset = parse_non_negative_int(request.GET.get("offset"), 0)
+        paging = SessionRecordingPlaylistListQuerySerializer(data=request.GET)
+        paging.is_valid(raise_exception=True)
+        # A limit of 0 makes the next link point back at the same offset (infinite paging), so it means
+        # the default, as in DRF's LimitOffsetPagination.
+        requested_limit: int = paging.validated_data["limit"] or SessionRecordingPlaylistPagination.default_limit
+        limit = min(requested_limit, PLAYLIST_LIST_MAX_LIMIT)
+        offset: int = paging.validated_data["offset"]
 
         span.set_attribute("team_id", self.team.id)
         span.set_attribute("db_count", db_count)
