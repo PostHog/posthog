@@ -193,6 +193,10 @@ export const signalsConfigCreateBodyMaxReportsPerDayMax = 2147483647
 
 export const signalsConfigCreateBodyPullRequestLabelMax = 50
 
+export const signalsConfigCreateBodyImplementationRepositoriesItemMax = 255
+
+export const signalsConfigCreateBodyImplementationRepositoriesMax = 20
+
 export const SignalsConfigCreateBody = () => zod.object({
     autostart_enabled: zod
         .boolean()
@@ -283,6 +287,19 @@ export const SignalsConfigCreateBody = () => zod.object({
         .describe(
             "The label name self-driving applies, at most 50 characters. Null or blank means 'self-driving'. The label is created in the repository when it does not exist yet. Only used while pull_request_label_enabled is true."
         ),
+    implementation_repositories: zod
+        .array(zod.string().max(signalsConfigCreateBodyImplementationRepositoriesItemMax))
+        .max(signalsConfigCreateBodyImplementationRepositoriesMax)
+        .optional()
+        .describe(
+            "Extra GitHub repositories, as 'organization\/repository', that self-driving implementation tasks can read and write within the connected GitHub App's permissions, for example an assets repository for PR screenshots. A task gets only the entries with the same owner as its selected repository. They are not cloned, and the PR still targets the selected repository. Each new entry must be reachable through one of the project's GitHub installations. Changes apply to tasks started afterwards. Empty by default."
+        ),
+    anomaly_scoring_enabled: zod
+        .boolean()
+        .optional()
+        .describe(
+            "Whether anomaly scoring scores this project's active trends insights every hour and writes the results as $anomaly_score events, which are not billed. True by default. Set false to stop new scores; events written before stay. Turning it on does not enroll a project that anomaly_scoring_available reports as not covered."
+        ),
 })
 
 export const SignalsReportsListParams = () => zod.object({
@@ -316,7 +333,7 @@ export const SignalsReportsListQueryParams = () => zod.object({
         .enum(['me', 'mine'])
         .optional()
         .describe(
-            "'me' returns reports claimed by exactly the requesting actor: the user, the internal task, or the MCP agent. 'mine' returns every report the requesting user answers for: their own claims, claims by MCP agents acting for them, and claims by internal tasks they started."
+            "'me' returns reports claimed by exactly the requesting actor: the user, the internal task, or the MCP agent. 'mine' returns every report the requesting user claimed: their own claims and claims by MCP agents acting for them. Internal task claims are not included."
         ),
     channel_id: zod
         .string()
@@ -4726,6 +4743,18 @@ export const SignalsSourceConfigsCreateBody = () => zod.object({
         .describe(
             "Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint."
         ),
+    config_set: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe(
+            'Top-level config keys to set atomically on update. Unspecified keys are preserved. Cannot be combined with config.'
+        ),
+    config_remove: zod
+        .array(zod.string())
+        .optional()
+        .describe(
+            'Top-level config keys to remove atomically on update. Missing keys are ignored. Cannot overlap config_set or be combined with config.'
+        ),
 })
 
 export const SignalsSourceConfigsRetrieveParams = () => zod.object({
@@ -4899,6 +4928,18 @@ export const SignalsSourceConfigsUpdateBody = () => zod.object({
         .describe(
             "Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint."
         ),
+    config_set: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe(
+            'Top-level config keys to set atomically on update. Unspecified keys are preserved. Cannot be combined with config.'
+        ),
+    config_remove: zod
+        .array(zod.string())
+        .optional()
+        .describe(
+            'Top-level config keys to remove atomically on update. Missing keys are ignored. Cannot overlap config_set or be combined with config.'
+        ),
 })
 
 export const SignalsSourceConfigsPartialUpdateParams = () => zod.object({
@@ -5064,5 +5105,17 @@ export const SignalsSourceConfigsPartialUpdateBody = () => zod.object({
         .optional()
         .describe(
             "Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint."
+        ),
+    config_set: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe(
+            'Top-level config keys to set atomically on update. Unspecified keys are preserved. Cannot be combined with config.'
+        ),
+    config_remove: zod
+        .array(zod.string())
+        .optional()
+        .describe(
+            'Top-level config keys to remove atomically on update. Missing keys are ignored. Cannot overlap config_set or be combined with config.'
         ),
 })

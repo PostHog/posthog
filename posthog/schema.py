@@ -16,6 +16,7 @@ from posthog.schema_enums import (
     AccountsTableAccountField as AccountsTableAccountField,
     AccountsTableAccountFieldOperator as AccountsTableAccountFieldOperator,
     AccountsTableAggregation as AccountsTableAggregation,
+    AccountsTableCustomPropertyDisplayType as AccountsTableCustomPropertyDisplayType,
     AccountsTableCustomPropertyOperator as AccountsTableCustomPropertyOperator,
     AccountsTableRelationshipOperator as AccountsTableRelationshipOperator,
     AccountsTableSortDirection as AccountsTableSortDirection,
@@ -304,6 +305,7 @@ from posthog.schema_enums import (
     SnapshotSource as SnapshotSource,
     SortDirection as SortDirection,
     SourceType as SourceType,
+    SpanHealthStatus as SpanHealthStatus,
     SpanPropertyFilterType as SpanPropertyFilterType,
     StartHandling as StartHandling,
     Status as Status,
@@ -445,6 +447,22 @@ class AccountsTableCustomPropertyHistoryPoint(BaseModel):
     value: float
 
 
+class AccountsTableCustomPropertyOption(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    color: str
+    id: str | None = None
+    label: str
+
+
+class AccountsTableCustomPropertySource(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    id: str
+
+
 class AccountsTableNoteCountColumn(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -461,6 +479,17 @@ class AccountsTableRelationshipColumn(BaseModel):
         description="Team-scoped relationship definition to return for each account.",
     )
     kind: Literal["relationship"] = "relationship"
+
+
+class AccountsTableRelationshipDefinition(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str | None = None
+    id: str
+    is_controlled: bool
+    is_single_holder: bool | None = None
+    name: str
 
 
 class AccountsTableSearchFilter(BaseModel):
@@ -2233,10 +2262,20 @@ class MarketingAnalyticsSearchSource(BaseModel):
         extra="forbid",
     )
     keywordTable: str | None = None
+    performanceMaxSearchTermTable: str | None = Field(
+        default=None,
+        description="Google Ads search terms from Performance Max campaigns.",
+    )
     placementTable: str | None = None
     queryPageTable: bool | None = None
+    searchTermTable: str | None = Field(default=None, description="Google Ads search terms from Search campaigns.")
     sourceType: SourceType
-    statsTable: str
+    statsTable: str = Field(
+        ...,
+        description=(
+            "For the Google Ads search term breakdown, the campaign table, which carries the account currency."
+        ),
+    )
 
 
 class MarketingIntegrationConfig1(BaseModel):
@@ -3707,6 +3746,21 @@ class AccountsTableCountThresholdMetric(BaseModel):
     value: float
 
 
+class AccountsTableCustomPropertyDefinition(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str | None = None
+    display_type: AccountsTableCustomPropertyDisplayType
+    has_workflow_reference: bool
+    id: str
+    is_big_number: bool | None = None
+    is_canonical: bool
+    name: str
+    options: list[AccountsTableCustomPropertyOption] | None = None
+    source: AccountsTableCustomPropertySource | None = None
+
+
 class AccountsTableCustomPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3782,6 +3836,16 @@ class AggregatedSpanRow(BaseModel):
     avg_duration_nano: float
     count: int
     error_count: int
+    health_reason: str | None = Field(
+        default=None,
+        description=(
+            "Short reason for `health_status`, such as `error rate 0.2% → 4.1%`. Empty when the status is `ok`."
+        ),
+    )
+    health_status: SpanHealthStatus | None = Field(
+        default=None,
+        description=("Set only when the query asked for `includeHealth`. Same statuses as the service health check."),
+    )
     name: str
     p50_duration_nano: float
     p95_duration_nano: float
@@ -10151,6 +10215,18 @@ class AccountsTableQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    columns: (
+        list[
+            AccountsTableAccountFieldColumn
+            | AccountsTableTagsColumn
+            | AccountsTableNoteCountColumn
+            | AccountsTableRelationshipColumn
+            | AccountsTableCustomPropertyColumn
+            | AccountsTableCustomPropertyHistoryColumn
+        ]
+        | None
+    ) = None
+    customPropertyDefinitions: list[AccountsTableCustomPropertyDefinition] | None = None
     error: str | None = Field(
         default=None,
         description=(
@@ -10171,6 +10247,7 @@ class AccountsTableQueryResponse(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    relationshipDefinitions: list[AccountsTableRelationshipDefinition] | None = None
     resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
         default=None,
         description=("The resolved previous/comparison period date range, when comparing against another period"),
@@ -11838,6 +11915,18 @@ class CachedAccountsTableQueryResponse(BaseModel):
         default=None,
         description=("What triggered the calculation of the query, leave empty if user/immediate"),
     )
+    columns: (
+        list[
+            AccountsTableAccountFieldColumn
+            | AccountsTableTagsColumn
+            | AccountsTableNoteCountColumn
+            | AccountsTableRelationshipColumn
+            | AccountsTableCustomPropertyColumn
+            | AccountsTableCustomPropertyHistoryColumn
+        ]
+        | None
+    ) = None
+    customPropertyDefinitions: list[AccountsTableCustomPropertyDefinition] | None = None
     error: str | None = Field(
         default=None,
         description=(
@@ -11866,6 +11955,7 @@ class CachedAccountsTableQueryResponse(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    relationshipDefinitions: list[AccountsTableRelationshipDefinition] | None = None
     resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
         default=None,
         description=("The resolved previous/comparison period date range, when comparing against another period"),
@@ -18267,6 +18357,18 @@ class Response20(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    columns: (
+        list[
+            AccountsTableAccountFieldColumn
+            | AccountsTableTagsColumn
+            | AccountsTableNoteCountColumn
+            | AccountsTableRelationshipColumn
+            | AccountsTableCustomPropertyColumn
+            | AccountsTableCustomPropertyHistoryColumn
+        ]
+        | None
+    ) = None
+    customPropertyDefinitions: list[AccountsTableCustomPropertyDefinition] | None = None
     error: str | None = Field(
         default=None,
         description=(
@@ -18287,6 +18389,7 @@ class Response20(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    relationshipDefinitions: list[AccountsTableRelationshipDefinition] | None = None
     resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
         default=None,
         description=("The resolved previous/comparison period date range, when comparing against another period"),
@@ -24131,6 +24234,18 @@ class QueryResponseAlternative60(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    columns: (
+        list[
+            AccountsTableAccountFieldColumn
+            | AccountsTableTagsColumn
+            | AccountsTableNoteCountColumn
+            | AccountsTableRelationshipColumn
+            | AccountsTableCustomPropertyColumn
+            | AccountsTableCustomPropertyHistoryColumn
+        ]
+        | None
+    ) = None
+    customPropertyDefinitions: list[AccountsTableCustomPropertyDefinition] | None = None
     error: str | None = Field(
         default=None,
         description=(
@@ -24151,6 +24266,7 @@ class QueryResponseAlternative60(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    relationshipDefinitions: list[AccountsTableRelationshipDefinition] | None = None
     resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
         default=None,
         description=("The resolved previous/comparison period date range, when comparing against another period"),
@@ -25345,6 +25461,18 @@ class QueryResponseAlternative90(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    columns: (
+        list[
+            AccountsTableAccountFieldColumn
+            | AccountsTableTagsColumn
+            | AccountsTableNoteCountColumn
+            | AccountsTableRelationshipColumn
+            | AccountsTableCustomPropertyColumn
+            | AccountsTableCustomPropertyHistoryColumn
+        ]
+        | None
+    ) = None
+    customPropertyDefinitions: list[AccountsTableCustomPropertyDefinition] | None = None
     error: str | None = Field(
         default=None,
         description=(
@@ -25365,6 +25493,7 @@ class QueryResponseAlternative90(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    relationshipDefinitions: list[AccountsTableRelationshipDefinition] | None = None
     resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
         default=None,
         description=("The resolved previous/comparison period date range, when comparing against another period"),
@@ -27442,6 +27571,10 @@ class AccountsTableQuery(BaseModel):
         default=None,
         description=("Filters are combined with AND. Values within tag and assignment filters use OR."),
     )
+    ignoreMissingDefinitions: bool | None = Field(
+        default=None,
+        description=("Omit missing definitions and custom-property filters incompatible with their current types."),
+    )
     includeChurned: bool | None = Field(
         default=None,
         description="Include churned accounts. Churned accounts are hidden by default.",
@@ -27463,6 +27596,7 @@ class AccountsTableQuery(BaseModel):
     response: AccountsTableQueryResponse | None = None
     sort: AccountsTableSort | None = None
     tags: QueryLogTags | None = None
+    useDefaultColumns: bool | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -31823,6 +31957,22 @@ class TraceSpansAggregationQuery(BaseModel):
     )
     dateRange: DateRange
     filterGroup: PropertyGroupFilter | None = None
+    groupByEndpoint: bool | None = Field(
+        default=None,
+        description=(
+            "Group HTTP server spans by `METHOD route` in place of the span name. Spans"
+            " without a route keep their name. Spans that are not HTTP server spans are"
+            " left out."
+        ),
+    )
+    includeHealth: bool | None = Field(
+        default=None,
+        description=(
+            "Classify each row against the comparison window, or the previous period"
+            " when `compareFilter` is off. Fills `health_status` and `health_reason`."
+            " Runs a second window query."
+        ),
+    )
     includeImpact: bool | None = Field(
         default=None,
         description=("Also aggregate sessions and people per operation. Off by default: it reads the attribute maps."),

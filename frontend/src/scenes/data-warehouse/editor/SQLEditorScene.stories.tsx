@@ -1999,8 +1999,8 @@ export const BISourcePreviewLargeSample: Story = {
 const BI_WIDE_TABLE_CONFIG: BIConfig = {
     ...BI_WORKSHEET_CONFIG,
     chartType: ChartDisplayType.ActionsTable,
-    rows: [],
-    columns: [{ ...biEventsField('timestamp', 'datetime'), dateBucket: 'day' }],
+    rows: [{ ...biEventsField('timestamp', 'datetime'), dateBucket: 'day' }],
+    columns: [],
     values: [{ field: biEventsField('revenue', 'float'), aggregation: 'sum', shelf: 'rows' }],
     filters: [],
     limit: 10000,

@@ -1362,16 +1362,6 @@ def task_owned_by_user(task_id: str | UUID, team_id: int, user_id: int) -> bool:
     return Task.objects.filter(id=task_id, team_id=team_id, created_by_id=user_id).exists()
 
 
-def filter_task_ids_created_by(task_ids: Iterable[str | UUID], team_id: int, user_id: int) -> frozenset[UUID]:
-    """The ids among `task_ids` of the team's tasks that the user started."""
-    ids = [str(t) for t in task_ids]
-    if not ids:
-        return frozenset()
-    return frozenset(
-        Task.objects.filter(id__in=ids, team_id=team_id, created_by_id=user_id).values_list("id", flat=True)
-    )
-
-
 def get_task_creator_ids(task_ids: Iterable[str | UUID], team_ids: Iterable[int]) -> dict[str, int]:
     """The id of the user who started each task, without loading the full task."""
     ids = [str(t) for t in task_ids]
@@ -3051,6 +3041,8 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         TASK_OWNERSHIP_VERSION_STATE_KEY,
         "pr_authorship_mode",
         "repositories",
+        # Decides which repositories the run's GitHub token can write to.
+        "github_access_repositories",
         "verified_pr_urls",
         "prewarmed",
         "await_user_message",
@@ -9443,7 +9435,13 @@ def warm_task_resume_sandbox(
         "custom_image_id": custom_image_id,
     }
     extra_state.update(_github_credential_source_extra_state(resolved_pr_authorship_mode, None))
-    for protected_key in ("wizard_head_branch", "self_driving_head_branch", "stack_base_branch", "github_read_access"):
+    for protected_key in (
+        "wizard_head_branch",
+        "self_driving_head_branch",
+        "stack_base_branch",
+        "github_read_access",
+        "github_access_repositories",
+    ):
         if protected_key in (previous_run.state or {}):
             extra_state[protected_key] = (previous_run.state or {})[protected_key]
     if "imported_from" in (previous_run.state or {}):
@@ -9838,6 +9836,11 @@ def run_task(
         prev_stack_base_branch = (previous_run.state or {}).get("stack_base_branch")
         if prev_stack_base_branch:
             extra_state["stack_base_branch"] = prev_stack_base_branch
+        # The resumed agent still works with the repositories it was told about, so its token must
+        # keep covering them. The key is PATCH-protected, so this copy is the only way it carries.
+        prev_github_access_repositories = (previous_run.state or {}).get("github_access_repositories")
+        if prev_github_access_repositories:
+            extra_state["github_access_repositories"] = prev_github_access_repositories
         if pipeline_rerun and is_implementation:
             extra_state["ai_stage"] = "implementation"
 
