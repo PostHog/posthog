@@ -19,10 +19,13 @@ from products.signals.backend.models import (
 )
 from products.signals.backend.reviewer_correction_notes import (
     MAX_CORRECTION_REVIEWERS,
+    ReviewerClaim,
     ReviewerCorrection,
+    _build_claim_note_content,
     _build_note_content,
     _renderable,
     _reviewers_already_told,
+    forward_reviewer_claim_note,
     forward_reviewer_correction_note,
 )
 from products.signals.backend.scout_harness.tools.notes import list_notes
@@ -169,6 +172,30 @@ class TestReviewerCorrectionNoteContent(SimpleTestCase):
         # which is the only part of a note the run prompt renders.
         assert content.startswith("Inbox routing correction: Ada Lovelace changed the suggested reviewers")
 
+    @parameterized.expand(
+        [
+            ("suggested_by_hand", True, None, "They claimed it themselves.", "confirms that routing"),
+            ("unsuggested_by_agent", False, "codex", "Their agent (codex) claimed it", "Consider them for similar"),
+        ]
+    )
+    def test_a_claim_note_says_who_claimed_and_whether_routing_was_right(
+        self, _name: str, suggested: bool, via_agent: str | None, by: str, fit: str
+    ) -> None:
+        report = SignalReport(id="0198e7f0-0000-7000-8000-000000000001", title="Checkout errors")
+
+        content = _build_claim_note_content(
+            report=report,
+            claimant="Ada (ada@example.com)",
+            identity="octocat",
+            via_agent=via_agent,
+            claimant_was_suggested=suggested,
+        )
+
+        assert content.startswith("Inbox routing correction: Ada (ada@example.com) claimed the work on report `")
+        assert "Claimed: `octocat`." in content
+        assert by in content
+        assert fit in content
+
 
 class TestReviewerCorrectionScoutNotes(APIBaseTest):
     def _create_report(self, title: str = "Checkout errors spiked") -> SignalReport:
@@ -219,6 +246,47 @@ class TestReviewerCorrectionScoutNotes(APIBaseTest):
                 scoped_team_ids=None,
             ),
         )
+
+    def _claim(self, report: SignalReport) -> None:
+        forward_reviewer_claim_note(
+            team=self.team,
+            claim=ReviewerClaim(
+                report_id=str(report.id),
+                actor_user_id=self.user.id,
+                scoped_team_ids=None,
+                claimant_was_suggested=False,
+            ),
+        )
+
+    def test_a_claim_reaches_the_authoring_scout_and_the_claimants_memory_holder(self) -> None:
+        self._create_skill()
+        self._create_skill(OTHER_SCOUT_SKILL)
+        report = self._create_report()
+        self._create_run(emitted_report_ids=[str(report.id)])
+        self._remember(
+            key="reviewer:products/logs",
+            content=f"{self.user.uuid} fixed the logs ingestion path",
+            skill_name=OTHER_SCOUT_SKILL,
+        )
+
+        self._claim(report)
+
+        notes = self._correction_notes()
+        assert sorted(note.skill_name for note in notes) == [SCOUT_SKILL, OTHER_SCOUT_SKILL]
+        assert f"Claimed: `{self.user.uuid}`." in notes[0].content
+
+    def test_a_repeat_claim_is_coalesced_but_does_not_hide_a_later_removal(self) -> None:
+        report = self._create_report()
+        identity = str(self.user.uuid)
+
+        self._claim(report)
+        self._claim(report)
+        self._forward(report, removed=(identity,))
+
+        notes = self._correction_notes()
+        assert len(notes) == 2
+        assert f"Claimed: `{identity}`." in notes[0].content
+        assert f"Removed: `{identity}`." in notes[1].content
 
     def test_reversal_within_window_still_forwards(self) -> None:
         # Suppression is per direction: an addition must not swallow a later removal of the same login

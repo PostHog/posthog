@@ -1326,8 +1326,9 @@ class ScoutNoteSerializer(serializers.Serializer):
             "a directive. `report_feedback` for the note someone left when rating a report useful or "
             "not: one reader's rating of the named report, context to weigh rather than a directive. "
             "`report_reviewer_correction` for a suggested reviewer someone added or removed on a "
-            "report: evidence about who owns that surface, and a prompt to revisit the routing "
-            "memory it corrects, rather than a directive."
+            "report, or for a report a person or their agent claimed: evidence about who owns that "
+            "surface, and a prompt to revisit the routing memory it corrects or supports, rather "
+            "than a directive."
         ),
     )
 

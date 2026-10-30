@@ -3779,7 +3779,8 @@ class SignalScoutNote(TeamScopedRootMixin, UUIDModel):
       another path (the report's reviewers artefact, and the project profile's recent corrections), so
       the key scopes aren't required on top. It is the only derived kind addressed to more than the
       authoring scout: a removed login is also sent to every scout whose `reviewer:` memory names it,
-      because those are the scouts still routing on it.
+      because those are the scouts still routing on it. A claim by a person or their agent uses the
+      same kind as positive evidence, and reaches the holders of the claimant's memory the same way.
     `origin` keeps the kinds apart so the run prompt can frame a dismissal as one reviewer's verdict
     on one report, a discussion as a question to weigh, feedback as a reader's rating, and a reviewer
     correction as a trigger to revisit routing memory — rather than fleet-level steering.

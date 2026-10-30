@@ -180,6 +180,7 @@ from products.signals.backend.report_check_authoring import (
     cancel_check,
     replace_metric_check,
 )
+from products.signals.backend.report_claim_follow_up import record_report_claimed
 from products.signals.backend.report_claims import (
     ReportClaim,
     actor_works_under_claim,
@@ -2821,18 +2822,29 @@ class SignalReportViewSet(
         request_serializer.is_valid(raise_exception=True)
         report = cast(SignalReport, self.get_object())
         data = request_serializer.validated_data
+        actor = self._request_attribution()
+        was_impersonated = is_impersonated_session(request)
+        scoped_team_ids = get_authenticator_scoped_team_ids(request.successful_authenticator)
         try:
             claim_report(
                 report=report,
-                actor=self._request_attribution(),
+                actor=actor,
                 user=cast(User, request.user),
-                was_impersonated=is_impersonated_session(request),
+                was_impersonated=was_impersonated,
                 pr_url=data.get("pr_url"),
                 release=data["release"],
                 pull_requests=data.get("pull_requests"),
                 claim_id=str(data["claim_id"]) if data.get("claim_id") else None,
                 takeover=data["takeover"],
                 takeover_claim_id=str(data["takeover_claim_id"]) if data.get("takeover_claim_id") else None,
+                on_new_claim=partial(
+                    record_report_claimed,
+                    team_id=self.team.id,
+                    report_id=str(report.id),
+                    actor=actor,
+                    scoped_team_ids=tuple(scoped_team_ids) if scoped_team_ids is not None else None,
+                    was_impersonated=was_impersonated,
+                ),
             )
         except InvalidPullRequestUrl as err:
             raise serializers.ValidationError({"pr_url": str(err)})
@@ -5990,6 +6002,7 @@ def remove_suggested_reviewer(
                 ],
                 correction=correction,
                 forward_note=forward_note,
+                self_removal=True,
             )
         )
     return True
@@ -6003,6 +6016,7 @@ def _record_reviewer_edit(
     user_uuids: list[str],
     correction: ReviewerCorrection | None,
     forward_note: bool = True,
+    self_removal: bool = False,
 ) -> None:
     """The post-commit tail of a reviewer edit: steer the scouts, then record what the edit did.
 
@@ -6022,6 +6036,7 @@ def _record_reviewer_edit(
         correction_note_targets=forwarded.targets_resolved if forwarded else None,
         removal_reason=correction.removal_reason if correction else None,
         has_removal_note=bool(correction.removal_note) if correction and correction.removed_reviewers else None,
+        self_removal=self_removal,
     )
 
 

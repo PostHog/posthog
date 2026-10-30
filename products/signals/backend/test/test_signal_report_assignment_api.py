@@ -27,10 +27,12 @@ from products.signals.backend.models import (
     SignalReportCheck,
     SignalReportMonitoringAttempt,
     SignalReportPullRequest,
+    SignalScoutNote,
 )
 from products.signals.backend.report_assignments import update_assignments_for_pull_request
 from products.signals.backend.report_claims import get_active_claim, get_active_claims, responsible_users
 from products.signals.backend.report_monitoring_attempts import complete_implementation
+from products.signals.backend.suggested_reviewer_index import sync_suggested_reviewer_index
 
 
 class TestPrimaryPullRequest(SimpleTestCase):
@@ -118,6 +120,82 @@ class TestSignalReportAssignmentAPI(APIBaseTest):
         assert log.detail["changes"][0]["field"] == "assignee"
         assert log.detail["changes"][0]["before"] is None
         assert log.detail["changes"][0]["after"]["kind"] == SignalActorKind.USER
+
+    @parameterized.expand(
+        [
+            # name, actor, impersonated, flag on, suggested, notes written
+            ("person", "user", False, True, False, 1),
+            ("suggested_person", "user", False, True, True, 1),
+            ("their_agent", "agent", False, True, False, 1),
+            ("flag_off", "user", False, False, False, 0),
+            ("impersonated", "user", True, True, False, 0),
+            ("task", "task", False, True, False, None),
+        ]
+    )
+    def test_a_new_claim_steers_scouts_only_for_a_person_and_records_the_outcome(
+        self,
+        _name: str,
+        actor: str,
+        impersonated: bool,
+        flag_on: bool,
+        suggested: bool,
+        notes_written: int | None,
+    ) -> None:
+        report = self._create_report()
+        if suggested:
+            SignalReportArtefact.objects.create(
+                team=self.team,
+                report=report,
+                type="suggested_reviewers",
+                content=json.dumps([{"user_uuid": str(self.user.uuid), "github_login": None}]),
+            )
+            sync_suggested_reviewer_index(team_id=self.team.id, report_id=str(report.id))
+        headers: dict[str, str] = {}
+        if actor == "agent":
+            headers = self._agent_headers("codex")
+        elif actor == "task":
+            Task = apps.get_model("tasks", "Task")
+            task = Task.objects.create(
+                team=self.team,
+                created_by=self.user,
+                title="Signal task",
+                description="Implement the report",
+                origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            )
+            headers = {"X-PostHog-Task-Id": str(task.id)}
+
+        with (
+            patch(
+                "products.signals.backend.reviewer_correction_notes.posthoganalytics.feature_enabled",
+                return_value=flag_on,
+            ),
+            patch("products.signals.backend.views.is_impersonated_session", return_value=impersonated),
+            patch("products.signals.backend.report_claim_follow_up.posthoganalytics.capture") as capture,
+        ):
+            with self.captureOnCommitCallbacks(execute=True):
+                first = self.client.post(self._claim_url(report), data={}, format="json", headers=headers)
+            with self.captureOnCommitCallbacks(execute=True):
+                repeat = self.client.post(self._claim_url(report), data={}, format="json", headers=headers)
+
+        assert first.status_code == repeat.status_code == status.HTTP_200_OK
+        notes = list(
+            SignalScoutNote.objects.filter(team=self.team, origin=SignalScoutNote.Origin.REPORT_REVIEWER_CORRECTION)
+        )
+        assert len(notes) == (notes_written or 0)
+        if actor == "agent":
+            assert "Their agent (codex) claimed it for them." in notes[0].content
+        claimed_events = [c for c in capture.call_args_list if c.kwargs["event"] == "signals_report_claimed"]
+        # Re-claiming under the same claim is not a new claim, so it records nothing.
+        assert len(claimed_events) == 1
+        properties = claimed_events[0].kwargs["properties"]
+        assert properties["actor_kind"] == actor
+        if notes_written is None:
+            assert "claimant_was_suggested" not in properties
+        else:
+            assert properties["claimant_was_suggested"] is suggested
+            assert properties["suggested_count"] == int(suggested)
+            assert properties["claim_notes_enabled"] is flag_on
+            assert properties["claim_notes_written"] == notes_written
 
     def test_identical_claim_is_idempotent(self):
         report = self._create_report()
