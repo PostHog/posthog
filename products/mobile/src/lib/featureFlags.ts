@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 
-import { useAuthStore } from '@/auth/authStore'
+import { type AuthState, useAuthStore } from '@/auth/authStore'
 
 import { hostKind } from './environment'
 
@@ -41,10 +41,11 @@ export function setFeatureFlags(flags: Record<string, boolean | string>): void {
     useFeatureFlagsStore.setState({ flags })
 }
 
-export function isFeatureFlagEnabled(key: FeatureFlagKey): boolean {
-    const value = useFeatureFlagsStore.getState().flags[key]
-    const { status, host } = useAuthStore.getState()
-    const localDevelopment = __DEV__ && status === 'signed_in' && host !== null && hostKind(host) === 'local'
+function isLocalDevelopment({ status, host }: AuthState): boolean {
+    return __DEV__ && status === 'signed_in' && host !== null && hostKind(host) === 'local'
+}
+
+function flagEnabled(key: FeatureFlagKey, value: boolean | string | undefined, localDevelopment: boolean): boolean {
     return (
         FORCED_FLAGS.has(key) ||
         (localDevelopment && LOCAL_DEVELOPMENT_FLAGS.has(key)) ||
@@ -52,10 +53,15 @@ export function isFeatureFlagEnabled(key: FeatureFlagKey): boolean {
     )
 }
 
+export function isFeatureFlagEnabled(key: FeatureFlagKey): boolean {
+    return flagEnabled(key, useFeatureFlagsStore.getState().flags[key], isLocalDevelopment(useAuthStore.getState()))
+}
+
 /** Remote flags default off. Local development and explicit development overrides can enable them sooner. */
 export function useFeatureFlag(key: FeatureFlagKey): boolean {
-    useFeatureFlagsStore((state) => state.flags[key])
-    return isFeatureFlagEnabled(key)
+    const value = useFeatureFlagsStore((state) => state.flags[key])
+    const localDevelopment = useAuthStore(isLocalDevelopment)
+    return flagEnabled(key, value, localDevelopment)
 }
 
 export function useMobileProductFlags(): { errors: boolean; replay: boolean } {
