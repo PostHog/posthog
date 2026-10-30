@@ -39,52 +39,102 @@ const linkedTask = (purpose: ReportTaskPurpose, status: TaskRunStatus | null, pr
     }) as unknown as ReportTaskEntry
 
 describe('inboxReportDetailLogic', () => {
-    it('loads usage once on open and refreshes it after subsequent signal loads', async () => {
-        let releaseSignals!: () => void
-        const pendingSignals = new Promise<void>((resolve) => {
-            releaseSignals = resolve
-        })
-        const usageRequest = jest.fn(() => ({
-            generation: { total_spend: 125, incomplete: false },
-            implementation: { total_spend: null, incomplete: false },
-            shared_scout_runs: { total_spend: null, incomplete: false },
-        }))
-        useMocks({
-            get: {
-                '/api/projects/:team_id/signals/reports/:id/feedback_state/': { sentiment: null, note: '' },
-                '/api/projects/:team_id/signals/reports/:id/artefacts/': { results: [] },
-                '/api/projects/:team_id/signals/reports/:id/checks/': { results: [] },
-                '/api/projects/:team_id/signals/reports/:id/signals/': async () => {
-                    await pendingSignals
-                    return { signals: [] }
+    it.each(['research', 'implementation'])(
+        'loads usage once on open and refreshes it while %s runs and settles',
+        async (purpose) => {
+            jest.useFakeTimers({
+                doNotFake: [
+                    'Date',
+                    'performance',
+                    'queueMicrotask',
+                    'setTimeout',
+                    'clearTimeout',
+                    'setImmediate',
+                    'clearImmediate',
+                    'nextTick',
+                ],
+            })
+            let status = TaskRunStatus.IN_PROGRESS
+            let amount = 125
+            let releaseSignals!: () => void
+            const pendingSignals = new Promise<void>((resolve) => {
+                releaseSignals = resolve
+            })
+            const usageRequest = jest.fn(() => ({
+                generation: { total_spend: purpose === 'research' ? amount : 0, incomplete: false },
+                implementation: { total_spend: purpose === 'implementation' ? amount : null, incomplete: false },
+                shared_scout_runs: { total_spend: null, incomplete: false },
+            }))
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/signals/reports/:id/feedback_state/': { sentiment: null, note: '' },
+                    '/api/projects/:team_id/signals/reports/:id/artefacts/': {
+                        results: [
+                            {
+                                id: 'task-run',
+                                type: 'task_run',
+                                content: { task_id: 'active-task', product: 'signals', type: purpose },
+                                created_at: '2026-01-01T00:00:00Z',
+                            },
+                        ],
+                    },
+                    '/api/projects/:team_id/tasks/:id/': () => ({
+                        id: 'active-task',
+                        latest_run: { id: 'active-run', status },
+                    }),
+                    '/api/projects/:team_id/signals/reports/:id/checks/': { results: [] },
+                    '/api/projects/:team_id/signals/reports/:id/signals/': async () => {
+                        await pendingSignals
+                        return { signals: [] }
+                    },
+                    '/api/projects/:team_id/signals/reports/:id/spend/': usageRequest,
+                    '/api/projects/:team_id/signals/reports/available_reviewers/': [],
                 },
-                '/api/projects/:team_id/signals/reports/:id/spend/': usageRequest,
-                '/api/projects/:team_id/signals/reports/available_reviewers/': [],
-            },
-        })
-        initKeaTests()
-        const usage = reportSpendLogic({ teamId: MOCK_DEFAULT_TEAM.id, reportId: REPORT.id })
-        const logic = inboxReportDetailLogic({ reportId: REPORT.id, report: REPORT })
-        usage.mount()
-        logic.mount()
-        try {
-            await expectLogic(usage).toDispatchActions(['loadSpendSuccess'])
-            expect(usageRequest).toHaveBeenCalledTimes(1)
-            releaseSignals()
-            await expectLogic(logic).toDispatchActions(['loadReportSignalsSuccess']).toFinishAllListeners()
-            await expectLogic(usage).toFinishAllListeners()
-            expect(usageRequest).toHaveBeenCalledTimes(1)
+            })
+            initKeaTests()
+            const usage = reportSpendLogic({ teamId: MOCK_DEFAULT_TEAM.id, reportId: REPORT.id })
+            const logic = inboxReportDetailLogic({ reportId: REPORT.id, report: REPORT })
+            usage.mount()
+            logic.mount()
+            try {
+                await expectLogic(usage).toDispatchActions(['loadSpendSuccess'])
+                expect(usageRequest).toHaveBeenCalledTimes(1)
+                releaseSignals()
+                await expectLogic(logic).toDispatchActions(['loadReportSignalsSuccess']).toFinishAllListeners()
+                await expectLogic(usage).toFinishAllListeners()
+                expect(usageRequest).toHaveBeenCalledTimes(1)
 
-            logic.actions.loadReportSignals()
-            await expectLogic(logic).toDispatchActions(['loadReportSignalsSuccess']).toFinishAllListeners()
-            await expectLogic(usage).toFinishAllListeners()
-            expect(usageRequest).toHaveBeenCalledTimes(2)
-        } finally {
-            releaseSignals()
-            logic.unmount()
-            usage.unmount()
+                expect(logic.values.shouldPollReportTasks).toBe(true)
+                amount = 250
+                jest.advanceTimersByTime(5000)
+                await expectLogic(logic).toFinishAllListeners()
+                await expectLogic(usage).toFinishAllListeners()
+                expect(usageRequest).toHaveBeenCalledTimes(2)
+                expect(usage.values.spend?.[purpose === 'research' ? 'generation' : 'implementation'].total_spend).toBe(
+                    250
+                )
+
+                status = TaskRunStatus.COMPLETED
+                amount = 375
+                jest.advanceTimersByTime(5000)
+                await expectLogic(logic).toFinishAllListeners()
+                await expectLogic(usage).toFinishAllListeners()
+                expect(usageRequest).toHaveBeenCalledTimes(3)
+                expect(usage.values.spend?.[purpose === 'research' ? 'generation' : 'implementation'].total_spend).toBe(
+                    375
+                )
+                expect(logic.values.shouldPollReportTasks).toBe(false)
+                jest.advanceTimersByTime(10000)
+                await expectLogic(logic).toFinishAllListeners()
+                expect(usageRequest).toHaveBeenCalledTimes(3)
+            } finally {
+                releaseSignals()
+                logic.unmount()
+                usage.unmount()
+                jest.useRealTimers()
+            }
         }
-    })
+    )
 
     it.each([SignalReportStatus.READY, SignalReportStatus.MONITORING])(
         'orders report runs and refreshes settled tasks appropriately in %s',

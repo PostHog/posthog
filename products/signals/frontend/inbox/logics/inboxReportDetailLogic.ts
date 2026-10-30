@@ -994,18 +994,10 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             null as SignalNode[] | null,
             {
                 loadReportSignals: async () => {
-                    const refreshUsage = values.reportSignals !== null
                     const response = await signalsReportsSignalsRetrieve(
                         String(teamLogic.values.currentTeamId),
                         props.reportId
                     )
-                    const spendLogic = reportSpendLogic({
-                        teamId: teamLogic.values.currentTeamId ?? 0,
-                        reportId: props.reportId,
-                    })
-                    if (refreshUsage && spendLogic.isMounted()) {
-                        spendLogic.actions.loadSpend()
-                    }
                     return response.signals
                 },
             },
@@ -2205,6 +2197,14 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             cache.sidebarAlignmentPending = false
         },
         loadReportTasksSuccess: (_, __, ___, previousState) => {
+            const previousTasks = selectors.reportTasks(previousState)
+            const spendLogic = reportSpendLogic({
+                teamId: teamLogic.values.currentTeamId ?? 0,
+                reportId: props.reportId,
+            })
+            if (previousTasks !== null && spendLogic.isMounted()) {
+                spendLogic.actions.loadSpend()
+            }
             if (
                 cache.sidebarAlignmentPending &&
                 values.selectedTab === SidePanelTab.Max &&
@@ -2224,7 +2224,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                     actions.warmReportDiscussion(values.report)
                 }
             }
-            const before = selectors.reportTasks(previousState) ?? []
+            const before = previousTasks ?? []
             const settled = (values.reportTasks ?? []).some((entry) => {
                 const run = entry.task.latest_run
                 const prior = before.find((row) => row.task.id === entry.task.id)?.task.latest_run
