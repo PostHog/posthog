@@ -96,8 +96,7 @@ class RecalculationRateLimited(Throttled):
 # browser clock, so this server-side check stops a client clock that runs ahead from recalculating on every visit.
 STALE_REFRESH_MIN_RESULT_AGE = timedelta(hours=12)
 
-# Mirror LAUNCH_RESULTS_WINDOW_HOURS and LAUNCH_RESULTS_STALE_THRESHOLD_HOURS in experimentMetricsLogic.ts. A run
-# whose window ends this close to start_date counts almost no exposures, so it goes stale after the shorter age.
+# Mirror LAUNCH_RESULTS_WINDOW_HOURS and LAUNCH_RESULTS_STALE_THRESHOLD_HOURS in experimentMetricsLogic.ts.
 STALE_REFRESH_LAUNCH_WINDOW = timedelta(hours=1)
 STALE_REFRESH_MIN_LAUNCH_RESULT_AGE = timedelta(hours=1)
 
@@ -446,12 +445,15 @@ def _create_rejected_recalculation(
 
 
 def _run_window_is_stale(experiment: Experiment, query_to: datetime) -> bool:
-    """Mirrors the age rules of resultsAreStale in experimentMetricsLogic.ts, judged with server time."""
+    """Mirrors the age rules of resultsAreStale in experimentMetricsLogic.ts, judged with server time.
+
+    abs() keeps a window from long before start_date, such as a run from before a reset, out of the launch rule.
+    """
     age = timezone.now() - query_to
     if age >= STALE_REFRESH_MIN_RESULT_AGE:
         return True
     window_ends_at_launch = (
-        experiment.start_date is not None and query_to - experiment.start_date <= STALE_REFRESH_LAUNCH_WINDOW
+        experiment.start_date is not None and abs(query_to - experiment.start_date) <= STALE_REFRESH_LAUNCH_WINDOW
     )
     return window_ends_at_launch and age >= STALE_REFRESH_MIN_LAUNCH_RESULT_AGE
 

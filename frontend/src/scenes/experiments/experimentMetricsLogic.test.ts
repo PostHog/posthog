@@ -721,6 +721,13 @@ describe('experimentMetricsLogic', () => {
                 loads: 1,
                 expectedTriggers: [],
             },
+            {
+                name: 'does not refresh results whose window ended hours before start_date before the stale threshold',
+                experiment: { ...EXPERIMENT, start_date: hoursAgo(1) } as Experiment,
+                latest: { ...completedRecalculation, query_to: hoursAgo(5) },
+                loads: 1,
+                expectedTriggers: [],
+            },
         ])('$name', async ({ experiment, latest, loads, expectedTriggers }) => {
             const postedTriggers: string[] = []
             useMocks({
@@ -1036,6 +1043,43 @@ describe('experimentMetricsLogic', () => {
             expect(logic.values.isRecalculating).toBe(false)
             expect(lemonToast.error).toHaveBeenCalledWith('Failed to trigger metrics recalculation')
         })
+
+        it.each([
+            { trigger: 'stale_refresh', expectedToasts: [] },
+            { trigger: 'manual', expectedToasts: [['No editor access.']] },
+        ] as const)(
+            'shows $expectedToasts.length toasts when a $trigger run is refused',
+            async ({ trigger, expectedToasts }) => {
+                useMocks({
+                    get: {
+                        '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [
+                            200,
+                            {
+                                ...completedRecalculation,
+                                completed_at: new Date(Date.now() - 10 * 60 * 1000).toISOString(),
+                            },
+                        ],
+                    },
+                    post: {
+                        '/api/projects/:team_id/experiments/:id/metrics_recalculation/': () => [
+                            403,
+                            { detail: 'No editor access.' },
+                        ],
+                    },
+                })
+                mountLogic()
+                await expectLogic(logic).toDispatchActions(['setCurrentRecalculation'])
+
+                await expectLogic(logic, () => {
+                    logic.actions.triggerRecalculation(trigger)
+                })
+                    .toDispatchActions(['triggerRecalculation', 'setRecalculatingMetricUuids'])
+                    .toFinishAllListeners()
+
+                expect(logic.values.recalculatingMetricUuids).toEqual([])
+                expect(jest.mocked(lemonToast.error).mock.calls).toEqual(expectedToasts)
+            }
+        )
 
         it('keeps the marks of a run already being polled when a retry request is rejected', async () => {
             // The latest read found an active run and marked the shown metrics; the first poll has not landed

@@ -168,10 +168,13 @@ class TestRecalculationService(BaseTest):
             ("fresh_latest_is_returned", 30 * 24, 2, False),
             ("stale_latest_starts_new", 30 * 24, 13, True),
             ("launch_window_latest_starts_new", 2, 2, True),
+            ("young_launch_window_latest_is_returned", 0.5, 0.5, False),
+            ("window_past_launch_latest_is_returned", 5, 2, False),
+            ("window_before_start_latest_is_returned", 1, 5, False),
         ]
     )
     def test_stale_refresh_checks_result_age_with_server_time(
-        self, name: str, started_hours_ago: int, query_to_hours_ago: int, expects_new_run: bool
+        self, name: str, started_hours_ago: float, query_to_hours_ago: float, expects_new_run: bool
     ):
         exp = self._launched_experiment(flag_key=f"stale-{name}")
         exp.start_date = timezone.now() - timedelta(hours=started_hours_ago)

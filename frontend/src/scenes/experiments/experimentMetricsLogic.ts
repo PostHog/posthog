@@ -85,12 +85,9 @@ const LATEST_REQUEST_TIMEOUT_MS = 30 * 1000
 const POLL_REQUEST_TIMEOUT_MS = 15 * 1000
 /** Each stale refresh is a full ClickHouse recalculation, so this threshold sets the load that page visits add. */
 const STALE_RESULTS_THRESHOLD_HOURS = 12
-/**
- * A result whose window ends this close to start_date counts almost no exposures, so it goes stale after the
- * shorter threshold instead. The threshold gives exposures time to arrive before the refresh. A refresh starts at
- * least the threshold after the old window end, so a window that ended after launch gets at most one extra
- * recalculation, while the threshold is not shorter than the window.
- */
+// A result whose window ends this close to start_date counts almost no exposures, so it goes stale sooner. Keep the
+// threshold at least as long as the window, or a refreshed run can land in the window again. Mirrored by
+// STALE_REFRESH_LAUNCH_WINDOW and STALE_REFRESH_MIN_LAUNCH_RESULT_AGE in recalculation.py.
 const LAUNCH_RESULTS_WINDOW_HOURS = 1
 const LAUNCH_RESULTS_STALE_THRESHOLD_HOURS = 1
 /** A paused experiment collects no new data. An exposure-frozen one still collects metric events. */
@@ -226,7 +223,7 @@ const resultsAreStale = (experiment: Experiment, recalculation: RecalculationPay
     }
     const windowEndsAtLaunch =
         !!experiment.start_date &&
-        queryTo.diff(dayjs.utc(experiment.start_date), 'hour', true) <= LAUNCH_RESULTS_WINDOW_HOURS
+        Math.abs(queryTo.diff(dayjs.utc(experiment.start_date), 'hour', true)) <= LAUNCH_RESULTS_WINDOW_HOURS
     return windowEndsAtLaunch && ageHours >= LAUNCH_RESULTS_STALE_THRESHOLD_HOURS
 }
 
@@ -1063,6 +1060,10 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                         lemonToast.info(error?.detail || 'Metrics were recalculated less than 5 minutes ago.')
                         actions.markRefreshWindowEnforced()
                         actions.loadLatestRecalculation()
+                        return
+                    }
+                    if (error?.status === 403 && trigger === 'stale_refresh') {
+                        // The page starts this refresh on load, so a reader without edit access has nothing to act on.
                         return
                     }
                     lemonToast.error(error?.detail || 'Failed to trigger metrics recalculation')
