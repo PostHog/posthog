@@ -2824,6 +2824,27 @@ class TestTaskAPI(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
+    @parameterized.expand([("empty_string",), ("other_team",)])
+    def test_create_task_github_integration_reference(self, case: str) -> None:
+        github_integration: int | str = ""
+        if case == "other_team":
+            other_team = Team.objects.create(organization=self.organization, name="Other team")
+            github_integration = Integration.objects.create(team=other_team, kind="github", integration_id="999").id
+
+        response = self.client.post(
+            "/api/projects/@current/tasks/",
+            {"title": "New Task", "description": "New Description", "github_integration": github_integration},
+            format="json",
+        )
+
+        if case == "empty_string":
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+            self.assertIsNone(Task.objects.get(id=response.json()["id"]).github_integration_id)
+        else:
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertEqual(response.json()["attr"], "github_integration")
+            self.assertFalse(Task.objects.filter(title="New Task").exists())
+
     def test_create_task_defaults_origin_product(self):
         response = self.client.post(
             "/api/projects/@current/tasks/",

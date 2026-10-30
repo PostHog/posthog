@@ -1715,6 +1715,7 @@ rules:
                               |InsightViewed
                               |KernelRuntime
                               |MCPServerInstallation
+                              |PersonalInboxRanking
                               |Reminder
                               |SessionRecordingViewed
                               |UserActivitySummary
@@ -1790,6 +1791,7 @@ rules:
                         |FileSystemViewLog
                         |InsightViewed
                         |KernelRuntime
+                        |PersonalInboxRanking
                         |Reminder
                         |SessionRecordingViewed
                         |UserActivitySummary
