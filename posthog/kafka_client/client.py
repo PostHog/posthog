@@ -365,6 +365,10 @@ class _KafkaProducer:
 
         return result
 
+    def poll(self, timeout: float) -> int:
+        """Run the delivery callbacks that are ready, waiting up to `timeout` seconds for one."""
+        return self.producer.poll(timeout)
+
     def flush(self, timeout: Optional[float] = None) -> int:
         # confluent's flush() returns the count still undelivered (0 once acked);
         # surface it so callers can detect a partial flush. It rejects a None
@@ -494,8 +498,12 @@ class ClickhouseProducer:
         if not settings.TEST:
             from posthog.kafka_client.routing import get_producer
 
-            # The producer runs delivery callbacks only while something polls it, so flush to collect them.
-            for topic in {result.topic for result in results}:
-                get_producer(topic=topic).flush(timeout)
+            # The producer runs delivery callbacks only while something polls it. Poll instead of flush,
+            # because a flush also waits for every other message on the shared producer.
+            producers = {result.topic: get_producer(topic=result.topic) for result in results}.values()
+            deadline = time.monotonic() + timeout
+            while not all(result.done() for result in results) and (remaining := deadline - time.monotonic()) > 0:
+                for producer in producers:
+                    producer.poll(min(remaining, 0.1))
         for result in results:
             result.get(timeout=0)

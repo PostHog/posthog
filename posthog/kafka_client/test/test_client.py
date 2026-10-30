@@ -275,16 +275,16 @@ class ClickhouseProducerDeliveryTestCase(SimpleTestCase):
         result = ProduceResult(topic="events_json")
         producer = MagicMock()
         if delivered:
-            producer.flush.side_effect = lambda timeout: result.set_result(error, None)
+            producer.poll.side_effect = lambda timeout: result.set_result(error, None)
 
         with patch("posthog.kafka_client.routing.get_producer", return_value=producer):
             if expected is None:
-                ClickhouseProducer().wait_for_delivery([result], timeout=5)
+                ClickhouseProducer().wait_for_delivery([result], timeout=0.05)
             else:
                 with pytest.raises(expected):
-                    ClickhouseProducer().wait_for_delivery([result], timeout=5)
+                    ClickhouseProducer().wait_for_delivery([result], timeout=0.05)
 
-        producer.flush.assert_called_once_with(5)
+        producer.flush.assert_not_called()
 
 
 @pytest.mark.skipif(not _ROUNDTRIP, reason="KAFKA_ROUNDTRIP_TESTS=1 required to hit a real broker")

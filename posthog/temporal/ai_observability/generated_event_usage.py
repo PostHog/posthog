@@ -14,7 +14,7 @@ from posthog.usage_ingestion.client import UsageRecord, report_usage
 
 PRODUCER_ID = "ai-observability"
 AI_EVENTS_USAGE_KEY = "ai_events"
-EVENT_DELIVERY_TIMEOUT_SECONDS = 10.0
+EVENT_DELIVERY_TIMEOUT_SECONDS = 2.0
 
 logger = structlog.get_logger(__name__)
 
