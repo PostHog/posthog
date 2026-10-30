@@ -32,7 +32,7 @@ use crate::settlement::{Commit, GroupSettlement, Settlement};
 
 fn revoke_hook(
     revoker: Revoker,
-    settlement: Arc<dyn Settlement>,
+    settlement: Arc<GroupSettlement>,
     revoked_partitions: Arc<Mutex<Vec<TopicPartition>>>,
 ) -> PartitionHook {
     Box::new(move |partitions| {
@@ -50,7 +50,7 @@ fn revoke_hook(
 }
 
 fn assign_hook(
-    settlement: Arc<dyn Settlement>,
+    settlement: Arc<GroupSettlement>,
     assignment_epoch: AssignmentEpoch,
     revoked_partitions: Arc<Mutex<Vec<TopicPartition>>>,
 ) -> PartitionHook {
@@ -68,7 +68,7 @@ fn assign_hook(
 fn wire_rebalance_hooks(
     context: &RebalanceContext,
     revoker: Revoker,
-    settlement: &Arc<dyn Settlement>,
+    settlement: &Arc<GroupSettlement>,
     assignment_epoch: AssignmentEpoch,
 ) -> Arc<Mutex<Vec<TopicPartition>>> {
     let revoked_partitions = Arc::new(Mutex::new(Vec::new()));
@@ -133,7 +133,7 @@ pub struct IngestionConsumer {
     /// Partitions revoked since the loop last looked, fed by the rebalance
     /// callback.
     revoked_partitions: Arc<Mutex<Vec<TopicPartition>>>,
-    settlement: Arc<dyn Settlement>,
+    settlement: Arc<GroupSettlement>,
 }
 
 impl IngestionConsumer {
@@ -149,7 +149,7 @@ impl IngestionConsumer {
         handle: Handle,
     ) -> Self {
         let topic_offset_ledger = options.ledger;
-        let settlement: Arc<dyn Settlement> = Arc::new(GroupSettlement::new(
+        let settlement: Arc<GroupSettlement> = Arc::new(GroupSettlement::new(
             Arc::clone(&topic_offset_ledger),
             options.commit_interval,
             options.partition_budget,
@@ -218,7 +218,7 @@ impl IngestionConsumer {
             .in_flight_limit()
             .map_err(|err| anyhow::anyhow!("invalid in-flight limit: {err}"))?;
         let commit_interval = Duration::from_millis(config.consumer_commit_interval_ms);
-        let settlement: Arc<dyn Settlement> = Arc::new(GroupSettlement::new(
+        let settlement: Arc<GroupSettlement> = Arc::new(GroupSettlement::new(
             Arc::clone(&topic_offset_ledger),
             commit_interval,
             partition_budget,
@@ -703,7 +703,7 @@ mod tests {
     #[test]
     fn an_assignment_without_a_revoke_drops_the_partitions_pending_frontier() {
         let ledger = Arc::new(TopicOffsetLedger::new());
-        let settlement: Arc<dyn Settlement> = Arc::new(GroupSettlement::new(
+        let settlement: Arc<GroupSettlement> = Arc::new(GroupSettlement::new(
             Arc::clone(&ledger),
             Duration::from_secs(3600),
             BudgetLimits::new(NonZeroU64::new(1), None, 0.5).expect("valid limits"),

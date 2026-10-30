@@ -16,7 +16,7 @@ pub(super) const BATCH_TIMEOUT: Duration = Duration::from_millis(500);
 
 pub(super) struct Harness<P> {
     pub(super) poller: P,
-    pub(super) settlement: Arc<dyn Settlement>,
+    pub(super) settlement: Arc<GroupSettlement>,
     pub(super) ledger: Arc<TopicOffsetLedger>,
     pub(super) now: Instant,
 }
@@ -24,7 +24,7 @@ pub(super) struct Harness<P> {
 impl<P: PollingStrategy> Harness<P> {
     pub(super) fn new(make: impl FnOnce(Parts) -> P) -> Self {
         let ledger = Arc::new(TopicOffsetLedger::new());
-        let settlement: Arc<dyn Settlement> = Arc::new(GroupSettlement::new(
+        let settlement: Arc<GroupSettlement> = Arc::new(GroupSettlement::new(
             Arc::clone(&ledger),
             Duration::ZERO,
             BudgetLimits::unset(),

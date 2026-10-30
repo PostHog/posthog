@@ -16,7 +16,7 @@ use rdkafka::message::Message;
 use tokio::time::Instant;
 use tracing::info;
 
-use crate::settlement::{Commit, Settlement};
+use crate::settlement::{Commit, GroupSettlement};
 
 use collector::Collector;
 pub(crate) use collector::PollLimits;
@@ -38,7 +38,7 @@ pub(crate) enum Step {
 
 pub(crate) struct Parts {
     pub(crate) limits: PollLimits,
-    pub(crate) settlement: Arc<dyn Settlement>,
+    pub(crate) settlement: Arc<GroupSettlement>,
     pub(crate) group_id: String,
 }
 
