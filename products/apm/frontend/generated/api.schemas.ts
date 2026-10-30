@@ -138,6 +138,60 @@ export interface ServicesHealthResponseApi {
     date_to: string
 }
 
+export interface ServiceUsageApi {
+    /** Log records stored in the window. */
+    log_records: number
+    /** Uncompressed size of the stored log records in bytes. Billing counts logs by this size. */
+    log_bytes: number
+    /** Spans of every kind stored in the window. */
+    spans: number
+    /** Metric data points stored in the window. */
+    metric_points: number
+    /** Distinct metric series active in any hour that overlaps the window. */
+    metric_series: number
+    /** The service.name resource attribute. */
+    service_name: string
+}
+
+export interface UsageValuesApi {
+    /** Log records stored in the window. */
+    log_records: number
+    /** Uncompressed size of the stored log records in bytes. Billing counts logs by this size. */
+    log_bytes: number
+    /** Spans of every kind stored in the window. */
+    spans: number
+    /** Metric data points stored in the window. */
+    metric_points: number
+    /** Distinct metric series active in any hour that overlaps the window. */
+    metric_series: number
+}
+
+/**
+ * * `logs` - Logs
+ * * `traces` - Traces
+ * * `metrics` - Metrics
+ */
+export type UsageSignalEnumApi = (typeof UsageSignalEnumApi)[keyof typeof UsageSignalEnumApi]
+
+export const UsageSignalEnumApi = {
+    Logs: 'logs',
+    Traces: 'traces',
+    Metrics: 'metrics',
+} as const
+
+export interface ServiceUsageResponseApi {
+    /** One row per service across logs, traces, and metrics, largest logs size first. */
+    results: ServiceUsageApi[]
+    /** Totals for the whole window, including services past the row limit. */
+    totals: UsageValuesApi
+    /** Signals that failed to load. Their values are 0 in every row and in the totals. */
+    unavailable_signals: UsageSignalEnumApi[]
+    /** Start of the window used. */
+    date_from: string
+    /** End of the window used. */
+    date_to: string
+}
+
 export type ApmEndpointsListParams = {
     /**
      * Start of the window, ISO 8601. Defaults to one hour before date_to.
@@ -193,4 +247,15 @@ export type ApmServicesListParams = {
      * @maxLength 200
      */
     environment?: string
+}
+
+export type ApmUsageListParams = {
+    /**
+     * Start of the window, ISO 8601. Defaults to one hour before date_to.
+     */
+    date_from?: string
+    /**
+     * End of the window, ISO 8601. Defaults to now.
+     */
+    date_to?: string
 }

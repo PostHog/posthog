@@ -3,14 +3,17 @@
 from drf_spectacular.utils import extend_schema_serializer
 from rest_framework import serializers
 
-from products.apm.backend.facade.api import HealthStatus
+from products.apm.backend.facade.api import HealthStatus, UsageSignal
 
 
-class ServicesHealthRequestSerializer(serializers.Serializer):
+class WindowRequestSerializer(serializers.Serializer):
     date_from = serializers.DateTimeField(
         required=False, help_text="Start of the window, ISO 8601. Defaults to one hour before date_to."
     )
     date_to = serializers.DateTimeField(required=False, help_text="End of the window, ISO 8601. Defaults to now.")
+
+
+class ServicesHealthRequestSerializer(WindowRequestSerializer):
     environment = serializers.CharField(
         required=False,
         allow_blank=False,
@@ -82,5 +85,35 @@ class ServiceMapResponseSerializer(serializers.Serializer):
     edges = ServiceEdgeSerializer(many=True, help_text="One edge per calling and called service, most calls first.")
     trace_count = serializers.IntegerField(help_text="Traces sampled to build the map.")
     environment = serializers.CharField(help_text="The environment the map was built for.")
+    date_from = serializers.DateTimeField(help_text="Start of the window used.")
+    date_to = serializers.DateTimeField(help_text="End of the window used.")
+
+
+class UsageValuesSerializer(serializers.Serializer):
+    log_records = serializers.IntegerField(help_text="Log records stored in the window.")
+    log_bytes = serializers.IntegerField(
+        help_text="Uncompressed size of the stored log records in bytes. Billing counts logs by this size."
+    )
+    spans = serializers.IntegerField(help_text="Spans of every kind stored in the window.")
+    metric_points = serializers.IntegerField(help_text="Metric data points stored in the window.")
+    metric_series = serializers.IntegerField(
+        help_text="Distinct metric series active in any hour that overlaps the window."
+    )
+
+
+class ServiceUsageSerializer(UsageValuesSerializer):
+    service_name = serializers.CharField(help_text="The service.name resource attribute.")
+
+
+@extend_schema_serializer(many=False)
+class ServiceUsageResponseSerializer(serializers.Serializer):
+    results = ServiceUsageSerializer(
+        many=True, help_text="One row per service across logs, traces, and metrics, largest logs size first."
+    )
+    totals = UsageValuesSerializer(help_text="Totals for the whole window, including services past the row limit.")
+    unavailable_signals = serializers.ListField(
+        child=serializers.ChoiceField(choices=UsageSignal.choices),
+        help_text="Signals that failed to load. Their values are 0 in every row and in the totals.",
+    )
     date_from = serializers.DateTimeField(help_text="Start of the window used.")
     date_to = serializers.DateTimeField(help_text="End of the window used.")
