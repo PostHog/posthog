@@ -198,7 +198,7 @@ class TestSendCommentToSlack(APIBaseTest):
         res = self._send(comment.id)
 
         assert res.status_code == status.HTTP_404_NOT_FOUND
-        assert "not enabled" in res.json()["detail"]
+        assert "Sending discussions to Slack" in res.json()["detail"]
         assert not CommentSlackThread.objects.for_team(self.team.id).exists()
 
     @patch("posthog.api.integration.SLACK_CHANNELS_INFO_LOOKUPS_PER_MINUTE", 1)
