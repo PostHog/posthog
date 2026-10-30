@@ -111,6 +111,14 @@ def _build_opportunity(
 _LinkTarget = Insight | Dashboard | Annotation | AlertConfiguration | int
 
 
+def _numeric_refs(evidence_type: EvidenceType, refs: set[str]) -> list[int]:
+    numeric_ids = [int(r) for r in refs if r.isdigit()]
+    if non_numeric := refs - {str(i) for i in numeric_ids}:
+        # These models have integer PKs; a non-numeric ref can't resolve (its link stays FK-less).
+        logger.warning("pulse_persist_non_numeric_ref", evidence_type=evidence_type, refs=sorted(non_numeric))
+    return numeric_ids
+
+
 def _resolve_link_fks(team_id: int, evidence: list[EvidenceRef]) -> dict[tuple[EvidenceType, str], _LinkTarget]:
     """Batch-resolve cited refs, keyed by EvidenceRef.key, to the model instances the ResourceLink
     FKs point at, or to the id for a subscription or an experiment. A ref that resolves to nothing
@@ -140,29 +148,17 @@ def _resolve_link_fks(team_id: int, evidence: list[EvidenceRef]) -> dict[tuple[E
         refs = by_type.get(evidence_type)
         if not refs:
             continue
-        numeric_ids = [int(r) for r in refs if r.isdigit()]
-        if non_numeric := refs - {str(i) for i in numeric_ids}:
-            # These models have integer PKs; a non-numeric ref can't resolve (its link stays FK-less).
-            logger.warning("pulse_persist_non_numeric_ref", evidence_type=evidence_type, refs=sorted(non_numeric))
-        for obj in model.objects.filter(team_id=team_id, id__in=numeric_ids):
+        for obj in model.objects.filter(team_id=team_id, id__in=_numeric_refs(evidence_type, refs)):
             resolved[(evidence_type, str(obj.id))] = obj
     experiment_refs = by_type.get(EvidenceType.EXPERIMENT)
     if experiment_refs:
-        numeric_ids = [int(r) for r in experiment_refs if r.isdigit()]
-        if non_numeric := experiment_refs - {str(i) for i in numeric_ids}:
-            logger.warning(
-                "pulse_persist_non_numeric_ref", evidence_type=EvidenceType.EXPERIMENT, refs=sorted(non_numeric)
-            )
-        for experiment_id in experiments_pulse.existing_experiment_ids(team_id=team_id, experiment_ids=numeric_ids):
+        experiment_ids = _numeric_refs(EvidenceType.EXPERIMENT, experiment_refs)
+        for experiment_id in experiments_pulse.existing_experiment_ids(team_id=team_id, experiment_ids=experiment_ids):
             resolved[(EvidenceType.EXPERIMENT, str(experiment_id))] = experiment_id
     subscription_refs = by_type.get(EvidenceType.SUBSCRIPTION)
     if subscription_refs:
-        numeric_ids = [int(r) for r in subscription_refs if r.isdigit()]
-        if non_numeric := subscription_refs - {str(i) for i in numeric_ids}:
-            logger.warning(
-                "pulse_persist_non_numeric_ref", evidence_type=EvidenceType.SUBSCRIPTION, refs=sorted(non_numeric)
-            )
-        for subscription_id in subscription_ids_in_team(team_id=team_id, subscription_ids=numeric_ids):
+        subscription_ids = _numeric_refs(EvidenceType.SUBSCRIPTION, subscription_refs)
+        for subscription_id in subscription_ids_in_team(team_id=team_id, subscription_ids=subscription_ids):
             resolved[(EvidenceType.SUBSCRIPTION, str(subscription_id))] = subscription_id
     return resolved
 
