@@ -1198,6 +1198,55 @@ describe('queryDatabaseLogic', () => {
             expect(logic.values.displayedTreeData.map((item) => item.name)).toEqual(['public'])
         })
 
+        it.each([
+            { scope: null, schemaFails: false, expectedViews: ['clickhouse_view'] },
+            { scope: MANAGED_TRINO_SCHEMA_SCOPE, schemaFails: false, expectedViews: ['trino_view'] },
+            { scope: MANAGED_TRINO_SCHEMA_SCOPE, schemaFails: true, expectedViews: ['trino_view'] },
+            { scope: null, schemaFails: false, search: 'trino', expectedViews: [] },
+        ])(
+            'lists raw Trino views only under hosted Trino (scope $scope, schema fails $schemaFails)',
+            async ({ scope, schemaFails, search, expectedViews }) => {
+                const viewsLogic = dataWarehouseViewsLogic.findMounted()!
+                await expectLogic(viewsLogic).toFinishAllListeners()
+                viewsLogic.actions.loadDataWarehouseSavedQueriesSuccess(
+                    [
+                        { name: 'trino_view', is_raw_managed_trino: true },
+                        { name: 'clickhouse_view', is_raw_managed_trino: false },
+                    ].map((view) => ({
+                        ...view,
+                        id: view.name,
+                        status: 'Completed',
+                        columns: [],
+                        managed_viewset_kind: null,
+                    })) as unknown as DataWarehouseSavedQuery[]
+                )
+                const databaseLogic = databaseTableListLogic.findMounted()!
+                databaseLogic.actions.setConnection(scope)
+                if (schemaFails) {
+                    databaseLogic.actions.loadDatabaseFailure('Connection failed.')
+                } else {
+                    databaseLogic.actions.loadDatabaseSuccess({ tables: {}, joins: [] })
+                }
+
+                if (search) {
+                    logic.actions.setSearchTerm(search)
+                    await expectLogic(logic).toFinishAllListeners()
+                    expect(logic.values.displayedTreeData.map((item) => item.name)).not.toContain('Views')
+                }
+                const viewsSection = logic.values.displayedTreeData.find((item) => item.name === 'Views')
+                const viewNames: string[] = []
+                const collect = (items: typeof logic.values.displayedTreeData): void =>
+                    items.forEach((item) => {
+                        if (item.record?.type === 'view') {
+                            viewNames.push(item.name)
+                        }
+                        collect(item.children ?? [])
+                    })
+                collect(viewsSection?.children ?? [])
+                expect(viewNames).toEqual(expectedViews)
+            }
+        )
+
         it('shows an empty native catalog without a source configuration link', () => {
             const databaseLogic = databaseTableListLogic.findMounted()!
             databaseLogic.actions.setConnection(MANAGED_TRINO_SCHEMA_SCOPE)

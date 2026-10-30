@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from typing import Any, cast
 
-from django.db.models import Model, Prefetch
+from django.db.models import BooleanField, ExpressionWrapper, Model, Prefetch, Q, Value
 
 import structlog
 from asgiref.sync import async_to_sync
@@ -46,6 +46,7 @@ from products.data_modeling.backend.facade.models import (
     Node,
     NodeType,
 )
+from products.managed_warehouse.backend.facade.sql_editor import managed_warehouse_sql_editor_uses_trino
 from products.warehouse_sources.backend.facade.models import sync_frequency_to_sync_frequency_interval
 
 from . import editing, incremental_config, lifecycle, lineage, sync_cadence, view_state
@@ -235,6 +236,15 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
             base_queryset = base_queryset.exclude(origin=DataWarehouseSavedQuery.Origin.ENDPOINT).defer(
                 "query", "external_tables", "incremental_state"
             )
+            # Reading the two keys still detoasts `query`, so only orgs that can save raw Trino views pay for it.
+            if managed_warehouse_sql_editor_uses_trino(self.team.organization_id):
+                raw_managed_trino = ExpressionWrapper(
+                    Q(query__executionTarget="managed_trino", query__sendRawQuery=True),
+                    output_field=BooleanField(),
+                )
+            else:
+                raw_managed_trino = Value(False, output_field=BooleanField())
+            base_queryset = base_queryset.annotate(raw_managed_trino=raw_managed_trino)
 
         if self.action == "list" and not self._include_columns:
             base_queryset = base_queryset.defer("columns")

@@ -200,6 +200,13 @@ class TestSavedQuery(APIBaseTest):
         self.assertEqual(set(view.columns), {"hub_id", "occupied_at"})
         self.assertFalse(Node.objects.filter(saved_query=view).exists())
 
+        # The sidebar lists raw Trino views only under hosted Trino, so the list must mark them.
+        for flag_enabled in (True, False):
+            with patch("posthoganalytics.feature_enabled", return_value=flag_enabled):
+                listed = self.client.get(f"/api/environments/{self.team.id}/warehouse_saved_queries/").json()
+            flags = {row["name"]: row["is_raw_managed_trino"] for row in listed["results"]}
+            self.assertEqual(flags["hub_occupancy"], flag_enabled)
+
         # HogQL on ClickHouse cannot expand Trino SQL, so the view stays out of the HogQL database.
         response = self.client.post(
             f"/api/environments/{self.team.id}/query/",
