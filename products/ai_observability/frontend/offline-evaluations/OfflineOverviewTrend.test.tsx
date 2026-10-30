@@ -38,6 +38,8 @@ describe('OfflineOverviewTrend', () => {
                     experiment: { ...point.experiment, id: `${point.experiment.id}-${pageIndex}` },
                 })),
                 count: partial ? 200 : results.length,
+                next: null,
+                previous: null,
                 next_cursor: partial ? String(pageIndex + 1) : null,
             }
         })

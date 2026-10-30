@@ -46,6 +46,8 @@ describe('OfflineItemInspector', () => {
         })
         jest.mocked(api.aiObservabilityOfflineExperimentsItemsResultsList).mockResolvedValue({
             count: 1,
+            next: null,
+            previous: null,
             next_cursor: null,
             results: [result],
         })
@@ -84,7 +86,7 @@ describe('OfflineItemInspector', () => {
             data: null,
         })
         jest.mocked(api.aiObservabilityOfflineExperimentsItemsResultsList)
-            .mockResolvedValueOnce({ count: 2, next_cursor: 'more', results: [result] })
+            .mockResolvedValueOnce({ count: 2, next: null, previous: null, next_cursor: 'more', results: [result] })
             .mockRejectedValueOnce(
                 new ApiError('Results unavailable', 503, undefined, { detail: 'Results unavailable' })
             )
