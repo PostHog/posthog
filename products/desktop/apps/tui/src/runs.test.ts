@@ -697,7 +697,7 @@ describe("runNotice after a finished turn", () => {
       { wake: { reason: "watching CI" } },
     );
     expect(notice).toMatchObject({
-      text: "Worked for 2m 30s · waiting:",
+      text: "Worked for 2m 30s · waiting",
       subject: "watching CI",
       tone: "done",
     });

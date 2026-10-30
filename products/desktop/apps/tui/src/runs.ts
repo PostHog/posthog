@@ -357,7 +357,7 @@ export function runNotice(
     // The agent sleeps until its wake-up, so the chat says what it waits on instead of calling the turn done.
     if (wake && running) {
       return {
-        text: `${worked} · waiting${wake.reason ? ":" : ""}`,
+        text: `${worked} · waiting`,
         ...(wake.reason ? { subject: wake.reason } : {}),
         tone: "done",
       };
