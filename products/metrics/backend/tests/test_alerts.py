@@ -6,6 +6,7 @@ from uuid import UUID
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
 
+from django.db import connection
 from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
@@ -245,6 +246,20 @@ class TestMetricsAlertEvaluation(APIBaseTest):
         self._next_check(resolved)
         self.snuffle.return_value = _response(200, _vector(({"group": "c"}, "10")))
         self.freshness.return_value = self.due_at - timedelta(seconds=30)
+
+        assert self._kinds(self._evaluate()) == {}
+
+    def test_a_firing_held_back_by_a_mute_is_not_announced_on_a_value_with_no_number(self) -> None:
+        self.snuffle.return_value = _response(200, _vector(({"group": "a"}, "2000")))
+        first = self._evaluate()
+        self._next_check(first)
+        # The state a mute leaves: firing, with the announcement still owed.
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "UPDATE alerts_platformalert SET last_notified_at = NULL WHERE configuration_id = %s",
+                [str(self.configuration_id)],
+            )
+        self.snuffle.return_value = _response(200, _vector(({"group": "a"}, "NaN")))
 
         assert self._kinds(self._evaluate()) == {}
 
