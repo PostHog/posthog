@@ -492,13 +492,13 @@ def KAFKA_RAW_SESSIONS_V3_TABLE_SQL():
 
 def WRITABLE_RAW_SESSIONS_INGESTION_TABLE_SQL_V3():
     # On the ingestion layer the writable points at the sessions satellite cluster, where the
-    # live raw_sessions_v3 MergeTree lives. Cloud-only, so the cluster name has no settings entry.
+    # live raw_sessions_v3 MergeTree lives.
     return RAW_SESSIONS_TABLE_BASE_SQL_V3.format(
         table_name=WRITABLE_RAW_SESSIONS_TABLE_V3(),
         engine=Distributed(
             data_table=TABLE_BASE_NAME_V3,
             sharding_key="cityHash64(session_id_v7)",
-            cluster="sessions",
+            cluster=settings.CLICKHOUSE_SESSIONS_CLUSTER,
         ),
         session_timestamp_modifier="DEFAULT",
         max_hosts=SESSION_V3_MAX_HOSTS_PER_SESSION,

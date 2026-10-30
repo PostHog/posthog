@@ -12516,6 +12516,7 @@ export namespace Schemas {
      * * `WooPayments` - WooPayments
      * * `Soniox` - Soniox
      * * `Nango` - Nango
+     * * `Fathom` - Fathom
      */
     export type ExternalDataSourceTypeEnum =
         | "Ashby"
@@ -13930,7 +13931,8 @@ export namespace Schemas {
         | "Beacons"
         | "WooPayments"
         | "Soniox"
-        | "Nango";
+        | "Nango"
+        | "Fathom";
     /**
      * * `web` - web
      * * `api` - api
@@ -15354,6 +15356,7 @@ export namespace Schemas {
          * * `WooPayments` - WooPayments
          * * `Soniox` - Soniox
          * * `Nango` - Nango
+         * * `Fathom` - Fathom
          */
         source_type: ExternalDataSourceTypeEnum;
         /**

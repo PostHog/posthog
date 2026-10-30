@@ -1177,6 +1177,7 @@ doesn't conflict with concurrent PRs.
 - facebook_pages
 - faros_ai
 - fastbill
+- fathom
 - fauna
 - feishu
 - fieldwire

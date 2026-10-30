@@ -3,6 +3,8 @@ from unittest import mock
 
 from django.test.client import Client as HttpClient
 
+from rest_framework import status
+
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
 
@@ -30,6 +32,18 @@ def test_list_batch_exports(client: HttpClient, organization, team, user, s3_bat
 
     response = list_batch_exports_ok(client, team.pk)
     assert len(response["results"]) == 2
+
+    pages: list[str] = []
+    for offset in range(2):
+        response = client.get(f"/api/projects/{team.pk}/batch_exports?limit=1&offset={offset}")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        page = response.json()
+        assert page["count"] == 2
+        pages.extend(result["id"] for result in page["results"])
+
+    assert page["next"] is None
+    assert page["previous"] is not None
+    assert pages == [second_export["id"], first_export["id"]]
 
     # Deleted batch exports should not be returned.
     delete_batch_export_ok(client, team.pk, first_export["id"])
