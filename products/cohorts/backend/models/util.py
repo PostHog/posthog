@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import uuid
+import dataclasses
 from collections.abc import Callable, Sequence
 from datetime import datetime
 from enum import StrEnum
@@ -71,6 +72,11 @@ TEMP_PRECALCULATED_MARKER = parser.parse("2021-06-07T15:00:00+00:00")
 
 # Cohort query timeout settings
 COHORT_QUERY_TIMEOUT_SECONDS = 1200  # Max execution time for ClickHouse cohort calculation queries
+COHORT_QUERY_TIMEOUT_SETTINGS = {
+    "max_execution_time": COHORT_QUERY_TIMEOUT_SECONDS,
+    "send_timeout": COHORT_QUERY_TIMEOUT_SECONDS,
+    "receive_timeout": COHORT_QUERY_TIMEOUT_SECONDS,
+}
 
 
 class CohortErrorCode(StrEnum):
@@ -454,13 +460,18 @@ def _select_list_positions_are_known(select_list: list[ast.Expr]) -> bool:
     return True
 
 
+def _is_bounded(select_query: ast.SelectQuery) -> bool:
+    return select_query.limit is not None or select_query.offset is not None or select_query.limit_by is not None
+
+
 def _inline_positional_references(select_query: ast.SelectQuery) -> None:
     """Replace positional GROUP BY/ORDER BY/LIMIT BY ordinals with the SELECT expression they point at.
 
     In ClickHouse a bare integer in GROUP BY/ORDER BY/LIMIT BY (`GROUP BY 2`) is a 1-based reference
-    into the SELECT list. `print_cohort_hogql_query` collapses that list to a single actor column, so
-    any ordinal other than 1 would dangle afterwards. Resolving each ordinal against the original
-    SELECT list up front keeps the grouping/ordering semantics intact once the list shrinks.
+    into the SELECT list. The events and persons branches replace that SELECT list with a single
+    actor column, leaving any ordinal other than 1 dangling. Resolving each ordinal against the
+    original SELECT list up front keeps the grouping and ordering semantics intact if those
+    branches collapse the list.
 
     Ordinals nested inside GROUP BY GROUPING SETS are not resolved, because those entries are tuples
     of expressions rather than bare ordinals. Such a query keeps failing the way it does today.
@@ -493,6 +504,41 @@ def _inline_positional_references(select_query: ast.SelectQuery) -> None:
         select_query.limit_by.exprs = [resolve(expr) for expr in select_query.limit_by.exprs]
 
 
+def _wrap_select_query_with_column(
+    select_query: ast.SelectQuery,
+    source_column: str,
+    target_alias: str,
+) -> None:
+    """Wrap `select_query` in `SELECT <source_column> AS <target_alias> FROM (<select_query>)` in place.
+
+    Collapsing `select_query.select` to a single column in place strips sibling SELECT aliases and
+    grouping columns, which breaks queries whose GROUP BY, HAVING, WHERE, bounded ORDER BY, or
+    LIMIT BY clauses reference those columns or aliases. Wrapping in an outer SELECT preserves the
+    inner query's column list and semantics while projecting only the target column, and keeps CTEs
+    on the outer node so root CTEs remain visible across UNION branches.
+    """
+    inner = copy.copy(select_query)
+    if not _is_bounded(inner):
+        inner.distinct = None
+    inner.ctes = None
+    # The outer query selects `source_column` by its bare name, so a dotted field such as
+    # `person.id` needs an alias for the subquery to expose that column.
+    inner.select = [
+        ast.Alias(alias=source_column, expr=expr)
+        if isinstance(expr, ast.Field) and len(expr.chain) > 1 and str(expr.chain[-1]) == source_column
+        else expr
+        for expr in inner.select
+    ]
+
+    wrapper = ast.SelectQuery(
+        select=[ast.Alias(alias=target_alias, expr=ast.Field(chain=[source_column]))],
+        select_from=ast.JoinExpr(table=inner),
+        ctes=select_query.ctes,
+    )
+    for field in dataclasses.fields(ast.SelectQuery):
+        setattr(select_query, field.name, getattr(wrapper, field.name))
+
+
 def print_cohort_hogql_query(cohort: Cohort, hogql_context: HogQLContext, *, team: Team) -> str:
     from posthog.hogql_queries.query_runner import get_query_runner
 
@@ -509,22 +555,19 @@ def print_cohort_hogql_query(cohort: Cohort, hogql_context: HogQLContext, *, tea
 
     for select_query in extract_select_queries(query):
         # Positional GROUP BY/ORDER BY ordinals (e.g. `GROUP BY 2`) reference the Nth SELECT
-        # expression. We're about to collapse the SELECT list down to a single actor column,
-        # which leaves those ordinals pointing past the end of the new one-column list, so
+        # expression. The events and persons branches replace that SELECT list with a single actor
+        # column, which leaves those ordinals pointing past the end of the new one-column list, so
         # ClickHouse rejects the query with an out-of-bounds positional argument error. Inline
-        # the referenced expression now so the reference survives the collapse.
+        # the referenced expressions now so the references survive if those branches collapse the list.
         _inline_positional_references(select_query)
 
         # Ordering is meaningless for an unbounded cohort, and an ORDER BY that references a
-        # computed select alias (e.g. `ai_active_days`) would dangle once we collapse the
-        # SELECT to just the actor column below, breaking HogQL resolution. Drop it — but only
-        # when the query is unbounded. With a LIMIT/OFFSET the ordering decides which rows
-        # survive, so dropping it would silently make membership a non-deterministic subset;
-        # keep both so a bounded "top N" cohort stays deterministic.
-        is_bounded = (
-            select_query.limit is not None or select_query.offset is not None or select_query.limit_by is not None
-        )
-        if not is_bounded:
+        # computed select alias (e.g. `ai_active_days`) would dangle if the events or persons
+        # branch replaces the SELECT with just the actor column, breaking HogQL resolution. Drop
+        # it — but only when the query is unbounded. With a LIMIT/OFFSET the ordering decides
+        # which rows survive, so dropping it would silently make membership a non-deterministic
+        # subset; keep both so a bounded "top N" cohort stays deterministic.
+        if not _is_bounded(select_query):
             select_query.order_by = None
 
         columns: dict[str, ast.Expr] = {}
@@ -535,31 +578,35 @@ def print_cohort_hogql_query(cohort: Cohort, hogql_context: HogQLContext, *, tea
             elif isinstance(expr, ast.Field):
                 columns[str(expr.chain[-1])] = expr
 
-        column: ast.Expr | None = columns.get("person_id") or columns.get("actor_id") or columns.get("id")
-        if isinstance(column, ast.Alias):
-            select_query.select = [ast.Alias(expr=column.expr, alias="actor_id")]
-            uses_actor_id = True
-        elif isinstance(column, ast.Field):
-            select_query.select = [ast.Alias(expr=column, alias="actor_id")]
-            uses_actor_id = True
-        else:
-            # Support the most common use cases
-            table = select_query.select_from.table if select_query.select_from else None
-            if isinstance(table, ast.Field) and table.chain[-1] == "events":
-                select_query.select = [ast.Alias(expr=ast.Field(chain=["person", "id"]), alias="actor_id")]
-                uses_actor_id = True
-            elif isinstance(table, ast.Field) and table.chain[-1] == "persons":
-                select_query.select = [ast.Alias(expr=ast.Field(chain=["id"]), alias="actor_id")]
-                uses_actor_id = True
+        actor_column = next((name for name in ("person_id", "actor_id", "id") if name in columns), None)
+        distinct_id_column = columns.get("distinct_id")
+        table = select_query.select_from.table if select_query.select_from else None
+        is_aggregating_or_multi_column = bool(
+            select_query.group_by
+            or select_query.having
+            or select_query.group_by_mode == "all"
+            or len(select_query.select) > 1
+        )
+        if actor_column is not None:
+            if is_aggregating_or_multi_column:
+                _wrap_select_query_with_column(select_query, actor_column, "actor_id")
             else:
-                # Check if we have a distinct_id column
-                distinct_id_column = columns.get("distinct_id")
-                if distinct_id_column is not None:
-                    # Use distinct_id and mark that we need to resolve it to person_id
-                    select_query.select = [ast.Alias(expr=distinct_id_column, alias="distinct_id")]
-                    uses_distinct_id = True
-                else:
-                    raise ValueError("Could not find a person_id, actor_id, id, or distinct_id column in the query")
+                select_query.select = [ast.Alias(expr=columns[actor_column], alias="actor_id")]
+            uses_actor_id = True
+        elif distinct_id_column is not None and is_aggregating_or_multi_column:
+            _wrap_select_query_with_column(select_query, "distinct_id", "distinct_id")
+            uses_distinct_id = True
+        elif isinstance(table, ast.Field) and table.chain[-1] == "events":
+            select_query.select = [ast.Alias(expr=ast.Field(chain=["person", "id"]), alias="actor_id")]
+            uses_actor_id = True
+        elif isinstance(table, ast.Field) and table.chain[-1] == "persons":
+            select_query.select = [ast.Alias(expr=ast.Field(chain=["id"]), alias="actor_id")]
+            uses_actor_id = True
+        elif distinct_id_column is not None:
+            select_query.select = [ast.Alias(expr=distinct_id_column, alias="distinct_id")]
+            uses_distinct_id = True
+        else:
+            raise ValueError("Could not find a person_id, actor_id, id, or distinct_id column in the query")
 
     # Check for mixed ID types in UNION queries
     if uses_distinct_id and uses_actor_id:
@@ -572,8 +619,7 @@ def print_cohort_hogql_query(cohort: Cohort, hogql_context: HogQLContext, *, tea
     hogql_context.limit_top_select = False
     create_default_modifiers_for_team(team, hogql_context.modifiers)
 
-    # Apply HogQL global settings to ensure consistency with regular queries
-    settings = HogQLGlobalSettings()
+    settings = HogQLGlobalSettings(max_execution_time=COHORT_QUERY_TIMEOUT_SECONDS)
 
     # If we're using distinct_id, wrap the query to resolve to person_id
     if uses_distinct_id:
@@ -843,9 +889,7 @@ def _recalculate_cohortpeople_for_team_hogql(
         settings.pop("readonly", None)
         settings.update(
             {
-                "max_execution_time": COHORT_QUERY_TIMEOUT_SECONDS,
-                "send_timeout": COHORT_QUERY_TIMEOUT_SECONDS,
-                "receive_timeout": COHORT_QUERY_TIMEOUT_SECONDS,
+                **COHORT_QUERY_TIMEOUT_SETTINGS,
                 "optimize_on_insert": 0,
                 "max_bytes_ratio_before_external_group_by": 0.5,
                 "max_bytes_ratio_before_external_sort": 0.5,
@@ -1215,6 +1259,14 @@ def insert_actors_into_cohort_by_query(
             **context.values,
             **params,
         },
+        settings={
+            **COHORT_QUERY_TIMEOUT_SETTINGS,
+            "max_bytes_ratio_before_external_group_by": 0.5,
+            "max_bytes_ratio_before_external_sort": 0.5,
+        },
+        workload=Workload.OFFLINE,
+        ch_user=ClickHouseUser.COHORTS,
+        team_id=team_id,
     )
 
 
