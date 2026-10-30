@@ -134,12 +134,7 @@ print(result.id)`,
                     send's message ID instead of sending the email again.
                 </li>
             </ul>
-            <LemonSegmentedButton
-                size="small"
-                value={language}
-                onChange={setLanguage}
-                options={LANGUAGE_OPTIONS}
-            />
+            <LemonSegmentedButton size="small" value={language} onChange={setLanguage} options={LANGUAGE_OPTIONS} />
             {installCommand ? (
                 <CodeSnippet language={Language.Bash} compact thing="install command">
                     {installCommand}
