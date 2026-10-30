@@ -665,11 +665,7 @@ class TestHogQLCohortQuery(ClickhouseTestMixin, APIBaseTest):
             },
         )
 
-        with patch(
-            "posthog.hogql.database.database.feature_enabled_or_false",
-            side_effect=lambda key, *args, **kwargs: key == "hogql-flag-calls-from-flag-evaluations",
-        ):
-            cohort.calculate_people_ch(pending_version=0)
+        cohort.calculate_people_ch(pending_version=0)
 
         self.assertEqual(self._cohort_member_ids(cohort, 0), {str(caller.uuid)})
 

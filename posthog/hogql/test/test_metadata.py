@@ -491,7 +491,8 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         mode: FlagEvaluationsMode = FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
     ) -> None:
         OrganizationFeatureFlagsConfig.objects.update_or_create(
-            organization=self.organization, defaults={"flag_evaluations_mode": mode}
+            organization=self.organization,
+            defaults={"flag_evaluations_mode": mode if rewrite_enabled else FlagEvaluationsMode.EVENTS},
         )
         DataWarehouseSavedQuery.objects.create(
             team=self.team,
@@ -513,12 +514,6 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 return_value=flag_evaluations_enabled,
             ),
             patch("posthoganalytics.get_feature_flag_result", return_value=move_notices),
-            patch(
-                "posthog.hogql.database.database.feature_enabled_or_false",
-                side_effect=lambda key, *args, **kwargs: (
-                    rewrite_enabled and key == "hogql-flag-calls-from-flag-evaluations"
-                ),
-            ),
         ):
             metadata = self._select(query)
 

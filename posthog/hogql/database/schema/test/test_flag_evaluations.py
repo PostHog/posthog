@@ -56,6 +56,7 @@ from posthog.constants import AvailableFeature
 from posthog.hogql_queries.events_query_runner import SELECT_STAR_FROM_EVENTS_FIELDS
 from posthog.models import PropertyDefinition, Team
 from posthog.models.group.util import create_group
+from posthog.models.instance_setting import override_instance_config
 from posthog.models.property import TableColumn
 from posthog.models.utils import uuid7
 from posthog.test.persons import create_group_type_mapping, create_person
@@ -269,12 +270,10 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
         mode: FlagEvaluationsMode = FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
     ) -> HogQLQueryResponse:
         OrganizationFeatureFlagsConfig.objects.update_or_create(
-            organization=self.organization, defaults={"flag_evaluations_mode": mode}
+            organization=self.organization,
+            defaults={"flag_evaluations_mode": mode if rewrite else FlagEvaluationsMode.READ_FLAG_EVALUATIONS},
         )
-        with patch(
-            "posthog.hogql.database.database.feature_enabled_or_false",
-            side_effect=lambda key, *args, **kwargs: rewrite and key == "hogql-flag-calls-from-flag-evaluations",
-        ):
+        with override_instance_config("FLAG_EVALUATIONS_READS_FORCE_EVENTS", not rewrite):
             return execute_hogql_query(query, team=self.team, filters=filters, modifiers=modifiers, pretty=False)
 
     def _override(self, person_id: uuid.UUID, version: int, is_deleted: bool = False) -> None:
@@ -727,7 +726,7 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
 
         assert f"toIntervalDay({SESSION_BUFFER_DAYS})" in clickhouse
 
-    def test_flag_call_query_on_events_reads_no_flag_evaluations_with_the_flag_off(self):
+    def test_flag_call_query_on_events_reads_no_flag_evaluations_when_reads_are_forced_to_events(self):
         assert self._query_events(FLAG_CALLS_ON_EVENTS, rewrite=False).results == [(0,)]
 
     @parameterized.expand(

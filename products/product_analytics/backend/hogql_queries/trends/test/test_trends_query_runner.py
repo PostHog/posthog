@@ -6709,24 +6709,20 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         if math is not None:
             node = node.model_copy(update={"math": math})
 
-        with patch(
-            "posthog.hogql.database.database.feature_enabled_or_false",
-            side_effect=lambda key, *args, **kwargs: key == "hogql-flag-calls-from-flag-evaluations",
-        ):
-            # Mode 2 raises when the swapped query reads people differently, so the persons-on-events mode is fixed.
-            # Mode 1 reads events on the native-JSON events table, so the events table is fixed too.
-            response = self._run_trends_query(
-                "-7d",
-                None,
-                IntervalType.DAY,
-                [node],
-                breakdown=breakdown,
-                filter_test_accounts=filter_test_accounts,
-                hogql_modifiers=HogQLQueryModifiers(
-                    personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,
-                    useNewEventsSchema=False,
-                ),
-            )
+        # Mode 2 raises when the swapped query reads people differently, so the persons-on-events mode is fixed.
+        # Mode 1 reads events on the native-JSON events table, so the events table is fixed too.
+        response = self._run_trends_query(
+            "-7d",
+            None,
+            IntervalType.DAY,
+            [node],
+            breakdown=breakdown,
+            filter_test_accounts=filter_test_accounts,
+            hogql_modifiers=HogQLQueryModifiers(
+                personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,
+                useNewEventsSchema=False,
+            ),
+        )
 
         assert response.results[0]["count"] == expected_count
         if breakdown is not None:
