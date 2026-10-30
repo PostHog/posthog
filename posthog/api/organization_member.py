@@ -1,5 +1,6 @@
 from typing import Any, cast
 
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import F, Model, Prefetch, QuerySet, TextChoices
 from django.shortcuts import get_object_or_404
 
@@ -164,7 +165,7 @@ class MemberOffboardingResourceKind(TextChoices):
 
 
 class MemberOffboardingResourceSerializer(serializers.Serializer):
-    id = serializers.CharField(help_text="Opaque identifier used to keep this resource during offboarding.")
+    id = serializers.CharField(help_text="Opaque identifier used to update this resource during offboarding.")
     kind = serializers.ChoiceField(
         choices=MemberOffboardingResourceKind.choices,
         help_text="The kind of public object or automated delivery.",
@@ -185,13 +186,14 @@ class MemberOffboardingResourceSerializer(serializers.Serializer):
     url = serializers.CharField(allow_null=True, help_text="Project-scoped path to open the resource in PostHog.")
 
 
-class MemberOffboardingRequestSerializer(serializers.Serializer):
-    keep = serializers.ListField(
+class MemberOffboardingUpdateSerializer(serializers.Serializer):
+    ids = serializers.ListField(
         child=serializers.CharField(max_length=200),
-        default=list,
-        max_length=10000,
-        help_text="Resource identifiers explicitly retained by an organization admin. All other resources are disabled.",
+        allow_empty=False,
+        max_length=1000,
+        help_text="Resource identifiers to update immediately.",
     )
+    enabled = serializers.BooleanField(help_text="Whether the selected resources should be enabled.")
 
 
 @extend_schema(extensions={"x-product": "platform_features"})
@@ -354,20 +356,12 @@ class OrganizationMemberViewSet(
 
         is_self_removal = requesting_user.id == removed_user.id
 
-        if is_self_removal:
+        if is_self_removal or self.action == "offboard":
             instance.user.leave(organization=instance.organization)
         else:
-            keep: set[str] = set()
-            if self.action == "offboard":
-                serializer = MemberOffboardingRequestSerializer(data=self.request.data)
-                serializer.is_valid(raise_exception=True)
-                keep = set(serializer.validated_data["keep"])
-            offboarding = OrganizationOffboarding(instance)
-            if keep and keep - {resource.id for resource in offboarding.resources()}:
-                raise serializers.ValidationError(
-                    {"keep": "Some resources have changed. Reload the review and try again."}
-                )
-            offboarding.remove(keep, actor=requesting_user, was_impersonated=is_impersonated(self.request))
+            OrganizationOffboarding(instance).remove(
+                set(), actor=requesting_user, was_impersonated=is_impersonated(self.request)
+            )
 
         posthoganalytics.capture(
             distinct_id=str(requesting_user.distinct_id),
@@ -400,7 +394,29 @@ class OrganizationMemberViewSet(
         resources = OrganizationOffboarding(instance).resources()
         return Response(MemberOffboardingResourceSerializer(resources, many=True).data)
 
-    @extend_schema(request=MemberOffboardingRequestSerializer, responses={204: None})
+    @extend_schema(request=MemberOffboardingUpdateSerializer, responses={204: None})
+    @action(detail=True, methods=["patch"], required_scopes=["organization_member:write"])
+    def offboarding_resources(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        instance = cast(OrganizationMembership, self.get_object())
+        actor = cast(User, request.user)
+        requesting_membership = OrganizationMembership.objects.get(user=actor, organization=instance.organization)
+        requesting_membership.validate_update(instance)
+        if requesting_membership.level < OrganizationMembership.Level.ADMIN or instance.user_id == actor.id:
+            raise exceptions.PermissionDenied("Only an organization admin can update another member's resources.")
+        serializer = MemberOffboardingUpdateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            OrganizationOffboarding(instance).update_resources(
+                serializer.validated_data["ids"],
+                serializer.validated_data["enabled"],
+                actor=actor,
+                was_impersonated=is_impersonated(request),
+            )
+        except DjangoValidationError as error:
+            raise serializers.ValidationError(error.messages) from error
+        return Response(status=204)
+
+    @extend_schema(request=None, responses={204: None})
     @action(detail=True, methods=["post"], required_scopes=["organization_member:write"])
     def offboard(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         self.perform_destroy(self.get_object())

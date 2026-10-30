@@ -1,3 +1,4 @@
+from django.core.exceptions import ValidationError
 from django.db.models import QuerySet
 
 from posthog.organization_offboarding_types import OffboardingResource
@@ -31,9 +32,13 @@ class SubscriptionOffboarding:
             .select_related("team")
         ]
 
-    def disable(self, keep: set[str]) -> None:
-        subscriptions = self._subscriptions()
-        for subscription in subscriptions.filter(created_by_id=self.user_id, enabled=True):
-            if f"subscription:{subscription.pk}" not in keep:
-                subscription.enabled = False
-                subscription.save(update_fields=["enabled"])
+    def update(self, resource_id: str, enabled: bool) -> None:
+        identifier = Subscription._meta.pk.to_python(resource_id.removeprefix("subscription:"))
+        subscription = (
+            self._subscriptions().select_for_update().filter(pk=identifier, created_by_id=self.user_id).first()
+        )
+        if subscription is None:
+            raise ValidationError("Subscription not found for this member.")
+        if subscription.enabled != enabled:
+            subscription.enabled = enabled
+            subscription.save(update_fields=["enabled"])

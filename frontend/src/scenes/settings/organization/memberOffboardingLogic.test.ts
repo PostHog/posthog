@@ -29,17 +29,25 @@ const resources = [
 describe('memberOffboardingLogic', () => {
     let logic: ReturnType<typeof memberOffboardingLogic.build>
     let submitted: unknown[]
+    let updates: unknown[]
 
     beforeEach(() => {
         submitted = []
+        updates = []
         useMocks({
             get: {
                 '/api/organizations/:organization/members/:user/offboarding/': resources,
                 '/api/organizations/:organization/members/:user/scoped_api_keys/': { has_keys: false, keys: [] },
             },
+            patch: {
+                '/api/organizations/:organization/members/:user/offboarding_resources/': async ({ request }) => {
+                    updates.push(await request.json())
+                    return [204, null]
+                },
+            },
             post: {
-                '/api/organizations/:organization/members/:user/offboard/': async ({ request }) => {
-                    submitted.push(await request.json())
+                '/api/organizations/:organization/members/:user/offboard/': () => {
+                    submitted.push('remove')
                     return [204, null]
                 },
             },
@@ -49,25 +57,57 @@ describe('memberOffboardingLogic', () => {
         logic.mount()
     })
 
-    it('keeps current sharing by default and submits only the links left enabled', async () => {
+    it('saves toggles immediately and removes the member without changing resources again', async () => {
         await expectLogic(logic, () => logic.actions.open(MOCK_SECOND_ORGANIZATION_MEMBER)).toFinishAllListeners()
         expect(logic.values.resources).toEqual(resources)
         expect(logic.values.keep).toEqual(resources.map((resource) => resource.id))
         membersLogic.actions.loadAllMembersSuccess([MOCK_DEFAULT_ORGANIZATION_MEMBER, MOCK_SECOND_ORGANIZATION_MEMBER])
-        logic.actions.setKeep(resources[0].id, false)
+        await expectLogic(logic, () => logic.actions.setKeep(resources[0].id, false)).toFinishAllListeners()
+        expect(updates).toEqual([{ ids: [resources[0].id], enabled: false }])
+        expect(submitted).toEqual([])
         await expectLogic(logic, () => logic.actions.remove()).toDispatchActions(['removeSuccess'])
-        expect(submitted).toEqual([{ keep: [resources[1].id] }])
+        expect(submitted).toEqual(['remove'])
         expect(logic.values.member).toBeNull()
         expect(membersLogic.values.members).toEqual([MOCK_DEFAULT_ORGANIZATION_MEMBER])
         expect(membersLogic.values.membersLoading).toBe(false)
     })
 
-    it('disables only the selected public resources when removing the member', async () => {
+    it('disables selected resources immediately and cancellation does not undo the change', async () => {
         await expectLogic(logic, () => logic.actions.open(MOCK_SECOND_ORGANIZATION_MEMBER)).toFinishAllListeners()
-        logic.actions.disableResources([resources[0].id])
+        await expectLogic(logic, () => logic.actions.disableResources([resources[0].id])).toFinishAllListeners()
+        expect(updates).toEqual([{ ids: [resources[0].id], enabled: false }])
         expect(logic.values.keep).toEqual([resources[1].id])
-        await expectLogic(logic, () => logic.actions.remove()).toDispatchActions(['removeSuccess'])
-        expect(submitted).toEqual([{ keep: [resources[1].id] }])
+        logic.actions.close()
+        expect(submitted).toEqual([])
+        expect(updates).toHaveLength(1)
+    })
+
+    it('keeps the previous toggle state when saving fails and allows retry', async () => {
+        await expectLogic(logic, () => logic.actions.open(MOCK_SECOND_ORGANIZATION_MEMBER)).toFinishAllListeners()
+        useMocks({
+            patch: {
+                '/api/organizations/:organization/members/:user/offboarding_resources/': () => [
+                    500,
+                    { detail: 'Save failed' },
+                ],
+            },
+        })
+        await expectLogic(logic, () => logic.actions.setKeep(resources[0].id, false)).toDispatchActions([
+            'saveResourcesFailure',
+        ])
+        expect(logic.values.keep).toEqual(resources.map((resource) => resource.id))
+        expect(logic.values.savingResourcesLoading).toBe(false)
+        useMocks({
+            patch: { '/api/organizations/:organization/members/:user/offboarding_resources/': () => [204, null] },
+        })
+        await expectLogic(logic, () => logic.actions.setKeep(resources[0].id, false)).toDispatchActions([
+            'saveResourcesSuccess',
+        ])
+        expect(logic.values.keep).toEqual([resources[1].id])
+        await expectLogic(logic, () => logic.actions.setKeep(resources[0].id, true)).toDispatchActions([
+            'saveResourcesSuccess',
+        ])
+        expect(logic.values.keep).toContain(resources[0].id)
     })
 
     it('summarizes the selected resource types, including selections beyond one page', async () => {
@@ -96,9 +136,10 @@ describe('memberOffboardingLogic', () => {
         expect(logic.values.publicResources).toEqual(resources)
         expect(logic.values.subscriptions).toEqual([subscription, alert])
         expect(logic.values.keep).toEqual([...resources.map((resource) => resource.id), subscription.id, alert.id])
-        logic.actions.disableResources([subscription.id])
+        await expectLogic(logic, () => logic.actions.disableResources([subscription.id])).toFinishAllListeners()
         await expectLogic(logic, () => logic.actions.remove()).toDispatchActions(['removeSuccess'])
-        expect(submitted).toEqual([{ keep: [...resources.map((resource) => resource.id), alert.id] }])
+        expect(updates).toEqual([{ ids: [subscription.id], enabled: false }])
+        expect(logic.values.keep).toEqual([...resources.map((resource) => resource.id), alert.id])
     })
 
     it('skips the resource review when leaving the organization yourself', async () => {
@@ -107,7 +148,7 @@ describe('memberOffboardingLogic', () => {
         expect(logic.values.resources).toEqual([])
         expect(logic.values.keep).toEqual([])
         await expectLogic(logic, () => logic.actions.remove()).toDispatchActions(['removeSuccess'])
-        expect(submitted).toEqual([{ keep: [] }])
+        expect(submitted).toEqual(['remove'])
     })
 
     it('blocks removal when the resource review fails and permits retry', async () => {

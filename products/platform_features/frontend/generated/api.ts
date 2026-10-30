@@ -27,7 +27,6 @@ import type {
     InternalFeedbackCreateBody,
     InternalFeedbackResponseApi,
     ListParams,
-    MemberOffboardingRequestApi,
     MemberOffboardingResourceApi,
     MembersListParams,
     OrganizationAIAccessRequestResponseApi,
@@ -47,6 +46,7 @@ import type {
     PaginatedRoleMembershipListApi,
     PatchedApprovalPolicyApi,
     PatchedCommentApi,
+    PatchedMemberOffboardingUpdateApi,
     PatchedOrganizationApi,
     PatchedOrganizationMemberApi,
     PatchedPinnedSceneTabsApi,
@@ -369,14 +369,11 @@ export const getMembersOffboardCreateUrl = (organizationId: string, userUuid: st
 export const membersOffboardCreate = async (
     organizationId: string,
     userUuid: string,
-    memberOffboardingRequestApi?: MemberOffboardingRequestApi,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getMembersOffboardCreateUrl(organizationId, userUuid), {
         ...options,
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(memberOffboardingRequestApi),
     })
 }
 
@@ -392,6 +389,24 @@ export const membersOffboardingRetrieve = async (
     return apiMutator<MemberOffboardingResourceApi[]>(getMembersOffboardingRetrieveUrl(organizationId, userUuid), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getMembersOffboardingResourcesPartialUpdateUrl = (organizationId: string, userUuid: string) => {
+    return `/api/organizations/${organizationId}/members/${userUuid}/offboarding_resources/`
+}
+
+export const membersOffboardingResourcesPartialUpdate = async (
+    organizationId: string,
+    userUuid: string,
+    patchedMemberOffboardingUpdateApi?: PatchedMemberOffboardingUpdateApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getMembersOffboardingResourcesPartialUpdateUrl(organizationId, userUuid), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedMemberOffboardingUpdateApi),
     })
 }
 

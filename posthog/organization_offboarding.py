@@ -27,13 +27,14 @@ class PublicResourceKind:
     kind: str
     identifier_field: str
     name_field: str
+    url_path: str
 
 
 PUBLIC_RESOURCE_KINDS = (
-    PublicResourceKind(kind="dashboard", identifier_field="id", name_field="name"),
-    PublicResourceKind(kind="insight", identifier_field="id", name_field="name"),
-    PublicResourceKind(kind="notebook", identifier_field="short_id", name_field="title"),
-    PublicResourceKind(kind="recording", identifier_field="session_id", name_field="session_id"),
+    PublicResourceKind(kind="dashboard", identifier_field="id", name_field="name", url_path="dashboard"),
+    PublicResourceKind(kind="insight", identifier_field="id", name_field="name", url_path="insights"),
+    PublicResourceKind(kind="notebook", identifier_field="short_id", name_field="title", url_path="notebooks"),
+    PublicResourceKind(kind="recording", identifier_field="session_id", name_field="session_id", url_path="replay"),
 )
 
 
@@ -90,9 +91,6 @@ class OrganizationOffboarding:
             name = cast(str | None, getattr(resource, resource_kind.name_field))
             if kind == "insight" and not name:
                 name = cast("Insight", resource).derived_name
-            path = {"dashboard": "dashboard", "insight": "insights", "notebook": "notebooks", "recording": "replay"}[
-                kind
-            ]
             identifier = (
                 cast("Insight | Notebook", resource).short_id
                 if kind in ("insight", "notebook")
@@ -107,7 +105,7 @@ class OrganizationOffboarding:
                     team_id=configuration.team_id,
                     project_name=configuration.team.name,
                     password_required=not configuration.has_unprotected_link,
-                    url=f"/project/{configuration.team_id}/{path}/{quote(str(identifier), safe='')}",
+                    url=f"/project/{configuration.team_id}/{resource_kind.url_path}/{quote(str(identifier), safe='')}",
                 ),
             )
         return list(resources.values())
@@ -122,51 +120,91 @@ class OrganizationOffboarding:
         resources.extend(subscriptions.list_member_offboarding_resources(self.organization_id, self.user_id))
         return sorted(resources, key=lambda resource: (resource.name, resource.id))
 
+    def _set_public_sharing(self, resource_id: str, enabled: bool, *, actor: "User", was_impersonated: bool) -> None:
+        parts = resource_id.split(":", 3)
+        if len(parts) != 4 or parts[0] != "public_link" or not parts[2].isdigit():
+            raise ValidationError("Invalid public resource.")
+        _, kind, team_id, object_id = parts
+        resource_kind = next((item for item in PUBLIC_RESOURCE_KINDS if item.kind == kind), None)
+        if resource_kind is None:
+            raise ValidationError("Invalid public resource.")
+        field = cast(models.ForeignKey, SharingConfiguration._meta.get_field(kind))
+        resource_model = cast(type[models.Model], field.related_model)
+        object_id = field.target_field.to_python(object_id)
+        resource = (
+            resource_model._base_manager.select_for_update()
+            .filter(
+                team_id=int(team_id),
+                team__organization_id=self.organization_id,
+                **{field.target_field.name: object_id},
+            )
+            .first()
+        )
+        if resource is None or (enabled and getattr(resource, "deleted", False)):
+            raise ValidationError("Resource no longer available.")
+
+        configurations = SharingConfiguration.objects.filter(team_id=int(team_id), **{f"{kind}_id": object_id})
+        if enabled:
+            configuration = SharingConfiguration.get_active_for_resource(
+                dedupe=True, team_id=int(team_id), **{f"{kind}_id": object_id}
+            )
+            if configuration is None:
+                raise ValidationError("Resource no longer has a current public link.")
+            changed = not configuration.enabled
+            configuration.enabled = True
+            configuration.shared_by = actor
+            configuration.save(update_fields=["enabled", "shared_by"])
+        else:
+            changed = bool(configurations.filter(enabled=True).update(enabled=False))
+
+        if changed:
+            scope = {
+                "dashboard": "Dashboard",
+                "insight": "Insight",
+                "notebook": "Notebook",
+                "recording": "SessionRecording",
+            }[kind]
+            short_id = getattr(resource, "short_id", None)
+            name = getattr(resource, resource_kind.name_field)
+            log_activity(
+                organization_id=self.membership.organization_id,
+                team_id=int(team_id),
+                user=actor,
+                was_impersonated=was_impersonated,
+                item_id=short_id if kind == "notebook" else object_id,
+                scope=scope,
+                activity="sharing " + ("enabled" if enabled else "disabled"),
+                detail=Detail(
+                    name=name or f"Untitled {kind}",
+                    short_id=str(short_id) if short_id else None,
+                    changes=[Change(type=scope, action="changed", field="sharing", before=not enabled, after=enabled)],
+                ),
+            )
+        if kind == "dashboard":
+            dashboard = cast("Dashboard", resource)
+            dashboard.is_shared = enabled
+            dashboard.save(update_fields=["is_shared"])
+
+    def update_resources(self, ids: list[str], enabled: bool, *, actor: "User", was_impersonated: bool = False) -> None:
+        with transaction.atomic():
+            for resource_id in sorted(set(ids)):
+                if resource_id.startswith("subscription:"):
+                    subscriptions.update_member_offboarding_resource(
+                        self.organization_id, self.user_id, resource_id, enabled
+                    )
+                elif resource_id.startswith("alert:"):
+                    alerts.update_member_offboarding_resource(self.organization_id, self.user_id, resource_id, enabled)
+                else:
+                    self._set_public_sharing(resource_id, enabled, actor=actor, was_impersonated=was_impersonated)
+
     def remove(self, keep: set[str], *, actor: "User", was_impersonated: bool = False) -> None:
         if self.membership.level == OrganizationMembership.Level.OWNER:
             raise ValidationError("Cannot leave the organization as its owner!")
         with transaction.atomic():
-            for resource in self.resources(include_deleted=True):
-                if resource.kind in {kind.kind for kind in PUBLIC_RESOURCE_KINDS} and resource.id not in keep:
-                    resource_id = resource.id.split(":", 3)[3]
-                    configurations = SharingConfiguration.objects.filter(
-                        team_id=resource.team_id, **{f"{resource.kind}_id": resource_id}
-                    )
-                    field = cast(models.ForeignKey, SharingConfiguration._meta.get_field(resource.kind))
-                    resource_model = cast(type[models.Model], field.related_model)
-                    # Cleanup includes soft-deleted objects hidden by the default manager.
-                    locked_resource = resource_model._base_manager.select_for_update().get(
-                        **{field.target_field.name: resource_id, "team_id": resource.team_id}
-                    )
-                    changed = configurations.filter(enabled=True).update(enabled=False)
-                    if changed:
-                        scope = {
-                            "dashboard": "Dashboard",
-                            "insight": "Insight",
-                            "notebook": "Notebook",
-                            "recording": "SessionRecording",
-                        }[resource.kind]
-                        short_id = getattr(locked_resource, "short_id", None)
-                        log_activity(
-                            organization_id=self.membership.organization_id,
-                            team_id=resource.team_id,
-                            user=actor,
-                            was_impersonated=was_impersonated,
-                            item_id=short_id if resource.kind == "notebook" else resource_id,
-                            scope=scope,
-                            activity="sharing disabled",
-                            detail=Detail(
-                                name=resource.name,
-                                short_id=str(short_id) if short_id else None,
-                                changes=[
-                                    Change(type=scope, action="changed", field="sharing", before=True, after=False)
-                                ],
-                            ),
-                        )
-                    if resource.kind == "dashboard":
-                        dashboard = cast("Dashboard", locked_resource)
-                        dashboard.is_shared = False
-                        dashboard.save(update_fields=["is_shared"])
-            alerts.disable_member_offboarding_resources(self.organization_id, self.user_id, keep)
-            subscriptions.disable_member_offboarding_resources(self.organization_id, self.user_id, keep)
+            self.update_resources(
+                [resource.id for resource in self.resources(include_deleted=True) if resource.id not in keep],
+                False,
+                actor=actor,
+                was_impersonated=was_impersonated,
+            )
             self.membership.user.leave(organization=self.membership.organization)

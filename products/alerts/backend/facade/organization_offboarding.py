@@ -7,5 +7,5 @@ def list_member_offboarding_resources(organization_id: str, user_id: int) -> lis
     return AlertOffboarding(organization_id, user_id).resources()
 
 
-def disable_member_offboarding_resources(organization_id: str, user_id: int, keep: set[str]) -> None:
-    AlertOffboarding(organization_id, user_id).disable(keep)
+def update_member_offboarding_resource(organization_id: str, user_id: int, resource_id: str, enabled: bool) -> None:
+    AlertOffboarding(organization_id, user_id).update(resource_id, enabled)

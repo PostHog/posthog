@@ -12,18 +12,27 @@ import { memberOffboardingLogic } from './memberOffboardingLogic'
 import { MemberOffboardingResourceSection } from './MemberOffboardingResourceSection'
 
 export function MemberOffboardingModal(): JSX.Element {
-    const { member, resources, resourcesLoading, loadError, removedLoading, publicResources, subscriptions } =
-        useValues(memberOffboardingLogic)
+    const {
+        member,
+        resources,
+        resourcesLoading,
+        loadError,
+        removedLoading,
+        savingResourcesLoading,
+        publicResources,
+        subscriptions,
+    } = useValues(memberOffboardingLogic)
     const { close, loadResources, remove } = useActions(memberOffboardingLogic)
     const { scopedApiKeys, scopedApiKeysLoading } = useValues(membersLogic)
     const { user } = useValues(userLogic)
     const isSelf = member?.user.uuid === user?.uuid
+    const busyReason = removedLoading ? 'Removing member…' : savingResourcesLoading ? 'Saving changes…' : undefined
     const hasResources = !resourcesLoading && !loadError && !!resources?.length
 
     return (
         <LemonModal
             isOpen={!!member}
-            onClose={removedLoading ? undefined : close}
+            onClose={busyReason ? undefined : close}
             title={
                 isSelf
                     ? 'Leave organization?'
@@ -32,11 +41,7 @@ export function MemberOffboardingModal(): JSX.Element {
             width={hasResources ? 720 : 576}
             footer={
                 <>
-                    <LemonButton
-                        type="secondary"
-                        onClick={close}
-                        disabledReason={removedLoading ? 'Removing member…' : undefined}
-                    >
+                    <LemonButton type="secondary" onClick={close} disabledReason={busyReason}>
                         Cancel
                     </LemonButton>
                     <LemonButton
@@ -44,11 +49,12 @@ export function MemberOffboardingModal(): JSX.Element {
                         status="danger"
                         loading={removedLoading}
                         disabledReason={
-                            resourcesLoading
+                            busyReason ||
+                            (resourcesLoading
                                 ? 'Checking shared resources and subscriptions…'
                                 : loadError || resources === null
                                   ? 'Load the resource review before continuing'
-                                  : undefined
+                                  : undefined)
                         }
                         onClick={remove}
                         data-attr="confirm-org-member-offboarding"
