@@ -19,7 +19,10 @@ from typing import Any
 
 from posthog.dataclasses import frozen
 
-from products.warehouse_sources.backend.facade.contracts import CREDENTIALS_REFERENCE_KEY
+from products.warehouse_sources.backend.facade.contracts import (
+    CONNECTION_FIELDS_STRIPPED_KEY,
+    CREDENTIALS_REFERENCE_KEY,
+)
 from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldInputConfig,
     SourceFieldOauthAccountSelectConfig,
@@ -36,6 +39,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.reg
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 RUNTIME_KEY_PREFIXES: tuple[str, ...] = ("cdc_",)
+# Keys that the store itself writes. They are runtime state for every source.
+STORE_RUNTIME_KEYS: frozenset[str] = frozenset({CONNECTION_FIELDS_STRIPPED_KEY})
 
 # The only field types that carry `sync_setting`. OAuth, SSH tunnel and file upload fields always hold credentials.
 SYNC_SETTING_FIELD_TYPES = (
@@ -117,7 +122,7 @@ def field_kind(field: FieldType) -> JobInputKind:
 
 
 def is_runtime_key(source: AnySource, key: str) -> bool:
-    return key in source.runtime_job_input_keys or key.startswith(RUNTIME_KEY_PREFIXES)
+    return key in source.runtime_job_input_keys or key in STORE_RUNTIME_KEYS or key.startswith(RUNTIME_KEY_PREFIXES)
 
 
 @functools.cache

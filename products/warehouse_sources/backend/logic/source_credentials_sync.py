@@ -35,6 +35,7 @@ from products.warehouse_sources.backend.logic.source_credentials import (
 )
 from products.warehouse_sources.backend.logic.source_credentials_rollout import (
     connection_fields_equal,
+    is_stripped,
     split_connection_fields,
 )
 from products.warehouse_sources.backend.logic.source_inputs import SourceInputsStore
@@ -52,11 +53,23 @@ SKIPPED_SHARED = "skipped_shared"
 SKIPPED_DELETED = "skipped_deleted"
 SKIPPED_UNREADABLE = "skipped_unreadable"
 SKIPPED_UNKNOWN_TYPE = "skipped_unknown_type"
+# The source is stripped: `job_inputs` has no connection fields to copy, and the row is the only copy.
+SKIPPED_STRIPPED = "skipped_stripped"
+STRIPPED_ROW_MISSING = "stripped_row_missing_or_unreadable"
 FAILED = "failed"
 
 # The outcomes of a source whose row does not hold its stored connection fields yet.
 NOT_BACKFILLED = frozenset(
-    {CREATED, UPDATED, RECREATED, SKIPPED_SHARED, SKIPPED_UNREADABLE, SKIPPED_UNKNOWN_TYPE, FAILED}
+    {
+        CREATED,
+        UPDATED,
+        RECREATED,
+        SKIPPED_SHARED,
+        SKIPPED_UNREADABLE,
+        SKIPPED_UNKNOWN_TYPE,
+        STRIPPED_ROW_MISSING,
+        FAILED,
+    }
 )
 
 POINTER_SUFFIX = "_integration_id"
@@ -131,7 +144,7 @@ def _batches(
     remaining = limit
     while remaining is None or remaining > 0:
         page_size = batch_size if remaining is None else min(batch_size, remaining)
-        batch = _next_sources(last_id, page_size, team_ids, source_type)
+        batch = next_source_batch(last_id, page_size, team_ids, source_type)
         if not batch:
             return
         last_id = batch[-1].id
@@ -140,9 +153,10 @@ def _batches(
             remaining -= len(batch)
 
 
-def _next_sources(
+def next_source_batch(
     after_id: UUID | None, size: int, team_ids: Sequence[int], source_type: str | None
 ) -> list[ExternalDataSource]:
+    """One page of non-deleted sources in id order, with only the fields that the credentials tools read."""
     # `select_related(None)` clears the default manager's join, which `only()` cannot defer past.
     queryset = (
         ExternalDataSource.objects.exclude(deleted=True)
@@ -161,11 +175,15 @@ def _next_sources(
 
 def _process_batch(batch: Iterable[ExternalDataSource], execute: bool, counts: BackfillCounts) -> None:
     planned: list[tuple[ExternalDataSource, dict[str, Any], Any]] = []
+    stripped: list[tuple[ExternalDataSource, Any]] = []
     for source in batch:
         source_type = str(source.source_type)
         try:
             inputs = SourceInputsStore.load_stored(source)
-            fields = _stored_connection_fields(source, inputs)
+            if is_stripped(inputs):
+                stripped.append((source, inputs.get(CREDENTIALS_REFERENCE_KEY)))
+                continue
+            fields = stored_connection_fields(source, inputs)
         except UnreadableSourceInputsError:
             counts[(source_type, SKIPPED_UNREADABLE)] += 1
             continue
@@ -176,6 +194,7 @@ def _process_batch(batch: Iterable[ExternalDataSource], execute: bool, counts: B
             counts[(source_type, SKIPPED_NO_ROW)] += 1
             continue
         planned.append((source, fields, inputs.get(CREDENTIALS_REFERENCE_KEY)))
+    _check_stripped(stripped, counts)
     if not planned:
         return
 
@@ -200,7 +219,7 @@ def _process_batch(batch: Iterable[ExternalDataSource], execute: bool, counts: B
         counts[(str(source.source_type), outcome)] += 1
 
 
-def _stored_connection_fields(source: ExternalDataSource, inputs: Mapping[str, Any]) -> dict[str, Any]:
+def stored_connection_fields(source: ExternalDataSource, inputs: Mapping[str, Any]) -> dict[str, Any]:
     """The connection fields of the stored `job_inputs`. A leaf that no key can decrypt raises
     `UnreadableSourceInputsError`, so its ciphertext never goes to a row."""
     fields = split_connection_fields(str(source.source_type), inputs)
@@ -229,7 +248,10 @@ def _sync_source(source: ExternalDataSource) -> str:
         if fresh is None:
             return SKIPPED_DELETED
         inputs = SourceInputsStore.load_stored(fresh)
-        fields = _stored_connection_fields(fresh, inputs)
+        if is_stripped(inputs):
+            # Stripped after the batch read. The row is the only copy, so `job_inputs` must never overwrite it.
+            return SKIPPED_STRIPPED
+        fields = stored_connection_fields(fresh, inputs)
         if not fields:
             return SKIPPED_NO_ROW
         ref = inputs.get(CREDENTIALS_REFERENCE_KEY)
@@ -248,6 +270,16 @@ def _sync_source(source: ExternalDataSource) -> str:
             # A change of where a shared row connects made a new row for this source.
             SourceInputsStore.write_credentials_reference(fresh, pk)
         return UPDATED
+
+
+def _check_stripped(sources: list[tuple[ExternalDataSource, Any]], counts: BackfillCounts) -> None:
+    # Never write the row of a stripped source from `job_inputs`: that would replace the credentials with nothing.
+    if not sources:
+        return
+    stored = WarehouseSourceCredentialsStore.get_many(sources)
+    for source, _ref in sources:
+        outcome = SKIPPED_STRIPPED if isinstance(stored.get(source.id), dict) else STRIPPED_ROW_MISSING
+        counts[(str(source.source_type), outcome)] += 1
 
 
 @frozen

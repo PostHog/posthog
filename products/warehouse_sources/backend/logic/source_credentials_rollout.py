@@ -9,6 +9,11 @@ full copy, so a read falls back to it when the row is missing, unreadable or emp
 because of the row or the flags. The read flag has no effect while the dual-write flag is off for the team,
 because the row is then not kept up to date.
 
+A stripped source (`CONNECTION_FIELDS_STRIPPED_KEY` in `job_inputs`) has no connection fields in `job_inputs`.
+Its reads and writes use the row whatever the flags are, and a read raises `SourceCredentialsMissingError`
+when the row is missing or unreadable, because there is no copy to fall back to. With the strip flag on as
+well as the read flag, a new source with typed-in credentials is stripped from its first write.
+
 The source points at its row with `CREDENTIALS_REFERENCE_KEY` in its inputs. The first copy creates the
 row and adds the reference to the inputs that the store saves. Later copies update the row. A source with
 an OAuth connection has no typed-in row, so the copy does nothing for it.
@@ -23,6 +28,7 @@ import time
 import asyncio
 import threading
 from collections.abc import Iterable, Mapping
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
@@ -32,9 +38,11 @@ import structlog
 from prometheus_client import Counter
 
 from products.warehouse_sources.backend.facade.contracts import (
+    CONNECTION_FIELDS_STRIPPED_KEY,
     CREDENTIALS_REFERENCE_KEY,
     SharedCredentialsEdit,
     SharedCredentialsError,
+    SourceCredentialsMissingError,
     UnusableCredentialsReferenceError,
 )
 from products.warehouse_sources.backend.logic.credential_auth_types import has_typed_in_credentials
@@ -58,6 +66,7 @@ logger = structlog.get_logger(__name__)
 
 DUAL_WRITE_FLAG = "warehouse-source-credentials-dual-write"
 READ_FLAG = "warehouse-source-credentials-read"
+STRIP_FLAG = "warehouse-source-credentials-strip"
 
 FLAG_CACHE_TTL_SECONDS = 60.0
 # `load` runs on hot paths (the HogQL database build reads every source of a team), so each process
@@ -150,6 +159,7 @@ _PRELOADED_ROW_ATTR = "_warehouse_source_credentials_row"
 
 _dual_write_flags = _ExpiringFlags(DUAL_WRITE_FLAG, FLAG_CACHE_TTL_SECONDS)
 _read_flags = _ExpiringFlags(READ_FLAG, FLAG_CACHE_TTL_SECONDS)
+_strip_flags = _ExpiringFlags(STRIP_FLAG, FLAG_CACHE_TTL_SECONDS)
 _compare_schedule = _CompareSchedule(SHADOW_COMPARE_INTERVAL_SECONDS)
 
 
@@ -162,9 +172,15 @@ def read_enabled(team_id: int) -> bool:
     return _read_flags.enabled(team_id) and dual_write_enabled(team_id)
 
 
+def strip_on_create_enabled(team_id: int) -> bool:
+    """True when a new source of the team keeps its connection fields only in the credentials row."""
+    return _strip_flags.enabled(team_id) and read_enabled(team_id)
+
+
 def reset_caches() -> None:
     _dual_write_flags.clear()
     _read_flags.clear()
+    _strip_flags.clear()
     _compare_schedule.clear()
 
 
@@ -265,8 +281,11 @@ def _write_row(
 def read_connection_fields(source: ExternalDataSource, inputs: dict[str, Any]) -> dict[str, Any]:
     """The inputs that `load` returns for the source. ``inputs`` is the decoded `job_inputs`.
 
-    With the read flag off, the result is ``inputs`` and the shadow compare runs.
+    With the read flag off, the result is ``inputs`` and the shadow compare runs. A stripped source always
+    reads the row, and raises `SourceCredentialsMissingError` when the row is missing or unreadable.
     """
+    if is_stripped(inputs):
+        return _read_stripped(source, inputs)
     if not _reads_from_credentials(source):
         shadow_compare(source, inputs)
         return inputs
@@ -317,18 +336,27 @@ def preload_connection_fields(pairs: Iterable[tuple[ExternalDataSource, Any]]) -
 def read_connection_fields_many(
     sources: Iterable[ExternalDataSource], loaded: Mapping[UUID, dict[str, Any]]
 ) -> dict[UUID, dict[str, Any]]:
-    """`read_connection_fields` for a list of sources, with one credentials query per team and source type."""
+    """`read_connection_fields` for a list of sources, with one credentials query per team and source type.
+
+    A stripped source whose row is missing or unreadable is left out of the result, like a source whose
+    `job_inputs` does not decode. A caller that needs it calls `load`, which raises.
+    """
     reading: list[ExternalDataSource] = []
     comparing: list[ExternalDataSource] = []
+    stripped: list[ExternalDataSource] = []
     for source in sources:
         if source.id not in loaded:
             continue
-        (reading if _reads_from_credentials(source) else comparing).append(source)
+        if is_stripped(loaded[source.id]):
+            stripped.append(source)
+        else:
+            (reading if _reads_from_credentials(source) else comparing).append(source)
     shadow_compare_many(comparing, loaded)
-    if not reading:
-        return dict(loaded)
-
     result_inputs = dict(loaded)
+    _read_stripped_many(stripped, loaded, result_inputs)
+    if not reading:
+        return result_inputs
+
     try:
         with transaction.atomic():  # A savepoint, as in `shadow_compare`.
             stored = WarehouseSourceCredentialsStore.get_many(
@@ -351,6 +379,139 @@ def read_connection_fields_many(
         if result != "no_row":
             _compare_fetched(source, inputs, stored.get(source.id))
     return result_inputs
+
+
+def is_stripped(inputs: Mapping[str, Any]) -> bool:
+    """True when ``inputs`` (the decoded `job_inputs`) belong to a stripped source."""
+    return CONNECTION_FIELDS_STRIPPED_KEY in inputs
+
+
+def stripped_at_now() -> str:
+    return datetime.now(UTC).isoformat()
+
+
+def needs_credentials_row(source: ExternalDataSource, inputs: Mapping[str, Any]) -> bool:
+    """True when the source has typed-in credentials and ``inputs`` hold connection fields, so a row holds them."""
+    return _needs_row(source, inputs)
+
+
+def stripped_job_inputs(source_type: str, inputs: Mapping[str, Any], stripped_at: str) -> dict[str, Any]:
+    """The `job_inputs` of a stripped source: the references, selectors, sync settings and runtime state of
+    ``inputs``, and the marker. The credentials reference is a reference, so it stays.
+
+    Raises ValueError when the source type is unknown, because then no key can be classified as safe to keep.
+    """
+    split = _split(source_type, inputs)
+    return {
+        **split.references,
+        **split.selectors,
+        **split.settings,
+        **split.runtime,
+        CONNECTION_FIELDS_STRIPPED_KEY: stripped_at,
+    }
+
+
+def write_stripped_connection_fields(
+    source: ExternalDataSource,
+    inputs: Mapping[str, Any],
+    *,
+    shared_credentials: SharedCredentialsEdit = SharedCredentialsEdit.SKIP,
+) -> dict[str, Any]:
+    """Write the connection fields of ``inputs`` to the credentials row of a stripped source. Returns
+    ``inputs`` with the reference to the row that now holds them.
+
+    The row is the only storage of these fields, so a failure raises and the caller must not save `job_inputs`.
+    An edit of a shared row raises `SharedCredentialsError` unless ``shared_credentials`` confirms it, because
+    a skipped write would lose the change. The flags have no effect here.
+    """
+    staged = dict(inputs)
+    source.__dict__.pop(_PRELOADED_ROW_ATTR, None)
+    try:
+        connection = _connection_fields(source.source_type, inputs)
+        if not connection:
+            # An OAuth connection, for example a select set to its OAuth option. The row keeps what it holds.
+            return staged
+        with transaction.atomic():
+            ExternalDataSource._base_manager.select_for_update().filter(
+                pk=source.pk, team_id=source.team_id
+            ).values_list("pk").first()
+            outcome, pk = _write_row(
+                source,
+                staged.get(CREDENTIALS_REFERENCE_KEY),
+                connection,
+                SharedCredentialsEdit.CONFIRMED
+                if shared_credentials == SharedCredentialsEdit.CONFIRMED
+                else SharedCredentialsEdit.REFUSE,
+            )
+    except Exception:
+        DUAL_WRITE_COUNTER.labels(outcome="stripped_upsert_error").inc()
+        logger.exception("warehouse_source_credentials.stripped_upsert_failed", **_log_context(source))
+        raise
+    staged[CREDENTIALS_REFERENCE_KEY] = pk
+    DUAL_WRITE_COUNTER.labels(outcome=f"stripped_{outcome}").inc()
+    return staged
+
+
+def _read_stripped(source: ExternalDataSource, inputs: dict[str, Any]) -> dict[str, Any]:
+    if _in_event_loop():
+        # Async code must call `aload`. Returning `job_inputs` here would hand the caller a source without credentials.
+        _count_read(source, "stripped_event_loop")
+        raise RuntimeError("A stripped warehouse source must be loaded with aload from async code")
+    stored: dict[str, Any] | CredentialsUnreadable | None
+    if _PRELOADED_ROW_ATTR in source.__dict__:
+        stored = source.__dict__[_PRELOADED_ROW_ATTR]
+    else:
+        try:
+            stored = WarehouseSourceCredentialsStore.get(source, inputs.get(CREDENTIALS_REFERENCE_KEY))
+        except CredentialsUnreadableError:
+            stored = CredentialsUnreadable()
+        except Exception:
+            _count_read(source, "stripped_error")
+            logger.warning("warehouse_source_credentials.stripped_read_failed", **_log_context(source), exc_info=True)
+            raise
+    return _merge_stripped(source, inputs, stored)
+
+
+def _read_stripped_many(
+    sources: list[ExternalDataSource], loaded: Mapping[UUID, dict[str, Any]], result_inputs: dict[UUID, dict[str, Any]]
+) -> None:
+    if not sources:
+        return
+    try:
+        stored = WarehouseSourceCredentialsStore.get_many(
+            (source, loaded[source.id].get(CREDENTIALS_REFERENCE_KEY)) for source in sources
+        )
+    except Exception:
+        for source in sources:
+            _count_read(source, "stripped_error")
+            result_inputs.pop(source.id, None)
+        logger.warning("warehouse_source_credentials.stripped_read_many_failed", exc_info=True)
+        return
+    for source in sources:
+        try:
+            result_inputs[source.id] = _merge_stripped(source, loaded[source.id], stored.get(source.id))
+        except SourceCredentialsMissingError:
+            result_inputs.pop(source.id, None)
+
+
+def _merge_stripped(
+    source: ExternalDataSource,
+    inputs: Mapping[str, Any],
+    stored: dict[str, Any] | CredentialsUnreadable | None,
+) -> dict[str, Any]:
+    if stored is None:
+        _count_read(source, "stripped_missing")
+        logger.error("warehouse_source_credentials.stripped_row_missing", **_log_context(source))
+        raise SourceCredentialsMissingError()
+    if isinstance(stored, CredentialsUnreadable):
+        _count_read(source, "stripped_unreadable")
+        logger.error("warehouse_source_credentials.stripped_row_unreadable", **_log_context(source))
+        raise SourceCredentialsMissingError()
+    _count_read(source, "integration")
+    # `job_inputs` wins on a shared key: after a strip it holds only references, selectors, settings and runtime
+    # state, and those are its to keep. The marker is internal to the store, so a caller never sees it.
+    kept = {key: value for key, value in inputs.items() if key != CONNECTION_FIELDS_STRIPPED_KEY}
+    return {**stored, **kept}
 
 
 def shadow_compare(source: ExternalDataSource, inputs: Mapping[str, Any]) -> None:
