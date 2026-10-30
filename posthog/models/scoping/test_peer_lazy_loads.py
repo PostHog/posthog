@@ -1,7 +1,8 @@
+import sys
 from collections.abc import Callable
 from functools import partial
 from pathlib import Path
-from types import FunctionType
+from types import FunctionType, ModuleType
 
 import pytest
 from unittest.mock import patch
@@ -10,6 +11,7 @@ from posthog.models.scoping import peer_lazy_loads
 
 BASELINED = "posthog.Thing.team posthog/api/thing.py:ThingSerializer.get_team"
 NEW = "posthog.Thing.owner posthog/api/thing.py:ThingSerializer.get_owner"
+FRAMEWORK = "/opt/venv/lib/python3.14/site-packages/rest_framework"
 
 
 def _observe(directory: Path, observations: list[tuple[str, str]]) -> None:
@@ -57,6 +59,52 @@ def test_call_site_skips_this_module_and_names_app_code_under_unnormalized_paths
     get_owner = _relocated(f"{detour}/posthog/api/thing.py", "get_owner")
 
     assert get_owner(partial(blocked_entry, peer_lazy_loads.call_site)) == "posthog/api/thing.py:get_owner"
+
+
+def _call_method(self: object, function: Callable[[], str]) -> str:
+    return function()
+
+
+def _relocated_method(path: str, qualname: str) -> Callable[[object, Callable[[], str]], str]:
+    code = _call_method.__code__.replace(co_filename=path, co_qualname=qualname, co_name=qualname.rpartition(".")[2])
+    return FunctionType(code, _call_method.__globals__)
+
+
+def _module(name: str, path: str) -> ModuleType:
+    module = ModuleType(name)
+    module.__file__ = f"{peer_lazy_loads.REPO_ROOT}/{path}"
+    return module
+
+
+@pytest.mark.parametrize(
+    "through_serializer,expected",
+    [
+        (True, "products/thing/backend/api.py:ThingSerializer.to_representation"),
+        (False, "products/thing/backend/api.py:ThingViewSet.dispatch"),
+    ],
+    ids=["serializer", "view"],
+)
+def test_call_site_names_the_app_class_behind_framework_and_mixin_frames(
+    through_serializer: bool, expected: str
+) -> None:
+    view = type("ThingViewSet", (), {"__module__": "thing_api"})()
+    serializer = type("ThingSerializer", (), {"__module__": "thing_api"})()
+    nested_field = type("UserBasicSerializer", (), {"__module__": "shared_api"})()
+    dispatch = _relocated_method(
+        f"{peer_lazy_loads.REPO_ROOT}/posthog/api/routing.py", "TeamAndOrgViewSetMixin.dispatch"
+    )
+    to_representation = _relocated_method(f"{FRAMEWORK}/serializers.py", "Serializer.to_representation")
+    get_attribute = _relocated_method(f"{FRAMEWORK}/fields.py", "Field.get_attribute")
+
+    read = partial(get_attribute, nested_field, peer_lazy_loads.call_site)
+    if through_serializer:
+        read = partial(to_representation, serializer, read)
+    modules = {
+        "thing_api": _module("thing_api", "products/thing/backend/api.py"),
+        "shared_api": _module("shared_api", "posthog/api/shared.py"),
+    }
+    with patch.dict(sys.modules, modules):
+        assert dispatch(view, read) == expected
 
 
 def test_write_baseline_merges_observations_sorted_and_unique(tmp_path: Path) -> None:

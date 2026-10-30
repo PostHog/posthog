@@ -82,6 +82,7 @@ Django fetch modes cover forward foreign keys, one-to-one fields in both directi
 They do not cover reverse foreign key or many-to-many managers such as `flag.experiments.all()`, so use `prefetch_related()` and an `assertNumQueries` test for those.
 
 Sites that existed before the check are listed in `peer_lazy_loads_baseline.txt`, as `<app_label.Model.field> <file>:<function>`.
+A read in an inherited method, or in DRF's `Serializer.to_representation`, names the app class it ran on, such as `MetricViewSet.dispatch` or `MetricSerializer.to_representation`.
 A listed site batches like production.
 Fix a site, then delete its line.
 The `Peer lazy load baseline` job in Backend CI fails when a line no longer happens on a full run, so the file only shrinks.

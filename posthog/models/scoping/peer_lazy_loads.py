@@ -62,18 +62,62 @@ def _normalized(path: str) -> str:
     return os.path.normpath(path)
 
 
+def _site(path: str, qualname: str) -> str:
+    return f"{path[len(_REPO_PREFIX) :]}:{qualname}"
+
+
+def _is_app_path(path: str) -> bool:
+    return (
+        path.startswith(_REPO_PREFIX) and path not in _SKIPPED_FILES and not any(p in path for p in _SKIPPED_PATH_PARTS)
+    )
+
+
+def _app_class_path(cls: type) -> str | None:
+    module_file = getattr(sys.modules.get(cls.__module__), "__file__", None)
+    if module_file is None:
+        return None
+    path = _normalized(module_file)
+    return path if _is_app_path(path) else None
+
+
+def _bound_app_class(frame: FrameType) -> tuple[type, str] | None:
+    """The app class of `self` when the frame runs a method, with the file that defines the class."""
+    code = frame.f_code
+    if code.co_argcount == 0 or code.co_varnames[0] != "self":
+        return None
+    cls = type(frame.f_locals.get("self"))
+    path = _app_class_path(cls)
+    return None if path is None else (cls, path)
+
+
+def _frame_site(frame: FrameType) -> tuple[str, str] | None:
+    """The site a frame stands for, as (path, site), or None when the frame is not app code.
+
+    A framework or mixin method stands for the app class it runs on, so one baseline line
+    cannot cover a model field read through every viewset or serializer that shares the method.
+    A framework frame counts only for `to_representation`: below it, a nested serializer field
+    would name a serializer that every viewset shares.
+    """
+    code = frame.f_code
+    path = _normalized(code.co_filename)
+    is_app_code = _is_app_path(path)
+    if not is_app_code and code.co_name != "to_representation":
+        return None
+    bound = _bound_app_class(frame)
+    if bound is None or bound[0].__qualname__ == code.co_qualname.rpartition(".")[0]:
+        return (path, _site(path, code.co_qualname)) if is_app_code else None
+    cls, cls_path = bound
+    return cls_path, _site(cls_path, f"{cls.__qualname__}.{code.co_name}")
+
+
 def call_site() -> str:
-    """The first repo frame outside test code, or the first repo frame when the read is in a test."""
+    """The first app site outside test code, or the first app site when the read is in a test."""
     first: str | None = None
     frame: FrameType | None = sys._getframe(1)
     while frame is not None:
-        path = _normalized(frame.f_code.co_filename)
-        if (
-            path.startswith(_REPO_PREFIX)
-            and path not in _SKIPPED_FILES
-            and not any(part in path for part in _SKIPPED_PATH_PARTS)
-        ):
-            site = f"{path[len(_REPO_PREFIX) :]}:{frame.f_code.co_qualname}"
+        found = _frame_site(frame)
+        if found is not None:
+            path, site = found
             if not _is_test_path(path):
                 return site
             first = first or site
