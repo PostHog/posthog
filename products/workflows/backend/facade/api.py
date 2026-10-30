@@ -164,7 +164,7 @@ def may_act_for_workflow_owner(*, team_id: int, workflow_id: UUID, user_access_c
         raise WorkflowNotFound() from None
     if user_access_control.get_access_source_for_object(flow, "hog_flow") in _OWNER_ACCESS_SOURCES:
         return True
-    shared_level = user_access_control.access_level_for_object(flow, "hog_flow", specific_only=True)
+    shared_level = user_access_control.access_level_for_object(flow, "hog_flow", explicit=True, specific_only=True)
     return (
         shared_level is not None
         and access_level_satisfied_for_resource("hog_flow", shared_level, "editor")
