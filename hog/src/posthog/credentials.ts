@@ -1,6 +1,6 @@
 import { join } from 'node:path'
 
-import { HogError } from '@/core/errors'
+import { EXIT_USAGE, HogError } from '@/core/errors'
 import type { Env, Runtime } from '@/core/runtime'
 
 // posthog-cli falls back to this host when neither --host nor the credentials name one.
@@ -106,6 +106,10 @@ export function checkProjectId(projectId: string): string | undefined {
     return /^\d+$/.test(projectId) ? undefined : `The project ID must be a number, but it is "${projectId}".`
 }
 
+function sameOrigin(a: string, b: string): boolean {
+    return URL.canParse(a) && URL.canParse(b) && new URL(a).origin === new URL(b).origin
+}
+
 export function checkHost(host: string): string | undefined {
     return URL.canParse(host) ? undefined : `The host must be a valid URL, but it is "${host}".`
 }
@@ -144,15 +148,25 @@ export async function saveCredentials(runtime: Runtime, credentials: Credentials
 
 // Lookup order matches posthog-cli: process env, then --dotenv-file, then the credentials
 // file `hog auth login` and `posthog-cli login` write. The global host overrides whichever host the
-// source carried.
+// source carried. posthog.json comes from the repository, so its host never redirects a key: it
+// only stops the command when the key belongs to another host.
 export async function resolveCredentials(
     runtime: Runtime,
-    options: { host?: string; dotenvFile?: string }
+    options: { host?: string; dotenvFile?: string; configHost?: string }
 ): Promise<ResolvedCredentials> {
-    const withHost = (raw: RawCredentials, source: CredentialSource): ResolvedCredentials => ({
-        ...validate(raw, options.host ?? raw.host ?? DEFAULT_HOST),
-        source,
-    })
+    const withHost = (raw: RawCredentials, source: CredentialSource): ResolvedCredentials => {
+        const host = options.host ?? raw.host ?? DEFAULT_HOST
+        const { configHost } = options
+        if (options.host === undefined && configHost !== undefined && !sameOrigin(configHost, host)) {
+            throw new HogError(
+                'host_mismatch',
+                `posthog.json sets the host to ${configHost}, but your credentials are for ${host}.`,
+                `Pass --host ${configHost} or set HOG_HOST to send your credentials there, or log in to that host with \`hog auth login\`.`,
+                EXIT_USAGE
+            )
+        }
+        return { ...validate(raw, host), source }
+    }
 
     const fromEnv = fromLookup((name) => runtime.env[name] || undefined)
     if (fromEnv) {

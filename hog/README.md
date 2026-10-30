@@ -89,7 +89,7 @@ A flag beats the environment variable, which beats `posthog.json`.
 | `--rate-limit <requests>` | `HOG_RATE_LIMIT`                   | `cli.rateLimit` | The most requests per minute. No limit by default                                                                             |
 |                           | `HOG_DRY_RUN`                      |                 | Turns on `--dry-run` for every command that has one, and fails the commands that write without one                            |
 
-`--host`, `HOG_HOST` and `host` in `posthog.json` override the host of every credential source.
+`--host` and `HOG_HOST` override the host of every credential source. `host` in `posthog.json` never sends your credentials elsewhere: `hog auth login` uses it, and other commands stop when your credentials are for another host.
 Commands that only read run as usual in a dry run, and `auth login` and `auth logout` fail.
 hog reads only the `HOG_` names. posthog-cli's `POSTHOG_CLI_` variables, `POSTHOG_HOME` and `POSTHOG_RELEASE_MODE` don't count.
 
@@ -178,7 +178,7 @@ hog uploads the same bytes and content hashes as posthog-cli, so either CLI can 
 2. The same variables in the file `--dotenv-file` or `HOG_DOTENV_FILE` names. A missing file prints a warning and hog moves on to the next source.
 3. `~/.posthog/credentials.json`, which `hog auth login` and `posthog-cli login` write (`HOG_HOME` moves the folder). `hog auth login` makes it readable only by you.
 
-`--host`, `HOG_HOST` and `host` in `posthog.json` override the host from any of these.
+`--host` and `HOG_HOST` override the host from any of these.
 
 ### Logging in and out
 

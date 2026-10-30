@@ -167,7 +167,7 @@ export class SymbolSetClient {
                     'User-Agent': USER_AGENT,
                 },
                 body: body === undefined ? undefined : JSON.stringify(body),
-                signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+                timeoutMs: REQUEST_TIMEOUT_MS,
             })
         } catch (error) {
             throw new ApiFailure(undefined, error instanceof Error ? error.message : String(error), url.toString())
@@ -407,7 +407,7 @@ export class SymbolSetClient {
             return this.runtime.fetch(target.url, {
                 method: 'PUT',
                 body: data as BodyInit,
-                signal: AbortSignal.timeout(transferTimeout(data.length)),
+                timeoutMs: transferTimeout(data.length),
             })
         }
         const form = new FormData()
@@ -419,7 +419,7 @@ export class SymbolSetClient {
         return this.runtime.fetch(target.form.url, {
             method: 'POST',
             body: form,
-            signal: AbortSignal.timeout(transferTimeout(data.length)),
+            timeoutMs: transferTimeout(data.length),
         })
     }
 }

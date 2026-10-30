@@ -3,6 +3,7 @@ import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { inflateRawSync, zstdDecompressSync } from 'node:zlib'
 
 import { HogError } from '@/core/errors'
+import type { RuntimeFetch } from '@/core/runtime'
 
 import { SymbolDataType } from './container'
 import { decodeUtf8 } from './json'
@@ -364,7 +365,7 @@ export async function resolveRef(client: SymbolSetClient, reference: string): Pr
 export async function downloadSymbolSet(
     client: SymbolSetClient,
     id: string,
-    fetcher: typeof fetch
+    fetcher: RuntimeFetch
 ): Promise<Uint8Array> {
     if (!isSymbolSetId(id)) {
         throw new HogError('invalid_symbol_set_id', `${id} isn't a symbol set ID.`, 'Symbol set IDs are UUIDs.')
@@ -374,7 +375,7 @@ export async function downloadSymbolSet(
         `No symbol set has the ID ${id}.`
     )) as { url: string }
     try {
-        const response = await fetcher(url, { signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS) })
+        const response = await fetcher(url, { timeoutMs: DOWNLOAD_TIMEOUT_MS })
         if (!response.ok) {
             throw new HogError('download_failed', `The symbol set download failed with status ${response.status}.`)
         }

@@ -4,6 +4,7 @@ import { createEndpoint, createInsightVariable, updateEndpoint } from './api'
 import { compare, type Change } from './changes'
 import type { LocalEndpoint } from './files'
 import {
+    apiVariableType,
     hogqlOf,
     remoteVariableNames,
     requestBody,
@@ -26,6 +27,8 @@ export interface PushItem {
     path: string
     action: 'create' | 'update' | 'skip'
     reason?: string
+    // PostHog would reject the file, so the push fails.
+    invalid?: boolean
     changes: Change[]
     variables: VariableChange[]
     file: EndpointFile
@@ -41,7 +44,7 @@ function variableChanges(
         const known = existing.get(variable.name)
         if (!remoteNames.includes(variable.name)) {
             changes.push({ name: variable.name, change: 'add', type: variable.type })
-        } else if (known && known.type.toLowerCase() !== variable.type.toLowerCase()) {
+        } else if (known && known.type !== apiVariableType(variable.type)) {
             changes.push({ name: variable.name, change: 'retype', type: variable.type, from: known.type })
         }
     }
@@ -77,12 +80,12 @@ export function planPush(locals: LocalEndpoint[], remotes: Endpoint[], variables
         const base = { name: file.name, path, file, changes: [], variables: [] }
         const duplicate = seen.get(file.name)
         if (duplicate) {
-            return { ...base, action: 'skip', reason: `${duplicate} defines the same endpoint` }
+            return { ...base, action: 'skip', invalid: true, reason: `${duplicate} defines the same endpoint` }
         }
         seen.set(file.name, path)
         const reason = rejection(file, remoteNames)
         if (reason) {
-            return { ...base, action: 'skip', reason }
+            return { ...base, action: 'skip', invalid: true, reason }
         }
         const variableDiff = variableChanges(file, remoteNames, existing)
         if (!remote) {
@@ -129,7 +132,7 @@ export async function applyPush(
                 if (!insightVariable) {
                     insightVariable = await createInsightVariable(api, {
                         code_name: variable.name,
-                        type: variable.type,
+                        type: apiVariableType(variable.type),
                         ...(variable.default !== undefined ? { default_value: variable.default } : {}),
                     })
                     known.set(variable.name, insightVariable)

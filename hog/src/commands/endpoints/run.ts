@@ -26,7 +26,9 @@ async function queryVariables(api: PostHogApi, values: Map<string, unknown>): Pr
     return Object.fromEntries(
         [...values].map(([name, value]) => {
             const { id } = known.get(name)!
-            return [id, { variableId: id, code_name: name, ...(value === undefined ? {} : { value }) }]
+            const entry = { variableId: id, code_name: name, ...(value === undefined ? {} : { value }) }
+            // Without `isNull`, PostHog replaces a null value with the project's default.
+            return [id, value === null ? { ...entry, isNull: true } : entry]
         })
     )
 }

@@ -11,6 +11,12 @@ import { DEFAULT_TELEMETRY_TOKEN } from './telemetry'
 
 export type Env = Readonly<Record<string, string | undefined>>
 
+// `timeoutMs` starts when the request leaves, so time spent waiting for --rate-limit doesn't count.
+export type RuntimeFetch = (
+    input: string | URL | Request,
+    init?: RequestInit & { timeoutMs?: number }
+) => Promise<Response>
+
 // Everything a command touches outside its own arguments. Tests build one by hand,
 // so no command reads `process` or the network directly.
 export interface Runtime {
@@ -21,7 +27,7 @@ export interface Runtime {
     stdoutColumns: number | undefined
     writeStdout: (text: string) => void
     writeStderr: (text: string) => void
-    fetch: typeof fetch
+    fetch: RuntimeFetch
     now: () => number
     sleep: (ms: number) => Promise<void>
     homeDir: () => string | undefined
@@ -76,7 +82,11 @@ export function processRuntime(): Runtime {
         writeStderr: (text) => {
             process.stderr.write(text)
         },
-        fetch: globalThis.fetch,
+        fetch: (input, { timeoutMs, ...init } = {}) =>
+            globalThis.fetch(
+                input,
+                timeoutMs === undefined ? init : { ...init, signal: AbortSignal.timeout(timeoutMs) }
+            ),
         now: () => Date.now(),
         sleep: (ms) => Bun.sleep(ms),
         homeDir: () => {
