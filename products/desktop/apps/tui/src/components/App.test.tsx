@@ -478,6 +478,14 @@ describe("App", () => {
       await vi.waitFor(() => expect(output()).toContain("Bad name"));
       answer();
       await vi.waitFor(() => expect(output()).toContain("Couldn't rename"));
+      // The notice wraps in a row above the chat's composer, not under the sidebar.
+      await vi.waitFor(() => {
+        const rows = stripTerminalSequences(output()).split("\n");
+        const end = rows.findLastIndex((row) => row.includes("forbidden"));
+        expect(rows[end - 1]).toContain("│  Couldn't rename this chat:");
+        expect(rows[end + 1]).toMatch(/│ ─+ │/);
+        expect(rows[end + 2]).toContain("^N new");
+      });
       // The latest frames draw the old name again.
       await vi.waitFor(() =>
         expect(output().lastIndexOf("New name")).toBeGreaterThan(

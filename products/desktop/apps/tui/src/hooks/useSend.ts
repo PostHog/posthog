@@ -141,6 +141,8 @@ export function useSend({
       return;
     }
     const slash = parseSlash(text);
+    // Notices about this chat show above its composer.
+    const here = { paneId, taskId: pane?.taskId ?? null };
     if (slash?.command === "model") {
       openModelSheet(paneId, current);
       return;
@@ -167,9 +169,10 @@ export function useSend({
       const title = slash.args.trim();
       const shown = current?.title || pane?.title || "";
       if (!taskId)
-        flashNotice("A new chat gets its name from its first message");
+        flashNotice("A new chat gets its name from its first message", here);
       else if (!title) composerFor(paneId).setText(`/rename ${shown}`);
-      else if (!chats) flashNotice("Sign in to rename a chat: type /login");
+      else if (!chats)
+        flashNotice("Sign in to rename a chat: type /login", here);
       else {
         // Shown at once; a failed rename puts the old name back, unless a later rename has replaced it.
         setTitles((titles) => new Map(titles).set(taskId, title));
@@ -177,7 +180,7 @@ export function useSend({
           (task) => {
             setFresh((tasks) => new Map(tasks).set(task.id, task));
             setLayout((state) => renameTask(state, taskId, taskId, title));
-            flashNotice(`Renamed to ${title}`);
+            flashNotice(`Renamed to ${title}`, { taskId });
           },
           (error: unknown) => {
             setTitles((titles) => {
@@ -186,7 +189,9 @@ export function useSend({
               next.delete(taskId);
               return next;
             });
-            flashNotice(`Couldn't rename this chat: ${messageOf(error)}`);
+            flashNotice(`Couldn't rename this chat: ${messageOf(error)}`, {
+              taskId,
+            });
           },
         );
       }
@@ -198,6 +203,7 @@ export function useSend({
       if (!workspace || workspace.root.kind === "pane")
         flashNotice(
           "This chat isn't in a workspace. Split it with Ctrl+S first",
+          here,
         );
       else if (!name)
         composerFor(paneId).setText(
@@ -211,16 +217,19 @@ export function useSend({
     }
     if (slash?.command === "clear") {
       const taskId = pane?.taskId ?? null;
-      if (!taskId) flashNotice("There's nothing to clear yet");
+      if (!taskId) flashNotice("There's nothing to clear yet", here);
       else if (!isLocal(taskId))
         flashNotice(
           "You can't clear a cloud run. Type /new to start a new chat",
+          here,
         );
       else
         local.clear(taskId).then(
-          () => flashNotice("Cleared this chat"),
+          () => flashNotice("Cleared this chat", { taskId }),
           (error: unknown) =>
-            flashNotice(`Couldn't clear this chat: ${messageOf(error)}`),
+            flashNotice(`Couldn't clear this chat: ${messageOf(error)}`, {
+              taskId,
+            }),
         );
       return;
     }
@@ -231,6 +240,7 @@ export function useSend({
         mode === "local"
           ? `New chats run on this machine, in ${process.cwd()}`
           : "New chats run in the cloud",
+        here,
       );
       return;
     }
@@ -277,7 +287,7 @@ export function useSend({
     if (isLocal(pane?.taskId ?? null)) {
       promptLocal(pane?.taskId as string).catch((error: unknown) => {
         clearPending();
-        flashNotice(`Couldn't send: ${messageOf(error)}`);
+        flashNotice(`Couldn't send: ${messageOf(error)}`, here);
       });
       return;
     }
@@ -293,7 +303,9 @@ export function useSend({
           );
           promptLocal(task.id).catch((error: unknown) => {
             clearPending();
-            flashNotice(`Couldn't send: ${messageOf(error)}`);
+            flashNotice(`Couldn't send: ${messageOf(error)}`, {
+              taskId: task.id,
+            });
           });
         },
         (error: unknown) => {
@@ -301,6 +313,7 @@ export function useSend({
           composerFor(paneId).setText(text);
           flashNotice(
             `Couldn't start the chat: ${messageOf(error)}. Your message is still in the composer.`,
+            here,
           );
         },
       );
@@ -324,6 +337,7 @@ export function useSend({
         composerFor(paneId).putBack(text, images);
         flashNotice(
           `Couldn't send: ${messageOf(error)}. Your message is still in the composer.`,
+          here,
         );
       },
     );

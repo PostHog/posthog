@@ -7,7 +7,7 @@ import { useChatPlace } from "../hooks/useChatPlace";
 import { useKeys } from "../hooks/useKeys";
 import { useLocalChats } from "../hooks/useLocalChats";
 import { useModels } from "../hooks/useModels";
-import { useNotice } from "../hooks/useNotice";
+import { noticeIn, useNotice } from "../hooks/useNotice";
 import { usePaneViews } from "../hooks/usePaneViews";
 import { usePointer } from "../hooks/usePointer";
 import { useSearch } from "../hooks/useSearch";
@@ -21,10 +21,12 @@ import { useWorkList } from "../hooks/useWorkList";
 import {
   activeWorkspace,
   allPanes,
+  findPane,
   type LayoutState,
   layoutPath,
   loadLayout,
   type PaneNode,
+  paneIds,
   saveLayout,
 } from "../layout";
 import type { LocalSession } from "../local";
@@ -361,10 +363,24 @@ export function App({
       onChatBox={(element) => boxes.setChat(node.id, element)}
       onComposerBox={(element) => boxes.setComposer(node.id, element)}
       focused={!sidebarFocused && node.id === workspace.focusedPaneId}
+      notice={
+        noticeIn(notice.shown, node.id, node.taskId) && notice.shown
+          ? notice.shown.text
+          : null
+      }
     />
   );
 
   if (search.open) return <Search search={search} />;
+
+  // A chat's notice falls back to the sidebar while no pane on screen shows the chat.
+  const sidebarNotice =
+    notice.shown &&
+    !paneIds(workspace.root).some((paneId) =>
+      noticeIn(notice.shown, paneId, findPane(layout, paneId)?.taskId ?? null),
+    )
+      ? notice.shown.text
+      : null;
 
   const glyph = dividerGlyphs(workspace.root, area.width, area.height);
 
@@ -373,7 +389,7 @@ export function App({
     <Box flexGrow={1} paddingBottom={1}>
       <Sidebar
         boxRef={boxes.sidebar}
-        notice={notice.notice}
+        notice={sidebarNotice}
         rows={sidebar.rows}
         focused={sidebarFocused}
         selectedIndex={sidebar.selectedIndex}

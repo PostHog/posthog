@@ -11,6 +11,7 @@ import {
   shellRuns,
   type TranscriptLine,
 } from "../transcript";
+import type { FlashNotice } from "./useNotice";
 
 // One shared empty list, so panes with no pending commands keep a stable prop.
 const NO_SHELLS: PendingShell[] = [];
@@ -42,7 +43,7 @@ export function useShell({
   control: ((taskId: string, runId: string) => PiControl) | undefined;
   composerFor: (paneId: string) => Composer;
   linesOf: (paneId: string) => TranscriptLine[];
-  flashNotice: (text: string) => void;
+  flashNotice: FlashNotice;
 }): Shell {
   const [shells, setShells] = useState<Map<string, PendingShell[]>>(new Map());
 
@@ -61,14 +62,17 @@ export function useShell({
     });
     if (blocked || !taskId) {
       composerFor(paneId).setText(text);
-      if (blocked) flashNotice(blocked);
+      if (blocked) flashNotice(blocked, { paneId, taskId });
       return;
     }
     if (isLocal(taskId)) {
       localFor(taskId)
         .then((local) => local.control.bash(command))
         .catch((error: unknown) =>
-          flashNotice(`Couldn't run it: ${messageOf(error)}`),
+          flashNotice(`Couldn't run it: ${messageOf(error)}`, {
+            paneId,
+            taskId,
+          }),
         );
       return;
     }
@@ -101,7 +105,10 @@ export function useShell({
           }),
         (error: unknown) => {
           update(null);
-          flashNotice(`Couldn't run it: ${messageOf(error)}`);
+          flashNotice(`Couldn't run it: ${messageOf(error)}`, {
+            paneId,
+            taskId,
+          });
         },
       );
   };

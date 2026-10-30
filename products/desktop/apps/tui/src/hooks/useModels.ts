@@ -119,7 +119,7 @@ export function useModels({
     const target = liveTarget(paneId, task);
     if (target) {
       const live = target.control;
-      showNotice("Loading models…");
+      showNotice("Loading models…", { paneId });
       live.models().then(
         ({ available, current }) => {
           clearNotice();
@@ -142,13 +142,15 @@ export function useModels({
                   readRun(target.taskId, live).catch(() => {});
                 },
                 (error: unknown) =>
-                  flashNotice(`Couldn't switch model: ${messageOf(error)}`),
+                  flashNotice(`Couldn't switch model: ${messageOf(error)}`, {
+                    paneId,
+                  }),
               );
             },
           );
         },
         (error: unknown) =>
-          flashNotice(`Couldn't load models: ${messageOf(error)}`),
+          flashNotice(`Couldn't load models: ${messageOf(error)}`, { paneId }),
       );
       return;
     }
@@ -156,6 +158,7 @@ export function useModels({
     if (!available) {
       flashNotice(
         "The model list comes from a running chat. Send a message first.",
+        { paneId },
       );
       return;
     }
@@ -180,7 +183,7 @@ export function useModels({
     const target = liveTarget(paneId, task);
     if (target) {
       const live = target.control;
-      showNotice("Loading efforts…");
+      showNotice("Loading efforts…", { paneId });
       live.efforts().then(
         ({ available, current }) => {
           clearNotice();
@@ -200,13 +203,15 @@ export function useModels({
                     new Map(efforts).set(target.taskId, effort),
                   ),
                 (error: unknown) =>
-                  flashNotice(`Couldn't switch effort: ${messageOf(error)}`),
+                  flashNotice(`Couldn't switch effort: ${messageOf(error)}`, {
+                    paneId,
+                  }),
               );
             },
           );
         },
         (error: unknown) =>
-          flashNotice(`Couldn't load efforts: ${messageOf(error)}`),
+          flashNotice(`Couldn't load efforts: ${messageOf(error)}`, { paneId }),
       );
       return;
     }
@@ -214,6 +219,7 @@ export function useModels({
     if (!available) {
       flashNotice(
         "The effort list comes from a running chat. Send a message first.",
+        { paneId },
       );
       return;
     }
@@ -280,7 +286,9 @@ export function useModels({
         if (model) await live.setModel(model);
         if (effort) await live.setEffort(effort);
       } catch (error) {
-        flashNotice(`Couldn't apply your pick: ${messageOf(error)}`);
+        flashNotice(`Couldn't apply your pick: ${messageOf(error)}`, {
+          paneId,
+        });
       }
       if (model) setHeldModels((models) => without(models, paneId));
       if (effort) setHeldEfforts((efforts) => without(efforts, paneId));
@@ -302,14 +310,17 @@ export function useModels({
   ): void => {
     const target = liveTarget(paneId, task);
     if (!target) {
-      flashNotice("Compacting needs a running chat. Send a message first");
+      flashNotice("Compacting needs a running chat. Send a message first", {
+        paneId,
+      });
       return;
     }
-    showNotice("Compacting…");
+    showNotice("Compacting…", { paneId });
     // The chat shows the compaction and what it freed, so the notice only covers the wait.
     target.control.compact(instructions || undefined).then(
       () => clearNotice(),
-      (error: unknown) => flashNotice(`Couldn't compact: ${messageOf(error)}`),
+      (error: unknown) =>
+        flashNotice(`Couldn't compact: ${messageOf(error)}`, { paneId }),
     );
   };
 

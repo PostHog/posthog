@@ -92,10 +92,10 @@ export function useKeys({
     if (!closeGuard.current.press(Date.now())) {
       const last =
         layout.workspaces.length === 1 && paneIds(workspace.root).length === 1;
-      flashNotice(
-        `Press again to ${last ? "quit" : "close this chat"}`,
-        CLOSE_CONFIRM_MS,
-      );
+      flashNotice(`Press again to ${last ? "quit" : "close this chat"}`, {
+        ms: CLOSE_CONFIRM_MS,
+        paneId: last ? null : workspace.focusedPaneId,
+      });
       return;
     }
     clearNotice();
@@ -235,18 +235,18 @@ export function useKeys({
     if (key?.kind === "dismiss" && !composer.showingSuggestions()) {
       const turn = runningTurns.current.get(paneId);
       if (turn && control) {
-        flashNotice("Stopping…");
+        flashNotice("Stopping…", { paneId });
         control(turn.taskId, turn.runId)
           .abort()
           .then(
-            () => flashNotice("Stopped"),
+            () => flashNotice("Stopped", { paneId }),
             (error: unknown) =>
-              flashNotice(`Couldn't stop: ${messageOf(error)}`),
+              flashNotice(`Couldn't stop: ${messageOf(error)}`, { paneId }),
           );
       }
       if (escapes.current.press(Date.now())) composer.clear();
       else if (!turn && !composer.isEmpty())
-        flashNotice("Press Esc again to clear");
+        flashNotice("Press Esc again to clear", { paneId });
       return;
     }
     // Local agents take images directly; cloud runs get them uploaded as attachments when the message is sent.
@@ -254,7 +254,7 @@ export function useKeys({
       readClipboardImage().then((image) =>
         image
           ? composer.attach(image)
-          : flashNotice("There's no image on the clipboard"),
+          : flashNotice("There's no image on the clipboard", { paneId }),
       );
       return;
     }

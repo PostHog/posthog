@@ -1,3 +1,4 @@
+import { wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import type { Task } from "@posthog/shared";
 import { Box, type DOMElement, Text, useAnimation, useBoxMetrics } from "ink";
 import { type ReactElement, useEffect, useMemo, useRef, useState } from "react";
@@ -16,6 +17,7 @@ import {
 } from "../runs";
 import { renderSheet, type Sheet } from "../sheet";
 import type { StatusChip } from "../status";
+import { blue } from "../theme";
 import {
   type PendingShell,
   type TranscriptLine,
@@ -119,6 +121,7 @@ export function Pane({
   onRunLive,
   onTurn,
   focused,
+  notice: paneNotice,
 }: {
   title: string;
   paneTaskId: string | null;
@@ -157,6 +160,8 @@ export function Pane({
   onChatBox: (element: DOMElement | null) => void;
   // The composer's box, from its top rule down, so a click can place the cursor and a drag can select.
   onComposerBox: (element: DOMElement | null) => void;
+  // A notice about this chat, shown in a row above the composer.
+  notice: string | null;
   // Called once the chat's run has a live sandbox.
   onRunLive: (taskId: string, runId: string) => void;
   // The run while the agent is mid-turn, or null, so Esc can stop it.
@@ -287,10 +292,18 @@ export function Pane({
         : offerOpen
           ? renderSheet(actionsSheet(offer), picker.index, width).map(shade)
           : [];
+  const noticeLines =
+    paneNotice && width > 1
+      ? wrapTextWithAnsi(paneNotice, width - 1).map((line) =>
+          shade(` ${blue(line)}`),
+        )
+      : [];
   const showsComposer = !modal || Boolean(modal.submitText);
-  const bottomLines = showsComposer
-    ? [...sheetLines, ...composerLines]
-    : sheetLines;
+  const bottomLines = [
+    ...noticeLines,
+    ...sheetLines,
+    ...(showsComposer ? composerLines : []),
+  ];
   const chatHeight = height - bottomLines.length - (view.error ? 1 : 0);
 
   const popupContent = (
@@ -390,6 +403,12 @@ export function Pane({
         >
           {content}
         </Box>
+        {noticeLines.map((line, index) => (
+          // biome-ignore lint/suspicious/noArrayIndexKey: rows are positions on screen
+          <Text key={`notice-${index}`} wrap="truncate-end">
+            {line}
+          </Text>
+        ))}
         {sheetLines.map((line, index) => (
           // biome-ignore lint/suspicious/noArrayIndexKey: rows are positions on screen
           <Text key={`sheet-${index}`} wrap="truncate-end">

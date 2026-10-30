@@ -19,6 +19,7 @@ import {
 import { openImage, openUrl } from "../openUrl";
 import { Gesture } from "../selection";
 import type { SidebarRow } from "../sidebar";
+import type { FlashNotice } from "./useNotice";
 
 function boxOf(element: DOMElement): ScreenBox {
   const { x, y, width, height } = measureElement(element);
@@ -74,7 +75,7 @@ export function usePointer({
   composerFor: (paneId: string) => Composer;
   scrollPane: (paneId: string, lines: number) => void;
   repaint: () => void;
-  flashNotice: (text: string) => void;
+  flashNotice: FlashNotice;
 }): Pointer {
   const sidebarBox = useRef<DOMElement | null>(null);
   const lastMove = useRef<{ at: Click; time: number } | null>(null);
@@ -152,6 +153,7 @@ export function usePointer({
   const selecting = useRef<{
     target: ChatView | Composer;
     box: ScreenBox;
+    paneId: string;
   } | null>(null);
   const selectIn = (from: Click, to: Click): void => {
     const current = selecting.current;
@@ -174,12 +176,12 @@ export function usePointer({
       for (const [paneId, element] of chatBoxes.current) {
         const box = boxOf(element);
         if (hitTest(at, [["chat", box]]))
-          selecting.current = { target: chatIn(paneId), box };
+          selecting.current = { target: chatIn(paneId), box, paneId };
       }
       for (const [paneId, element] of composerBoxes.current) {
         const box = boxOf(element);
         if (hitTest(at, [["composer", box]]))
-          selecting.current = { target: composerFor(paneId), box };
+          selecting.current = { target: composerFor(paneId), box, paneId };
       }
       repaint();
     },
@@ -195,7 +197,9 @@ export function usePointer({
       const text = selecting.current.target.selectedText();
       if (!text.trim()) return;
       copyToClipboard(text);
-      flashNotice("Copied to clipboard");
+      flashNotice("Copied to clipboard", {
+        paneId: selecting.current.paneId,
+      });
     },
     onMove: (move) => {
       lastMove.current = { at: move, time: Date.now() };
