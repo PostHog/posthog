@@ -32,7 +32,8 @@
                 "CLICKHOUSE_HOST",
                 "TEST",
                 "PERSON_ON_EVENTS_V2_ENABLED",
-                "CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA"
+                "CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA",
+                "POSTHOG_PEER_LAZY_LOADS"
             ],
             // Job env that pytest reads. Turbo strips undeclared env vars, so a var set on
             // the CI job never reaches pytest unless listed here, and nothing fails when one
@@ -42,8 +43,10 @@
             //   internal-only tests for external contributors).
             // - COVERAGE_CORE: without it, coverage uses its slower C tracer.
             // - POSTHOG_PYTEST_HARD_EXIT: without it, green shards pay the interpreter teardown.
+            // - POSTHOG_PEER_LAZY_LOADS_DIR: without it, product shards record no peer lazy loads.
             "passThroughEnv": [
                 "PYTEST_ADDOPTS",
+                "POSTHOG_PEER_LAZY_LOADS_DIR",
                 "RUNNER_NAME",
                 "RUNS_ON_INTERNAL_PR",
                 "SANDBOX_JWT_PRIVATE_KEY",
