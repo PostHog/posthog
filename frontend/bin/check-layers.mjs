@@ -13,6 +13,7 @@ import { esbuildBuild } from '@posthog/esbuilder'
 
 import { AUTHENTICATED_SHELL, BOOT_ENTRIES } from './bootEntries.mjs'
 import { renderLayerGraphHtml } from './layerGraphHtml.mjs'
+import { findOpportunities } from './layerOpportunities.mjs'
 import { LAYERS, isUpward, layerOf } from './layers.mjs'
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
@@ -193,9 +194,10 @@ console.info(
 
 if (htmlIndex !== -1) {
     const htmlPath = path.resolve(args[htmlIndex + 1])
+    const opportunities = findOpportunities({ files, shellRoot, shellReach })
     fs.writeFileSync(
         htmlPath,
-        renderLayerGraphHtml({ files, shellRoot, shellReach, upward: current, layerOf, layers: LAYERS })
+        renderLayerGraphHtml({ files, shellRoot, shellReach, upward: current, layerOf, layers: LAYERS, opportunities })
     )
     console.info(`Wrote ${htmlPath}`)
 }

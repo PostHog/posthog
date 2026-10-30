@@ -1,21 +1,7 @@
+import { groupOf, shortName } from './layers.mjs'
+
 // Renders check-layers.mjs results as one self-contained HTML page: a column per layer, a box per
 // folder, and a line for each folder pair joined by an upward import.
-
-const shortName = (file) => file.replace(/^frontend\/src\//, '')
-
-function groupOf(file) {
-    const parts = shortName(file).split('/')
-    if (parts[0] === 'products') {
-        return parts.slice(0, 2).join('/') + (parts.includes('generated') ? '/generated' : '')
-    }
-    if (parts[0] === 'lib' && parts.length > 3) {
-        return parts.slice(0, 3).join('/')
-    }
-    if (parts.length > 2) {
-        return parts.slice(0, 2).join('/')
-    }
-    return parts.length === 2 ? `${parts[0]}/*` : 'src/*'
-}
 
 function bytesSavedByCut(files, root, reachBytes, cutFrom, cutTo) {
     const seen = new Set([root])
@@ -35,7 +21,7 @@ function bytesSavedByCut(files, root, reachBytes, cutFrom, cutTo) {
     return reachBytes - bytes
 }
 
-export function renderLayerGraphHtml({ files, shellRoot, shellReach, upward, layerOf, layers }) {
+export function renderLayerGraphHtml({ files, shellRoot, shellReach, upward, layerOf, layers, opportunities }) {
     const reachBytes = [...shellReach.keys()].reduce((sum, file) => sum + (files[file]?.bytes ?? 0), 0)
     const groups = {}
     for (const [file, { bytes }] of Object.entries(files)) {
@@ -71,6 +57,7 @@ export function renderLayerGraphHtml({ files, shellRoot, shellReach, upward, lay
         imports,
         parents,
         reachBytes,
+        opportunities,
         generated: new Date().toISOString(),
     }
     return PAGE.replace('__DATA__', JSON.stringify(data).replace(/</g, '\\u003c'))
@@ -132,7 +119,10 @@ th, td { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--bord
 th { color: var(--text-muted); font-weight: 600; cursor: pointer; position: sticky; top: 0; background: var(--surface-1); }
 td.layers, th { white-space: nowrap; }
 td.num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
-#table { flex: 1; overflow: auto; padding: 0 16px 16px; display: none; }
+#table, #opportunities { flex: 1; overflow: auto; padding: 0 16px 16px; display: none; }
+#opportunities h2 { font-size: 15px; margin: 20px 0 2px; }
+#opportunities p { color: var(--text-secondary); margin: 0 0 8px; max-width: 80ch; }
+details summary { cursor: pointer; }
 a { color: inherit; }
 </style>
 </head>
@@ -147,11 +137,13 @@ a { color: inherit; }
     <input type="search" id="search" placeholder="Filter folders">
     <button class="tab" id="showGraph" aria-pressed="true">Graph</button>
     <button class="tab" id="showTable" aria-pressed="false">Table</button>
+    <button class="tab" id="showOpportunities" aria-pressed="false">Opportunities</button>
   </div>
 </header>
 <main>
   <div id="graph"></div>
   <div id="table"></div>
+  <div id="opportunities"></div>
   <aside id="details"><p class="muted">Select a folder to see its upward imports, why it is eager, and its largest files. Sizes are source bytes, before minify.</p></aside>
 </main>
 <div id="tooltip"></div>
@@ -289,17 +281,36 @@ function drawTable() {
   document.querySelectorAll('#table th').forEach((th) => th.addEventListener('click', () => { state.sort = th.dataset.sort; drawTable() }))
 }
 
-function redraw() { drawGraph(); drawTable() }
+function drawOpportunities() {
+  const o = DATA.opportunities
+  const short = (f) => f.replace('frontend/src/', '')
+  const files = (list) => '<details><summary>' + list.length + '</summary>' + list.map((f) => short(f)).join('<br>') + '</details>'
+  const table = (heads, rows) => '<table><thead><tr>' + heads.map((h) => '<th>' + h + '</th>').join('') + '</tr></thead><tbody>' + rows.map((r) => '<tr>' + r.map((c, i) => '<td' + (typeof c === 'number' ? ' class="num"' : '') + '>' + c + '</td>').join('') + '</tr>').join('') + '</tbody></table>'
+  const match = (text) => !state.search || text.includes(state.search)
+  document.getElementById('opportunities').innerHTML =
+    '<h2>Make a folder lazy</h2><p>A feature or query folder on the eager path, and the bytes saved if every import into it from outside became a dynamic import. Fewest imports for the most bytes first.</p>' +
+    table(['Folder', 'Layer', 'Saves', 'Imports to change'], o.lazyFolders.filter((x) => match(x.folder)).map((x) => [x.folder, x.layer, kib(x.saved), files(x.entries.map(([from, to]) => from + ' -> ' + to))])) +
+    '<h2>Move a file down a layer</h2><p>Lower layers import this file, and it imports nothing above the lowest of them. Moving it down clears these baseline entries and adds none.</p>' +
+    table(['File', 'Move', 'Clears', 'Imported from'], o.misplacedFiles.filter((x) => match(x.file)).map((x) => [short(x.file), x.layer + ' -> ' + x.moveTo, x.lowerImporters.length, files(x.lowerImporters)])) +
+    '<h2>Split a heavy hub</h2><p>A file the shell path imports upward that pulls in far more than its own size. Usually a cheap export sits next to a heavy one.</p>' +
+    table(['File', 'Layer', 'Own size', 'Drags in'], o.heavyHubs.filter((x) => match(x.file)).map((x) => [short(x.file), x.layer, kib(x.bytes), kib(x.saved)])) +
+    '<h2>Kernel leaks</h2><p>Kernel is the bottom layer, so it should import nothing above it. Each target is either kernel code in the wrong place or a kernel file that needs a split.</p>' +
+    table(['Target', 'Layer', 'Kernel importers'], o.kernelLeaks.filter((x) => match(x.file)).map((x) => [short(x.file), x.layer, files(x.importers)]))
+}
+
+function redraw() { drawGraph(); drawTable(); drawOpportunities() }
 document.getElementById('eagerOnly').addEventListener('change', (e) => { state.eagerOnly = e.target.checked; state.selected = null; redraw() })
 document.getElementById('search').addEventListener('input', (e) => { state.search = e.target.value.trim(); redraw() })
-function showView(table) {
-  document.getElementById('graph').style.display = table ? 'none' : 'block'
-  document.getElementById('table').style.display = table ? 'block' : 'none'
-  document.getElementById('showGraph').setAttribute('aria-pressed', String(!table))
-  document.getElementById('showTable').setAttribute('aria-pressed', String(table))
+const VIEWS = { graph: 'showGraph', table: 'showTable', opportunities: 'showOpportunities' }
+function showView(view) {
+  for (const [id, button] of Object.entries(VIEWS)) {
+    document.getElementById(id).style.display = id === view ? 'block' : 'none'
+    document.getElementById(button).setAttribute('aria-pressed', String(id === view))
+  }
 }
-document.getElementById('showGraph').addEventListener('click', () => showView(false))
-document.getElementById('showTable').addEventListener('click', () => showView(true))
+for (const [id, button] of Object.entries(VIEWS)) {
+  document.getElementById(button).addEventListener('click', () => showView(id))
+}
 redraw()
 </script>
 </body>
