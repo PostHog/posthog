@@ -2603,6 +2603,33 @@ class TestSavedQuery(APIBaseTest):
             node.refresh_from_db()
             self.assertEqual(suspension_state(node), {})
 
+    def test_resume_with_an_engine_clears_only_that_engine(self):
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="suspended_on_both",
+            query={"kind": "HogQLQuery", "query": "select event as event from events LIMIT 100"},
+            created_by=self.user,
+        )
+        node = Node.objects.create(
+            team=self.team,
+            dag=DAG.objects.create(team=self.team, name="dag"),
+            saved_query=saved_query,
+            type=NodeType.MAT_VIEW,
+        )
+        for engine in ("clickhouse", "managed_warehouse"):
+            mark_node_suspended(node, engine=engine, reason="boom", job_id=str(uuid.uuid4()))
+        node.save()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query.id}/resume/",
+            {"engine": "trino"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"resumed": True})
+        node.refresh_from_db()
+        self.assertEqual(list(suspension_state(node)), ["clickhouse"])
+
     def test_resume_schedules_clears_suspension_for_every_listed_query(self):
         saved_queries = [
             DataWarehouseSavedQuery.objects.create(
