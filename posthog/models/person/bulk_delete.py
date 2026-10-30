@@ -281,14 +281,15 @@ DELETION_LOG_DEDUPE_WINDOW = timedelta(hours=24)
 @frozen(slots=False)  # The activity log encoder writes a context out through __dict__.
 class PersonDeletionActivityContext(ActivityContextBase):
     # The version of the Postgres tombstone. A retry reports the same version, and a later deletion of the revived
-    # person a higher one, so the version tells a retried deletion from a new one.
-    person_version: int
+    # person a higher one, so the version tells a retried deletion from a new one. None when the lifecycle saga
+    # answered from an op recorded without one.
+    person_version: int | None
 
 
 @frozen
 class _DeletedPerson:
     person: Person
-    tombstone_version: int
+    tombstone_version: int | None
 
 
 def tombstone_and_publish_persons_by_uuids(
@@ -637,7 +638,7 @@ def _logged_deletion_versions(team_id: int, person_ids: builtins.list[int]) -> d
     return versions
 
 
-def _deletion_already_logged(logged_versions: set[int | None], tombstone_version: int) -> bool:
+def _deletion_already_logged(logged_versions: set[int | None], tombstone_version: int | None) -> bool:
     return tombstone_version in logged_versions or None in logged_versions
 
 
@@ -699,7 +700,12 @@ def _tombstone_persons_via_lifecycle(
     failures: builtins.list[PersonDeletionFailure],
     run: DeletionRun,
 ) -> builtins.list[_DeletedPerson]:
-    """Run the saga per batch; a person another live op holds is a retryable failure for the next attempt."""
+    """Run the saga per batch; a person another live op holds is a retryable failure for the next attempt.
+
+    A call that raises after the saga tombstoned the rows still counts them: the replica shows the
+    tombstone, and the identity sweeper re-drives the op to completion, which is what writes the
+    outbox pointer. Nothing here publishes to ClickHouse.
+    """
     person_by_uuid = {person.uuid: person for person in persons}
     deleted: builtins.list[_DeletedPerson] = []
     for batch in _batches_by_distinct_id_count(persons, max_persons=LIFECYCLE_DELETE_PERSONS_PER_RPC):

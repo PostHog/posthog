@@ -371,6 +371,17 @@ class LifecycleDeletePersonsProfileTests(BaseTest):
         # The first op recorded the conflict, so only the next attempt's op id reaches the released person.
         assert (replayed.retryable_errors, retried.deleted_count) == ([p.uuid], 1)
 
+    def test_a_deleted_person_without_a_version_is_still_counted_and_logged(self):
+        p = create_person(team=self.team, distinct_ids=["a"], properties={})
+        get_active_fake().omit_lifecycle_person_version(team_id=self.team.pk, person_id=p.pk)
+        with _no_publish():
+            result = delete_persons_profile(self.team.pk, [p], actor=self.user, organization_id=self.organization.id)
+
+        assert (result.deleted_count, result.failures) == (1, [])
+        [log] = ActivityLog.objects.filter(team_id=self.team.pk, scope="Person", item_id=str(p.pk))
+        assert (log.detail or {})["context"]["person_version"] is None
+        assert get_active_fake()._persons_by_uuid[(self.team.pk, str(p.uuid))].is_deleted is True
+
     def test_a_person_the_saga_does_not_find_is_neither_counted_nor_failed(self):
         p = create_person(team=self.team, distinct_ids=["a"], properties={})
         tombstone_persons_in_postgres(self.team.pk, [p.uuid])

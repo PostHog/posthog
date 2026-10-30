@@ -137,6 +137,7 @@ class FakePersonHogClient:
         self._lifecycle_ops: dict[str, tuple[int, tuple[int, ...], lifecycle_pb2.DeletePersonsResponse]] = {}
         # (team_id, person_id) held by another live lifecycle op
         self._lifecycle_marks: set[tuple[int, int]] = set()
+        self._lifecycle_versionless: set[tuple[int, int]] = set()
 
         # keyed by project_id -> list of GroupTypeMapping
         self._group_type_mappings_by_project: dict[int, list[group_pb2.GroupTypeMapping]] = {}
@@ -263,6 +264,10 @@ class FakePersonHogClient:
 
     def release_lifecycle_mark(self, *, team_id: int, person_id: int) -> None:
         self._lifecycle_marks.discard((team_id, person_id))
+
+    def omit_lifecycle_person_version(self, *, team_id: int, person_id: int) -> None:
+        """Answer a delete of this person like an op recorded by a build that stored no tombstone version."""
+        self._lifecycle_versionless.add((team_id, person_id))
 
     def add_cohort_membership(self, *, person_id: int, cohort_id: int, is_member: bool = True) -> None:
         self._cohort_memberships.setdefault(person_id, []).append(
@@ -803,7 +808,7 @@ class FakePersonHogClient:
         response = lifecycle_pb2.DeletePersonsResponse(op_id=request.op_id)
         for person_id in request.person_ids:
             result = response.results.add(person_id=person_id, outcome=outcomes[person_id])
-            if person_id in versions:
+            if person_id in versions and (request.team_id, person_id) not in self._lifecycle_versionless:
                 result.person_version = versions[person_id]
         self._lifecycle_ops[request.op_id] = (frozen[0], frozen[1], response)
         copy = lifecycle_pb2.DeletePersonsResponse()

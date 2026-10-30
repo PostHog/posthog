@@ -784,9 +784,12 @@ class PersonDeletionConflict(Exception):
 
 @frozen
 class LifecycleDeleteOutcome:
-    """What one saga call left behind: the version each deleted person's tombstone committed at, and the persons it could not claim."""
+    """What one saga call left behind: the version each deleted person's tombstone committed at, and the persons it could not claim.
 
-    deleted: dict[UUID, int]
+    A deleted person has no version when the op was recorded by a build that did not store one.
+    """
+
+    deleted: dict[UUID, int | None]
     conflicts: list[UUID]
 
 
@@ -822,7 +825,7 @@ def tombstone_persons_via_lifecycle(
     results = personhog_call("lifecycle_delete_persons", personhog_fn, caller_tag="persons/deletion-lifecycle")
 
     conflicts: list[UUID] = []
-    deleted: dict[UUID, int] = {}
+    deleted: dict[UUID, int | None] = {}
     for person_id in person_ids:
         uuid = person_uuids_by_id[person_id]
         result = results.get(person_id)
@@ -833,8 +836,8 @@ def tombstone_persons_via_lifecycle(
         ).inc()
         if outcome == DELETE_PERSON_OUTCOME_SKIPPED_CONFLICT:
             conflicts.append(uuid)
-        elif outcome == DELETE_PERSON_OUTCOME_DELETED and result is not None and result.HasField("person_version"):
-            deleted[uuid] = int(result.person_version)
+        elif outcome == DELETE_PERSON_OUTCOME_DELETED and result is not None:
+            deleted[uuid] = int(result.person_version) if result.HasField("person_version") else None
     return LifecycleDeleteOutcome(deleted=deleted, conflicts=conflicts)
 
 
