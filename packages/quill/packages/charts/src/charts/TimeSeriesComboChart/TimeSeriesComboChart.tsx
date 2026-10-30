@@ -47,6 +47,8 @@ export interface TimeSeriesComboChartConfig {
     bandPadding?: number
     /** Show a vertical crosshair line that follows the cursor. */
     showCrosshair?: boolean
+    /** Join the shared crosshair of an enclosing `ChartHoverSync`. Defaults to true. */
+    syncHover?: boolean
     /** Horizontal grid lines, aligned to the primary y-axis ticks. `showGrid` on the primary
      *  `yAxis` config, when set, wins. */
     showGrid?: boolean
@@ -106,6 +108,7 @@ export function TimeSeriesComboChart<Meta = unknown>({
         barCornerRadius,
         bandPadding,
         showCrosshair,
+        syncHover = true,
         showGrid,
         showAxisLines,
         showTickMarks,
@@ -150,6 +153,7 @@ export function TimeSeriesComboChart<Meta = unknown>({
         showTickMarks,
         curve,
         showCrosshair,
+        syncHover,
         defaultSeriesType,
         barLayout,
         divergingStack,

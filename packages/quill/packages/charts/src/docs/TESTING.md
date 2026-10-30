@@ -53,6 +53,7 @@ chart.valueLabels() // [{ text, color }, …]
 chart.anomalyPoints() // [{ element, color }, …] (TimeSeriesLineChart)
 chart.legend() // legend container in the render scope, null when hidden
 chart.legendItems() // [{ label, secondaryLabel }, …] legend rows in the render scope, empty when hidden
+chart.syncedIndex() // label index of another chart's shared crosshair here, or null
 chart.clickLegendItem('A', { additive: true }) // click a legend row, additive toggles instead of isolating
 chart.slope.valueLabels() // [{ text, color, side }, …] slope value labels, start and end columns
 chart.slope.seriesLabels() // slope series names, after collision avoidance
