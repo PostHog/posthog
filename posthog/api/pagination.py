@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING, Any, Optional, cast
 
 from django.core.exceptions import ImproperlyConfigured
 
-from rest_framework.pagination import CursorPagination, LimitOffsetPagination
+from rest_framework.pagination import CursorPagination, LimitOffsetPagination, PageNumberPagination
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
@@ -16,13 +16,48 @@ if TYPE_CHECKING:
     from rest_framework.generics import GenericAPIView
 
 
-class PrecountedLimitOffsetPagination(LimitOffsetPagination):
+class BoundedLimitOffsetPagination(LimitOffsetPagination):
+    """Limit/offset pages of at most `max_limit` rows.
+
+    DRF has no upper bound by default, so `?limit=` could ask one request to read a whole table.
+    A larger limit is cut to `max_limit`, and the schema states the maximum.
+    """
+
+    max_limit = 1000
+
+    def get_schema_operation_parameters(self, view: Any) -> list[dict[str, Any]]:
+        parameters = super().get_schema_operation_parameters(view)
+        for parameter in parameters:
+            if parameter["name"] == self.limit_query_param:
+                parameter["schema"]["maximum"] = self.max_limit
+        return parameters
+
+
+class BoundedPageNumberPagination(PageNumberPagination):
+    """Numbered pages with a cap on the page size that a client chooses.
+
+    A subclass that lets clients choose the page size with `page_size_query_param` gets that size
+    cut to `max_page_size`, and the schema states the maximum. A fixed `page_size` on the subclass
+    is not cut.
+    """
+
+    max_page_size = 1000
+
+    def get_schema_operation_parameters(self, view: Any) -> list[dict[str, Any]]:
+        parameters = super().get_schema_operation_parameters(view)
+        for parameter in parameters:
+            if parameter["name"] == self.page_size_query_param:
+                parameter["schema"]["maximum"] = self.max_page_size
+        return parameters
+
+
+class PrecountedLimitOffsetPagination(BoundedLimitOffsetPagination):
     """Pages a queryset that the view has already bounded with LIMIT and OFFSET.
 
     `LimitOffsetPagination` counts with `len(queryset)` and then slices the result in Python. A
     `RawQuerySet` answers both by fetching every row, so one page costs a read of the whole result
     set. Views that page in SQL run their own count statement and hand the total over with
-    `set_count`. Without a count this behaves exactly like `LimitOffsetPagination`, so a view that
+    `set_count`. Without a count this behaves exactly like `BoundedLimitOffsetPagination`, so a view that
     also returns unbounded querysets keeps working.
     """
 
@@ -93,23 +128,6 @@ class CappedCountLimitOffsetPagination(PrecountedLimitOffsetPagination):
         return paginated
 
 
-class BoundedLimitOffsetPagination(LimitOffsetPagination):
-    """Limit/offset pages of at most `max_limit` rows.
-
-    DRF has no upper bound by default, so `?limit=` could ask one request to read a whole table.
-    A larger limit is cut to `max_limit`, and the schema states the maximum.
-    """
-
-    max_limit = 1000
-
-    def get_schema_operation_parameters(self, view: Any) -> list[dict[str, Any]]:
-        parameters = super().get_schema_operation_parameters(view)
-        for parameter in parameters:
-            if parameter["name"] == self.limit_query_param:
-                parameter["schema"]["maximum"] = self.max_limit
-        return parameters
-
-
 class FacadeLimitOffsetPagination(BoundedLimitOffsetPagination):
     """Builds the standard limit/offset response from a page that a facade read in SQL.
 
@@ -150,6 +168,9 @@ class StableCursorPagination(CursorPagination):
     cursor does not store the primary key.
     """
 
+    # A subclass can leave `count` out, because counting costs a full scan on large tables.
+    include_count: bool = True
+
     def get_ordering(self, request: Request, queryset: Any, view: Any) -> tuple[str, ...]:
         ordering = super().get_ordering(request, queryset, view)
         model = getattr(queryset, "model", None)
@@ -164,6 +185,8 @@ class StableCursorPagination(CursorPagination):
         return super().paginate_queryset(queryset, request, view)
 
     def get_paginated_response(self, data: Any) -> Response:
+        if not self.include_count:
+            return super().get_paginated_response(data)
         return Response(
             {
                 "count": self.counted_rows.count(),
@@ -175,6 +198,8 @@ class StableCursorPagination(CursorPagination):
 
     def get_paginated_response_schema(self, schema: dict) -> dict:
         paginated = super().get_paginated_response_schema(schema)
+        if not self.include_count:
+            return paginated
         paginated["required"] = ["count", "results"]
         paginated["properties"] = {
             "count": {"type": "integer", "example": 123},

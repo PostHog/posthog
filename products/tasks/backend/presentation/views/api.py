@@ -420,15 +420,13 @@ def _agent_run_enabled(request, team) -> bool:
 
 
 class _SchemaAwareLimitOffsetPagination(PrecountedLimitOffsetPagination):
-    """LimitOffsetPagination subclass that surfaces `default_limit`/`max_limit` in the OpenAPI schema."""
+    """LimitOffsetPagination subclass that surfaces `default_limit` and the bounds in the OpenAPI schema."""
 
     def get_schema_operation_parameters(self, view):
         parameters = super().get_schema_operation_parameters(view)
         for parameter in parameters:
             if parameter.get("name") == self.limit_query_param:
                 parameter["schema"]["default"] = self.default_limit
-                if self.max_limit is not None:
-                    parameter["schema"]["maximum"] = self.max_limit
                 parameter["schema"]["minimum"] = 1
             elif parameter.get("name") == self.offset_query_param:
                 parameter["schema"]["default"] = 0

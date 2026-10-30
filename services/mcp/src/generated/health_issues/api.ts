@@ -20,13 +20,15 @@ export const HealthIssuesListParams = () => zod.object({
         ),
 })
 
+export const healthIssuesListQueryLimitMax = 250
+
 export const HealthIssuesListQueryParams = () => zod.object({
     dismissed: zod
         .boolean()
         .optional()
         .describe('Filter by dismissed state. Omit to include both dismissed and non-dismissed issues.'),
     kind: zod.string().optional().describe("Only return issues from this check kind (e.g. 'sdk_outdated')."),
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod.number().max(healthIssuesListQueryLimitMax).optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     severity: zod
         .string()

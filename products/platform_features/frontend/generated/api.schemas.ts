@@ -1366,6 +1366,10 @@ export type RolesRoleMembershipsListParams = {
 
 export type ActivityLogListParams = {
     /**
+     * The pagination cursor value.
+     */
+    cursor?: string
+    /**
      * Filter by the ID of the affected resource.
      * @minLength 1
      */
@@ -1830,6 +1834,10 @@ export type AdvancedActivityLogsListParams = {
      * Filter by API clients that generated the activity (the x-posthog-client header, or 'scout:<skill_name>' for a scout run).
      */
     clients?: string[]
+    /**
+     * The pagination cursor value.
+     */
+    cursor?: string
     /**
      * JSON-encoded map of `detail` field paths to {operation, value} filters. Allowed operations: exact, contains, in.
      */

@@ -321,6 +321,7 @@ export const signalsReportsListQueryExcludeMax = 100
 
 export const signalsReportsListQueryIncludeSourceMetadataDefault = true
 export const signalsReportsListQueryIncludeUnlistedDefault = false
+export const signalsReportsListQueryLimitMax = 1000
 
 export const SignalsReportsListQueryParams = () => zod.object({
     actionability: zod
@@ -388,7 +389,11 @@ export const SignalsReportsListQueryParams = () => zod.object({
         .describe(
             'Include reports kept out of the shared inbox. A report is kept out when the scout that authored it turned off its `inbox` output destination. Defaults to false. Fetching a report by id always works, whatever this value is.'
         ),
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod
+        .number()
+        .max(signalsReportsListQueryLimitMax)
+        .optional()
+        .describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     ordering: zod
         .string()

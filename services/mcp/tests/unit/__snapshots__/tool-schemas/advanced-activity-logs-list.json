@@ -17,6 +17,10 @@
             },
             "type": "array"
         },
+        "cursor": {
+            "description": "The pagination cursor value.",
+            "type": "string"
+        },
         "detail_filters": {
             "description": "JSON-encoded map of `detail` field paths to {operation, value} filters. Allowed operations: exact, contains, in.",
             "type": "string"
