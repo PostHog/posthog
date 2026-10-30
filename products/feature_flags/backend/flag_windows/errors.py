@@ -17,7 +17,7 @@ from collections.abc import Mapping, Sequence
 from datetime import datetime, timedelta
 
 from posthog.hogql import ast
-from posthog.hogql.parser import parse_expr
+from posthog.hogql.parser import parse_expr, parse_select
 
 from posthog.dataclasses import frozen
 from posthog.models import Team
@@ -53,7 +53,9 @@ def errors_by_bucket(
 ) -> dict[str, list[ErrorBucket]]:
     """The errors after each edit in each bucket of `[start, end)`, by edit id, oldest bucket first. A bucket without
     errors after the edit has no entry."""
-    counts = counts_by_bucket(team, edits, _conditions, start, end, bucket, event="$exception")
+    counts = counts_by_bucket(
+        team, edits, _conditions, start, end, bucket, event="$exception", join=_issue_first_seen_join()
+    )
     return {
         edit.id: [
             ErrorBucket(
@@ -68,20 +70,32 @@ def errors_by_bucket(
     }
 
 
+def _issue_first_seen_join() -> ast.JoinExpr:
+    # Error tracking stores the first seen time per fingerprint, and a merged issue has many fingerprints. The join
+    # keeps the earliest one, so a new fingerprint does not make an old issue look new. One join serves every edit,
+    # because a subquery per edit would read all fingerprints of the team again for each edit.
+    return ast.JoinExpr(
+        join_type="LEFT JOIN",
+        table=parse_select(
+            """
+            SELECT issue_id, min(first_seen) AS first_seen
+            FROM posthog.error_tracking_fingerprint_issue_state
+            GROUP BY issue_id
+            """
+        ),
+        alias="earliest_issue_seen",
+        constraint=ast.JoinConstraint(
+            expr=parse_expr("earliest_issue_seen.issue_id = events.issue_id"), constraint_type="ON"
+        ),
+    )
+
+
 def _conditions(edit: WatchedEdit, read: FlagRead) -> list[ast.Expr]:
     return [
         ast.Constant(value=True),
-        # Error tracking stores the first seen time per fingerprint, and a merged issue has many fingerprints. Compare
-        # the earliest one, so a new fingerprint does not make an old issue look new. A fingerprint that isn't synced
-        # to ClickHouse yet has no issue, and counts as new.
+        # A fingerprint that isn't synced to ClickHouse yet has no issue, and counts as new.
         parse_expr(
-            """
-            issue_id IN (
-                SELECT issue_id FROM posthog.error_tracking_fingerprint_issue_state
-                GROUP BY issue_id
-                HAVING min(first_seen) >= {edited_at}
-            ) OR isNull(issue_id)
-            """,
+            "isNull(events.issue_id) OR earliest_issue_seen.first_seen >= {edited_at}",
             placeholders={"edited_at": ast.Constant(value=edit.edited_at)},
         ),
         read.exposed,

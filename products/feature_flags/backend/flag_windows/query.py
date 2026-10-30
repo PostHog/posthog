@@ -148,9 +148,11 @@ def counts_by_bucket(
     end: datetime,
     bucket: timedelta,
     event: str | None = None,
+    join: ast.JoinExpr | None = None,
 ) -> dict[str, list[BucketCounts]]:
     """For each edit, the people (or groups) that meet each of its conditions after the edit, in each bucket of
-    `[start, end)` that has events, oldest bucket first. `event` limits the scan to one event name."""
+    `[start, end)` that has events, oldest bucket first. `event` limits the scan to one event name. `join` joins a
+    table to the events, so that the conditions of every edit can read it."""
     seconds = bucket.total_seconds()
     if seconds < 1 or seconds != int(seconds):
         raise ValueError(f"A bucket must be a whole number of seconds, got {bucket}")
@@ -181,7 +183,7 @@ def counts_by_bucket(
         where = ast.And(exprs=[where, parse_expr("event = {event}", placeholders={"event": ast.Constant(value=event)})])
     per_bucket = ast.SelectQuery(
         select=[ast.Alias(alias="bucket", expr=bucket_start), *states],
-        select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+        select_from=ast.JoinExpr(table=ast.Field(chain=["events"]), next_join=join),
         where=where,
         group_by=[ast.Field(chain=["bucket"])],
     )

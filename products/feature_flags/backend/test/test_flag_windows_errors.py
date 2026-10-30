@@ -116,7 +116,7 @@ class TestErrorsByBucket(ClickhouseTestMixin, BaseTest):
 
         self.assertEqual(self._since_edit(edit), expected)
 
-    def test_an_error_of_an_issue_first_seen_before_the_edit_is_not_new(self) -> None:
+    def test_an_error_is_new_only_when_its_issue_was_first_seen_after_that_edit(self) -> None:
         issue_id = create_issue(team_id=self.team.pk, name="TypeError")
         create_issue_fingerprint(
             team_id=self.team.pk, issue_id=issue_id, fingerprint="old", first_seen=EDITED_AT - timedelta(days=3)
@@ -135,4 +135,18 @@ class TestErrorsByBucket(ClickhouseTestMixin, BaseTest):
             ]
         )
 
-        self.assertEqual(self._since_edit(BOOLEAN).with_new_errors, 1)
+        # The issue is old for BOOLEAN and new for an edit before its first fingerprint, in the same query.
+        earlier = WatchedEdit(
+            id="earlier",
+            flag_key="new-checkout",
+            edited_at=EDITED_AT - timedelta(days=4),
+            group_type_index=None,
+            variants=(),
+            enables=False,
+        )
+        errors = errors_by_bucket(self.team, [BOOLEAN, earlier], EDITED_AT, EDITED_AT + WINDOW, WINDOW)
+
+        self.assertEqual(
+            {edit_id: buckets[0].since_edit.with_new_errors for edit_id, buckets in errors.items()},
+            {"boolean": 1, "earlier": 3},
+        )
