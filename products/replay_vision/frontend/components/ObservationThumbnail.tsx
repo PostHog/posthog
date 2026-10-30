@@ -1,7 +1,9 @@
+import clsx from 'clsx'
 import { useValues } from 'kea'
 import { useEffect, useRef, useState } from 'react'
 
 import { IconVideoCamera } from '@posthog/icons'
+import { LemonSkeleton } from '@posthog/lemon-ui'
 
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -32,6 +34,7 @@ export function ObservationThumbnail({
     const { currentTeamId } = useValues(teamLogic)
     const [attempt, setAttempt] = useState(0)
     const [failedId, setFailedId] = useState<string | null>(null)
+    const [loadedSrc, setLoadedSrc] = useState<string | null>(null)
     const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
     // A row's instance is reused as the table pages, so a failure can outlive the observation it was for.
@@ -62,6 +65,8 @@ export function ObservationThumbnail({
             ? getVisionObservationsThumbnailRetrieveUrl(String(currentTeamId), observation.id, { chapter, size })
             : undefined
     const src = baseSrc !== undefined && attempt > 0 ? `${baseSrc}&retry=${attempt}` : baseSrc
+    // Keyed by the source, so a poster swapped for another fades in again rather than flashing the old frame.
+    const loaded = src !== undefined && loadedSrc === src
 
     const onError = (): void => {
         // One retry: the redirect target can blink, and the poster would stay blank for the whole mount.
@@ -74,13 +79,18 @@ export function ObservationThumbnail({
 
     return (
         <div className={`relative aspect-video overflow-hidden rounded border bg-surface-secondary ${className ?? ''}`}>
+            {src && !loaded && <LemonSkeleton className="absolute inset-0 size-full rounded-none" />}
             {src && (
                 <img
                     src={src}
                     alt=""
-                    className="absolute inset-0 size-full object-cover"
+                    className={clsx(
+                        'absolute inset-0 size-full object-cover transition-opacity duration-300 motion-reduce:transition-none',
+                        loaded ? 'opacity-100' : 'opacity-0'
+                    )}
                     loading="lazy"
                     decoding="async"
+                    onLoad={() => setLoadedSrc(src)}
                     onError={onError}
                 />
             )}

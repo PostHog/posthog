@@ -241,7 +241,9 @@ class ReplayObservationMediaSerializer(serializers.Serializer):
     )
 
 
-_THUMBNAIL_REDIRECT_MAX_AGE_S = 600
+# Kept 15 minutes short of the hour the redirect target is signed for, so a cached redirect never points at an
+# expired URL.
+_THUMBNAIL_REDIRECT_MAX_AGE_S = 2700
 
 
 def _is_servable(asset: ExportedAsset | None) -> bool:
