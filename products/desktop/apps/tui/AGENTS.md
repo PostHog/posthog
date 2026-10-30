@@ -3,12 +3,21 @@
 An Ink terminal app for PostHog Tasks: a sidebar of your work, tmux-like split panes, and pi chats in the cloud or on this machine.
 pi is the only harness it starts or talks to. ACP logs (Claude, Codex) are read for display only.
 
+## What it does
+
+- Sidebar: Tasks and Work lists with run status dots, workspace groups drawn as a tree, and keyboard or mouse selection.
+- Panes: tmux-like splits, nested splits, focus by key or click, and a header with where the chat runs, its repo, its PR and its status.
+- Cloud chats: transcripts stream from `CloudTaskEngine`, recent history preloads and older pages load on scroll up. The composer starts a run or continues one, and a pane shows a new run's first message, start-up state and failure reason.
+- Local chats: pi runs on this machine through the desktop's pi client factory, with a task row on the server and a session file here. Agent dialogs and MCP permission requests are answered on the bottom sheet.
+- Chat view: tool calls collapse into clickable summaries that highlight under the pointer, web links open on click, a drag selects and copies text, and the agent's `show_actions` offers sit on the bottom sheet.
+- Composer: `/model`, the live run's own slash commands, floating suggestions, `!` shell mode, Esc to stop the agent and double Esc to clear.
+- Sign-in from inside the app (OAuth, or a local dev login), with the layout saved between runs.
+
 ## Run and test
 
 - `pnpm dev` (from this folder) starts the app through Vite, so edits hot-reload into the running screen.
 - Tests: `../../node_modules/.bin/vitest run` or `hogli test products/desktop/apps/tui`. Typecheck: `../../node_modules/.bin/tsc --noEmit -p .`.
 - `@posthog/agent` and `@posthog/harness` resolve to their `dist/`. After changing them, rebuild with `pnpm --filter <package> build` (harness types: `pnpm build:types`).
-- `pnpm-lock.yaml` has no entry for this app yet: `pnpm install` failed in the session that built it, and the hoisted workspace `node_modules` covered every dependency.
 
 In the app: Ctrl+S and Ctrl+Shift+S (or Ctrl+\\) split, Ctrl+C twice closes a chat, Ctrl+N starts a new chat, Ctrl+R reloads all code, Ctrl+Q quits.
 Slash commands: `/model`, `/new`, `/local`, `/cloud`, `/login`, `/logout`, plus the live run's own commands.
@@ -33,6 +42,9 @@ Logic sits in plain modules with unit tests. Components under `src/components/` 
 | `chatView.ts`, `composer.ts` | pi-tui components rendered into panes: messages, scroll, editor, suggestions |
 | `links.ts`, `openUrl.ts` | The web link under a clicked chat cell (OSC 8 or written out), opened in the browser; other schemes never open |
 | `sheet.ts`, `actions.ts` | The reusable bottom sheet, and the agent's `show_actions` offers on it |
+| `prompts.ts` | A local agent's dialogs and MCP permission requests, shown on the sheet and answered through the pi extension response |
+| `status.ts` | The PR and status chips in the pane header |
+| `theme.ts`, `faint.ts` | Light or dark from the terminal's OSC 11 background reply, and the dimming of unfocused panes |
 | `mouse.ts`, `shortcuts.ts` | Raw input: mouse reports, app keys, kitty and legacy key forms |
 | `shell.ts` | `!` commands: reading them from the composer, and the log entries that show a run before pi's saved conversation has it |
 | `selection.ts`, `clipboard.ts` | Click or drag: a press and release on one cell clicks, and a drag selects chat text and copies it on release |
@@ -52,8 +64,7 @@ Logic sits in plain modules with unit tests. Components under `src/components/` 
 
 ## Open ends
 
-- Local chats pass the TUI's OAuth token to the gateway. A real local run had not been tried when this was written.
 - Before a run exists, `/` lists only the built-in commands. The plan is bundled skills and the repo's `.claude/skills` from disk, then user skills with the desktop's upload step.
-- A local chat is a pi task with no run, as in the desktop app, and its conversation lives only in its pi session file on this machine. The server hears nothing about local activity, so the sidebar sorts local chats by their session file's last change.
+- A local chat has a task row but no run, and its conversation lives only in its pi session file on this machine. The server hears nothing about local activity, so the sidebar sorts local chats by their session file's last change.
 - The desktop app keeps its own local pi session files, so a TUI local chat opened there shows no conversation, and the reverse.
 - Divider corners do not join. Box borders cannot place junctions; drawing dividers from the computed sizes would.

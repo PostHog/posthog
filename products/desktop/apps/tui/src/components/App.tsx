@@ -1253,6 +1253,7 @@ export function App({
             local={
               isLocal(node.taskId) ? localSessions.get(node.taskId) : undefined
             }
+            isLocalPane={isLocal(node.taskId)}
             newChatPlace={modes.get(node.id) ?? "cloud"}
             chat={chatFor(`${node.id}:${node.taskId}`)}
             composer={composerFor(node.id)}

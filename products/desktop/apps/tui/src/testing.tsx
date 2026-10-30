@@ -6,6 +6,7 @@ import type { ReactElement } from "react";
 export function renderInTerminal(element: ReactElement): {
   instance: Instance;
   type: (bytes: string) => void;
+  output: () => string;
 } {
   const stdin = Object.assign(new PassThrough(), {
     isTTY: true,
@@ -18,7 +19,10 @@ export function renderInTerminal(element: ReactElement): {
     columns: 100,
     rows: 30,
   });
-  stdout.resume();
+  let written = "";
+  stdout.on("data", (chunk) => {
+    written += String(chunk);
+  });
   const instance = render(element, {
     stdin: stdin as unknown as NodeJS.ReadStream,
     stdout: stdout as unknown as NodeJS.WriteStream,
@@ -26,5 +30,9 @@ export function renderInTerminal(element: ReactElement): {
     patchConsole: false,
     kittyKeyboard: { mode: "enabled" },
   });
-  return { instance, type: (bytes) => stdin.write(bytes) };
+  return {
+    instance,
+    type: (bytes) => stdin.write(bytes),
+    output: () => written,
+  };
 }
