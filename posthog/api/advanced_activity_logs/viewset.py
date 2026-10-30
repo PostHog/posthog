@@ -11,12 +11,13 @@ from django.db.models import Q, QuerySet
 from drf_spectacular.utils import extend_schema
 from rest_framework import mixins, serializers, viewsets
 from rest_framework.decorators import action
-from rest_framework.pagination import BasePagination, Cursor, CursorPagination, PageNumberPagination
+from rest_framework.pagination import Cursor
 from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.fields import JSONStringFilterField, JSONTolerantListField, OptionalBooleanField
+from posthog.api.pagination import BoundedPageNumberPagination, StableCursorPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.constants import AvailableFeature
@@ -155,7 +156,7 @@ class ActivityLogSerializer(serializers.ModelSerializer):
             return bookmark_date < obj.created_at.replace(microsecond=obj.created_at.microsecond // 1000 * 1000)
 
 
-class TailFollowingCursorPagination(CursorPagination):
+class TailFollowingCursorPagination(StableCursorPagination):
     """Cursor pagination that can keep a forward cursor alive after the stream is exhausted.
 
     Stock DRF returns `next: null` on the final page, which leaves a polling client nothing to
@@ -191,44 +192,38 @@ class TailFollowingCursorPagination(CursorPagination):
         return self.encode_cursor(Cursor(offset=0, reverse=False, position=position))  # type: ignore[arg-type]
 
 
-class ActivityLogPagination(BasePagination):
-    def __init__(self):
-        self.page_number_pagination = PageNumberPagination()
-        self.cursor_pagination = TailFollowingCursorPagination()
-        self.page_number_pagination.page_size = 100
-        self.page_number_pagination.page_size_query_param = "page_size"
-        self.page_number_pagination.max_page_size = 1000
-        self.cursor_pagination.page_size = 100
-        self.cursor_pagination.page_size_query_param = "page_size"
-        self.cursor_pagination.max_page_size = 1000
-        # `created_at` is not unique, and DRF encodes only the first ordering field in the cursor,
-        # resolving ties with an offset. That offset is reproducible only when rows sharing a
-        # timestamp come back in a stable order, which Postgres does not otherwise guarantee.
-        self.cursor_pagination.ordering = ("-created_at", "-id")
+class ActivityLogPageNumberPagination(BoundedPageNumberPagination):
+    page_size = 100
+    page_size_query_param = "page_size"
+
+
+class ActivityLogPagination(TailFollowingCursorPagination):
+    """Cursor pages by default, and numbered pages when the request has a `page` parameter."""
+
+    page_size = 100
+    page_size_query_param = "page_size"
+    max_page_size = 1000
+    # `created_at` is not unique, and DRF encodes only the first ordering field in the cursor,
+    # resolving ties with an offset. That offset is reproducible only when rows sharing a
+    # timestamp come back in a stable order, which Postgres does not otherwise guarantee.
+    ordering = ("-created_at", "-id")
+
+    def __init__(self) -> None:
+        self.page_number_pagination = ActivityLogPageNumberPagination()
+        self.request: Optional[Request] = None
 
     def paginate_queryset(self, queryset, request, view=None):
         self.request = request
         if request.query_params.get("page"):
             return self.page_number_pagination.paginate_queryset(queryset, request, view)
-        else:
-            self.cursor_pagination.ordering = activity_log_ordering(request)
-            self.cursor_pagination.follow = request.query_params.get("follow") == "true"
-            return self.cursor_pagination.paginate_queryset(queryset, request, view)
+        self.ordering = activity_log_ordering(request)
+        self.follow = request.query_params.get("follow") == "true"
+        return super().paginate_queryset(queryset, request, view)
 
     def get_paginated_response(self, data):
         if self.request and self.request.query_params.get("page"):
             return self.page_number_pagination.get_paginated_response(data)
-        else:
-            return self.cursor_pagination.get_paginated_response(data)
-
-    def get_paginated_response_schema(self, schema):
-        # The paginator picks cursor or page-number mode per request, so the schema has to describe
-        # both. Cursor responses (the default) carry no `count`, so it is documented as an optional
-        # property rather than a required one.
-        cursor_schema = self.cursor_pagination.get_paginated_response_schema(schema)
-        page_number_schema = self.page_number_pagination.get_paginated_response_schema(schema)
-        cursor_schema["properties"]["count"] = page_number_schema["properties"]["count"]
-        return cursor_schema
+        return super().get_paginated_response(data)
 
 
 class ActivityLogScopeField(serializers.ChoiceField):
