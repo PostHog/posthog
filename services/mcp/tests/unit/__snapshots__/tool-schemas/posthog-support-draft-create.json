@@ -1,0 +1,32 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "agent_name": {
+            "description": "Name of the agent or client drafting the ticket, for example Claude Code or Codex.",
+            "maxLength": 100,
+            "type": "string"
+        },
+        "already_tried": {
+            "description": "What the person and you already checked or tried, so support can judge the investigation.",
+            "maxLength": 4000,
+            "type": "string"
+        },
+        "customer_words": {
+            "description": "The person's own description of the problem, quoted verbatim from what they wrote. Do not paraphrase it, and do not add your own diagnosis.",
+            "maxLength": 4000,
+            "type": "string"
+        },
+        "details": {
+            "description": "Facts the person gave or that you observed directly: exact error text, URLs, event and property names, the insight, flag or other object involved, SDK and version, when it started, and what they expected to happen. No guesses or conclusions.",
+            "maxLength": 8000,
+            "type": "string"
+        },
+        "filing_reason": {
+            "description": "Why a human should look at this. Draft only when the person asked for support, the problem involves account, billing or data only PostHog can see, there is a reproducible error you confirmed but cannot explain, or the person disagrees with your answer. Your own conclusion that it is a PostHog bug is not a reason.\n\n* `user_asked_for_support` - The person asked to contact PostHog support\n* `account_or_billing` - Account, billing or data only PostHog can see\n* `unexplained_error` - A reproducible error the agent confirmed but cannot explain\n* `user_disagrees_with_agent` - The person disagrees with the agent's answer",
+            "enum": ["user_asked_for_support", "account_or_billing", "unexplained_error", "user_disagrees_with_agent"],
+            "type": "string"
+        }
+    },
+    "required": ["customer_words", "filing_reason"],
+    "type": "object"
+}

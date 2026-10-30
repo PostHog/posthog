@@ -28,6 +28,11 @@ import type {
     PatchedTicketNoteUpdateRequestApi,
     PatchedTicketUpdateRequestApi,
     PatchedTicketViewApi,
+    PostHogSupportDraftApi,
+    PostHogSupportDraftCreateApi,
+    PostHogSupportThreadApi,
+    PostHogSupportTicketListApi,
+    PosthogSupportTicketsRetrieveParams,
     SigningSecretApi,
     TicketApi,
     TicketFullEmailApi,
@@ -679,6 +684,137 @@ export const conversationsZendeskImportsStatusRetrieve = async (
     options?: RequestInit
 ): Promise<ZendeskImportJobApi> => {
     return apiMutator<ZendeskImportJobApi>(getConversationsZendeskImportsStatusRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getPosthogSupportDraftsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/posthog_support/drafts/`
+}
+
+/**
+ * Saves a draft ticket to PostHog support. It does not send it. The person opens review_url, checks and edits the ticket, and sends it from the PostHog web app.
+ * @summary Draft a PostHog support ticket for the person to send
+ */
+export const posthogSupportDraftsCreate = async (
+    projectId: string,
+    postHogSupportDraftCreateApi: PostHogSupportDraftCreateApi,
+    options?: RequestInit
+): Promise<PostHogSupportDraftApi> => {
+    return apiMutator<PostHogSupportDraftApi>(getPosthogSupportDraftsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(postHogSupportDraftCreateApi),
+    })
+}
+
+export const getPosthogSupportDraftsRetrieveUrl = (projectId: string, draftId: string) => {
+    return `/api/projects/${projectId}/posthog_support/drafts/${draftId}/`
+}
+
+/**
+ * A draft that has not been sent or discarded yet.
+ * @summary Get a PostHog support ticket draft
+ */
+export const posthogSupportDraftsRetrieve = async (
+    projectId: string,
+    draftId: string,
+    options?: RequestInit
+): Promise<PostHogSupportDraftApi> => {
+    return apiMutator<PostHogSupportDraftApi>(getPosthogSupportDraftsRetrieveUrl(projectId, draftId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getPosthogSupportDraftsClaimCreateUrl = (projectId: string, draftId: string) => {
+    return `/api/projects/${projectId}/posthog_support/drafts/${draftId}/claim/`
+}
+
+/**
+ * Called by the web app right before it sends the person's ticket. Each draft can be claimed once, so a review link opened twice cannot file the same ticket twice. Browser sessions only.
+ * @summary Claim a draft for the person to send
+ */
+export const posthogSupportDraftsClaimCreate = async (
+    projectId: string,
+    draftId: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getPosthogSupportDraftsClaimCreateUrl(projectId, draftId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getPosthogSupportDraftsDiscardCreateUrl = (projectId: string, draftId: string) => {
+    return `/api/projects/${projectId}/posthog_support/drafts/${draftId}/discard/`
+}
+
+/**
+ * Deletes a draft without sending it.
+ * @summary Discard a PostHog support ticket draft
+ */
+export const posthogSupportDraftsDiscardCreate = async (
+    projectId: string,
+    draftId: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getPosthogSupportDraftsDiscardCreateUrl(projectId, draftId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getPosthogSupportTicketsRetrieveUrl = (
+    projectId: string,
+    params?: PosthogSupportTicketsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/posthog_support/tickets/?${stringifiedParams}`
+        : `/api/projects/${projectId}/posthog_support/tickets/`
+}
+
+/**
+ * Tickets the logged-in user has raised with PostHog support, newest first.
+ * @summary List your PostHog support tickets
+ */
+export const posthogSupportTicketsRetrieve = async (
+    projectId: string,
+    params?: PosthogSupportTicketsRetrieveParams,
+    options?: RequestInit
+): Promise<PostHogSupportTicketListApi> => {
+    return apiMutator<PostHogSupportTicketListApi>(getPosthogSupportTicketsRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getPosthogSupportTicketsMessagesRetrieveUrl = (projectId: string, ticketId: string) => {
+    return `/api/projects/${projectId}/posthog_support/tickets/${ticketId}/messages/`
+}
+
+/**
+ * The messages on one of the logged-in user's PostHog support tickets, oldest first.
+ * @summary Read one of your PostHog support tickets
+ */
+export const posthogSupportTicketsMessagesRetrieve = async (
+    projectId: string,
+    ticketId: string,
+    options?: RequestInit
+): Promise<PostHogSupportThreadApi> => {
+    return apiMutator<PostHogSupportThreadApi>(getPosthogSupportTicketsMessagesRetrieveUrl(projectId, ticketId), {
         ...options,
         method: 'GET',
     })

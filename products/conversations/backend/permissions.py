@@ -1,6 +1,8 @@
 from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
+from rest_framework.views import APIView
 
+from posthog.auth import SessionAuthentication
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 
@@ -36,3 +38,12 @@ class IsConversationsAdmin(BasePermission):
         except OrganizationMembership.DoesNotExist:
             return False
         return membership.level >= OrganizationMembership.Level.ADMIN
+
+
+class SessionAuthenticationOnly(BasePermission):
+    """Refuse API keys, OAuth tokens and impersonation JWTs: only a person in the web app passes."""
+
+    message = "This is only available in the PostHog web app."
+
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        return isinstance(request.successful_authenticator, SessionAuthentication)

@@ -675,6 +675,7 @@ export namespace Schemas {
      * * `organization_member` - organization_member
      * * `person` - person
      * * `plugin` - plugin
+     * * `posthog_support` - posthog_support
      * * `product_enablement` - product_enablement
      * * `product_tour` - product_tour
      * * `project` - project
@@ -797,6 +798,7 @@ export namespace Schemas {
       OrganizationMember: 'organization_member',
       Person: 'person',
       Plugin: 'plugin',
+      PosthogSupport: 'posthog_support',
       ProductEnablement: 'product_enablement',
       ProductTour: 'product_tour',
       Project: 'project',
@@ -919,6 +921,7 @@ export namespace Schemas {
        * * `organization_member` - organization_member
        * * `person` - person
        * * `plugin` - plugin
+       * * `posthog_support` - posthog_support
        * * `product_enablement` - product_enablement
        * * `product_tour` - product_tour
        * * `project` - project
@@ -1164,6 +1167,7 @@ export namespace Schemas {
        * * `organization_member` - organization_member
        * * `person` - person
        * * `plugin` - plugin
+       * * `posthog_support` - posthog_support
        * * `product_enablement` - product_enablement
        * * `product_tour` - product_tour
        * * `project` - project
@@ -1572,6 +1576,7 @@ export namespace Schemas {
        * * `organization_member` - organization_member
        * * `person` - person
        * * `plugin` - plugin
+       * * `posthog_support` - posthog_support
        * * `product_enablement` - product_enablement
        * * `product_tour` - product_tour
        * * `project` - project
@@ -56720,6 +56725,22 @@ export namespace Schemas {
     }
 
     /**
+     * * `user_asked_for_support` - The person asked to contact PostHog support
+     * * `account_or_billing` - Account, billing or data only PostHog can see
+     * * `unexplained_error` - A reproducible error the agent confirmed but cannot explain
+     * * `user_disagrees_with_agent` - The person disagrees with the agent's answer
+     */
+    export type FilingReasonEnum = typeof FilingReasonEnum[keyof typeof FilingReasonEnum];
+
+
+    export const FilingReasonEnum = {
+      UserAskedForSupport: 'user_asked_for_support',
+      AccountOrBilling: 'account_or_billing',
+      UnexplainedError: 'unexplained_error',
+      UserDisagreesWithAgent: 'user_disagrees_with_agent',
+    } as const;
+
+    /**
      * * `review` - review
      * * `observe` - observe
      */
@@ -72482,6 +72503,7 @@ export namespace Schemas {
        * * `organization_member` - organization_member
        * * `person` - person
        * * `plugin` - plugin
+       * * `posthog_support` - posthog_support
        * * `product_enablement` - product_enablement
        * * `product_tour` - product_tour
        * * `project` - project
@@ -96566,6 +96588,141 @@ export namespace Schemas {
     export interface PostHogConnectionTargetError {
       /** Why the connected project's context could not be read. */
       error: string;
+    }
+
+    export interface PostHogSupportDraft {
+      /** Draft id. */
+      id: string;
+      /** Ticket text exactly as the person will see it in the support form. */
+      message: string;
+      /** Why the agent drafted it.
+       *
+       * * `user_asked_for_support` - The person asked to contact PostHog support
+       * * `account_or_billing` - Account, billing or data only PostHog can see
+       * * `unexplained_error` - A reproducible error the agent confirmed but cannot explain
+       * * `user_disagrees_with_agent` - The person disagrees with the agent's answer */
+      filing_reason: FilingReasonEnum;
+      /**
+         * Agent or client that drafted it.
+         * @nullable
+         */
+      agent_name: string | null;
+      /** Unix time after which the draft is gone if nobody sent it. */
+      expires_at: number;
+      /** Note filed under the ticket for support, saying an agent drafted it and why. */
+      ticket_context: string;
+      /** Link the person must open in their browser to review, edit and send the ticket. */
+      review_url: string;
+      /** Always false. Only the person can send the ticket, from review_url. */
+      sent: boolean;
+      /** What to tell the person now. */
+      next_step: string;
+    }
+
+    export interface PostHogSupportDraftCreate {
+      /**
+         * The person's own description of the problem, quoted verbatim from what they wrote. Do not paraphrase it, and do not add your own diagnosis.
+         * @maxLength 4000
+         */
+      customer_words: string;
+      /** Why a human should look at this. Draft only when the person asked for support, the problem involves account, billing or data only PostHog can see, there is a reproducible error you confirmed but cannot explain, or the person disagrees with your answer. Your own conclusion that it is a PostHog bug is not a reason.
+       *
+       * * `user_asked_for_support` - The person asked to contact PostHog support
+       * * `account_or_billing` - Account, billing or data only PostHog can see
+       * * `unexplained_error` - A reproducible error the agent confirmed but cannot explain
+       * * `user_disagrees_with_agent` - The person disagrees with the agent's answer */
+      filing_reason: FilingReasonEnum;
+      /**
+         * Facts the person gave or that you observed directly: exact error text, URLs, event and property names, the insight, flag or other object involved, SDK and version, when it started, and what they expected to happen. No guesses or conclusions.
+         * @maxLength 8000
+         */
+      details?: string;
+      /**
+         * What the person and you already checked or tried, so support can judge the investigation.
+         * @maxLength 4000
+         */
+      already_tried?: string;
+      /**
+         * Name of the agent or client drafting the ticket, for example Claude Code or Codex.
+         * @maxLength 100
+         */
+      agent_name?: string;
+    }
+
+    export interface PostHogSupportError {
+      /** What went wrong. */
+      detail: string;
+    }
+
+    export interface PostHogSupportMessage {
+      /** Message id. */
+      id: string;
+      /** Message text. */
+      content: string;
+      /** customer for the person, support for a PostHog support engineer, AI for PostHog's assistant. */
+      author_type: string;
+      /** Display name of the author. */
+      author_name: string;
+      /** ISO 8601 time the message was sent. */
+      created_at: string;
+    }
+
+    export interface PostHogSupportThread {
+      /** Ticket id. */
+      ticket_id: string;
+      /** Current ticket status.
+       *
+       * * `new` - New
+       * * `open` - Open
+       * * `pending` - Pending
+       * * `on_hold` - On hold
+       * * `resolved` - Resolved */
+      ticket_status: TicketStatusEnum;
+      /** Messages in the thread, oldest first. */
+      messages: PostHogSupportMessage[];
+      /** True when the thread has more messages than were returned. */
+      has_more: boolean;
+    }
+
+    export interface PostHogSupportTicket {
+      /** Ticket id. Pass it to the ticket messages endpoint to read the thread. */
+      id: string;
+      /**
+         * Ticket number shown to the person.
+         * @nullable
+         */
+      ticket_number: number | null;
+      /** Where the ticket is in support's queue.
+       *
+       * * `new` - New
+       * * `open` - Open
+       * * `pending` - Pending
+       * * `on_hold` - On hold
+       * * `resolved` - Resolved */
+      status: TicketStatusEnum;
+      /** Replies from PostHog support the person has not read yet. */
+      unread_count: number;
+      /**
+         * Text of the latest message on the ticket.
+         * @nullable
+         */
+      last_message: string | null;
+      /**
+         * ISO 8601 time of the latest message.
+         * @nullable
+         */
+      last_message_at: string | null;
+      /** Number of messages visible to the person. */
+      message_count: number;
+      /** ISO 8601 time the ticket was created. */
+      created_at: string;
+    }
+
+    export interface PostHogSupportTicketList {
+      /** Total number of matching tickets. */
+      count: number;
+      /** The person's tickets, newest first. */
+      results: PostHogSupportTicket[];
     }
 
     /**
@@ -140678,6 +140835,42 @@ export namespace Schemas {
      */
     offset?: number;
     };
+
+    export type PosthogSupportTicketsRetrieveParams = {
+    /**
+     * How many tickets to return.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    /**
+     * How many tickets to skip, for paging.
+     * @minimum 0
+     */
+    offset?: number;
+    /**
+     * Only return tickets with this status.
+     *
+     * * `new` - New
+     * * `open` - Open
+     * * `pending` - Pending
+     * * `on_hold` - On hold
+     * * `resolved` - Resolved
+     * @minLength 1
+     */
+    status?: PosthogSupportTicketsRetrieveStatus;
+    };
+
+    export type PosthogSupportTicketsRetrieveStatus = typeof PosthogSupportTicketsRetrieveStatus[keyof typeof PosthogSupportTicketsRetrieveStatus];
+
+
+    export const PosthogSupportTicketsRetrieveStatus = {
+      New: 'new',
+      Open: 'open',
+      Pending: 'pending',
+      OnHold: 'on_hold',
+      Resolved: 'resolved',
+    } as const;
 
     export type PrecomputeDebugStateParams = {
     /**

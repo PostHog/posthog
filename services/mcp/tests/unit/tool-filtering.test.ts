@@ -1173,11 +1173,12 @@ describe('Tool Filtering - Feature Flags', () => {
                 'subscription-source-summaries',
                 'workflows-mcp-onboarding',
                 'aeo-citation-tracking',
+                'mcp-posthog-support-tickets',
             ])
         )
         expect(flags).toContain('ai-observability-offline-evaluations')
         expect(allFlags).not.toContain('dashboard-widgets')
-        expect(flags).toHaveLength(35)
+        expect(flags).toHaveLength(36)
     })
 
     it('keeps human and task context wiki tools on separate scopes', () => {

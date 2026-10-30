@@ -77,6 +77,9 @@ INSTANCE_PREFERENCES = {
 }
 
 SITE_URL: str = os.getenv("SITE_URL", "http://localhost:8010").rstrip("/")
+# The token is the project's public conversations widget token, the same one posthog-js loads.
+POSTHOG_SUPPORT_WIDGET_HOST: str = os.getenv("POSTHOG_SUPPORT_WIDGET_HOST", "https://us.posthog.com")
+POSTHOG_SUPPORT_WIDGET_TOKEN: str = os.getenv("POSTHOG_SUPPORT_WIDGET_TOKEN", "")
 # django-scim2 requires these service-provider settings.
 SCIM_SERVICE_PROVIDER = {
     "NETLOC": SITE_URL.replace("http://", "").replace("https://", ""),
