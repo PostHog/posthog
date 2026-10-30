@@ -692,7 +692,8 @@ class ExportedAssetViewSet(
             )
             if owner_path is None:
                 raise NotFound()
-            return HttpResponseRedirect(owner_path)
+            query = request.META.get("QUERY_STRING")
+            return HttpResponseRedirect(f"{owner_path}?{query}" if query else owner_path)
         return get_content_response(
             instance,
             download=request.query_params.get("download") == "true",

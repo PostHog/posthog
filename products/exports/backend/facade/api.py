@@ -67,7 +67,7 @@ def create_export_asset_async(
         export_format=export_format,
         export_context=export_context,
         # None keeps the model's format-default TTL (see ExportedAsset.save).
-        expires_after=expires_after,
+        expires_after=ExportedAsset.round_up_expiry(expires_after) if expires_after is not None else None,
     )
 
     async def _start() -> None:

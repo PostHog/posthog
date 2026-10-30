@@ -174,18 +174,18 @@ class TestRenderPngExportInsightLookup(BaseTest):
 class TestCreateExportAssetAsync(BaseTest):
     @time_machine.travel(datetime(2026, 3, 2, 12, 0, tzinfo=UTC), tick=False)
     @patch("products.exports.backend.facade.api.async_connect", new_callable=AsyncMock)
-    def test_create_export_asset_async_keeps_an_explicit_expiry(self, async_connect: AsyncMock) -> None:
-        expires_after = datetime(2026, 3, 9, 12, 0, tzinfo=UTC)
-
+    def test_create_export_asset_async_rounds_an_explicit_expiry_up_to_utc_midnight(
+        self, async_connect: AsyncMock
+    ) -> None:
         asset = create_export_asset_async(
             team=self.team,
             created_by=self.user,
             export_format=ExportedAsset.ExportFormat.JSON,
             export_context={"kind": "test_kind"},
-            expires_after=expires_after,
+            expires_after=datetime(2026, 3, 9, 12, 0, tzinfo=UTC),
         )
 
-        assert asset.expires_after == expires_after
+        assert asset.expires_after == datetime(2026, 3, 10, 0, 0, tzinfo=UTC)
 
 
 class TestGetDeliveryImageUrl(BaseTest):

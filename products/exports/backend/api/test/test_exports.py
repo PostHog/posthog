@@ -824,9 +824,14 @@ class TestExports(APIBaseTest):
             fetch_redirect_response=False,
         )
 
-    @parameterized.expand([("an owner path", "/api/owner/content", 302), ("no owner path", None, 404)])
+    @parameterized.expand(
+        [
+            ("an owner path", "/api/owner/content", 302, "/api/owner/content?download=true"),
+            ("no owner path", None, 404, None),
+        ]
+    )
     def test_registered_exports_are_hidden_and_their_content_goes_to_the_owner(
-        self, _name: str, owner_path: str | None, content_status: int
+        self, _name: str, owner_path: str | None, content_status: int, location: str | None
     ) -> None:
         with patch.dict(export_handlers._export_format_handlers):
             export_handlers.register_export_format_handler(
@@ -844,10 +849,10 @@ class TestExports(APIBaseTest):
             )
 
             retrieve = self.client.get(f"/api/projects/{self.team.id}/exports/{asset.id}")
-            content = self.client.get(f"/api/projects/{self.team.id}/exports/{asset.id}/content")
+            content = self.client.get(f"/api/projects/{self.team.id}/exports/{asset.id}/content?download=true")
 
         self.assertEqual(retrieve.status_code, status.HTTP_404_NOT_FOUND)
-        self.assertEqual((content.status_code, content.get("Location")), (content_status, owner_path))
+        self.assertEqual((content.status_code, content.get("Location")), (content_status, location))
 
     def test_dataset_id_metadata_does_not_hide_an_ordinary_export(self) -> None:
         ordinary_export = ExportedAsset.objects.create(
