@@ -56,6 +56,20 @@
         "nonce": "BgYGBgYGBgYGBgYG",
         "frame": "QUlTUjAzAIp7ImNvbnRleHQiOnsiY29kZWMiOiJub25lIiwia2V5TW9udGgiOiIyMDI2LTEwIiwia2luZCI6ImltYWdlLXVybCIsInJlZiI6ImltYWdldXJsOnY0Ojc6MjAyNi0xMDpURVgwYWpDMFVrYU9DOWpzNWM3b3FyIiwidGVhbUlkIjo3fSwidiI6NH0GBgYGBgYGBgYGBga8E3CK+Pm3JojWgEgphrSGIg8HFZFiLLkBK3fy+X8ag5A8Kzp6xVYHOyi6K6kvXaY="
     },
+    "fontUrl": {
+        "url": "https://fonts.example.com/brand.woff2",
+        "bytes": "c3ludGhldGljIHY0IGZldGNoZWQgZm9udCBieXRlcw==",
+        "ref": "fonturl:v4:7:2026-10:Bwu1146AUxxsfd2I6Co_JI",
+        "context": {
+            "teamId": 7,
+            "keyMonth": "2026-10",
+            "kind": "font-url",
+            "codec": "none",
+            "ref": "fonturl:v4:7:2026-10:Bwu1146AUxxsfd2I6Co_JI"
+        },
+        "nonce": "BwcHBwcHBwcHBwcH",
+        "frame": "QUlTUjAzAIh7ImNvbnRleHQiOnsiY29kZWMiOiJub25lIiwia2V5TW9udGgiOiIyMDI2LTEwIiwia2luZCI6ImZvbnQtdXJsIiwicmVmIjoiZm9udHVybDp2NDo3OjIwMjYtMTA6Qnd1MTE0NkFVeHhzZmQySTZDb19KSSIsInRlYW1JZCI6N30sInYiOjR9BwcHBwcHBwcHBwcHKsLj6wAUi3AUyiG5tqQWkl5QYy6gap0r6q5z6YcT8NO5Z029g474FZHmPA8DY1o="
+    },
     "url": {
         "url": "https://images.example.com/logo.png",
         "ref": "imageurl:v4:7:2026-10:TEX0ajC0UkaOC9js5c7oqr"

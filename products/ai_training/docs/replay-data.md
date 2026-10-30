@@ -422,6 +422,7 @@ Nothing in v4 is kept for good. Each kind of data has a fixed lifetime, and a de
 | Block and image index          | `rrweb-v4` `index/`                                              | 30 days after the write                                                                                                            | S3 expiration                 |
 | Inline image packs             | `images-v4` `images/packs/`                                      | 38 days after the write                                                                                                            | S3 expiration                 |
 | Fetched images                 | `images-v4` `images/url/`                                        | 38 days after the last write. The fetcher copies an image onto itself when a job refers to it and the copy is more than 7 days old | S3 expiration                 |
+| Fetched fonts                  | `images-v4` `fonts/url/`                                         | The same as fetched images                                                                                                         | S3 expiration                 |
 | Team month and session keys    | `ai-research-replay-v4-keys`                                     | Until the start of the fifth month after `key_month`                                                                               | DynamoDB TTL                  |
 | Tombstones                     | `ai-research-replay-v4-keys`                                     | The same expiry as the row they replace                                                                                            | DynamoDB TTL                  |
 | Fetch history and robots cache | `ai-research-v4-image-fetch-history`                             | URL history: 8 days after the end of its month. Robots and tdmrep cache: at least 30 days                                          | DynamoDB TTL                  |
@@ -449,6 +450,7 @@ The additional authenticated data is the canonical JSON of `{"v": 4, "context": 
 | Session block          | session key    | `teamId`, `sessionId`, `keyMonth`, `kind: "rrweb"`, `codec: "brotli"`, `ref` (the block object key) |
 | Inline image in a pack | team month key | `teamId`, `keyMonth`, `kind: "image"`, `codec: "none"`, `ref` (the image reference)                 |
 | Fetched image          | team month key | `teamId`, `keyMonth`, `kind: "image-url"`, `codec: "none"`, `ref` (the image URL reference)         |
+| Fetched font           | team month key | `teamId`, `keyMonth`, `kind: "font-url"`, `codec: "none"`, `ref` (the font URL reference)           |
 | Sealed index value     | session key    | `teamId`, `sessionId`, `keyMonth`, `kind: "index"`, `ref` (the column name)                         |
 
 A sealed index value uses the v3 JSON envelope with `"v": 4`.
@@ -465,6 +467,7 @@ The recorder streams each block into the encoder. Read a block as a stream: a Br
 - The dataset keeps no AVIF image. A base64 data URI that its label or its bytes name as AVIF becomes `image:v4:declined:avif`, and a srcset loses such a candidate. The recorder counts these as `ai_research_v4_recorder_removed_images_total{format="avif"}`. A payload broken by an escape the scan does not read stays inline. It also takes the image frames of the posthog-js canvas recorder. Anything else stays inline in the sealed block, for example SVG or line-wrapped base64.
 - A remote image URL becomes `imageurl:v4:{team_id}:{YYYY-MM}:{hash}` in the block and in its fetch job, where the month is the UTC month of the write. The block and the job always carry the same reference, so a reader opens the fetched image directly.
 - A URL that the URL policy refuses becomes `imageurl:v4:declined:{reason}` in the block, for example `declined:credential`, `declined:non_public_host` or `declined:tracking_beacon`. The original URL cannot be recovered. The recorder counts rewrites and refusals in `ai_research_v4_recorder_image_url_rewrites_total`.
+- With `AI_RESEARCH_V4_FONT_URLS_ENABLED` on, each `src` URL of an `@font-face` rule becomes a font reference in the same way, as [Web fonts](#web-fonts) describes. With it off, font URLs stay as the page wrote them. `ai_research_v4_recorder_image_url_rewrites_total` counts both, by `kind`: `image`, `font` or `bundled_font`.
 - The rewrite covers every remote URL that the recorder reads from an image slot: image sources, `srcset`, SVG image links, video posters, `<picture>` sources and CSS `url(...)` in style attributes, style sheets and style rules. It also covers `src`, `srcset`, `href` and `poster` in an attribute change on a node the recorder does not know, for example after a restart. `srcset` keeps its descriptors and CSS keeps its `url(...)` syntax. It is not limited by the 512 URLs per message that get fetch jobs.
 - A srcset in an image slot keeps only the candidates the recorder stores. A candidate the URL policy refuses leaves the list instead of becoming a `declined` marker, and the rest keep their descriptors. A `<picture>` source whose `type` names a media type the image fetcher does not store, such as `image/avif`, gets no fetch job and loses its remote candidates, unless a source of a stored type names the same URL. Its inline images, such as SVG data URIs, stay. The writer rebuilds each srcset that the inspector read in an image slot, in the bytes it stores, after the inline images left and the escapes were written again. It separates the candidates with a comma and a space. A `srcset` key elsewhere, for example in a custom event's payload, stays as it is. A browser skips a source with no candidates, so the replay falls back to the next source or the `img`. The recorder counts these as `ai_research_v4_recorder_srcset_rewrites_total{outcome="trimmed"|"emptied"}`.
 - The recorder reads a protocol-relative URL, such as `//cdn.example.com/a.png`, as `https`. It gets the same reference or `declined` marker as the `https` form, and the rewrite replaces the text as the block holds it. A browser reads a backslash as a slash there, so `\\cdn.example.com/a.png` counts too, and so does a URL such as `https:\\cdn.example.com/a.png` with any mix of slashes and backslashes after the scheme, or none: on a page of another scheme the browser loads `https:cdn.example.com/a.png` from that host.
@@ -479,7 +482,7 @@ The recorder streams each block into the encoder. Read a block as a stream: a Br
 ### Layout
 
 Every prefix that the recorder writes is partitioned by the UTC day of the write.
-Fetched images are partitioned by the key month of their reference.
+Fetched images and fonts are partitioned by the key month of their reference.
 
 | Bucket      | Prefix                                        | Contents                                                                        |
 | ----------- | --------------------------------------------- | ------------------------------------------------------------------------------- |
@@ -490,6 +493,7 @@ Fetched images are partitioned by the key month of their reference.
 | `rrweb-v4`  | `index/images/_watermarks/`                   | JSON, one object per Kafka partition: how far the image index is complete       |
 | `images-v4` | `images/packs/dt={day}/{team_id}/`            | One object per recorder flush and team: sealed images, each found by byte range |
 | `images-v4` | `images/url/month={YYYY-MM}/{team_id}/{hash}` | One sealed fetched image per URL reference                                      |
+| `images-v4` | `fonts/url/month={YYYY-MM}/{team_id}/{hash}`  | One sealed fetched font per font URL reference                                  |
 
 S3 expires every object a fixed time after it was written: 30 days in `rrweb-v4` and 38 days in `images-v4`. [Lifecycle](#lifecycle) lists every lifetime and why they fit together.
 
@@ -666,3 +670,26 @@ A URL is therefore fetched from its origin about once per team and month, as v3 
 Unlike v3, the history is per team: a sealed image is readable only with its team's key, so two teams that refer to one URL each fetch it.
 The recorder sends a job for each referenced URL at least once per day, so the fetcher sees a reference in every 7-day refresh interval.
 The fetcher drops a job whose team month row is missing, expired or deleted.
+
+### Web fonts
+
+A renderer that has no network needs the page's fonts. rrweb keeps the `@font-face` rules of a page in its style text, but it does not record font files, so the v4 lane fetches them as it fetches images.
+
+The recorder reads the `src` URLs of `@font-face` rules in `<style>` text, `_cssText`, style sheet rules and adopted style sheets. It does this only when `AI_RESEARCH_V4_FONT_URLS_ENABLED` is on. Each URL becomes one of these:
+
+| The rule's family                                       | In the block                            | Fetch job |
+| ------------------------------------------------------- | --------------------------------------- | --------- |
+| A family in `replay-core-v4/src/bundled_fonts.txt`      | `fonturl:v4:bundled:{slug}`             | None      |
+| Any other family                                        | `fonturl:v4:{team_id}:{YYYY-MM}:{hash}` | Yes       |
+| Any other family, for a URL that the URL policy refuses | `fonturl:v4:declined:{reason}`          | None      |
+
+- The renderer ships every family in `bundled_fonts.txt`. A reader replaces `fonturl:v4:bundled:{slug}` with its own copy of that family, and picks the face from the rule's `font-weight` and `font-style` descriptors. The slug is the family name in lowercase, with `-` for each space.
+- The list holds only text families whose licence lets the renderer carry them. It holds no icon font. An icon font puts its glyphs at private code points that change between versions, so a different version can show the wrong icon.
+- The recorder compares family names without case, and reads a run of spaces as one space. A family it does not know, for example a name that a build tool made, is fetched.
+- A font reference uses the same hash, image URL key and URL policy as an image URL reference. A font job goes to the `ai_research_v4_image_fetch` topic in the same shape, keyed by registrable domain, so fonts share the image jobs' partitions, politeness limits and crawl history rules.
+- An Embedded OpenType or SVG font file gets a reference but no fetch job, because Chromium loads neither format.
+- When one URL is both an image and a font, the block holds its image reference.
+
+The fetcher reads the asset from the reference prefix. For a font it sends `Accept: font/woff2, font/woff, font/ttf, font/otf, */*;q=0.1`. It takes a response whose media type is a `font/*` type, a legacy font type such as `application/x-font-woff`, or `application/octet-stream`, because many servers label fonts with a generic type. The decoded bytes must start with a WOFF2, WOFF, OpenType, TrueType or font collection signature. It stores the font as fetched under `fonts/url/`, sealed under the team month key with `kind: "font-url"`.
+
+An older fetcher sends a whole record to its dead letter topic when one job in it has a `fonturl` reference, and the image jobs in that record go with it. So turn `AI_RESEARCH_V4_FONT_URLS_ENABLED` on only after the fetcher that reads font references is live, and after the fetcher's role may write `fonts/url/` (`v4-staging.hcl` in posthog-cloud-infra).

@@ -3,7 +3,9 @@ use base64::Engine;
 use replay_core_v4::envelope::{
     open_frame, seal_frame_with_nonce, seal_json_envelope_with_nonce, Codec, Context, Version,
 };
-use replay_core_v4::refs::{image_ref, image_url_ref, reference_hash, url_fingerprint};
+use replay_core_v4::refs::{
+    image_ref, image_url_ref, reference_hash, url_fingerprint, url_ref, UrlAsset,
+};
 use replay_core_v4::seal::{
     image_content_key, image_url_key, open_session_key, seal_session_key_with_nonce,
     url_fingerprint_key, SealedKey, WrappingContext,
@@ -160,6 +162,26 @@ fn reproduces_every_pinned_v4_value() {
     )
     .unwrap();
     assert_eq!(fetched_frame, bytes(&fetched["frame"]));
+
+    // A fetched font hashes its URL as an image does, under its own prefix and frame kind.
+    let font = &vector["fontUrl"];
+    let font_hash = reference_hash(
+        &image_url_key(&team_month_key),
+        font["url"].as_str().unwrap().as_bytes(),
+    );
+    assert_eq!(
+        url_ref(UrlAsset::Font, team_id, key_month, &font_hash),
+        font["ref"].as_str().unwrap()
+    );
+    let font_frame = seal_frame_with_nonce(
+        &team_month_key,
+        Version::V4,
+        &context(&font["context"], Some(Codec::None)),
+        &bytes(&font["bytes"]),
+        nonce(&font["nonce"]),
+    )
+    .unwrap();
+    assert_eq!(font_frame, bytes(&font["frame"]));
 
     let index = &vector["index"];
     let envelope = seal_json_envelope_with_nonce(
