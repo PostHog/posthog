@@ -6981,7 +6981,9 @@ def _visible_task_qs(team_id: int, user_id: int | None, *, bypass_visibility: bo
     qs = Task.objects.filter(team_id=team_id, deleted=False).filter(scout_trial_visibility_q(user_id))
     if not bypass_visibility:
         qs = qs.filter(
-            task_control_q(user_id) if for_control else task_visibility_q(user_id) | _shared_slack_thread_q()
+            task_control_q(user_id, team_id)
+            if for_control
+            else task_visibility_q(user_id, team_id) | _shared_slack_thread_q()
         )
         # Another product may hide tasks it owns from this user, for example the copies of chats a
         # user cannot continue as tasks yet.
@@ -7049,7 +7051,7 @@ def get_conversation_task_dtos(
     )
     tasks = (
         Task.objects.filter(team_id=team_id, id__in=task_ids, deleted=False)
-        .filter(task_visibility_q(user_id))
+        .filter(task_visibility_q(user_id, team_id))
         .select_related("created_by")
         .prefetch_related(Prefetch("team", queryset=Team.objects.only("id", "name")))
         .annotate(_latest_run_id=Subquery(latest_run_id_sq))
@@ -7629,7 +7631,7 @@ def list_task_repositories(team_id: int, user_id: int | None, *, exclude_task_id
     """Distinct repositories used by non-deleted, non-internal visible tasks for the team."""
     tasks = (
         Task.objects.filter(team_id=team_id, deleted=False, internal=False)
-        .filter(task_visibility_q(user_id))
+        .filter(task_visibility_q(user_id, team_id))
         .exclude(id__in=exclude_task_ids)
     )
     plural = (
@@ -7727,7 +7729,7 @@ def get_task_summaries(
     )
     tasks = (
         Task.objects.filter(team_id=team_id, deleted=False, id__in=ids)
-        .filter(task_visibility_q(user_id))
+        .filter(task_visibility_q(user_id, team_id))
         .exclude(id__in=exclude_task_ids)
         .annotate(
             _latest_run=Subquery(latest_run.values("_data")[:1]),
@@ -10606,7 +10608,7 @@ def list_channel_contributors(team_id: int, user_id: int | None) -> list[contrac
         return []
     task_rows = (
         Task.objects.filter(
-            task_visibility_q(user_id),
+            task_visibility_q(user_id, team_id),
             team_id=team_id,
             channel_id__in=channel_ids,
             deleted=False,
