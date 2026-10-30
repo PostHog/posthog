@@ -103,6 +103,23 @@ describe('vercel log drain template', () => {
         expect(response.execResult).toMatchObject({ httpResponse: { status: 200 } })
     })
 
+    it('stops parsing an NDJSON body after 1000 lines and reports the rest', async () => {
+        const lines = Array.from({ length: 1005 }, (_, i) =>
+            JSON.stringify({ id: `tiny${i}`, deploymentId: 'dpl_x', source: 'static', host: 'example.com' })
+        )
+
+        const response = await tester.invoke(
+            {},
+            { request: { method: 'POST', headers: {}, body: {}, stringBody: lines.join('\n'), query: {} } }
+        )
+
+        expect(response.error).toBeUndefined()
+        expect(response.capturedPostHogEvents).toHaveLength(100)
+        expect(response.logs.map((l) => l.message)).toContainEqual(
+            expect.stringContaining('Skipped 5 unparsed line(s)')
+        )
+    })
+
     it('should return 405 for non-POST methods', async () => {
         const response = await tester.invoke(
             {},
@@ -824,6 +841,23 @@ describe('vercel log drain template', () => {
                 ['page1', '/pricing'],
                 ['page2', '/docs/x'],
             ])
+        })
+
+        it('filters sub-resources before the 100-line cap, so page views at the tail of a batch survive', async () => {
+            const batch = [
+                ...Array.from({ length: 120 }, (_, i) => ({
+                    ...logWithPath(`/static/chunk-${i}.js`),
+                    id: `asset${i}`,
+                })),
+                ...Array.from({ length: 30 }, (_, i) => ({ ...logWithPath(`/docs/page-${i}`), id: `page${i}` })),
+            ]
+
+            const response = await tester.invoke({ page_routes_only: true }, { request: createVercelRequest(batch) })
+
+            expect(response.error).toBeUndefined()
+            expect(response.capturedPostHogEvents).toHaveLength(30)
+            expect(response.capturedPostHogEvents[29].properties.$pathname).toBe('/docs/page-29')
+            expect(response.logs.map((l) => l.message)).not.toContainEqual(expect.stringContaining('Dropped'))
         })
 
         it('skips a batch with no page-route log and acknowledges with 200', async () => {

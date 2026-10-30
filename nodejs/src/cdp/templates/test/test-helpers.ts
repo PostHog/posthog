@@ -15,7 +15,7 @@ import { GeoIPService, GeoIp } from '~/common/utils/geoip'
 
 import { PluginsServerConfig } from '../../../types'
 import { HogExecutorAsyncService } from '../../services/hog-executor-async.service'
-import { HogExecutorService } from '../../services/hog-executor.service'
+import { HogExecutorService, capturedEventsLimit } from '../../services/hog-executor.service'
 import { HogInputsService } from '../../services/hog-inputs.service'
 import { EmailService } from '../../services/messaging/email.service'
 import { EmailTrackingCodeSigner } from '../../services/messaging/helpers/tracking-code'
@@ -339,7 +339,10 @@ export class TemplateTester {
         const transformationFunctions = getTransformationFunctions(this.geoIp!)
         const extraFunctions = invocation.hogFunction.type === 'transformation' ? transformationFunctions : {}
 
-        return this.getExecutor().execute(invocation, { functions: extraFunctions })
+        return this.getExecutor().execute(invocation, {
+            functions: extraFunctions,
+            maxCapturedEvents: capturedEventsLimit(hogFunction, this.template.bytecode),
+        })
     }
 
     async invokeMapping(

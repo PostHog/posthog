@@ -15,6 +15,11 @@ import {
 } from '../cdp-services'
 import type { CdpConfig } from '../config'
 import { HogExecutorAsyncService } from '../services/hog-executor-async.service'
+import {
+    HogExecutorExecuteOptions,
+    MULTI_CAPTURE_SOURCE_TEMPLATE_IDS,
+    capturedEventsLimit,
+} from '../services/hog-executor.service'
 import { HogInputsService } from '../services/hog-inputs.service'
 import { HogFlowExecutorService } from '../services/hogflows/hogflow-executor.service'
 import { HogFlowFunctionsService } from '../services/hogflows/hogflow-functions.service'
@@ -34,7 +39,7 @@ import { HogWatcherService } from '../services/monitoring/hog-watcher.service'
 import { NativeDestinationExecutorService } from '../services/native-destination-executor.service'
 import { SegmentDestinationExecutorService } from '../services/segment-destination-executor.service'
 import { CdpUsageReporterService } from '../services/usage/cdp-usage-reporter.service'
-import { HogFunctionTypeType } from '../types'
+import { HogFunctionType, HogFunctionTypeType } from '../types'
 
 export type CdpConsumerBaseConfig = CdpCoreServicesConfig &
     Pick<CommonConfig, 'KAFKA_CLIENT_RACK'> &
@@ -115,6 +120,18 @@ export abstract class CdpConsumerBase<TConfig extends CdpConsumerBaseConfig = Cd
         this.hogMasker = new HogMaskerService(services.redis, services.valkeyShadow.writer)
         this.groupsManager = new GroupsManagerService(deps.teamManager, deps.groupRepository)
         this.pluginDestinationExecutorService = new LegacyPluginExecutorService(deps.postgres, deps.geoipService)
+    }
+
+    /** Only a log drain source running its template's own bytecode may capture more than one event. */
+    protected async hogExecutionOptionsFor(hogFunction: HogFunctionType): Promise<HogExecutorExecuteOptions> {
+        if (
+            hogFunction.type !== 'source_webhook' ||
+            !MULTI_CAPTURE_SOURCE_TEMPLATE_IDS.has(hogFunction.template_id ?? '')
+        ) {
+            return {}
+        }
+        const template = await this.hogFunctionTemplateManager.getHogFunctionTemplate(hogFunction.template_id!)
+        return { maxCapturedEvents: capturedEventsLimit(hogFunction, template?.bytecode) }
     }
 
     public get service(): PluginServerService {

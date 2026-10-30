@@ -7,6 +7,7 @@ import {
     CAPTURE_BATCH_CONCURRENCY,
     CAPTURE_BATCH_MAX_BYTES,
     CAPTURE_BATCH_SIZE,
+    CAPTURE_QUEUE_MAX_EVENTS,
     CapturedEventsService,
 } from './captured-events.service'
 
@@ -149,8 +150,65 @@ describe('CapturedEventsService', () => {
             expect(sizes).toEqual([1, 1, 1])
         })
 
+        it('drops an event it cannot serialize and still sends the rest', async () => {
+            const circular: Record<string, any> = {}
+            circular.self = circular
+            service.queue([
+                { team_token: 'token-a', event: 'ok', distinct_id: 'u1' },
+                { team_token: 'token-a', event: 'loop', distinct_id: 'u1', properties: circular },
+            ])
+
+            await service.flush()
+
+            expect(internalCaptureService.captureBatch).toHaveBeenCalledTimes(1)
+            expect(internalCaptureService.captureBatch.mock.calls[0][0].map((e) => e.event)).toEqual(['ok'])
+        })
+
+        it('stops queueing past the high-water mark', async () => {
+            service.queue(
+                Array.from({ length: CAPTURE_QUEUE_MAX_EVENTS + 7 }, (_, i) => ({
+                    team_token: 'token-a',
+                    event: `e${i}`,
+                    distinct_id: 'u1',
+                }))
+            )
+
+            await service.flush()
+
+            const sent = internalCaptureService.captureBatch.mock.calls.reduce((n, call) => n + call[0].length, 0)
+            expect(sent).toBe(CAPTURE_QUEUE_MAX_EVENTS)
+        })
+
+        it('bounds single-event retries by the same in-flight limit as batches', async () => {
+            internalCaptureService.captureBatch.mockResolvedValue({ status: 400 } as any)
+            let inFlight = 0
+            let maxInFlight = 0
+            internalCaptureService.capture.mockImplementation(async () => {
+                inFlight++
+                maxInFlight = Math.max(maxInFlight, inFlight)
+                await new Promise((resolve) => setImmediate(resolve))
+                inFlight--
+                return { status: 200 } as any
+            })
+            service.queue(
+                Array.from({ length: CAPTURE_BATCH_CONCURRENCY * 3 }, (_, i) => ({
+                    team_token: 'token-a',
+                    event: `e${i}`,
+                    distinct_id: 'u1',
+                }))
+            )
+
+            await service.flush()
+
+            expect(internalCaptureService.capture).toHaveBeenCalledTimes(CAPTURE_BATCH_CONCURRENCY * 3)
+            expect(maxInFlight).toBe(CAPTURE_BATCH_CONCURRENCY)
+        })
+
         it.each([
-            ['a 4xx rejection', 400, 2],
+            ['a 400 rejection', 400, 2],
+            ['a 413 rejection', 413, 2],
+            ['a 401 refusal', 401, 0],
+            ['a 429 rate limit', 429, 0],
             ['a 5xx failure', 503, 0],
         ])('after %s of a batch, retries its events alone %i times', async (_name, status, singleCaptures) => {
             internalCaptureService.captureBatch.mockResolvedValue({ status } as any)

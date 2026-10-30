@@ -13,7 +13,11 @@ import { logger } from '~/common/utils/logger'
 import { createTestTeamFixture } from '~/tests/helpers/sql'
 
 import { HogExecutorAsyncService } from '../../../src/cdp/services/hog-executor-async.service'
-import { HogExecutorService, MAX_SOURCE_WEBHOOK_CAPTURED_EVENTS } from '../../../src/cdp/services/hog-executor.service'
+import {
+    HogExecutorService,
+    MAX_SOURCE_WEBHOOK_CAPTURED_EVENTS,
+    capturedEventsLimit,
+} from '../../../src/cdp/services/hog-executor.service'
 import { HogInputsService } from '../../../src/cdp/services/hog-inputs.service'
 import { RecipientsManagerService } from '../../../src/cdp/services/managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../../../src/cdp/services/managers/team-workflows-config.service'
@@ -651,14 +655,13 @@ describe('Hog Executor', () => {
         })
 
         it.each([
-            ['a destination', 'destination', undefined],
-            ['a source webhook outside the multi-capture templates', 'source_webhook', 'template-source-webhook'],
-        ])('rejects a second postHogCapture from %s', async (_name, type, template_id) => {
+            ['a destination', 'destination'],
+            ['a source webhook without a multi-capture allowance', 'source_webhook'],
+        ])('rejects a second postHogCapture from %s', async (_name, type) => {
             const hog = `postHogCapture({'event': 'one', 'distinct_id': 'd'})
 postHogCapture({'event': 'two', 'distinct_id': 'd'})`
             const fn = createHogFunction({
                 type: type as HogFunctionType['type'],
-                template_id,
                 hog,
                 bytecode: await compileHog(hog),
                 ...HOG_INPUTS_EXAMPLES.simple_fetch,
@@ -668,6 +671,31 @@ postHogCapture({'event': 'two', 'distinct_id': 'd'})`
             expect(result.error).toContain('postHogCapture was called more than once')
             expect(result.capturedPostHogEvents.map((e) => e.event)).toEqual(['one'])
         })
+
+        it.each([
+            ['the template bytecode', 'source_webhook', 'template-source-vercel-log-drain', [1, 2], [1, 2], 100],
+            [
+                'edited Hog under the template id',
+                'source_webhook',
+                'template-source-vercel-log-drain',
+                [1, 2],
+                [1, 3],
+                1,
+            ],
+            ['a template outside the allowlist', 'source_webhook', 'template-source-webhook', [1, 2], [1, 2], 1],
+            ['a destination', 'destination', 'template-source-vercel-log-drain', [1, 2], [1, 2], 1],
+            ['no server template', 'source_webhook', 'template-source-vercel-log-drain', [1, 2], undefined, 1],
+        ])(
+            'capturedEventsLimit grants multi-capture only to a log drain running %s',
+            (_name, type, template_id, bytecode, templateBytecode, expected) => {
+                expect(
+                    capturedEventsLimit(
+                        { type: type as HogFunctionType['type'], template_id, bytecode },
+                        templateBytecode
+                    )
+                ).toBe(expected)
+            }
+        )
 
         it('captures every event from a log drain source up to the cap, then refuses and meters the rest', async () => {
             const overflow = MAX_SOURCE_WEBHOOK_CAPTURED_EVENTS + 3
@@ -680,13 +708,14 @@ for (let i := 0; i < ${overflow}; i := i + 1) {
 return refused`
             const fn = createHogFunction({
                 type: 'source_webhook',
-                template_id: 'template-source-vercel-log-drain',
                 hog,
                 bytecode: await compileHog(hog),
                 ...HOG_INPUTS_EXAMPLES.simple_fetch,
                 ...HOG_FILTERS_EXAMPLES.no_filters,
             })
-            const result = await executor.execute(createExampleInvocation(fn))
+            const result = await executor.execute(createExampleInvocation(fn), {
+                maxCapturedEvents: MAX_SOURCE_WEBHOOK_CAPTURED_EVENTS,
+            })
             expect(result.error).toBeUndefined()
             expect(result.capturedPostHogEvents).toHaveLength(MAX_SOURCE_WEBHOOK_CAPTURED_EVENTS)
             expect(result.capturedPostHogEvents[0].event).toBe('line 0')
@@ -706,13 +735,14 @@ postHogCapture({'event': 'two', 'distinct_id': 'd'})
 throw Error('boom')`
             const fn = createHogFunction({
                 type: 'source_webhook',
-                template_id: 'template-source-vercel-log-drain',
                 hog,
                 bytecode: await compileHog(hog),
                 ...HOG_INPUTS_EXAMPLES.simple_fetch,
                 ...HOG_FILTERS_EXAMPLES.no_filters,
             })
-            const result = await executor.execute(createExampleInvocation(fn))
+            const result = await executor.execute(createExampleInvocation(fn), {
+                maxCapturedEvents: MAX_SOURCE_WEBHOOK_CAPTURED_EVENTS,
+            })
             expect(result.error).toContain('boom')
             expect(result.capturedPostHogEvents).toEqual([])
             expect(result.logs.map((log) => log.message)).toContainEqual(

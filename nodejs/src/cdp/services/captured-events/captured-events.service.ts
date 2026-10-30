@@ -1,4 +1,4 @@
-import { Gauge } from 'prom-client'
+import { Counter, Gauge } from 'prom-client'
 
 import { InternalCaptureEvent, InternalCaptureService } from '~/common/services/internal-capture'
 import { logger } from '~/common/utils/logger'
@@ -7,13 +7,35 @@ import { TeamManager } from '~/common/utils/team-manager'
 
 import { Team } from '../../../types'
 import { CyclotronJobInvocationResult } from '../../types'
+import { Semaphore } from '../../utils/sempahore'
 
 export const CAPTURE_BATCH_SIZE = 100
 // Capture refuses request bodies over 20 MiB, and one event can carry about 1 MiB of properties.
 export const CAPTURE_BATCH_MAX_BYTES = 2 * 1024 * 1024
 export const CAPTURE_BATCH_CONCURRENCY = 5
+// Queued events wait in memory until a flush. Past this point new events are dropped and counted,
+// so a capture slowdown degrades into lost events instead of an out-of-memory pod.
+export const CAPTURE_QUEUE_MAX_EVENTS = 10_000
+// Capture answers 400 for an invalid event and 413 for an oversized body. One event can cause
+// either, so such a batch is retried one event at a time. Every other status, such as 401 or 429,
+// applies to the whole batch and a retry would only repeat it.
+const SPLIT_RETRY_STATUSES: ReadonlySet<number> = new Set([400, 413])
 
-export function buildCaptureBatches(events: InternalCaptureEvent[]): InternalCaptureEvent[][] {
+const capturedEventsPending = new Gauge({
+    name: 'cdp_captured_events_pending',
+    help: 'Number of internal capture events queued and waiting to be flushed. High values indicate accumulation and potential memory leak.',
+})
+
+const capturedEventsDropped = new Counter({
+    name: 'cdp_captured_events_dropped',
+    help: 'Internal capture events that were not delivered, by reason.',
+    labelNames: ['reason'],
+})
+
+export function buildCaptureBatches(events: InternalCaptureEvent[]): {
+    batches: InternalCaptureEvent[][]
+    unserializable: number
+} {
     // Capture reads one token per request body, so batches never mix team tokens.
     const byToken = new Map<string, InternalCaptureEvent[]>()
     for (const event of events) {
@@ -25,11 +47,18 @@ export function buildCaptureBatches(events: InternalCaptureEvent[]): InternalCap
         }
     }
     const batches: InternalCaptureEvent[][] = []
+    let unserializable = 0
     for (const group of byToken.values()) {
         let batch: InternalCaptureEvent[] = []
         let batchBytes = 0
         for (const event of group) {
-            const eventBytes = JSON.stringify(event).length
+            let eventBytes: number
+            try {
+                eventBytes = Buffer.byteLength(JSON.stringify(event))
+            } catch {
+                unserializable++
+                continue
+            }
             if (
                 batch.length > 0 &&
                 (batch.length >= CAPTURE_BATCH_SIZE || batchBytes + eventBytes > CAPTURE_BATCH_MAX_BYTES)
@@ -45,13 +74,8 @@ export function buildCaptureBatches(events: InternalCaptureEvent[]): InternalCap
             batches.push(batch)
         }
     }
-    return batches
+    return { batches, unserializable }
 }
-
-const capturedEventsPending = new Gauge({
-    name: 'cdp_captured_events_pending',
-    help: 'Number of internal capture events queued and waiting to be flushed. High values indicate accumulation and potential memory leak.',
-})
 
 /**
  * Collects and flushes PostHog capture events emitted by hog function
@@ -62,7 +86,9 @@ const capturedEventsPending = new Gauge({
  */
 export class CapturedEventsService {
     private queuedEvents: InternalCaptureEvent[] = []
-    private flushing: Promise<void> = Promise.resolve()
+    // One bound for every request to capture from this process, batches and single retries alike.
+    private sends = new Semaphore(CAPTURE_BATCH_CONCURRENCY)
+    private inFlight = new Set<Promise<void>>()
 
     constructor(
         private internalCaptureService: InternalCaptureService,
@@ -71,13 +97,9 @@ export class CapturedEventsService {
 
     /** Append already-resolved events onto the flush buffer. */
     queue(events: InternalCaptureEvent[]): void {
-        if (events.length === 0) {
-            return
-        }
         for (const event of events) {
-            this.queuedEvents.push(event)
+            this.enqueue(event)
         }
-        capturedEventsPending.set(this.queuedEvents.length)
     }
 
     /**
@@ -89,14 +111,13 @@ export class CapturedEventsService {
         if (!team) {
             return
         }
-        this.queuedEvents.push({
+        this.enqueue({
             team_token: team.api_token,
             event: event.event,
             distinct_id: event.distinct_id,
             timestamp: event.timestamp,
             properties: event.properties,
         })
-        capturedEventsPending.set(this.queuedEvents.length)
     }
 
     /**
@@ -119,7 +140,7 @@ export class CapturedEventsService {
                     if (!team) {
                         continue
                     }
-                    this.queuedEvents.push({
+                    this.enqueue({
                         team_token: team.api_token,
                         event: event.event,
                         distinct_id: event.distinct_id,
@@ -127,26 +148,27 @@ export class CapturedEventsService {
                         properties: event.properties,
                     })
                 }
-                capturedEventsPending.set(this.queuedEvents.length)
             })
         )
     }
 
-    // Required by ResultSink. This sink holds nothing of its own: it writes through the shared
-    // Kafka outputs, which the server disconnects separately on shutdown.
+    private enqueue(event: InternalCaptureEvent): void {
+        if (this.queuedEvents.length >= CAPTURE_QUEUE_MAX_EVENTS) {
+            capturedEventsDropped.inc({ reason: 'queue_full' })
+            return
+        }
+        this.queuedEvents.push(event)
+        capturedEventsPending.set(this.queuedEvents.length)
+    }
+
+    // Required by ResultSink. Drains what is queued and waits for the requests already in flight,
+    // because this sink writes to capture over HTTP and nothing else holds those events.
     async stop(): Promise<void> {
-        return Promise.resolve()
+        await this.flush()
+        await Promise.all([...this.inFlight])
     }
 
-    // Flushes run one after another, so the in-flight bound holds across concurrent webhook requests
-    // and not only inside one flush.
-    flush(): Promise<void> {
-        const run = this.flushing.then(() => this.drain())
-        this.flushing = run.catch(() => undefined)
-        return run
-    }
-
-    private async drain(): Promise<void> {
+    async flush(): Promise<void> {
         const events = this.queuedEvents
         this.queuedEvents = []
         capturedEventsPending.set(0)
@@ -155,34 +177,55 @@ export class CapturedEventsService {
             return
         }
 
-        const batches = buildCaptureBatches(events)
-        for (let i = 0; i < batches.length; i += CAPTURE_BATCH_CONCURRENCY) {
-            await Promise.all(batches.slice(i, i + CAPTURE_BATCH_CONCURRENCY).map((batch) => this.sendBatch(batch)))
+        const { batches, unserializable } = buildCaptureBatches(events)
+        if (unserializable > 0) {
+            capturedEventsDropped.inc({ reason: 'unserializable' }, unserializable)
+            logger.warn('Dropped captured events that could not be serialized', { count: unserializable })
         }
+        await Promise.all(batches.map((batch) => this.track(this.sendBatch(batch))))
+    }
+
+    private track(promise: Promise<void>): Promise<void> {
+        this.inFlight.add(promise)
+        return promise.finally(() => this.inFlight.delete(promise))
     }
 
     private async sendBatch(batch: InternalCaptureEvent[]): Promise<void> {
         try {
-            const response = await this.internalCaptureService.captureBatch(batch)
-            if (batch.length === 1 || response.status < 400 || response.status >= 500) {
+            const response = await this.sends.run(() => this.internalCaptureService.captureBatch(batch))
+            if (response.status < 400) {
                 return
             }
-            // Capture rejects a whole body when one event in it is invalid or the body is too large.
-            // Sending the events alone lets only the bad event fail.
+            if (batch.length === 1 || !SPLIT_RETRY_STATUSES.has(response.status)) {
+                capturedEventsDropped.inc({ reason: `status_${response.status}` }, batch.length)
+                logger.warn('Capture refused a batch of internal events', {
+                    status: response.status,
+                    count: batch.length,
+                })
+                return
+            }
             logger.warn('Capture rejected a batch, retrying its events one at a time', {
                 status: response.status,
                 count: batch.length,
             })
-            await Promise.all(
-                batch.map((event) =>
-                    this.internalCaptureService.capture(event).catch((error) => {
-                        logger.error('Error capturing internal event', { error })
-                        captureException(error)
-                    })
-                )
-            )
+            await Promise.all(batch.map((event) => this.sendSingle(event)))
         } catch (error) {
+            capturedEventsDropped.inc({ reason: 'error' }, batch.length)
             logger.error('Error capturing internal events', { error, count: batch.length })
+            captureException(error)
+        }
+    }
+
+    private async sendSingle(event: InternalCaptureEvent): Promise<void> {
+        try {
+            const response = await this.sends.run(() => this.internalCaptureService.capture(event))
+            if (response.status >= 400) {
+                capturedEventsDropped.inc({ reason: `status_${response.status}` })
+                logger.warn('Capture refused an internal event', { status: response.status, event: event.event })
+            }
+        } catch (error) {
+            capturedEventsDropped.inc({ reason: 'error' })
+            logger.error('Error capturing internal event', { error })
             captureException(error)
         }
     }

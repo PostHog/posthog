@@ -35,119 +35,6 @@ if (notEmpty(inputs.auth_header) and inputs.auth_header != request.headers['auth
     }
 }
 
-let logs := []
-let body := request.stringBody ?? ''
-// Every kept line costs a hash and a large property map inside the function's synchronous
-// time budget, so a batch is capped and the lines past the cap are counted and reported.
-let maxLogs := 100
-let droppedLogs := 0
-
-fun isValidLog(obj) {
-    return typeof(obj) == 'object' and notEmpty(obj.id) and notEmpty(obj.deploymentId)
-}
-
-fun pushLog(obj) {
-    if (not isValidLog(obj)) {
-        return
-    }
-    if (length(logs) >= maxLogs) {
-        droppedLogs := droppedLogs + 1
-        return
-    }
-    logs := arrayPushBack(logs, obj)
-}
-
-fun pushParsed(parsed) {
-    if (typeof(parsed) == 'array') {
-        for (let _, item in parsed) {
-            pushLog(item)
-        }
-    } else if (typeof(parsed) == 'object') {
-        pushLog(parsed)
-    }
-}
-
-// Check if body contains newlines (NDJSON format)
-let hasNewlines := position(body, '\\n') > 0
-
-if (hasNewlines) {
-    // Parse as NDJSON (newline-delimited JSON)
-    let lines := splitByString('\\n', body)
-    for (let _, line in lines) {
-        let s := trim(line)
-        if (empty(s)) {
-            continue
-        }
-        if (length(logs) >= maxLogs) {
-            droppedLogs := droppedLogs + 1
-        } else {
-            pushLog(jsonParse(s))
-        }
-    }
-} else if (notEmpty(body)) {
-    pushParsed(jsonParse(body))
-}
-
-// Fallback: if stringBody was empty but the parsed body is available, use it directly.
-// This handles cases where the webhook infrastructure consumed the raw body for JSON parsing.
-if (empty(logs) and notEmpty(request.body)) {
-    pushParsed(request.body)
-}
-
-if (empty(logs)) {
-    return {
-        'httpResponse': {
-            'status': 400,
-            'body': {
-                'error': 'No valid Vercel log objects found'
-            }
-        }
-    }
-}
-
-if (droppedLogs > 0) {
-    print(f'Warning: Dropped {droppedLogs} log(s). A batch is capped at {maxLogs} lines; configure the drain to send smaller batches.')
-}
-
-let limit := toInt(inputs.max_message_len ?? 262144)
-
-fun truncateIfNeeded(s) {
-    if (typeof(s) != 'string') {
-        return s
-    }
-    if (length(s) <= limit) {
-        return s
-    }
-    return substring(s, 1, limit)
-}
-
-fun parseQueryParams(url) {
-    if (empty(url) or typeof(url) != 'string') {
-        return {}
-    }
-    let queryIndex := position(url, '?')
-    if (queryIndex == 0) {
-        return {}
-    }
-    let queryString := substring(url, queryIndex + 1, length(url) - queryIndex)
-    if (empty(queryString)) {
-        return {}
-    }
-    let params := {}
-    let pairs := splitByString('&', queryString)
-    for (let _, pair in pairs) {
-        if (empty(pair)) {
-            continue
-        }
-        let kv := splitByString('=', pair, 2)
-        let key := kv[1]
-        if (length(kv) > 1 and notEmpty(kv[2])) {
-            params[key] := tryDecodeURLComponent(kv[2]) ?? kv[2]
-        }
-    }
-    return params
-}
-
 fun extractPathname(url) {
     if (empty(url) or typeof(url) != 'string') {
         return ''
@@ -189,16 +76,78 @@ fun logPathname(l) {
     return extractPathname(p.path ?? l.path ?? '')
 }
 
-// A batch with no page-route log is acknowledged with 200 so Vercel does not retry it.
-let selectedLogs := logs
-if (inputs.page_routes_only) {
-    selectedLogs := []
-    for (let _, candidate in logs) {
-        if (isPageRoute(logPathname(candidate))) {
-            selectedLogs := arrayPushBack(selectedLogs, candidate)
+let logs := []
+let validLogs := 0
+let body := request.stringBody ?? ''
+// Every kept line costs a hash and a large property map inside the function's synchronous
+// time budget, so kept lines are capped and the lines past the cap are counted and reported.
+let maxLogs := 100
+let droppedLogs := 0
+// Parsing is bounded too, so a body of thousands of tiny lines cannot spend the budget on jsonParse.
+let maxParsedLines := 1000
+let unparsedLines := 0
+
+fun isValidLog(obj) {
+    return typeof(obj) == 'object' and notEmpty(obj.id) and notEmpty(obj.deploymentId)
+}
+
+fun pushLog(obj) {
+    if (not isValidLog(obj)) {
+        return
+    }
+    validLogs := validLogs + 1
+    if (inputs.page_routes_only and not isPageRoute(logPathname(obj))) {
+        return
+    }
+    if (length(logs) >= maxLogs) {
+        droppedLogs := droppedLogs + 1
+        return
+    }
+    logs := arrayPushBack(logs, obj)
+}
+
+fun pushParsed(parsed) {
+    if (typeof(parsed) == 'array') {
+        for (let _, item in parsed) {
+            pushLog(item)
+        }
+    } else if (typeof(parsed) == 'object') {
+        pushLog(parsed)
+    }
+}
+
+// Check if body contains newlines (NDJSON format)
+let hasNewlines := position(body, '\\n') > 0
+
+if (hasNewlines) {
+    // Parse as NDJSON (newline-delimited JSON)
+    let lines := splitByString('\\n', body)
+    let parsedLines := 0
+    for (let _, line in lines) {
+        let s := trim(line)
+        if (empty(s)) {
+            continue
+        }
+        if (parsedLines >= maxParsedLines) {
+            unparsedLines := unparsedLines + 1
+        } else {
+            parsedLines := parsedLines + 1
+            pushLog(jsonParse(s))
         }
     }
-    if (empty(selectedLogs)) {
+} else if (notEmpty(body)) {
+    pushParsed(jsonParse(body))
+}
+
+// Fallback: if stringBody was empty but the parsed body is available, use it directly.
+// This handles cases where the webhook infrastructure consumed the raw body for JSON parsing.
+if (empty(logs) and notEmpty(request.body)) {
+    pushParsed(request.body)
+}
+
+if (empty(logs)) {
+    // Every valid line was a sub-resource filtered out by page_routes_only. Ack it so Vercel does not retry.
+    if (validLogs > 0) {
         return {
             'httpResponse': {
                 'status': 200,
@@ -206,6 +155,60 @@ if (inputs.page_routes_only) {
             }
         }
     }
+    return {
+        'httpResponse': {
+            'status': 400,
+            'body': {
+                'error': 'No valid Vercel log objects found'
+            }
+        }
+    }
+}
+
+if (droppedLogs > 0) {
+    print(f'Warning: Dropped {droppedLogs} log(s). A batch is capped at {maxLogs} kept lines; configure the drain to send smaller batches.')
+}
+if (unparsedLines > 0) {
+    print(f'Warning: Skipped {unparsedLines} unparsed line(s). A request is parsed up to {maxParsedLines} lines.')
+}
+
+let limit := toInt(inputs.max_message_len ?? 262144)
+
+fun truncateIfNeeded(s) {
+    if (typeof(s) != 'string') {
+        return s
+    }
+    if (length(s) <= limit) {
+        return s
+    }
+    return substring(s, 1, limit)
+}
+
+fun parseQueryParams(url) {
+    if (empty(url) or typeof(url) != 'string') {
+        return {}
+    }
+    let queryIndex := position(url, '?')
+    if (queryIndex == 0) {
+        return {}
+    }
+    let queryString := substring(url, queryIndex + 1, length(url) - queryIndex)
+    if (empty(queryString)) {
+        return {}
+    }
+    let params := {}
+    let pairs := splitByString('&', queryString)
+    for (let _, pair in pairs) {
+        if (empty(pair)) {
+            continue
+        }
+        let kv := splitByString('=', pair, 2)
+        let key := kv[1]
+        if (length(kv) > 1 and notEmpty(kv[2])) {
+            params[key] := tryDecodeURLComponent(kv[2]) ?? kv[2]
+        }
+    }
+    return params
 }
 
 let day := formatDateTime(now(), '%Y-%m-%d')
@@ -374,7 +377,7 @@ fun captureLog(log) {
 }
 
 // postHogCapture returns false once the executor's per-invocation cap is reached.
-for (let _, log in selectedLogs) {
+for (let _, log in logs) {
     if (not captureLog(log)) {
         break
     }

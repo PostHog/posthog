@@ -481,7 +481,7 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
                 }
             } else {
                 // Run the initial step - this allows functions not using fetches to respond immediately
-                result = await this.hogExecutorAsync.execute(invocation)
+                result = await this.hogExecutorAsync.execute(invocation, await this.hogExecutionOptionsFor(hogFunction))
 
                 // Queue any queued work here. This allows us to enable delayed work like fetching eventually without blocking the API.
                 if (!result.finished) {

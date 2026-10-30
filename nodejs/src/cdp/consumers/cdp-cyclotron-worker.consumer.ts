@@ -50,7 +50,9 @@ export class CdpCyclotronWorker<
                 } else if (isSegmentPluginHogFunction(item.hogFunction)) {
                     return this.segmentDestinationExecutorService.execute(item)
                 } else {
-                    return this.hogExecutorAsync.executeWithAsyncFunctions(item)
+                    return this.hogExecutionOptionsFor(item.hogFunction).then((options) =>
+                        this.hogExecutorAsync.executeWithAsyncFunctions(item, options)
+                    )
                 }
             })
         )
