@@ -3518,6 +3518,46 @@ export interface ClusteringRunRequestApi {
 }
 
 /**
+ * * `ai_data_processing_not_approved` - AI data processing not approved
+ * * `no_enabled_job` - No enabled job for this level
+ * * `not_enough_items` - Not enough items
+ * * `not_scheduled` - Not in a recent scheduled run
+ */
+export type ClusteringSkipReasonEnumApi = (typeof ClusteringSkipReasonEnumApi)[keyof typeof ClusteringSkipReasonEnumApi]
+
+export const ClusteringSkipReasonEnumApi = {
+    AiDataProcessingNotApproved: 'ai_data_processing_not_approved',
+    NoEnabledJob: 'no_enabled_job',
+    NotEnoughItems: 'not_enough_items',
+    NotScheduled: 'not_scheduled',
+} as const
+
+export interface ClusteringSkipReasonApi {
+    /** Why scheduled clustering has no run for this level. ai_data_processing_not_approved: the organization has not approved AI data processing. no_enabled_job: no enabled clustering job exists for this level. not_enough_items: the latest scheduled run found fewer items than the minimum. not_scheduled: no recent scheduled run has processed this project.
+     *
+     * * `ai_data_processing_not_approved` - AI data processing not approved
+     * * `no_enabled_job` - No enabled job for this level
+     * * `not_enough_items` - Not enough items
+     * * `not_scheduled` - Not in a recent scheduled run */
+    reason: ClusteringSkipReasonEnumApi
+    /**
+     * Items the latest scheduled run found in its window. Set only for not_enough_items.
+     * @nullable
+     */
+    item_count: number | null
+    /**
+     * Items a run needs before it clusters. Set only for not_enough_items.
+     * @nullable
+     */
+    min_required: number | null
+    /**
+     * When the latest scheduled run checked this project. Set only for not_enough_items.
+     * @nullable
+     */
+    checked_at: string | null
+}
+
+/**
  * * `unknown` - Unknown
  * * `ok` - Ok
  * * `invalid` - Invalid
@@ -6060,6 +6100,27 @@ export type LlmAnalyticsClusteringJobsListParams = {
      */
     offset?: number
 }
+
+export type LlmAnalyticsClusteringRunsSkipReasonRetrieveParams = {
+    /**
+     * Clustering level to explain: trace, generation, or evaluation.
+     *
+     * * `trace` - trace
+     * * `generation` - generation
+     * * `evaluation` - evaluation
+     * @minLength 1
+     */
+    analysis_level: LlmAnalyticsClusteringRunsSkipReasonRetrieveAnalysisLevel
+}
+
+export type LlmAnalyticsClusteringRunsSkipReasonRetrieveAnalysisLevel =
+    (typeof LlmAnalyticsClusteringRunsSkipReasonRetrieveAnalysisLevel)[keyof typeof LlmAnalyticsClusteringRunsSkipReasonRetrieveAnalysisLevel]
+
+export const LlmAnalyticsClusteringRunsSkipReasonRetrieveAnalysisLevel = {
+    Trace: 'trace',
+    Generation: 'generation',
+    Evaluation: 'evaluation',
+} as const
 
 export type LlmAnalyticsEvaluationReportsListParams = {
     /**

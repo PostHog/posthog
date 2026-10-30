@@ -8,12 +8,15 @@ from django.conf import settings
 
 import structlog
 import posthoganalytics
+from drf_spectacular.utils import OpenApiResponse
 from rest_framework import serializers, status, viewsets
+from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 
+from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
@@ -32,6 +35,7 @@ from posthog.temporal.ai_observability.trace_clustering.models import AnalysisLe
 from posthog.temporal.common.client import sync_connect
 
 from products.ai_observability.backend.api.metrics import llma_track_latency
+from products.ai_observability.backend.logic.clustering_skip_reason import ClusteringSkipReason, explain_clustering_skip
 from products.ai_observability.backend.models.clustering_job import ClusteringJob
 
 logger = structlog.get_logger(__name__)
@@ -153,12 +157,65 @@ class ClusteringRunRequestSerializer(serializers.Serializer):
     )
 
 
+class ClusteringSkipReasonQuerySerializer(serializers.Serializer):
+    analysis_level = serializers.ChoiceField(
+        choices=[("trace", "trace"), ("generation", "generation"), ("evaluation", "evaluation")],
+        help_text="Clustering level to explain: trace, generation, or evaluation.",
+    )
+
+
+class ClusteringSkipReasonSerializer(serializers.Serializer):
+    reason = serializers.ChoiceField(
+        choices=ClusteringSkipReason.choices,
+        help_text=(
+            "Why scheduled clustering has no run for this level. "
+            "ai_data_processing_not_approved: the organization has not approved AI data processing. "
+            "no_enabled_job: no enabled clustering job exists for this level. "
+            "not_enough_items: the latest scheduled run found fewer items than the minimum. "
+            "not_scheduled: no recent scheduled run has processed this project."
+        ),
+    )
+    item_count = serializers.IntegerField(
+        allow_null=True,
+        help_text="Items the latest scheduled run found in its window. Set only for not_enough_items.",
+    )
+    min_required = serializers.IntegerField(
+        allow_null=True,
+        help_text="Items a run needs before it clusters. Set only for not_enough_items.",
+    )
+    checked_at = serializers.DateTimeField(
+        allow_null=True,
+        help_text="When the latest scheduled run checked this project. Set only for not_enough_items.",
+    )
+
+
 class AIObservabilityClusteringRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """ViewSet for triggering and managing clustering workflow runs."""
 
     scope_object = "ai_observability_clusters"
     permission_classes = [IsAuthenticated, AccessControlPermission]
     serializer_class = ClusteringRunRequestSerializer
+
+    @validated_request(
+        query_serializer=ClusteringSkipReasonQuerySerializer,
+        responses={200: OpenApiResponse(response=ClusteringSkipReasonSerializer)},
+        summary="Explain why scheduled clustering has no run",
+    )
+    @action(detail=False, methods=["get"], required_scopes=["ai_observability_clusters:read"])
+    @llma_track_latency("llma_clustering_skip_reason")
+    @monitor(feature=None, endpoint="llma_clustering_skip_reason", method="GET")
+    def skip_reason(self, request: ValidatedRequest, **kwargs) -> Response:
+        explanation = explain_clustering_skip(self.team, request.validated_query_data["analysis_level"])
+        return Response(
+            ClusteringSkipReasonSerializer(
+                {
+                    "reason": explanation.reason,
+                    "item_count": explanation.item_count,
+                    "min_required": explanation.min_required,
+                    "checked_at": explanation.checked_at,
+                }
+            ).data
+        )
 
     @llma_track_latency("llma_clustering_create")
     @monitor(feature=None, endpoint="llma_clustering_create", method="POST")

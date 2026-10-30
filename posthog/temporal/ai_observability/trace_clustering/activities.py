@@ -21,6 +21,7 @@ from temporalio.exceptions import ApplicationError
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.models.team import Team
+from posthog.temporal.ai_observability.clustering_skip_status import clear_skip_status, record_not_enough_items
 from posthog.temporal.ai_observability.retries import is_last_attempt
 from posthog.temporal.ai_observability.team_discovery import get_min_traces_override
 from posthog.temporal.ai_observability.trace_clustering import constants
@@ -120,6 +121,7 @@ def _perform_clustering_compute(inputs: ClusteringActivityInputs) -> ClusteringC
             team_id=inputs.team_id,
             analysis_level=inputs.analysis_level,
         )
+        record_not_enough_items(inputs.team_id, inputs.analysis_level, len(item_ids), min_traces)
         return ClusteringComputeResult(
             clustering_run_id=clustering_run_id,
             items=[],
@@ -133,6 +135,7 @@ def _perform_clustering_compute(inputs: ClusteringActivityInputs) -> ClusteringC
             num_noise_points=0,
             batch_run_ids={},
         )
+    clear_skip_status(inputs.team_id, inputs.analysis_level)
 
     # Fetch summaries to get parent trace_id for generation-level clustering
     summaries = fetch_item_summaries(

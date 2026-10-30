@@ -28,6 +28,7 @@ import type {
     ClusteringConfigSetEventFiltersApi,
     ClusteringJobApi,
     ClusteringRunRequestApi,
+    ClusteringSkipReasonApi,
     DatasetCreateApi,
     DatasetExportCreateApi,
     DatasetExportReadApi,
@@ -73,6 +74,7 @@ import type {
     LLMPromptSetLabelApi,
     LLMProviderKeyApi,
     LlmAnalyticsClusteringJobsListParams,
+    LlmAnalyticsClusteringRunsSkipReasonRetrieveParams,
     LlmAnalyticsEvaluationReportsListParams,
     LlmAnalyticsEvaluationReportsRunsListParams,
     LlmAnalyticsModelsRetrieveParams,
@@ -1949,6 +1951,40 @@ export const llmAnalyticsClusteringRunsCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(clusteringRunRequestApi),
+    })
+}
+
+export const getLlmAnalyticsClusteringRunsSkipReasonRetrieveUrl = (
+    projectId: string,
+    params: LlmAnalyticsClusteringRunsSkipReasonRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/llm_analytics/clustering_runs/skip_reason/?${stringifiedParams}`
+        : `/api/projects/${projectId}/llm_analytics/clustering_runs/skip_reason/`
+}
+
+/**
+ * ViewSet for triggering and managing clustering workflow runs.
+ * @summary Explain why scheduled clustering has no run
+ */
+export const llmAnalyticsClusteringRunsSkipReasonRetrieve = async (
+    projectId: string,
+    params: LlmAnalyticsClusteringRunsSkipReasonRetrieveParams,
+    options?: RequestInit
+): Promise<ClusteringSkipReasonApi> => {
+    return apiMutator<ClusteringSkipReasonApi>(getLlmAnalyticsClusteringRunsSkipReasonRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 
