@@ -7,7 +7,7 @@ If the user said they are away, or asked for a draft without questions, list the
 
 ## Options
 
-Offer an option only when its condition holds.
+Offer an option only when its condition holds and you can see the tool it calls. A connection without the `user:write` scope hides `reminder-create`, for example.
 A question tool needs at least two options. When only one holds, add a second that leaves things as they are, such as "Keep it as a draft for now".
 
 - **Launch the experiment.** Drafts only. Picking it is the user asking for a launch. Follow the launch steps in `managing-experiment-lifecycle`, including the pre-launch checklist.
