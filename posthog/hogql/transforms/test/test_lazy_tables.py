@@ -9,7 +9,7 @@ from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
-from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode, SessionTableVersion
+from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode, SessionsV2JoinMode, SessionTableVersion
 
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
@@ -149,11 +149,21 @@ class TestLazyJoins(BaseTest):
             'SAMPLE clause ignored: the "sessions" table is computed on the fly and cannot be sampled'
         ]
 
-    def test_join_from_a_lazy_join_reads_the_extra_source_field_it_declares(self):
-        printed = self._print_select(
-            "SELECT events.session.$session_duration FROM session_replay_events",
-            HogQLQueryModifiers(sessionTableVersion=SessionTableVersion.V3),
-        )
+    @parameterized.expand(
+        [
+            ("v3", HogQLQueryModifiers(sessionTableVersion=SessionTableVersion.V3)),
+            (
+                "v2_uuid_join",
+                HogQLQueryModifiers(
+                    sessionTableVersion=SessionTableVersion.V2, sessionsV2JoinMode=SessionsV2JoinMode.UUID
+                ),
+            ),
+        ]
+    )
+    def test_join_from_a_lazy_join_reads_the_extra_source_field_it_declares(
+        self, _name: str, modifiers: HogQLQueryModifiers
+    ):
+        printed = self._print_select("SELECT events.session.$session_duration FROM session_replay_events", modifiers)
 
         assert "$session_id_uuid" in printed
 

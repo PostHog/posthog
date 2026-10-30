@@ -331,10 +331,8 @@ class EventsScan:
     def _pins_flag_calls_in(self, expr: ast.Expr, needs_flag_key: bool) -> bool:
         if _pinned_values(expr, self._reads_event, _is_flag_called) is not None:
             return not needs_flag_key
-        if isinstance(expr, ast.Or):
-            return bool(expr.exprs) and all(
-                self.pins_flag_calls(_conjuncts(branch), needs_flag_key) for branch in expr.exprs
-            )
+        if branches := boolean_operands(expr, ast.Or):
+            return all(self.pins_flag_calls(_conjuncts(branch), needs_flag_key) for branch in branches)
         return False
 
     def _flag_keys_in(self, expr: ast.Expr) -> list[str] | None:
