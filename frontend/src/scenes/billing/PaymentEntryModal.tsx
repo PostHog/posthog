@@ -1,4 +1,5 @@
-import { Elements, PaymentElement, useElements, useStripe } from '@stripe/react-stripe-js'
+import { AddressElement, Elements, PaymentElement, useElements, useStripe } from '@stripe/react-stripe-js'
+import type { StripeAddressElementOptions } from '@stripe/stripe-js'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'
@@ -12,6 +13,11 @@ import { PaymentCompletion } from './PaymentCompletion'
 import { paymentEntryLogic } from './paymentEntryLogic'
 
 const stripeJs = async (): Promise<typeof import('@stripe/stripe-js')> => await import('@stripe/stripe-js')
+
+// Tax falls back to the card's billing address when the organization has no address of its own, and the
+// card form by itself asks for a country and postal code at most. Confirming the payment saves this
+// address on the card. Mounted before the card form, it also replaces that form's own address fields.
+const BILLING_ADDRESS_OPTIONS: StripeAddressElementOptions = { mode: 'billing' }
 
 // Covers every way Stripe.js can fail to become usable: a blocked script, a network failure, or no
 // publishable key at all on an instance without Stripe configured. Only the first is worth a retry,
@@ -58,6 +64,7 @@ export const PaymentForm = (): JSX.Element => {
 
     return (
         <div>
+            <AddressElement className="mb-4" options={BILLING_ADDRESS_OPTIONS} />
             <PaymentElement />
             <p className="text-xs text-secondary mt-0.5">
                 A temporary $0.50 authorization hold will be placed on your card to verify it. This hold will be
