@@ -2363,6 +2363,8 @@ export type EvaluationApiEvaluationConfig =
            * @nullable
            */
           judge_method?: 'llm' | 'decision' | null
+          /** Set to false to judge text only. */
+          include_media?: boolean
           /**
            * How much the judge model reasons before it answers. Only Anthropic and OpenAI reasoning models with the 'llm' judge method support it. Omit to keep the saved level; null uses the model's default.
            * @nullable
@@ -2697,6 +2699,8 @@ export type PatchedEvaluationApiEvaluationConfig =
            * @nullable
            */
           judge_method?: 'llm' | 'decision' | null
+          /** Set to false to judge text only. */
+          include_media?: boolean
           /**
            * How much the judge model reasons before it answers. Only Anthropic and OpenAI reasoning models with the 'llm' judge method support it. Omit to keep the saved level; null uses the model's default.
            * @nullable

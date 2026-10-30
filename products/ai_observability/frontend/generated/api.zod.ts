@@ -620,6 +620,7 @@ export const EvaluationsCreateBody = /* @__PURE__ */ zod
                         .enum(['llm', 'decision'])
                         .nullish()
                         .describe('Judge method. Omit to keep the saved method; null restores automatic routing.'),
+                    include_media: zod.boolean().optional().describe('Set to false to judge text only.'),
                     reasoning_level: zod
                         .enum(['minimal', 'low', 'medium', 'high'])
                         .nullish()
@@ -1021,6 +1022,7 @@ export const EvaluationsUpdateBody = /* @__PURE__ */ zod
                         .enum(['llm', 'decision'])
                         .nullish()
                         .describe('Judge method. Omit to keep the saved method; null restores automatic routing.'),
+                    include_media: zod.boolean().optional().describe('Set to false to judge text only.'),
                     reasoning_level: zod
                         .enum(['minimal', 'low', 'medium', 'high'])
                         .nullish()
@@ -1325,6 +1327,7 @@ export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod
                         .enum(['llm', 'decision'])
                         .nullish()
                         .describe('Judge method. Omit to keep the saved method; null restores automatic routing.'),
+                    include_media: zod.boolean().optional().describe('Set to false to judge text only.'),
                     reasoning_level: zod
                         .enum(['minimal', 'low', 'medium', 'high'])
                         .nullish()
