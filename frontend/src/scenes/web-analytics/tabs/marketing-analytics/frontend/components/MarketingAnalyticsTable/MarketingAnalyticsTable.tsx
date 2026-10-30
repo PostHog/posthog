@@ -23,6 +23,7 @@ import {
     MarketingAnalyticsTableQuery,
 } from '~/queries/schema/schema-general'
 import { QueryContext, QueryContextColumn } from '~/queries/types'
+import { MarketingAnalyticsFreshness } from '~/scenes/marketing-analytics/MarketingAnalyticsFreshness'
 import { MarketingAnalyticsNotReady } from '~/scenes/marketing-analytics/MarketingAnalyticsNotReady'
 import { useMarketingAnalyticsPrecompute } from '~/scenes/marketing-analytics/useMarketingAnalyticsPrecompute'
 import { webAnalyticsDataTableQueryContext } from '~/scenes/web-analytics/tiles/WebAnalyticsTile'
@@ -84,7 +85,10 @@ export const MarketingAnalyticsTable = ({
         () => conversionRecordingsTableQuery(query, !!hasConversionRecordings && !isSharedView()),
         [query, hasConversionRecordings]
     )
-    const { notReady: precomputeNotReady } = useMarketingAnalyticsPrecompute(tableQuery.source, insightProps)
+    const { notReady: precomputeNotReady, latestDayComputedAt } = useMarketingAnalyticsPrecompute(
+        tableQuery.source,
+        insightProps
+    )
 
     const validationWarnings = useMemo(() => validateConversionGoals(conversion_goals), [conversion_goals])
 
@@ -226,9 +230,12 @@ export const MarketingAnalyticsTable = ({
                             <IconInfo className="text-xl text-secondary" />
                         </Tooltip>
                     </div>
-                    <LemonButton type="secondary" icon={<IconGear />} onClick={showColumnConfigModal}>
-                        Configure columns
-                    </LemonButton>
+                    <div className="flex flex-wrap items-center gap-2">
+                        <MarketingAnalyticsFreshness latestDayComputedAt={latestDayComputedAt} />
+                        <LemonButton type="secondary" icon={<IconGear />} onClick={showColumnConfigModal}>
+                            Configure columns
+                        </LemonButton>
+                    </div>
                 </div>
             </div>
             {validationWarnings && validationWarnings.length > 0 && (

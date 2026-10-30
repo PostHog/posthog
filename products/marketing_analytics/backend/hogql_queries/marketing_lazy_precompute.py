@@ -21,7 +21,9 @@ that on the CACHE_WARMUP feature tag (which the Dagster warmer already sets) plu
 
 import json
 import hashlib
+from collections.abc import Iterable, Sequence
 from contextlib import suppress
+from datetime import UTC, date, datetime
 from typing import Any
 
 import structlog
@@ -38,6 +40,7 @@ from posthog.token_bucket import BucketDecision, Budget, consume
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
     EXPIRY_BUFFER_SECONDS,
     LazyComputationResult,
+    ServedWindow,
     ensure_precomputed,
 )
 from products.analytics_platform.backend.lazy_computation.stale_policy import is_background_warming_request
@@ -125,6 +128,29 @@ def marketing_ensure_precomputed(*, team: Team, **kwargs: Any) -> LazyComputatio
     kwargs.setdefault("run_inserts", False)
     kwargs.setdefault("stale_while_revalidate_seconds", PRECOMPUTE_ONLY_MAX_STALE_SECONDS)
     return ensure_precomputed(team=team, **kwargs)
+
+
+def _oldest_stamp(windows: Iterable[ServedWindow]) -> datetime | None:
+    # A window without a stamp makes the age unknown, so the result must not read fresher than it is.
+    stamps = [w.computed_at for w in windows]
+    if not stamps or any(stamp is None for stamp in stamps):
+        return None
+    return min(stamp for stamp in stamps if stamp is not None)
+
+
+def events_latest_day_computed_at(windows: Sequence[ServedWindow], latest_day_start: datetime) -> datetime | None:
+    """Oldest stamp among the windows that hold events of the local day starting at `latest_day_start`."""
+    return _oldest_stamp(w for w in windows if w.end > latest_day_start)
+
+
+def costs_latest_day_computed_at(windows: Sequence[ServedWindow], latest_cost_day: date) -> datetime | None:
+    """Oldest stamp among the windows that hold `latest_cost_day`.
+
+    Cost rows carry a date, which the materialization reads as UTC midnight, so the day lives in the one
+    window that contains that instant rather than in every window the local day overlaps.
+    """
+    cost_day_start = datetime(latest_cost_day.year, latest_cost_day.month, latest_cost_day.day, tzinfo=UTC)
+    return _oldest_stamp(w for w in windows if w.start <= cost_day_start < w.end)
 
 
 def _query_shape_key(query: Any) -> str:

@@ -668,6 +668,13 @@ class LazyComputationQuery:
     modifiers: HogQLQueryModifiers | None = None
 
 
+@frozen
+class ServedWindow:
+    start: datetime
+    end: datetime
+    computed_at: datetime | None
+
+
 @dataclass(frozen=True)
 class LazyComputationResult:
     """Result of executing lazy computation jobs."""
@@ -694,8 +701,15 @@ class LazyComputationResult:
     freshly_built: bool = False
     # Oldest `computed_at` across the served jobs — the moment the stalest window in the
     # range was last materialized. None when nothing was served (not ready) or a served
-    # job predates the column. Callers surface it as "data as of X".
+    # job predates the column.
     computed_at: datetime | None = None
+    # Every served job's range and computed_at, so a caller can ask how fresh a specific part of the
+    # range is (for example the latest day) instead of only the oldest stamp.
+    served_windows: tuple[ServedWindow, ...] = ()
+
+
+def _served_windows(jobs: list[PreaggregationJob]) -> tuple[ServedWindow, ...]:
+    return tuple(ServedWindow(start=j.time_range_start, end=j.time_range_end, computed_at=j.computed_at) for j in jobs)
 
 
 def _oldest_computed_at(jobs: list[PreaggregationJob]) -> datetime | None:
@@ -1327,6 +1341,7 @@ class LazyComputationExecutor:
                             job_ids=[j.id for j in covering],
                             stale=True,
                             computed_at=_oldest_computed_at(covering),
+                            served_windows=_served_windows(covering),
                         )
                         _log_execution("stale_hit", result)
                         return result
@@ -1591,6 +1606,7 @@ class LazyComputationExecutor:
             job_ids=[j.id for j in final_ready],
             freshly_built=jobs_created > 0 or bool(waited_job_ids),
             computed_at=_oldest_computed_at(final_ready),
+            served_windows=_served_windows(final_ready),
         )
         _log_execution("success", result)
         return result

@@ -14443,7 +14443,7 @@ class CachedMarketingAnalyticsAggregatedQueryResponse(BaseModel):
     )
     dataComputedAt: str | None = Field(
         default=None,
-        description=('ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X".'),
+        description=("ISO timestamp of the oldest precompute window backing this result."),
     )
     error: str | None = Field(
         default=None,
@@ -14454,6 +14454,15 @@ class CachedMarketingAnalyticsAggregatedQueryResponse(BaseModel):
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
     last_refresh: AwareDatetime
+    latestDayComputedAt: str | None = Field(
+        default=None,
+        description=(
+            "ISO timestamp of when the numbers for the most recent day in the range"
+            " were computed, at this time or later. It is the oldest stamp among the"
+            " precompute windows that hold that day, across costs and conversion goals."
+            " Unset when no precompute was read or a window has no stamp."
+        ),
+    )
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     precomputeNotReady: bool | None = Field(
@@ -14834,7 +14843,7 @@ class CachedMarketingAnalyticsTableQueryResponse(BaseModel):
     columns: list | None = None
     dataComputedAt: str | None = Field(
         default=None,
-        description=('ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X".'),
+        description=("ISO timestamp of the oldest precompute window backing this result."),
     )
     error: str | None = Field(
         default=None,
@@ -14846,6 +14855,15 @@ class CachedMarketingAnalyticsTableQueryResponse(BaseModel):
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
     last_refresh: AwareDatetime
+    latestDayComputedAt: str | None = Field(
+        default=None,
+        description=(
+            "ISO timestamp of when the numbers for the most recent day in the range"
+            " were computed, at this time or later. It is the oldest stamp among the"
+            " precompute windows that hold that day, across costs and conversion goals."
+            " Unset when no precompute was read or a window has no stamp."
+        ),
+    )
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
@@ -18002,7 +18020,7 @@ class Response12(BaseModel):
     columns: list | None = None
     dataComputedAt: str | None = Field(
         default=None,
-        description=('ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X".'),
+        description=("ISO timestamp of the oldest precompute window backing this result."),
     )
     error: str | None = Field(
         default=None,
@@ -18012,6 +18030,15 @@ class Response12(BaseModel):
     )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    latestDayComputedAt: str | None = Field(
+        default=None,
+        description=(
+            "ISO timestamp of when the numbers for the most recent day in the range"
+            " were computed, at this time or later. It is the oldest stamp among the"
+            " precompute windows that hold that day, across costs and conversion goals."
+            " Unset when no precompute was read or a window has no stamp."
+        ),
+    )
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
@@ -18066,7 +18093,7 @@ class Response13(BaseModel):
     )
     dataComputedAt: str | None = Field(
         default=None,
-        description=('ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X".'),
+        description=("ISO timestamp of the oldest precompute window backing this result."),
     )
     error: str | None = Field(
         default=None,
@@ -18075,6 +18102,15 @@ class Response13(BaseModel):
         ),
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    latestDayComputedAt: str | None = Field(
+        default=None,
+        description=(
+            "ISO timestamp of when the numbers for the most recent day in the range"
+            " were computed, at this time or later. It is the oldest stamp among the"
+            " precompute windows that hold that day, across costs and conversion goals."
+            " Unset when no precompute was read or a window has no stamp."
+        ),
+    )
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     precomputeNotReady: bool | None = Field(
         default=None,
@@ -20690,7 +20726,7 @@ class MarketingAnalyticsAggregatedQueryResponse(BaseModel):
     )
     dataComputedAt: str | None = Field(
         default=None,
-        description=('ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X".'),
+        description=("ISO timestamp of the oldest precompute window backing this result."),
     )
     error: str | None = Field(
         default=None,
@@ -20699,6 +20735,15 @@ class MarketingAnalyticsAggregatedQueryResponse(BaseModel):
         ),
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    latestDayComputedAt: str | None = Field(
+        default=None,
+        description=(
+            "ISO timestamp of when the numbers for the most recent day in the range"
+            " were computed, at this time or later. It is the oldest stamp among the"
+            " precompute windows that hold that day, across costs and conversion goals."
+            " Unset when no precompute was read or a window has no stamp."
+        ),
+    )
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     precomputeNotReady: bool | None = Field(
         default=None,
@@ -21006,7 +21051,7 @@ class MarketingAnalyticsTableQueryResponse(BaseModel):
     columns: list | None = None
     dataComputedAt: str | None = Field(
         default=None,
-        description=('ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X".'),
+        description=("ISO timestamp of the oldest precompute window backing this result."),
     )
     error: str | None = Field(
         default=None,
@@ -21016,6 +21061,15 @@ class MarketingAnalyticsTableQueryResponse(BaseModel):
     )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    latestDayComputedAt: str | None = Field(
+        default=None,
+        description=(
+            "ISO timestamp of when the numbers for the most recent day in the range"
+            " were computed, at this time or later. It is the oldest stamp among the"
+            " precompute windows that hold that day, across costs and conversion goals."
+            " Unset when no precompute was read or a window has no stamp."
+        ),
+    )
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
@@ -22699,7 +22753,7 @@ class QueryResponseAlternative33(BaseModel):
     columns: list | None = None
     dataComputedAt: str | None = Field(
         default=None,
-        description=('ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X".'),
+        description=("ISO timestamp of the oldest precompute window backing this result."),
     )
     error: str | None = Field(
         default=None,
@@ -22709,6 +22763,15 @@ class QueryResponseAlternative33(BaseModel):
     )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    latestDayComputedAt: str | None = Field(
+        default=None,
+        description=(
+            "ISO timestamp of when the numbers for the most recent day in the range"
+            " were computed, at this time or later. It is the oldest stamp among the"
+            " precompute windows that hold that day, across costs and conversion goals."
+            " Unset when no precompute was read or a window has no stamp."
+        ),
+    )
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
@@ -22763,7 +22826,7 @@ class QueryResponseAlternative34(BaseModel):
     )
     dataComputedAt: str | None = Field(
         default=None,
-        description=('ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X".'),
+        description=("ISO timestamp of the oldest precompute window backing this result."),
     )
     error: str | None = Field(
         default=None,
@@ -22772,6 +22835,15 @@ class QueryResponseAlternative34(BaseModel):
         ),
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    latestDayComputedAt: str | None = Field(
+        default=None,
+        description=(
+            "ISO timestamp of when the numbers for the most recent day in the range"
+            " were computed, at this time or later. It is the oldest stamp among the"
+            " precompute windows that hold that day, across costs and conversion goals."
+            " Unset when no precompute was read or a window has no stamp."
+        ),
+    )
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     precomputeNotReady: bool | None = Field(
         default=None,
@@ -23726,7 +23798,7 @@ class QueryResponseAlternative51(BaseModel):
     columns: list | None = None
     dataComputedAt: str | None = Field(
         default=None,
-        description=('ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X".'),
+        description=("ISO timestamp of the oldest precompute window backing this result."),
     )
     error: str | None = Field(
         default=None,
@@ -23736,6 +23808,15 @@ class QueryResponseAlternative51(BaseModel):
     )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    latestDayComputedAt: str | None = Field(
+        default=None,
+        description=(
+            "ISO timestamp of when the numbers for the most recent day in the range"
+            " were computed, at this time or later. It is the oldest stamp among the"
+            " precompute windows that hold that day, across costs and conversion goals."
+            " Unset when no precompute was read or a window has no stamp."
+        ),
+    )
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
@@ -23790,7 +23871,7 @@ class QueryResponseAlternative52(BaseModel):
     )
     dataComputedAt: str | None = Field(
         default=None,
-        description=('ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X".'),
+        description=("ISO timestamp of the oldest precompute window backing this result."),
     )
     error: str | None = Field(
         default=None,
@@ -23799,6 +23880,15 @@ class QueryResponseAlternative52(BaseModel):
         ),
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    latestDayComputedAt: str | None = Field(
+        default=None,
+        description=(
+            "ISO timestamp of when the numbers for the most recent day in the range"
+            " were computed, at this time or later. It is the oldest stamp among the"
+            " precompute windows that hold that day, across costs and conversion goals."
+            " Unset when no precompute was read or a window has no stamp."
+        ),
+    )
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     precomputeNotReady: bool | None = Field(
         default=None,

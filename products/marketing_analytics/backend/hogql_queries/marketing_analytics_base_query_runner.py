@@ -50,6 +50,7 @@ from products.marketing_analytics.backend.hogql_queries.constants import (
 )
 from products.marketing_analytics.backend.hogql_queries.marketing_lazy_precompute import (
     BACKGROUND_WARMING_TRIGGERS,
+    costs_latest_day_computed_at,
     handle_not_ready,
     handle_stale_served,
     is_on_demand_revalidation,
@@ -92,6 +93,7 @@ class PrecomputeMetadataResponse(Protocol):
 
     precomputeNotReady: Optional[bool]
     dataComputedAt: Optional[str]
+    latestDayComputedAt: Optional[str]
 
 
 # Discriminator column tagging each row in the compare UNION ALL with its period.
@@ -197,9 +199,13 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
         # Set when any read-path ensure (costs, touchpoints, conversions) was served from
         # expired-within-grace rows rather than rebuilt inline. Reset on each to_query.
         self._precompute_stale: bool = False
-        # Oldest precompute `computed_at` across the read's conversion goals, collected while building the
-        # query. Surfaced on the response as "data as of X". None when nothing precomputed was read.
+        # Oldest precompute `computed_at` across the read's datasets, collected while building the query.
+        # Returned as `dataComputedAt`. None when nothing precomputed was read.
         self._precompute_computed_at: Optional[datetime] = None
+        # Oldest `computed_at` among the windows that hold the latest day of the current period, across every
+        # precomputed dataset. Unknown when any served dataset could not tell.
+        self._latest_day_computed_at: Optional[datetime] = None
+        self._latest_day_unknown: bool = False
 
     def calculate(self) -> ResponseType:
         start = time.perf_counter()
@@ -220,6 +226,11 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
                 precompute_metadata.precomputeNotReady = False
                 precompute_metadata.dataComputedAt = (
                     self._precompute_computed_at.isoformat() if self._precompute_computed_at else None
+                )
+                precompute_metadata.latestDayComputedAt = (
+                    self._latest_day_computed_at.isoformat()
+                    if self._latest_day_computed_at and not self._latest_day_unknown
+                    else None
                 )
             self._capture_query_event("marketing analytics query performed", start)
             return response
@@ -451,6 +462,9 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
                 continue
             # This source's cost rows are on screen, so their age bounds the response's freshness too.
             self.note_precompute_computed_at(result.computed_at)
+            self.note_latest_day_computed_at(
+                costs_latest_day_computed_at(result.served_windows, date_range.date_to().date())
+            )
             # The ensure_precomputed call above materialized this source. We read by source, not by
             # result.job_ids, because the `marketing_costs_precomputed` view already collapses each cell to its latest job.
             materialized_source_ids.append(adapter.get_source_id())
@@ -1146,6 +1160,8 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
                 if processor.precompute_stale:
                     self._precompute_stale = True
                 self.note_precompute_computed_at(processor.precompute_computed_at)
+                if processor.precompute_served:
+                    self.note_latest_day_computed_at(processor.precompute_latest_day_computed_at)
 
             if unified_cte:
                 ctes[UNIFIED_CONVERSION_GOALS_CTE_ALIAS] = unified_cte
@@ -1211,12 +1227,18 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
 
         The oldest across every dataset the response displays — costs, each conversion goal, and the
         previous period when comparing — bounds how old the numbers on screen can be. Taking anything
-        newer would understate staleness on the freshness badge.
+        newer would understate how old the data can be.
         """
         if computed_at is None:
             return
         if self._precompute_computed_at is None or computed_at < self._precompute_computed_at:
             self._precompute_computed_at = computed_at
+
+    def note_latest_day_computed_at(self, computed_at: Optional[datetime]) -> None:
+        if computed_at is None:
+            self._latest_day_unknown = True
+        elif self._latest_day_computed_at is None or computed_at < self._latest_day_computed_at:
+            self._latest_day_computed_at = computed_at
 
     def to_query(self) -> ast.SelectQuery:
         try:
@@ -1236,6 +1258,8 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
             # the read schedules exactly one background revalidation once the query is built.
             self._precompute_stale = False
             self._precompute_computed_at = None
+            self._latest_day_computed_at = None
+            self._latest_day_unknown = False
 
             # Apply drill-down level from query to config
             self._apply_drill_down_level()

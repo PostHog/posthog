@@ -43,6 +43,7 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     LazyComputationQuery,
     LazyComputationResult,
     LazyComputationTable,
+    ServedWindow,
     TtlSchedule,
     _build_manual_insert_sql,
     _get_insert_settings,
@@ -1978,8 +1979,12 @@ class TestComputationExecutorExecute(BaseTest):
 
         assert result.ready is True
         assert ready_job.id in result.job_ids
-        # The materialized-at time of the served window is surfaced for the "data as of X" badge.
         assert result.computed_at == computed_at
+        assert result.served_windows == (
+            ServedWindow(
+                start=datetime(2024, 1, 1, tzinfo=UTC), end=datetime(2024, 1, 2, tzinfo=UTC), computed_at=computed_at
+            ),
+        )
 
     def test_inserts_missing_ranges_and_returns_all_job_ids(self):
         query_info, query_hash = self._make_query_info()
@@ -2307,6 +2312,9 @@ class TestComputationExecutorExecute(BaseTest):
         if served:
             assert result.stale is True
             assert result.job_ids == [stale_job.id]
+            assert [(w.start, w.end) for w in result.served_windows] == [
+                (datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 2, tzinfo=UTC))
+            ]
             assert insert_count[0] == 0, "serve-stale must not compute inline"
         else:
             assert result.stale is False

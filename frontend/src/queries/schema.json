@@ -12688,7 +12688,7 @@
                     "type": "string"
                 },
                 "dataComputedAt": {
-                    "description": "ISO timestamp of the oldest precompute window backing this result — surfaced as \"data as of X\".",
+                    "description": "ISO timestamp of the oldest precompute window backing this result.",
                     "type": "string"
                 },
                 "error": {
@@ -12704,6 +12704,10 @@
                 },
                 "last_refresh": {
                     "format": "date-time",
+                    "type": "string"
+                },
+                "latestDayComputedAt": {
+                    "description": "ISO timestamp of when the numbers for the most recent day in the range were computed, at this time or later. It is the oldest stamp among the precompute windows that hold that day, across costs and conversion goals. Unset when no precompute was read or a window has no stamp.",
                     "type": "string"
                 },
                 "modifiers": {
@@ -13362,7 +13366,7 @@
                     "type": "array"
                 },
                 "dataComputedAt": {
-                    "description": "ISO timestamp of the oldest precompute window backing this result — surfaced as \"data as of X\".",
+                    "description": "ISO timestamp of the oldest precompute window backing this result.",
                     "type": "string"
                 },
                 "error": {
@@ -13381,6 +13385,10 @@
                 },
                 "last_refresh": {
                     "format": "date-time",
+                    "type": "string"
+                },
+                "latestDayComputedAt": {
+                    "description": "ISO timestamp of when the numbers for the most recent day in the range were computed, at this time or later. It is the oldest stamp among the precompute windows that hold that day, across costs and conversion goals. Unset when no precompute was read or a window has no stamp.",
                     "type": "string"
                 },
                 "limit": {
@@ -20386,7 +20394,7 @@
                                     "type": "array"
                                 },
                                 "dataComputedAt": {
-                                    "description": "ISO timestamp of the oldest precompute window backing this result — surfaced as \"data as of X\".",
+                                    "description": "ISO timestamp of the oldest precompute window backing this result.",
                                     "type": "string"
                                 },
                                 "error": {
@@ -20398,6 +20406,10 @@
                                 },
                                 "hogql": {
                                     "description": "Generated HogQL query.",
+                                    "type": "string"
+                                },
+                                "latestDayComputedAt": {
+                                    "description": "ISO timestamp of when the numbers for the most recent day in the range were computed, at this time or later. It is the oldest stamp among the precompute windows that hold that day, across costs and conversion goals. Unset when no precompute was read or a window has no stamp.",
                                     "type": "string"
                                 },
                                 "limit": {
@@ -20478,7 +20490,7 @@
                             "additionalProperties": false,
                             "properties": {
                                 "dataComputedAt": {
-                                    "description": "ISO timestamp of the oldest precompute window backing this result — surfaced as \"data as of X\".",
+                                    "description": "ISO timestamp of the oldest precompute window backing this result.",
                                     "type": "string"
                                 },
                                 "error": {
@@ -20487,6 +20499,10 @@
                                 },
                                 "hogql": {
                                     "description": "Generated HogQL query.",
+                                    "type": "string"
+                                },
+                                "latestDayComputedAt": {
+                                    "description": "ISO timestamp of when the numbers for the most recent day in the range were computed, at this time or later. It is the oldest stamp among the precompute windows that hold that day, across costs and conversion goals. Unset when no precompute was read or a window has no stamp.",
                                     "type": "string"
                                 },
                                 "modifiers": {
@@ -35348,7 +35364,7 @@
             "additionalProperties": false,
             "properties": {
                 "dataComputedAt": {
-                    "description": "ISO timestamp of the oldest precompute window backing this result — surfaced as \"data as of X\".",
+                    "description": "ISO timestamp of the oldest precompute window backing this result.",
                     "type": "string"
                 },
                 "error": {
@@ -35357,6 +35373,10 @@
                 },
                 "hogql": {
                     "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "latestDayComputedAt": {
+                    "description": "ISO timestamp of when the numbers for the most recent day in the range were computed, at this time or later. It is the oldest stamp among the precompute windows that hold that day, across costs and conversion goals. Unset when no precompute was read or a window has no stamp.",
                     "type": "string"
                 },
                 "modifiers": {
@@ -36938,7 +36958,7 @@
                     "type": "array"
                 },
                 "dataComputedAt": {
-                    "description": "ISO timestamp of the oldest precompute window backing this result — surfaced as \"data as of X\".",
+                    "description": "ISO timestamp of the oldest precompute window backing this result.",
                     "type": "string"
                 },
                 "error": {
@@ -36950,6 +36970,10 @@
                 },
                 "hogql": {
                     "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "latestDayComputedAt": {
+                    "description": "ISO timestamp of when the numbers for the most recent day in the range were computed, at this time or later. It is the oldest stamp among the precompute windows that hold that day, across costs and conversion goals. Unset when no precompute was read or a window has no stamp.",
                     "type": "string"
                 },
                 "limit": {
@@ -44684,7 +44708,7 @@
                             "type": "array"
                         },
                         "dataComputedAt": {
-                            "description": "ISO timestamp of the oldest precompute window backing this result — surfaced as \"data as of X\".",
+                            "description": "ISO timestamp of the oldest precompute window backing this result.",
                             "type": "string"
                         },
                         "error": {
@@ -44696,6 +44720,10 @@
                         },
                         "hogql": {
                             "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "latestDayComputedAt": {
+                            "description": "ISO timestamp of when the numbers for the most recent day in the range were computed, at this time or later. It is the oldest stamp among the precompute windows that hold that day, across costs and conversion goals. Unset when no precompute was read or a window has no stamp.",
                             "type": "string"
                         },
                         "limit": {
@@ -44776,7 +44804,7 @@
                     "additionalProperties": false,
                     "properties": {
                         "dataComputedAt": {
-                            "description": "ISO timestamp of the oldest precompute window backing this result — surfaced as \"data as of X\".",
+                            "description": "ISO timestamp of the oldest precompute window backing this result.",
                             "type": "string"
                         },
                         "error": {
@@ -44785,6 +44813,10 @@
                         },
                         "hogql": {
                             "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "latestDayComputedAt": {
+                            "description": "ISO timestamp of when the numbers for the most recent day in the range were computed, at this time or later. It is the oldest stamp among the precompute windows that hold that day, across costs and conversion goals. Unset when no precompute was read or a window has no stamp.",
                             "type": "string"
                         },
                         "modifiers": {
@@ -46334,7 +46366,7 @@
                             "type": "array"
                         },
                         "dataComputedAt": {
-                            "description": "ISO timestamp of the oldest precompute window backing this result — surfaced as \"data as of X\".",
+                            "description": "ISO timestamp of the oldest precompute window backing this result.",
                             "type": "string"
                         },
                         "error": {
@@ -46346,6 +46378,10 @@
                         },
                         "hogql": {
                             "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "latestDayComputedAt": {
+                            "description": "ISO timestamp of when the numbers for the most recent day in the range were computed, at this time or later. It is the oldest stamp among the precompute windows that hold that day, across costs and conversion goals. Unset when no precompute was read or a window has no stamp.",
                             "type": "string"
                         },
                         "limit": {
@@ -46426,7 +46462,7 @@
                     "additionalProperties": false,
                     "properties": {
                         "dataComputedAt": {
-                            "description": "ISO timestamp of the oldest precompute window backing this result — surfaced as \"data as of X\".",
+                            "description": "ISO timestamp of the oldest precompute window backing this result.",
                             "type": "string"
                         },
                         "error": {
@@ -46435,6 +46471,10 @@
                         },
                         "hogql": {
                             "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "latestDayComputedAt": {
+                            "description": "ISO timestamp of when the numbers for the most recent day in the range were computed, at this time or later. It is the oldest stamp among the precompute windows that hold that day, across costs and conversion goals. Unset when no precompute was read or a window has no stamp.",
                             "type": "string"
                         },
                         "modifiers": {
