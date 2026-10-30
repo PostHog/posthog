@@ -10,11 +10,15 @@ from django.utils import timezone
 
 from parameterized import parameterized
 from temporalio import activity, workflow
+from temporalio.client import WorkflowExecutionStatus
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.models import Organization, Team, User
-from posthog.temporal.health_checks import activities as health_check_activities
+from posthog.temporal.health_checks import (
+    activities as health_check_activities,
+    workflows as health_check_workflows,
+)
 from posthog.temporal.health_checks.activities import build_team_id_page
 from posthog.temporal.health_checks.models import BatchResult, HealthCheckWorkflowInputs, TeamIdPage
 from posthog.temporal.health_checks.workflows import HealthCheckWorkflow
@@ -45,16 +49,27 @@ async def fake_push_health_check_metrics(kind: str, totals_dict: dict, success: 
 
 
 class TestHealthCheckWorkflow:
-    @parameterized.expand([("single_run", False), ("continue_as_new_every_page", True)])
+    @parameterized.expand(
+        [
+            ("single_run", False, 10_000, False),
+            ("server_suggests_continue_as_new", True, 10_000, True),
+            ("history_reaches_the_cap", False, 20, True),
+        ]
+    )
     @pytest.mark.asyncio
-    async def test_every_team_runs_once_and_the_totals_cover_the_whole_run(self, _name, continue_as_new):
+    async def test_every_team_runs_once_and_the_totals_cover_the_whole_run(
+        self, _name, continue_as_new_suggested, max_history_events, expect_continued
+    ):
         logging.getLogger("temporalio.workflow").setLevel(logging.INFO)
         logging.getLogger("temporalio.activity").setLevel(logging.INFO)
         processed_team_ids.clear()
         pushed_totals.clear()
         task_queue = str(uuid.uuid4())
 
-        with patch.object(workflow.Info, "is_continue_as_new_suggested", return_value=continue_as_new):
+        with (
+            patch.object(workflow.Info, "is_continue_as_new_suggested", return_value=continue_as_new_suggested),
+            patch.object(health_check_workflows, "MAX_HISTORY_EVENTS_PER_RUN", max_history_events),
+        ):
             async with await WorkflowEnvironment.start_time_skipping() as env:
                 async with Worker(
                     env.client,
@@ -63,13 +78,17 @@ class TestHealthCheckWorkflow:
                     activities=[fake_get_team_id_page, fake_run_health_check_batch, fake_push_health_check_metrics],
                     workflow_runner=UnsandboxedWorkflowRunner(),
                 ):
-                    result = await env.client.execute_workflow(
+                    handle = await env.client.start_workflow(
                         HealthCheckWorkflow.run,
                         HealthCheckWorkflowInputs(name="check", kind="check", batch_size=2, max_concurrent=2),
                         id=str(uuid.uuid4()),
                         task_queue=task_queue,
                         execution_timeout=timedelta(minutes=5),
                     )
+                    result = await handle.result()
+                    first_run = await env.client.get_workflow_handle(
+                        handle.id, run_id=handle.first_execution_run_id
+                    ).describe()
 
         assert sorted(processed_team_ids) == [1, 2, 3, 4, 5, 6]
 
@@ -78,6 +97,7 @@ class TestHealthCheckWorkflow:
         assert pushed_totals[0]["teams_healthy"] == 6
         assert result["total_teams"] == 6
         assert result["batches"] == 4
+        assert (first_run.status == WorkflowExecutionStatus.CONTINUED_AS_NEW) is expect_continued
 
 
 @pytest.mark.django_db
