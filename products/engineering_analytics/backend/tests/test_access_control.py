@@ -137,9 +137,9 @@ class TestEngineeringAnalyticsAccessControl(WarehouseAccessControlTestMixin):
             mock.patch(
                 "products.engineering_analytics.backend.logic.quarantine.GitHubIntegration", return_value=github
             ),
-            mock.patch("products.engineering_analytics.backend.logic.quarantine.Integration") as integration_cls,
+            mock.patch("products.engineering_analytics.backend.logic.quarantine.IntegrationManager") as manager,
         ):
-            integration_cls.objects.filter.return_value.first.return_value = object()
+            manager.github.oauth.find.return_value = object()
             response = self.client.post(
                 self._url("quarantine/request"),
                 {
