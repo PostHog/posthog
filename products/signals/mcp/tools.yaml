@@ -466,8 +466,8 @@ tools:
             Before claiming a report, read the report and its work log. If you decide to begin working to fix the issues
             identified in the report, call inbox-reports-claim to record that you are working on it, before you change
             any code. If the report's `assignee` shows that another person or their agent is working on it, tell your
-            user and ask before you take it over. Taking ownership from another actor requires `takeover=true`, and
-            from another person also `takeover_claim_id`.
+            user and ask before you take it over. Taking ownership from another actor requires `takeover=true`, and from
+            another person also `takeover_claim_id`.
 
             If you create a pull request implementing the remediation, call inbox-reports-claim with the returned
             `claim_id` and `pull_requests` to add it. Send all currently known PRs together, including stacks and
@@ -558,8 +558,8 @@ tools:
             Before claiming a report, read the report and its work log. If you decide to begin working to fix the issues
             identified in the report, call inbox-reports-claim to record that you are working on it, before you change
             any code. If the report's `assignee` shows that another person or their agent is working on it, tell your
-            user and ask before you take it over. Taking ownership from another actor requires `takeover=true`, and
-            from another person also `takeover_claim_id`.
+            user and ask before you take it over. Taking ownership from another actor requires `takeover=true`, and from
+            another person also `takeover_claim_id`.
 
             Before work, read the work log and follow the newest applicable `## Verification plan`. Confirm the current
             state before work and the outcome after the chosen resolution.
