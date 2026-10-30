@@ -368,7 +368,7 @@ describe("App", () => {
       const picked = output().length;
       press("\r");
       await vi.waitFor(() =>
-        expect(drawnSince(picked)).toContain("^N new · ^S split"),
+        expect(drawnSince(picked)).toContain("^N new · ^\\ split"),
       );
       expect(drawnSince(picked)).toContain("Fix the flaky test");
     } finally {
@@ -607,8 +607,8 @@ describe("App", () => {
     const { output, press, drawnSince, close } = localApp();
     try {
       await vi.waitFor(() => expect(drawnSince(0)).toContain("Local ·"));
-      // Ctrl+S splits, so the saved layout differs from a fresh one.
-      press("\x13");
+      // Ctrl+\\ splits, so the saved layout differs from a fresh one.
+      press("\x1c");
       const saved = (): number =>
         allPanes(loadLayout(layoutPath("user-1"))).length;
       await vi.waitFor(() => expect(saved()).toBe(2));

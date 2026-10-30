@@ -165,7 +165,7 @@ export function Sidebar({
         color={notice ? posthogBlue() : undefined}
         wrap="truncate-end"
       >
-        {notice ?? "^N new · ^S split · ^Q quit"}
+        {notice ?? "^N new · ^\\ split · ^Q quit"}
       </Text>
     </Box>
   );
