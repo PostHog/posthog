@@ -561,6 +561,8 @@ replay_scanner_machine_fields = [
     "estimated_monthly_observations",
     "estimated_at",
     "estimate_attempted_at",
+    "filter_error",
+    "filter_error_at",
     "prompt_question",
     "prompt_question_source",
     "prompt_valence",
