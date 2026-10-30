@@ -129,6 +129,9 @@ env:
     # timeout frees the lock. Keep this under the 5-minute timeout-minutes of every step that uses it.
     PY_DEPS_SYNC_TIMEOUT: 270s
     SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
+    # Fetch mode audit: posthog/test/fetch_mode_audit.py. One of peers or log.
+    DJANGO_FETCH_MODE_AUDIT: log
+    DJANGO_FETCH_MODE_AUDIT_DIR: ${{ github.workspace }}/fetch-mode-audit
     COMPOSE_PROJECT_NAME: posthog
     WAIT_FOR_DOCKER_REGISTRY_MIRROR: ${{ vars.DEPOT_PULL_THROUGH_REGISTRY }} mirror.gcr.io
     DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
@@ -1406,6 +1409,16 @@ jobs:
                       [ -f "$f" ] || continue
                       cp "$f" "junit-staging/junit-product-$(basename "$(dirname "$f")").xml"
                   done
+
+            - name: Upload fetch mode audit
+              continue-on-error: true
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              if: ${{ always() }}
+              with:
+                  name: fetch-mode-audit-${{ env.DJANGO_FETCH_MODE_AUDIT }}-products-${{ strategy.job-index }}
+                  path: fetch-mode-audit/*.json
+                  if-no-files-found: ignore
+                  overwrite: true
 
             - name: Upload product test results
               continue-on-error: true
@@ -3763,6 +3776,16 @@ jobs:
                   path: |
                       junit-*.xml
                       !junit-*-retry-failures.xml
+
+            - name: Upload fetch mode audit
+              continue-on-error: true
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              if: ${{ always() }}
+              with:
+                  name: fetch-mode-audit-${{ env.DJANGO_FETCH_MODE_AUDIT }}-django-${{ matrix.artifact_key }}
+                  path: fetch-mode-audit/*.json
+                  if-no-files-found: ignore
+                  overwrite: true
 
             - name: Upload events schema recording
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0

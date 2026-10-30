@@ -32,7 +32,8 @@
                 "CLICKHOUSE_HOST",
                 "TEST",
                 "PERSON_ON_EVENTS_V2_ENABLED",
-                "CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA"
+                "CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA",
+                "DJANGO_FETCH_MODE_AUDIT"
             ],
             // Job env that pytest reads. Turbo strips undeclared env vars, so a var set on
             // the CI job never reaches pytest unless listed here, and nothing fails when one
@@ -51,7 +52,8 @@
                 "MODAL_TOKEN_SECRET",
                 "AWS_S3_ALLOW_UNSAFE_RENAME",
                 "COVERAGE_CORE",
-                "POSTHOG_PYTEST_HARD_EXIT"
+                "POSTHOG_PYTEST_HARD_EXIT",
+                "DJANGO_FETCH_MODE_AUDIT_DIR"
             ]
         },
         "backend:lint": {

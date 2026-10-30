@@ -249,6 +249,10 @@ def pytest_configure(config) -> None:
         )
 
         config.pluginmanager.register(EventsSchemaRecorder(Path(record_path)), "posthog-events-schema-recorder")
+    if os.environ.get("DJANGO_FETCH_MODE_AUDIT"):
+        from posthog.test import fetch_mode_audit  # noqa: PLC0415 — audit runs only
+
+        fetch_mode_audit.register(config)
     if prune_manifest := os.environ.get("POSTHOG_EVENTS_SCHEMA_PRUNE_MANIFEST"):
         config.pluginmanager.register(EventsSchemaPruner(Path(prune_manifest)), "posthog-events-schema-pruner")
 
