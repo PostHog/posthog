@@ -135,7 +135,6 @@ export function getDefaultLogsIngestionConsumerConfig(): LogsIngestionConsumerCo
         LOGS_METRICS_RULES_ENABLED_TEAMS: isProdEnv() ? '' : '*',
         LOGS_METRICS_RULES_KILLSWITCH: false,
         LOGS_METRICS_RULES_EXPORT_URL: '',
-        // Off everywhere: default rules emit for every allowlisted team without any opt-in from the team.
         LOGS_DEFAULT_METRIC_RULES_ENABLED_TEAMS: '',
         // Off in prod until per-team rollout; on in dev for local end-to-end testing.
         LOGS_RETENTION_ENABLED_TEAMS: isProdEnv() ? '' : '*',

@@ -6,20 +6,12 @@ import {
 } from './compile-metric-rules'
 import { SPAN_VALUE_DURATION_MS } from './tally'
 
-/** OTel `SpanKind.INTERNAL` on the span Avro wire. */
 const SPAN_KIND_INTERNAL = '1'
 
-/**
- * Built-in rules for a team with no metrics of its own, so its default view has request,
- * error and latency series without any setup. They are not stored rows: the consumer adds
- * them to the team's own rules when the team is in the default-rules allowlist.
- */
+/** Built-in rules, not stored rows: the consumer adds them for teams in the default-rules allowlist. */
 const DEFAULT_METRIC_RULE_ROWS: MetricRuleRow[] = [
     {
-        // One histogram gives request rate (count), error rate (status_code = ERROR) and
-        // latency percentiles per endpoint (SERVER, CONSUMER) and per dependency (CLIENT,
-        // PRODUCER). INTERNAL spans are excluded: they are the most numerous and their
-        // names are the most likely to carry ids.
+        // INTERNAL spans are the most numerous, and their names are the most likely to carry ids.
         id: 'default:spans:duration',
         metric_name: 'posthog.span.duration',
         source: 'spans',

@@ -6,17 +6,10 @@ import type { CompiledMetricRule } from './compile-metric-rules'
 /** Cap on distinct group-by label sets per rule per batch — bounds emitted series cardinality. */
 export const MAX_LABEL_SETS_PER_RULE = 1000
 
-/**
- * Tally key of the series that collects records past MAX_LABEL_SETS_PER_RULE. It is not
- * valid JSON, so no real label set (always a JSON array) can collide with it.
- */
+/** Not valid JSON, so no real label set (always a JSON array) can collide with it. */
 export const OVERFLOW_LABEL_KEY = '__overflow__'
 
-/**
- * Upper bounds of the value-attribute histogram buckets. These are the OTel SDK default
- * explicit bucket bounds, so a generated latency histogram (in ms) resolves percentiles
- * the same way as one an SDK sends.
- */
+/** The OTel SDK default explicit bucket bounds, so percentiles match an SDK-sent histogram. */
 export const DEFAULT_HISTOGRAM_BOUNDS: readonly number[] = [
     0, 5, 10, 25, 50, 75, 100, 250, 500, 750, 1000, 2500, 5000, 7500, 10000,
 ]
@@ -49,9 +42,8 @@ export type MetricTallyEntry = {
     labelValues: string[]
     count: number
     sum: number
-    /** Per-bucket counts against DEFAULT_HISTOGRAM_BOUNDS; null for count rules. */
+    /** Null for count rules. */
     bucketCounts: number[] | null
-    /** True for the one series per rule that collects label sets past the cap. */
     overflow: boolean
     exemplarTraceId: string | null
     exemplarSpanId: string | null
@@ -59,7 +51,7 @@ export type MetricTallyEntry = {
 
 export type BatchTallies = {
     byRule: Map<string, Map<string, MetricTallyEntry>>
-    /** Records that matched after the rule hit MAX_LABEL_SETS_PER_RULE, tallied into the overflow series. */
+    /** Records that matched after the rule hit its label-set cap, tallied into the overflow series. */
     seriesOverflow: Map<string, number>
     /** Records that matched a value-attribute rule but carried a missing/non-numeric value. */
     valueSkipped: number
@@ -133,7 +125,43 @@ function resolveLabelValue(key: string, record: LogRecord): string {
     return value.length > MAX_LABEL_VALUE_LENGTH ? value.slice(0, MAX_LABEL_VALUE_LENGTH) : value
 }
 
-/** Index of the first bucket whose upper bound is >= value; the last bucket is unbounded. */
+const SERIES_WINDOW_MS = 60 * 60 * 1000
+
+/**
+ * Bounds the label sets each rule admits per hour in this process. Batch tallies start empty,
+ * so without this a rule whose labels change every batch would store new series without limit.
+ * The window matches the hourly series grain of metric samples.
+ */
+export class MetricSeriesAdmission {
+    private window = -1
+    private admitted = new Map<string, Set<string>>()
+
+    constructor(private readonly maxPerRule: number = MAX_LABEL_SETS_PER_RULE) {}
+
+    public admit(teamId: number, ruleId: string, labelKey: string, nowMs: number): boolean {
+        const window = Math.floor(nowMs / SERIES_WINDOW_MS)
+        if (window !== this.window) {
+            this.admitted.clear()
+            this.window = window
+        }
+        const key = `${teamId}:${ruleId}`
+        let labelKeys = this.admitted.get(key)
+        if (!labelKeys) {
+            labelKeys = new Set()
+            this.admitted.set(key, labelKeys)
+        }
+        if (labelKeys.has(labelKey)) {
+            return true
+        }
+        if (labelKeys.size >= this.maxPerRule) {
+            return false
+        }
+        labelKeys.add(labelKey)
+        return true
+    }
+}
+
+/** The last bucket is unbounded. */
 function histogramBucketIndex(value: number): number {
     for (let i = 0; i < DEFAULT_HISTOGRAM_BOUNDS.length; i++) {
         if (value <= DEFAULT_HISTOGRAM_BOUNDS[i]!) {
@@ -207,7 +235,8 @@ export function tallyRecords(
     rules: CompiledMetricRule[],
     records: LogRecord[],
     tallies: BatchTallies,
-    nowMs: number
+    nowMs: number,
+    admitLabelSet?: (ruleId: string, labelKey: string) => boolean
 ): void {
     if (rules.length === 0 || records.length === 0) {
         return
@@ -259,9 +288,9 @@ export function tallyRecords(
             if (!entry) {
                 const overflowEntry = ruleTallies.get(OVERFLOW_LABEL_KEY)
                 const realLabelSets = ruleTallies.size - (overflowEntry ? 1 : 0)
-                if (realLabelSets >= MAX_LABEL_SETS_PER_RULE) {
-                    // Keep the record in the totals: past the cap it lands on one shared series
-                    // instead of being dropped, so rule-wide counts and rates stay correct.
+                const admitted = realLabelSets < MAX_LABEL_SETS_PER_RULE && (admitLabelSet?.(rule.id, labelKey) ?? true)
+                if (!admitted) {
+                    // Past the cap the record still counts, on one shared series, so rule totals stay correct.
                     tallies.seriesOverflow.set(rule.id, (tallies.seriesOverflow.get(rule.id) ?? 0) + 1)
                     labelKey = OVERFLOW_LABEL_KEY
                     entry = overflowEntry

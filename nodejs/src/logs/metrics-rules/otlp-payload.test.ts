@@ -82,7 +82,15 @@ describe('buildMetricRulesOtlpPayload', () => {
         expectedCounts[2] = 1 // 7.5 falls in (5, 10]
         expectedCounts[3] = 1 // 12.5 falls in (10, 25]
         expect(dp.bucketCounts).toEqual(expectedCounts)
+        expect(dp.attributes).toEqual([{ key: 'posthog.bucket_layout', value: { stringValue: 'otel_default_v1' } }])
         expect(dp.timeUnixNano).toBe(SNAPPED_NANOS)
+        expect(metric.unit).toBeUndefined()
+    })
+
+    it('emits a span duration rule with the ms unit', () => {
+        const span = { ...record(), end_time: NOW_MS * 1000 + 40_000 } as LogRecord
+        const payload = build([{ ...distributionRule, source: 'spans', value_attribute: 'duration_ms' }], [span])
+        expect(payload.resourceMetrics[0].scopeMetrics[0].metrics[0].unit).toBe('ms')
     })
 
     it('emits the overflow series with only the otel.metric.overflow attribute and no service', () => {

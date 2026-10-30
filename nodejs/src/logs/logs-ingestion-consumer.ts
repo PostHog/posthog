@@ -53,7 +53,7 @@ import { withDefaultMetricRules } from './metrics-rules/default-metric-rules'
 import { MetricRulesCache } from './metrics-rules/metric-rules-cache'
 import { LogsMetricsEmitter } from './metrics-rules/metrics-emitter'
 import { buildMetricRulesOtlpPayload } from './metrics-rules/otlp-payload'
-import { type BatchTallies, createBatchTallies, tallyRecords } from './metrics-rules/tally'
+import { type BatchTallies, MetricSeriesAdmission, createBatchTallies, tallyRecords } from './metrics-rules/tally'
 import { LOGS_DLQ_OUTPUT, LOGS_OUTPUT, LogsDlqOutput, LogsOutput } from './outputs/outputs'
 import { PatternMessageKeysCache } from './pattern-message-keys-cache'
 import { EMPTY_STAGE_DROP_STATS, type PipelineStage } from './pipeline/log-processing-pipeline'
@@ -409,6 +409,7 @@ export class LogsIngestionConsumer {
     private readonly metricRulesEnabledTeamsRaw: string
     private readonly metricRulesKillswitch: boolean
     private readonly defaultMetricRulesEnabledTeamsRaw: string
+    private readonly metricSeriesAdmission = new MetricSeriesAdmission()
     private readonly transformationsEnabledTeamsRaw: string
     private readonly transformationsKillswitch: boolean
     private readonly retentionEnabledTeamsRaw: string
@@ -1103,11 +1104,19 @@ export class LogsIngestionConsumer {
                             metricRuleState || jsonAttributeKey
                                 ? (records: LogRecord[]) => {
                                       if (metricRuleState) {
+                                          const nowMs = Date.now()
                                           tallyRecords(
                                               metricRuleState.rules,
                                               records,
                                               metricRuleState.tallies,
-                                              Date.now()
+                                              nowMs,
+                                              (ruleId, labelKey) =>
+                                                  this.metricSeriesAdmission.admit(
+                                                      message.teamId,
+                                                      ruleId,
+                                                      labelKey,
+                                                      nowMs
+                                                  )
                                           )
                                       }
                                       if (jsonAttributeKey) {

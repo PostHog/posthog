@@ -4,6 +4,7 @@ import {
     DEFAULT_HISTOGRAM_BOUNDS,
     MAX_LABEL_SETS_PER_RULE,
     MAX_LABEL_VALUE_LENGTH,
+    MetricSeriesAdmission,
     OVERFLOW_LABEL_KEY,
     createBatchTallies,
     tallyRecords,
@@ -200,6 +201,31 @@ describe('metric rules compile + tally', () => {
             const ruleTallies = tallies.byRule.get('rule-1')!
             expect(ruleTallies.get(JSON.stringify(['req-0']))!.count).toBe(2)
             expect(ruleTallies.get(OVERFLOW_LABEL_KEY)!.count).toBe(1)
+        })
+
+        it('bounds label sets per rule across batches until the hour changes', () => {
+            const rules = compileMetricRules([ruleRow({ filter_group: null, group_by: ['attributes.request_id'] })])
+            const admission = new MetricSeriesAdmission()
+            const tallyBatch = (ids: string[], nowMs: number): Map<string, { count: number }> => {
+                const tallies = createBatchTallies()
+                const records = ids.map((id) => record({ attributes: { request_id: id }, timestamp: nowMs * 1000 }))
+                tallyRecords(rules, records, tallies, nowMs, (ruleId, labelKey) =>
+                    admission.admit(1, ruleId, labelKey, nowMs)
+                )
+                return tallies.byRule.get('rule-1')!
+            }
+            tallyBatch(
+                Array.from({ length: MAX_LABEL_SETS_PER_RULE }, (_, i) => `req-${i}`),
+                NOW_MS
+            )
+
+            const sameHour = tallyBatch(['req-0', 'req-new'], NOW_MS + 1000)
+            expect(sameHour.get(JSON.stringify(['req-0']))!.count).toBe(1)
+            expect(sameHour.get(JSON.stringify(['req-new']))).toBeUndefined()
+            expect(sameHour.get(OVERFLOW_LABEL_KEY)!.count).toBe(1)
+
+            const nextHour = tallyBatch(['req-new'], NOW_MS + 60 * 60 * 1000)
+            expect(nextHour.get(JSON.stringify(['req-new']))!.count).toBe(1)
         })
 
         it.each([
