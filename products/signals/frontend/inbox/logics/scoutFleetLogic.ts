@@ -788,6 +788,7 @@ export interface scoutFleetLogicMeta {
             activeScoutTags: string[],
             activeScoutOwner: string | null,
             scoutEnabledFilter: ScoutEnabledFilter,
+            rosterKeptScoutIds: string[],
             scoutRosterSort: ScoutRosterSort
         ) => ScoutRosterRow[]
         rosterScouts: (rosterScoutsBeforeSearch: ScoutRosterRow[], scoutSearch: string) => ScoutRosterRow[]
