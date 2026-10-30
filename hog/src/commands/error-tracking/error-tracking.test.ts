@@ -1,8 +1,9 @@
 import { describe, expect, test } from 'bun:test'
-import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
+import { cleanUp, cssTargets } from '@/error-tracking/cleanup'
 import { contentHash, SymbolDataType, writeSymbolData } from '@/error-tracking/container'
 import { runHog } from '@/testing'
 
@@ -42,6 +43,9 @@ describe('hog error-tracking upload', () => {
         expect(result.json()).toEqual({
             dryRun: true,
             release: { name: 'app', version: '2.0', id: null },
+            skipped: [],
+            warnings: [],
+            deletedMaps: [],
             symbolSets: [
                 {
                     path: 'build/mapping.txt',
@@ -55,6 +59,107 @@ describe('hog error-tracking upload', () => {
                 },
             ],
         })
+    })
+
+    test('--dry-run leaves bundles and maps untouched, and ignore globs skip files', async () => {
+        const bundle = 'a();\n//# sourceMappingURL=a.js.map\n'
+        const map = JSON.stringify({ version: 3, sources: ['a.ts'], names: [], mappings: 'AAAA' })
+        const folder = project({
+            'posthog.json': JSON.stringify({ errorTracking: { sources: [{ path: 'dist', ignore: ['vendor/**'] }] } }),
+            'dist/a.js': bundle,
+            'dist/a.js.map': map,
+            'dist/vendor/b.js': bundle.replace('a.js.map', 'b.js.map'),
+            'dist/vendor/b.js.map': map,
+        })
+        const result = await runHog(['et', 'process', '--dry-run'], {
+            env: { CLAUDECODE: '1' },
+            cwd: folder,
+            useDisk: true,
+        })
+
+        expect(result.exitCode).toBe(0)
+        expect(result.json()).toMatchObject({
+            dryRun: true,
+            injected: [{ path: 'dist/a.js', action: 'injected' }],
+            symbolSets: [{ path: 'dist/a.js', kind: 'js', status: 'planned' }],
+        })
+        expect(readFileSync(join(folder, 'dist/a.js'), 'utf8')).toBe(bundle)
+        expect(readFileSync(join(folder, 'dist/a.js.map'), 'utf8')).toBe(map)
+    })
+
+    const MAP = JSON.stringify({ version: 3, sources: ['a.ts'], names: [], mappings: 'AAAA' })
+    test.each([
+        [
+            'a reference to a JSON file that is not a sourcemap',
+            { 'dist/a.js': 'a();\n//# sourceMappingURL=../settings.json\n', 'settings.json': '{"theme":"dark"}' },
+            [],
+            'settings.json',
+            "isn't a sourcemap",
+        ],
+        [
+            'a sourcemap that matches an ignore pattern',
+            { 'dist/a.js': 'a();\n//# sourceMappingURL=a.js.map\n', 'dist/a.js.map': MAP },
+            ['a.js.map'],
+            'dist/a.js.map',
+            'ignore pattern',
+        ],
+    ])('inject skips %s and leaves it alone', async (_name, files, ignore, untouched, reason) => {
+        const folder = project({
+            'posthog.json': JSON.stringify({ errorTracking: { sources: [{ path: 'dist', ignore }] } }),
+            'dist/b.js': 'b();\n//# sourceMappingURL=b.js.map\n',
+            'dist/b.js.map': MAP,
+            ...files,
+        })
+        const before = readFileSync(join(folder, untouched), 'utf8')
+        const result = await runHog(['et', 'inject'], { env: { CLAUDECODE: '1' }, cwd: folder, useDisk: true })
+
+        expect(result.exitCode).toBe(0)
+        expect(result.json().skipped).toEqual([
+            { path: expect.stringMatching(/dist\/a\.js$/), reason: expect.stringContaining(reason) },
+        ])
+        expect(readFileSync(join(folder, untouched), 'utf8')).toBe(before)
+    })
+
+    test('--delete-after leaves alone CSS maps outside the selected paths, ignored maps, and JSON that is not a map', () => {
+        const folder = project({
+            'dist/broken.css': 'a{}\n/*# sourceMappingURL=%FF.css.map */\n',
+            'dist/outside.css': 'a{}\n/*# sourceMappingURL=../maps/outside.css.map */\n',
+            'maps/outside.css.map': MAP,
+            'dist/settings.css': 'a{}\n/*# sourceMappingURL=settings.json */\n',
+            'dist/settings.json': '{"theme":"dark"}',
+            'dist/ignored.css': 'a{}\n/*# sourceMappingURL=ignored.css.map */\n',
+            'dist/ignored.css.map': MAP,
+            'dist/kept.css': 'a{}\n/*# sourceMappingURL=kept.css.map */\n',
+            'dist/kept.css.map': MAP,
+        })
+        const warnings: string[] = []
+        const css = cssTargets(
+            ['broken', 'outside', 'settings', 'ignored', 'kept'].map((name) => join(folder, `dist/${name}.css`)),
+            [join(folder, 'dist')],
+            undefined,
+            warnings,
+            (mapPath) => mapPath.endsWith('ignored.css.map')
+        )
+        const result = cleanUp(css)
+
+        expect(result.deletedMaps).toEqual([expect.stringMatching(/dist\/kept\.css\.map$/)])
+        expect(warnings).toEqual([
+            expect.stringContaining("broken.css: its sourcemap reference can't be read"),
+            expect.stringContaining('resolves outside the selected paths'),
+        ])
+        for (const path of ['maps/outside.css.map', 'dist/settings.json', 'dist/ignored.css.map']) {
+            expect(existsSync(join(folder, path))).toBe(true)
+        }
+    })
+
+    test.skipIf(process.getuid?.() === 0)('inject changes no bundle when a map cannot be written', async () => {
+        const bundle = 'a();\n//# sourceMappingURL=a.js.map\n'
+        const folder = project({ 'dist/a.js': bundle, 'dist/a.js.map': MAP })
+        chmodSync(join(folder, 'dist/a.js.map'), 0o444)
+        const result = await runHog(['et', 'inject', 'dist'], { env: { CLAUDECODE: '1' }, cwd: folder, useDisk: true })
+
+        expect(result.exitCode).toBe(1)
+        expect(readFileSync(join(folder, 'dist/a.js'), 'utf8')).toBe(bundle)
     })
 
     test('--dry-run reads the release from the repository a symlinked mapping points into', async () => {
@@ -77,6 +182,8 @@ describe('hog error-tracking upload', () => {
         ['a ProGuard mapping without a map ID', ['mapping.txt'], 2, 'map_id_required'],
         ['a file hog cannot place', ['notes.txt'], 1, 'unknown_artifact'],
         ['no paths and no posthog.json', [], 2, 'no_paths'],
+        ['--force with --skip-on-conflict', ['mapping.txt', '--force', '--skip-on-conflict'], 2, 'usage_error'],
+        ['a concurrency below 1', ['mapping.txt', '--concurrency', '0'], 2, 'usage_error'],
     ])('%s fails with a hint', async (_name, paths, exitCode, code) => {
         const folder = project({ 'mapping.txt': SMALL_MAPPING, 'notes.txt': 'hello' })
         const result = await runHog(['et', 'upload', '--dry-run', ...paths], {

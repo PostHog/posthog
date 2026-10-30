@@ -19,13 +19,20 @@ The container inputs sit on every boundary where libzstd's streaming output can 
 
 The end-to-end scenarios cover a first upload, a re-upload of chunks PostHog already has, the multipart POST path, content and release conflicts with and without `--force` and `--skip-on-conflict`, check and start failures, and releases from flags and from git.
 
+JavaScript scenarios also compare every file in the folder after the run, because `inject` rewrites bundles and maps, and `--delete-after` removes references and maps.
+They run on real bundler output in `bundles/` (esbuild, rollup, webpack and terser, with and without native debug IDs) and on the edge cases in `js-fixtures.ts`.
+Symbol-set mode mints random UUIDv7 chunk IDs, so `js-inject-symbol-set` compares where the IDs go, not their values.
+The symbol-set upload scenarios then start from the files posthog-cli wrote in that scenario, so their content hashes are compared exactly.
+
 ## What is normalized
 
 `normalize.ts` rewrites only values that are random by design:
 
 - upload run and attempt IDs (UUIDv7)
 - the key order of `content_hashes` and release `metadata`, which posthog-cli writes in hash-map order
+- the order of `symbol_sets` in request bodies, which follows posthog-cli's unsorted folder walk
 - the order of object-storage uploads within one batch, which run in parallel
+- random UUIDv7 chunk IDs in files, for scenarios marked `randomIds`
 - the multipart boundary
 - the user agent: hog sends `hog/<version>`, posthog-cli sends `posthog-cli`
 
@@ -41,5 +48,7 @@ TARGET=$(cd ../cli && cargo metadata --format-version 1 --no-deps | jq -r .targe
 bun test/parity/record-containers.ts "$TARGET/release/examples/hog_parity_oracle"
 bun test/parity/record-e2e.ts "$TARGET/release/posthog-cli"
 ```
+
+Record the JavaScript scenarios with a binary from the same `cli/` version, and keep one bundle per folder in new fixtures: posthog-cli's walk order decides which bundle wins a shared map or a duplicate chunk ID.
 
 Regenerate them when posthog-cli changes what it uploads, and review the diff: a changed golden means hog and posthog-cli no longer agree until hog changes too.
