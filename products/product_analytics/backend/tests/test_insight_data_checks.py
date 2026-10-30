@@ -564,7 +564,8 @@ class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
         self, _name: str, days_with_events: range, status: str, events_checked: int
     ) -> None:
         for days_ago in days_with_events:
-            self._events(10, event=WIDELY_SENT_EVENT, days_ago=days_ago, properties={"$host": LOCAL_HOST})
+            self._events(8, event=WIDELY_SENT_EVENT, days_ago=days_ago, properties={"$host": LOCAL_HOST})
+            self._events(2, event=WIDELY_SENT_EVENT, days_ago=days_ago)
         flush_persons_and_events()
         query = self._query(
             [{"kind": "EventsNode", "event": WIDELY_SENT_EVENT}],
