@@ -5,7 +5,7 @@ from typing import Any
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
-from django.db import IntegrityError
+from django.db import IntegrityError, connection, transaction
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
@@ -372,6 +372,77 @@ class TestSourceInputsStoreCredentialsMirror(BaseTest):
         assert self._stored(source) == {**STORED_POSTGRES_INPUTS, "password": "fake-rotated"}
         assert _sample(DUAL_WRITE_TOTAL, {"outcome": "upsert_error"}) - before == 2
 
+    def test_two_writers_of_a_source_without_a_reference_make_one_row(self) -> None:
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id="source",
+            connection_id="connection",
+            status="Running",
+            source_type=ExternalDataSourceType.POSTGRES,
+            job_inputs=STORED_POSTGRES_INPUTS,
+        )
+        first = ExternalDataSource.objects.get(pk=source.pk)
+        second = ExternalDataSource.objects.get(pk=source.pk)
+
+        with self._flag(return_value=True):
+            SourceInputsStore.save(first, STORED_POSTGRES_INPUTS)
+            SourceInputsStore.save(second, {**STORED_POSTGRES_INPUTS, "password": "fake-rotated"})
+
+        [row] = self._rows()
+        assert row.sensitive_config == {"fields": {**POSTGRES_CONNECTION_FIELDS, "password": "fake-rotated"}}
+        assert self._stored(source)[REF] == str(row.id)
+
+    @parameterized.expand(
+        [
+            ("cleared", ExternalDataSourceType.POSTGRES, STORED_POSTGRES_INPUTS, {}),
+            (
+                "oauth_option",
+                ExternalDataSourceType.STRIPE,
+                {"auth_method": {"selection": "api_key", "stripe_secret_key": "fake-key"}},
+                {"auth_method": {"selection": "oauth", "stripe_integration_id": "7"}},
+            ),
+        ]
+    )
+    def test_a_write_without_connection_fields_drops_the_reference(
+        self, _name: str, source_type: str, before: dict[str, Any], after: dict[str, Any]
+    ) -> None:
+        with self._flag(return_value=True):
+            source = self._create(before, source_type=source_type)
+            assert REF in SourceInputsStore.load(ExternalDataSource.objects.get(pk=source.pk))
+
+            SourceInputsStore.save(source, after)
+
+            assert SourceInputsStore.load(ExternalDataSource.objects.get(pk=source.pk)) == after
+
+    def test_a_failed_flag_lookup_leaves_the_callers_transaction_usable(self) -> None:
+        with self._flag(return_value=False):
+            source = self._create()
+        reset_caches()
+
+        def failing_lookup(*args: Any, **kwargs: Any) -> bool:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT 1/0")
+            return True
+
+        with patch.object(rollout, "is_team_flag_enabled", side_effect=failing_lookup), transaction.atomic():
+            SourceInputsStore.save(source, {**STORED_POSTGRES_INPUTS, "password": "fake-rotated"})
+
+        assert self._stored(source)["password"] == "fake-rotated"
+
+    def test_a_flag_off_load_does_not_delay_the_compare(self) -> None:
+        with self._flag(return_value=True):
+            source = self._create()
+        reset_caches()
+        with self._flag(return_value=False):
+            SourceInputsStore.load(ExternalDataSource.objects.get(pk=source.pk))
+        rollout._flags.clear()
+        before = _compare_count("match")
+
+        with self._flag(return_value=True):
+            SourceInputsStore.load(ExternalDataSource.objects.get(pk=source.pk))
+
+        assert _compare_count("match") - before == 1
+
     def test_update_runtime_does_not_touch_the_integration(self) -> None:
         with self._flag(return_value=True):
             source = self._create()
@@ -387,6 +458,8 @@ class TestSourceInputsStoreCredentialsMirror(BaseTest):
         [
             ("match", lambda source: None, "match"),
             ("missing_row", lambda source: _set_reference(source, "999999999"), "missing_row"),
+            # A parsed config writes its unset optional fields as None. The row has no such key.
+            ("optional_field_none", lambda source: _set_inputs(source, {"connection_string": None}), "match"),
             (
                 "unreadable",
                 lambda source: (
@@ -504,6 +577,10 @@ def _reference(source: ExternalDataSource) -> str:
 
 
 def _set_reference(source: ExternalDataSource, ref: str) -> None:
+    _set_inputs(source, {REF: ref})
+
+
+def _set_inputs(source: ExternalDataSource, changes: dict[str, Any]) -> None:
     fresh = ExternalDataSource.objects.get(pk=source.pk)
     inputs = SourceInputsStore.load(fresh)
-    ExternalDataSource.objects.filter(pk=source.pk).update(job_inputs={**inputs, REF: ref})
+    ExternalDataSource.objects.filter(pk=source.pk).update(job_inputs={**inputs, **changes})

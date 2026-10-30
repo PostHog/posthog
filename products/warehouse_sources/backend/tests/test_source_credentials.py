@@ -571,7 +571,7 @@ class TestWarehouseSourceCredentialsStore(BaseTest):
             ("other_kind", ExternalDataSourceType.STRIPE, False),
         ]
     )
-    def test_a_source_with_unreadable_inputs_counts_as_a_user_of_a_row_of_its_kind(
+    def test_a_source_with_unreadable_inputs_blocks_a_delete_of_a_row_of_its_kind_but_not_an_edit(
         self, _name: str, broken_type: ExternalDataSourceType, counted: bool
     ) -> None:
         editor = self._source()
@@ -581,14 +581,13 @@ class TestWarehouseSourceCredentialsStore(BaseTest):
         broken.save()
         new_fields = {**PG_FIELDS, "password": "new"}
 
-        if not counted:
-            assert WarehouseSourceCredentialsStore.update(editor, pk, new_fields) == pk
-            return
-        with self.assertRaises(SharedCredentialsError) as raised:
-            WarehouseSourceCredentialsStore.update(editor, pk, new_fields)
-        assert [(usage.id, usage.name) for usage in raised.exception.usages] == [
-            (str(broken.id), "unreadable source: Postgres")
-        ]
+        assert WarehouseSourceCredentialsStore.update(editor, pk, new_fields) == pk
+        assert WarehouseSourceCredentialsStore.get(editor, pk) == new_fields
+        assert IntegrationManager.any.with_source_rows().usages(self.team.id, pk) == (
+            [IntegrationUsage(type="unreadable_warehouse_source", id=str(broken.id), name="Postgres")]
+            if counted
+            else []
+        )
 
     def test_conflict_response_names_the_other_users(self) -> None:
         source = self._source()

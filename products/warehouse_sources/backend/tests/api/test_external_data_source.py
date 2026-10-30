@@ -15465,14 +15465,35 @@ class TestSourceUpdateCredentialsRow(APIBaseTest):
         assert self._reference(source) == reference
         assert len(IntegrationManager.source("postgresql").credentials.list(self.team.pk)) == 1
 
-    def test_an_edit_can_point_the_source_at_another_usable_row(self, _validate: MagicMock) -> None:
+    @parameterized.expand([("unshared", False), ("shared", True)])
+    def test_an_edit_that_points_the_source_at_another_row_adopts_its_credentials(
+        self, _validate: MagicMock, _name: str, shared: bool
+    ) -> None:
         source = self._create(self.INPUTS)
-        other = self._create(self.INPUTS)
+        other = self._create({**self.INPUTS, "password": "fake-other"})
+        if shared:
+            self._create({**self.INPUTS, "password": "fake-other", CREDENTIALS_REFERENCE_KEY: self._reference(other)})
+        target = int(self._reference(other))
+        rows = IntegrationManager.source("postgresql").credentials
+        before = rows.get(self.team.pk, target).sensitive_config
 
-        response = self._patch(source, {**self.INPUTS, CREDENTIALS_REFERENCE_KEY: self._reference(other)})
+        response = self._patch(source, {**self.INPUTS, CREDENTIALS_REFERENCE_KEY: target})
 
         assert response.status_code == status.HTTP_200_OK, response.json()
-        assert self._reference(source) == self._reference(other)
+        assert self._reference(source) == str(target)
+        assert SourceInputsStore.load(ExternalDataSource.objects.get(pk=source.pk))["password"] == "fake-other"
+        assert rows.get(self.team.pk, target).sensitive_config == before
+
+    def test_a_failed_source_save_rolls_back_the_row_write(self, _validate: MagicMock) -> None:
+        source = self._create(self.INPUTS)
+        reference = int(self._reference(source))
+
+        with patch.object(ExternalDataSource, "save", side_effect=RuntimeError("database down")):
+            response = self._patch(source, {**self.INPUTS, "password": "fake-rotated"})
+
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+        row = IntegrationManager.source("postgresql").credentials.get(self.team.pk, reference)
+        assert row.sensitive_config["fields"]["password"] == "fake-password"
 
     @parameterized.expand([("other_team",), ("oauth_row",), ("missing",)])
     def test_an_edit_cannot_point_the_source_at_a_row_it_cannot_use(self, _validate: MagicMock, case: str) -> None:

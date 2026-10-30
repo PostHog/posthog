@@ -23,6 +23,7 @@ class SourceInputsStore:
     aload = staticmethod(_store.SourceInputsStore.aload)
     asave = staticmethod(_store.SourceInputsStore.asave)
     requested_credentials_reference = staticmethod(_rollout.requested_credentials_reference)
+    with_credentials_of = staticmethod(_rollout.with_credentials_of)
 
 
 __all__ = ["SourceInputsStore", "UnreadableSourceInputsError"]
