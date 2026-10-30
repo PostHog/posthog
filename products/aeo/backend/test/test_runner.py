@@ -256,8 +256,15 @@ def test_an_interrupted_run_does_not_start_the_queued_prompts(team: Team, settin
 def test_dropping_the_queue_leaves_only_running_checks_to_drain() -> None:
     pool = ThreadPoolExecutor(max_workers=1)
     gate = threading.Event()
-    running = pool.submit(gate.wait, 5)
-    queued = [pool.submit(lambda: None) for _ in range(2)]
+
+    def hold_the_only_worker() -> None:
+        gate.wait(timeout=5)
+
+    def never_started() -> None:
+        return None
+
+    running = pool.submit(hold_the_only_worker)
+    queued = [pool.submit(never_started) for _ in range(2)]
 
     remaining = runner._drop_queued(pool, {running, *queued})
     gate.set()
