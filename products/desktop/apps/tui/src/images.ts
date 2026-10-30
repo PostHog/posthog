@@ -14,18 +14,32 @@ const MIME_TYPES: Record<string, string> = {
   ".webp": "image/webp",
 };
 
-// Files dropped on the terminal arrive as one paste of their paths, each quoted or with its spaces escaped, and
-// separated by spaces. Anything else pasted, or a path that is not absolute, is text.
+// Files dropped on the terminal arrive as their paths separated by spaces, each quoted or with its spaces
+// escaped, as one bracketed paste or (macOS Terminal) as bare keys in one burst. Some terminals escape only
+// some of a name's spaces, so a piece that is no file is joined to the next and tried again. Anything else,
+// or a path that is not absolute, is text.
 export function droppedPaths(sequence: string): string[] {
-  if (!sequence.startsWith(PASTE_START) || !sequence.endsWith(PASTE_END))
-    return [];
-  const pasted = sequence.slice(PASTE_START.length, -PASTE_END.length).trim();
+  const bracketed =
+    sequence.startsWith(PASTE_START) && sequence.endsWith(PASTE_END);
+  const pasted = (
+    bracketed ? sequence.slice(PASTE_START.length, -PASTE_END.length) : sequence
+  ).trim();
   if (pasted.includes("\n")) return [];
-  const paths: string[] = [];
+  const pieces: string[] = [];
   const word = /'([^']*)'|"([^"]*)"|((?:\\.|[^\s'"])+)/g;
   for (const match of pasted.matchAll(word)) {
-    paths.push(match[1] ?? match[2] ?? match[3].replace(/\\(.)/g, "$1"));
+    pieces.push(match[1] ?? match[2] ?? match[3].replace(/\\(.)/g, "$1"));
   }
+  const paths: string[] = [];
+  let pending = "";
+  for (const piece of pieces) {
+    pending = pending ? `${pending} ${piece}` : piece;
+    if (existsSync(pending)) {
+      paths.push(pending);
+      pending = "";
+    }
+  }
+  if (pending) paths.push(pending);
   return paths.length > 0 && paths.every(isAbsolute) ? paths : [];
 }
 
