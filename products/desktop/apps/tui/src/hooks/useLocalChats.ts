@@ -7,7 +7,7 @@ import {
   useState,
 } from "react";
 import { localHarnessFor } from "../billing";
-import { currentRepository, type PiChats } from "../chats";
+import { currentRepository, type PiChats, type StartPick } from "../chats";
 import { messageOf } from "../errors";
 import { allPanes, type LayoutState, renameTask } from "../layout";
 import { type LocalAgent, runningLocals, stopLocals } from "../local";
@@ -20,7 +20,7 @@ export interface LocalChatsState {
   // True for a chat that runs on this machine, also before its agent has started.
   isLocal: (taskId: string | null) => taskId is string;
   // The chat's agent, started on first use.
-  localFor: (id: string) => Promise<LocalAgent>;
+  localFor: (id: string, pick?: StartPick) => Promise<LocalAgent>;
   // Agents that have started, by task id.
   localSessions: Map<string, LocalAgent>;
   // Restarts the chat's agent on an empty conversation, under the same task and on the same model.
@@ -46,7 +46,9 @@ export function useLocalChats({
   setFresh,
   flashNotice,
 }: {
-  startLocal: ((id: string) => Promise<LocalAgent>) | undefined;
+  startLocal:
+    | ((id: string, pick?: StartPick) => Promise<LocalAgent>)
+    | undefined;
   chats: PiChats | undefined;
   layout: LayoutState;
   setLayout: Dispatch<SetStateAction<LayoutState>>;
@@ -72,7 +74,7 @@ export function useLocalChats({
   );
   // Agents this copy of the hook shows. After a hot swap the agents still run, so the new copy watches them again.
   const watched = useRef(new Set<string>()).current;
-  const localFor = (id: string): Promise<LocalAgent> => {
+  const localFor = (id: string, pick?: StartPick): Promise<LocalAgent> => {
     let started = runningLocals.get(id);
     if (!started) {
       if (!startLocal)
@@ -82,7 +84,7 @@ export function useLocalChats({
         return Promise.reject(
           new Error("Local chats are still loading. Try again in a moment"),
         );
-      started = startLocal(id);
+      started = startLocal(id, pick);
       runningLocals.set(id, started);
     }
     if (!watched.has(id)) {

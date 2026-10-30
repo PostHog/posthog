@@ -329,10 +329,13 @@ describe("PiChats", () => {
       } as unknown as Task;
     };
 
-    it("starts a new chat as a Claude Code cloud run that asks for the plan token", async () => {
+    it("starts a new chat as a Claude Code cloud run on the picked model, asking for the plan token", async () => {
       const { api, chats } = setup();
 
-      await chats.start("Fix the flaky test", [], undefined, "claude");
+      await chats.start("Fix the flaky test", [], undefined, "claude", {
+        model: "claude-opus-5-5",
+        effort: "high",
+      });
 
       expect(api.createTask).toHaveBeenCalledWith({
         description: "Fix the flaky test",
@@ -345,6 +348,8 @@ describe("PiChats", () => {
         mode: "interactive",
         adapter: "claude",
         claudeModelAccess: "own-subscription",
+        model: "claude-opus-5-5",
+        reasoningLevel: "high",
       });
     });
 

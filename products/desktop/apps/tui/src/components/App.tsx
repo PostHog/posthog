@@ -3,7 +3,8 @@ import type { CloudRegion, Task } from "@posthog/shared";
 import { Box, type DOMElement, useBoxMetrics } from "ink";
 import { type ReactElement, useEffect, useMemo, useRef, useState } from "react";
 import type { ActionsLine } from "../actions";
-import { bannerLines, startingModel } from "../banner";
+import { bannerLines } from "../banner";
+import type { StartPick } from "../chats";
 import { currentRepository, type PiChats } from "../chats";
 import { dividerGlyphs } from "../dividers";
 import { useChatPlace } from "../hooks/useChatPlace";
@@ -43,6 +44,7 @@ import type { MouseEvents } from "../mouse";
 import { openUrl } from "../openUrl";
 import { loadPrefs, savePrefs } from "../prefs";
 import type { CloudRuns } from "../runs";
+import { startingOptions } from "../starting";
 import { repoLabel, statusChips } from "../status";
 import { applyBackground, backgroundFromReply } from "../theme";
 import {
@@ -66,7 +68,7 @@ export interface Session {
   runs: CloudRuns;
   chats: PiChats;
   control: (taskId: string, runId: string) => PiControl;
-  startLocal: (id: string) => Promise<LocalAgent>;
+  startLocal: (id: string, pick?: StartPick) => Promise<LocalAgent>;
   // Today's briefing; absent in tests that do not need it.
   today?: TodayClient;
 }
@@ -220,11 +222,14 @@ export function App({
   const {
     openModelSheet,
     openEffortSheet,
+    pickFor,
     compact,
     onRunLive,
     onChatStarted,
     modelLabel,
   } = useModels({
+    startingFor: (paneId) =>
+      startingOptions(loadPrefs().billing, placeFor(paneId)),
     layout,
     isLocal,
     localSessions,
@@ -264,6 +269,7 @@ export function App({
     openModal,
     openModelSheet,
     openEffortSheet,
+    pickFor,
     compact,
     openSearch: search.toggle,
     openSettings: settings.toggle,
@@ -424,11 +430,7 @@ export function App({
         home: homedir(),
         repositories: repoPicker.reposFor(node.id),
         billing: loadPrefs().billing,
-        model: startingModel(
-          loadPrefs().billing,
-          placeFor(node.id),
-          modelLabel(node.id, null),
-        ),
+        model: modelLabel(node.id, null),
       })}
       chat={chatFor(node.id, node.taskId)}
       composer={composerFor(node.id)}

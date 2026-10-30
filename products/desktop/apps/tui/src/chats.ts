@@ -14,6 +14,12 @@ export type SendMessage = (
 
 type ModelAccess = "posthog-gateway" | "own-subscription";
 
+// The model and effort picked before the chat started, if any.
+export interface StartPick {
+  model?: string;
+  effort?: string;
+}
+
 // A continued run keeps the agent and the payer of the run before it; desktop records both on the run.
 const continuation = (task: Task): CloudHarness | null => {
   if (task.runtime === "pi") return "pi";
@@ -103,6 +109,7 @@ export class PiChats {
     images: SentImage[] = [],
     repositories: string[] = this.repository ? [this.repository] : [],
     harness: CloudHarness = "pi",
+    pick: StartPick = {},
   ): Promise<Task> {
     const task = await this.api.createTask({
       description: prompt,
@@ -120,6 +127,10 @@ export class PiChats {
       environment: "cloud",
       mode: "interactive",
       ...runOptions(harness),
+      ...(pick.model && {
+        model: pick.model,
+        ...(pick.effort && { reasoningLevel: pick.effort }),
+      }),
     });
     const artifactIds =
       images.length > 0

@@ -13,6 +13,8 @@ export interface ClaudeLocalInput {
   cwd: string;
   apiHost: string;
   projectId: number;
+  model?: string;
+  effort?: string;
 }
 
 const NOT_ON_CLAUDE = "Not available on a Claude Code chat";
@@ -116,6 +118,15 @@ export class ClaudeLocalSession implements LocalAgent {
       adapter: "claude",
       claudeModelAccess: "own-subscription",
       runMode: "local",
+      ...(this.input.model && { model: this.input.model }),
+      ...(this.input.effort && {
+        effort: this.input.effort as
+          | "low"
+          | "medium"
+          | "high"
+          | "xhigh"
+          | "max",
+      }),
     });
     this.sessionId = sessionId;
     this.publish({
