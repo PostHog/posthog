@@ -77,6 +77,7 @@ from products.signals.backend.report_generation.research import (
     PriorityAssessment,
 )
 from products.signals.backend.report_generation.resolve_reviewers import ReviewerIdentitySet
+from products.signals.backend.report_merge import merge_reports
 from products.signals.backend.reviewer_rules import ReviewerProposal, ReviewerRules
 from products.signals.backend.signal_metadata import SignalSourceReference
 from products.signals.backend.task_run_artefacts import TASK_RUN_TYPE_IMPLEMENTATION, signals_task_ids
@@ -1719,13 +1720,16 @@ async def test_background_scout_reports_never_reach_autostart(run_origin, config
         (True, False, False, True, False),
         (True, True, True, True, False),
         (True, False, True, "late", False),
+        (True, False, True, "layer", False),
+        (True, False, True, "merged", False),
+        (True, False, True, "merged_layer", False),
     ],
 )
 async def test_inferred_repository_and_monitoring_autostart_gates(
     repository_autostart_eligible: bool,
     user_triggered: bool,
     has_reviewer: bool,
-    monitoring: bool | Literal["late"],
+    monitoring: bool | Literal["late", "layer", "merged", "merged_layer"],
     expect_task: bool,
 ) -> None:
     # A repo read out of the report's own text is a target for whoever clicks Create PR, so it must not
@@ -1756,17 +1760,39 @@ async def test_inferred_repository_and_monitoring_autostart_gates(
     team, report, enabler = await sync_to_async(_setup)()
 
     def record_monitoring() -> None:
+        origin = report
+        if monitoring in {"layer", "merged", "merged_layer"}:
+            origin = SignalReport.objects.create(team=team, status=SignalReport.Status.READY, title="t", summary="s")
+            if monitoring == "layer":
+                _link(team.id, report, origin, ReportLinkKind.PART_OF)
+            else:
+                source = origin
+                if monitoring == "merged_layer":
+                    source = SignalReport.objects.create(
+                        team=team, status=SignalReport.Status.READY, title="layer", summary="s"
+                    )
+                    _link(team.id, source, origin, ReportLinkKind.PART_OF)
+                with (
+                    patch("products.signals.backend.report_merge._schedule_signal_move"),
+                    patch("products.signals.backend.report_merge.schedule_implementation_pr_cache_refresh"),
+                ):
+                    merge_reports(
+                        team=team,
+                        survivor=report,
+                        source_ids=[str(source.id)],
+                        attribution=ArtefactAttribution.system(),
+                    )
         SignalEmissionRecord.objects.create(
             team=team,
             source_product=SignalSourceProduct.SIGNALS_CHECK,
             source_type=SignalSourceType.MONITORING_UNRESOLVED,
             source_id=str(uuid4()),
             signal_id=str(uuid4()),
-            report_id=str(report.id),
+            report_id=str(origin.id),
             emitted_at=timezone.now(),
         )
 
-    if monitoring is True:
+    if monitoring is True or monitoring in {"layer", "merged", "merged_layer"}:
         await sync_to_async(record_monitoring)()
 
     def resolve_after_monitoring(*args: object, **kwargs: object) -> User:

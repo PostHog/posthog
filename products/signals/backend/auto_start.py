@@ -765,16 +765,41 @@ def _resolve_supersede(
 
 
 def _monitoring_implementation_requires_request(team_id: int, report_id: str) -> bool:
-    return (
-        SignalEmissionRecord.objects.using("default")
-        .filter(
-            team_id=team_id,
-            source_product=SignalSourceProduct.SIGNALS_CHECK,
-            source_type=SignalSourceType.MONITORING_UNRESOLVED,
-            report_id=report_id,
+    pending = [report_id]
+    checked: set[str] = set()
+    while pending:
+        current = pending.pop()
+        if current in checked:
+            continue
+        checked.add(current)
+        if len(checked) > SignalReportArtefact.MAX_REPORT_LINK_GRAPH_NODES:
+            return True
+        if (
+            SignalEmissionRecord.objects.using("default")
+            .filter(
+                team_id=team_id,
+                source_product=SignalSourceProduct.SIGNALS_CHECK,
+                source_type=SignalSourceType.MONITORING_UNRESOLVED,
+                report_id=current,
+            )
+            .exists()
+        ):
+            return True
+        # Layers and merged destinations do the same work, so they retain its implementation gate.
+        pending.extend(
+            edge.target_id
+            for edge in outgoing_links(team_id=team_id, report_id=current, kinds=(ReportLinkKind.PART_OF,))
         )
-        .exists()
-    )
+        pending.extend(
+            edge.source_id
+            for edge in incoming_links(
+                team_id=team_id,
+                report_id=current,
+                kinds=(ReportLinkKind.DUPLICATE_OF,),
+                include_deleted_sources=True,
+            )
+        )
+    return False
 
 
 def _create_implementation_task_if_absent(
