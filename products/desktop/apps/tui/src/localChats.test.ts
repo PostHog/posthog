@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Task } from "@posthog/shared";
@@ -27,7 +27,22 @@ const session = (cwd: string, firstMessage: string): string =>
     .map((line) => JSON.stringify(line))
     .join("\n");
 
-describe("linkLocalChats", () => {
+describe("local chats", () => {
+  it("clears a chat by moving its session file aside, and clears a chat that has no file yet", () => {
+    const dir = mkdtempSync(join(tmpdir(), "tui-local-"));
+    writeFileSync(join(dir, "task-1.jsonl"), session("/work/repo", "Hi"));
+    const chats = new LocalChats(dir);
+
+    chats.archive("task-1");
+    chats.archive("task-2");
+
+    expect(existsSync(chats.sessionFile("task-1"))).toBe(false);
+    expect(chats.list().size).toBe(0);
+    expect(readdirSync(join(dir, "cleared"))).toEqual([
+      expect.stringMatching(/^task-1\.\d+\.jsonl$/),
+    ]);
+  });
+
   it("gives each chat a task named from its first message, and keeps a chat it could not link for the next start", async () => {
     const dir = mkdtempSync(join(tmpdir(), "tui-local-"));
     writeFileSync(

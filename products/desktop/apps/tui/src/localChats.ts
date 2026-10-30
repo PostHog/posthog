@@ -89,6 +89,22 @@ export class LocalChats {
     renameSync(this.sessionFile(legacyId), this.sessionFile(taskId));
   }
 
+  // Moves the chat's session file into cleared/, so its agent starts on an empty conversation under the same task.
+  // The old conversation stays on disk in case the user wants it back.
+  archive(id: string): void {
+    const cleared = join(this.dir, "cleared");
+    mkdirSync(cleared, { recursive: true });
+    try {
+      renameSync(
+        this.sessionFile(id),
+        join(cleared, `${id}.${Date.now()}${SESSION_SUFFIX}`),
+      );
+    } catch (error) {
+      // A chat whose agent has not answered yet has no file, so there is nothing to move.
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+  }
+
   private names(): string[] {
     try {
       return readdirSync(this.dir).filter((name) =>

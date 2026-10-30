@@ -159,6 +159,7 @@ export function App({
     isLocal,
     localFor,
     localSessions,
+    clear: clearLocal,
     localActive,
     markActive,
     refreshActive: refreshLocalActive,
@@ -646,6 +647,21 @@ export function App({
     }
     if (slash?.command === "new") {
       setLayout(newChat);
+      return;
+    }
+    if (slash?.command === "clear") {
+      const taskId = pane?.taskId ?? null;
+      if (!taskId) flashNotice("There's nothing to clear yet");
+      else if (!isLocal(taskId))
+        flashNotice(
+          "You can't clear a cloud run. Type /new to start a new chat",
+        );
+      else
+        clearLocal(taskId).then(
+          () => flashNotice("Cleared this chat"),
+          (error: unknown) =>
+            flashNotice(`Couldn't clear this chat: ${messageOf(error)}`),
+        );
       return;
     }
     if (slash?.command === "local" || slash?.command === "cloud") {

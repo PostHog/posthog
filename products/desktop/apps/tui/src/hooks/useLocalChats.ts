@@ -22,6 +22,8 @@ export interface LocalChatsState {
   localFor: (id: string) => Promise<LocalSession>;
   // Agents that have started, by task id.
   localSessions: Map<string, LocalSession>;
+  // Restarts the chat's agent on an empty conversation, under the same task and on the same model.
+  clear: (id: string) => Promise<void>;
   // This machine's local chats and when each last changed.
   localActive: Map<string, number>;
   // Marks a chat as changed now, before its agent has written its session file.
@@ -101,6 +103,23 @@ export function useLocalChats({
     return started;
   };
 
+  const clear = async (id: string): Promise<void> => {
+    const previous = await runningLocals.get(id)?.catch(() => undefined);
+    const models = await previous?.control.models().catch(() => null);
+    // Only a model this chat can still pick comes back, never one from a personal pi login.
+    const model = models?.available.find(
+      (candidate) =>
+        candidate.provider === models.current?.provider &&
+        candidate.id === models.current.id,
+    );
+    runningLocals.delete(id);
+    watched.delete(id);
+    await previous?.stop();
+    localChats.archive(id);
+    const fresh = await localFor(id);
+    if (model) await fresh.control.setModel(model);
+  };
+
   // One pass per sign-in, so a re-run effect never makes a second task for the same chat.
   const linkedFor = useRef<PiChats | null>(null);
   useEffect(() => {
@@ -147,6 +166,7 @@ export function useLocalChats({
     isLocal,
     localFor,
     localSessions,
+    clear,
     localActive,
     markActive: (taskId) =>
       setLocalActive((current) => new Map(current).set(taskId, Date.now())),
