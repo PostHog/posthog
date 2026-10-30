@@ -13,7 +13,7 @@ from django.test import SimpleTestCase
 from django.utils import timezone
 
 import httpx
-from openai import APITimeoutError
+from openai import APITimeoutError, BadRequestError, omit
 from parameterized import parameterized
 
 from products.signals.backend.activity_summary.read import (
@@ -48,9 +48,15 @@ def _answer(ranked: list[dict], folded: list[dict] | None = None) -> str:
     return json.dumps({"ranked": ranked, "folded": folded or []})
 
 
-def _validate(content: str | None, limit: int = 2):
+def _validate(content: str | None, limit: int = 2, rank_top: int = 10):
     return validate_ranking(
-        content, refs=REFS, model_reasons=MODEL_REASONS, limit=limit, reason_limits=LIMITS, next_step_max_chars=12
+        content,
+        refs=REFS,
+        model_reasons=MODEL_REASONS,
+        limit=limit,
+        rank_top=rank_top,
+        reason_limits=LIMITS,
+        next_step_max_chars=12,
     )
 
 
@@ -104,12 +110,34 @@ class TestValidateRanking(SimpleTestCase):
                 ["c1", "c3", "c4"],
                 {"invalid_folds": 3, "renumbered": 2},
             ),
+            (
+                "entries_past_rank_top_follow_in_model_order",
+                [_entry("c4", 1), _entry("c3", 2), _entry("c2", 3), _entry("c1", 4)],
+                [],
+                ["c4", "c3", "c1", "c2"],
+                {"beyond_rank_top": 2},
+                2,
+            ),
+            (
+                "folds_apply_past_rank_top",
+                [_entry("c4", 1), _entry("c3", 2)],
+                [{"ref": "c1", "into": "c4", "reason": "same digest"}],
+                ["c4", "c2", "c3"],
+                {"beyond_rank_top": 1, "missing_refs": 1},
+                1,
+            ),
         ]
     )
     def test_order_covers_every_unfolded_candidate(
-        self, _name: str, ranked: list[dict], folded: list[dict], expected_refs: list[str], expected_counts: dict
+        self,
+        _name: str,
+        ranked: list[dict],
+        folded: list[dict],
+        expected_refs: list[str],
+        expected_counts: dict,
+        rank_top: int = 10,
     ) -> None:
-        result = _validate(_answer(ranked, folded))
+        result = _validate(_answer(ranked, folded), rank_top=rank_top)
 
         assert [entry.ref for entry in result.entries] == expected_refs
         assert [entry.rank for entry in result.entries] == list(range(1, len(expected_refs) + 1))
@@ -195,7 +223,9 @@ class TestPrompt(SimpleTestCase):
         )
         config = PersonalRankingConfig(profile_max_chars=100)
 
-        message = user_message(render_person(summary, config), candidates, focus=None, now=timezone.now(), limit=25)
+        message = user_message(
+            render_person(summary, config), candidates, focus=None, now=timezone.now(), limit=25, rank_top=10
+        )
 
         assert not any(report_id in message for report_id in ids)
         assert "\nc1 | P2 | ready | PR open" in message
@@ -217,10 +247,12 @@ class TestConfig(SimpleTestCase):
                 PersonalRankingConfig(max_candidates=100),
             ),
             (
-                "default_limit_within_max_limit",
-                {"default_limit": 40, "max_limit": 30},
-                PersonalRankingConfig(default_limit=30, max_limit=30),
+                "default_limit_and_rank_top_within_max_limit",
+                {"default_limit": 40, "rank_top": 40, "max_limit": 30},
+                PersonalRankingConfig(default_limit=30, rank_top=30, max_limit=30),
             ),
+            ("reasoning_effort", {"reasoning_effort": "high"}, PersonalRankingConfig(reasoning_effort="high")),
+            ("invalid_reasoning_effort", {"reasoning_effort": "max"}, PersonalRankingConfig()),
         ]
     )
     def test_parse_config(self, _name: str, payload: Any, expected: PersonalRankingConfig) -> None:
@@ -359,6 +391,7 @@ class TestBuildPersonalRanking(BaseTest):
             str(reports["claimed"].id): ("claimed",),
         }
         assert "# Focus\ncheckout bugs" in self.create.call_args.kwargs["messages"][1]["content"]
+        assert self.create.call_args.kwargs["reasoning_effort"] == "low"
 
         self.capture.assert_called_once()
         event = self.capture.call_args.kwargs
@@ -400,6 +433,23 @@ class TestBuildPersonalRanking(BaseTest):
         if outcome is None:
             self.create.assert_not_called()
 
+    def test_a_model_that_rejects_reasoning_effort_gets_calls_without_it(self) -> None:
+        self._setup_reports()
+        rejection = BadRequestError(
+            "Unsupported parameter: 'reasoning_effort'",
+            response=httpx.Response(400, request=httpx.Request("POST", "https://example.com")),
+            body=None,
+        )
+        answer = _response(_answer([_entry("c1", 1)]))
+        self.create.side_effect = [rejection, answer, answer]
+
+        with patch("products.signals.backend.personal_ranking.logic._NO_REASONING_EFFORT_MODELS", set()):
+            first = self._build(dry_run=True)
+            second = self._build(dry_run=True)
+
+        assert (first.status, second.status) == ("ok", "ok")
+        assert [call.kwargs["reasoning_effort"] for call in self.create.call_args_list] == ["low", omit, omit]
+
     @parameterized.expand(
         [
             ("can_see_scores", True, True, True),
@@ -435,7 +485,10 @@ class TestBuildPersonalRanking(BaseTest):
         self.create.return_value = _response(_answer([_entry("c1", 1, tier="top", next_step="Review the PR")]))
         out = StringIO()
 
-        with patch("products.signals.backend.personal_ranking.logic.read_config", return_value=PersonalRankingConfig()):
+        with patch(
+            "products.signals.backend.management.commands.run_personal_inbox_ranking.read_config",
+            return_value=PersonalRankingConfig(),
+        ):
             call_command(
                 "run_personal_inbox_ranking",
                 "--team-id",
@@ -450,5 +503,6 @@ class TestBuildPersonalRanking(BaseTest):
         assert self.capture.call_count == expected_rows
         output = out.getvalue()
         assert "status: ok" in output
+        assert "model: gpt-6.1-terra, reasoning_effort: low, rank_top: 10" in output
         assert "next: Review the PR" in output
         assert all(f"] {report.title} (" in output for report in reports.values())

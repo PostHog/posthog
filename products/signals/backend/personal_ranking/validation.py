@@ -1,8 +1,8 @@
 """Turn the model's answer into a complete ranked list, or say why it cannot.
 
 Pure functions over refs (`c1` to `cN`), so every rule is testable without a database or a model call.
-The result always covers every candidate: what the model ranks comes first, in rank order, and the
-candidates it did not rank follow in model order.
+The result always covers every candidate: the best `rank_top` the model ranks come first, in rank order,
+and every other unfolded candidate follows in model order.
 """
 
 import json
@@ -55,6 +55,8 @@ class ValidationCounts:
     unknown_refs: int = 0
     # Candidates the model neither ranked nor folded. They follow in model order.
     missing_refs: int = 0
+    # Ranked entries past `rank_top`. They follow in model order too.
+    beyond_rank_top: int = 0
     tier_corrections: int = 0
     # Folds of an unknown ref, into an unknown or folded ref, or into the ref itself.
     invalid_folds: int = 0
@@ -185,6 +187,7 @@ def validate_ranking(
     refs: Sequence[str],
     model_reasons: Mapping[str, str],
     limit: int,
+    rank_top: int,
     reason_limits: ReasonLimits,
     next_step_max_chars: int,
 ) -> ValidatedRanking:
@@ -206,6 +209,10 @@ def validate_ranking(
             kept.append(entry)
     if refs and not kept:
         raise MalformedRankingError("no known ref is ranked")
+    duplicate_refs = len(ordered) - len(kept)
+    beyond_rank_top = max(len(kept) - rank_top, 0)
+    kept = kept[:rank_top]
+    seen = {entry.ref for entry in kept}
 
     entries: list[RankedEntry] = []
     renumbered = tier_corrections = 0
@@ -247,9 +254,10 @@ def validate_ranking(
         folded=tuple(folds[ref] for ref in refs if ref in folds),
         counts=ValidationCounts(
             renumbered=renumbered,
-            duplicate_refs=len(ordered) - len(kept),
+            duplicate_refs=duplicate_refs,
             unknown_refs=unknown,
-            missing_refs=len(missing),
+            missing_refs=len(missing) - beyond_rank_top,
+            beyond_rank_top=beyond_rank_top,
             tier_corrections=tier_corrections,
             invalid_folds=invalid_folds,
         ),

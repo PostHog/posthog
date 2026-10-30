@@ -16,8 +16,8 @@ from django.utils import timezone
 
 import structlog
 import posthoganalytics
-from openai import APITimeoutError, OpenAI
-from openai.types.chat import ChatCompletionMessageParam
+from openai import APITimeoutError, BadRequestError, Omit, OpenAI, omit
+from openai.types.chat import ChatCompletion, ChatCompletionMessageParam
 
 from posthog.dataclasses import frozen
 from posthog.llm.gateway_client import build_openai_client, trace_id_from_seed
@@ -26,7 +26,7 @@ from posthog.models import Team, User
 from products.signals.backend.activity_summary.read import ActivitySummaryStatus, get_summary
 from products.signals.backend.models import PersonalInboxRanking
 from products.signals.backend.personal_ranking.candidates import Candidate, gather_candidates
-from products.signals.backend.personal_ranking.config import PersonalRankingConfig, read_config
+from products.signals.backend.personal_ranking.config import PersonalRankingConfig, ReasoningEffort, read_config
 from products.signals.backend.personal_ranking.prompt import (
     PROMPT_VERSION,
     RESPONSE_FORMAT,
@@ -45,6 +45,9 @@ from products.signals.backend.personal_ranking.validation import (
 )
 
 logger = structlog.get_logger(__name__)
+
+# Models that rejected `reasoning_effort` in this process. Later calls to them leave it out.
+_NO_REASONING_EFFORT_MODELS: set[str] = set()
 
 AI_PRODUCT = "personal_inbox_ranking"
 # Not a person: the gateway attributes every call to the pipeline.
@@ -88,6 +91,8 @@ class PersonalRankingBuild:
     candidates: tuple[Candidate, ...]
     counts: ValidationCounts
     limit: int
+    rank_top: int
+    reasoning_effort: ReasoningEffort
     input_hash: str | None
     activity_summary_version: int | None
     model: str
@@ -173,6 +178,32 @@ def _client(team: Team, user: User, now: datetime.datetime, config: PersonalRank
     return client.with_options(timeout=config.timeout_seconds, max_retries=0)
 
 
+def _create_completion(
+    client: OpenAI, config: PersonalRankingConfig, messages: list[ChatCompletionMessageParam]
+) -> ChatCompletion:
+    def create(reasoning_effort: ReasoningEffort | Omit = omit) -> ChatCompletion:
+        return client.chat.completions.create(
+            model=config.model,
+            messages=messages,
+            user=PIPELINE_DISTINCT_ID,
+            response_format=RESPONSE_FORMAT,
+            max_completion_tokens=config.max_completion_tokens,
+            reasoning_effort=reasoning_effort,
+        )
+
+    if config.model in _NO_REASONING_EFFORT_MODELS:
+        return create()
+    try:
+        return create(config.reasoning_effort)
+    except BadRequestError as error:
+        if "reasoning_effort" not in str(error):
+            raise
+    # A rejected parameter fails fast, so the retry stays inside the timeout.
+    _NO_REASONING_EFFORT_MODELS.add(config.model)
+    logger.warning("signals.personal_ranking.reasoning_effort_unsupported", model=config.model)
+    return create()
+
+
 def _call_model(
     team: Team,
     user: User,
@@ -186,13 +217,7 @@ def _call_model(
         return round((time.monotonic() - started) * 1000)
 
     try:
-        response = _client(team, user, now, config).chat.completions.create(
-            model=config.model,
-            messages=messages,
-            user=PIPELINE_DISTINCT_ID,
-            response_format=RESPONSE_FORMAT,
-            max_completion_tokens=config.max_completion_tokens,
-        )
+        response = _create_completion(_client(team, user, now, config), config, messages)
     except APITimeoutError:
         return _ModelCall(
             content=None, tokens_in=None, tokens_out=None, latency_ms=elapsed_ms(), fallback_reason=FALLBACK_TIMEOUT
@@ -236,6 +261,8 @@ def _capture(team: Team, user: User, build: PersonalRankingBuild, *, has_focus: 
                 "activity_summary_version": build.activity_summary_version,
                 "has_focus": has_focus,
                 "limit": build.limit,
+                "rank_top": build.rank_top,
+                "reasoning_effort": build.reasoning_effort,
                 "candidate_count": len(build.candidates),
                 "ranked_by_llm_count": sum(1 for entry in build.entries if entry.ranked_by == "llm"),
                 "folded_count": len(build.folded),
@@ -294,6 +321,8 @@ def build_personal_ranking(
             candidates=(),
             counts=ValidationCounts(),
             limit=limit,
+            rank_top=config.rank_top,
+            reasoning_effort=config.reasoning_effort,
             input_hash=None,
             activity_summary_version=None,
             model=config.model,
@@ -320,7 +349,14 @@ def build_personal_ranking(
             {"role": "system", "content": system_prompt(config, limit)},
             {
                 "role": "user",
-                "content": user_message(render_person(summary, config), candidates, focus=focus, now=now, limit=limit),
+                "content": user_message(
+                    render_person(summary, config),
+                    candidates,
+                    focus=focus,
+                    now=now,
+                    limit=limit,
+                    rank_top=config.rank_top,
+                ),
             },
         ]
         call = _call_model(team, user, now, config, messages)
@@ -332,6 +368,7 @@ def build_personal_ranking(
                     refs=refs,
                     model_reasons=model_reasons,
                     limit=limit,
+                    rank_top=config.rank_top,
                     reason_limits=config.reason_limits,
                     next_step_max_chars=config.next_step_max_chars,
                 )
@@ -351,6 +388,8 @@ def build_personal_ranking(
         candidates=tuple(candidates),
         counts=validated.counts if validated is not None else ValidationCounts(),
         limit=limit,
+        rank_top=config.rank_top,
+        reasoning_effort=config.reasoning_effort,
         input_hash=input_hash(candidates, activity_summary_version=summary_version, focus=focus),
         activity_summary_version=summary_version,
         model=config.model,

@@ -5,7 +5,7 @@ a large one to its maximum, so no value is unbounded. `"enabled": false` in the 
 switch: it stops every build.
 """
 
-from typing import Any
+from typing import Any, Literal, get_args
 
 import structlog
 
@@ -19,7 +19,10 @@ PERSONAL_INBOX_RANKING_FLAG = "personal-inbox-ranking"
 # Not a person: the flag must serve its payload to this id.
 PERSONAL_INBOX_RANKING_FLAG_DISTINCT_ID = "signals_personal_inbox_ranking"
 MAX_MODEL_NAME_CHARS = 100
-DEFAULT_MODEL = "gpt-6-luna"
+DEFAULT_MODEL = "gpt-6.1-terra"
+
+ReasoningEffort = Literal["minimal", "low", "medium", "high"]
+REASONING_EFFORTS: tuple[ReasoningEffort, ...] = get_args(ReasoningEffort)
 
 
 @frozen
@@ -35,15 +38,18 @@ class ReasonLimits:
 class PersonalRankingConfig:
     enabled: bool = True
     model: str = DEFAULT_MODEL
+    reasoning_effort: ReasoningEffort = "low"
     # The `for_you` pool in `sort=recommended` order and the two ranking model pools read reports created in this window.
     window_days: int = 14
-    for_you_recommended_pool: int = 30
+    for_you_recommended_pool: int = 10
     # No window, so older reports with new activity come in too.
-    for_you_updated_pool: int = 20
-    assigned_pool: int = 20
-    actionable_pool: int = 20
-    new_pool: int = 20
-    max_candidates: int = 60
+    for_you_updated_pool: int = 5
+    assigned_pool: int = 5
+    actionable_pool: int = 5
+    new_pool: int = 5
+    max_candidates: int = 30
+    # The model ranks only this many candidates. The others follow in model order. At most `max_limit`.
+    rank_top: int = 10
     # The entries that get a `next_step`, and the most a caller can ask for.
     default_limit: int = 25
     max_limit: int = 50
@@ -53,8 +59,8 @@ class PersonalRankingConfig:
     # Names of owned and watched objects from the activity summary, each.
     max_object_names: int = 8
     focus_max_chars: int = 500
-    timeout_seconds: float = 30.0
-    max_completion_tokens: int = 8000
+    timeout_seconds: float = 60.0
+    max_completion_tokens: int = 16000
 
 
 DEFAULTS = PersonalRankingConfig()
@@ -68,6 +74,7 @@ _MAXIMUMS: dict[str, int] = {
     "actionable_pool": 100,
     "new_pool": 100,
     "max_candidates": 100,
+    "rank_top": 100,
     "default_limit": 100,
     "max_limit": 100,
     "next_step_max_chars": 400,
@@ -97,6 +104,10 @@ def _model(value: Any) -> str:
     return value if isinstance(value, str) and value.strip() and len(value) <= MAX_MODEL_NAME_CHARS else DEFAULTS.model
 
 
+def _reasoning_effort(value: Any) -> ReasoningEffort:
+    return next((effort for effort in REASONING_EFFORTS if effort == value), DEFAULTS.reasoning_effort)
+
+
 def _reason_limits(value: Any) -> ReasonLimits:
     defaults = DEFAULTS.reason_limits
     if not isinstance(value, dict):
@@ -121,16 +132,34 @@ def parse_config(payload: Any) -> PersonalRankingConfig:
     return PersonalRankingConfig(
         enabled=payload.get("enabled") is not False,
         model=_model(payload.get("model")),
+        reasoning_effort=_reasoning_effort(payload.get("reasoning_effort")),
         reason_limits=_reason_limits(payload.get("reason_max_chars")),
         timeout_seconds=_bounded_number(
             payload.get("timeout_seconds"), DEFAULTS.timeout_seconds, _MAXIMUMS["timeout_seconds"]
         ),
         max_limit=max_limit,
-        **{**ints, "default_limit": min(ints["default_limit"], max_limit)},
+        **{
+            **ints,
+            "default_limit": min(ints["default_limit"], max_limit),
+            "rank_top": min(ints["rank_top"], max_limit),
+        },
     )
+
+
+def effective_config(config: PersonalRankingConfig) -> dict[str, Any]:
+    """The levers that change the speed of a build, so a dogfood run shows which values it used."""
+    return {
+        "enabled": config.enabled,
+        "model": config.model,
+        "reasoning_effort": config.reasoning_effort,
+        "rank_top": config.rank_top,
+        "max_candidates": config.max_candidates,
+        "timeout_seconds": config.timeout_seconds,
+        "max_completion_tokens": config.max_completion_tokens,
+    }
 
 
 def read_config() -> PersonalRankingConfig:
     config = parse_config(read_flag_payload(PERSONAL_INBOX_RANKING_FLAG, PERSONAL_INBOX_RANKING_FLAG_DISTINCT_ID))
-    logger.info("personal_inbox_ranking_config_read", enabled=config.enabled, model=config.model)
+    logger.info("personal_inbox_ranking_config_read", **effective_config(config))
     return config
