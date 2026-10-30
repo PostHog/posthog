@@ -6,7 +6,6 @@ import uuid
 import hashlib
 from collections import defaultdict
 from collections.abc import Iterable, Iterator, Sequence
-from copy import deepcopy
 from typing import Annotated, Any, ClassVar, Literal, NoReturn, Optional, Union, cast
 
 from django.conf import settings
@@ -118,6 +117,7 @@ from products.cohorts.backend.models.util import (
     cohort_filters_have_values,
     get_all_cohort_dependencies,
     get_friendly_error_message,
+    legacy_groups_to_filters,
     validate_actors_query_for_cohort,
 )
 from products.cohorts.backend.models.validation import CohortTypeValidationSerializer
@@ -1562,12 +1562,7 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         if not groups:
             return None
 
-        effective_team = team or (instance.team if instance else None)
-        if effective_team is None:
-            return None
-
-        cohort = Cohort(team=effective_team, filters=None, groups=deepcopy(groups))
-        return {"properties": cohort.properties.to_dict()}
+        return legacy_groups_to_filters(groups)
 
     def validate_filters(self, raw: dict):
         """
@@ -1714,6 +1709,17 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         # object-level guard covers the static-to-dynamic flip when it does not, re-checking the
         # instance's preserved behavioral filters against the feature-flag rule.
         attrs = super().validate(attrs)
+
+        cohort_will_be_static = self._cohort_will_be_static()
+        if not attrs.get("filters") and attrs.get("groups") and not cohort_will_be_static:
+            derived_filters = legacy_groups_to_filters(attrs["groups"])
+            if not derived_filters:
+                raise ValidationError(
+                    {"groups": "The provided legacy groups could not be converted to cohort filters."}
+                )
+
+            attrs["filters"] = derived_filters
+            self._validate_feature_flag_constraints(derived_filters, cohort_will_be_static=False)
 
         parsed_csv = self._parse_csv_upload(attrs)
         if parsed_csv is not None:

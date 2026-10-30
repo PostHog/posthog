@@ -528,6 +528,139 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
         self.assertEqual(response.status_code, 400, response.content)
         self.assertIn(expected_detail, response.json()["detail"])
 
+    def test_create_cohort_with_legacy_groups_derives_filters_and_condition_type(self):
+        groups = [
+            {
+                "properties": [
+                    {
+                        "key": "email",
+                        "type": "person",
+                        "value": "is_set",
+                        "operator": "is_set",
+                    }
+                ]
+            }
+        ]
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "Legacy group cohort", "groups": groups},
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+        cohort = Cohort.objects.get(pk=response.json()["id"])
+        self.assertIsNotNone(cohort.filters)
+        self.assertIn("properties", cohort.filters)
+        leaf = cohort.filters["properties"]["values"][0]["values"][0]
+        self.assertEqual((leaf["key"], leaf["type"], leaf["operator"]), ("email", "person", "is_set"))
+        self.assertEqual(
+            cohort.condition_type,
+            {
+                "person_properties": True,
+                "behavioral": False,
+                "lifecycle": False,
+                "cohorts": False,
+            },
+        )
+
+    def test_patch_cohort_with_legacy_groups_updates_derived_filters(self):
+        initial_groups = [
+            {
+                "properties": [
+                    {
+                        "key": "email",
+                        "type": "person",
+                        "value": "is_set",
+                        "operator": "is_set",
+                    }
+                ]
+            }
+        ]
+        create_res = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "Legacy cohort to patch", "groups": initial_groups},
+        )
+        self.assertEqual(create_res.status_code, 201)
+        cohort_id = create_res.json()["id"]
+
+        updated_groups = [
+            {
+                "properties": [
+                    {
+                        "key": "name",
+                        "type": "person",
+                        "value": "Alice",
+                        "operator": "exact",
+                    }
+                ]
+            }
+        ]
+        patch_res = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort_id}",
+            data={"groups": updated_groups},
+        )
+        self.assertEqual(patch_res.status_code, 200, patch_res.content)
+        cohort = Cohort.objects.get(pk=cohort_id)
+        leaf = cohort.filters["properties"]["values"][0]["values"][0]
+        self.assertEqual(
+            (leaf["key"], leaf["type"], leaf["operator"], leaf["value"]), ("name", "person", "exact", "Alice")
+        )
+
+    @patch("posthog.api.cohort.legacy_groups_to_filters", return_value=None)
+    def test_create_cohort_with_invalid_legacy_groups_returns_400(self, mock_legacy_groups_to_filters):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={
+                "name": "Malformed legacy group cohort",
+                "groups": [{"properties": [{"key": "email", "value": "test@example.com"}]}],
+            },
+        )
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertEqual(response.json()["attr"], "groups")
+
+    def test_patch_cohort_used_in_flag_rejects_behavioral_groups(self):
+        def cohort_filter(cohort_id: int) -> dict[str, Any]:
+            return {"key": "id", "value": cohort_id, "type": "cohort"}
+
+        person_filters = {
+            "properties": {
+                "type": "AND",
+                "values": [{"key": "email", "value": "is_set", "operator": "is_set", "type": "person"}],
+            }
+        }
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="cohort in flag",
+            filters=person_filters,
+        )
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={"groups": [{"properties": [cohort_filter(cohort.pk)]}]},
+            name="Cohort-based flag",
+            key="cohort-flag",
+            created_by=self.user,
+        )
+
+        behavioral_groups = [
+            {
+                "properties": [
+                    {
+                        "event_type": "events",
+                        "key": "$pageview",
+                        "value": "performed_event",
+                        "type": "behavioral",
+                    }
+                ]
+            }
+        ]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort.pk}",
+            data={"groups": behavioral_groups},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        self.assertEqual(response.json()["code"], "behavioral_cohort_found")
+        self.assertIn("Behavioral filters cannot be added to cohorts used in feature flags", response.json()["detail"])
+
     def test_static_cohort_csv_upload_end_to_end(self):
         """Test CSV upload end-to-end with actual celery task execution"""
         self.team.app_urls = ["http://somewebsite.com"]

@@ -225,6 +225,42 @@ class TestResaveCohortsCommandSingleTeam(BaseTest):
         for sql in cohort_selects:
             assert 'posthog_team"."event_names"' not in sql
 
+    def test_resave_legacy_groups_cohort_derives_filters_and_condition_type(self):
+        team: Team = self.team
+        cohort = Cohort.objects.create(
+            team=team,
+            name="legacy_groups_cohort",
+            groups=[
+                {
+                    "properties": [
+                        {
+                            "key": "email",
+                            "value": "is_set",
+                            "operator": "is_set",
+                            "type": "person",
+                        }
+                    ]
+                }
+            ],
+            filters=None,
+        )
+        assert cohort.filters is None
+        assert cohort.condition_type is None
+
+        call_command("resave_cohorts", team_id=[team.id])
+
+        cohort.refresh_from_db()
+        assert cohort.filters is not None
+        assert "properties" in cohort.filters
+        leaf = cohort.filters["properties"]["values"][0]["values"][0]
+        assert (leaf["key"], leaf["type"], leaf["operator"]) == ("email", "person", "is_set")
+        assert cohort.condition_type == {
+            "person_properties": True,
+            "behavioral": False,
+            "lifecycle": False,
+            "cohorts": False,
+        }
+
 
 class TestResaveCohortsCommandWithDependencies(BaseTest):
     def test_cohort_dependency_blocks_realtime(self):
