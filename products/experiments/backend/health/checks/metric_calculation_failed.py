@@ -26,6 +26,7 @@ from products.experiments.backend.facade.enums import ExposuresPath
 from products.experiments.backend.health.checks.events_received import joined
 from products.experiments.backend.health.checks.metric_cannot_compile import MetricCompileError, word_compile_error
 from products.experiments.backend.health.context import (
+    ExposureFilterSource,
     ExposureFilterWithoutColumn,
     HealthContext,
     LatestCalculation,
@@ -74,6 +75,11 @@ _LIMIT_NEEDS = {
     "read_limit": "needed to read more data",
     "memory_limit": "needed more memory",
     "time_limit": "took longer",
+}
+_FILTER_OWNERS = {
+    ExposureFilterSource.EXPOSURE_CRITERIA: "the exposure criteria's",
+    ExposureFilterSource.EXPOSURE_ACTION: "the exposure action's",
+    ExposureFilterSource.TEST_ACCOUNTS: "the test account",
 }
 _QUERY_SIZE_LIMIT = "query_size"
 
@@ -202,7 +208,7 @@ def metric_calculation_failed(ctx: HealthContext) -> CheckOutcome:
         evidence={
             "calculated_at": calculation.finished_at.isoformat(),
             **_evidence(worded),
-            **({"properties": ", ".join(f.key for f in exposure_filters)} if exposure_filters else {}),
+            **({"properties": ", ".join(dict.fromkeys(f.key for f in exposure_filters))} if exposure_filters else {}),
         },
         # No action opens a given metric.
         actions=(ExperimentHealthFindingActionKind.EDIT_EXPOSURE_CRITERIA,) if exposure_filters else (),
@@ -375,12 +381,11 @@ def _exposure_explanation(
     limits: set[str], filters: tuple[ExposureFilterWithoutColumn, ...], *, every_metric: bool
 ) -> str:
     needs = _LIMIT_NEEDS[next(iter(limits))] if len(limits) == 1 else "needed more resources"
-    criteria_filters = [f for f in filters if not f.test_account]
-    test_account_filters = [f for f in filters if f.test_account]
     named = joined(
         [
-            *([_named("the exposure criteria's", criteria_filters)] if criteria_filters else []),
-            *([_named("the test account", test_account_filters)] if test_account_filters else []),
+            _named(owner, owned)
+            for source, owner in _FILTER_OWNERS.items()
+            if (owned := [f for f in filters if f.source == source])
         ]
     )
     read = joined(list(dict.fromkeys(f.type for f in filters)))
@@ -389,7 +394,7 @@ def _exposure_explanation(
     query, each_query = ("Every metric's query", "each query") if every_metric else ("Its query", "the query")
     fix = (
         f"Change {the_filters}, or turn off the test account filter in the exposure criteria"
-        if test_account_filters
+        if any(f.source == ExposureFilterSource.TEST_ACCOUNTS for f in filters)
         else f"Remove or change {the_filters}"
     )
     return (

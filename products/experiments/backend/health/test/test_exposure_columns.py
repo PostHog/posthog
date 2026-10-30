@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from datetime import timedelta
 from typing import Any
 
@@ -14,6 +15,8 @@ from posthog.models.event.new_events_schema import events_route_scope
 from posthog.models.property import TableColumn
 from posthog.schema_enums import MaterializationMode
 
+from products.actions.backend.models.action import Action
+from products.experiments.backend.health.context import ExposureFilterSource
 from products.experiments.backend.health.exposure_columns import load_filters_without_column
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -22,6 +25,11 @@ from ee.clickhouse.materialized_columns.columns import MaterializedColumn, Mater
 
 ON_EVENTS = PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
 JOINED = PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED
+_SOURCE_LABELS = {
+    ExposureFilterSource.EXPOSURE_CRITERIA: "",
+    ExposureFilterSource.EXPOSURE_ACTION: " (action)",
+    ExposureFilterSource.TEST_ACCOUNTS: " (test account)",
+}
 
 
 def _column(table_column: TableColumn, key: str) -> MaterializedColumn:
@@ -43,7 +51,7 @@ def _filter(key: str, property_type: str, **rest: Any) -> dict[str, Any]:
     return {"key": key, "type": property_type, "operator": "is_set", **rest}
 
 
-class TestLoadExposureReads(BaseTest):
+class TestLoadFiltersWithoutColumn(BaseTest):
     def _experiment(self, *, filter_test_accounts: bool = True) -> Experiment:
         return Experiment.objects.create(
             team=self.team,
@@ -143,6 +151,7 @@ class TestLoadExposureReads(BaseTest):
                     "person:$initial_os",
                     "group:industry",
                     "person:email (test account)",
+                    "person:tier (test account)",
                 ],
                 MaterializationMode.DISABLED,
             ),
@@ -178,7 +187,7 @@ class TestLoadExposureReads(BaseTest):
 
         assert filters is not None
         self.assertEqual(
-            [f"{found.type}:{found.key}{' (test account)' if found.test_account else ''}" for found in filters],
+            [f"{found.type}:{found.key}{_SOURCE_LABELS[found.source]}" for found in filters],
             expected,
         )
 
@@ -210,3 +219,42 @@ class TestLoadExposureReads(BaseTest):
         experiment.exposure_criteria = exposure_criteria
 
         self.assertEqual(load_filters_without_column(experiment), expected)
+
+    @parameterized.expand(
+        [
+            (
+                "exposure_action",
+                lambda action: {"exposure_config": action},
+                ["event:campaign (action)", "event:$current_url (action)", "event:source (action)"],
+            ),
+            (
+                "activation_action",
+                lambda action: {"exposure_config": None, "activation_config": action},
+                ["event:campaign (action)", "event:$current_url (action)", "event:source (action)"],
+            ),
+            ("deleted_action", lambda action: {"exposure_config": {**action, "id": 0}}, ["event:source (action)"]),
+        ]
+    )
+    def test_names_the_filters_of_an_action(
+        self, _name: str, criteria: Callable[[dict[str, Any]], dict[str, Any]], expected: list[str]
+    ) -> None:
+        action = Action.objects.create(
+            team=self.team,
+            name="Started checkout",
+            steps_json=[
+                {"event": "checkout", "properties": [_filter("campaign", "event")]},
+                {"event": "$pageview", "url": "/checkout", "properties": [_filter("$virt_is_bot", "event")]},
+            ],
+        )
+        experiment = self._experiment()
+        experiment.exposure_criteria = {
+            "filterTestAccounts": False,
+            **criteria(
+                {"kind": "ActionsNode", "id": action.pk, "properties": [_filter("source", "event")]},
+            ),
+        }
+
+        filters = load_filters_without_column(experiment)
+
+        assert filters is not None
+        self.assertEqual([f"{found.type}:{found.key}{_SOURCE_LABELS[found.source]}" for found in filters], expected)

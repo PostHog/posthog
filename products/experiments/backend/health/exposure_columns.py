@@ -2,13 +2,12 @@ from typing import cast
 
 import pydantic
 
-from posthog.schema import EventPropertyFilter, ExperimentExposureCriteria, GroupPropertyFilter, PersonPropertyFilter
+from posthog.schema import ActionsNode, ExperimentExposureCriteria
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.modifiers import create_default_modifiers_for_team
-from posthog.hogql.property import property_to_expr
 from posthog.hogql.property_planner import PropertyAccessPlan, PropertyScope, PropertySourceKind, plan_property_access
 from posthog.hogql.resolver import resolve_types
 from posthog.hogql.transforms.property_types import build_property_swapper
@@ -17,7 +16,12 @@ from posthog.hogql.visitor import GetFieldsTraverser
 from posthog.exceptions_capture import capture_exception
 from posthog.schema_enums import MaterializationMode
 
-from products.experiments.backend.health.context import ExposureFilterPropertyType, ExposureFilterWithoutColumn
+from products.experiments.backend.health.context import (
+    ExposureFilterPropertyType,
+    ExposureFilterSource,
+    ExposureFilterWithoutColumn,
+)
+from products.experiments.backend.hogql_queries.base_query_utils import event_or_action_to_filter
 from products.experiments.backend.hogql_queries.experiment_query_builder import get_exposure_config_params_for_builder
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     get_test_accounts_filter,
@@ -55,23 +59,25 @@ def _filters_without_column(
     experiment: Experiment, criteria: ExperimentExposureCriteria | None
 ) -> tuple[ExposureFilterWithoutColumn, ...]:
     team = experiment.team
-    # The configs that the exposure query builds from, so the filters read here are the ones it applies.
+    # The configs that the exposure query builds from, as the filters that it applies.
     params = get_exposure_config_params_for_builder(criteria, team, experiment.start_date)
-    properties = [
-        prop
-        for source in (params.exposure_config, params.activation_config)
-        if source
-        for prop in source.properties or []
-        if isinstance(prop, EventPropertyFilter | PersonPropertyFilter | GroupPropertyFilter)
+    filters = [
+        (
+            event_or_action_to_filter(team, config),
+            ExposureFilterSource.EXPOSURE_ACTION
+            if isinstance(config, ActionsNode)
+            else ExposureFilterSource.EXPOSURE_CRITERIA,
+        )
+        for config in (params.exposure_config, params.activation_config)
+        if config
     ]
-    exposure_filters = [property_to_expr(prop, team) for prop in properties]
-    test_account_filters = get_test_accounts_filter(team, criteria)
-    if not exposure_filters and not test_account_filters:
+    filters += [(expr, ExposureFilterSource.TEST_ACCOUNTS) for expr in get_test_accounts_filter(team, criteria)]
+    # A `$virt` property expands to reads of other properties when its type resolves, and no filter names those.
+    named_keys = {
+        field.chain[-1] for expr, _ in filters for field in GetFieldsTraverser(expr).fields if len(field.chain) > 1
+    }
+    if not named_keys:
         return ()
-    # A `$virt` property expands to reads of other properties, which no filter names.
-    named_keys = {prop.key for prop in properties}
-    if test_account_filters:
-        named_keys |= {prop.get("key") for prop in team.test_account_filters}
     modifiers = create_default_modifiers_for_team(team)
     context = HogQLContext(
         team_id=team.pk,
@@ -83,27 +89,22 @@ def _filters_without_column(
     query = ast.SelectQuery(
         select=[ast.Constant(value=1)],
         select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-        where=ast.And(exprs=[*exposure_filters, *test_account_filters]),
+        where=ast.And(exprs=[expr for expr, _ in filters]),
     )
     resolved = resolve_types(query, context, dialect="clickhouse")
     build_property_swapper(resolved, context)
     where = cast(ast.And, resolved.where)
 
-    found: dict[tuple[ExposureFilterPropertyType, str], ExposureFilterWithoutColumn] = {}
-    for index, expr in enumerate(where.exprs):
+    found: dict[ExposureFilterWithoutColumn, None] = {}
+    for expr, (_, source) in zip(where.exprs, filters, strict=True):
         for field in GetFieldsTraverser(expr).fields:
             plan = plan_property_access(field, context)
             if plan is None or plan.property_name not in named_keys or plan.property_name == _FLAG_KEY_PROPERTY:
                 continue
             filter_type = _FILTER_TYPES.get(plan.scope)
             if filter_type is not None and _reads_all_properties(plan, context):
-                found.setdefault(
-                    (filter_type, plan.property_name),
-                    ExposureFilterWithoutColumn(
-                        type=filter_type, key=plan.property_name, test_account=index >= len(exposure_filters)
-                    ),
-                )
-    return tuple(found.values())
+                found[ExposureFilterWithoutColumn(type=filter_type, key=plan.property_name, source=source)] = None
+    return tuple(found)
 
 
 def load_filters_without_column(experiment: Experiment) -> tuple[ExposureFilterWithoutColumn, ...] | None:

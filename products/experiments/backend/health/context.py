@@ -360,6 +360,12 @@ ExposurePropertyType = Literal["event", "person"]
 ExposureFilterPropertyType = ExposurePropertyType | Literal["group"]
 
 
+class ExposureFilterSource(StrEnum):
+    EXPOSURE_CRITERIA = "exposure_criteria"
+    EXPOSURE_ACTION = "exposure_action"
+    TEST_ACCOUNTS = "test_accounts"
+
+
 @frozen
 class ExposureFilterWithoutColumn:
     """A property that the exposure query filters on and reads from the JSON of all the properties of each event, person
@@ -367,8 +373,7 @@ class ExposureFilterWithoutColumn:
 
     type: ExposureFilterPropertyType
     key: str
-    # Whether the filter comes from the project's test account filters and not from the exposure criteria.
-    test_account: bool
+    source: ExposureFilterSource
 
 
 @frozen

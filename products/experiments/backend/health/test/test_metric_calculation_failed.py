@@ -26,6 +26,7 @@ from products.experiments.backend.facade.contracts import (
 from products.experiments.backend.facade.enums import ExposuresPath
 from products.experiments.backend.health.checks.metric_calculation_failed import metric_calculation_failed
 from products.experiments.backend.health.context import (
+    ExposureFilterSource,
     ExposureFilterWithoutColumn,
     LatestCalculation,
     MetricCalculationFailure,
@@ -48,7 +49,7 @@ NO_QUERIES = ExperimentHealthReaderAccess(
 )
 FINISHED_AT = datetime(2026, 10, 26, 9, 30, tzinfo=UTC)
 OUT_OF_MEMORY = "This query ran out of memory before it could finish."
-PLAN_FILTER = ExposureFilterWithoutColumn(type="group", key="plan", test_account=False)
+PLAN_FILTER = ExposureFilterWithoutColumn(type="group", key="plan", source=ExposureFilterSource.EXPOSURE_CRITERIA)
 DIRECT = ExposuresPath.DIRECT_SCAN
 PRECOMPUTED = ExposuresPath.PRECOMPUTED
 NO_CAUSE = (None, 'primary metric "Revenue" failed. Its query needed more memory than PostHog allows for one')
@@ -372,13 +373,48 @@ class TestMetricCalculationFailed(TestCase):
                     ),
                 ),
                 (),
-                (PLAN_FILTER, ExposureFilterWithoutColumn(type="event", key="$device", test_account=True)),
+                (
+                    PLAN_FILTER,
+                    ExposureFilterWithoutColumn(type="event", key="$device", source=ExposureFilterSource.TEST_ACCOUNTS),
+                ),
                 (
                     "exposure_criteria",
                     "Every metric's query needed more resources than PostHog allows for one calculation. The likely "
                     'cause is the exposure criteria\'s filter on the group property "plan" and the test account filter '
                     'on the event property "$device", which make each query read all group and event properties. '
                     "Change these filters, or turn off the test account filter in the exposure criteria, or contact",
+                ),
+            ),
+            (
+                "the_filter_is_in_the_exposure_action",
+                (_limited(DIRECT),),
+                (),
+                (
+                    ExposureFilterWithoutColumn(
+                        type="event", key="campaign", source=ExposureFilterSource.EXPOSURE_ACTION
+                    ),
+                ),
+                (
+                    "exposure_criteria",
+                    'The likely cause is the exposure action\'s filter on the event property "campaign", which makes '
+                    "the query read all event properties. Remove or change the filter, or contact support for help.",
+                ),
+            ),
+            (
+                "one_property_in_the_exposure_criteria_and_the_test_account_filters",
+                (_limited(DIRECT),),
+                (),
+                (
+                    ExposureFilterWithoutColumn(
+                        type="event", key="plan", source=ExposureFilterSource.EXPOSURE_CRITERIA
+                    ),
+                    ExposureFilterWithoutColumn(type="event", key="plan", source=ExposureFilterSource.TEST_ACCOUNTS),
+                ),
+                (
+                    "exposure_criteria",
+                    'the exposure criteria\'s filter on the event property "plan" and the test account filter on the '
+                    'event property "plan", which make the query read all event properties. Change these filters, or '
+                    "turn off the test account filter in the exposure criteria",
                 ),
             ),
             (
