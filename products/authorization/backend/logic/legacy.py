@@ -11,11 +11,7 @@ from posthog.user_permissions import UserPermissions
 
 from products.access_control.backend.facade import api as access_control_api
 from products.access_control.backend.facade.contracts import FallbackParent, ObjectAccessRef
-from products.access_control.backend.facade.user_access_control import (
-    RESOURCE_FALLBACK_MAP,
-    AccessControlLevelResource,
-    UserAccessControl,
-)
+from products.access_control.backend.facade.user_access_control import AccessControlLevelResource, UserAccessControl
 
 from ..facade.contracts import CheckRequest, Context, Resource, Subject
 from ..facade.enums import Action, ResourceType
@@ -33,36 +29,20 @@ RESOURCE_LEVELS: dict[Action, AccessControlLevelResource] = {
     Action.MANAGE_ACCESS: "manager",
 }
 
-_MEMBER = OrganizationMembership.Level.MEMBER
-_ADMIN = OrganizationMembership.Level.ADMIN
-_OWNER = OrganizationMembership.Level.OWNER
+_Level = OrganizationMembership.Level
+_ADMIN_ACTIONS = dict.fromkeys((Action.EDIT, Action.DELETE, Action.SHARE, Action.MANAGE_ACCESS), _Level.ADMIN)
 
 # JOIN and the staff-only actions have no row, so asking for them raises instead of granting admins.
 MEMBERSHIP_LEVELS: dict[ResourceType, dict[Action, OrganizationMembership.Level]] = {
     ResourceType.ORGANIZATION: {
-        Action.VIEW: _MEMBER,
-        Action.EDIT: _ADMIN,
-        Action.CREATE: _ADMIN,
-        Action.SHARE: _ADMIN,
-        Action.MANAGE_ACCESS: _ADMIN,
-        Action.DELETE: _OWNER,
-        Action.MANAGE_OWNERS: _OWNER,
+        **_ADMIN_ACTIONS,
+        Action.VIEW: _Level.MEMBER,
+        Action.CREATE: _Level.ADMIN,
+        Action.DELETE: _Level.OWNER,
+        Action.MANAGE_OWNERS: _Level.OWNER,
     },
-    ResourceType.PROJECT: {
-        Action.VIEW: _MEMBER,
-        Action.EDIT: _ADMIN,
-        Action.CREATE: _ADMIN,
-        Action.DELETE: _ADMIN,
-        Action.SHARE: _ADMIN,
-        Action.MANAGE_ACCESS: _ADMIN,
-    },
-    ResourceType.ROLE: {
-        Action.VIEW: _MEMBER,
-        Action.EDIT: _ADMIN,
-        Action.DELETE: _ADMIN,
-        Action.SHARE: _ADMIN,
-        Action.MANAGE_ACCESS: _ADMIN,
-    },
+    ResourceType.PROJECT: {**_ADMIN_ACTIONS, Action.VIEW: _Level.MEMBER, Action.CREATE: _Level.ADMIN},
+    ResourceType.ROLE: {**_ADMIN_ACTIONS, Action.VIEW: _Level.MEMBER},
 }
 
 
@@ -90,14 +70,6 @@ def _check(session: Session, request: CheckRequest) -> bool:
     if resource.project_id is None:
         raise ValueError(f"A {resource.type} check needs project_id.")
     scope = _scope(resource.type)
-    parent_type = RESOURCE_FALLBACK_MAP.get(scope)
-    if resource.id is not None and parent_type and resource.parent is None:
-        raise ValueError(
-            f"A {resource.type} check needs `parent`, or it skips the parent's rules. "
-            f"Use Parent(type=ResourceType.{parent_type.upper()}, id=None) when the object has no parent."
-        )
-    if resource.parent is not None and resource.parent.type.value != parent_type:
-        raise ValueError(f"A {resource.type} falls back to {parent_type}, not {resource.parent.type}.")
 
     principal = _principal(session, request.subject)
     if principal is None:
@@ -132,6 +104,10 @@ def _check_membership(session: Session, request: CheckRequest) -> bool:
     level = MEMBERSHIP_LEVELS[resource.type].get(action)
     if level is None:
         raise ValueError(f"{action} does not apply to {resource.type} resources.")
+    if resource.id is None:
+        raise ValueError(f"A {resource.type} check needs `id`.")
+    if resource.type == ResourceType.ROLE and resource.organization_id is None:
+        raise ValueError("A role check needs `organization_id`.")
 
     principal = _principal(session, request.subject)
     # Only a user holds a membership. The other principals have no organization or project level.
@@ -139,53 +115,30 @@ def _check_membership(session: Session, request: CheckRequest) -> bool:
         return False
 
     if resource.type == ResourceType.PROJECT:
-        return _check_project(session, principal, resource, action, level)
-    organization_id = _organization_id(resource)
-    if resource.type == ResourceType.ROLE and not access_control_api.role_belongs_to_organization(
-        role_id=UUID(cast(str, resource.id)), organization_id=organization_id
-    ):
-        return False
+        return _check_project(session, principal, int(resource.id), action, level)
+    if resource.type == ResourceType.ROLE:
+        organization_id = cast(UUID, resource.organization_id)
+        if not access_control_api.role_belongs_to_organization(
+            role_id=UUID(resource.id), organization_id=organization_id
+        ):
+            return False
+    else:
+        organization_id = UUID(resource.id)
     membership = get_cached_organization_membership(organization_id, principal)
     return membership is not None and membership.level >= level
 
 
 def _check_project(
-    session: Session, user: User, resource: Resource, action: Action, level: OrganizationMembership.Level
+    session: Session, user: User, project_id: int, action: Action, level: OrganizationMembership.Level
 ) -> bool:
-    project_id = _project_id(resource)
     access = _access(session, user, project_id)
     if access is None:
         return False
     team = cast(Team, access.team)
-    if resource.organization_id is not None and resource.organization_id != team.organization_id:
-        raise ValueError(f"Project {project_id} is not in organization {resource.organization_id}.")
     if action == Action.MANAGE_ACCESS:
         return access.check_can_modify_access_levels_for_object(team)
     user_level = _user_permissions(session, user).team(team).effective_membership_level
     return user_level is not None and user_level >= level
-
-
-def _project_id(resource: Resource) -> int:
-    project_id = int(resource.id) if resource.id is not None else resource.project_id
-    if project_id is None:
-        raise ValueError("A project check needs `id` or `project_id`.")
-    if resource.project_id is not None and resource.project_id != project_id:
-        raise ValueError(f"`id` {resource.id} does not match `project_id` {resource.project_id}.")
-    return project_id
-
-
-def _organization_id(resource: Resource) -> UUID:
-    if resource.type == ResourceType.ROLE:
-        if resource.id is None or resource.organization_id is None:
-            raise ValueError("A role check needs `id` and `organization_id`.")
-        UUID(resource.id)
-        return resource.organization_id
-    organization_id = UUID(resource.id) if resource.id is not None else resource.organization_id
-    if organization_id is None:
-        raise ValueError("An organization check needs `id` or `organization_id`.")
-    if resource.organization_id is not None and resource.organization_id != organization_id:
-        raise ValueError(f"`id` {resource.id} does not match `organization_id` {resource.organization_id}.")
-    return organization_id
 
 
 def _user_permissions(session: Session, user: User) -> UserPermissions:

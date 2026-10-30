@@ -148,6 +148,18 @@ class TestCheckMatchesCurrentRules(BaseTest):
         assert allowed is expected
         assert allowed == UserAccessControl(self.user, self.team).check_access_level_for_object(table, "viewer")
 
+    @parameterized.expand(
+        [
+            ("no_parent", None),
+            ("parent_of_another_type", Parent(type=ResourceType.WAREHOUSE_OBJECTS, id="1")),
+        ]
+    )
+    def test_warehouse_table_without_its_parent_raises(self, _name: str, parent: Parent | None) -> None:
+        resource = Resource(type=ResourceType.WAREHOUSE_TABLE, id="1", project_id=self.team.id, parent=parent)
+
+        with pytest.raises(ValueError, match="falls back to|fallback_parent"):
+            authorization.check(resource=resource, action=Action.VIEW, subject=Subject(user_id=self.user.id))
+
     def test_check_without_a_subject_reads_the_user_that_authentication_set(self) -> None:
         self._rule("dashboard", "none", str(self.dashboard.id), member=True)
         results: list[bool] = []
@@ -418,12 +430,7 @@ class TestCheckMatchesCurrentRules(BaseTest):
                 ValueError,
             ),
             ("organization_without_an_id", {"resource": Resource(type=ResourceType.ORGANIZATION)}, ValueError),
-            ("project_without_an_id", {"resource": Resource(type=ResourceType.PROJECT)}, ValueError),
-            (
-                "project_ids_that_differ",
-                {"resource": Resource(type=ResourceType.PROJECT, id="1", project_id=2)},
-                ValueError,
-            ),
+            ("project_without_an_id", {"resource": Resource(type=ResourceType.PROJECT, project_id=1)}, ValueError),
             (
                 "role_without_an_organization",
                 {"resource": Resource(type=ResourceType.ROLE, id=str(UUID(int=1)))},
@@ -431,23 +438,6 @@ class TestCheckMatchesCurrentRules(BaseTest):
             ),
             ("action_without_a_level", {"action": Action.JOIN}, ValueError),
             ("no_project", {"resource": Resource(type=ResourceType.DASHBOARD, id="1")}, ValueError),
-            (
-                "warehouse_table_without_parent",
-                {"resource": Resource(type=ResourceType.WAREHOUSE_TABLE, id="1", project_id=1)},
-                ValueError,
-            ),
-            (
-                "parent_of_another_type",
-                {
-                    "resource": Resource(
-                        type=ResourceType.WAREHOUSE_TABLE,
-                        id="1",
-                        project_id=1,
-                        parent=Parent(type=ResourceType.WAREHOUSE_OBJECTS, id="1"),
-                    )
-                },
-                ValueError,
-            ),
             ("context", {"context": Context(channel="mcp")}, NotImplementedError),
             ("api_key_subject", {"subject": Subject(api_key_id="key")}, NotImplementedError),
         ]

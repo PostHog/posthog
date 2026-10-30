@@ -33,7 +33,7 @@ def resource_for_object(obj: Model, *, team: Team | None = None) -> Resource:
         raise ValueError(f"{type(obj).__name__} has no access control resource.")
     resource_type = ResourceType(scope)
     if resource_type in MEMBERSHIP_RESOURCES:
-        return Resource(type=resource_type, id=str(obj.pk), organization_id=getattr(obj, "organization_id", None))
+        return Resource(type=resource_type, id=str(obj.pk))
     rules_team = None if resource_type in OWN_TEAM_RESOURCES else team
     team_id = rules_team.id if rules_team is not None else getattr(obj, "team_id", None)
     if team_id is None:
