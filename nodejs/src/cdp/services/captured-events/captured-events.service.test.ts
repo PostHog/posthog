@@ -3,7 +3,12 @@ import { TeamManager } from '~/common/utils/team-manager'
 
 import { Team } from '../../../types'
 import { CyclotronJobInvocationResult, HogFunctionCapturedEvent } from '../../types'
-import { CAPTURE_BATCH_CONCURRENCY, CAPTURE_BATCH_SIZE, CapturedEventsService } from './captured-events.service'
+import {
+    CAPTURE_BATCH_CONCURRENCY,
+    CAPTURE_BATCH_MAX_BYTES,
+    CAPTURE_BATCH_SIZE,
+    CapturedEventsService,
+} from './captured-events.service'
 
 const buildTeam = (id: number, apiToken: string): Team =>
     ({
@@ -34,6 +39,7 @@ describe('CapturedEventsService', () => {
     beforeEach(() => {
         internalCaptureService = {
             captureBatch: jest.fn().mockResolvedValue({ status: 200 }),
+            capture: jest.fn().mockResolvedValue({ status: 200 }),
         } as unknown as jest.Mocked<InternalCaptureService>
 
         teamManager = {
@@ -95,6 +101,68 @@ describe('CapturedEventsService', () => {
             const sizes = internalCaptureService.captureBatch.mock.calls.map((call) => call[0].length)
             expect(sizes).toEqual([...Array(batchCount - 1).fill(CAPTURE_BATCH_SIZE), 1])
             expect(maxInFlight).toBe(CAPTURE_BATCH_CONCURRENCY)
+        })
+
+        it('keeps the in-flight bound across flushes that overlap', async () => {
+            let inFlight = 0
+            let maxInFlight = 0
+            internalCaptureService.captureBatch.mockImplementation(async () => {
+                inFlight++
+                maxInFlight = Math.max(maxInFlight, inFlight)
+                await new Promise((resolve) => setImmediate(resolve))
+                inFlight--
+                return { status: 200 } as any
+            })
+            const queueBatches = (count: number, token: string): void =>
+                service.queue(
+                    Array.from({ length: CAPTURE_BATCH_SIZE * count }, (_, i) => ({
+                        team_token: token,
+                        event: `e${i}`,
+                        distinct_id: 'u1',
+                    }))
+                )
+
+            queueBatches(CAPTURE_BATCH_CONCURRENCY, 'token-a')
+            const first = service.flush()
+            queueBatches(CAPTURE_BATCH_CONCURRENCY, 'token-b')
+            const second = service.flush()
+            await Promise.all([first, second])
+
+            expect(internalCaptureService.captureBatch).toHaveBeenCalledTimes(CAPTURE_BATCH_CONCURRENCY * 2)
+            expect(maxInFlight).toBe(CAPTURE_BATCH_CONCURRENCY)
+        })
+
+        it('starts a new batch before the serialized size passes the byte limit', async () => {
+            const big = 'x'.repeat(Math.ceil(CAPTURE_BATCH_MAX_BYTES / 2))
+            service.queue(
+                Array.from({ length: 3 }, (_, i) => ({
+                    team_token: 'token-a',
+                    event: `e${i}`,
+                    distinct_id: 'u1',
+                    properties: { big },
+                }))
+            )
+
+            await service.flush()
+
+            const sizes = internalCaptureService.captureBatch.mock.calls.map((call) => call[0].length)
+            expect(sizes).toEqual([1, 1, 1])
+        })
+
+        it.each([
+            ['a 4xx rejection', 400, 2],
+            ['a 5xx failure', 503, 0],
+        ])('after %s of a batch, retries its events alone %i times', async (_name, status, singleCaptures) => {
+            internalCaptureService.captureBatch.mockResolvedValue({ status } as any)
+            service.queue([
+                { team_token: 'token-a', event: 'ok', distinct_id: 'u1' },
+                { team_token: 'token-a', event: '', distinct_id: 'u1' },
+            ])
+
+            await service.flush()
+
+            expect(internalCaptureService.captureBatch).toHaveBeenCalledTimes(1)
+            expect(internalCaptureService.capture).toHaveBeenCalledTimes(singleCaptures)
         })
 
         it('clears the buffer after flush so a second flush is a no-op', async () => {

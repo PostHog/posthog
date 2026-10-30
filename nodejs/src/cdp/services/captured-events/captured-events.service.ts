@@ -9,7 +9,44 @@ import { Team } from '../../../types'
 import { CyclotronJobInvocationResult } from '../../types'
 
 export const CAPTURE_BATCH_SIZE = 100
+// Capture refuses request bodies over 20 MiB, and one event can carry about 1 MiB of properties.
+export const CAPTURE_BATCH_MAX_BYTES = 2 * 1024 * 1024
 export const CAPTURE_BATCH_CONCURRENCY = 5
+
+export function buildCaptureBatches(events: InternalCaptureEvent[]): InternalCaptureEvent[][] {
+    // Capture reads one token per request body, so batches never mix team tokens.
+    const byToken = new Map<string, InternalCaptureEvent[]>()
+    for (const event of events) {
+        const group = byToken.get(event.team_token)
+        if (group) {
+            group.push(event)
+        } else {
+            byToken.set(event.team_token, [event])
+        }
+    }
+    const batches: InternalCaptureEvent[][] = []
+    for (const group of byToken.values()) {
+        let batch: InternalCaptureEvent[] = []
+        let batchBytes = 0
+        for (const event of group) {
+            const eventBytes = JSON.stringify(event).length
+            if (
+                batch.length > 0 &&
+                (batch.length >= CAPTURE_BATCH_SIZE || batchBytes + eventBytes > CAPTURE_BATCH_MAX_BYTES)
+            ) {
+                batches.push(batch)
+                batch = []
+                batchBytes = 0
+            }
+            batch.push(event)
+            batchBytes += eventBytes
+        }
+        if (batch.length > 0) {
+            batches.push(batch)
+        }
+    }
+    return batches
+}
 
 const capturedEventsPending = new Gauge({
     name: 'cdp_captured_events_pending',
@@ -25,6 +62,7 @@ const capturedEventsPending = new Gauge({
  */
 export class CapturedEventsService {
     private queuedEvents: InternalCaptureEvent[] = []
+    private flushing: Promise<void> = Promise.resolve()
 
     constructor(
         private internalCaptureService: InternalCaptureService,
@@ -100,7 +138,15 @@ export class CapturedEventsService {
         return Promise.resolve()
     }
 
-    async flush(): Promise<void> {
+    // Flushes run one after another, so the in-flight bound holds across concurrent webhook requests
+    // and not only inside one flush.
+    flush(): Promise<void> {
+        const run = this.flushing.then(() => this.drain())
+        this.flushing = run.catch(() => undefined)
+        return run
+    }
+
+    private async drain(): Promise<void> {
         const events = this.queuedEvents
         this.queuedEvents = []
         capturedEventsPending.set(0)
@@ -109,31 +155,35 @@ export class CapturedEventsService {
             return
         }
 
-        // Capture reads one token per request body, so batches are grouped per team token.
-        const byToken = new Map<string, InternalCaptureEvent[]>()
-        for (const event of events) {
-            const group = byToken.get(event.team_token)
-            if (group) {
-                group.push(event)
-            } else {
-                byToken.set(event.team_token, [event])
-            }
-        }
-        const batches: InternalCaptureEvent[][] = []
-        for (const group of byToken.values()) {
-            for (let i = 0; i < group.length; i += CAPTURE_BATCH_SIZE) {
-                batches.push(group.slice(i, i + CAPTURE_BATCH_SIZE))
-            }
-        }
+        const batches = buildCaptureBatches(events)
         for (let i = 0; i < batches.length; i += CAPTURE_BATCH_CONCURRENCY) {
+            await Promise.all(batches.slice(i, i + CAPTURE_BATCH_CONCURRENCY).map((batch) => this.sendBatch(batch)))
+        }
+    }
+
+    private async sendBatch(batch: InternalCaptureEvent[]): Promise<void> {
+        try {
+            const response = await this.internalCaptureService.captureBatch(batch)
+            if (batch.length === 1 || response.status < 400 || response.status >= 500) {
+                return
+            }
+            // Capture rejects a whole body when one event in it is invalid or the body is too large.
+            // Sending the events alone lets only the bad event fail.
+            logger.warn('Capture rejected a batch, retrying its events one at a time', {
+                status: response.status,
+                count: batch.length,
+            })
             await Promise.all(
-                batches.slice(i, i + CAPTURE_BATCH_CONCURRENCY).map((batch) =>
-                    this.internalCaptureService.captureBatch(batch).catch((error) => {
-                        logger.error('Error capturing internal events', { error, count: batch.length })
+                batch.map((event) =>
+                    this.internalCaptureService.capture(event).catch((error) => {
+                        logger.error('Error capturing internal event', { error })
                         captureException(error)
                     })
                 )
             )
+        } catch (error) {
+            logger.error('Error capturing internal events', { error, count: batch.length })
+            captureException(error)
         }
     }
 }
