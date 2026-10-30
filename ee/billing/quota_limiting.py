@@ -1400,7 +1400,7 @@ def update_all_orgs_billing_quotas(
     compute_credits = dict(counter_report.counts[UsageCounter.SANDBOX_COMPUTE_CREDITS])
     logs_bytes = dict(counter_report.counts[UsageCounter.LOGS_BYTES])
     mcp_event_counts = _timed_query(
-        "mcp_event_count", get_teams_with_mcp_event_count_in_period, period.start, period.end, count_distinct=True
+        "mcp_event_count", get_teams_with_mcp_event_count_in_period, period.start, period.end
     )
     apm_tracing_bytes = convert_team_usage_rows_to_dict(
         _timed_query("apm_tracing_usage", get_teams_with_apm_tracing_usage_in_period, period.start, period.end)["bytes"]
