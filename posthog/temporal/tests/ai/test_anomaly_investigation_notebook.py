@@ -59,9 +59,9 @@ class TestAnomalyInvestigationNotebook(BaseTest):
         assert "## Recommendations" in markdown
         assert "### Run details" in markdown
         assert "- Campaign ID 42 launched at 2024-06-01 08:00" in markdown
-        # The summary keeps its formatting, and its link stays text.
-        assert "- **Traffic doubled** after the `spring_launch` campaign." in markdown
-        assert "- Check the report with *marketing*." in markdown
+        # The summary keeps its bullets as plain text, and its link stays text.
+        assert "- Traffic doubled after the spring_launch campaign." in markdown
+        assert "- Check the report with marketing." in markdown
         assert "example.com" not in markdown
 
         # The source insight stays live through a SavedInsightNode Query component.

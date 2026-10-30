@@ -1,7 +1,6 @@
 import json
 import uuid
 from dataclasses import dataclass
-from typing import Any
 
 from markdown_it import MarkdownIt
 from markdown_it.token import Token
@@ -15,13 +14,11 @@ from products.notebooks.backend.facade.content import (
     convert_notebook_content_to_markdown,
     create_bullet_list,
     create_heading_with_text,
-    create_paragraph_with_content,
     create_paragraph_with_text,
 )
 from products.product_analytics.backend.facade.models import Insight
 
 _SUMMARY_MARKDOWN = MarkdownIt("commonmark")
-_SUMMARY_MARKS = {"strong_open": "bold", "em_open": "italic"}
 
 VERDICT_LABEL = {
     "true_positive": "True positive",
@@ -87,13 +84,13 @@ def build_investigation_markdown(ctx: NotebookRenderContext) -> str:
 
 
 def _summary_content(summary: str) -> TipTapContent:
-    """Rebuild the agent's Markdown summary as paragraphs and bullet lists with inline marks.
+    """Rebuild the agent's Markdown summary as plain paragraphs and bullet lists.
 
-    The summary is model output, so it becomes escaped text with marks. Raw notebook markdown
-    could embed components or links.
+    The summary is model output, so it becomes escaped plain text. Inline formatting is dropped:
+    the notebook serializer cannot keep a code span closed when the code holds a backtick.
     """
     content: TipTapContent = []
-    items: list[TipTapContent] = []
+    items: list[str] = []
     list_depth = 0
     for token in _SUMMARY_MARKDOWN.parse(summary):
         if token.type in ("bullet_list_open", "ordered_list_open"):
@@ -104,34 +101,23 @@ def _summary_content(summary: str) -> TipTapContent:
                 content.append(create_bullet_list(items))
                 items = []
         elif token.type == "inline":
-            paragraph = create_paragraph_with_content(_inline_content(token.children or []))
+            text = _plain_text(token.children or [])
+            if not text:
+                continue
             if list_depth:
-                items.append([paragraph])
+                items.append(text)
             else:
-                content.append(paragraph)
+                content.append(create_paragraph_with_text(text))
     return content
 
 
-def _inline_content(children: list[Token]) -> TipTapContent:
-    marks: list[str] = []
-    nodes: TipTapContent = []
-    for child in children:
-        if child.type in _SUMMARY_MARKS:
-            marks.append(_SUMMARY_MARKS[child.type])
-        elif child.type in ("strong_close", "em_close") and marks:
-            marks.pop()
-        elif child.type in ("text", "html_inline", "code_inline", "softbreak", "hardbreak"):
-            text = " " if child.type in ("softbreak", "hardbreak") else child.content
-            # A backslash does not escape a backtick inside a code span, so a backtick in the content
-            # would close the span and release the rest as live markdown. Such text stays plain.
-            is_code = child.type == "code_inline" and "`" not in text
-            node_marks = [*marks, "code"] if is_code else marks
-            if text:
-                node: dict[str, Any] = {"type": "text", "text": text}
-                if node_marks:
-                    node["marks"] = [{"type": mark} for mark in node_marks]
-                nodes.append(node)
-    return nodes
+def _plain_text(children: list[Token]) -> str:
+    words = "".join(
+        child.content if child.type in ("text", "code_inline", "html_inline") else " "
+        for child in children
+        if child.type in ("text", "code_inline", "html_inline", "softbreak", "hardbreak")
+    )
+    return " ".join(words.split())
 
 
 def _summary_line(ctx: NotebookRenderContext) -> str:
