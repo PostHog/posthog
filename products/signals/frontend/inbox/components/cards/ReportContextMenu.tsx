@@ -49,6 +49,7 @@ import {
 } from '../../utils/dismissalReasons'
 import { inboxReportDetailUrl } from '../../utils/inboxReportUrls'
 import {
+    canCloseReport,
     canCreateImplementationPr,
     canResolveReport,
     canUnassignMe,
@@ -354,7 +355,7 @@ function ReportContextMenuItems({
                         <ContextMenuSeparator />
                     </>
                 )}
-                {canResolveReport(report) && (
+                {canCloseReport(report) && canResolveReport(report) && (
                     <ContextMenuSub>
                         <ContextMenuSubTrigger asChild data-attr="inbox-report-context-menu-resolve">
                             <ButtonPrimitive menuItem>
@@ -380,24 +381,26 @@ function ReportContextMenuItems({
                         </ContextMenuSubContent>
                     </ContextMenuSub>
                 )}
-                <ContextMenuSub>
-                    <ContextMenuSubTrigger asChild data-attr="inbox-report-context-menu-dismiss">
-                        <ButtonPrimitive menuItem>
-                            <IconHide />
-                            Dismiss
-                            <IconChevronRight className="ml-auto size-3" />
-                        </ButtonPrimitive>
-                    </ContextMenuSubTrigger>
-                    <ContextMenuSubContent className="max-w-80">
-                        <ReasonSubmenuItems
-                            options={DISMISSAL_REASON_OPTIONS}
-                            noteTooltip="Dismiss and write a note"
-                            dataAttrPrefix="inbox-report-context-menu-dismiss"
-                            onPick={pickDismissReason}
-                            onPickWithNote={openDismissDialog}
-                        />
-                    </ContextMenuSubContent>
-                </ContextMenuSub>
+                {canCloseReport(report) && (
+                    <ContextMenuSub>
+                        <ContextMenuSubTrigger asChild data-attr="inbox-report-context-menu-dismiss">
+                            <ButtonPrimitive menuItem>
+                                <IconHide />
+                                Dismiss
+                                <IconChevronRight className="ml-auto size-3" />
+                            </ButtonPrimitive>
+                        </ContextMenuSubTrigger>
+                        <ContextMenuSubContent className="max-w-80">
+                            <ReasonSubmenuItems
+                                options={DISMISSAL_REASON_OPTIONS}
+                                noteTooltip="Dismiss and write a note"
+                                dataAttrPrefix="inbox-report-context-menu-dismiss"
+                                onPick={pickDismissReason}
+                                onPickWithNote={openDismissDialog}
+                            />
+                        </ContextMenuSubContent>
+                    </ContextMenuSub>
+                )}
                 <ContextMenuSub>
                     <ContextMenuSubTrigger asChild data-attr="inbox-report-context-menu-reviewers">
                         <ButtonPrimitive menuItem>

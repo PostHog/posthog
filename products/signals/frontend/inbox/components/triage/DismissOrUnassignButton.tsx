@@ -6,6 +6,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
 
 import { inboxTriageLogic } from '../../logics/inboxTriageLogic'
+import { canCloseReport } from '../../utils/reportActions'
 
 /**
  * The footer has no room for another button, so Unassign me takes the Dismiss slot while the command
@@ -13,8 +14,8 @@ import { inboxTriageLogic } from '../../logics/inboxTriageLogic'
  * so that it fits the width Dismiss leaves free: a wider button would wrap the row each time the key
  * goes down.
  */
-export function DismissOrUnassignButton({ commandKeyHeld }: { commandKeyHeld: boolean }): JSX.Element {
-    const { unassignDisabledReason, isUnassigningCurrent } = useValues(inboxTriageLogic)
+export function DismissOrUnassignButton({ commandKeyHeld }: { commandKeyHeld: boolean }): JSX.Element | null {
+    const { currentReport, unassignDisabledReason, isUnassigningCurrent } = useValues(inboxTriageLogic)
     const { dismissCurrent, unassignCurrent } = useActions(inboxTriageLogic)
 
     return commandKeyHeld ? (
@@ -29,7 +30,7 @@ export function DismissOrUnassignButton({ commandKeyHeld }: { commandKeyHeld: bo
         >
             Unassign me
         </LemonButton>
-    ) : (
+    ) : currentReport && !canCloseReport(currentReport) ? null : (
         <LemonButton
             type="secondary"
             size="small"

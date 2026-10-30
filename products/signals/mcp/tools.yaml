@@ -358,7 +358,8 @@ tools:
             one. Each id is processed independently, so the call returns 200 even on partial failure: read `results`
             (one entry per id, in request order) and the `transitioned_count`, `skipped_count`, `failed_count`, and
             `not_found_count` summary. An id whose current status does not allow the transition comes back as `skipped`,
-            and the rest still go through.
+            and the rest still go through. A project can require a claim before dismissing or resolving; an id you have
+            not claimed then comes back as `skipped`, so claim it first with `inbox-reports-claim`.
     inbox-reports-claim:
         operation: signals_reports_claim
         enabled: true
@@ -585,7 +586,9 @@ tools:
             rationale survives later transitions. Reason codes need state 'suppressed' or 'resolved', not 'potential'.
             When the report only reached the wrong person, `inbox-reports-leave-reviewers` keeps it open for everyone
             else, while `wrong_assignee` closes it for everyone. Returns 409 when the report's current status does not
-            allow the transition. To transition several reports, use `inbox-reports-bulk-set-state`.
+            allow the transition, and when a project requires a claim before dismissing or resolving and you do not hold
+            it — claim it first with `inbox-reports-claim`, and take over only when the user asks. To transition several
+            reports, use `inbox-reports-bulk-set-state`.
     inbox-reports-update:
         operation: signals_reports_partial_update
         enabled: true

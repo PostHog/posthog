@@ -10,7 +10,12 @@ import { captureInboxReportAction } from '../inboxAnalytics'
 import { inboxSceneLogic } from '../inboxSceneLogic'
 import { inboxTaskKickoffLogic } from '../inboxTaskKickoffLogic'
 import { INBOX_PRIMARY_REPORT_SECTION_KEY, InboxReportSectionKey, SignalReport, SignalReportStatus } from '../types'
-import { canCreateImplementationPr, canUnassignMe, hasOpenImplementationPr } from '../utils/reportActions'
+import {
+    canCloseReport,
+    canCreateImplementationPr,
+    canUnassignMe,
+    hasOpenImplementationPr,
+} from '../utils/reportActions'
 import { displayConventionalCommitTitle } from '../utils/reportPresentation'
 import { reportGithubAccessLogic } from './reportGithubAccessLogic'
 import { INBOX_REPORT_SECTION_LIST_PARAMS, reportListLogic } from './reportListLogic'
@@ -420,7 +425,7 @@ export const inboxTriageLogic = kea<inboxTriageLogicType>([
             },
             dismissCurrent: () => {
                 const report = values.currentReport
-                if (!report) {
+                if (!report || !canCloseReport(report)) {
                     return
                 }
                 openDismissReportDialog({
@@ -449,7 +454,7 @@ export const inboxTriageLogic = kea<inboxTriageLogicType>([
             },
             resolveCurrent: () => {
                 const report = values.currentReport
-                if (!report) {
+                if (!report || !canCloseReport(report)) {
                     return
                 }
                 openResolveReportDialog({

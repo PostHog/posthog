@@ -24,6 +24,7 @@ REPORT_MONITORING_FLAG = "signals-report-monitoring"
 FIRST_REPORT_EMAIL_FLAG = "signals-first-report-email"
 RESEARCH_REVIEWER_SELECTION_FLAG = "signals-research-reviewer-selection"
 INBOX_CACHED_FILTERS_FLAG = "signals-inbox-cached-filters"
+INBOX_CLAIM_TO_CLOSE_FLAG = "signals-inbox-claim-to-close"
 
 
 def _organization_flag_enabled(
@@ -102,3 +103,11 @@ def organization_inbox_cached_filters_enabled(organization_id: UUID) -> bool:
     return _organization_flag_enabled(
         INBOX_CACHED_FILTERS_FLAG, organization_id, enable_in_debug=False, only_evaluate_locally=True
     )
+
+
+def organization_inbox_claim_to_close_enabled(organization_id: UUID) -> bool:
+    return _organization_flag_enabled(INBOX_CLAIM_TO_CLOSE_FLAG, organization_id, enable_in_debug=False)
+
+
+def team_inbox_claim_to_close_enabled(team_id: int) -> bool:
+    return _team_flag_enabled(INBOX_CLAIM_TO_CLOSE_FLAG, team_id, enable_in_debug=False)

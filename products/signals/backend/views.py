@@ -174,7 +174,12 @@ from products.signals.backend.ranking.served_outcomes import served_outcomes
 from products.signals.backend.ranking.staleness import EDIT_ARTEFACT_TYPES, annotate_stale_score
 from products.signals.backend.receivers import capture_verdict_reason_added_analytics
 from products.signals.backend.repo_corrections import sanitized_repository
-from products.signals.backend.report_assignments import InvalidPullRequestUrl, ReportClaimConflict, claim_report
+from products.signals.backend.report_assignments import (
+    CLAIMABLE_REPORT_STATUSES,
+    InvalidPullRequestUrl,
+    ReportClaimConflict,
+    claim_report,
+)
 from products.signals.backend.report_check_authoring import (
     CheckCreationError,
     CheckQueryAccessError,
@@ -184,6 +189,7 @@ from products.signals.backend.report_check_authoring import (
 from products.signals.backend.report_claims import (
     ReportClaim,
     actor_works_under_claim,
+    close_denial,
     get_active_claim,
     get_active_claims,
     reports_claimed_for_user,
@@ -192,6 +198,7 @@ from products.signals.backend.report_claims import (
 )
 from products.signals.backend.report_content_gates import (
     organization_inbox_cached_filters_enabled,
+    organization_inbox_claim_to_close_enabled,
     organization_report_monitoring_enabled,
 )
 from products.signals.backend.report_generation.research import ActionabilityChoice
@@ -300,7 +307,11 @@ from products.signals.backend.slack_notification_targets import (
 )
 from products.signals.backend.source_suggestions import current_source_suggestion
 from products.signals.backend.suggested_reviewer_index import report_ids_naming_reviewers
-from products.signals.backend.task_attribution import TASK_ID_HEADER, resolve_request_attribution
+from products.signals.backend.task_attribution import (
+    TASK_ID_HEADER,
+    is_automatic_signal_agent,
+    resolve_request_attribution,
+)
 from products.signals.backend.task_run_artefacts import ReportTaskCapExceeded
 from products.signals.backend.tasks import send_reviewer_added_slack_notifications, sync_signals_refund_credit
 from products.signals.backend.temporal.backfill_error_tracking import (
@@ -1961,6 +1972,44 @@ class SignalReportViewSet(
     @cached_property
     def _report_monitoring_enabled(self) -> bool:
         return organization_report_monitoring_enabled(self.organization.id)
+
+    @cached_property
+    def _inbox_claim_to_close(self) -> bool:
+        return organization_inbox_claim_to_close_enabled(self.organization.id)
+
+    @cached_property
+    def _is_automatic_signal_agent(self) -> bool:
+        return is_automatic_signal_agent(self.request, self._request_attribution(), self.team.id)
+
+    def _close_denial_message(self, report: SignalReport, target_status: SignalReport.Status) -> str | None:
+        """Why this request may not dismiss or resolve the report, or None when it may."""
+        if (
+            target_status not in {SignalReport.Status.SUPPRESSED, SignalReport.Status.RESOLVED}
+            or report.status not in CLAIMABLE_REPORT_STATUSES
+            or not self._inbox_claim_to_close
+            or self._is_automatic_signal_agent
+        ):
+            return None
+        actor = self._request_attribution()
+        denial = close_denial(get_active_claim(team_id=self.team.id, report_id=report.id), actor)
+        if denial is None:
+            return None
+        report_user_action(
+            self.request.user,
+            "signal_report_close_refused",
+            properties={
+                "team_id": self.team.id,
+                "report_id": str(report.id),
+                "target": target_status.value,
+                "reason": denial,
+                "actor_kind": actor.kind,
+                "surface": "mcp" if is_mcp_request(self.request) else "api",
+            },
+        )
+        verb = "dismiss" if target_status == SignalReport.Status.SUPPRESSED else "resolve"
+        if denial == "unclaimed":
+            return f"Claim this report before you {verb} it."
+        return f"Someone else holds the claim on this report. Take over the claim before you {verb} it."
 
     @cached_property
     def _inbox_cached_filters(self) -> bool:
@@ -4183,6 +4232,10 @@ class SignalReportViewSet(
                         "This report is archived. Refresh it before continuing.",
                     )
                 effective_target = report.restore_target_status()
+
+            # Only the owner of the work may close it, so nobody dismisses a report they do not own.
+            if (close_denial_message := self._close_denial_message(report, target_status)) is not None:
+                return SignalReportBulkStateOutcome.SKIPPED, close_denial_message
 
             if target_status == SignalReport.Status.MONITORING and report.status != SignalReport.Status.MONITORING:
                 try:

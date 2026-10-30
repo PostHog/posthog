@@ -13,7 +13,7 @@ import { inboxBulkActionsLogic } from '../../logics/inboxBulkActionsLogic'
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { INBOX_REPORT_SECTION_LIST_PARAMS, reportListLogic } from '../../logics/reportListLogic'
 import { SignalReport, SignalReportStatus } from '../../types'
-import { canMonitorReport, canResolveReport } from '../../utils/reportActions'
+import { canCloseReport, canMonitorReport, canResolveReport } from '../../utils/reportActions'
 import { hasMergedReportPullRequest } from '../../utils/reportPullRequests'
 import { setReportState } from '../../utils/writeTimeout'
 import { useReportDismiss } from '../cards/useReportDismiss'
@@ -165,7 +165,8 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
         ]
     }
 
-    const canResolve = canResolveReport(report)
+    const canClose = canCloseReport(report)
+    const canResolve = canClose && canResolveReport(report)
 
     const resolve: ReportDetailAction = {
         key: 'resolve',
@@ -207,14 +208,18 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
               ]
             : []),
         ...(canResolve ? [resolve] : []),
-        {
-            key: 'dismiss',
-            label: 'Dismiss',
-            icon: <IconHide />,
-            loading: isDismissing,
-            tooltip: 'Dismiss this report from your inbox',
-            onClick: onDismissClick,
-        },
+        ...(canClose
+            ? [
+                  {
+                      key: 'dismiss',
+                      label: 'Dismiss',
+                      icon: <IconHide />,
+                      loading: isDismissing,
+                      tooltip: 'Dismiss this report from your inbox',
+                      onClick: onDismissClick,
+                  },
+              ]
+            : []),
         ...(canRefund ? [refund] : []),
     ]
 

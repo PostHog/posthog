@@ -21,6 +21,8 @@ import uuid
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 
+from posthog.oauth_provenance import get_oauth_access_token
+
 from products.signals.backend.models import ArtefactAttribution
 from products.tasks.backend.facade import api as tasks_api
 
@@ -28,6 +30,8 @@ TASK_ID_HEADER = "X-PostHog-Task-Id"
 MCP_CLIENT_NAME_HEADER = "X-Posthog-Mcp-Client-Name"
 MCP_CLIENT_HEADER = "X-PostHog-Client"
 MAX_AGENT_NAME_LENGTH = 200
+# Pipeline research/implementation tasks and scouts. A task a person starts is not automatic.
+AUTOMATIC_TASK_ORIGINS = frozenset({"signal_report", "signals_scout"})
 
 
 def resolve_task_id_from_header(request: Request, team_id: int) -> str | None:
@@ -69,3 +73,17 @@ def resolve_external_agent_name(request: Request) -> str | None:
         raw = "mcp"
     value = raw.strip() if raw else ""
     return value[:MAX_AGENT_NAME_LENGTH] or None
+
+
+def is_automatic_signal_agent(request: Request, attribution: ArtefactAttribution, team_id: int) -> bool:
+    """Whether a pipeline or scout task makes this request.
+
+    The header is not an authorization boundary, so the task must also be the one the OAuth token is bound to.
+    """
+    if attribution.task_id is None:
+        return False
+    bound_task_id = getattr(get_oauth_access_token(request), "sandbox_task_id", None)
+    if bound_task_id is None or str(bound_task_id) != attribution.task_id:
+        return False
+    tasks = tasks_api.get_tasks_by_ids([attribution.task_id], [team_id])
+    return bool(tasks) and tasks[0].origin_product in AUTOMATIC_TASK_ORIGINS

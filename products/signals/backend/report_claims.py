@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from django.db.models import Exists, OuterRef, Q, QuerySet, Subquery
@@ -169,3 +170,25 @@ def actor_works_under_claim(claim: ReportClaim, actor: ArtefactAttribution) -> b
     return actor_owns_claim(claim, actor) or (
         actor.task_id is not None and is_user_claim_of_task_creator(claim, actor.task_id)
     )
+
+
+CloseDenial = Literal["unclaimed", "held_by_other"]
+
+
+def close_denial(claim: ReportClaim | None, actor: ArtefactAttribution) -> CloseDenial | None:
+    """Why the actor may not dismiss or resolve a claimable report, or None when it may.
+
+    Automatic signal agents are exempt, so the caller skips this check for them.
+    """
+    if claim is None:
+        return "unclaimed"
+    if actor_works_under_claim(claim, actor):
+        return None
+    # A person and their external agents count as one owner, whichever of them claimed.
+    if (
+        actor.kind in {"user", "agent"}
+        and claim.actor_kind in {"user", "agent"}
+        and claim.actor_user_id == actor.user_id
+    ):
+        return None
+    return "held_by_other"

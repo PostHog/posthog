@@ -101,6 +101,7 @@ export interface SignalReport extends Pick<SignalReportApi, 'monitoring_started_
     repo_slug?: SignalReportApi['repo_slug']
     pull_requests?: readonly SignalReportPullRequestApi[]
     assignee?: SignalReportAssigneeApi | null
+    viewer_can_close?: SignalReportApi['viewer_can_close']
     id: string
     title: string | null
     summary: string | null

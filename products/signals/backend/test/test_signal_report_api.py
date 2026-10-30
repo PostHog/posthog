@@ -27,6 +27,7 @@ from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubR
 from posthog.egress.limiter.policies import Priority
 from posthog.models import EventDefinition, OAuthApplication, Organization, User
 from posthog.models.integration import GitHubIntegration
+from posthog.models.oauth import OAuthAccessToken
 from posthog.models.team.team import Team
 from posthog.models.user_integration import UserIntegration
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
@@ -75,6 +76,7 @@ from products.signals.backend.models import (
 )
 from products.signals.backend.report_assignments import create_claim
 from products.signals.backend.report_claims import get_active_claim
+from products.signals.backend.report_content_gates import INBOX_CLAIM_TO_CLOSE_FLAG
 from products.signals.backend.report_merge import MERGE_DISMISSAL_REASON
 from products.signals.backend.report_monitoring_attempts import current_monitoring_attempt
 from products.signals.backend.scout_harness.profile.builders import _recent_reviewer_corrections
@@ -6131,3 +6133,137 @@ class TestSignalReportPrCiStatuses(APIBaseTest):
 
         assert first.json() == second.json() == {"statuses": []}
         github.assert_called_once()
+
+
+class TestSignalReportClaimToCloseAPI(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.teammate = User.objects.create_and_join(self.organization, "teammate@example.com", "password")
+        self.report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY, title="A report")
+
+    def _flag(self, enabled: bool = True):
+        return patch(
+            "products.signals.backend.report_content_gates.feature_enabled_or_false",
+            side_effect=lambda flag, *_args, **_kwargs: enabled and flag == INBOX_CLAIM_TO_CLOSE_FLAG,
+        )
+
+    def _state_url(self) -> str:
+        return f"/api/projects/{self.team.id}/signals/reports/{self.report.id}/state/"
+
+    def _bind_task_token(self, origin_product: str) -> str:
+        Task = apps.get_model("tasks", "Task")
+        task = Task.objects.create(team=self.team, title="Agent", description="Agent", origin_product=origin_product)
+        app = OAuthApplication.objects.create(
+            name="Synthetic sandbox",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            organization=self.organization,
+            user=self.user,
+        )
+        token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=app,
+            token="pha_synthetic_sandbox",
+            scope="task:read task:write",
+            expires=timezone.now() + timedelta(hours=1),
+            scoped_teams=[self.team.id],
+            sandbox_task_id=task.id,
+        )
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token.token}")
+        return str(task.id)
+
+    @parameterized.expand(
+        [
+            (f"{target}_{case}", target, case, expected)
+            for target in ("suppressed", "resolved")
+            for case, expected in (
+                ("unclaimed", status.HTTP_409_CONFLICT),
+                ("own_claim", status.HTTP_200_OK),
+                ("teammate_claim", status.HTTP_409_CONFLICT),
+                ("own_agent_claim", status.HTTP_200_OK),
+                ("agent_under_own_claim", status.HTTP_200_OK),
+                ("flag_off", status.HTTP_200_OK),
+                ("closed_report", status.HTTP_200_OK),
+            )
+        ]
+    )
+    def test_dismiss_and_resolve_need_the_claim(self, _name: str, target: str, case: str, expected: int) -> None:
+        headers: dict[str, str] = {}
+        if case in {"own_claim", "agent_under_own_claim"}:
+            create_claim(self.report, ArtefactAttribution.from_user(self.user.id))
+        elif case == "teammate_claim":
+            create_claim(self.report, ArtefactAttribution.from_user(self.teammate.id))
+        elif case == "own_agent_claim":
+            create_claim(self.report, ArtefactAttribution.from_agent(self.user.id, "codex"))
+        elif case == "closed_report":
+            self.report.status = SignalReport.Status.CLOSED
+            self.report.save(update_fields=["status"])
+        if case == "agent_under_own_claim":
+            headers = {"X-PostHog-Client": "mcp", "X-Posthog-Mcp-Client-Name": "codex"}
+
+        with self._flag(enabled=case != "flag_off"):
+            response = self.client.post(self._state_url(), {"state": target}, format="json", headers=headers)
+
+        assert response.status_code == expected, response.json()
+        self.report.refresh_from_db()
+        if expected == status.HTTP_409_CONFLICT:
+            assert "claim" in response.json()["error"].lower()
+            assert self.report.status == SignalReport.Status.READY
+        else:
+            assert self.report.status == target
+
+    @parameterized.expand(
+        [
+            ("scout_task", "signals_scout", True, status.HTTP_200_OK),
+            ("pipeline_task", "signal_report", True, status.HTTP_200_OK),
+            ("user_task", "user_created", True, status.HTTP_409_CONFLICT),
+            ("scout_header_without_token_binding", "signals_scout", False, status.HTTP_409_CONFLICT),
+        ]
+    )
+    def test_only_token_bound_automatic_agents_skip_the_claim(
+        self, _name: str, origin_product: str, bound: bool, expected: int
+    ) -> None:
+        if bound:
+            task_id = self._bind_task_token(origin_product)
+        else:
+            task_id = str(
+                apps.get_model("tasks", "Task")
+                .objects.create(team=self.team, title="Agent", description="Agent", origin_product=origin_product)
+                .id
+            )
+
+        with self._flag():
+            response = self.client.post(
+                self._state_url(), {"state": "suppressed"}, format="json", headers={"X-PostHog-Task-Id": task_id}
+            )
+
+        assert response.status_code == expected, response.json()
+
+    def test_bulk_dismiss_skips_reports_the_caller_has_not_claimed(self) -> None:
+        claimed = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY, title="Mine")
+        create_claim(claimed, ArtefactAttribution.from_user(self.user.id))
+
+        with self._flag():
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/signals/reports/bulk-state/",
+                {"ids": [str(claimed.id), str(self.report.id)], "state": "suppressed"},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert [result["outcome"] for result in response.json()["results"]] == ["transitioned", "skipped"]
+
+    @parameterized.expand([("unclaimed", None, False), ("own_claim", "self", True), ("teammate", "teammate", False)])
+    def test_viewer_can_close_follows_the_claim(self, _name: str, holder: str | None, expected: bool) -> None:
+        if holder is not None:
+            user = self.user if holder == "self" else self.teammate
+            create_claim(self.report, ArtefactAttribution.from_user(user.id))
+
+        with self._flag():
+            response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{self.report.id}/")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["viewer_can_close"] is expected

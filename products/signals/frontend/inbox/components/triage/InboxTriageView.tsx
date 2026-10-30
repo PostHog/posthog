@@ -17,6 +17,7 @@ import { urls } from 'scenes/urls'
 import { captureInboxPanelViewed } from '../../inboxAnalytics'
 import { inboxTriageLogic } from '../../logics/inboxTriageLogic'
 import { SignalReport } from '../../types'
+import { canCloseReport } from '../../utils/reportActions'
 import {
     deriveHeadline,
     displayConventionalCommitTitle,
@@ -201,16 +202,18 @@ export function TriageCard({ report, expanded }: { report: SignalReport; expande
             )}
 
             <div className="flex flex-none flex-wrap items-center gap-2 border-t border-primary px-4 py-2">
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    icon={<IconCheckCircle />}
-                    onClick={resolveCurrent}
-                    sideIcon={<KeyboardShortcut r />}
-                    data-attr="inbox-triage-resolve"
-                >
-                    Resolve
-                </LemonButton>
+                {canCloseReport(report) && (
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        icon={<IconCheckCircle />}
+                        onClick={resolveCurrent}
+                        sideIcon={<KeyboardShortcut r />}
+                        data-attr="inbox-triage-resolve"
+                    >
+                        Resolve
+                    </LemonButton>
+                )}
                 <DismissOrUnassignButton commandKeyHeld={commandKeyHeld} />
                 {canCreatePr && <ImplementButton report={report} surface="triage_mode" />}
                 <div className="flex-1" />
