@@ -595,6 +595,11 @@ def _read_in_parallel(
 
 # A Shopify store subdomain is lowercase alphanumerics and hyphens.
 _SHOPIFY_SUBDOMAIN_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
+# People often paste their store's custom domain here, so the message names that case.
+SHOPIFY_INVALID_STORE_ID_ERROR = (
+    "Your store id must be the subdomain of your myshopify.com address. Enter the 'my-store' "
+    "in 'my-store.myshopify.com', not your store's own domain."
+)
 
 
 def normalize_store_id(raw: str) -> str:
@@ -624,10 +629,7 @@ def normalize_store_id(raw: str) -> str:
     while store_id.endswith(".myshopify.com"):
         store_id = store_id.removesuffix(".myshopify.com")
     if not _SHOPIFY_SUBDOMAIN_RE.match(store_id):
-        raise ValueError(
-            f"Invalid Shopify store id {raw!r}. Enter just your store subdomain — the 'my-store' "
-            "in 'my-store.myshopify.com'."
-        )
+        raise ValueError(SHOPIFY_INVALID_STORE_ID_ERROR)
     return store_id
 
 

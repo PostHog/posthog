@@ -308,9 +308,11 @@ export interface tracingDataLogicActions {
     fetchAggregation: (
         options?: {
             fullRange?: boolean
+            groupByEndpoint?: boolean
         } | null
     ) => {
         fullRange?: boolean
+        groupByEndpoint?: boolean
     } | null
     fetchAggregationFailure: (
         error: string,
@@ -326,6 +328,7 @@ export interface tracingDataLogicActions {
         },
         payload?: {
             fullRange?: boolean
+            groupByEndpoint?: boolean
         } | null
     ) => {
         aggregation: {
@@ -334,6 +337,7 @@ export interface tracingDataLogicActions {
         }
         payload?: {
             fullRange?: boolean
+            groupByEndpoint?: boolean
         } | null
     }
     fetchDurationHistogram: () => any
@@ -1122,11 +1126,12 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                 // `fullRange` (the Operations tab) ignores any active comparison: the aggregate
                 // covers the whole selected range with no compare period, matching the rate
                 // denominator the OperationsTable divides by.
-                fetchAggregation: async (options?: { fullRange?: boolean } | null) => {
+                fetchAggregation: async (options?: { fullRange?: boolean; groupByEndpoint?: boolean } | null) => {
                     const controller = new AbortController()
                     actions.cancelInProgressAggregation(controller)
 
                     const fullRange = options?.fullRange ?? false
+                    const groupByEndpoint = options?.groupByEndpoint || undefined
                     const currentWindow = fullRange ? values.sparklineWindowMs : values.currentWindowMs
                     const compare = !fullRange && values.timeComparison !== null
 
@@ -1167,6 +1172,8 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                             // Only the Operations table renders the Sessions and Users columns, and
                             // the aggregates read attribute maps the rest of the query never touches.
                             includeImpact: fullRange && !!values.featureFlags[FEATURE_FLAGS.TRACING_IMPACT_STRIP],
+                            groupByEndpoint,
+                            includeHealth: groupByEndpoint,
                         },
                         controller.signal
                     )

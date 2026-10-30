@@ -3,6 +3,8 @@ from typing import Any
 import pytest
 from unittest import mock
 
+from parameterized import parameterized
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.plausible.settings import (
     ENDPOINTS,
     PLAUSIBLE_ENDPOINTS,
@@ -12,11 +14,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.plausible.
 _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.plausible.source"
 
 
-def _config(host: str | None = None) -> mock.MagicMock:
+def _config(host: str | None = None, custom_property_keys: str | None = None) -> mock.MagicMock:
     config = mock.MagicMock()
     config.api_key = "key"
     config.site_id = "example.com"
     config.host = host
+    config.custom_property_keys = custom_property_keys
     return config
 
 
@@ -35,6 +38,20 @@ class TestSourceConfig:
     def test_connection_host_fields(self):
         # The API key is sent to `host`, so retargeting it must re-require secrets.
         assert PlausibleSource().connection_host_fields == ["host"]
+
+
+class TestGetSchemas:
+    @parameterized.expand(
+        [
+            ("unset", None, []),
+            ("blank", "  ", []),
+            ("messy", " plan, ,signup_method,plan ", ["custom_property_plan", "custom_property_signup_method"]),
+        ]
+    )
+    def test_lists_one_table_per_custom_property_key(self, _name, raw_keys, expected):
+        schemas = PlausibleSource().get_schemas(_config(custom_property_keys=raw_keys), team_id=1)
+
+        assert [s.name for s in schemas] == [*ENDPOINTS, *expected]
 
 
 class TestValidateCredentials:

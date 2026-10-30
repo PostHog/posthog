@@ -17,7 +17,6 @@ type HomeDashboardAction =
     | 'copy_default'
     | 'create_with_ai'
     | 'continue_with_ai'
-    | 'start_from_template'
     | 'choose_existing'
     | 'edit_dashboard'
     | 'reset_to_default'
@@ -54,9 +53,6 @@ export interface homeDashboardChoiceLogicActions {
         openAI: boolean
         setAsHomeTabDashboard: boolean
     } // newDashboardLogic
-    showNewDashboardModal: () => {
-        value: true
-    } // newDashboardLogic
     closeSceneDashboardChoiceModal: () => boolean // sceneDashboardChoiceModalLogic
     setSceneDashboardChoice: (dashboardId: number | null) => {
         dashboardId: number | null
@@ -77,9 +73,6 @@ export interface homeDashboardChoiceLogicActions {
         dashboardId: number
     }
     openHomeDashboardStarter: () => {
-        value: true
-    }
-    openHomeDashboardTemplates: () => {
         value: true
     }
     restorePostHogHome: () => {
@@ -106,12 +99,7 @@ export const homeDashboardChoiceLogic = kea<homeDashboardChoiceLogicType>([
                 'showStarterOptions',
             ],
             newDashboardLogic,
-            [
-                'addDashboard',
-                'createDashboardFromTemplate',
-                'setAsHomeTabDashboardAfterCreation',
-                'showNewDashboardModal',
-            ],
+            ['addDashboard', 'createDashboardFromTemplate', 'setAsHomeTabDashboardAfterCreation'],
         ],
     })),
     actions({
@@ -119,7 +107,6 @@ export const homeDashboardChoiceLogic = kea<homeDashboardChoiceLogicType>([
         copyPostHogHome: true,
         createHomeDashboardWithAI: true,
         continueHomeDashboardWithAI: (dashboardId: number) => ({ dashboardId }),
-        openHomeDashboardTemplates: true,
         editHomeDashboard: (dashboardId: number) => ({ dashboardId }),
         restorePostHogHome: true,
     }),
@@ -155,12 +142,6 @@ export const homeDashboardChoiceLogic = kea<homeDashboardChoiceLogicType>([
         continueHomeDashboardWithAI: ({ dashboardId }) => {
             captureHomeDashboardAction('continue_with_ai')
             openHomeDashboardAIChat(dashboardId)
-        },
-        openHomeDashboardTemplates: () => {
-            captureHomeDashboardAction('start_from_template')
-            actions.closeSceneDashboardChoiceModal()
-            actions.setAsHomeTabDashboardAfterCreation(true)
-            actions.showNewDashboardModal()
         },
         showDashboardPicker: () => {
             captureHomeDashboardAction('choose_existing')

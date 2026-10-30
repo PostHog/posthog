@@ -507,6 +507,35 @@ class TestTask(TestCase):
         state = TaskRun.objects.get(id=mock_execute_workflow.call_args.kwargs["run_id"]).state
         self.assertEqual(state["repositories"], ["posthog/posthog", "posthog/posthog-js"])
 
+    @parameterized.expand(
+        [
+            ("granted", ["PostHog/pr-assets", "posthog/posthog"], ["posthog/posthog", "posthog/pr-assets"]),
+            ("nothing_granted", [], None),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_and_run_keeps_github_access_apart_from_the_clone_list(
+        self, _name: str, granted: list[str], expected_access: list[str] | None, mock_execute_workflow
+    ):
+        user = User.objects.create(email="test@test.com")
+        Integration.objects.create(team=self.team, kind="github", config={})
+
+        with self.captureOnCommitCallbacks(execute=True):
+            task = Task.create_and_run(
+                team=self.team,
+                title="Implementation",
+                description="Test Description",
+                origin_product=Task.OriginProduct.SIGNAL_REPORT,
+                user_id=user.id,
+                repository="posthog/posthog",
+                github_access_repositories=granted,
+            )
+
+        self.assertEqual(task.repositories, ["posthog/posthog"])
+        state = TaskRun.objects.get(id=mock_execute_workflow.call_args.kwargs["run_id"]).state
+        self.assertEqual(state["repositories"], ["posthog/posthog"])
+        self.assertEqual(state.get("github_access_repositories"), expected_access)
+
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_and_run_threads_github_read_access_into_state(self, mock_execute_workflow):
         from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import (  # noqa: PLC0415 — activities import the workflow stack; keep it off this module's import path

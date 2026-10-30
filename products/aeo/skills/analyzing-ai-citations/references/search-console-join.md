@@ -4,6 +4,15 @@ Search Console data reaches PostHog through a `GoogleSearchConsole` data warehou
 Once synced, its tables are plain HogQL tables and join to `system.aeo_citation_checks` and
 to `sessions` like any other.
 
+## Contents
+
+- [Find the tables](#find-the-tables)
+- [Tables and columns](#tables-and-columns)
+- [Recipe: how do our cited pages rank on Google?](#recipe-how-do-our-cited-pages-rank-on-google)
+- [Recipe: do engine searches match the queries we rank for?](#recipe-do-engine-searches-match-the-queries-we-rank-for)
+- [Recipe: topic scorecard](#recipe-topic-scorecard)
+- [What this join cannot tell you](#what-this-join-cannot-tell-you)
+
 ## Find the tables
 
 1. `posthog:external-data-sources-list` and keep sources with `source_type` equal to

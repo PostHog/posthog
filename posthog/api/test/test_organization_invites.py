@@ -590,13 +590,17 @@ class TestOrganizationInvitesAPI(APIBaseTest):
 
         self.assertEqual(OrganizationInvite.objects.count(), count)
 
-    def test_invite_creation_disallowed_with_plus_addressed_email(self):
+    @parameterized.expand(
+        [
+            ("plus_addressed", "newperson+alias@posthog.com", "plus_addressing_not_allowed"),
+            ("zero_width_space", "newperson@posthog\u200b.com", "lookalike_characters_not_allowed"),
+        ]
+    )
+    def test_invite_creation_disallowed_with_unsupported_email(self, _name, target_email, code):
         count = OrganizationInvite.objects.count()
-        response = self.client.post(
-            "/api/organizations/@current/invites/", {"target_email": "newperson+alias@posthog.com"}
-        )
+        response = self.client.post("/api/organizations/@current/invites/", {"target_email": target_email})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["code"], "plus_addressing_not_allowed")
+        self.assertEqual(response.json()["code"], code)
         self.assertEqual(OrganizationInvite.objects.count(), count)
 
     @parameterized.expand(

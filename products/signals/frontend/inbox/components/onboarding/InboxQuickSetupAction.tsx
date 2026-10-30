@@ -15,7 +15,7 @@ import { inboxSetupLogic } from '../../logics/inboxSetupLogic'
 import { useScoutCreateDisabledReason } from '../config/scouts/ScoutCreateModalHost'
 
 export function InboxQuickSetupAction(): JSX.Element {
-    const { startSetup, connectGithub, activateQuickSetup, resumeQuickSetup, retry } = useActions(inboxSetupLogic)
+    const { connectGithub, activateQuickSetup, resumeQuickSetup, retry } = useActions(inboxSetupLogic)
     const {
         hasGithubIntegration,
         isGithubOptionalSetup,
@@ -23,7 +23,6 @@ export function InboxQuickSetupAction(): JSX.Element {
         saving,
         error,
         shouldResumeQuickSetup,
-        failedOperation,
     } = useValues(inboxSetupLogic)
     const { integrations, integrationsLoading } = useValues(integrationsLogic)
     const scoutDisabledReason = useScoutCreateDisabledReason()
@@ -70,17 +69,11 @@ export function InboxQuickSetupAction(): JSX.Element {
                 />
             )}
             {error && (
-                <LemonBanner type="error">
-                    {error}
+                <LemonBanner type="error" className="w-full">
+                    <span>{error}</span>
                     <LemonButton
                         size="small"
-                        onClick={
-                            failedOperation === 'scouts' || failedOperation === 'sources'
-                                ? retry
-                                : hasGithubIntegration
-                                  ? () => activateQuickSetup('retry')
-                                  : startSetup
-                        }
+                        onClick={retry}
                         loading={busy}
                         disabledReason={restrictionReason || scoutDisabledReason}
                     >
