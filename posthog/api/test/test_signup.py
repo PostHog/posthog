@@ -1235,6 +1235,35 @@ class TestSignupAPI(APIBaseTest):
     @mock.patch("social_core.backends.base.BaseAuth.request")
     @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
     @pytest.mark.ee
+    def test_jit_skips_auto_join_for_existing_user_when_org_is_pending_deletion(self, mock_sso_providers, mock_request):
+        with self.is_cloud(True):
+            email = "bob@posthog.net"
+            existing_user = User.objects.create_and_join(Organization.objects.create(name="Healthy org"), email, None)
+            doomed_org = self._setup_jit_domain_for_email(email)
+            Organization.objects.filter(id=doomed_org.id).update(is_pending_deletion=True)
+
+            response = self._complete_sso_for_email(mock_request, mock_sso_providers, email)
+
+            self.assertRedirects(response, "/")
+            self.assertFalse(existing_user.organizations.filter(id=doomed_org.id).exists())
+
+    @mock.patch("social_core.backends.base.BaseAuth.request")
+    @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
+    @pytest.mark.ee
+    def test_jit_refuses_new_user_when_org_is_pending_deletion(self, mock_sso_providers, mock_request):
+        with self.is_cloud(True):
+            email = "alice@posthog.net"
+            doomed_org = self._setup_jit_domain_for_email(email)
+            Organization.objects.filter(id=doomed_org.id).update(is_pending_deletion=True)
+
+            response = self._complete_sso_for_email(mock_request, mock_sso_providers, email)
+
+            self.assertIn("error_code=social_login_failure", response.redirect_chain[-1][0])
+            self.assertFalse(User.objects.filter(email=email).exists())
+
+    @mock.patch("social_core.backends.base.BaseAuth.request")
+    @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
+    @pytest.mark.ee
     def test_sso_merge_into_unverified_passkey_account_clears_passkey(self, mock_sso_providers, mock_request):
         # An attacker pre-registered the email with a passkey-only signup. SSO must wipe
         # the dangling passkey before merging the SSO identity into the existing row.
