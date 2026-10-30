@@ -29,9 +29,6 @@ jest.mock('@posthog/lemon-ui', () => ({
 jest.mock('lib/hooks/useFeatureFlag', () => ({ useFeatureFlag: () => false }))
 jest.mock('scenes/teamLogic', () => ({ teamLogic: {} }))
 jest.mock('~/queries/nodes/DataNode/dataNodeLogic', () => ({ dataNodeLogic: () => ({}) }))
-jest.mock('~/scenes/marketing-analytics/MarketingAnalyticsFreshness', () => ({
-    MarketingAnalyticsFreshness: () => null,
-}))
 jest.mock('~/scenes/web-analytics/tiles/WebAnalyticsTile', () => ({ webAnalyticsDataTableQueryContext: {} }))
 jest.mock('../../logic/marketingAnalyticsLogic', () => ({ marketingAnalyticsLogic: {} }))
 jest.mock('../../logic/marketingAnalyticsSettingsLogic', () => ({ marketingAnalyticsSettingsLogic: {} }))

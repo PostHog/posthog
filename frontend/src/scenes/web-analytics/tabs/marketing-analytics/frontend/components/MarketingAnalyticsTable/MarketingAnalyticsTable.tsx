@@ -23,7 +23,6 @@ import {
     MarketingAnalyticsTableQuery,
 } from '~/queries/schema/schema-general'
 import { QueryContext, QueryContextColumn } from '~/queries/types'
-import { MarketingAnalyticsFreshness } from '~/scenes/marketing-analytics/MarketingAnalyticsFreshness'
 import { MarketingAnalyticsNotReady } from '~/scenes/marketing-analytics/MarketingAnalyticsNotReady'
 import { useMarketingAnalyticsPrecompute } from '~/scenes/marketing-analytics/useMarketingAnalyticsPrecompute'
 import { webAnalyticsDataTableQueryContext } from '~/scenes/web-analytics/tiles/WebAnalyticsTile'
@@ -85,10 +84,7 @@ export const MarketingAnalyticsTable = ({
         () => conversionRecordingsTableQuery(query, !!hasConversionRecordings && !isSharedView()),
         [query, hasConversionRecordings]
     )
-    const { notReady: precomputeNotReady, computedAt } = useMarketingAnalyticsPrecompute(
-        tableQuery.source,
-        insightProps
-    )
+    const { notReady: precomputeNotReady } = useMarketingAnalyticsPrecompute(tableQuery.source, insightProps)
 
     const validationWarnings = useMemo(() => validateConversionGoals(conversion_goals), [conversion_goals])
 
@@ -230,12 +226,9 @@ export const MarketingAnalyticsTable = ({
                             <IconInfo className="text-xl text-secondary" />
                         </Tooltip>
                     </div>
-                    <div className="flex items-center gap-2">
-                        <MarketingAnalyticsFreshness computedAt={computedAt} />
-                        <LemonButton type="secondary" icon={<IconGear />} onClick={showColumnConfigModal}>
-                            Configure columns
-                        </LemonButton>
-                    </div>
+                    <LemonButton type="secondary" icon={<IconGear />} onClick={showColumnConfigModal}>
+                        Configure columns
+                    </LemonButton>
                 </div>
             </div>
             {validationWarnings && validationWarnings.length > 0 && (
