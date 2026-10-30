@@ -10,7 +10,8 @@ class ExternalDataSourceInputsBackup(TeamScopedRootMixin, UUIDModel):
     connection fields. The restore command reads it when the credentials row is lost. The prune command
     deletes it after the backup window.
 
-    One backup per source, and a later strip never replaces it, so it always holds the first pre-strip value.
+    One backup per source. A strip after a restore replaces it, so it holds the value of the last strip, and
+    the backup window counts from that strip.
     No API, serializer or admin page shows this model.
     """
 

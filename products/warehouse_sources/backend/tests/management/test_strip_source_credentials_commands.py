@@ -2,7 +2,7 @@ from collections import Counter
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from io import StringIO
-from typing import Any
+from typing import Any, cast
 
 import pytest
 import time_machine
@@ -13,6 +13,7 @@ from django.core.management.base import CommandError
 
 from parameterized import parameterized
 
+from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.integration import ANY, Integration
 
 from products.warehouse_sources.backend.facade.contracts import (
@@ -151,18 +152,47 @@ class TestStripWarehouseSourceConnectionFields(_StripTestCase):
         assert "skipped_no_row_needed=1" in output
         assert self._stored(source) == inputs
 
-    def test_rerun_keeps_the_first_backup(self) -> None:
+    def test_a_strip_after_a_restore_replaces_the_backup(self) -> None:
         source = self._backfilled_source()
-        self._run("strip_warehouse_source_connection_fields", "--execute")
+        first_strip = datetime(2026, 1, 1, tzinfo=UTC)
+        with time_machine.travel(first_strip, tick=False):
+            self._run("strip_warehouse_source_connection_fields", "--execute")
         assert "already_stripped=1" in self._run("strip_warehouse_source_connection_fields", "--execute")
+        assert [backup.created_at for backup in self._backups()] == [first_strip]
 
         self._run("restore_warehouse_source_connection_fields", "--execute", "--source-id", str(source.id))
         reloaded = ExternalDataSource.objects.get(pk=source.pk)
-        SourceInputsStore.save(reloaded, {**SourceInputsStore.load(reloaded), "schema": "analytics"})
-        assert "stripped=1" in self._run("strip_warehouse_source_connection_fields", "--execute")
+        SourceInputsStore.save(reloaded, {**SourceInputsStore.load(reloaded), "password": "fake-rotated"})
+        second_strip = first_strip + timedelta(days=24)
+        with time_machine.travel(second_strip, tick=False):
+            assert "stripped=1" in self._run("strip_warehouse_source_connection_fields", "--execute")
 
-        assert [backup.inputs for backup in self._backups()] == [self._inputs(source)]
-        assert self._stored(source)["schema"] == "analytics"
+        [backup] = self._backups()
+        assert backup.inputs == {**self._inputs(source), "password": "fake-rotated"}
+        assert backup.created_at == second_strip
+
+    def test_a_leaf_with_an_extra_encryption_layer_still_strips(self) -> None:
+        field = cast(EncryptedJSONField, Integration._meta.get_field("sensitive_config"))
+        source = self._backfilled_source()
+        ExternalDataSource.objects.filter(pk=source.pk).update(
+            job_inputs={**self._inputs(source), "password": field.encrypt(POSTGRES_INPUTS["password"])}
+        )
+
+        output = self._run("strip_warehouse_source_connection_fields", "--execute")
+
+        assert "stripped=1" in output
+        assert set(self._stored(source)) == {*POSTGRES_SETTINGS, REF, CONNECTION_FIELDS_STRIPPED_KEY}
+
+    @patch("products.warehouse_sources.backend.models.external_data_source.capture_exception", create=True)
+    def test_soft_delete_of_a_stripped_source_whose_row_is_gone_records_no_error(self, capture: Any) -> None:
+        source = self._backfilled_source()
+        self._run("strip_warehouse_source_connection_fields", "--execute")
+        self._delete_row(source)
+
+        ExternalDataSource.objects.get(pk=source.pk).soft_delete()
+
+        assert ExternalDataSource.objects.get(pk=source.pk).deleted is True
+        capture.assert_not_called()
 
     def test_backfill_never_overwrites_the_row_of_a_stripped_source(self) -> None:
         source = self._backfilled_source()

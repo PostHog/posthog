@@ -183,7 +183,7 @@ def _process_batch(batch: Iterable[ExternalDataSource], execute: bool, counts: B
             if is_stripped(inputs):
                 stripped.append((source, inputs.get(CREDENTIALS_REFERENCE_KEY)))
                 continue
-            fields = _stored_connection_fields(source, inputs)
+            fields = stored_connection_fields(source, inputs)
         except UnreadableSourceInputsError:
             counts[(source_type, SKIPPED_UNREADABLE)] += 1
             continue
@@ -219,7 +219,7 @@ def _process_batch(batch: Iterable[ExternalDataSource], execute: bool, counts: B
         counts[(str(source.source_type), outcome)] += 1
 
 
-def _stored_connection_fields(source: ExternalDataSource, inputs: Mapping[str, Any]) -> dict[str, Any]:
+def stored_connection_fields(source: ExternalDataSource, inputs: Mapping[str, Any]) -> dict[str, Any]:
     """The connection fields of the stored `job_inputs`. A leaf that no key can decrypt raises
     `UnreadableSourceInputsError`, so its ciphertext never goes to a row."""
     fields = split_connection_fields(str(source.source_type), inputs)
@@ -251,7 +251,7 @@ def _sync_source(source: ExternalDataSource) -> str:
         if is_stripped(inputs):
             # Stripped after the batch read. The row is the only copy, so `job_inputs` must never overwrite it.
             return SKIPPED_STRIPPED
-        fields = _stored_connection_fields(fresh, inputs)
+        fields = stored_connection_fields(fresh, inputs)
         if not fields:
             return SKIPPED_NO_ROW
         ref = inputs.get(CREDENTIALS_REFERENCE_KEY)

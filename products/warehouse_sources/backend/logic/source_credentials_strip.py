@@ -34,7 +34,7 @@ from products.warehouse_sources.backend.logic.source_credentials_rollout import 
     split_connection_fields,
     stripped_at_now,
 )
-from products.warehouse_sources.backend.logic.source_credentials_sync import next_source_batch
+from products.warehouse_sources.backend.logic.source_credentials_sync import next_source_batch, stored_connection_fields
 from products.warehouse_sources.backend.logic.source_inputs import SourceInputsStore
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.source_inputs_backup import ExternalDataSourceInputsBackup
@@ -171,9 +171,16 @@ def _strip_one(source: ExternalDataSource, execute: bool) -> str:
             outcome, stored_inputs = _check(locked)
             if outcome != STRIPPED or stored_inputs is None:
                 return outcome
-            ExternalDataSourceInputsBackup.objects.for_team(locked.team_id).get_or_create(
+            # A strip after a restore replaces the backup: an older backup can hold rotated-out credentials,
+            # and the backup window counts from the last strip.
+            ExternalDataSourceInputsBackup.objects.for_team(locked.team_id).update_or_create(
                 source_id=locked.id,
-                defaults={"team_id": locked.team_id, "source_type": str(locked.source_type), "inputs": stored_inputs},
+                defaults={
+                    "team_id": locked.team_id,
+                    "source_type": str(locked.source_type),
+                    "inputs": stored_inputs,
+                    "created_at": timezone.now(),
+                },
             )
             SourceInputsStore.write_stripped(locked, stripped_at=stripped_at_now())
     except Exception:
@@ -191,7 +198,10 @@ def _check(source: ExternalDataSource) -> tuple[str, dict[str, Any] | None]:
     if is_stripped(stored_inputs):
         return ALREADY_STRIPPED, None
     try:
-        expected = split_connection_fields(str(source.source_type), stored_inputs)
+        # Decrypted as the backfill wrote them, so a leaf with extra encryption layers still compares equal.
+        expected = stored_connection_fields(source, stored_inputs)
+    except UnreadableSourceInputsError:
+        return SKIPPED_UNREADABLE_INPUTS, None
     except ValueError:
         return SKIPPED_UNKNOWN_TYPE, None
     if not expected or not has_typed_in_credentials(str(source.source_type)):
