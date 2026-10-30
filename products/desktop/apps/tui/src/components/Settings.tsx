@@ -7,6 +7,8 @@ import { settingsItems } from "../settings";
 const LABELS = {
   login: "Log in to ChatGPT",
   logout: "Log out of ChatGPT",
+  connectCloud: "Connect ChatGPT for cloud runs",
+  disconnectCloud: "Disconnect ChatGPT from cloud runs",
   token: "Claude token",
   removeToken: "Remove token",
   context: "Show context in composer",
@@ -21,6 +23,10 @@ export function Settings({
   const values = {
     login: view.busy ? "Finish logging in in your browser…" : "",
     logout: view.account ? `Logged in as ${view.account}` : "",
+    connectCloud: view.busy ? "Finish logging in in your browser…" : "",
+    disconnectCloud: view.cloudAccount
+      ? `Connected as ${view.cloudAccount}`
+      : "",
     token: view.hasToken ? "Saved" : "Not set",
     removeToken: "",
     context: view.showContext ? "On" : "Off",
@@ -37,8 +43,9 @@ export function Settings({
         <Text dimColor> · change with /billing</Text>
       </Text>
       <Text dimColor wrap="wrap">
-        On your ChatGPT plan, chats here run pi on GPT and cloud chats run Codex
-        on the account connected in Desktop. On your Claude plan, cloud chats
+        On your ChatGPT plan, chats here run pi on GPT with the login above, and
+        cloud chats run Codex on the account connected below (a second login,
+        since PostHog keeps its own tokens). On your Claude plan, cloud chats
         run Claude Code with the token below; keep the TUI open while one
         starts.
       </Text>

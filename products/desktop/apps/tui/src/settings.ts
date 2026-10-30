@@ -9,6 +9,8 @@ export interface SettingsView {
   billing: Billing;
   // Who is logged in to ChatGPT; null when nobody is.
   account: string | null;
+  // The ChatGPT account PostHog holds for cloud Codex runs; null when none is connected.
+  cloudAccount: string | null;
   hasToken: boolean;
   // The context donut on the composer's rule.
   showContext: boolean;
@@ -25,6 +27,8 @@ export interface SettingsView {
 export type SettingsItem =
   | "login"
   | "logout"
+  | "connectCloud"
+  | "disconnectCloud"
   | "token"
   | "removeToken"
   | "context";
@@ -34,6 +38,8 @@ export type SettingsEffect =
   | { kind: "answer"; text: string }
   | { kind: "cancel" }
   | { kind: "logout" }
+  | { kind: "connectCloud" }
+  | { kind: "disconnectCloud" }
   | { kind: "saveToken"; token: string }
   | { kind: "clearToken" }
   | { kind: "showContext"; on: boolean }
@@ -45,12 +51,14 @@ export const TOKEN_HINT =
 export function settingsView(saved: {
   billing: Billing;
   account: string | null;
+  cloudAccount?: string | null;
   hasToken?: boolean;
   showContext?: boolean;
 }): SettingsView {
   return {
     billing: saved.billing,
     account: saved.account,
+    cloudAccount: saved.cloudAccount ?? null,
     hasToken: saved.hasToken ?? false,
     showContext: saved.showContext ?? false,
     index: 0,
@@ -64,6 +72,7 @@ export function settingsView(saved: {
 export function settingsItems(view: SettingsView): SettingsItem[] {
   return [
     view.account ? "logout" : "login",
+    view.cloudAccount ? "disconnectCloud" : "connectCloud",
     "token",
     ...(view.hasToken ? ["removeToken" as const] : []),
     "context",
@@ -121,6 +130,18 @@ export function settingsKey(
         view: { ...view, account: null },
         effect: { kind: "logout" },
       };
+    if (item === "disconnectCloud")
+      return {
+        view: { ...view, cloudAccount: null },
+        effect: { kind: "disconnectCloud" },
+      };
+    if (item === "connectCloud") {
+      if (view.busy) return { view };
+      return {
+        view: { ...view, busy: true, error: null },
+        effect: { kind: "connectCloud" },
+      };
+    }
     if (item === "token") return { view: { ...view, draft: "" } };
     if (item === "removeToken")
       return {

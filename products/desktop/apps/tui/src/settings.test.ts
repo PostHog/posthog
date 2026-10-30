@@ -59,7 +59,7 @@ describe("settingsKey", () => {
   });
 
   it("removes the saved Claude token from its own row", () => {
-    const onRemove = [DOWN, DOWN].reduce(
+    const onRemove = [DOWN, DOWN, DOWN].reduce(
       (current, key) => settingsKey(current, key).view,
       view({ hasToken: true }),
     );
@@ -69,7 +69,7 @@ describe("settingsKey", () => {
   });
 
   it("turns the composer's context donut on and off from its own row", () => {
-    const onContext = [DOWN, DOWN].reduce(
+    const onContext = [DOWN, DOWN, DOWN].reduce(
       (current, key) => settingsKey(current, key).view,
       view(),
     );
@@ -79,5 +79,23 @@ describe("settingsKey", () => {
       kind: "showContext",
       on: false,
     });
+  });
+
+  it("connects ChatGPT for cloud runs from its own row, and disconnects once connected", () => {
+    const onCloud = [DOWN].reduce(
+      (current, key) => settingsKey(current, key).view,
+      view({ account: "me@example.com" }),
+    );
+    const connecting = settingsKey(onCloud, ENTER);
+    expect(connecting.effect).toEqual({ kind: "connectCloud" });
+    expect(connecting.view.busy).toBe(true);
+    expect(settingsKey(connecting.view, ENTER).effect).toBeUndefined();
+
+    const connected = settingsKey(
+      { ...onCloud, cloudAccount: "me@example.com" },
+      ENTER,
+    );
+    expect(connected.effect).toEqual({ kind: "disconnectCloud" });
+    expect(connected.view.cloudAccount).toBeNull();
   });
 });

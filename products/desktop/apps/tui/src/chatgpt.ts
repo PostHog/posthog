@@ -69,12 +69,13 @@ export interface ChatgptLoginUi {
   prompt(message: string, signal?: AbortSignal): Promise<string>;
 }
 
-// Runs pi's browser login for ChatGPT and saves the result where the harness reads it.
+// Runs pi's browser login for ChatGPT and saves the result where the harness reads it, or in `path`.
 export async function chatgptLogin(
   ui: ChatgptLoginUi,
   signal: AbortSignal,
+  path: string = authPath(),
 ): Promise<string | null> {
-  const runtime = await ModelRuntime.create({ authPath: authPath() });
+  const runtime = await ModelRuntime.create({ authPath: path });
   await runtime.login(CHATGPT_PROVIDER, "oauth", {
     signal,
     prompt: (prompt: AuthPrompt) =>
@@ -85,7 +86,7 @@ export async function chatgptLogin(
       if (event.type === "auth_url") ui.openUrl(event.url);
     },
   });
-  return chatgptAccount();
+  return chatgptAccount(path);
 }
 
 export async function chatgptLogout(): Promise<void> {
