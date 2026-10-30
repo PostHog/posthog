@@ -1061,6 +1061,10 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                         "startup_requested_at": startup_requested_at.isoformat(),
                         "startup_run_created_at": task_run.created_at.isoformat(),
                         "startup_scheduled_at": scheduled_at.isoformat() if scheduled_at else None,
+                        # NULL when the caller pinned nothing and the run takes the Tasks default.
+                        "model": state.get("model"),
+                        "runtime_adapter": state.get("runtime_adapter"),
+                        "reasoning_effort": state.get("reasoning_effort"),
                     },
                 )
 
@@ -1273,6 +1277,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         wizard_head_branch: str | None = None,
         self_driving_head_branch: str | None = None,
         stack_base_branch: str | None = None,
+        github_access_repositories: list[str] | None = None,
         pending_user_message: str | None = None,
         custom_image_builder_id: str | None = None,
         custom_image_id: str | None = None,
@@ -1539,6 +1544,13 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         if stack_base_branch:
             extra_state["stack_base_branch"] = stack_base_branch
 
+        # Repositories the run's GitHub token covers, kept apart from `repositories` because that
+        # list also decides what provisioning clones. Credential minting, refresh, and resume read it.
+        if github_access_repositories and resolved_repositories:
+            extra_state["github_access_repositories"] = list(
+                dict.fromkeys([*resolved_repositories, *(name.lower() for name in github_access_repositories)])
+            )
+
         # The first message handed to the agent once its server is ready (forward_pending_user_message
         # reads it from run state). Without it a background run boots the agent idle — it never gets a
         # prompt and just sits there while relay_sandbox_events waits for events that never come.
@@ -1689,6 +1701,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         wizard_head_branch: str | None = None,
         self_driving_head_branch: str | None = None,
         stack_base_branch: str | None = None,
+        github_access_repositories: list[str] | None = None,
         pending_user_message: str | None = None,
         workflow_id_prefix: str | None = None,
         scheduled_at: datetime | None = None,
@@ -1802,6 +1815,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             wizard_head_branch=wizard_head_branch,
             self_driving_head_branch=self_driving_head_branch,
             stack_base_branch=stack_base_branch,
+            github_access_repositories=github_access_repositories,
             pending_user_message=pending_user_message,
             custom_image_builder_id=custom_image_builder_id,
             custom_image_id=custom_image_id,
@@ -3175,6 +3189,11 @@ class TaskRun(models.Model):
             "repositories": (self.state or {}).get("repositories")
             or self.task.repositories
             or ([self.task.repository] if self.task.repository else []),
+            # Repositories the run's token covers beyond what it clones, to measure that grant's adoption.
+            "github_extra_access_repository_count": len(
+                set((self.state or {}).get("github_access_repositories") or [])
+                - set((self.state or {}).get("repositories") or [])
+            ),
             "origin_product": self.task.origin_product,
             "title": self.task.title,
             "signal_report_id": str(self.task.signal_report_id) if self.task.signal_report_id else None,

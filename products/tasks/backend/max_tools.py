@@ -405,7 +405,7 @@ Use this tool when the user wants to:
         def query_tasks():
             qs = (
                 Task.objects.filter(team=self._team, deleted=False, internal=False)
-                .filter(task_visibility_q(self._user.id))
+                .filter(task_visibility_q(self._user.id, self._team.id))
                 .order_by("-created_at")
             )
 

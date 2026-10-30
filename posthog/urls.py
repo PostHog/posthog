@@ -34,6 +34,7 @@ from posthog.api.web_experiment import web_experiments
 from posthog.ee_urls import ee_urlpatterns
 from posthog.frontend_views import app_context, home, home_with_region_redirect
 from posthog.ingress.github.provider import build_github_provider
+from posthog.ingress.linear.provider import build_linear_provider
 from posthog.ingress.views import build_webhook_view
 from posthog.oauth2_urls import urlpatterns as oauth2_urls
 from posthog.product_urls import ProductRootRoutes
@@ -359,6 +360,8 @@ urlpatterns = [
     # It stays in core because the App is shared: no single product owns its registration.
     opt_slash_path("webhooks/github/pr", github_app_webhook),
     opt_slash_path("webhooks/github", github_app_webhook),
+    # Linear App webhook. It stays in core for the same reason: the Linear integration is shared.
+    opt_slash_path("webhooks/linear", build_webhook_view(build_linear_provider("posthog"))),
     # Message preferences
     path("messaging-preferences/<str:token>/", preferences_page, name="message_preferences"),
     opt_slash_path("messaging-preferences/update", update_preferences, name="message_preferences_update"),

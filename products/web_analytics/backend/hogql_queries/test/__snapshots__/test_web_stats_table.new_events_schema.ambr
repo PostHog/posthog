@@ -6890,7 +6890,7 @@
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
-            divide(minus(0, accurateCastOrNull(events.properties.`$timezone_offset`, 'Float64')), 60) AS breakdown_value,
+            divide(minus(0, accurateCastOrNull(if(notEquals(toJSONString(events.properties.^`$timezone_offset`), '{}'), toJSONString(events.properties.^`$timezone_offset`), if(isNull(events.properties.`$timezone_offset`), NULL, if(and(in(ascii(toString(events.properties.`$timezone_offset`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$timezone_offset`)), tuple(91, 123))), toJSONString(events.properties.`$timezone_offset`), toString(events.properties.`$timezone_offset`)))), 'Float64')), 60) AS breakdown_value,
             if(ifNull(equals(bitAnd(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 76), 15), 7), 0), events.properties.`$session_id`, NULL) AS session_id,
             any(if(ifNull(equals(bitAnd(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 80), 'Int64'), 1000)), NULL)) AS start_timestamp
      FROM events_json AS events
@@ -6934,7 +6934,7 @@
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
-            divide(minus(0, accurateCastOrNull(events.properties.`$timezone_offset`, 'Float64')), 60) AS breakdown_value,
+            divide(minus(0, accurateCastOrNull(if(notEquals(toJSONString(events.properties.^`$timezone_offset`), '{}'), toJSONString(events.properties.^`$timezone_offset`), if(isNull(events.properties.`$timezone_offset`), NULL, if(and(in(ascii(toString(events.properties.`$timezone_offset`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$timezone_offset`)), tuple(91, 123))), toJSONString(events.properties.`$timezone_offset`), toString(events.properties.`$timezone_offset`)))), 'Float64')), 60) AS breakdown_value,
             if(ifNull(equals(bitAnd(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 76), 15), 7), 0), events.properties.`$session_id`, NULL) AS session_id,
             any(if(ifNull(equals(bitAnd(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 80), 'Int64'), 1000)), NULL)) AS start_timestamp
      FROM events_json AS events
@@ -6978,7 +6978,7 @@
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
-            divide(minus(0, accurateCastOrNull(events.properties.`$timezone_offset`, 'Float64')), 60) AS breakdown_value,
+            divide(minus(0, accurateCastOrNull(if(notEquals(toJSONString(events.properties.^`$timezone_offset`), '{}'), toJSONString(events.properties.^`$timezone_offset`), if(isNull(events.properties.`$timezone_offset`), NULL, if(and(in(ascii(toString(events.properties.`$timezone_offset`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$timezone_offset`)), tuple(91, 123))), toJSONString(events.properties.`$timezone_offset`), toString(events.properties.`$timezone_offset`)))), 'Float64')), 60) AS breakdown_value,
             if(ifNull(equals(bitAnd(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 76), 15), 7), 0), events.properties.`$session_id`, NULL) AS session_id,
             any(if(ifNull(equals(bitAnd(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 80), 'Int64'), 1000)), NULL)) AS start_timestamp
      FROM events_json AS events
@@ -7022,7 +7022,7 @@
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
-            divide(minus(0, accurateCastOrNull(events.properties.`$timezone_offset`, 'Float64')), 60) AS breakdown_value,
+            divide(minus(0, accurateCastOrNull(if(notEquals(toJSONString(events.properties.^`$timezone_offset`), '{}'), toJSONString(events.properties.^`$timezone_offset`), if(isNull(events.properties.`$timezone_offset`), NULL, if(and(in(ascii(toString(events.properties.`$timezone_offset`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$timezone_offset`)), tuple(91, 123))), toJSONString(events.properties.`$timezone_offset`), toString(events.properties.`$timezone_offset`)))), 'Float64')), 60) AS breakdown_value,
             if(ifNull(equals(bitAnd(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 76), 15), 7), 0), events.properties.`$session_id`, NULL) AS session_id,
             any(if(ifNull(equals(bitAnd(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 80), 'Int64'), 1000)), NULL)) AS start_timestamp
      FROM events_json AS events

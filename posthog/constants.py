@@ -11,6 +11,8 @@ POSTHOG_INTERNAL_EMAIL_SUFFIX = "@posthog.com"
 # it as LLM analytics. nodejs `AI_EVENT_NAME_PREFIX` and Rust `AI_LANE_NAME_PREFIX` pin the same literal.
 AI_EVENT_NAME_PREFIX = "$ai_"
 
+MCP_EVENT_NAME_PREFIX = "$mcp_"
+
 
 # N.B. Keep this in sync with frontend enum (types.ts)
 # AND ensure it is added to the Billing Service
@@ -301,7 +303,12 @@ LOGIN_METHODS = [
     {
         "key": "google-oauth2",
         "display": "Google OAuth",
-        "backends": ["google-oauth2", "ee.api.authentication.CustomGoogleOAuth2"],
+        # The `ee.` path is only carried by sessions issued before the move to `posthog.api.sso`.
+        "backends": [
+            "google-oauth2",
+            "posthog.api.sso.CustomGoogleOAuth2",
+            "ee.api.authentication.CustomGoogleOAuth2",
+        ],
     },
     {
         "key": "github",
@@ -316,7 +323,8 @@ LOGIN_METHODS = [
     {
         "key": "saml",
         "display": "SAML",
-        "backends": ["saml", "ee.api.authentication.MultitenantSAMLAuth"],
+        # The `ee.` path is only carried by sessions issued before the move to `posthog.api.sso`.
+        "backends": ["saml", "posthog.api.sso.MultitenantSAMLAuth", "ee.api.authentication.MultitenantSAMLAuth"],
     },
     {
         "key": "oidc",

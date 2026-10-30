@@ -49,6 +49,8 @@ export interface ProductLaunchConfiguration<
   readonly runId: string;
   /** Product that started the run. */
   readonly originProduct?: string;
+  /** PostHog client that created the task. */
+  readonly clientProvenance?: string;
   /** Product-specific launch data. */
   readonly launchOptions: Readonly<LaunchOptions>;
   /** Optional source that started the task. */
@@ -139,7 +141,7 @@ export function buildPullRequestFooter(
     "Created with [PostHog Desktop](https://posthog.com/desktop?ref=pr)";
   if (mobile) {
     createdWith = "Created with [PostHog Mobile](https://posthog.com?ref=pr)";
-  } else if (options.automated) {
+  } else if (options.automated || launch.clientProvenance === "posthog_web") {
     createdWith = "Created with [PostHog](https://posthog.com?ref=pr)";
   }
 

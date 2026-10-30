@@ -240,6 +240,9 @@ pub(crate) struct FencedVictim {
     pub(crate) person_uuid: Uuid,
     pub(crate) sealed_version: i64,
     pub(crate) sealed_created_at: i64,
+    /// The version the unmap committed the tombstone at; `None` for an op
+    /// unmapped by a build that did not record it.
+    pub(crate) tombstone_version: Option<i64>,
 }
 
 impl FencedVictim {
@@ -249,6 +252,7 @@ impl FencedVictim {
             person_uuid: self.person_uuid.to_string(),
             sealed_version: Some(self.sealed_version),
             created_at: self.sealed_created_at,
+            tombstone_version: self.tombstone_version,
         }
     }
 
@@ -261,6 +265,7 @@ impl FencedVictim {
             outcome: ReleaseOutcome::Committed.into(),
             sealed_version: Some(self.sealed_version),
             created_at: self.sealed_created_at,
+            tombstone_version: self.tombstone_version,
         }
     }
 }

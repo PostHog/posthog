@@ -1,9 +1,10 @@
 import base64
 from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING
 from urllib.parse import urlencode
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
@@ -24,9 +25,14 @@ from products.ai_observability.backend.logic.traces import trace_queries
 from products.ai_observability.backend.logic.traces.summary import ReadySummary, SummaryItem
 from products.ai_observability.backend.logic.traces.summary_store import summary_key, write_summary
 from products.ai_observability.backend.models.review_queues import ReviewQueue
+from products.engineering_analytics.backend.facade import api as engineering_analytics_api
+from products.engineering_analytics.backend.facade.contracts import ENGINEERING_ANALYTICS_FEATURE_FLAG, BranchPRMatch
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
 
 from .logic.traces.rows import make_cluster, make_cluster_run_event, make_evaluation_result_event
+
+if TYPE_CHECKING:
+    from rest_framework.response import _MonkeyPatchedResponse
 
 T0 = datetime(2026, 9, 1, 10, 0, tzinfo=UTC)
 GENERATION = "00000000-0000-0000-0000-000000000001"
@@ -465,6 +471,25 @@ class TestTraceFeedbackView(ClickhouseTestMixin, APIBaseTest):
             ("text", "Too long, but correct.", "trace-1")
         ]
         assert body["summary"]["total"] == 2
+        assert body["surveyResponsesStatus"] == "ok"
+
+    @parameterized.expand(
+        [
+            ("only the trace scope", ["llm_analytics:read"], "not_permitted"),
+            ("the survey response scopes too", ["llm_analytics:read", "survey:read", "query:read"], "ok"),
+        ]
+    )
+    def test_includes_survey_responses_only_for_a_token_with_the_survey_scopes(
+        self, _name: str, scopes: list[str], expected: str
+    ) -> None:
+        _create_feedback(self.team)
+        headers = {"authorization": f"Bearer {self.create_personal_api_key_with_scopes(scopes)}"}
+        self.client.logout()
+
+        response = self.client.get(self._url(_encode("trace-1")), headers=headers)
+
+        assert response.status_code == 200
+        assert (response.json()["surveyResponsesStatus"], response.json()["summary"]["total"]) == (expected, 2)
 
     def test_an_unknown_trace_has_no_feedback(self) -> None:
         response = self.client.get(self._url(_encode("trace-2")))
@@ -657,3 +682,63 @@ class TestTraceSummaryViews(APIBaseTest):
         assert self.client.post(self._url(), {}, format="json").status_code == 200
         assert self.client.post(self._url(), {}, format="json").status_code == 429
         assert self.client.get(self._url()).status_code == 200
+
+
+PULL_REQUEST_MATCH = BranchPRMatch(repo="acme/app", number=42, title="Answer billing questions", state="open")
+
+
+class TestTracePullRequestView(ClickhouseTestMixin, APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        _create_trace(self.team, extra_properties={"$ai_git_branch": "feat/rag", "$ai_git_repo": "acme/app"})
+
+    def _get(
+        self, segment: str = _encode("trace-1"), *, flag: bool = True, headers: dict[str, str] | None = None
+    ) -> tuple["_MonkeyPatchedResponse", MagicMock]:
+        def only_engineering_analytics(key: str, *args: object, **kwargs: object) -> bool:
+            return flag and key == ENGINEERING_ANALYTICS_FEATURE_FLAG
+
+        with (
+            patch("posthoganalytics.feature_enabled", side_effect=only_engineering_analytics),
+            patch.object(engineering_analytics_api, "resolve_branch", return_value=[PULL_REQUEST_MATCH]) as resolve,
+        ):
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/ai_observability/traces/{segment}/pull_request/",
+                {"timestamp_hint": T0.isoformat()},
+                headers=headers or {},
+            )
+        return response, resolve
+
+    def test_returns_the_pull_request_in_camel_case(self) -> None:
+        response, _resolve = self._get()
+
+        assert (response.status_code, response.json()) == (
+            200,
+            {
+                "pullRequest": {
+                    "repoOwner": "acme",
+                    "repoName": "app",
+                    "number": 42,
+                    "title": "Answer billing questions",
+                }
+            },
+        )
+
+    def test_requires_the_engineering_analytics_flag(self) -> None:
+        response, resolve = self._get(flag=False)
+
+        assert (response.status_code, resolve.called) == (403, False)
+
+    @parameterized.expand([(["llm_analytics:read"], 403), (["llm_analytics:read", "engineering_analytics:read"], 200)])
+    def test_an_api_key_needs_both_scopes(self, scopes: list[str], expected_status: int) -> None:
+        key = self.create_personal_api_key_with_scopes(scopes)
+        self.client.logout()
+
+        response, _resolve = self._get(headers={"authorization": f"Bearer {key}"})
+
+        assert response.status_code == expected_status, response.content
+
+    def test_rejects_an_unencoded_trace_id(self) -> None:
+        response, resolve = self._get("trace-1")
+
+        assert (response.status_code, resolve.called) == (400, False)

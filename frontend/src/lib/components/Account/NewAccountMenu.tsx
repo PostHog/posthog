@@ -37,7 +37,7 @@ import { globalModalsLogic } from '~/layout/globalModalsLogic'
 import { AvailableFeature } from '~/types'
 
 import { ScrollableShadows } from '../ScrollableShadows/ScrollableShadows'
-import { RenderKeybind } from '../Shortcuts/ShortcutMenu'
+import { RenderKeybind } from '../Shortcuts/RenderKeybind'
 import { keyBinds } from '../Shortcuts/shortcuts'
 import { upgradeModalLogic } from '../UpgradeModal/upgradeModalLogic'
 import { newAccountMenuLogic } from './newAccountMenuLogic'

@@ -29,7 +29,7 @@ import posthoganalytics
 
 from posthog.dataclasses import frozen
 from posthog.event_usage import groups
-from posthog.models.integration import Integration, SlackIntegration
+from posthog.models.integration import SlackIntegration
 
 from products.slack_app.backend.analytics import slack_event_props
 from products.slack_app.backend.logic.feature_tips.features import SlackFeature
@@ -37,10 +37,9 @@ from products.slack_app.backend.logic.feature_tips.state import record_feature_u
 from products.slack_app.backend.logic.interview_recruitment import MODAL_INVITE_MESSAGE, book_button, invite_section
 from products.slack_app.backend.services.slack_messages import SLACK_WEBHOOK_TIMEOUT_SECONDS, TURN_FEEDBACK_ACTION_ID
 from products.slack_app.backend.services.slack_user_info import get_cached_bot_user_id
+from products.slack_app.backend.services.workspace_integrations import WorkspaceIntegration, get_workspace_integration
 
 logger = structlog.get_logger(__name__)
-
-SLACK_INTEGRATION_KIND = "slack"
 
 TURN_FEEDBACK_MODAL_CALLBACK_ID = "slack_app_turn_feedback_modal"
 _MODAL_TEXT_BLOCK_ID = "feedback_text"
@@ -91,7 +90,7 @@ class _FeedbackTarget:
     way; ``_trace_id`` says what stands behind it instead.
     """
 
-    integration: Integration
+    integration: WorkspaceIntegration
     run_id: str
     task_id: str | None
     turn_id: str | None
@@ -140,7 +139,7 @@ def extract_modal_hint(payload: dict) -> int | None:
     return integration_id if isinstance(integration_id, int) else None
 
 
-def _local_integration(integration_id: Any, slack_team_id: str | None) -> Integration | None:
+def _local_integration(integration_id: Any, slack_team_id: str | None) -> WorkspaceIntegration | None:
     """The integration a rating names, if this region owns it for that Slack team.
 
     Scoped to the Slack team the rating came from, so a forged id resolves to nothing
@@ -149,23 +148,13 @@ def _local_integration(integration_id: Any, slack_team_id: str | None) -> Integr
     """
     if not slack_team_id or not isinstance(integration_id, int):
         return None
-    return (
-        Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
-            id=integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
-            kind=SLACK_INTEGRATION_KIND,
-            integration_id=slack_team_id,
-        )
-        # The event properties and the capture's groups both read through to the team and
-        # its organization, and Slack gives the interaction three seconds.
-        .select_related("team__organization")
-        .first()
-    )
+    return get_workspace_integration(integration_id, slack_team_id)
 
 
 def _resolve_target(
     value: dict[str, Any],
     *,
-    integration: Integration,
+    integration: WorkspaceIntegration,
     slack_user_id: str,
     turn_id: str | None,
 ) -> _FeedbackTarget | None:
@@ -465,7 +454,9 @@ def reaction_sentiment(reaction: Any) -> str | None:
     return _REACTION_SENTIMENTS.get(_reaction_base(reaction))
 
 
-def _fetch_reacted_message(workspace_integration: Integration, channel: str, message_ts: str) -> dict[str, Any] | None:
+def _fetch_reacted_message(
+    workspace_integration: WorkspaceIntegration, channel: str, message_ts: str
+) -> dict[str, Any] | None:
     """The reacted message, read back from Slack so its blocks can say which run it is.
 
     ``conversations.replies`` accepts the ts of any message in a thread, and agent replies
@@ -508,7 +499,9 @@ def _feedback_value_from_message(message: dict[str, Any]) -> dict[str, Any]:
     return {}
 
 
-def handle_reaction_added(event: dict, slack_team_id: str, workspace_integration: Integration) -> ReactionOutcome:
+def handle_reaction_added(
+    event: dict, slack_team_id: str, workspace_integration: WorkspaceIntegration
+) -> ReactionOutcome:
     """Record a thumbs reaction on an agent reply as a rating.
 
     ``workspace_integration`` is any of this region's integrations for the Slack team; its
