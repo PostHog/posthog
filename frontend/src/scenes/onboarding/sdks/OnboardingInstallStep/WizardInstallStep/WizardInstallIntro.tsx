@@ -1,6 +1,6 @@
 export function WizardInstallIntro({ description }: { description?: string } = {}): JSX.Element {
     return (
-        <div className="max-w-xl mx-auto space-y-2">
+        <div className="space-y-2">
             <h2 className="text-xl font-bold">Set up with Wizard</h2>
             <p className="text-muted">
                 {description ??
