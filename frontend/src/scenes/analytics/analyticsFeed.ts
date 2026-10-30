@@ -114,6 +114,7 @@ export async function fetchAnalyticsSourcePage(
         search: search || undefined,
         orderBy: query.orderBy ?? '-created_at',
         includeTags: true,
+        includeCount: false,
         limit,
         offset,
     })

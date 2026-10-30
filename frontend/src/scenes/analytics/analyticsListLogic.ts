@@ -441,6 +441,7 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
                         depth: splitPath(folder).length + 1,
                         search: values.filters.search.trim() || undefined,
                         limit: FOLDER_PAGE_SIZE,
+                        includeCount: false,
                     })
                     breakpoint()
                     return {
@@ -460,6 +461,7 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
                         depth: splitPath(current.folder).length + 1,
                         search: values.filters.search.trim() || undefined,
                         limit: FOLDER_PAGE_SIZE,
+                        includeCount: false,
                         offset: current.entries.length,
                     })
                     breakpoint()

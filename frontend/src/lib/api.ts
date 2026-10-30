@@ -2351,6 +2351,7 @@ const api = {
             createdAtLt,
             searchNameOnly,
             includeTags,
+            includeCount,
             signal,
         }: {
             parent?: string
@@ -2368,6 +2369,7 @@ const api = {
             createdAtLt?: string
             searchNameOnly?: boolean
             includeTags?: boolean
+            includeCount?: boolean
             signal?: AbortSignal
         }): Promise<CountedPaginatedResponseWithUsers<FileSystemEntry>> {
             return await new ApiRequest()
@@ -2388,6 +2390,7 @@ const api = {
                     created_at__lt: createdAtLt,
                     search_name_only: searchNameOnly,
                     include_tags: includeTags,
+                    include_count: includeCount,
                 })
                 .get({ signal })
         },

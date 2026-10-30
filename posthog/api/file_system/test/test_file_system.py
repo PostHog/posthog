@@ -1159,8 +1159,15 @@ class TestFileSystemAPI(APIBaseTest):
         # Pure case-insensitive alphabetical order, regardless of type
         self.assertEqual(paths, ["Afile.txt", "alpha", "beta", "bFile.txt"])
 
-    @parameterized.expand([("type=dashboard",), ("type__startswith=dashboard",)])
-    def test_typed_list_orders_by_own_views_with_unviewed_last(self, type_filter: str) -> None:
+    @parameterized.expand(
+        [
+            ("type=dashboard", 6),
+            ("type__startswith=dashboard", 6),
+            ("type=dashboard&include_count=false", None),
+            ("type__startswith=dashboard&include_count=false", None),
+        ]
+    )
+    def test_typed_list_orders_by_own_views_with_unviewed_last(self, type_filter: str, count: int | None) -> None:
         files = [
             FileSystem.objects.create(team=self.team, path=f"Dashboard {index}", type="dashboard", ref=str(index))
             for index in range(3)
@@ -1194,12 +1201,31 @@ class TestFileSystemAPI(APIBaseTest):
                 response = self.client.get(next_url)
                 self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
                 data = response.json()
-                self.assertEqual(data["count"], 6)
+                self.assertEqual(data["count"], count)
                 results.extend(data["results"])
                 next_url = data["next"]
             self.assertEqual([row["id"] for row in results], [str(files[index].id) for index in expected])
             self.assertTrue(all(row["last_viewed_at"] is None for row in results[-3:]))
             self.assertTrue(all(row["last_viewed_at"] for row in results[:-3]))
+
+    def test_uncounted_list_pages_by_next(self) -> None:
+        files = []
+        for day in range(1, 6):
+            with time_machine.travel(f"2020-01-0{day} 10:00:00", tick=False):
+                files.append(FileSystem.objects.create(team=self.team, path=f"File_{day}", type="feature_flag"))
+
+        next_url = f"/api/projects/{self.team.id}/file_system/?order_by=-created_at&include_count=false&limit=2"
+        pages = []
+        while next_url:
+            response = self.client.get(next_url)
+            self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+            data = response.json()
+            self.assertIsNone(data["count"])
+            pages.append([row["id"] for row in data["results"]])
+            next_url = data["next"]
+
+        newest_first = [str(file.id) for file in reversed(files)]
+        self.assertEqual(pages, [newest_first[0:2], newest_first[2:4], newest_first[4:]])
 
     def test_list_order_by_created_at(self):
         # Create items in chronological order

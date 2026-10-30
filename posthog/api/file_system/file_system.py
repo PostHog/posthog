@@ -32,6 +32,7 @@ from rest_framework import filters, pagination, serializers, status, viewsets
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.utils.urls import replace_query_param
 
 from posthog.api.file_system.access_levels import (
     FileSystemAccessLevelSerializerMixin,
@@ -135,6 +136,13 @@ class FileSystemListQuerySerializer(serializers.Serializer):
         default=False,
         help_text="Include meta.tags, the tag names, for dashboards and insights on this page.",
     )
+    include_count = serializers.BooleanField(
+        default=True,
+        help_text=(
+            "Count every matching row (default: true). Set false when only `next` is needed: `count` is then null "
+            "and the response is faster on large projects."
+        ),
+    )
 
 
 class FileSystemDeleteQuerySerializer(serializers.Serializer):
@@ -237,7 +245,41 @@ class FileSystemSerializer(FileSystemAccessLevelSerializerMixin, serializers.Mod
 
 
 class FileSystemsLimitOffsetPagination(pagination.LimitOffsetPagination):
+    """Adds an uncounted mode, because a project-wide COUNT(*) can cost far more than the page itself.
+
+    In that mode the page reads one extra row to decide `next`, and `count` is null.
+    """
+
     default_limit = 100
+    include_count: bool = True
+    has_more: bool = False
+
+    def paginate_queryset(self, queryset, request, view=None) -> Optional[builtins.list[Any]]:
+        if self.include_count:
+            return super().paginate_queryset(queryset, request, view)
+        self.request = request
+        self.limit = self.get_limit(request)
+        if self.limit is None:
+            return None
+        self.offset = self.get_offset(request)
+        self.count = None
+        page = builtins.list(queryset[self.offset : self.offset + self.limit + 1])
+        self.has_more = len(page) > self.limit
+        return page[: self.limit]
+
+    def get_next_link(self) -> Optional[str]:
+        if self.include_count:
+            return super().get_next_link()
+        if not self.has_more or self.limit is None or self.request is None:
+            return None
+        url = self.request.build_absolute_uri()
+        url = replace_query_param(url, self.limit_query_param, self.limit)
+        return replace_query_param(url, self.offset_query_param, self.offset + self.limit)
+
+    def get_paginated_response_schema(self, schema: dict[str, Any]) -> dict[str, Any]:
+        response_schema = super().get_paginated_response_schema(schema)
+        response_schema["properties"]["count"]["nullable"] = True
+        return response_schema
 
 
 class FileSystemHomeFolderSerializer(serializers.Serializer):
@@ -820,12 +862,16 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         paginator.request = request
         paginator.limit = paginator.get_limit(request)
         paginator.offset = paginator.get_offset(request)
-        paginator.count = queryset.count()
-        if paginator.offset >= paginator.count:
-            response = paginator.get_paginated_response([])
-            response.data["users"] = []
-            return response
-        limit = paginator.limit or paginator.default_limit
+        if paginator.include_count:
+            paginator.count = queryset.count()
+            if paginator.offset >= paginator.count:
+                response = paginator.get_paginated_response([])
+                response.data["users"] = []
+                return response
+        else:
+            paginator.count = None
+        page_size = paginator.limit or paginator.default_limit
+        limit = page_size if paginator.include_count else page_size + 1
 
         views = FileSystemViewLog.objects.filter(
             team_id__in=Team.objects.filter(project_id=self.team.project_id).values("id"),
@@ -862,6 +908,9 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 .order_by("-created_at", "id")
                 .values_list("id", flat=True)[unseen_offset : unseen_offset + limit - len(page_ids)]
             )
+        if not paginator.include_count:
+            paginator.has_more = len(page_ids) > page_size
+            page_ids = page_ids[:page_size]
         rows = {row.id: row for row in queryset.filter(id__in=page_ids)}
         results = self.get_serializer([rows[row_id] for row_id in page_ids if row_id in rows], many=True).data
         response = paginator.get_paginated_response(results)
@@ -876,6 +925,9 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # Recents (the high-volume, timeout-prone path) is served view-log-first, with or without a
         # search term — one query function, no join, no COUNT(*).
         typed_list = request.query_params.get("type") or request.query_params.get("type__startswith")
+        cast(FileSystemsLimitOffsetPagination, self.paginator).include_count = query_serializer.validated_data[
+            "include_count"
+        ]
         if order_by_param in ("-last_viewed_at", "last_viewed_at") and request.user.is_authenticated:
             if typed_list:
                 response = self._list_typed_by_views(request, descending=order_by_param == "-last_viewed_at")

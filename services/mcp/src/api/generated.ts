@@ -77991,7 +77991,8 @@ export namespace Schemas {
     }
 
     export interface PaginatedFileSystemList {
-      count: number;
+      /** @nullable */
+      count: number | null;
       /** @nullable */
       next?: string | null;
       /** @nullable */
@@ -136568,6 +136569,10 @@ export namespace Schemas {
      * Include meta.content_type for notebooks and insights on this page, without their contents.
      */
     include_content_type?: boolean;
+    /**
+     * Count every matching row (default: true). Set false when only `next` is needed: `count` is then null and the response is faster on large projects.
+     */
+    include_count?: boolean;
     /**
      * Include meta.tags, the tag names, for dashboards and insights on this page.
      */
