@@ -602,7 +602,6 @@ class TestChartsInSlackThread:
         assert threaded.thread_messages == default.thread_messages
 
     async def test_a_rejected_main_message_is_not_resent_without_threaded_charts(self) -> None:
-        # The charts are not in the main message, so dropping them would resend the same rejected payload.
         sent: list[list[dict]] = []
 
         async def _deliver(_integration, _subscription, message_data):

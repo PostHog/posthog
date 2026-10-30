@@ -689,7 +689,6 @@ def _build_ai_slack_message(
             for start in range(0, len(overflow), SLACK_MESSAGE_BLOCK_LIMIT)
         )
     if charts_in_thread:
-        # The charts open the thread, so they keep their place right after the first section.
         thread_messages.extend(
             {"blocks": chart_blocks[start : start + SLACK_MESSAGE_BLOCK_LIMIT]}
             for start in range(0, len(chart_blocks), SLACK_MESSAGE_BLOCK_LIMIT)
