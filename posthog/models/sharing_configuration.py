@@ -50,6 +50,16 @@ class SharingConfiguration(models.Model):
         blank=True,
     )
 
+    shared_by = models.ForeignKey(
+        "posthog.User",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        db_constraint=False,
+        db_index=False,
+    )
+
     created_at = models.DateTimeField(auto_now_add=True, blank=True)
 
     enabled = models.BooleanField(default=False)
@@ -69,6 +79,9 @@ class SharingConfiguration(models.Model):
 
     password_required = models.BooleanField(default=False)
 
+    class Meta:
+        indexes = [models.Index(fields=["shared_by"], name="sharingconfig_shared_by_idx")]
+
     @classmethod
     def shareable_resource_fields(cls) -> frozenset[str]:
         """The FK fields that point at a shareable resource - every relation except the team tenant FK.
@@ -77,7 +90,9 @@ class SharingConfiguration(models.Model):
         time, so a newly added shareable resource cannot ship without an explicit access-control decision.
         """
         return frozenset(
-            field.name for field in cls._meta.fields if field.is_relation and field.many_to_one and field.name != "team"
+            field.name
+            for field in cls._meta.fields
+            if field.is_relation and field.many_to_one and field.name not in {"team", "shared_by"}
         )
 
     @classmethod
@@ -225,6 +240,7 @@ class SharingConfiguration(models.Model):
                 notebook=source.notebook,
                 interviewee_context=source.interviewee_context,
                 enabled=source.enabled,
+                shared_by_id=source.shared_by_id,
                 settings=source.settings,
                 password_required=source.password_required,
             )
