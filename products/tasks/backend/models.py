@@ -819,7 +819,9 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         explicitly set `reasoning_effort` survives injection; the default triple's effort
         only fills a gap.
         """
-        if self.internal or self.runtime == Task.Runtime.PI:
+        profile = self.stored_profile
+        inherits = profile.inherit_user_defaults if profile is not None else not self.internal
+        if not inherits or self.runtime == Task.Runtime.PI:
             return
 
         from products.tasks.backend.logic.services.ai_run_defaults import (  # noqa: PLC0415 — breaks the circular import with ai_run_defaults, which imports this module
