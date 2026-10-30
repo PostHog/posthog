@@ -3,7 +3,7 @@ import { basename, resolve } from 'node:path'
 
 import { defineCommand } from '@/core/command'
 import { HogError } from '@/core/errors'
-import type { Output } from '@/core/output'
+import { escapeControls, type Output } from '@/core/output'
 import { deriveBaseName, extractSymbolSet, type ExtractReport } from '@/error-tracking/symbols'
 
 const KIND_LABELS: Record<ExtractReport['kind'], string> = {
@@ -16,9 +16,11 @@ const KIND_LABELS: Record<ExtractReport['kind'], string> = {
 
 export function renderExtracted(out: Output, result: ExtractReport): void {
     for (const file of result.files) {
-        out.line(file)
+        out.line(escapeControls(file))
     }
-    out.line(out.style(`Extracted the ${KIND_LABELS[result.kind]} symbol set to ${result.output}.`, 'dim'))
+    out.line(
+        out.style(`Extracted the ${KIND_LABELS[result.kind]} symbol set to ${escapeControls(result.output)}.`, 'dim')
+    )
 }
 
 export default defineCommand({
