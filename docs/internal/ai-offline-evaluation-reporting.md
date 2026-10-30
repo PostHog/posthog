@@ -401,7 +401,7 @@ Local and external datasets do not require hosted links; they can use the `*_ide
 
 Large payloads have separate storage and 30-day deadlines anchored to first acceptance.
 Retries neither extend deadlines nor restore deleted payloads.
-Automatic payload deletion is not enabled by these endpoints.
+Payload reads stop at the deadline. An hourly Celery sweep deletes expired payload rows and marks their owners expired in the same transaction, preserving identities, results, summaries, and usage.
 
 ### Product usage events
 
@@ -649,11 +649,13 @@ event-backed experiment-items endpoint is not exposed by these tools.
 
 Items and results expose their own `payload_state` and `payload_expires_at`.
 Payload detail responses include `available` and `data`, preserving omitted properties, empty objects, and explicit JSON null values.
-`not_provided` means the caller omitted the payload; `expired` means it was removed while its owner was retained.
+`not_provided` means the caller omitted the payload; `expired` means its retention deadline passed or it was removed while its owner was retained.
 An unavailable payload has null `data`, while durable identities, results, and summaries remain readable.
 
-A deadline alone does not mean a cleanup worker has removed the payload.
-Automatic deletion remains separate work.
+A deadline makes the payload unavailable immediately, even while physical deletion waits for the next hourly sweep.
+The sweep processes at most 20 batches of 500 candidates per payload type, alternating item and result payloads, with a three-minute work budget. Each environment's batch commits independently; retries and overlapping runs are safe. Existing overdue payloads are included, and a backlog drains over subsequent runs.
+
+Each run emits `offline evaluation payload retention run` using scoped capture, including empty runs and handled failures. Properties include `run_id`, `status`, `batches` (committed environment batches), `item_payloads_expired`, `result_payloads_expired`, `payloads_expired`, `budget_exhausted`, and `duration_seconds`. Counts reflect committed work, and the same properties are logged. Event delivery is best-effort; a hard-killed worker cannot emit its completion event.
 Expired input/output is not reconstructed from linked datasets or traces, and missing links do not prevent experiment reads.
 Opening those resources requires their own permissions.
 

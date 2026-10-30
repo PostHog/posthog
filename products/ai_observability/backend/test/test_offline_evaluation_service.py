@@ -6,6 +6,9 @@ from threading import Event
 from typing import Literal
 from uuid import uuid4
 
+import time_machine
+from unittest.mock import patch
+
 from django.db import IntegrityError, connection, transaction
 from django.test import TestCase, TransactionTestCase
 from django.utils import timezone
@@ -13,6 +16,7 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from posthog.models import Organization, Team
+from posthog.models.scoping.manager import TeamScopedQuerySet
 
 from products.ai_observability.backend.models.datasets import Dataset, DatasetItem, DatasetItemVersion, DatasetRevision
 from products.ai_observability.backend.models.offline_evaluations import (
@@ -40,6 +44,8 @@ from products.ai_observability.backend.offline_evaluation_types import (
     ResultSubmission,
     UploadSubmission,
 )
+from products.ai_observability.backend.offline_payload_retention import OfflinePayloadRetention
+from products.ai_observability.backend.tasks.offline_payload_retention import expire_offline_evaluation_payloads
 
 
 class TestOfflineEvaluationService(TestCase):
@@ -461,14 +467,8 @@ class TestOfflineEvaluationService(TestCase):
         accepted = self.ingestion.upload(self.experiment.id, self.submission)
         item = OfflineExperimentItem.objects.for_team(self.team.id).get(id=self.item.id)
         result = OfflineEvaluationResult.objects.for_team(self.team.id).get(id=accepted.results[0].id)
-        OfflineExperimentItemPayload.objects.for_team(self.team.id).filter(item=item).delete()
-        OfflineEvaluationResultPayload.objects.for_team(self.team.id).filter(result=result).delete()
-        OfflineExperimentItem.objects.for_team(self.team.id).filter(id=item.id).update(
-            payload_state=PayloadState.EXPIRED
-        )
-        OfflineEvaluationResult.objects.for_team(self.team.id).filter(id=result.id).update(
-            payload_state=PayloadState.EXPIRED
-        )
+        with time_machine.travel(item.payload_expires_at, tick=False):
+            OfflinePayloadRetention().run()
 
         replay = self.ingestion.upload(self.experiment.id, self.submission)
 
@@ -481,6 +481,92 @@ class TestOfflineEvaluationService(TestCase):
         self.assertEqual(refreshed_result.payload_state, PayloadState.EXPIRED)
         self.assertFalse(OfflineExperimentItemPayload.objects.for_team(self.team.id).exists())
         self.assertFalse(OfflineEvaluationResultPayload.objects.for_team(self.team.id).exists())
+        self.assertEqual(OfflineEvaluationUsageLedger.objects.for_team(self.team.id).count(), 1)
+
+    @parameterized.expand([(-1, 0), (0, 2), (1, 2)])
+    def test_retention_boundary_and_run_event(self, seconds: int, expected: int) -> None:
+        receipt = self.ingestion.upload(self.experiment.id, self.submission)
+        with (
+            time_machine.travel(receipt.items[0].accepted_at + timedelta(days=30, seconds=seconds), tick=False),
+            patch("products.ai_observability.backend.tasks.offline_payload_retention.ph_scoped_capture") as scoped,
+        ):
+            expire_offline_evaluation_payloads()
+            properties = scoped.return_value.__enter__.return_value.call_args.kwargs["properties"]
+            self.assertEqual(properties["payloads_expired"], expected)
+            self.assertEqual(properties["batches"], expected)
+            self.assertEqual(properties["status"], "completed")
+            self.assertEqual(OfflineExperimentItemPayload.objects.for_team(self.team.id).count(), 1 - expected // 2)
+            self.assertEqual(OfflineEvaluationResultPayload.objects.for_team(self.team.id).count(), 1 - expected // 2)
+            expire_offline_evaluation_payloads()
+            self.assertEqual(
+                scoped.return_value.__enter__.return_value.call_args.kwargs["properties"]["payloads_expired"], 0
+            )
+        self.assertEqual(OfflineEvaluationResult.objects.for_team(self.team.id).count(), 1)
+        self.assertEqual(OfflineEvaluationUsageLedger.objects.for_team(self.team.id).count(), 1)
+
+    def test_retention_rolls_back_payload_deletion_and_reports_failure(self) -> None:
+        receipt = self.ingestion.upload(self.experiment.id, self.submission)
+        with (
+            time_machine.travel(receipt.items[0].accepted_at + timedelta(days=30), tick=False),
+            patch.object(TeamScopedQuerySet, "update", side_effect=RuntimeError("write failed")),
+            patch("products.ai_observability.backend.tasks.offline_payload_retention.ph_scoped_capture") as scoped,
+        ):
+            with self.assertRaises(RuntimeError):
+                expire_offline_evaluation_payloads()
+            properties = scoped.return_value.__enter__.return_value.call_args.kwargs["properties"]
+            self.assertEqual(properties["status"], "failed")
+            self.assertEqual(properties["batches"], 0)
+            self.assertEqual(properties["payloads_expired"], 0)
+        self.assertTrue(OfflineExperimentItemPayload.objects.for_team(self.team.id).exists())
+        self.assertEqual(
+            OfflineExperimentItem.objects.for_team(self.team.id).get(id=self.item.id).payload_state, "available"
+        )
+
+    def test_retention_batch_limit_leaves_work_for_next_run(self) -> None:
+        for _ in range(2):
+            item = replace(self.item, id=uuid4())
+            self.ingestion.upload(
+                self.experiment.id, UploadSubmission(items=[item], results=[replace(self.result, item_id=item.id)])
+            )
+        with (
+            time_machine.travel(timezone.now() + timedelta(days=31), tick=False),
+            patch("products.ai_observability.backend.offline_payload_retention.BATCH_SIZE", 1),
+            patch("products.ai_observability.backend.offline_payload_retention.MAX_BATCHES_PER_TYPE", 1),
+        ):
+            sweep = OfflinePayloadRetention()
+            sweep.run()
+            self.assertTrue(sweep.budget_exhausted)
+            self.assertEqual((sweep.item_payloads_expired, sweep.result_payloads_expired), (1, 1))
+            self.assertEqual(OfflineExperimentItemPayload.objects.for_team(self.team.id).count(), 1)
+            OfflinePayloadRetention().run()
+            self.assertFalse(OfflineExperimentItemPayload.objects.for_team(self.team.id).exists())
+
+    def test_retention_keeps_environment_scoping(self) -> None:
+        self.ingestion.upload(self.experiment.id, self.submission)
+        child = Team.objects.create(organization=self.team.organization, parent_team=self.team)
+        scorer = ScoreDefinition.objects.create(team=child, name="Child accuracy", kind="numeric")
+        version = scorer.create_new_version(config={}, created_by=None)
+        child_experiment = (
+            OfflineExperimentService(team_id=child.id, user_access_control=None)
+            .create(replace(self.experiment_submission, id=uuid4()))
+            .experiment
+        )
+        item = replace(self.item, id=uuid4())
+        OfflineEvaluationIngestionService(team_id=child.id, user_access_control=None).upload(
+            child_experiment.id,
+            UploadSubmission(
+                items=[item], results=[replace(self.result, item_id=item.id, scorer_version_id=version.id)]
+            ),
+        )
+        with time_machine.travel(timezone.now() + timedelta(days=31), tick=False):
+            sweep = OfflinePayloadRetention()
+            sweep.run()
+        self.assertEqual((sweep.item_payloads_expired, sweep.result_payloads_expired), (2, 2))
+        self.assertEqual(sweep.batches, 4)
+        for team_id in (self.team.id, child.id):
+            self.assertFalse(OfflineExperimentItemPayload.objects.for_team(team_id).exists())
+            self.assertFalse(OfflineEvaluationResultPayload.objects.for_team(team_id).exists())
+            self.assertEqual(OfflineEvaluationResult.objects.for_team(team_id).count(), 1)
 
     def test_previous_archived_version_uses_its_own_configuration(self) -> None:
         self.scorer.create_new_version(config={"min": 10, "max": 20}, created_by=None)

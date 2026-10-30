@@ -299,7 +299,7 @@ class OfflineResultFieldsSerializer(serializers.Serializer):
     accepted_at = serializers.DateTimeField(help_text="Original server acceptance time.")
     payload_state = serializers.ChoiceField(choices=PayloadState.choices, help_text="Result payload storage state.")
     payload_expires_at = serializers.DateTimeField(
-        allow_null=True, help_text="Payload retention deadline; cleanup is not yet enabled."
+        allow_null=True, help_text="Payload expires 30 days after first acceptance; deletion runs hourly."
     )
 
 
@@ -344,7 +344,7 @@ class OfflineItemReadSerializer(serializers.Serializer):
     accepted_at = serializers.DateTimeField(help_text="Original server acceptance time.")
     payload_state = serializers.ChoiceField(choices=PayloadState.choices, help_text="Item payload storage state.")
     payload_expires_at = serializers.DateTimeField(
-        allow_null=True, help_text="Payload retention deadline; cleanup is not yet enabled."
+        allow_null=True, help_text="Payload expires 30 days after first acceptance; deletion runs hourly."
     )
     results = OfflineResultCellSerializer(
         many=True, help_text="Cells for explicitly selected scorer versions; empty when none selected."

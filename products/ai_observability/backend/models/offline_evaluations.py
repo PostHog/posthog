@@ -117,6 +117,16 @@ class OfflinePayloadOwner(models.Model):
             ),
         ]
 
+    @property
+    def effective_payload_state(self) -> str:
+        if (
+            self.payload_state == PayloadState.AVAILABLE
+            and self.payload_expires_at is not None
+            and self.payload_expires_at <= timezone.now()
+        ):
+            return PayloadState.EXPIRED
+        return self.payload_state
+
 
 class OfflineExperimentItem(OfflinePayloadOwner):
     id = models.UUIDField(primary_key=True)
@@ -144,6 +154,11 @@ class OfflineExperimentItem(OfflinePayloadOwner):
         ]
         indexes = [
             models.Index(fields=["experiment", "id"], name="aio_offline_item_exp_idx"),
+            models.Index(
+                fields=["payload_expires_at", "id"],
+                condition=Q(payload_state="available"),
+                name="aio_item_payload_expiry_idx",
+            ),
         ]
 
 
@@ -215,6 +230,11 @@ class OfflineEvaluationResult(OfflinePayloadOwner, UUIDModel):
         indexes = [
             models.Index(
                 fields=["team", "scorer_version", "-accepted_at", "id"], name="aio_offline_result_history_idx"
+            ),
+            models.Index(
+                fields=["payload_expires_at", "id"],
+                condition=Q(payload_state="available"),
+                name="aio_result_payload_expiry_idx",
             ),
         ]
 
