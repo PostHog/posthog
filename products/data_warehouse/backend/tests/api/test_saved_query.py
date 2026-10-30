@@ -194,6 +194,7 @@ class TestSavedQuery(APIBaseTest):
             )
         self.assertEqual(response.status_code, 201, response.content)
         view = DataWarehouseSavedQuery.objects.get(id=response.json()["id"])
+        assert view.query is not None and view.columns is not None
         self.assertEqual(view.query["query"], trino_sql)
         self.assertEqual(view.query["executionTarget"], "managed_trino")
         self.assertEqual(set(view.columns), {"hub_id", "occupied_at"})
