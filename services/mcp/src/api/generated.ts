@@ -37316,10 +37316,10 @@ export namespace Schemas {
       detail: string;
     }
 
-    export type DatasetExportReadStatusEnum = typeof DatasetExportReadStatusEnum[keyof typeof DatasetExportReadStatusEnum];
+    export type ExportStatusEnum = typeof ExportStatusEnum[keyof typeof ExportStatusEnum];
 
 
-    export const DatasetExportReadStatusEnum = {
+    export const ExportStatusEnum = {
       Pending: 'pending',
       Complete: 'complete',
       Failed: 'failed',
@@ -37329,7 +37329,7 @@ export namespace Schemas {
       /** Export ID used to check status and download the file. */
       readonly id: number;
       /** Current export state: pending, complete, or failed. */
-      readonly status: DatasetExportReadStatusEnum;
+      readonly status: ExportStatusEnum;
       /** Immutable dataset revision included in the export. */
       readonly dataset_revision: number;
       /** Generated JSONL filename. */
@@ -42603,7 +42603,7 @@ export namespace Schemas {
       query: unknown;
       /** Whether the endpoint can be executed via the API. */
       is_active: boolean;
-      /** How fresh the data is, in seconds. One of: 900, 1800, 3600, 21600, 43200, 86400, 604800. */
+      /** Effective data freshness, in seconds. Materialized endpoints use the node's refresh target, which can differ from the standard freshness choices. Other endpoints use the cache duration. */
       data_freshness_seconds: number;
       /** Relative API path to execute this endpoint (e.g. /api/projects/{team_id}/endpoints/{name}/run). */
       endpoint_path: string;
@@ -42738,7 +42738,7 @@ export namespace Schemas {
       query: unknown;
       /** Whether the endpoint can be executed via the API. */
       is_active: boolean;
-      /** How fresh the data is, in seconds. One of: 900, 1800, 3600, 21600, 43200, 86400, 604800. */
+      /** Effective data freshness, in seconds. Materialized endpoints use the node's refresh target, which can differ from the standard freshness choices. Other endpoints use the cache duration. */
       data_freshness_seconds: number;
       /** Relative API path to execute this endpoint (e.g. /api/projects/{team_id}/endpoints/{name}/run). */
       endpoint_path: string;
@@ -47845,6 +47845,11 @@ export namespace Schemas {
          * @nullable
          */
       subcode: string | null;
+      /**
+         * A stable qualifier below the subcode: where a sample ratio mismatch is located ('library', 'page'), what leaves nobody exposed ('test_account_filter'), or why a check could not read what it needs ('no_history_access'). Null when the finding names none.
+         * @nullable
+         */
+      reason: string | null;
       /** How much the problem affects the results: critical, warning, or info.
        *
        * * `critical` - Critical severity
@@ -48296,6 +48301,8 @@ export namespace Schemas {
       diagnostic_ref: string | null;
       /** The values behind the finding, such as the p-value of the sample ratio test. The keys depend on the code. */
       evidence: ExperimentExposureHealthFindingEvidence;
+      /** A stable qualifier below the subcode, for example where a sample ratio mismatch is located. Null when the finding names none. */
+      reason: string | null;
       /** How much the problem affects the results: critical, warning, or info. */
       severity: ExperimentExposureHealthFindingSeverity;
       /** The case within the code, when a code covers several. Null when the code has one case. */
@@ -122415,6 +122422,77 @@ export namespace Schemas {
       summary: TraceEvaluationSummary;
     }
 
+    export interface TraceExport {
+      /** The export id, used to read its status and download the file. */
+      id: number;
+      /** Whether the file is still being written, ready, or failed. */
+      status: ExportStatusEnum;
+      /** The name the downloaded JSON file gets. */
+      filename: string;
+      /** When the export was requested. */
+      createdAt: string;
+      /** When the file is deleted. */
+      expiresAfter: string | null;
+      /** Why the export failed, null unless status is failed. */
+      exception: string | null;
+    }
+
+    export interface TraceExportCreate {
+      /** When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table. */
+      timestamp_hint?: string;
+    }
+
+    export interface TraceExportError {
+      /** Why the file cannot be downloaded yet. */
+      detail: string;
+    }
+
+    export interface TraceNodeMetadata {
+      provider: string | null;
+      temperature: number | null;
+      sessionId: string | null;
+      promptName: string | null;
+      promptVersion: number | null;
+    }
+
+    export interface TraceNodeIOKeys {
+      input: string | null;
+      output: string | null;
+      tools: string | null;
+    }
+
+    /**
+     * The event's properties as ingested, including its input and output values.
+     */
+    export type TraceNodeEventProperties = { [key: string]: unknown };
+
+    export interface TraceNodeEvent {
+      name: string;
+      uuid: string;
+      timestamp: string;
+      /** The event's properties as ingested, including its input and output values. */
+      properties: TraceNodeEventProperties;
+      /** Which keys of `properties` hold the node's input, output and tools, or null when it has none. */
+      ioKeys: TraceNodeIOKeys;
+    }
+
+    export interface TraceNodeDetail {
+      id: string;
+      kind: TraceNodeKindEnum;
+      error: string | null;
+      metadata: TraceNodeMetadata;
+      event: TraceNodeEvent | null;
+    }
+
+    export interface TraceExportFile {
+      /** The trace as the trace endpoint returns it. */
+      trace: Trace;
+      /** True when the trace has more events than an export reads. The file then holds the earliest events only, and leaves out the later steps. */
+      truncated: boolean;
+      /** Every node with its event properties as ingested, inputs and outputs included: the root first, then the tree in pre-order. */
+      nodes: TraceNodeDetail[];
+    }
+
     export interface TraceFeedbackScore {
       id: string;
       name: string | null;
@@ -122511,43 +122589,6 @@ export namespace Schemas {
       /** ok when survey responses are included, failed when the survey read failed, not_permitted when the token lacks the survey:read and query:read scopes. */
       surveyResponsesStatus: SurveyResponsesStatusEnum;
       summary: TraceFeedbackSummary;
-    }
-
-    export interface TraceNodeMetadata {
-      provider: string | null;
-      temperature: number | null;
-      sessionId: string | null;
-      promptName: string | null;
-      promptVersion: number | null;
-    }
-
-    export interface TraceNodeIOKeys {
-      input: string | null;
-      output: string | null;
-      tools: string | null;
-    }
-
-    /**
-     * The event's properties as ingested, including its input and output values.
-     */
-    export type TraceNodeEventProperties = { [key: string]: unknown };
-
-    export interface TraceNodeEvent {
-      name: string;
-      uuid: string;
-      timestamp: string;
-      /** The event's properties as ingested, including its input and output values. */
-      properties: TraceNodeEventProperties;
-      /** Which keys of `properties` hold the node's input, output and tools, or null when it has none. */
-      ioKeys: TraceNodeIOKeys;
-    }
-
-    export interface TraceNodeDetail {
-      id: string;
-      kind: TraceNodeKindEnum;
-      error: string | null;
-      metadata: TraceNodeMetadata;
-      event: TraceNodeEvent | null;
     }
 
     export interface TracePullRequest {

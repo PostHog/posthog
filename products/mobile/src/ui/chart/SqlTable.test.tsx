@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react-native'
+import { act, fireEvent, render, screen } from '@testing-library/react-native'
 import { useColorScheme } from 'react-native'
 
 import { sqlPresentation } from '@/model/adapters/sqlVisualization'
@@ -11,7 +11,7 @@ jest.mock('react-native-worklets', () => jest.requireActual('react-native-workle
 jest.mock('react-native-reanimated', () => jest.requireActual('react-native-reanimated/mock'))
 jest.mock('@/lib/analytics', () => ({ track: jest.fn() }))
 
-const COLUMNS: SqlColumnView[] = [
+const COLUMNS: [SqlColumnView, SqlColumnView, SqlColumnView] = [
     { name: 'page', scalar: 'STRING', isNumerical: false, isDate: false, format: null },
     { name: 'views', scalar: 'INTEGER', isNumerical: true, isDate: false, format: null },
     {
@@ -37,6 +37,7 @@ function table(rowCount: number, hasMore = false): SqlTableView {
 
 describe('SqlTable', () => {
     afterEach(() => {
+        jest.useRealTimers()
         jest.mocked(useColorScheme).mockReturnValue('light')
     })
 
@@ -99,6 +100,54 @@ describe('SqlTable', () => {
         expect(screen.getByTestId('chart-table-row-1')).toHaveStyle(highlighted)
         expect(screen.getByTestId('chart-table-row-0-pinned')).not.toHaveStyle(highlighted)
     })
+
+    test.each(['last', 'first', 'only'] as const)(
+        'fits a large number in the %s column and lets the user scroll to it',
+        (position) => {
+            jest.useFakeTimers()
+            const number = '9223372036854775807'
+            const textColumn = COLUMNS[0]
+            const numberColumn = COLUMNS[1]
+            const columns =
+                position === 'only'
+                    ? [numberColumn]
+                    : position === 'first'
+                      ? [numberColumn, textColumn]
+                      : [textColumn, numberColumn]
+            const rows = [columns.map((column) => (column.isNumerical ? number : 'Example'))]
+            const { rerender } = render(
+                <SqlTable table={{ columns, rows, hasMore: false }} label="Large values" testID="chart-table" />
+            )
+            fireEvent(screen.getByTestId('chart-table'), 'layout', { nativeEvent: { layout: { width: 240 } } })
+            expect(screen.getByTestId('chart-table-scroll')).toHaveProp('scrollEnabled', false)
+
+            const columnIndex = columns.findIndex((column) => column.isNumerical)
+            fireEvent(
+                screen.getByTestId(`chart-table-measure-${columnIndex}`, { includeHiddenElements: true }),
+                'layout',
+                {
+                    nativeEvent: { layout: { width: 300 } },
+                }
+            )
+            act(() => jest.runOnlyPendingTimers())
+
+            expect(screen.getByText(number)).toBeTruthy()
+            expect(screen.getByTestId('chart-table-scroll')).toHaveProp('scrollEnabled', true)
+            expect(screen.getByTestId('chart-table-scroll')).toHaveProp('showsHorizontalScrollIndicator', true)
+            if (position !== 'last') {
+                expect(screen.queryByTestId('chart-table-row-0-pinned')).toBeNull()
+            }
+
+            rerender(
+                <SqlTable
+                    table={{ columns: columns.map((column) => ({ ...column })), rows, hasMore: false }}
+                    label="Large values"
+                    testID="chart-table"
+                />
+            )
+            expect(screen.getByTestId('chart-table-scroll')).toHaveProp('scrollEnabled', true)
+        }
+    )
 
     test('draws a screen up to the row cap and says so under the rows', () => {
         render(<SqlTable table={table(501)} label="Top pages" testID="chart-table" />)

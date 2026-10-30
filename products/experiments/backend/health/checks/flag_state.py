@@ -40,14 +40,14 @@ from products.experiments.backend.health.split_changes import (
 )
 from products.feature_flags.backend.facade.edits import SplitChange
 
-# pinned: the page's warning keys. The page sends them as `finding_variant` and
+# pinned: the page's warning keys. The page sends them as `finding_subcode` and
 # `warning_key` on its events, and picks the banner text by them.
 RUNNING_BUT_FLAG_DISABLED = "running_but_flag_disabled"
 RUNNING_BUT_NO_ROLLOUT = "running_but_no_rollout"
 RUNNING_BUT_SINGLE_VARIANT_SHIPPED = "running_but_single_variant_shipped"
 ENDED_BUT_MULTIPLE_VARIANTS_ROLLED_OUT = "ended_but_multiple_variants_rolled_out"
 NOT_STARTED_BUT_MULTIPLE_VARIANTS_ROLLED_OUT = "not_started_but_multiple_variants_rolled_out"
-# pinned: the page sends these as `finding_variant` on its events, as the keys above. No banner uses them.
+# pinned: the page sends these as `finding_subcode` on its events, as the keys above. No banner uses them.
 RUNNING_BUT_FLAG_DELETED = "running_but_flag_deleted"
 ASSIGNED_OUTSIDE_FLAG_SERVICE = "assigned_outside_flag_service"
 PAUSED_FROM_EXPERIMENT = "paused_from_experiment"

@@ -15,6 +15,8 @@ from posthog.dataclasses import frozen
 from posthog.enums import LabeledStrEnum
 
 if TYPE_CHECKING:
+    from uuid import UUID
+
     from posthog.schema import MaxExperimentSummaryContext
 
 # Metrics per section (primary/secondary) included in the AI results summary
@@ -212,6 +214,8 @@ class ExperimentHealthFinding:
 
     code: ExperimentHealthFindingCode
     subcode: str | None
+    # pinned: the page sends it as `finding_reason` on the health finding events. Never customer text.
+    reason: str | None = None
     severity: ExperimentHealthFindingSeverity
     title: str
     detail: str
@@ -283,6 +287,7 @@ class ExperimentValidationError(Exception):
 
     def __init__(self, message: str, *, field: str | None = None) -> None:
         super().__init__(message)
+        self.message = message
         # The input field that the message is about, so that an HTTP boundary can report the error on that field.
         # None when the message is about the input as a whole.
         self.field = field
@@ -420,6 +425,33 @@ class FeatureFlag:
     name: str | None = None
 
 
+@frozen
+class ExperimentCreator:
+    """The user who created an experiment, with the fields that core's `UserBasicSerializer` renders. A caller
+    serializes it through that serializer, so the response keeps the `UserBasic` shape."""
+
+    id: int
+    uuid: "UUID"
+    distinct_id: str | None
+    first_name: str
+    last_name: str
+    email: str
+    is_email_verified: bool | None
+    # The stored value. `UserBasicSerializer` shapes it when it renders.
+    hedgehog_config: dict[str, Any] | None
+    role_at_organization: str | None
+
+
+@frozen
+class ExperimentActionReference:
+    """An experiment whose stored metrics, filters or configuration reference an action."""
+
+    id: int
+    name: str
+    created_at: datetime
+    created_by: ExperimentCreator | None
+
+
 @dataclass(frozen=True)
 class Experiment:
     """Experiment output."""
@@ -521,6 +553,30 @@ class RunningExperiment:
 
 
 @frozen
+class RecentExperiment:
+    """One of a team's most recently modified experiments."""
+
+    id: int
+    name: str
+    archived: bool
+    start_date: datetime | None
+    end_date: datetime | None
+    feature_flag_key: str
+    updated_at: datetime
+
+
+@frozen
+class ExperimentOrientation:
+    """A team's experiment counts and its most recently modified experiments. Deleted experiments are left out."""
+
+    total_count: int
+    # Started, not ended, and not archived.
+    running_count: int
+    # Most recently modified first.
+    recent: tuple[RecentExperiment, ...]
+
+
+@frozen
 class ExperimentChanged:
     """One save or delete of an experiment, as `connect_experiment_changed` receivers get it."""
 
@@ -596,3 +652,12 @@ class TeamExperimentsSettingsUpdate:
     default_sequential_testing_enabled: bool | Unset = UNSET
     default_sequential_tuning_parameter: int | None | Unset = UNSET
     flag_cleanup_repository: str | None | Unset = UNSET
+
+
+@frozen
+class LinkedExperiment:
+    """An experiment that is not deleted, as the flag it uses lists it."""
+
+    id: int
+    name: str
+    is_running: bool

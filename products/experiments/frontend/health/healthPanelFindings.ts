@@ -8,7 +8,7 @@ import type { ExperimentHealthFindingActionKind, ExperimentHealthFindingCode } f
 /** A finding of the health panel, from the experiment read or from the exposure answer. */
 export type HealthPanelFinding = Pick<
     ExperimentHealthFindingApi,
-    'subcode' | 'severity' | 'title' | 'detail' | 'evidence'
+    'subcode' | 'reason' | 'severity' | 'title' | 'detail' | 'evidence'
 > & {
     code: ExperimentHealthFindingCode
     actions: ExperimentHealthFindingActionKind[]
