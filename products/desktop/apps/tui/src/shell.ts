@@ -5,6 +5,15 @@ export interface ShellResult {
   cancelled: boolean;
 }
 
+// What the agent is told once a ! command has run, as if the user had typed it: a command and its output are a
+// turn of their own, not context waiting for the next message, so the agent can react to them at once.
+export function shellMessage(command: string, output: string): string {
+  const trimmed = output.trimEnd();
+  return trimmed
+    ? `I ran \`${command}\` in the shell. It printed:\n\`\`\`\n${trimmed}\n\`\`\``
+    : `I ran \`${command}\` in the shell. It printed nothing.`;
+}
+
 // The command in a composer message that starts with !, or null for any other message.
 export function parseShell(text: string): string | null {
   const trimmed = text.trim();

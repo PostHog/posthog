@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 import { ClaudeLocalSession, claudePlan } from "./claudeLocal";
 import type { AgentPrompt } from "./prompts";
 import { emptyRunView } from "./runs";
+import { shellMessage } from "./shell";
 import { transcriptFrom } from "./transcript";
 
 function fakeLog(
@@ -113,21 +114,16 @@ describe("ClaudeLocalSession", () => {
         output: "hi",
       }),
     ]);
-    // The output goes to the agent with the next message, as the desktop app does.
-    await session.prompt("what did that print?");
+    // The agent hears about the command at once, as a message saying what ran and what it printed.
     const blocksSent = (): { type: string; text?: string }[] =>
       (agent.prompt.mock.calls as unknown as unknown[][]).at(-1)?.[1] as {
         type: string;
         text?: string;
       }[];
-    const sent = blocksSent();
-    expect(sent.map((block) => block.text)).toEqual([
-      expect.stringContaining("$ echo hi\nhi"),
-      "what did that print?",
+    expect(agent.prompt).toHaveBeenCalledTimes(1);
+    expect(blocksSent().map((block) => block.text)).toEqual([
+      shellMessage("echo hi", "hi"),
     ]);
-    // Once sent, it is not sent again.
-    await session.prompt("and now?");
-    expect(blocksSent()).toHaveLength(1);
   });
 
   it("refuses to start when Claude Code is not logged in, so nothing bills PostHog", async () => {
