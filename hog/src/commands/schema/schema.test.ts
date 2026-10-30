@@ -58,15 +58,19 @@ describe('hog schema', () => {
         expect(result.files['/work/posthog.json']).toBe(config)
     })
 
-    test('pull into a folder uses the default file name and starts a posthog.json', async () => {
-        const result = await runHog(['schema', 'pull', '--language', 'typescript', '--file', 'src/'], {
+    test.each([
+        ['a folder gets the default file name', 'src/', '/work/src/posthog-typed.ts', 'src/posthog-typed.ts'],
+        ['a sibling folder stays relative', '../web/typed.ts', '/web/typed.ts', '../web/typed.ts'],
+    ])('pull into %s and starts a posthog.json', async (_name, file, written, stored) => {
+        const result = await runHog(['schema', 'pull', '--language', 'typescript', '--file', file], {
             env: AGENT,
             respond: definitions('generated'),
         })
-        expect(result.files['/work/src/posthog-typed.ts']).toBe('generated')
+
+        expect(result.files[written]).toBe('generated')
         expect(JSON.parse(result.files['/work/posthog.json']!)).toMatchObject({
             $schema: expect.stringContaining('posthog.schema.json'),
-            languages: { typescript: { output_path: 'src/posthog-typed.ts' } },
+            languages: { typescript: { output_path: stored } },
         })
     })
 
