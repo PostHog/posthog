@@ -26,7 +26,6 @@ from products.alerts_platform.backend.delivery.email import EmailTransport
 from products.alerts_platform.backend.delivery.in_app import InAppTransport
 from products.alerts_platform.backend.delivery.message import INCIDENT_KINDS, AlertMessage
 from products.alerts_platform.backend.delivery.pagerduty import PagerDutyTransport, source_incident_key
-from products.alerts_platform.backend.delivery.routing import deliver_routes
 from products.alerts_platform.backend.delivery.slack import SlackTransport
 from products.alerts_platform.backend.delivery.team_flags import team_flag_enabled
 from products.alerts_platform.backend.delivery.teams import TeamsTransport
@@ -311,16 +310,6 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
                 failures.append(type(error).__name__)
             else:
                 sent += 1
-    routed = deliver_routes(
-        request=request,
-        announced=announced,
-        team=team,
-        thread_store=thread_store,
-        project=project,
-        transports=_TRANSPORTS,
-    )
-    sent += routed.sent
-    busy.extend(routed.busy)
     # Emitted last and only without a held thread, because the workflow runs a held delivery again
     # in full. A native send that fails also reruns the whole delivery, so the store records the
     # emission, and a rerun does not send every HogFunction message a second time.

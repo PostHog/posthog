@@ -6,16 +6,14 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
-from products.alerts_platform.backend.delivery import delivery_paths
-from products.alerts_platform.backend.delivery.evaluation import deliver_evaluation
-from products.alerts_platform.backend.delivery.routing import ROUTING_FLAG
+from products.alerts_platform.backend.delivery import routing
+from products.alerts_platform.backend.delivery.routing import ROUTING_FLAG, deliver_routes
 from products.alerts_platform.backend.delivery.thread_store import ThreadBusy
-from products.alerts_platform.backend.facade.api import create_alert_destinations
+from products.alerts_platform.backend.delivery.transport import DeliveryError
 from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
     AlertEventKind,
     DestinationType,
-    NewAlertDestination,
     SourceKind,
 )
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
@@ -29,14 +27,14 @@ from products.alerts_platform.backend.tests.test_delivery_evaluation import (
     _transition,
 )
 
-_MODULE = "products.alerts_platform.backend.delivery.evaluation"
+_MODULE = "products.alerts_platform.backend.delivery.routing"
 
 
 class TestDeliverRoutes(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         RecordingTransport.sends = []
-        configuration = PlatformAlertConfiguration.objects.for_team(self.team.id).create(
+        PlatformAlertConfiguration.objects.for_team(self.team.id).create(
             id=CONFIGURATION_ID,
             team=self.team,
             name="API errors",
@@ -45,11 +43,9 @@ class TestDeliverRoutes(APIBaseTest):
             destinations_owner=PlatformAlertOwner.PLATFORM,
             labels={"team": "infra"},
         )
-        create_alert_destinations(
-            team_id=self.team.id,
-            configuration_id=configuration.id,
-            destinations=(NewAlertDestination(data=SLACK, event_kinds=(AlertEventKind.FIRING,)),),
-        )
+        self._route("C-infra", [{"label": "team", "op": "=", "value": "infra"}], 0)
+        self._route("C-billing", [{"label": "team", "op": "=", "value": "billing"}], 1)
+        self._route("C-all", [], 2)
 
     def _route(self, channel: str, matchers: list[dict[str, str]], position: int) -> None:
         receiver = AlertReceiver.objects.for_team(self.team.id).create(
@@ -62,12 +58,11 @@ class TestDeliverRoutes(APIBaseTest):
             team=self.team, receiver=receiver, matchers=matchers, event_kinds=["firing"], position=position
         )
 
-    def _deliver(self, flags: dict[str, Any]) -> None:
-        def feature_enabled(flag: str, *args: Any, **kwargs: Any) -> Any:
-            value = flags.get(flag, False)
-            if isinstance(value, Exception):
-                raise value
-            return value
+    def _deliver(self, flag: Any = True) -> int:
+        def feature_enabled(key: str, *args: Any, **kwargs: Any) -> Any:
+            if isinstance(flag, Exception):
+                raise flag
+            return flag if key == ROUTING_FLAG else False
 
         with (
             patch(
@@ -75,41 +70,43 @@ class TestDeliverRoutes(APIBaseTest):
                 side_effect=feature_enabled,
             ),
             patch(f"{_MODULE}.announcement", return_value=_announcement(_transition(AlertEventKind.FIRING))),
-            patch(f"{_MODULE}.announced_kinds", return_value={}),
             patch(f"{_MODULE}.DatabaseThreadStore"),
-            patch.dict(delivery_paths._emitters, clear=True),
             patch.dict(f"{_MODULE}._TRANSPORTS", {DestinationType.SLACK: RecordingTransport}),
         ):
-            deliver_evaluation(_request(self.team.id, owned_by_platform=True))
+            return deliver_routes(_request(self.team.id, owned_by_platform=True))
 
     @parameterized.expand(
         [
-            ("routing_on", {ROUTING_FLAG: True}, ["C-1", "C-infra", "C-all"]),
-            ("routing_off", {ROUTING_FLAG: False}, ["C-1"]),
-            ("flag_check_fails", {ROUTING_FLAG: RuntimeError("flags down")}, ["C-1"]),
+            ("routing_on", True, ["C-infra", "C-all"]),
+            ("routing_off", False, []),
+            ("flag_check_fails", RuntimeError("flags down"), []),
         ]
     )
-    def test_matching_routes_send_beside_the_alerts_own_destinations(
-        self, _name: str, flags: dict[str, Any], expected_channels: list[str]
+    def test_sends_to_the_receivers_whose_routes_match_the_labels(
+        self, _name: str, flag: Any, expected_channels: list[str]
     ) -> None:
-        self._route("C-infra", [{"label": "team", "op": "=", "value": "infra"}], 0)
-        self._route("C-billing", [{"label": "team", "op": "=", "value": "billing"}], 1)
-        self._route("C-all", [], 2)
-
-        self._deliver(flags)
+        sent = self._deliver(flag)
 
         assert [channel for channel, _ in RecordingTransport.sends] == expected_channels
+        assert sent == len(expected_channels)
 
-    def test_a_busy_routed_thread_retries_the_delivery_after_the_alerts_own_sends(self) -> None:
-        self._route("C-all", [], 0)
+    @parameterized.expand(
+        [
+            ("busy", ThreadBusy("1 of 1 threads are held by another send")),
+            ("failed", DeliveryError("slack returned 500")),
+        ]
+    )
+    def test_one_receiver_failing_still_sends_the_rest_then_raises_for_a_retry(
+        self, _name: str, error: Exception
+    ) -> None:
+        real_deliver = routing.deliver
 
-        with (
-            patch(
-                "products.alerts_platform.backend.delivery.routing.deliver",
-                side_effect=ThreadBusy("1 of 1 threads are held by another send"),
-            ),
-            pytest.raises(ThreadBusy),
-        ):
-            self._deliver({ROUTING_FLAG: True})
+        def deliver(**kwargs: Any) -> Any:
+            if kwargs["target"]["slack_channel_id"] == "C-infra":
+                raise error
+            return real_deliver(**kwargs)
 
-        assert [channel for channel, _ in RecordingTransport.sends] == ["C-1"]
+        with patch(f"{_MODULE}.deliver", side_effect=deliver), pytest.raises(type(error)):
+            self._deliver()
+
+        assert [channel for channel, _ in RecordingTransport.sends] == ["C-all"]
