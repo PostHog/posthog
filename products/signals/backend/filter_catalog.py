@@ -68,6 +68,7 @@ class SignalFilterSourceDefinition(InternalCatalogModel):
 
     class Meta:
         app_label = "signals"
+        base_manager_name = "objects"
         constraints = [
             models.UniqueConstraint(fields=["source_product", "source_type"], name="signals_filter_source_unique"),
             models.CheckConstraint(
@@ -123,6 +124,7 @@ class SignalFilterCatalogVersion(InternalCatalogModel):
 
     class Meta:
         app_label = "signals"
+        base_manager_name = "objects"
         constraints = [
             models.UniqueConstraint(fields=["source", "version"], name="signals_filter_catalog_version_unique"),
             models.CheckConstraint(condition=models.Q(version__gt=0), name="signals_filter_catalog_version_positive"),

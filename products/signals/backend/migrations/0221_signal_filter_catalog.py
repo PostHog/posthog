@@ -9,9 +9,7 @@ import products.signals.backend.filter_catalog_schema
 
 
 class Migration(migrations.Migration):
-    dependencies = [
-        ("signals", "0218_monitoring_tracker_close_index"),
-    ]
+    dependencies = [("signals", "0220_signalteamconfig_default_slack_notification_integration")]
 
     operations = [
         migrations.CreateModel(
@@ -19,15 +17,27 @@ class Migration(migrations.Migration):
             fields=[
                 (
                     "id",
-                    models.UUIDField(default=posthog.uuidt.uuid7, editable=False, primary_key=True, serialize=False),
+                    models.UUIDField(
+                        default=posthog.uuidt.uuid7,
+                        editable=False,
+                        primary_key=True,
+                        serialize=False,
+                    ),
                 ),
                 ("source_product", models.CharField(max_length=128)),
                 ("source_type", models.CharField(max_length=128)),
-                ("adapter_kind", models.CharField(choices=[("warehouse", "Warehouse")], max_length=32)),
+                (
+                    "adapter_kind",
+                    models.CharField(choices=[("warehouse", "Warehouse")], max_length=32),
+                ),
                 (
                     "rollout_state",
                     models.CharField(
-                        choices=[("disabled", "Disabled"), ("internal", "Internal"), ("enabled", "Enabled")],
+                        choices=[
+                            ("disabled", "Disabled"),
+                            ("internal", "Internal"),
+                            ("enabled", "Enabled"),
+                        ],
                         default="disabled",
                         max_length=16,
                     ),
@@ -35,13 +45,19 @@ class Migration(migrations.Migration):
                 ("filter_query_eligible", models.BooleanField(default=False)),
                 ("metadata", models.JSONField(blank=True, default=dict)),
             ],
+            options={"base_manager_name": "objects"},
         ),
         migrations.CreateModel(
             name="SignalFilterCatalogVersion",
             fields=[
                 (
                     "id",
-                    models.UUIDField(default=posthog.uuidt.uuid7, editable=False, primary_key=True, serialize=False),
+                    models.UUIDField(
+                        default=posthog.uuidt.uuid7,
+                        editable=False,
+                        primary_key=True,
+                        serialize=False,
+                    ),
                 ),
                 ("version", models.PositiveIntegerField()),
                 (
@@ -60,6 +76,7 @@ class Migration(migrations.Migration):
                     ),
                 ),
             ],
+            options={"base_manager_name": "objects"},
         ),
         migrations.AddField(
             model_name="signalfiltersourcedefinition",
@@ -75,14 +92,17 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="signalfiltersourcedefinition",
             constraint=models.UniqueConstraint(
-                fields=("source_product", "source_type"), name="signals_filter_source_unique"
+                fields=("source_product", "source_type"),
+                name="signals_filter_source_unique",
             ),
         ),
         migrations.AddConstraint(
             model_name="signalfiltersourcedefinition",
             constraint=models.CheckConstraint(
                 condition=models.Q(
-                    ("filter_query_eligible", False), ("active_catalog_version__isnull", False), _connector="OR"
+                    ("filter_query_eligible", False),
+                    ("active_catalog_version__isnull", False),
+                    _connector="OR",
                 ),
                 name="signals_filter_eligible_catalog",
             ),
@@ -90,13 +110,15 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="signalfiltercatalogversion",
             constraint=models.UniqueConstraint(
-                fields=("source", "version"), name="signals_filter_catalog_version_unique"
+                fields=("source", "version"),
+                name="signals_filter_catalog_version_unique",
             ),
         ),
         migrations.AddConstraint(
             model_name="signalfiltercatalogversion",
             constraint=models.CheckConstraint(
-                condition=models.Q(("version__gt", 0)), name="signals_filter_catalog_version_positive"
+                condition=models.Q(("version__gt", 0)),
+                name="signals_filter_catalog_version_positive",
             ),
         ),
     ]

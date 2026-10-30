@@ -35,6 +35,7 @@ BUSINESS_KNOWLEDGE = TaskProfile(
     github_resolution=GithubResolution.ALWAYS,
     user_authorable_prs=False,
     default_pr_authorship=PrAuthorship.BOT,
+    create_pr=False,
     finish_tool=False,
     done_on_turn_close=False,
     idle_minutes=30,

@@ -140,6 +140,22 @@ class TestFilterCatalogPersistence(TestCase):
         self.source.refresh_from_db()
         self.assertEqual(self.source.active_catalog_version_id, self.catalog.pk)
 
+    @parameterized.expand(["add", "set"])
+    def test_reverse_relation_cannot_reassign_active_version(self, operation: str) -> None:
+        self.source.activate(self.catalog)
+        other = SignalFilterSourceDefinition.objects.create(
+            source_product="another_tracker", source_type="issue", adapter_kind="warehouse"
+        )
+        with self.assertRaises(ValidationError):
+            if operation == "add":
+                other.catalog_versions.add(self.catalog)
+            else:
+                other.catalog_versions.set([self.catalog])
+        self.catalog.refresh_from_db()
+        self.source.refresh_from_db()
+        self.assertEqual(self.catalog.source_id, self.source.pk)
+        self.assertEqual(self.source.active_catalog_version_id, self.catalog.pk)
+
     @parameterized.expand(["bundle", "version", "source_id"])
     def test_published_version_is_immutable(self, field: str) -> None:
         original = deepcopy(self.catalog.bundle)

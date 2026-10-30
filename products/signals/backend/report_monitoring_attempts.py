@@ -120,6 +120,7 @@ def complete_implementation(
             report=report,
             monitoring_started_at=monitoring_started_at,
             check_versions={str(check.id): check_definition_version(check) for check in applicable},
+            close_pr_on_resolve=close_pr_on_resolve,
         )
         SignalReportCheck.objects.for_team(team_id).filter(id__in=[check.id for check in applicable]).update(
             status=SignalReportCheck.Status.PENDING,

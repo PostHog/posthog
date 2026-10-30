@@ -243,6 +243,10 @@ class SignalTeamConfig(ModelActivityMixin, UUIDModel):
     onboarding = models.JSONField(null=True, blank=True)
     default_autostart_priority = models.CharField(max_length=2, choices=AutonomyPriority, default=AutonomyPriority.P4)
     default_slack_notification_channel = models.CharField(max_length=255, null=True, blank=True)
+    # The workspace that owns the channel. A team can connect several Slack workspaces, and a channel
+    # id from one of them fails in every other. Null on rows saved before the binding existed.
+    # A plain id rather than a foreign key, so readers treat an id of a deleted workspace as unbound.
+    default_slack_notification_integration_id = models.BigIntegerField(null=True, blank=True)
     autostart_base_branches = models.JSONField(default=dict, blank=True)
     scout_instructions = models.TextField(null=True, blank=True)
     research_instructions = models.TextField(null=True, blank=True)
@@ -276,6 +280,10 @@ class SignalTeamConfig(ModelActivityMixin, UUIDModel):
     # shares with everybody. A null or blank name falls back to DEFAULT_PULL_REQUEST_LABEL.
     pull_request_label_enabled = models.BooleanField(default=False, db_default=False)
     pull_request_label = models.CharField(max_length=GITHUB_LABEL_NAME_MAX_LENGTH, null=True, blank=True)
+    # Lowercased "organization/repository" names that implementation tasks may also read and write,
+    # for example an assets repository a PR uploads screenshots to. They widen the run's GitHub token
+    # only. The run never clones them, and the PR target stays the selected repository.
+    implementation_repositories = models.JSONField(default=list, db_default=[], blank=True)
     # Opt-out of anomaly scoring (see anomaly_scores/queue.py). The `anomaly-scoring` flag payload
     # still decides which projects are enrolled, so turning this on cannot enroll a project.
     anomaly_scoring_enabled = models.BooleanField(default=True, db_default=True)

@@ -48,6 +48,7 @@ from products.tasks.backend.exceptions import (
     TaskRunNotReadyError,
 )
 from products.tasks.backend.facade.api import ensure_task_run_session
+from products.tasks.backend.facade.profiles import TaskProfile, TaskProfileError, get_task_profile
 from products.tasks.backend.feature_flags import own_subscription_cloud_enabled
 from products.tasks.backend.logic.model_access import ModelAccess, resolve_model_access
 from products.tasks.backend.logic.services.agent_instructions import agent_instructions_state_update
@@ -111,6 +112,9 @@ class TaskProcessingContext:
     repository: str | None
     distinct_id: str
     origin_product: str | None = None
+    profile_key: str | None = None
+    profile_idle_minutes: int | None = None
+    profile_max_wake_minutes: int | None = None
     startup_requested_at: str | None = None
     task_runtime: str = Task.Runtime.ACP
     environment: str | None = None
@@ -217,6 +221,17 @@ class TaskProcessingContext:
         return [self.repository] if self.repository else []
 
     @property
+    def github_access_repositories(self) -> list[str]:
+        """Repositories the run's GitHub token covers: the cloned ones plus any granted at creation.
+
+        Only token minting reads this. Remote rewrites and cloning stay on ``repositories``.
+        """
+        access = (self.state or {}).get("github_access_repositories")
+        if isinstance(access, list) and access and all(isinstance(repository, str) for repository in access):
+            return access
+        return self.repositories
+
+    @property
     def github_read_access(self) -> bool:
         """Run that asked to be downscoped to a read-only GitHub token (see Task.create_and_run).
 
@@ -292,7 +307,10 @@ class TaskProcessingContext:
     def inactivity_timeout(self) -> timedelta:
         """Idle time before the workflow times the run out; longer for user-driven runs."""
         return resolve_inactivity_timeout(
-            is_user_origin=self._is_user_origin(), origin_product=self.origin_product, state=self.state
+            is_user_origin=self._is_user_origin(),
+            origin_product=self.origin_product,
+            state=self.state,
+            profile_idle_minutes=self.profile_idle_minutes,
         )
 
     def _is_user_origin(self) -> bool:
@@ -310,13 +328,22 @@ class TaskProcessingContext:
         sessions can legitimately run for hours, so they are uncapped — except interactive
         signals-origin runs, whose inference is unbilled and which therefore get their own
         (longer) ceiling, resolved activity-side into the field below. Autonomous runs get
-        the cap as a safety net unless the setting disables it deployment-wide.
+        the cap as a safety net unless the setting disables it deployment-wide. A task with
+        a profile takes both the exemption and the cap from the profile's `max_wake_minutes`.
         """
-        if self.mode == "interactive" or self._is_user_origin():
+        if self.mode == "interactive" or self._exempt_from_max_run_duration():
             if self.interactive_max_run_duration_seconds:
                 return timedelta(seconds=self.interactive_max_run_duration_seconds)
             return None
-        return resolve_max_run_duration()
+        cap = resolve_max_run_duration()
+        if cap is None or self.profile_max_wake_minutes is None:
+            return cap
+        return timedelta(minutes=self.profile_max_wake_minutes)
+
+    def _exempt_from_max_run_duration(self) -> bool:
+        if self.profile_key:
+            return self.profile_max_wake_minutes is None
+        return self._is_user_origin()
 
     def sandbox_resource_overrides(self) -> dict[str, float | int]:
         """Per-task SandboxConfig overrides (compute + TTL), clamped to server-owned bounds.
@@ -861,6 +888,16 @@ def _resolve_sandbox_backend(
     return "hogland" if enabled else "modal"
 
 
+def _stored_task_profile(task: Task, run_id: str) -> TaskProfile | None:
+    if not task.profile:
+        return None
+    try:
+        return get_task_profile(task.profile)
+    except TaskProfileError:
+        log_with_activity_context("task_profile_not_registered", run_id=run_id, profile=task.profile)
+        return None
+
+
 def _compile_effective_network_policy(allowed_domains: list[str]) -> EffectiveNetworkPolicy:
     debug_domains = _get_debug_only_domains() if settings.DEBUG else []
     debug_ports = _get_debug_only_ports() if settings.DEBUG else []
@@ -1264,6 +1301,8 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         if user_github_integration is not None:
             user_github_integration_id = str(user_github_integration.integration.id)
 
+    profile = _stored_task_profile(task, run_id)
+
     return TaskProcessingContext(
         task_id=str(task.id),
         run_id=run_id,
@@ -1276,10 +1315,13 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         repository=run_repository,
         distinct_id=distinct_id,
         origin_product=task.origin_product,
+        profile_key=profile.key if profile else None,
+        profile_idle_minutes=profile.idle_minutes if profile else None,
+        profile_max_wake_minutes=profile.max_wake_minutes if profile else None,
         task_runtime=task.runtime,
         environment=task_run.environment,
         task_created_by_id=task.created_by_id,
-        create_pr=input.create_pr,
+        create_pr=input.create_pr and (profile is None or profile.create_pr),
         pr_loop_enabled=pr_loop_enabled,
         pr_babysit_enabled=pr_loop_enabled,
         context_layer_enabled=context_layer_enabled,
