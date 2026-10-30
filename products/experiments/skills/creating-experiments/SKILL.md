@@ -150,7 +150,7 @@ Key details:
 
 3. **Say how the flag gets into the code.**
    - If you changed the user's code, add a **Code changes** part after the three groups. It replaces the reminder below.
-     The three groups stay about the experiment's settings. A choice you made in code, such as reading the flag in the browser so bots don't count as exposed, still goes in its group.
+     The three groups stay about the experiment's settings. A choice you made in code, such as reading the flag in the browser so requests that never render the page don't count as exposed, still goes in its group.
      - One plain line per changed file, saying what the change does: "`headline-experiment.ts`: new file that asks PostHog which headline each visitor gets."
      - What the user should check before launch, for example that both variants render. Say which checks you already ran, and what code is still missing, if any.
      - No diffs and no code. The user can read those in their editor.
