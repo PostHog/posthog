@@ -78,6 +78,7 @@ class TestMaxRunDuration:
                 None,
             ),
             ("setting_disables_profile_cap", "background", Task.OriginProduct.WORKFLOW.value, 120, 0, None),
+            ("setting_below_profile_cap", "background", Task.OriginProduct.WORKFLOW.value, 120, 3600, 60),
         ]
     )
     def test_profile_sets_the_cap(
