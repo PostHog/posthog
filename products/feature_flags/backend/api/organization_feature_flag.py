@@ -282,7 +282,7 @@ class OrganizationFeatureFlagView(
             team_id__in=team_ids,
         )
         flags_qs = self._filter_flags_by_rbac(flags_qs, team_ids)
-        flags = list(flags_qs)
+        flags = list(flags_qs.select_related("created_by"))
         for flag in flags:
             self._redact_encrypted_payloads(request, flag)
 

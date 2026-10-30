@@ -5317,8 +5317,8 @@ class FeatureFlagViewSet(
 
         # Apply access control - filter to only editable flags
         if self.user_access_control:
-            # Fetch just IDs for access control check (lightweight query)
-            flags_for_access_check = list(queryset.only("id"))
+            # The access check reads created_by_id, so a deferred column costs a query per flag
+            flags_for_access_check = list(queryset.only("id", "created_by_id"))
             self.user_access_control.preload_object_access_controls(cast(list, flags_for_access_check))
 
             editable_ids = []
@@ -5333,7 +5333,7 @@ class FeatureFlagViewSet(
             queryset = queryset.filter(id__in=editable_ids)
 
         # Prefetch related data for validation (only for flags we'll actually process)
-        queryset = queryset.prefetch_related("features", "experiment_set")
+        queryset = queryset.select_related("team").prefetch_related("features", "experiment_set")
         flags_list = list(queryset)
 
         # Batch query for dependent flags
