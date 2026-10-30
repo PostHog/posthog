@@ -16,29 +16,19 @@ import type { ScannerHandoffFromFilters } from '../scannerHandoffFromFilters'
 import type { ReplayScanner } from '../types'
 import { eligibleFilterGroups } from './ScannerGoalOverview'
 
-// The draft API's limit for `monthly_credit_budget`.
-const MAX_CREDIT_CAP = 100_000_000
-
 const GOAL_PLACEHOLDER =
     'For example: Where do people give up before they pay?\nOr: Watch for errors and buttons that do nothing on the payment step.'
 
 export function ReplayFiltersScannerPopover({ handoff }: { handoff: ScannerHandoffFromFilters }): JSX.Element {
-    const { goal, budget, spendChoice, freeCreditsLeft } = useValues(replayFiltersScannerLogic)
+    const { goal, budget, spendChoice, freeCreditsLeft, draftInputDisabledReason } =
+        useValues(replayFiltersScannerLogic)
     const { setGoal, setCreditCap, setBudget, draftWithAi, setUpManually } = useActions(replayFiltersScannerLogic)
     const { dataProcessingAccepted } = useValues(aiConsentLogic)
     const [consentRequested, setConsentRequested] = useState(false)
     const [pendingSpend, setPendingSpend] = useState<GoalDraftSpend | null>(null)
 
     const editDisabledReason = getReplayVisionEditDisabledReason()
-    const draftDisabledReason =
-        editDisabledReason ??
-        (!goal.trim()
-            ? 'Say what the scanner should watch for or answer'
-            : !spendChoice.spend ||
-                (spendChoice.mode === 'budget' &&
-                    (budget == null || !Number.isInteger(budget) || budget < 1 || budget > MAX_CREDIT_CAP))
-              ? 'Enter a monthly credit cap from 1 to 100,000,000 credits'
-              : null)
+    const draftDisabledReason = editDisabledReason ?? draftInputDisabledReason
 
     const filterGroups = handoff.narrowsSessions
         ? eligibleFilterGroups({

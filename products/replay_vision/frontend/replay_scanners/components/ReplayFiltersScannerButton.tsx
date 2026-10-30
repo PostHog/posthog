@@ -11,8 +11,6 @@ import { REPLAY_FILTERS_ENTRY_POINT, replayFiltersScannerLogic } from '../replay
 import type { ScannerHandoffFromFilters } from '../scannerHandoffFromFilters'
 import { ReplayFiltersScannerPopover } from './ReplayFiltersScannerPopover'
 
-/** The replay filters entry point to Replay vision. Says what a scanner does, since most people
- * reaching it have not heard of one, and opens a popover that drafts one from these filters. */
 export function ReplayFiltersScannerButton({ handoff }: { handoff: ScannerHandoffFromFilters }): JSX.Element {
     const { popoverOpen } = useValues(replayFiltersScannerLogic)
     const { setPopoverOpen } = useActions(replayFiltersScannerLogic)
@@ -26,8 +24,7 @@ export function ReplayFiltersScannerButton({ handoff }: { handoff: ScannerHandof
         >
             <Popover
                 visible={popoverOpen}
-                // A press on the button itself is outside the popover too, so it would close the popover and the
-                // button's own toggle would reopen it.
+                // Otherwise a press on the button closes the popover and the button's own toggle reopens it.
                 onClickOutside={(event) => {
                     if (!buttonRef.current?.contains(event.target as Node)) {
                         setPopoverOpen(false)

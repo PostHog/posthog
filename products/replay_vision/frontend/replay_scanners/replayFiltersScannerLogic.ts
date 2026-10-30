@@ -14,6 +14,9 @@ import { markScannerGoalDraftIntent } from './scannerHandoffIntent'
 
 export type ReplayFiltersCreditCap = 'free' | 'cap'
 
+// The draft API's limit for `monthly_credit_budget`.
+const MAX_CREDIT_CAP = 100_000_000
+
 // Pinned: the `placement` on the shared replay_vision_upsell_* events and the scanner's `entry_point`.
 export const REPLAY_FILTERS_ENTRY_POINT = 'replay_filters'
 
@@ -45,6 +48,7 @@ export interface replayFiltersScannerLogicValues {
     freeCreditsLeft: number | null // visionQuotaLogic
     budget: number | null
     creditCap: ReplayFiltersCreditCap
+    draftInputDisabledReason: string | null
     goal: string
     popoverOpen: boolean
     spendChoice: GoalSpendChoice
@@ -84,6 +88,7 @@ export interface replayFiltersScannerLogicMeta {
             budget: number | null,
             freeCreditsLeft: number | null
         ) => GoalSpendChoice
+        draftInputDisabledReason: (goal: string, spendChoice: GoalSpendChoice, budget: number | null) => string | null
     }
 }
 
@@ -94,8 +99,6 @@ export type replayFiltersScannerLogicType = MakeLogicType<
     replayFiltersScannerLogicMeta
 >
 
-/** The "Have AI watch recordings like these" popover in the replay filters: a goal and a credit cap,
- * handed to the wizard's AI draft together with the filters, or the manual wizard with the filters. */
 export const replayFiltersScannerLogic = kea<replayFiltersScannerLogicType>([
     path(['products', 'replay_vision', 'frontend', 'replay_scanners', 'replayFiltersScannerLogic']),
     connect(() => ({ values: [visionQuotaLogic, ['freeCreditsLeft']] })),
@@ -148,6 +151,19 @@ export const replayFiltersScannerLogic = kea<replayFiltersScannerLogicType>([
                 budget: number | null,
                 freeCreditsLeft: number | null
             ): GoalSpendChoice => goalSpendChoice(creditCap === 'free' ? 'free' : 'budget', budget, freeCreditsLeft),
+        ],
+        draftInputDisabledReason: [
+            (s) => [s.goal, s.spendChoice, s.budget],
+            (goal: string, spendChoice: GoalSpendChoice, budget: number | null): string | null => {
+                if (!goal.trim()) {
+                    return 'Say what the scanner should watch for or answer'
+                }
+                const capInRange = budget != null && Number.isInteger(budget) && budget >= 1 && budget <= MAX_CREDIT_CAP
+                if (!spendChoice.spend || (spendChoice.mode === 'budget' && !capInRange)) {
+                    return 'Enter a monthly credit cap from 1 to 100,000,000 credits'
+                }
+                return null
+            },
         ],
     }),
 

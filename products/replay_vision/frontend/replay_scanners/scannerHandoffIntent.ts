@@ -57,13 +57,11 @@ export function consumeScannerHandoffIntent(): ScannerHandoffIntent | null {
 const SCANNER_GOAL_DRAFT_INTENT_KEY = 'replay-vision.scanner-goal-draft-intent'
 const SCANNER_GOAL_DRAFT_INTENT_TTL_MS = 60_000
 
-/** What an entry point arms alongside the goal. The query is the person's own filter, so the draft
- * keeps it instead of picking its own sessions. */
+/** The query is the person's own filter, so the draft keeps it rather than picking its own sessions. */
 export interface ScannerGoalDraftIntent {
     goal: string
     query?: RecordingsQuery
     spend?: GoalDraftSpend
-    /** Entry point that armed the draft, recorded on the creation-started event. */
     source?: string
 }
 

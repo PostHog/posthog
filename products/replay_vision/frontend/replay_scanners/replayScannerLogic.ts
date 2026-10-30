@@ -451,8 +451,7 @@ export interface GoalDraftRequest {
     experimentId?: number
 }
 
-/** The in-app surface a scanner was started from, kept only when it is a slug the create API accepts,
- * so a telemetry value can never block a save. */
+/** Kept only when it is a slug the create API accepts, so a telemetry value can never block a save. */
 function scannerEntryPoint(value: unknown): string | null {
     return typeof value === 'string' && /^[a-z0-9_]{1,64}$/.test(value) ? value : null
 }
@@ -1370,8 +1369,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 setGoalSpendMode: (_, { mode }) => mode,
             },
         ],
-        // Recordings the person already chose, for example in the replay filters. Kept through a failed
-        // draft so a retry from the goal page still watches them, rather than whatever the agent picks.
+        // Kept through a failed draft, so a retry from the goal page still watches the chosen recordings.
         goalDraftQuery: [
             null as RecordingsQuery | null,
             {
@@ -1381,8 +1379,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 scannerSaved: () => null,
             },
         ],
-        // Kept through a path switch, since a person who opens the AI flow from an entry point and then
-        // builds by hand still started there.
+        // Kept through a path switch, because a person who builds by hand after the AI flow still started there.
         entryPoint: [
             null as string | null,
             {

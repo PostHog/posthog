@@ -2067,8 +2067,6 @@ export const ScannerEditorGoalOverviewRecordingsFirst: StoryObj = {
 
 const addedBillingEvent = { id: 'billing_limit_set', name: 'billing_limit_set', type: 'events', order: 0 }
 
-// A draft started from the replay filters: the person's /checkout filter stays, and the draft ANDs an
-// event onto it, which the eligible-recordings section credits to PostHog AI.
 const goalDraftFromReplayFilters: DraftScannerResponseApi = {
     ...goalDraft,
     query: {

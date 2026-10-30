@@ -71,8 +71,6 @@ describe('scannerHandoffFromFilters', () => {
         expect(JSON.parse(searchParams.filters)).not.toHaveProperty('experiment_exposure')
     })
 
-    // The AI draft turns exposure into the scanner's experiment and variants itself, so dropping it on that
-    // path would draft a scanner that watches everyone.
     it('keeps experiment exposure in the query the AI draft gets', () => {
         const handoff = scannerHandoffFromFilters(
             filters({ values: [PAGEVIEW], experiment_exposure: { experiment_id: 42, variant: 'test' } })
@@ -91,8 +89,6 @@ describe('scannerHandoffFromFilters', () => {
         expect(searchParams).not.toHaveProperty('variant')
     })
 
-    // The replay list resolves the comment search itself. A scanner never applies it, so keeping it would
-    // save a scanner that watches more recordings than the person chose.
     it('drops a comment search from the query and reports it', () => {
         const handoff = scannerHandoffFromFilters(filters({ values: [PAGEVIEW, COMMENT_SEARCH] }))
 

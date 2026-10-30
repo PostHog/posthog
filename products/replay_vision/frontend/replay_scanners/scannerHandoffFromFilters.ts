@@ -14,16 +14,12 @@ import { type ExperimentScannerParams, experimentScannerParams } from './experim
 export interface ScannerHandoffFromFilters {
     /** Params for the new-scanner wizard URL: the encoded query, plus experiment targeting when the filters carry it. */
     searchParams: Record<string, string>
-    /** The query the scanner keeps, without session IDs or experiment exposure. */
     query: RecordingsQuery
-    /** The filter as the person chose it, with its experiment exposure, for the AI draft, which turns
-     * the exposure into the scanner's experiment and variants itself. */
+    /** The filter as the person chose it, exposure included, which the AI draft turns into the scanner's experiment. */
     chosenQuery: RecordingsQuery
     /** Experiment exposure from the filters, which a scanner keeps as targeting rather than inside `query`. */
     experiment: ExperimentScannerParams | null
-    /** Pinned recordings in the filters. A scanner drops them, so the person is told. */
     pinnedSessionCount: number
-    /** Whether the filters searched recording comments. A scanner cannot apply that search, so it is dropped. */
     droppedCommentSearch: boolean
     /**
      * Whether the resulting scanner would watch a subset of sessions rather than all of them.
@@ -51,9 +47,8 @@ export interface ScannerHandoffFromFilters {
  *   It becomes the wizard's experiment deep link instead, which builds the same experiment
  *   scanner the experiment's own entry point does.
  * - The date range is dropped by the backend on save, because a scanner's schedule owns time.
- * - The comment search and "hide viewed recordings" are resolved only by the replay list API. A
- *   scanner keeps them in its query but never applies them, so it would silently watch more
- *   recordings than the person chose. They are dropped here, where the person can be told.
+ * - Only the replay list API applies the comment search and "hide viewed recordings", so a scanner
+ *   that kept them would watch more than the person chose. They are dropped here, where the person is told.
  */
 export function scannerHandoffFromFilters(filters: RecordingUniversalFilters): ScannerHandoffFromFilters {
     const {

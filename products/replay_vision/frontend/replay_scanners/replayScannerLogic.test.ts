@@ -563,9 +563,6 @@ describe('replayScannerLogic', () => {
             expect(draftSpy).toHaveBeenCalledTimes(1)
         })
 
-        // The replay filters popover arms the person's own filters, experiment scope included. Losing them on
-        // the way, or on a retry from the goal page after a failed draft, would save a scanner watching
-        // recordings they never chose.
         it('a draft intent from the replay filters drafts against its query and spend, and a retry keeps the query', async () => {
             const captureSpy = jest.spyOn(posthog, 'capture')
             const query: RecordingsQuery = {
@@ -598,9 +595,7 @@ describe('replayScannerLogic', () => {
             )
         })
 
-        // A link-based entry point (an upsell card, the manual path from the replay filters) names itself in
-        // the URL. Lost here, its scanners would count as unattributed. A value the create API rejects would
-        // block the save, so it is dropped instead.
+        // A value the create API rejects would block the save, so it is dropped rather than sent.
         it.each([
             ['a valid slug', 'replay_upsell_player', 'replay_upsell_player'],
             ['an invalid value', 'Replay-Upsell', null],

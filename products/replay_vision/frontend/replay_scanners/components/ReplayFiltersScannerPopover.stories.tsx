@@ -45,7 +45,6 @@ const meta: Meta<typeof ReplayFiltersScannerPopover> = {
     component: ReplayFiltersScannerPopover,
     decorators: [
         mswDecorator({ get: { '/api/projects/:team_id/vision/quota/': quota } }),
-        // The popover sets its own width, so the frame only stands in for the popover surface.
         (Story) => (
             <div className="inline-block rounded border bg-surface-primary p-2">
                 <Story />
