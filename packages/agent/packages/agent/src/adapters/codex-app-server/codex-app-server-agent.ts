@@ -1627,6 +1627,9 @@ export class CodexAppServerAgent extends BaseAcpAgent {
     const turnId = this.turns.markInterrupted();
     if (this.threadId && turnId) {
       await this.interruptTurn(turnId, "turn/interrupt failed");
+    } else if (this.compactionActive && this.nativeGoalTurnId) {
+      await this.interruptNativeGoalTurn(this.nativeGoalTurnId);
+      this.settleBackgroundCompaction("interrupted");
     }
     await this.finalizeTurn("cancelled");
   }
@@ -1781,10 +1784,12 @@ export class CodexAppServerAgent extends BaseAcpAgent {
       const completedNativeGoalTurn = turn?.id === this.nativeGoalTurnId;
       if (completedNativeGoalTurn) {
         this.nativeGoalTurnId = undefined;
-        if (this.compactionActive) {
-          this.compactionActive = false;
-          this.emitCompactionBoundary();
-        }
+        this.settleBackgroundCompaction(
+          turn?.status,
+          typeof turn?.error?.message === "string"
+            ? turn.error.message
+            : undefined,
+        );
         void this.client
           .extNotification(POSTHOG_NOTIFICATIONS.BACKGROUND_TURN_COMPLETE, {
             sessionId: this.sessionId,
@@ -2152,6 +2157,31 @@ export class CodexAppServerAgent extends BaseAcpAgent {
           content: { type: "text", text: "\n\nContext compacted." },
         },
       })
+      .catch(() => undefined);
+  }
+
+  private settleBackgroundCompaction(
+    turnStatus: string | undefined,
+    error?: string,
+  ): void {
+    if (!this.compactionActive) return;
+    this.compactionActive = false;
+    if (turnStatus === "completed") {
+      this.emitCompactionBoundary();
+      return;
+    }
+    if (!this.sessionId) return;
+    void this.client
+      .extNotification(
+        POSTHOG_NOTIFICATIONS.STATUS,
+        turnStatus === "failed"
+          ? { sessionId: this.sessionId, status: "compacting_failed", error }
+          : {
+              sessionId: this.sessionId,
+              status: "compacting",
+              isComplete: true,
+            },
+      )
       .catch(() => undefined);
   }
 

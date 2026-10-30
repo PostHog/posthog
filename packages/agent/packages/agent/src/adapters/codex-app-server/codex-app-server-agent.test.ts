@@ -709,10 +709,30 @@ describe("CodexAppServerAgent", () => {
     }
   });
 
-  it("starts native compaction for /compact without starting a model turn", async () => {
+  it.each([
+    {
+      label: "reports a failed compaction",
+      end: "failed" as const,
+      expectedStatus: {
+        sessionId: "thr_1",
+        status: "compacting_failed",
+        error: "context window exceeded",
+      },
+    },
+    {
+      label: "interrupts a cancelled compaction",
+      end: "cancel" as const,
+      expectedStatus: {
+        sessionId: "thr_1",
+        status: "compacting",
+        isComplete: true,
+      },
+    },
+  ])("/compact $label without a compact boundary", async (testCase) => {
     const stub = makeStubRpc({
       "thread/start": { thread: { id: "thr_1" } },
       "thread/compact/start": {},
+      "turn/interrupt": {},
     });
     const { client, extNotifications } = makeFakeClient();
     const agent = new CodexAppServerAgent(client, {
@@ -740,13 +760,29 @@ describe("CodexAppServerAgent", () => {
       threadId: "thr_1",
       item: { type: "contextCompaction", id: "c1" },
     });
-    stub.emit("turn/completed", {
-      threadId: "thr_1",
-      turn: { id: "turn_c", status: "failed" },
+    if (testCase.end === "failed") {
+      stub.emit("turn/completed", {
+        threadId: "thr_1",
+        turn: {
+          id: "turn_c",
+          status: "failed",
+          error: { message: "context window exceeded" },
+        },
+      });
+    } else {
+      await agent.cancel({ sessionId: "thr_1" });
+      expect(stub.requests).toContainEqual({
+        method: "turn/interrupt",
+        params: { threadId: "thr_1", turnId: "turn_c" },
+      });
+    }
+    expect(extNotifications).toContainEqual({
+      method: "_posthog/status",
+      params: testCase.expectedStatus,
     });
     expect(
       extNotifications.filter((n) => n.method === "_posthog/compact_boundary"),
-    ).toHaveLength(1);
+    ).toHaveLength(0);
   });
 
   it("handles a goal command wrapped in hidden cold-resume context", async () => {
