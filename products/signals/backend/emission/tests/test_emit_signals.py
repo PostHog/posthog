@@ -40,7 +40,7 @@ from products.signals.backend.emission.pipeline import (
     summarize_long_descriptions,
 )
 from products.signals.backend.emission.registry import SignalEmitterOutput, SignalSourceTableConfig
-from products.signals.backend.models import SignalEmissionRecord, SignalSpend
+from products.signals.backend.models import SignalEmissionRecord, SignalReport, SignalSpend
 from products.signals.backend.spend import signal_id_for
 
 PIPELINE_MODULE_PATH = "products.signals.backend.emission.pipeline"
@@ -926,15 +926,21 @@ class TestExistingSourceOnlyOutputs:
     @pytest.mark.asyncio
     async def test_terminal_source_only_emits_when_it_already_has_a_report(self, team):
         config = _make_config(sync_with_source=True, actionability_prompt="Actionable? {description}")
+        open_report = await SignalReport.objects.acreate(team=team, status=SignalReport.Status.READY)
+        resolved_report = await SignalReport.objects.acreate(team=team, status=SignalReport.Status.RESOLVED)
         records: list[dict[str, Any]] = [
             {"id": "open", "state": "open"},
             {"id": "known-closed", "state": "closed", "existing_source_only": True},
             {"id": "new-closed", "state": "closed", "existing_source_only": True},
+            {"id": "resolved-closed", "state": "closed", "existing_source_only": True},
         ]
         with (
             patch(
                 f"{PIPELINE_MODULE_PATH}.fetch_source_signal_matches",
-                return_value={"known-closed": [MagicMock(signal_id="previous-signal", report_id="existing-report")]},
+                return_value={
+                    "known-closed": [MagicMock(signal_id="previous-signal", report_id=str(open_report.id))],
+                    "resolved-closed": [MagicMock(signal_id="fixed-signal", report_id=str(resolved_report.id))],
+                },
             ),
             patch(f"{PIPELINE_MODULE_PATH}.emit_signal", new_callable=AsyncMock) as emit,
             patch(
@@ -951,19 +957,22 @@ class TestExistingSourceOnlyOutputs:
         assert {call.kwargs["source_id"] for call in emit.await_args_list} == {"open", "known-closed"}
         known_call = next(call for call in emit.await_args_list if call.kwargs["source_id"] == "known-closed")
         assert known_call.kwargs["source_match_signal_id"] == "previous-signal"
-        assert known_call.kwargs["source_match_report_id"] == "existing-report"
+        assert known_call.kwargs["source_match_report_id"] == str(open_report.id)
         assert filter_actionable.await_args is not None
         assert [output.source_id for output in filter_actionable.await_args.kwargs["outputs"]] == ["open"]
         filtered = [call for call in capture.call_args_list if call.kwargs["event"] == "signal_data_source_filtered"]
-        assert [call.kwargs["properties"]["source_id"] for call in filtered] == ["new-closed"]
-        assert filtered[0].kwargs["properties"]["filter_reason"] == "source_state_without_report"
+        assert [
+            (call.kwargs["properties"]["source_id"], call.kwargs["properties"]["filter_reason"]) for call in filtered
+        ] == [
+            ("new-closed", "source_state_without_report"),
+            ("resolved-closed", "source_state_on_closed_report"),
+        ]
 
 
 @pytest.mark.django_db(transaction=True)
 class TestPipelineStageTelemetry:
     @pytest.mark.asyncio
     async def test_captures_each_stage_per_signal(self, team):
-
         short_description = "short actionable bug"
         long_description = "x" * 500
         non_actionable_description = "billing question, not actionable"

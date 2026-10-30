@@ -54,6 +54,13 @@ def recurrence_dismissal_at(report: SignalReport) -> datetime | None:
     return _dismissal_at(report, FIXED_DISMISSAL_REASONS | {DISMISSAL_REASON_WRONG_REPO})
 
 
+def forks_recurrence(report: SignalReport) -> bool:
+    """Whether a new signal on `report` starts a fresh recurrence report instead of joining it."""
+    if report.effective_status in {SignalReport.Status.RESOLVED, SignalReport.Status.CLOSED}:
+        return True
+    return report.status == SignalReport.Status.SUPPRESSED and recurrence_dismissal_at(report) is not None
+
+
 def recurrence_rejects_repository(*, team_id: int, report_id: str, repository: str) -> bool:
     for edge in outgoing_links(team_id=team_id, report_id=report_id, kinds=(ReportLinkKind.RECURRENCE_OF,)):
         latest = _latest_dismissal(team_id=team_id, report_id=edge.target_id)

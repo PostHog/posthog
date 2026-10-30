@@ -31,7 +31,9 @@ from products.signals.backend.emission.registry import (
 from products.signals.backend.emission.steering import SourceSteering, apply_steering, steering_from_config
 from products.signals.backend.facade.api import emit_signal
 from products.signals.backend.llm_spend import generate_with_spend
-from products.signals.backend.models import SignalEmissionRecord
+from products.signals.backend.models import SignalEmissionRecord, SignalReport
+from products.signals.backend.recurrence import forks_recurrence
+from products.signals.backend.report_merge import signal_target_report
 from products.signals.backend.spend import complete_signal_pipeline, finalized_signal_ids, signal_id_for
 from products.signals.backend.spend_billing import system_source_exempt
 from products.signals.backend.system_one_decision import run_model_decision
@@ -628,6 +630,14 @@ async def _emit_signals(
     return succeeded
 
 
+def _reports_closed_to_source_state(team_id: int, report_ids: set[str]) -> set[str]:
+    """The matched reports whose signals would fork a recurrence, after following merges and recurrences."""
+    if not report_ids:
+        return set()
+    reports = SignalReport.objects.filter(team_id=team_id, id__in=report_ids)
+    return {str(report.id) for report in reports if forks_recurrence(signal_target_report(report))}
+
+
 async def run_signal_pipeline(
     team: Team,
     config: SignalSourceTableConfig,
@@ -712,8 +722,21 @@ async def run_signal_pipeline(
             else output
             for output in outputs
         ]
+        # A source state change such as a closed issue only refreshes an open report. On a resolved
+        # report it usually means the fix landed, so it must not file a recurrence.
+        closed_report_ids = await database_sync_to_async(_reports_closed_to_source_state, thread_sensitive=False)(
+            team.id,
+            {
+                output.source_match_report_id
+                for output in outputs
+                if output.existing_source_only and output.source_match_report_id is not None
+            },
+        )
+        kept_outputs = []
         for output in outputs:
-            if output.existing_source_only and output.source_match_report_id is None:
+            if not output.existing_source_only:
+                kept_outputs.append(output)
+            elif output.source_match_report_id is None:
                 capture_pipeline_stage(
                     "signal_data_source_filtered",
                     team,
@@ -721,9 +744,17 @@ async def run_signal_pipeline(
                     output,
                     {"filter_reason": "source_state_without_report"},
                 )
-        outputs = [
-            output for output in outputs if not output.existing_source_only or output.source_match_report_id is not None
-        ]
+            elif output.source_match_report_id in closed_report_ids:
+                capture_pipeline_stage(
+                    "signal_data_source_filtered",
+                    team,
+                    organization,
+                    output,
+                    {"filter_reason": "source_state_on_closed_report"},
+                )
+            else:
+                kept_outputs.append(output)
+        outputs = kept_outputs
 
     if config.summarization_prompt is not None and config.description_summarization_threshold_chars is not None:
         threshold = config.description_summarization_threshold_chars
