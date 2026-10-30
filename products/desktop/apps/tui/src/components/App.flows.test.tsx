@@ -551,20 +551,11 @@ describe("App flows", () => {
     }
   });
 
-  it("welcomes a first run: sign in, pick who pays, and get the Claude token that plan needs", async () => {
+  // Renders a first run signed out, whose sign-in lands the session Root would build.
+  function welcomeApp(codexCloud?: CodexCloudClient) {
     saveLayout(initialLayout());
-    // A `claude` on PATH whose setup-token prints a token, as the real one does after the browser sign-in.
-    const bin = mkdtempSync(join(tmpdir(), "welcome-claude-"));
-    writeFileSync(
-      join(bin, "claude"),
-      `#!/bin/sh\necho "Browser opened"\necho "Your token: ${TOKEN}"\n`,
-    );
-    chmodSync(join(bin, "claude"), 0o755);
-    const path = process.env.PATH;
-    process.env.PATH = `${bin}${delimiter}${path ?? ""}`;
     const mouse: MouseEvents = new EventEmitter();
     const login = vi.fn(async (_region: CloudRegion) => {});
-    // Signs in the way Root does: the session arrives once the login resolves.
     function Host(): ReactElement {
       const [session, setSession] = useState<Session | null>(null);
       return (
@@ -581,6 +572,7 @@ describe("App flows", () => {
               chats: {} as PiChats,
               control: () => ({}) as PiControl,
               startLocal: () => Promise.reject(new Error("no local")),
+              codexCloud,
             });
           }}
           logout={() => {}}
@@ -594,19 +586,42 @@ describe("App flows", () => {
         <Host />
       </Box>,
     );
-    const plain = (): string => stripTerminalSequences(output());
+    return {
+      mouse,
+      login,
+      plain: (): string => stripTerminalSequences(output()),
+      close: (): void => instance.unmount(),
+    };
+  }
+
+  // Through the welcome to the billing sheet, with the app's chrome held back until then.
+  async function welcomeToBilling(app: ReturnType<typeof welcomeApp>) {
+    await vi.waitFor(() => expect(app.plain()).toContain("Sign in to PostHog"));
+    expect(loadPrefs().welcomed).toBe(true);
+    expect(app.plain()).toContain("Welcome to PostHog");
+    expect(app.plain()).not.toContain("All chats");
+    expect(app.plain()).not.toContain("New chat");
+    app.mouse.emit("keys", "\r");
+    await vi.waitFor(() => expect(app.login).toHaveBeenCalledWith("us"));
+    await vi.waitFor(() =>
+      expect(app.plain()).toContain("What new chats run on"),
+    );
+  }
+
+  it("welcomes a first run: sign in, pick who pays, and get the Claude token that plan needs", async () => {
+    // A `claude` on PATH whose setup-token prints a token, as the real one does after the browser sign-in.
+    const bin = mkdtempSync(join(tmpdir(), "welcome-claude-"));
+    writeFileSync(
+      join(bin, "claude"),
+      `#!/bin/sh\necho "Browser opened"\necho "Your token: ${TOKEN}"\n`,
+    );
+    chmodSync(join(bin, "claude"), 0o755);
+    const path = process.env.PATH;
+    process.env.PATH = `${bin}${delimiter}${path ?? ""}`;
+    const app = welcomeApp();
+    const { mouse, plain } = app;
     try {
-      await vi.waitFor(() => expect(plain()).toContain("Sign in to PostHog"));
-      expect(loadPrefs().welcomed).toBe(true);
-      // The welcome stands alone: no sidebar or chat header until the flow ends.
-      expect(plain()).toContain("Welcome to PostHog");
-      expect(plain()).not.toContain("All chats");
-      expect(plain()).not.toContain("New chat");
-      mouse.emit("keys", "\r");
-      await vi.waitFor(() => expect(login).toHaveBeenCalledWith("us"));
-      await vi.waitFor(() =>
-        expect(plain()).toContain("What new chats run on"),
-      );
+      await welcomeToBilling(app);
       mouse.emit("keys", "3");
       await vi.waitFor(() =>
         expect(plain()).toContain("Run claude setup-token"),
@@ -634,7 +649,41 @@ describe("App flows", () => {
       expect(plain().slice(-1200)).toContain("All chats");
     } finally {
       process.env.PATH = path;
-      instance.unmount();
+      app.close();
+    }
+  });
+
+  it("welcomes a first run onto the ChatGPT plan with the account PostHog keeps for cloud runs", async () => {
+    const connect = vi.fn(async () => ({
+      status: "connected",
+      email: "me@example.com",
+    }));
+    const app = welcomeApp({
+      get: async () => ({ status: "disconnected" }),
+      connect,
+      disconnect: async () => {},
+    } as unknown as CodexCloudClient);
+    const { mouse, plain } = app;
+    try {
+      await welcomeToBilling(app);
+      mouse.emit("keys", "2");
+      await vi.waitFor(() =>
+        expect(plain()).toContain("Paste the code from your browser"),
+      );
+      mouse.emit("keys", "abc");
+      mouse.emit("keys", "\r");
+      await vi.waitFor(() =>
+        expect(connect).toHaveBeenCalledWith({
+          access_token: "access-abc",
+          refresh_token: "refresh",
+        }),
+      );
+      await vi.waitFor(() => expect(loadPrefs().billing).toBe("chatgpt"));
+      await vi.waitFor(() =>
+        expect(plain().slice(-1200)).toContain("• ChatGPT subscription"),
+      );
+    } finally {
+      app.close();
     }
   });
 

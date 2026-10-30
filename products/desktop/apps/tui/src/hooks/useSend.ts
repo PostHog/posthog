@@ -177,6 +177,9 @@ export function useSend({
 
   // Whether PostHog holds a ChatGPT account for cloud Codex runs; false until the server has answered.
   const [chatgptCloud, setChatgptCloud] = useState(false);
+  // The welcome's sheets were opened signed out, so they reach the client through this, not their closure.
+  const latestCodexCloud = useRef(codexCloud);
+  latestCodexCloud.current = codexCloud;
   useEffect(() => {
     let current = true;
     codexCloud
@@ -317,13 +320,14 @@ export function useSend({
         askOnSheet(paneId, question, signal),
     };
     const signal = new AbortController().signal;
+    const client = latestCodexCloud.current;
     const signedIn = cloud
-      ? codexCloud
+      ? client
         ? connectCodexCloud({
             login: async (path) => {
               await chatgptLogin(ui, signal, path);
             },
-            connect: (tokens) => codexCloud.connect(tokens),
+            connect: (tokens) => client.connect(tokens),
           }).then((integration) =>
             setChatgptCloud(integration.status === "connected"),
           )
