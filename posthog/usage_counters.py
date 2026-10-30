@@ -38,6 +38,7 @@ class UsageCounter(StrEnum):
     MOBILE_RECORDINGS = "teams_with_mobile_recording_count_in_period"
     MOBILE_BILLABLE_RECORDINGS = "teams_with_mobile_billable_recording_count_in_period"
     SURVEY_RESPONSES = "teams_with_survey_responses_count_in_period"
+    # Ingested AIO events only. Offline usage is composed after organization attribution.
     AI_EVENTS = "teams_with_ai_event_count_in_period"
     EXCEPTIONS = "teams_with_exceptions_captured_in_period"
     CDP_INVOCATIONS = "teams_with_cdp_billable_invocations_in_period"
@@ -149,8 +150,8 @@ _REPLAY_UNDERCOUNT = (
     "When that message fails, the session writes no usage record, even when later messages record."
 )
 _WORKFLOW_PUSH_UNDERCOUNT = (
-    "The legacy count bills fetch and push dispatches as workflow invocations. "
-    "Push dispatches write `workflow_push_sent` records, so `workflow_billable_invocations` holds only fetches."
+    "Workflow invocation records from before push reporting omit push dispatches. "
+    "The legacy count includes both fetch and push dispatches."
 )
 _EVENT_DATE_ATTRIBUTION = (
     "Event usage records use capture time; legacy queries use source event time. "
@@ -165,8 +166,8 @@ _CDP_DATE_ATTRIBUTION = (
     "A cutover must reconcile dispatches across those dates to avoid missing or double-counting them."
 )
 _LOCAL_EVALUATION_UNDERCOUNT = (
-    "Django's feature-flag list endpoint counts older SDK requests in Redis but emits no usage records. "
-    "Only the Rust definitions endpoint contributes to the record total."
+    "Historical local-evaluation records omit requests handled by Django's feature-flag list endpoint. "
+    "Validate both producers over a complete comparison window before using records as authoritative."
 )
 # Keep legacy totals authoritative until producer discrepancies are resolved or confirmed as intended billing behavior.
 RECORD_REALTIME_BLOCKERS = {

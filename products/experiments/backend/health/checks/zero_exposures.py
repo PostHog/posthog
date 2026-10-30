@@ -9,12 +9,12 @@ from products.experiments.backend.health.context import HealthContext
 from products.experiments.backend.health.delays import LAST_CALLED_AT_LAG, ZERO_EXPOSURES_GRACE_HOURS
 from products.experiments.backend.health.skips import RUNS_AFTER_LAUNCH, CheckOutcome, not_applicable
 
-# pinned: the subcodes are sent as `finding_variant` on the health finding events, so insights group on them.
+# pinned: the finding's subcodes. The page sends them as `finding_subcode` on the health finding events.
 EXPERIMENT_PAUSED = "experiment_paused"
 FLAG_NOT_CALLED = "flag_not_called"
 CALLS_NOT_COUNTED = "calls_not_counted"
 CUSTOM_EXPOSURE_NOT_MATCHED = "custom_exposure_not_matched"
-# pinned: sent as `finding_reason` on the health finding events.
+# pinned: the finding's `reason`.
 TEST_ACCOUNT_FILTER = "test_account_filter"
 
 
@@ -136,7 +136,6 @@ def zero_exposures(ctx: HealthContext) -> CheckOutcome:
         if exposed_without_filter is not None:
             evidence["exposed_without_test_account_filter"] = exposed_without_filter
         if exposed_without_filter:
-            evidence["reason"] = TEST_ACCOUNT_FILTER
             return _test_accounts_filtered_out(
                 exposed_without_filter, flag_key, unit, ended=ctx.has_ended, evidence=evidence
             )
@@ -204,6 +203,7 @@ def _test_accounts_filtered_out(
         )
     return _finding(
         subcode=CALLS_NOT_COUNTED,
+        reason=TEST_ACCOUNT_FILTER,
         severity=ExperimentHealthFindingSeverity.WARNING,
         title=title,
         detail=detail,
@@ -239,6 +239,7 @@ def _cause_unknown(evidence: dict[str, int | str], unit: str, *, ended: bool) ->
 def _finding(
     *,
     subcode: str | None,
+    reason: str | None = None,
     severity: ExperimentHealthFindingSeverity,
     title: str,
     detail: str,
@@ -248,6 +249,7 @@ def _finding(
     return ExperimentHealthFinding(
         code=ExperimentHealthFindingCode.ZERO_EXPOSURES,
         subcode=subcode,
+        reason=reason,
         severity=severity,
         title=title,
         detail=detail,

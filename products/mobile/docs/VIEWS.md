@@ -246,6 +246,7 @@ A SQL insight is a `DataVisualizationNode` with a `HogQLQuery` source. Its respo
 - Bar rows keep the server's order, because the SQL orders them on purpose. The total is their sum.
 - Formatting comes from `insightFormatting.ts`, so a value reads the same in the table, the chart tooltip and the bar list. A table column takes its `tableSettings.columns` formatting, else its `chartSettings.yAxis` formatting. A chart and a bar list take the first saved y axis entry's formatting as `snapshot.format`, else the first y column's own format. As on the web, a percent column is a fraction scaled by 100 everywhere: 0.25 reads 25% in the table, on the chart and as a big number.
 - The table draws six rows on a tile and up to 500 rows (`SQL_TABLE_MAX_ROWS`) on the insight screen and full screen, because the rows are plain views, not a virtual list. Past that, the caption and the line under the rows say "First 500 of 5,000 rows". An empty result says "No rows", or "No rows for this range" when the result has a range.
+- Table columns widen to show complete formatted numbers and column names. Wider tables scroll horizontally. The first column stays pinned when it takes up no more than half the table's viewport; otherwise all columns scroll together.
 - `capabilities.number` is true for a big number, `capabilities.chart` for a chart over time with a y column and at least one date, whose first y column a pin draws. A SQL insight has no "View people".
 - `kindLabel` names the resolved display: "Table", "Line", "Bar", "Big number" or "Pie", else "SQL".
 

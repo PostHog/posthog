@@ -33,6 +33,7 @@ from drf_spectacular.utils import (
 from prometheus_client import Counter
 from rest_framework import exceptions, request, serializers, status, viewsets
 from rest_framework.exceptions import ErrorDetail
+from rest_framework.generics import get_object_or_404
 from rest_framework.permissions import BasePermission
 from rest_framework.response import Response
 from rest_framework.settings import api_settings
@@ -95,14 +96,14 @@ from products.access_control.backend.presentation.access_control import (
     UserAccessControlSerializerMixin,
 )
 from products.approvals.backend.decorators import approval_gate
-from products.approvals.backend.mixins import ApprovalHandlingMixin
 from products.approvals.backend.models import ApprovalPolicy
 from products.approvals.backend.ownership import scope_by_owner_enabled
 from products.approvals.backend.policies import lock_approval_policies
+from products.approvals.backend.presentation.mixins import ApprovalHandlingMixin
 from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.cohorts.backend.models.util import get_all_cohort_dependencies
 from products.dashboards.backend.api.dashboard import Dashboard
-from products.experiments.backend.models.experiment import Experiment, flag_has_live_experiment
+from products.experiments.backend.facade.contracts import LinkedExperiment
 from products.feature_flags.backend.api.filters_schema import (
     FEATURE_FLAG_OPERATOR_ALIASES,
     FEATURE_FLAG_PROPERTY_TYPES,
@@ -147,7 +148,10 @@ from products.feature_flags.backend.facade.config import (
 from products.feature_flags.backend.facade.config_validation import ConfigValidationError, ValidationLimits
 from products.feature_flags.backend.facade.references import InvalidIds, references
 from products.feature_flags.backend.filters_validation import collect_cross_field_violations, flatten_structural_errors
-from products.feature_flags.backend.flag_analytics import increment_request_count
+from products.feature_flags.backend.flag_analytics import (
+    increment_local_evaluation_request_counts,
+    increment_request_count,
+)
 from products.feature_flags.backend.flag_limits import get_max_feature_flags_for_team
 from products.feature_flags.backend.flag_status import (
     STALE_ACTIVE_PARAM_DESCRIPTION,
@@ -1449,8 +1453,31 @@ def _load_condition_cohorts(flags: Iterable[FeatureFlag], project_id: int) -> di
     }
 
 
+def _attach_live_experiments(flags: Sequence[FeatureFlag]) -> None:
+    """Load the experiments that the serializer lists for each flag, in one query for all the flags. The experiments
+    product owns the experiment model, so the flag queryset cannot prefetch them."""
+    if not flags:
+        return
+    # The experiments facade imports this module, so a module-level import would be circular.
+    from products.experiments.backend.facade import api as experiments_api  # noqa: PLC0415
+
+    experiments = experiments_api.live_experiments_by_flag([flag.id for flag in flags])
+    for flag in flags:
+        flag._active_experiments = experiments.get(flag.id, ())
+
+
+def _live_experiments(flag: FeatureFlag) -> tuple[LinkedExperiment, ...]:
+    if hasattr(flag, "_active_experiments"):
+        return flag._active_experiments
+    # The experiments facade imports this module, so a module-level import would be circular.
+    from products.experiments.backend.facade import api as experiments_api  # noqa: PLC0415
+
+    return experiments_api.live_experiments_by_flag([flag.id]).get(flag.id, ())
+
+
 class FeatureFlagListSerializer(serializers.ListSerializer):
-    """Loads the condition cohorts of every flag on a page in one query, instead of one query per flag.
+    """Loads the experiments and the condition cohorts of every flag on a page, one query each, instead of one query
+    per flag.
 
     The cohort ids live in each flag's JSON filters, so a queryset prefetch cannot select them. This is
     the only hook DRF gives that sees the whole page.
@@ -1459,6 +1486,7 @@ class FeatureFlagListSerializer(serializers.ListSerializer):
     def to_representation(self, data: Any) -> Any:
         flags = list(data)
         assert isinstance(self.child, FeatureFlagSerializer)
+        _attach_live_experiments(flags)
         self.child.context[CONDITION_COHORTS_CONTEXT_KEY] = _load_condition_cohorts(
             flags, self.child.context["project_id"]
         )
@@ -3293,20 +3321,12 @@ class FeatureFlagSerializer(
         return representation
 
     def get_experiment_set(self, obj: FeatureFlag) -> list[int]:
-        # Use the prefetched active experiments
-        if hasattr(obj, "_active_experiments"):
-            return [exp.id for exp in obj._active_experiments]
-        return [exp.id for exp in obj.experiment_set.filter(deleted=False)]
+        return [exp.id for exp in _live_experiments(obj)]
 
     @extend_schema_field(FeatureFlagExperimentSetMetadataSerializer(many=True))
     def get_experiment_set_metadata(self, obj: FeatureFlag) -> list[dict]:
-        # Use the prefetched active experiments
-        if hasattr(obj, "_active_experiments"):
-            experiments = obj._active_experiments
-        else:
-            experiments = obj.experiment_set.filter(deleted=False)
         # `is_running` mirrors the deletion guard: only a running experiment blocks flag deletion
-        return [{"id": exp.id, "name": exp.name, "is_running": exp.is_running} for exp in experiments]
+        return [{"id": exp.id, "name": exp.name, "is_running": exp.is_running} for exp in _live_experiments(obj)]
 
 
 # Migration 0546 backfilled `creation_mode="template"` onto dashboards matching these, so together
@@ -3792,7 +3812,10 @@ class EvaluationFeatureFlagSerializer(MinimalFeatureFlagSerializer):
         cached = getattr(feature_flag, "_has_experiment", None)
         if cached is not None:
             return cached
-        return flag_has_live_experiment(feature_flag.pk)
+        # The experiments facade imports this module, so a module-level import would be circular.
+        from products.experiments.backend.facade import api as experiments_api  # noqa: PLC0415
+
+        return experiments_api.flag_has_live_experiment(feature_flag.pk)
 
 
 class MyFlagsResponseSerializer(serializers.Serializer):
@@ -4313,18 +4336,15 @@ class FeatureFlagViewSet(
         """
         return replay_gated_flags(self.project_id)
 
+    def safely_get_object(self, queryset: QuerySet) -> FeatureFlag:
+        lookup_url_kwarg = self.lookup_url_kwarg or self.lookup_field
+        flag = get_object_or_404(queryset, **{self.lookup_field: self.kwargs[lookup_url_kwarg]})
+        _attach_live_experiments([flag])
+        return flag
+
     def safely_get_queryset(self, queryset) -> QuerySet:
         from products.early_access_features.backend.models import EarlyAccessFeature
         from products.feature_flags.backend.models.evaluation_context import FeatureFlagEvaluationContext
-
-        # Always prefetch experiment_set since it's used in both list and retrieve
-        queryset = queryset.prefetch_related(
-            Prefetch(
-                "experiment_set",
-                queryset=Experiment.objects.filter(deleted=False),
-                to_attr="_active_experiments",
-            )
-        )
 
         # `features` is serialized on every action (list/retrieve/create/update), and
         # MinimalEarlyAccessFeatureSerializer resolves the assignee's name, so join the
@@ -4489,7 +4509,7 @@ class FeatureFlagViewSet(
     def list(self, request, *args, **kwargs):
         if isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication):
             # Add request for analytics only if request coming with personal API key authentication
-            increment_request_count(self.team.pk, 1, FlagRequestType.LOCAL_EVALUATION)
+            increment_local_evaluation_request_counts(self.team.pk)
 
         response = super().list(request, *args, **kwargs)
         feature_flags_data = response.data.get("results", [])

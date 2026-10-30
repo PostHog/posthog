@@ -18,8 +18,16 @@ export default meta
 
 type Story = StoryObj<typeof TraceHeader>
 
+const exportAction = { loading: false, onExport: () => {} }
+
 export const Default: Story = {}
 export const Errored: Story = { args: { hasError: true } }
+export const WithExport: Story = { args: { exportAction } }
+export const ExportInProgress: Story = {
+    args: { exportAction: { ...exportAction, loading: true } },
+    // The busy button's spinner is the state this story shows, so the snapshot must not wait for it to go.
+    parameters: { testOptions: { waitForLoadersToDisappear: false } },
+}
 export const WithSearch: Story = {
     args: {
         search: {
@@ -35,6 +43,6 @@ export const WithSearch: Story = {
     },
 }
 export const Narrow: Story = {
-    args: { name: 'a-very-long-trace-name-that-should-truncate-cleanly' },
+    args: { name: 'a-very-long-trace-name-that-should-truncate-cleanly', exportAction },
     decorators: [withWidth(360)],
 }
