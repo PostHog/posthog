@@ -337,7 +337,7 @@ export function runNotice(
     if (tools > 0) parts.push(`${tools} tool${tools === 1 ? "" : "s"}`);
     const subject = call?.detail.split("\n")[0];
     return {
-      text: call ? activityOf(call.title) : `${idleWord(Date.now())}…`,
+      text: call ? activityOf(call) : `${idleWord(Date.now())}…`,
       ...(subject ? { subject } : {}),
       detail: parts.join(" · "),
       tone: "working",

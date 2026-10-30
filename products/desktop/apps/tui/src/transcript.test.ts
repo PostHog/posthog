@@ -1,6 +1,7 @@
 import type { StoredLogEntry } from "@posthog/shared";
 import { describe, expect, it } from "vitest";
 import {
+  activityOf,
   type ToolLine,
   type TranscriptLine,
   toolSummary,
@@ -122,6 +123,7 @@ describe("transcriptFrom", () => {
         {
           kind: "tool",
           title: "Edit src/a.ts",
+          tool: "edit",
           status: "completed",
           detail: "src/a.ts",
           output: "Renamed 3 uses",
@@ -420,6 +422,27 @@ describe("withPending", () => {
 });
 
 describe("toolSummary", () => {
+  it("counts Claude Code's calls by what they did, not by their descriptions", () => {
+    const line = (title: string, tool: string): ToolLine => ({
+      kind: "tool",
+      id: title,
+      title,
+      tool,
+      status: "completed",
+      detail: "",
+      output: "",
+    });
+    expect(
+      toolSummary([
+        line("Probe tools and conventions", "execute"),
+        line("Find lint on receivers", "execute"),
+        line("Read the isolation linter", "read"),
+        line("Look up the docs", "fetch"),
+      ]),
+    ).toBe("Ran 2 shell commands · read 1 file · fetched 1 page");
+    expect(activityOf(line("Probe tools", "execute"))).toBe("Running");
+  });
+
   const call = (title: string): ToolLine => ({
     kind: "tool",
     id: title,
