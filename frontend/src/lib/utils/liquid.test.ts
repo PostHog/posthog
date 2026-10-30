@@ -8,6 +8,8 @@ describe('LiquidRenderer', () => {
     it.each([
         ['on one line', '{% if person.properties.first_name != &quot;&quot; %}'],
         ['across lines', '{% if person.properties.first_name\n  != &quot;&quot; %}'],
+        // The email editor saves a link's spaces as %20, inside the tag too.
+        ['in a link', '{%%20if%20person.properties.first_name%20!=%20&quot;&quot;%20%}'],
     ])('renders a tag the editor has escaped %s', (_, openTag) => {
         const template = `${openTag}Hi {{ person.properties.first_name }}{% endif %}`
         expect(LiquidRenderer.render(template, context)).toBe('Hi Ada')
@@ -20,6 +22,12 @@ describe('LiquidRenderer', () => {
         ['person.properties.first_name | upcase', true],
     ])('resolves(%s) is %s', (expression, expected) => {
         expect(LiquidRenderer.resolves(expression, context)).toBe(expected)
+    })
+
+    it('keeps %20 inside a quoted string, where it is part of the value', () => {
+        expect(
+            LiquidRenderer.render('{{%20person.properties.company%20|%20default:%20&quot;a%20b&quot;%20}}', context)
+        ).toBe('a%20b')
     })
 
     it('formats money with the currency filter, like the worker does at send time', () => {

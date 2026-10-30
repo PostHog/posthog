@@ -149,6 +149,33 @@ export class LiquidRenderer {
             .replace(/&amp;/g, '&') // NOTE: This should always be last
     }
 
+    // The email editor saves every space in a link URL as %20, including the spaces inside a tag, so
+    // `{{ name | url_encode }}` arrives as `{{%20name%20|%20url_encode%20}}`. A quoted string keeps its %20,
+    // because there it is part of the value and a link needs it encoded.
+    private static decodeEncodedSpaces(tag: string): string {
+        if (!tag.includes('%20')) {
+            return tag
+        }
+        let out = ''
+        let quote = ''
+        for (let i = 0; i < tag.length; i++) {
+            const char = tag[i]
+            if (quote) {
+                if (char === quote) {
+                    quote = ''
+                }
+            } else if (char === '"' || char === "'") {
+                quote = char
+            } else if (tag.startsWith('%20', i)) {
+                out += ' '
+                i += 2
+                continue
+            }
+            out += char
+        }
+        return out
+    }
+
     // TRICKY: Unlayer replaces all liquid's elements like > for example with &gt;
     // We need to decode these but _only_ for the liquid elements i.e. content within {{ }} or {% %}
     // Copy of decodeLiquidTags in nodejs/src/cdp/utils/liquid.ts: a single forward pass, so a tag can span
@@ -173,7 +200,9 @@ export class LiquidRenderer {
                 cursor = open + 1
                 continue
             }
-            out += template.slice(cursor, open) + this.decodeEntities(template.slice(open, close + 2))
+            out +=
+                template.slice(cursor, open) +
+                this.decodeEncodedSpaces(this.decodeEntities(template.slice(open, close + 2)))
             cursor = close + 2
         }
 

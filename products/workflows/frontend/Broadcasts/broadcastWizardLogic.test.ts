@@ -866,21 +866,18 @@ describe('broadcastWizardLogic', () => {
     })
 
     it.each([
-        {
-            field: 'link in the body',
-            email: { html: '<a href="https://example.com/?n={{%20person.name%20}}">Hi</a>' },
-            error: /^A link has a variable with spaces inside/,
-        },
-        { field: 'subject', email: { subject: 'Hi {{ person.name }' }, error: /^Liquid template error: / },
-    ])('blocks the content step on Liquid that cannot parse in the $field', ({ email, error }) => {
+        { field: 'link in the body', email: { html: '<a href="https://example.com/?n={{%20person.name%20}">Hi</a>' } },
+        { field: 'subject', email: { subject: 'Hi {{ person.name }' } },
+    ])('blocks the content step on Liquid that cannot parse in the $field', ({ email }) => {
+        // The email editor saves a link's spaces as %20, inside the tag too.
         const valid = {
             ...DEFAULT_BROADCAST_EMAIL,
             from: { integrationId: 1 },
             subject: 'Spring sale',
-            html: '<p>Hi {{ person.properties.name }}</p>',
+            html: '<a href="https://example.com/?n={{%20person.properties.name%20|%20url_encode%20}}">Hi</a>',
         }
         logic.actions.setEmail({ ...valid, ...email })
-        expect(logic.values.stepValidationErrors.content).toEqual([expect.stringMatching(error)])
+        expect(logic.values.stepValidationErrors.content).toEqual([expect.stringMatching(/^Liquid template error: /)])
 
         logic.actions.setEmail(valid)
         expect(logic.values.stepValidationErrors.content).toEqual([])

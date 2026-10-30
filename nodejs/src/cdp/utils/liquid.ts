@@ -53,6 +53,33 @@ const decodeEntities = (tag: string): string => {
         .replace(/&amp;/g, '&') // NOTE: This should always be last
 }
 
+// The email editor saves every space in a link URL as %20, including the spaces inside a tag, so
+// `{{ name | url_encode }}` arrives as `{{%20name%20|%20url_encode%20}}`. A quoted string keeps its %20,
+// because there it is part of the value and a link needs it encoded.
+const decodeEncodedSpaces = (tag: string): string => {
+    if (!tag.includes('%20')) {
+        return tag
+    }
+    let out = ''
+    let quote = ''
+    for (let i = 0; i < tag.length; i++) {
+        const char = tag[i]
+        if (quote) {
+            if (char === quote) {
+                quote = ''
+            }
+        } else if (char === '"' || char === "'") {
+            quote = char
+        } else if (tag.startsWith('%20', i)) {
+            out += ' '
+            i += 2
+            continue
+        }
+        out += char
+    }
+    return out
+}
+
 // TRICKY: Unlayer replaces all liquid's elements like > for example with &gt;
 // We need to decode these but _only_ for the liquid elements i.e. content within {{ }} or {% %}
 // This is a single forward pass: a regex with a lazy `.*?` rescans to the end of the line for every
@@ -77,7 +104,7 @@ const decodeLiquidTags = (template: string): string => {
             cursor = open + 1
             continue
         }
-        out += template.slice(cursor, open) + decodeEntities(template.slice(open, close + 2))
+        out += template.slice(cursor, open) + decodeEncodedSpaces(decodeEntities(template.slice(open, close + 2)))
         cursor = close + 2
     }
 

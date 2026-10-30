@@ -168,6 +168,14 @@ describe('LiquidRenderer', () => {
             expect(result).toMatchInlineSnapshot(`"hello!"`)
         })
 
+        it.each([
+            ['a link variable', '<a href="/?n={{%20person.name%20|%20url_encode%20}}">', '<a href="/?n=test_person">'],
+            ['a quoted string', '{{%20person.missing%20|%20default:%20&quot;a%20b&quot;%20}}', 'a%20b'],
+            ['a tag', '{%%20if%201%20&lt;%202%20%}yes{%%20endif%20%}', 'yes'],
+        ])('reads spaces the email editor saved as %%20 in %s', (_, template, expected) => {
+            expect(LiquidRenderer.renderWithHogFunctionGlobals(template, globals)).toBe(expected)
+        })
+
         it('preserves $ in template', () => {
             const template = '{{ "$100" }}'
             const result = LiquidRenderer.renderWithHogFunctionGlobals(template, globals)
