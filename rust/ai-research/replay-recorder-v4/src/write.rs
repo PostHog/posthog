@@ -125,6 +125,7 @@ fn prepare_block(
     let mut rewrite = UrlRewrite::new(
         &block.remote_urls,
         &block.srcsets,
+        &block.css_rewrites,
         block.session.team_id,
         key_month,
         team_key,
@@ -785,6 +786,7 @@ mod tests {
             remote_urls: Vec::new(),
             url_limit: None,
             srcsets: Vec::new(),
+            css_rewrites: Vec::new(),
             visited_urls: Vec::new(),
             captured_at_ms: None,
         }
@@ -811,6 +813,7 @@ mod tests {
         inspected.remote_urls = found.remote_urls;
         inspected.url_limit = found.url_limit;
         inspected.srcsets = found.srcsets;
+        inspected.css_rewrites = found.css_rewrites;
         inspected
             .remote_urls
             .extend(extra.iter().map(|url| (*url).to_owned()));
@@ -935,6 +938,50 @@ mod tests {
         );
         assert!(lines.contains(crate::scrub::UNCHECKED_MARKER));
         assert!(!lines.contains("https://"));
+    }
+
+    #[test]
+    fn leaves_css_only_images_an_offline_render_can_load() {
+        // posthog-js compresses a rule list as gzip, one byte per latin-1 codepoint, and the block stores it expanded.
+        let compressed: String = replay_core_v4::compression::gzip(
+            json!([{"rule": ".a{background:url(/img/a.png)} .b{background-image:image-set(url(https://cdn.example.com/1x.png) 1x, url(https://cdn.example.com/2x.png) 2x)}", "index": 0}])
+                .to_string()
+                .as_bytes(),
+        )
+        .unwrap()
+        .iter()
+        .map(|&b| char::from(b))
+        .collect();
+        let events = json!([
+            {"type": 4, "timestamp": 1, "data": {"href": "http://app.example.com/shop/item", "width": 800, "height": 600}},
+            {"type": 3, "timestamp": 2, "cv": "2024-10", "data": {"source": 8, "id": 3, "adds": compressed}},
+        ]);
+        let lines = stored_lines(&events.to_string(), &[]);
+        let reference = |url: &str| {
+            crate::urls::url_reference(
+                url,
+                7,
+                "2026-10",
+                &replay_core_v4::seal::image_url_key(&[6; 32]),
+            )
+            .unwrap()
+            .1
+        };
+        for expected in [
+            format!(
+                r#"url(\"{}\")"#,
+                reference("https://app.example.com/img/a.png")
+            ),
+            format!(
+                r#"image-set(url({}) 2x)"#,
+                reference("https://cdn.example.com/2x.png")
+            ),
+        ] {
+            assert!(lines.contains(&expected), "{expected} in {lines}");
+        }
+        for gone in ["/img/a.png", "1x.png", "1x,"] {
+            assert!(!lines.contains(gone), "{gone} in {lines}");
+        }
     }
 
     #[test]

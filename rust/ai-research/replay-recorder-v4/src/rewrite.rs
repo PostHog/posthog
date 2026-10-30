@@ -7,6 +7,9 @@
 //! source with no candidates, so it falls back to a source or an img that can load, where a marker in the list would
 //! show a broken image. The writer rebuilds each srcset in the bytes it stores, after inline images left and escapes
 //! were written again, so the rebuild never depends on a prediction of those bytes.
+//!
+//! CSS text that the inspector names is rewritten before the URLs are replaced: an `image-set()` to the one candidate
+//! the fetcher takes, and a relative `url()` to its absolute URL, which the URL pass then replaces with its reference.
 
 use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -14,6 +17,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use aho_corasick::{AhoCorasick, AhoCorasickKind, MatchKind};
 use metrics::counter;
 use replay_core_v4::bytescan::{unescape, write_json_string};
+use replay_core_v4::inspect::css::CssRewrite;
 use replay_core_v4::inspect::dom::{for_each_srcset_candidate, Srcset};
 use replay_core_v4::scan::images::{extract_images, ImageLimits, ImageSink, AVIF_MARKER};
 use replay_core_v4::seal::{image_content_key, image_url_key};
@@ -117,6 +121,34 @@ fn ends_with_escape(bytes: &[u8], at: usize) -> bool {
 
 const SRCSET_KEY: &[u8] = br#""srcset":"#;
 
+fn json_string_contents(text: &str) -> Vec<u8> {
+    let mut escaped = Vec::with_capacity(text.len() + 2);
+    write_json_string(text, &mut escaped);
+    escaped.pop();
+    escaped.remove(0);
+    escaped
+}
+
+struct CssTarget {
+    replacement: Vec<u8>,
+    /// The indexes in `targets` of the URLs that the rewrite removes, which count as found when it applies.
+    dropped: Vec<usize>,
+    kind: &'static str,
+    found: bool,
+}
+
+/// The metric label of a rewrite: the inspector rewrites a whole `url()` only to resolve a relative URL.
+fn css_rewrite_kind(text: &str) -> &'static str {
+    if text
+        .get(..4)
+        .is_some_and(|start| start.eq_ignore_ascii_case("url("))
+    {
+        "relative_url"
+    } else {
+        "image_set"
+    }
+}
+
 struct Target {
     url: String,
     replacement: Vec<u8>,
@@ -134,6 +166,8 @@ pub struct UrlRewrite {
     /// Bytes that `apply` returned still hold a declined URL.
     declined_kept: bool,
     srcset_key: AhoCorasick,
+    css_matcher: Option<AhoCorasick>,
+    css_targets: Vec<CssTarget>,
     /// Remote URLs that the block names only in picture sources of a type the fetcher does not store.
     unfetched: HashSet<String>,
     /// Each inspected srcset value as the stored block holds it. Only these are rebuilt, so a srcset key outside an
@@ -156,6 +190,7 @@ pub struct UrlRewrite {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct PassCounters {
     srcset_rewrites: BTreeMap<&'static str, u64>,
+    css_rewrites: BTreeMap<(&'static str, &'static str), u64>,
     url_rewrites: BTreeMap<(&'static str, &'static str), u64>,
     pub removed_avif: u64,
 }
@@ -165,6 +200,14 @@ impl PassCounters {
         for (&outcome, &count) in &self.srcset_rewrites {
             counter!("ai_research_v4_recorder_srcset_rewrites_total", "outcome" => outcome)
                 .increment(count);
+        }
+        for (&(kind, outcome), &count) in &self.css_rewrites {
+            counter!(
+                "ai_research_v4_recorder_css_rewrites_total",
+                "kind" => kind,
+                "outcome" => outcome,
+            )
+            .increment(count);
         }
         for (&(outcome, reason), &count) in &self.url_rewrites {
             counter!(
@@ -209,6 +252,7 @@ impl UrlRewrite {
     pub fn new(
         urls: &[String],
         srcsets: &[Srcset],
+        css_rewrites: &[CssRewrite],
         team_id: i64,
         key_month: &str,
         team_key: &[u8; 32],
@@ -218,9 +262,7 @@ impl UrlRewrite {
         let mut targets = Vec::with_capacity(urls.len() + srcsets.len());
         for url in urls {
             // The block holds the URL as a JSON string holds it.
-            let mut escaped = Vec::with_capacity(url.len() + 2);
-            write_json_string(url, &mut escaped);
-            patterns.push(escaped[1..escaped.len() - 1].to_vec());
+            patterns.push(json_string_contents(url));
             let (replacement, declined) = match url_reference(url, team_id, key_month, &url_key) {
                 Ok((_, reference)) => (reference, None),
                 Err(decline) => (declined_marker(decline.label()), Some(decline.label())),
@@ -237,6 +279,32 @@ impl UrlRewrite {
             .enumerate()
             .map(|(index, url)| (url.clone(), index))
             .collect();
+        let css_targets: Vec<CssTarget> = css_rewrites
+            .iter()
+            .map(|rewrite| CssTarget {
+                replacement: json_string_contents(&rewrite.replacement),
+                dropped: rewrite
+                    .dropped
+                    .iter()
+                    .filter_map(|url| url_targets.get(url).copied())
+                    .collect(),
+                kind: css_rewrite_kind(&rewrite.text),
+                found: false,
+            })
+            .collect();
+        let css_matcher = (!css_rewrites.is_empty())
+            .then(|| {
+                AhoCorasick::builder()
+                    .kind(Some(AhoCorasickKind::ContiguousNFA))
+                    .match_kind(MatchKind::LeftmostLongest)
+                    .build(
+                        css_rewrites
+                            .iter()
+                            .map(|rewrite| json_string_contents(&rewrite.text)),
+                    )
+                    .ok()
+            })
+            .flatten();
         // A URL that a source of a stored type also names stays, as the inspector merges identical srcset values.
         let mut source_types: HashMap<&str, bool> = HashMap::new();
         for srcset in srcsets {
@@ -293,6 +361,8 @@ impl UrlRewrite {
             targets,
             declined_kept: false,
             srcset_key: AhoCorasick::new([SRCSET_KEY]).expect("one literal pattern builds"),
+            css_matcher,
+            css_targets,
             unfetched,
             stored_srcsets,
             url_targets,
@@ -359,17 +429,57 @@ impl UrlRewrite {
         }
     }
 
-    /// The bytes with each URL replaced, and in a DOM event each inspected srcset rebuilt. Returns the input when it
-    /// holds none. Only a full snapshot or a mutation holds image slots, so a srcset in any other event, such as a
-    /// custom event's payload with the same value, is left to the rewrite of each URL.
-    pub fn apply<'b>(&mut self, bytes: &'b [u8], dom_event: bool) -> Cow<'b, [u8]> {
-        let replaced = if !dom_event {
-            self.replace_urls(bytes)
-        } else {
-            match self.rebuild_srcsets(bytes) {
-                Cow::Borrowed(bytes) => self.replace_urls(bytes),
-                Cow::Owned(rebuilt) => Cow::Owned(self.replace_urls(&rebuilt).into_owned()),
+    /// The bytes with each inspected CSS rewrite applied, except where its text continues a longer name, such as
+    /// `image-set(` inside `-webkit-image-set(`.
+    fn rewrite_css<'b>(&mut self, bytes: &'b [u8]) -> Cow<'b, [u8]> {
+        let Some(matcher) = &self.css_matcher else {
+            return Cow::Borrowed(bytes);
+        };
+        let mut out: Option<Vec<u8>> = None;
+        let mut copied_to = 0;
+        for found in matcher.find_iter(bytes) {
+            let start = found.start();
+            if start.checked_sub(1).is_some_and(|before| {
+                (bytes[before].is_ascii_alphanumeric() || matches!(bytes[before], b'-' | b'_'))
+                    && !ends_with_escape(bytes, start)
+            }) {
+                continue;
             }
+            let target = &mut self.css_targets[found.pattern().as_usize()];
+            target.found = true;
+            for &url in &target.dropped {
+                self.targets[url].found = true;
+            }
+            let out = out.get_or_insert_with(|| Vec::with_capacity(bytes.len()));
+            out.extend_from_slice(&bytes[copied_to..start]);
+            out.extend_from_slice(&target.replacement);
+            copied_to = found.end();
+        }
+        match out {
+            Some(mut out) => {
+                out.extend_from_slice(&bytes[copied_to..]);
+                Cow::Owned(out)
+            }
+            None => Cow::Borrowed(bytes),
+        }
+    }
+
+    /// The bytes with each URL replaced, each inspected CSS rewrite applied, and in a DOM event each inspected srcset
+    /// rebuilt. Returns the input when it holds none. Only a full snapshot or a mutation holds image slots, so a srcset
+    /// in any other event, such as a custom event's payload with the same value, is left to the rewrite of each URL.
+    pub fn apply<'b>(&mut self, bytes: &'b [u8], dom_event: bool) -> Cow<'b, [u8]> {
+        let rebuilt = if dom_event {
+            self.rebuild_srcsets(bytes)
+        } else {
+            Cow::Borrowed(bytes)
+        };
+        let rewritten = match rebuilt {
+            Cow::Borrowed(bytes) => self.rewrite_css(bytes),
+            Cow::Owned(rebuilt) => Cow::Owned(self.rewrite_css(&rebuilt).into_owned()),
+        };
+        let replaced = match rewritten {
+            Cow::Borrowed(bytes) => self.replace_urls(bytes),
+            Cow::Owned(rewritten) => Cow::Owned(self.replace_urls(&rewritten).into_owned()),
         };
         let (scrubbed, count) = self.scrubber.apply(&replaced);
         if count == 0 {
@@ -452,6 +562,13 @@ impl UrlRewrite {
             hosts.dedup();
         }
         let mut counters = self.counters;
+        for target in self.css_targets {
+            let outcome = if target.found { "rewritten" } else { "unfound" };
+            *counters
+                .css_rewrites
+                .entry((target.kind, outcome))
+                .or_default() += 1;
+        }
         for target in self.targets {
             let outcome = match (target.found, target.declined) {
                 (false, _) => "unrewritten",
@@ -578,7 +695,7 @@ mod tests {
 
     fn rewrite(urls: &[&str], bytes: &str) -> String {
         let urls: Vec<String> = urls.iter().map(|u| (*u).to_owned()).collect();
-        let mut rewrite = UrlRewrite::new(&urls, &[], 7, "2026-10", &TEAM_KEY);
+        let mut rewrite = UrlRewrite::new(&urls, &[], &[], 7, "2026-10", &TEAM_KEY);
         String::from_utf8(rewrite.apply(bytes.as_bytes(), true).into_owned()).unwrap()
     }
 
@@ -613,6 +730,7 @@ mod tests {
         let mut rewrite = UrlRewrite::new(
             &[a.to_owned(), b.to_owned(), declined.to_owned()],
             &[],
+            &[],
             7,
             "2026-10",
             &TEAM_KEY,
@@ -632,7 +750,7 @@ mod tests {
         let url = "https://cdn.example.com/a.png?token=secret";
         let hidden = r#"{"src":"https:\/\/cdn.example.com\/a.png?token=secr\u0065t","alt":"a\nb"}"#;
         let canonical = canonical_strings(hidden.as_bytes());
-        let mut rewrite = UrlRewrite::new(&[url.to_owned()], &[], 7, "2026-10", &TEAM_KEY);
+        let mut rewrite = UrlRewrite::new(&[url.to_owned()], &[], &[], 7, "2026-10", &TEAM_KEY);
         assert_eq!(
             String::from_utf8(rewrite.apply(&canonical, true).into_owned()).unwrap(),
             format!(
@@ -648,7 +766,7 @@ mod tests {
             Cow::Borrowed(_)
         ));
         // A declined URL the block still holds fails the block.
-        let rewrite = UrlRewrite::new(&[url.to_owned()], &[], 7, "2026-10", &TEAM_KEY);
+        let rewrite = UrlRewrite::new(&[url.to_owned()], &[], &[], 7, "2026-10", &TEAM_KEY);
         assert!(!rewrite.finish().safe);
     }
 
@@ -675,7 +793,7 @@ mod tests {
         }
         // A second copy inside a longer URL stays as it is, so the block fails.
         let url = "https://bucket.s3.amazonaws.com/a.png?X-Amz-Signature=abc123";
-        let mut rewrite = UrlRewrite::new(&[url.to_owned()], &[], 7, "2026-10", &TEAM_KEY);
+        let mut rewrite = UrlRewrite::new(&[url.to_owned()], &[], &[], 7, "2026-10", &TEAM_KEY);
         rewrite.apply(
             format!(r#"{{"src":"{url}","alt":"x{url}"}}"#).as_bytes(),
             true,

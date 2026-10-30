@@ -8,6 +8,7 @@ use std::time::{Duration, Instant};
 use futures::stream::{self, StreamExt};
 use metrics::counter;
 use replay_core_v4::compression::{GZIP_MAGIC, MAX_DECOMPRESSED_BYTES};
+use replay_core_v4::inspect::css::CssRewrite;
 use replay_core_v4::inspect::dom::{Srcset, UrlLimit};
 use replay_core_v4::inspect::session::{BlockInspection, Moment, SessionInspector};
 use replay_core_v4::inspect::stats::BlockStats;
@@ -98,6 +99,8 @@ pub struct Block {
     pub url_limit: Option<UrlLimit>,
     /// The image-slot srcset values of the block, which the writer rebuilds from the candidates it keeps.
     pub srcsets: Vec<Srcset>,
+    /// CSS text the writer replaces, so that an offline render loads only images the block refers to.
+    pub css_rewrites: Vec<CssRewrite>,
     /// The distinct pages of the block's surfacing features, which the writer stores as fingerprints.
     pub visited_urls: Vec<String>,
     /// The earliest Kafka timestamp of the block's messages, for the capture watermark of the index topic.
@@ -513,6 +516,7 @@ fn inspect_session(
                 remote_urls: inspected.remote_urls,
                 url_limit: inspected.url_limit,
                 srcsets: inspected.srcsets,
+                css_rewrites: inspected.css_rewrites,
                 visited_urls: inspected.features.visited_urls,
                 captured_at_ms,
             }

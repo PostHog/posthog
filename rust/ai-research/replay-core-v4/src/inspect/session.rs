@@ -3,6 +3,7 @@
 use std::sync::Arc;
 
 use super::clicks::{ClickKind, ClickTracker};
+use super::css::CssRewrite;
 use super::dom::{DomInspector, RemoteUrls, Srcset, UrlLimit};
 use super::events::{number, Activity, DataFields, EventCounter};
 use super::features::{BlockFeatures, FeatureRecorder, SurfacingFeatures};
@@ -68,6 +69,7 @@ pub struct Inspected {
     pub url_limit: Option<UrlLimit>,
     /// The image-slot srcset values of the block, which the writer rebuilds from the candidates it keeps.
     pub srcsets: Vec<Srcset>,
+    pub css_rewrites: Vec<CssRewrite>,
 }
 
 impl BlockInspection {
@@ -82,6 +84,7 @@ impl BlockInspection {
             image_urls: self.image_urls,
             url_limit: self.remote_urls.limit,
             srcsets: self.remote_urls.take_srcsets(),
+            css_rewrites: self.remote_urls.take_css_rewrites(),
             remote_urls: self.remote_urls.into_urls(),
         }
     }
@@ -162,9 +165,13 @@ impl SessionInspector {
         let navigated = block.counter.stats.navigations > navigations;
 
         let waiting = block.counter.stats.events_before_first_full_snapshot;
-        let observed = self
-            .dom
-            .observe(inner, event, window, &mut block.counter.stats);
+        let observed = self.dom.observe(
+            inner,
+            event,
+            window,
+            self.last_href.as_deref(),
+            &mut block.counter.stats,
+        );
         block.image_urls.extend(self.dom.take_image_urls());
         block.remote_urls.extend(self.dom.take_remote_urls());
         if observed.full_snapshot {

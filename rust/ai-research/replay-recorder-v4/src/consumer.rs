@@ -842,6 +842,7 @@ mod tests {
                 remote_urls: Vec::new(),
                 url_limit: None,
                 srcsets: Vec::new(),
+                css_rewrites: Vec::new(),
                 visited_urls: Vec::new(),
                 captured_at_ms: None,
             })
