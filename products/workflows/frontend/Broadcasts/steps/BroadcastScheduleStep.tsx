@@ -5,8 +5,8 @@ import { LemonCalendarSelectInput, LemonSearchableSelect } from '@posthog/lemon-
 
 import { dayjs } from 'lib/dayjs'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { timeZoneLabel } from 'lib/utils/timezones'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { SendDayPicker } from '../../SendCalendar/SendDayPicker'
 import { EmailSendingRateLimitPicker } from '../../Workflows/hogflows/steps/components/EmailSendingRateLimitPicker'

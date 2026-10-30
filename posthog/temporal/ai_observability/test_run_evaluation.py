@@ -28,13 +28,14 @@ from temporalio.worker import Replayer, UnsandboxedWorkflowRunner, Worker
 from posthog.api.capture import CaptureInternalError
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Team, User
-from posthog.temporal.ai_observability.judge_images import ImagePrompt, JudgeImages
+from posthog.temporal.ai_observability.judge_attachments import AttachmentPrompt, JudgeAttachments
 from posthog.temporal.ai_observability.sentiment.extraction import truncate_to_head_tail
 from posthog.temporal.ai_observability.sentiment.schema import SentimentResult
 from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.common.posthog_client import is_expected_activity_failure
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.ai_observability.backend.llm.attachments import AttachmentPart
 from products.ai_observability.backend.llm.errors import (
     RESPONSE_LIMIT_MESSAGE,
     AuthenticationError,
@@ -51,7 +52,6 @@ from products.ai_observability.backend.llm.errors import (
     StructuredOutputParseError,
     UnsupportedModelError,
 )
-from products.ai_observability.backend.llm.images import ImagePart
 from products.ai_observability.backend.models.evaluation_config import EvaluationConfig
 from products.ai_observability.backend.models.evaluation_directories import EvaluationDirectory
 from products.ai_observability.backend.models.evaluations import Evaluation
@@ -1169,9 +1169,9 @@ def _adapter_rejection(cause: Exception | None) -> ProviderRequestRejectedError:
 def test_judge_falls_back_to_the_plain_prompt_only_when_an_attached_image_is_rejected(
     error: Exception, presigned_url: str | None, retries: bool
 ) -> None:
-    images = JudgeImages(team_id=1)
+    images = JudgeAttachments(team_id=1)
     pointer = MediaBlock(modality="image", url=f"phaiblob://v1/sha256/{'a' * 64}?mime=image%2Fpng&size=1")
-    image_prompt = ImagePrompt(text=f"user: {images.marker(pointer)} Polite?", images=images)
+    attachment_prompt = AttachmentPrompt(text=f"user: {images.marker(pointer)} Polite?", attachments=images)
 
     with (
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
@@ -1198,7 +1198,7 @@ def test_judge_falls_back_to_the_plain_prompt_only_when_an_attached_image_is_rej
             system_prompt="",
             user_prompt="user: Polite?",
             allows_na=False,
-            image_prompt=image_prompt,
+            attachment_prompt=attachment_prompt,
         )
 
     if retries:
@@ -1624,7 +1624,7 @@ class TestRunEvaluationWorkflow:
         with (
             patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client") as mock_client_class,
             patch(
-                "posthog.temporal.ai_observability.judge_images.posthoganalytics.feature_enabled",
+                "posthog.temporal.ai_observability.judge_attachments.posthoganalytics.feature_enabled",
                 return_value=flag_enabled,
             ) as feature_enabled,
             patch(
@@ -1644,7 +1644,7 @@ class TestRunEvaluationWorkflow:
             # Team ids repeat across regions, so the flag is checked against the project uuid.
             assert feature_enabled.call_args.kwargs["groups"] == {"project": str(team.uuid)}
         if attaches_image:
-            assert ImagePart(mime_type="image/jpeg", url="https://signed") in content
+            assert AttachmentPart(mime_type="image/jpeg", url="https://signed") in content
             assert "user: [image 1] What does this chart show?" in content[-1]["text"]
             assert "assistant: [image 2] Sales rose in March." in content[-1]["text"]
         else:
@@ -4738,17 +4738,17 @@ class TestJudgePromptAssembly:
         with (
             patch("posthog.temporal.ai_observability.evaluation_llm_judge.call_llm_judge") as judge,
             patch(
-                "posthog.temporal.ai_observability.judge_images.posthoganalytics.feature_enabled",
+                "posthog.temporal.ai_observability.judge_attachments.posthoganalytics.feature_enabled",
                 return_value=True,
             ),
-            patch("posthog.temporal.ai_observability.judge_images._project_uuid", return_value="uuid"),
+            patch("posthog.temporal.ai_observability.judge_attachments._project_uuid", return_value="uuid"),
         ):
             execute_llm_judge_activity(ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data))
 
-        image_prompt = judge.call_args.kwargs["image_prompt"]
-        assert image_prompt is not None
+        attachment_prompt = judge.call_args.kwargs["attachment_prompt"]
+        assert attachment_prompt is not None
         # Decision judges and the text-only retry use this prompt, and they send no images.
-        assert judge.call_args.kwargs["user_prompt"] == image_prompt.unnumbered_text()
+        assert judge.call_args.kwargs["user_prompt"] == attachment_prompt.unnumbered_text()
         assert "[image 1]" not in judge.call_args.kwargs["user_prompt"]
 
     @pytest.mark.parametrize(

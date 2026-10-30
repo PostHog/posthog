@@ -19,7 +19,6 @@ from django.db.models import (
     Count,
     Exists,
     F,
-    FloatField,
     Func,
     IntegerField,
     JSONField,
@@ -162,12 +161,13 @@ from products.signals.backend.ranking.inbox_sort import (
     PRIORITY_ORDERING,
     RANKER_ORDERINGS,
     InboxRanker,
+    latest_ranking_value,
     resolve_recommended_ranker,
     score_decile,
 )
 from products.signals.backend.ranking.public_outcomes import MODEL_HEAD_BY_OUTCOME, PUBLIC_OUTCOME_NAMES
 from products.signals.backend.ranking.served_outcomes import served_outcomes
-from products.signals.backend.ranking.staleness import EDIT_ARTEFACT_TYPES, annotate_stale_score
+from products.signals.backend.ranking.staleness import EDIT_ARTEFACT_TYPES
 from products.signals.backend.receivers import capture_verdict_reason_added_analytics
 from products.signals.backend.repo_corrections import sanitized_repository
 from products.signals.backend.report_assignments import InvalidPullRequestUrl, ReportClaimConflict, claim_report
@@ -2449,7 +2449,7 @@ class SignalReportViewSet(
             if annotation not in ordered_fields or annotation in annotated:
                 continue
             annotated.add(annotation)
-            latest_score = self._latest_ranking_value(head, "scores")
+            latest_score = latest_ranking_value(head, "scores")
             if self._inbox_ranker is not None:
                 queryset = queryset.annotate(
                     **{self._ranking_decile_annotation(annotation): score_decile(latest_score)}
@@ -2461,57 +2461,6 @@ class SignalReportViewSet(
     @staticmethod
     def _ranking_decile_annotation(score_annotation: str) -> str:
         return f"{score_annotation}_decile"
-
-    @staticmethod
-    def _latest_ranking_value(head: str, key: Literal["scores", "lifts"]) -> Subquery:
-        # The served model's value for one head from the latest ranking_score artefact, as
-        # `results -> <served_key> -> <key> -> <head>`. A value that is not a JSON number reads as NULL,
-        # so one bad row cannot fail the list. The guard is in the CASE, not the filter: the latest
-        # artefact decides, as it does for the `ranking` field, so a bad latest row makes the report
-        # unscored rather than older-scored. A stale score (the report was edited after the text it
-        # scored) also reads as NULL.
-        content = Cast(F("content"), output_field=JSONField())
-        served_key = Func(content, Value("served_key"), function="jsonb_extract_path_text", output_field=CharField())
-        return Subquery(
-            annotate_stale_score(
-                SignalReportArtefact.objects.filter(
-                    report_id=OuterRef("id"),
-                    type=SignalReportArtefact.ArtefactType.RANKING_SCORE,
-                ).order_by("-created_at")
-            )
-            .annotate(
-                _score=Case(
-                    When(
-                        content__startswith="{",
-                        then=Func(
-                            content,
-                            Value("results"),
-                            served_key,
-                            Value(key),
-                            Value(head),
-                            function="jsonb_extract_path",
-                            output_field=JSONField(),
-                        ),
-                    ),
-                    default=Value(None),
-                    output_field=JSONField(),
-                ),
-            )
-            .annotate(_score_type=Func(F("_score"), function="jsonb_typeof", output_field=CharField()))
-            .annotate(
-                _score_value=Case(
-                    When(
-                        _score_type="number",
-                        _score_is_stale=False,
-                        then=Cast(F("_score"), output_field=FloatField()),
-                    ),
-                    default=Value(None),
-                    output_field=FloatField(),
-                )
-            )
-            .values("_score_value")[:1],
-            output_field=FloatField(),
-        )
 
     def _apply_signal_report_ranking_filters(self, queryset):
         # Each named head is one correlated subquery, compared with `>=`. NULL never matches, so
@@ -2526,7 +2475,7 @@ class SignalReportViewSet(
                 continue
             for outcome, minimum in minimums.items():
                 head = MODEL_HEAD_BY_OUTCOME[outcome]
-                queryset = queryset.filter(GreaterThanOrEqual(self._latest_ranking_value(head, key), minimum))
+                queryset = queryset.filter(GreaterThanOrEqual(latest_ranking_value(head, key), minimum))
         return queryset
 
     def _parse_ranking_minimums(self, param: str) -> dict[str, float]:
