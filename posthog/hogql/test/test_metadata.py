@@ -445,16 +445,15 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 0,
                 _move_notices("https://example.com/announcement"),
                 "https://example.com/announcement",
-                rewrite_enabled=True,
+                mode=FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
                 expected_notices=1,
             ),
-            param("refused_by_the_rewrite", _FLAG_CALLED_QUERY, True, 1, rewrite_enabled=True),
+            param("refused_by_the_swap", _FLAG_CALLED_QUERY, True, 1, mode=FlagEvaluationsMode.READ_FLAG_EVALUATIONS),
             param(
                 "read_from_flag_evaluations_without_coverage_once_events_gets_no_flag_calls",
                 _FLAG_CALLED_QUERY,
                 True,
                 0,
-                rewrite_enabled=True,
                 expected_notices=1,
                 mode=FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
             ),
@@ -464,7 +463,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 "AND properties.$feature_flag = 'my-flag' AND timestamp >= now() - INTERVAL 7 DAY",
                 True,
                 1,
-                rewrite_enabled=True,
+                mode=FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
             ),
             param(
                 "falls_back_when_a_name_binds_to_a_flag_evaluations_column",
@@ -472,7 +471,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 "AND properties.$feature_flag = 'my-flag' AND timestamp >= now() - INTERVAL 7 DAY",
                 True,
                 1,
-                rewrite_enabled=True,
+                mode=FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
             ),
         ]
     )
@@ -486,13 +485,12 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         expected: int,
         move_notices: FeatureFlagResult | None = _MOVE_NOTICES_WITHOUT_URL,
         expected_url: str | None = None,
-        rewrite_enabled: bool = False,
         expected_notices: int = 0,
-        mode: FlagEvaluationsMode = FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
+        mode: FlagEvaluationsMode = FlagEvaluationsMode.EVENTS,
     ) -> None:
         OrganizationFeatureFlagsConfig.objects.update_or_create(
             organization=self.organization,
-            defaults={"flag_evaluations_mode": mode if rewrite_enabled else FlagEvaluationsMode.EVENTS},
+            defaults={"flag_evaluations_mode": mode},
         )
         DataWarehouseSavedQuery.objects.create(
             team=self.team,

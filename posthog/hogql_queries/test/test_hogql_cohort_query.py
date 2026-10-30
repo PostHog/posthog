@@ -622,7 +622,7 @@ class TestHogQLCohortQuery(ClickhouseTestMixin, APIBaseTest):
         )
         return {str(row[0]) for row in rows}
 
-    def test_performed_flag_call_criterion_reads_flag_evaluations_when_the_rewrite_is_on(self) -> None:
+    def test_performed_flag_call_criterion_reads_flag_evaluations_in_flag_evaluations_only_mode(self) -> None:
         OrganizationFeatureFlagsConfig.objects.update_or_create(
             organization=self.organization,
             defaults={"flag_evaluations_mode": FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY},

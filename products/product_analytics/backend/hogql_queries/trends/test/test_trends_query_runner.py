@@ -6683,7 +6683,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ),
         ]
     )
-    def test_flag_call_series_reads_flag_evaluations_when_the_rewrite_is_on(
+    def test_flag_call_series_reads_flag_evaluations_when_the_org_reads_flag_evaluations(
         self,
         _name: str,
         series: Callable[[Team, list[str]], EventsNode | ActionsNode],
