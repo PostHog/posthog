@@ -1073,6 +1073,23 @@ class TestPollForTurnTerminalDrain:
 
         assert turn.last_message == "partial-before-death"
 
+    @pytest.mark.asyncio
+    async def test_terminal_status_returns_the_finish_report_over_earlier_commentary(self):
+        log = "\n".join(
+            [_user_message_line("initial prompt"), _agent_message_line("Checking the repo"), _usage_update_line(0)]
+        )
+        fake_task_run = FakeTaskRun(status="completed", finish_report='{"title": "Weekly report"}')
+
+        with (
+            patch("posthog.storage.object_storage.read", return_value=log),
+            patch("asyncio.sleep", new=AsyncMock()),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 0),
+            patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake_task_run),
+        ):
+            turn = await poll_for_turn(fake_task_run, skip_lines=0)
+
+        assert turn.last_message == '{"title": "Weekly report"}'
+
 
 class TestExtractAgentError:
     @parameterized.expand(
