@@ -12,16 +12,20 @@ behavior change, not a contract improvement.
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from enum import StrEnum
-from typing import Any, Literal
+from typing import Any, Literal, Protocol
 from uuid import UUID
 
 from posthog.dataclasses import frozen
 
 __all__ = [
     "CPUnavailableError",
+    "DuckLakeBackfillCatalog",
+    "DuckLakeDayReplacement",
+    "DuckLakeTableReplacement",
     "DuckgresQueryServerConfig",
     "DuckgresStoredBucketConfig",
     "DuckgresStoredServerConfig",
@@ -428,3 +432,35 @@ class DuckLakeTableResult:
     # Highest incremental key written, for builds that track one. None when no rows were written.
     watermark: Any = None
     merged: bool = False
+
+
+@frozen
+class DuckLakeDayReplacement:
+    """The rows of one UTC day of `column`, which a backfill export of that day replaces."""
+
+    column: str
+    day: date
+
+
+@frozen
+class DuckLakeTableReplacement:
+    """All rows of the table, which a full backfill export replaces."""
+
+
+class DuckLakeBackfillCatalog(Protocol):
+    """The DuckLake statements a backfill runs in the organization's Trino catalog."""
+
+    def ensure_table(
+        self, table: str, columns: Mapping[str, str], *, drop_first: bool, create_if_missing: bool, validate: bool
+    ) -> None: ...
+
+    def register_files(
+        self,
+        table: str,
+        files: Sequence[str],
+        *,
+        import_id: str,
+        replacement: DuckLakeDayReplacement | DuckLakeTableReplacement | None,
+    ) -> int: ...
+
+    def delete_rows(self, table: str, replacement: DuckLakeDayReplacement | DuckLakeTableReplacement) -> None: ...

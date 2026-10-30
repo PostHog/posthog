@@ -12,8 +12,10 @@ import {
     type Legacy,
     type OptionSpec,
 } from '@/core/command'
-import { Context, GLOBAL_OPTIONS, type GlobalOptions } from '@/core/context'
-import { EXIT_USAGE, HogError } from '@/core/errors'
+import { loadConfig } from '@/core/config'
+import { Context } from '@/core/context'
+import { EXIT_FAILURE, EXIT_USAGE, HogError } from '@/core/errors'
+import { DRY_RUN_ENV, envFlag, GLOBAL_OPTIONS, networkRuntime, resolveGlobals } from '@/core/globals'
 import { Output } from '@/core/output'
 import type { Runtime } from '@/core/runtime'
 import { kebabCase } from '@/core/text'
@@ -22,12 +24,22 @@ import { VERSION } from '@/version'
 
 const ROOT_HELP = `
 hog prints JSON when an agent such as Claude Code or Codex runs it, or when stdout is not a terminal.
-Run \`hog auth login\` to log in, and \`hog commands -o json\` to list every command, its arguments and its options.`
+Run \`hog auth login\` to log in, and \`hog commands -o json\` to list every command, its arguments and its options.
+HOG_DRY_RUN=1 turns on --dry-run for every command that has one, and fails the commands that would change something without it.`
 
 const LEGACY_HELP_GROUP = 'Not ported yet (each one prints the posthog-cli command to run):'
 
 function toOption(name: string, spec: OptionSpec): Option {
-    const option = new Option(optionFlags(name, spec), spec.description)
+    const sources = [
+        spec.env?.length ? `env: ${spec.env.join(', ')}` : '',
+        spec.config ? `posthog.json: ${spec.config}` : '',
+    ]
+        .filter(Boolean)
+        .join('; ')
+    const option = new Option(optionFlags(name, spec), sources ? `${spec.description} (${sources})` : spec.description)
+    if (spec.type === 'string' && spec.multiple) {
+        option.argParser((value: string, previous: string[] | undefined) => [...(previous ?? []), value])
+    }
     return spec.type === 'string' && spec.choices ? option.choices(spec.choices) : option
 }
 
@@ -104,7 +116,20 @@ async function readArgument(runtime: Runtime, name: string, value: string): Prom
     return text
 }
 
-function createProgram(runtime: Runtime, mode: Mode, state: { exitCode: number }): Commander {
+function commandPath(command: Commander): string {
+    const names: string[] = []
+    for (let current: Commander | null = command; current?.parent; current = current.parent) {
+        names.unshift(current.name())
+    }
+    return names.join(' ')
+}
+
+interface RunState {
+    exitCode: number
+    noFail?: boolean
+}
+
+function createProgram(runtime: Runtime, mode: Mode, state: RunState): Commander {
     const out = new Output(runtime, mode)
 
     function addRunnable(command: Commander, node: Command): void {
@@ -122,8 +147,26 @@ function createProgram(runtime: Runtime, mode: Mode, state: { exitCode: number }
 
         command.action(async (...params: unknown[]) => {
             const self = params.at(-1) as Commander
-            const globals = self.optsWithGlobals() as GlobalOptions
+            const flags = self.optsWithGlobals()
+            // commander reads `--no-fail` as turning off an option named `fail`.
+            flags.noFail = flags.fail === false ? true : undefined
+            const config = node.allowsInvalidConfig ? undefined : loadConfig(runtime)
+            const globals = resolveGlobals(flags, runtime.env, (await config)?.config)
+            state.noFail = globals.noFail === true
+            const commandRuntime = networkRuntime(runtime, globals)
             const options = self.opts()
+            if (envFlag(runtime.env, DRY_RUN_ENV)) {
+                if (Object.hasOwn(node.options ?? {}, 'dryRun')) {
+                    options.dryRun = true
+                } else if (node.writes) {
+                    throw new HogError(
+                        'dry_run_unsupported',
+                        `\`hog ${commandPath(self)}\` has no dry run, and HOG_DRY_RUN is set.`,
+                        'Unset HOG_DRY_RUN to run it, or leave the command out of the dry run.',
+                        EXIT_USAGE
+                    )
+                }
+            }
             // Optional arguments stay undefined. The command's own types allow that, the tree's types don't.
             const args = {} as Record<string, string>
             for (const [index, [name, spec]] of argEntries.entries()) {
@@ -131,7 +174,7 @@ function createProgram(runtime: Runtime, mode: Mode, state: { exitCode: number }
                 args[name] = spec.stdin && value !== undefined ? await readArgument(runtime, name, value) : value
             }
 
-            const ctx = new Context(runtime, globals, mode, COMMANDS)
+            const ctx = new Context(commandRuntime, globals, mode, COMMANDS, config)
             let result: unknown
             try {
                 result = await node.run({ args, options, ctx })
@@ -153,6 +196,7 @@ function createProgram(runtime: Runtime, mode: Mode, state: { exitCode: number }
         const command = parent.command(name).description(node.description)
         switch (node.kind) {
             case 'group':
+                command.aliases(node.aliases ?? [])
                 for (const [childName, child] of Object.entries(node.commands)) {
                     addNode(command, childName, child)
                 }
@@ -201,6 +245,7 @@ type Token = ReturnType<typeof parseArgs>['tokens'] extends (infer T)[] | undefi
 
 interface PreParsed {
     format: OutputFormat | undefined
+    noFail: boolean
     tokens: Token[]
 }
 
@@ -223,7 +268,7 @@ function preParse(argv: readonly string[]): PreParsed {
     })
     const output = values.output
     const format = GLOBAL_OPTIONS.output.choices.find((choice) => choice === output)
-    return { format, tokens }
+    return { format, noFail: values['no-fail'] === true, tokens }
 }
 
 function findLegacy(tokens: Token[]): LegacyRoute | undefined {
@@ -262,6 +307,34 @@ function nestedMatches(tree: CommandTree, name: string, prefix = ''): string[] {
     })
 }
 
+// posthog-cli commands that hog groups under a new name, with the flags that changed.
+const RENAMED: Record<string, { to: string; hint: string }> = {
+    sourcemap: {
+        to: 'error-tracking inject|upload|process',
+        hint: 'Pass the folders as arguments instead of --directory, as in `hog error-tracking process dist`.',
+    },
+    hermes: {
+        to: 'error-tracking inject|clone|upload',
+        hint: 'Pass paths as arguments instead of --directory, and the two maps to `hog error-tracking clone` instead of -m and -c.',
+    },
+    dsym: {
+        to: 'error-tracking upload',
+        hint: 'Pass the folder as an argument instead of --directory, as in `hog error-tracking upload build/Release-iphoneos`.',
+    },
+    'symbol-sets': {
+        to: 'error-tracking upload|download|extract',
+        hint: 'Pass paths and the symbol set as arguments: `hog error-tracking download <id or ref>` replaces --id and --ref.',
+    },
+    release: {
+        to: 'error-tracking release',
+        hint: '`hog error-tracking release -o text` prints just the release ID, like `posthog-cli release resolve`.',
+    },
+    proguard: {
+        to: 'error-tracking upload',
+        hint: 'Pass the mapping as an argument instead of --path, as in `hog error-tracking upload mapping.txt --map-id <id>`.',
+    },
+}
+
 function toHogError(caught: unknown): HogError {
     if (caught instanceof HogError) {
         return caught
@@ -271,6 +344,15 @@ function toHogError(caught: unknown): HogError {
         const sentence = message.charAt(0).toUpperCase() + message.slice(1)
         if (caught.code === 'commander.unknownCommand') {
             const name = /unknown command '([^']+)'/.exec(caught.message)?.[1] ?? ''
+            const renamed = RENAMED[name]
+            if (renamed) {
+                return new HogError(
+                    'unknown_command',
+                    `\`${name}\` is \`hog ${renamed.to}\` in hog.`,
+                    renamed.hint,
+                    EXIT_USAGE
+                )
+            }
             const [match] = nestedMatches(COMMANDS, name)
             const message = match ? `Unknown command '${name}'. Did you mean \`hog ${match}\`?` : sentence
             return new HogError(
@@ -285,11 +367,20 @@ function toHogError(caught: unknown): HogError {
     return new HogError('internal_error', caught instanceof Error ? caught.message : String(caught))
 }
 
+function safeEnvFlag(env: Runtime['env'], names: readonly string[]): boolean {
+    try {
+        return envFlag(env, names) === true
+    } catch {
+        return false
+    }
+}
+
 export async function run(argv: readonly string[], runtime: Runtime): Promise<number> {
-    const { format, tokens } = preParse(argv)
+    const { format, noFail, tokens } = preParse(argv)
     const terminal = { isTTY: runtime.stdoutIsTTY, hasColors: runtime.stdoutHasColors, columns: runtime.stdoutColumns }
-    const mode = resolveMode(runtime.env, terminal, format)
-    const state = { exitCode: 0 }
+    const envFormat = GLOBAL_OPTIONS.output.choices.find((choice) => choice === runtime.env.HOG_OUTPUT)
+    const mode = resolveMode(runtime.env, terminal, format ?? envFormat)
+    const state: RunState = { exitCode: 0 }
     const program = createProgram(runtime, mode, state)
     if (argv.length === 0) {
         program.outputHelp()
@@ -305,13 +396,15 @@ export async function run(argv: readonly string[], runtime: Runtime): Promise<nu
             throw notPorted(args, legacy)
         }
         await program.parseAsync(args, { from: 'user' })
-        return state.exitCode
+        // --no-fail also covers a result that reports a problem, like a failed push or a stale SDK.
+        return state.noFail && state.exitCode === EXIT_FAILURE ? 0 : state.exitCode
     } catch (caught) {
         if (caught instanceof CommanderError && caught.exitCode === 0) {
             return 0
         }
         const error = toHogError(caught)
         new Output(runtime, mode).error(error)
-        return error.exitCode
+        const ignore = state.noFail ?? (noFail || safeEnvFlag(runtime.env, GLOBAL_OPTIONS.noFail.env))
+        return ignore && error.exitCode === EXIT_FAILURE ? 0 : error.exitCode
     }
 }

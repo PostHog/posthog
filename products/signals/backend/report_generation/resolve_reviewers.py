@@ -297,7 +297,10 @@ def _with_reviewer_presentation(
     safe_reason = bounded_reviewer_reason(reason)
     explanation: str | None
 
-    if safe_commits:
+    if reviewer.get("is_default_owner"):
+        source_label = "Default owner"
+        explanation = safe_reason
+    elif safe_commits:
         source_label = "Code history"
         explanation = _commit_explanation(safe_commits)
     elif isinstance(source_skill, str) and source_skill:

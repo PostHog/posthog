@@ -1,5 +1,7 @@
 # Report completion and late PR attachments
 
+The inbox includes Closed reports in All statuses. The Closed filter appears when the project has closed reports, or when it is selected.
+
 A report completes after all linked implementation PRs are closed or merged.
 At least one merged PR completes implementation: applicable follow-up checks enter Monitoring when enabled; otherwise the report resolves directly. All closed PRs without a merge suppress it.
 
@@ -212,6 +214,8 @@ New metric checks validate numeric goals and baselines against their metric kind
 Research without a repository retains the writing rules, attached-image inspection, remediation guidance, report history, intent checks, work-in-flight checks, and per-signal tool budget. The opening prompt states once that no repository is checked out. It uses project data and connected sources to find a concrete engineering starting point. Code-specific instructions are omitted, findings allow empty code and commit evidence, and the output omits pull request planning. Later turns use the same evidence-based verification guidance without repeating access warnings.
 
 With `signals-research-reviewer-selection` enabled, project context, report evidence, and scoped human corrections can identify reviewers without GitHub. Research verifies their project membership with `scout-members-list` and suggests nobody when evidence is insufficient. A GitHub identity is not required to receive a report.
+
+With `signals-default-owner-fallback` enabled, a report that still has no reviewers when its inbox notification settles goes to a default owner. It runs only where Self-driving cannot read the team's code, meaning no GitHub installation, none that still reaches a repository, or none healthy enough to use. Where a repository is in reach, commit history names a relevant reviewer often enough that a report with no reviewers is left unassigned instead. The candidates are, in order: the configured owners of the scout that authored the report, then whoever enabled or created that scout, the person who activated Self-Driving, the people who enabled a signal source, and finally the organization's owner and admins. Each candidate must be an active member with project access when the fallback runs. The entry carries `is_default_owner` and shows as "Default owner". It never selects the autostart task identity. The fallback does not run on a report whose reviewers a person already edited, on a report that already had a default owner, or on a report that its scout keeps out of the inbox. When a person removes a default owner, no scout correction note is sent and the reviewer-corrections profile does not show the removal.
 
 ## Repository selection
 

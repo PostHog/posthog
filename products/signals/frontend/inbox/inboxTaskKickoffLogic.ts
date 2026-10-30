@@ -13,6 +13,7 @@ import { projectLogic } from 'scenes/projectLogic'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { urls } from 'scenes/urls'
 
+import { REPORT_AI_PANEL } from '~/layout/ai/aiPanelIds'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SidePanelTab } from '~/types'
 
@@ -60,7 +61,6 @@ import {
     reportPullRequests,
 } from './utils/reportPullRequests'
 
-export const REPORT_AI_PANEL = 'inbox-report'
 export const REPORT_AI_PANEL_ID = 'max-side-panel'
 
 const OPTIMISTIC_REPORT_STREAM = 'optimistic-report-stream'

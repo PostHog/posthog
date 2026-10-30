@@ -1,7 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
 
-import { MAX_SIDE_PANEL_ID } from 'scenes/max/components/PhaiSidePanelChat'
-
+import { MAX_SIDE_PANEL_ID } from '~/layout/ai/aiPanelIds'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 

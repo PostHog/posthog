@@ -147,7 +147,7 @@ describe('inboxFiltersLogic', () => {
                 ...DEFAULT_STATE,
                 sourceProductFilter: ['error_tracking', 'logs'],
                 priorityFilter: ['P1'],
-                stateFilter: ['monitoring'],
+                stateFilter: ['monitoring', 'closed'],
             })
         })
 

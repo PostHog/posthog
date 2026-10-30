@@ -10,7 +10,7 @@ const PropertyFiltersDisplay = ({
     compact?: boolean
 }): JSX.Element => {
     return (
-        <div className="PropertyFilters flex-wrap">
+        <div className="PropertyFilters flex flex-wrap gap-2">
             {filters &&
                 filters.map((item) => {
                     return <PropertyFilterButton key={item.key} item={item} compact={compact} />
