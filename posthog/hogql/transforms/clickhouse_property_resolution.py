@@ -1430,6 +1430,10 @@ class ClickHousePropertyResolver(CloningVisitor):
         if optimized is not None:
             return optimized
 
+        regex_guard = self._regex_call_key_guard(node)
+        if regex_guard is not None:
+            return _call("and", [regex_guard, super().visit_call(node)])
+
         # A comparison written in call form (`equals(properties.x, v)`, `ilike(toString(properties.x), p)`,
         # `in(properties.x, (...))`) is still a comparison: route it through visit_compare_operation so the same rewrites
         # fire. Otherwise we'd descend into the args and substitute the value, losing the optimization. Only the plain
@@ -2335,6 +2339,27 @@ class ClickHousePropertyResolver(CloningVisitor):
         # ClickHouse's transform_null_in setting makes `in(map[key], ...)` skip the keys index; the has() guard restores it.
         in_expr = _call("in", [prop.group_value(), ast.Tuple(exprs=[_const(v) for v in string_values])])
         return _call("and", [prop.group_has(), in_expr])
+
+    def _regex_call_key_guard(self, node: ast.Call) -> ast.Call | None:
+        """`_property_group_key_guard` for `match(value, pattern)`, bare or as the `regex` filter's `ifNull(..., 0)`.
+
+        `match` has no comparison operator in call form, so it never reaches `visit_compare_operation`; judge it as the
+        `=~` comparison it is. Both forms are NULL or false for an absent key.
+        """
+        if id(node) not in self._key_guard_nodes:
+            return None
+        match node:
+            case (
+                ast.Call(name="ifNull", args=[ast.Call(name="match", args=[value, pattern]), ast.Constant(value=0)])
+                | ast.Call(name="match", args=[value, pattern])
+            ):
+                comparison = ast.CompareOperation(left=value, right=pattern, op=ast.CompareOperationOp.Regex)
+                self._key_guard_nodes[id(comparison)] = comparison
+                try:
+                    return self._property_group_key_guard(comparison)
+                finally:
+                    self._key_guard_nodes.pop(id(comparison), None)
+        return None
 
     def _property_group_key_guard(self, node: ast.CompareOperation) -> ast.Call | None:
         """`indexHint(has(map, key))` to AND ahead of a range or positive pattern comparison over a property-group property.

@@ -1844,6 +1844,16 @@ class TestPrinter(BaseTest):
                 "properties.key =~* 'a'",
                 f"ifNull(match({value_read}, concat('(?i)', %(hogql_val_3)s)), isNull({value_read}) and isNull(%(hogql_val_3)s))",
             ),
+            (
+                "toDateTime(properties.key) > '2024-01-01'",
+                f"ifNull(greater(parseDateTime64BestEffortOrNull({value_read}, 6, %(hogql_val_3)s), %(hogql_val_4)s), 0)",
+            ),
+            # The `regex` property filter's call form, and a bare `match` call.
+            (
+                "ifNull(match(toString(properties.key), '[0-9]'), 0)",
+                f"ifNull(match(toString({value_read}), %(hogql_val_3)s), 0)",
+            ),
+            ("match(properties.key, 'a')", f"match({value_read}, %(hogql_val_3)s)"),
         ):
             with self.subTest(expression):
                 self._test_property_group_comparison(
@@ -1868,6 +1878,8 @@ class TestPrinter(BaseTest):
             "toString(properties.key) NOT ILIKE '%a%'",
             "properties.key !~ 'a'",
             "properties.key !~* 'a'",
+            "ifNull(not(match(toString(properties.key), 'a')), 1)",
+            "ifNull(match(toString(properties.key), properties.other), 0)",
             "properties.key NOT IN ('a', 'b', '')",
             "properties.key LIKE NULL",
             "properties.key LIKE properties.other",
@@ -1954,6 +1966,7 @@ class TestPrinter(BaseTest):
             ("high", {"value": "10"}),
             ("apple", {"value": "apple"}),
             ("APPLE", {"value": "APPLE"}),
+            ("date", {"value": "2024-01-02 10:00:00"}),
         ):
             _create_event(
                 team=self.team,
@@ -1994,7 +2007,7 @@ class TestPrinter(BaseTest):
             ("toFloat(properties.value) < 5", {"low"}),
             ("toFloat(properties.value) <= 1", {"low"}),
             ("5 < toFloat(properties.value)", {"high"}),
-            ("less(properties.value, '5')", {"empty", "high", "low"}),
+            ("less(properties.value, '5')", {"date", "empty", "high", "low"}),
             ("properties.value LIKE 'app%'", {"apple"}),
             ("properties.value ILIKE 'app%'", {"apple", "APPLE"}),
             ("toString(properties.value) ILIKE '%PP%'", {"apple", "APPLE"}),
@@ -2002,6 +2015,10 @@ class TestPrinter(BaseTest):
             ("lower(toString(properties.value)) LIKE 'app%'", {"apple", "APPLE"}),
             ("properties.value =~ '^app'", {"apple"}),
             ("properties.value =~* '^app'", {"apple", "APPLE"}),
+            ("ifNull(match(toString(properties.value), '^app'), 0)", {"apple"}),
+            ("match(properties.value, '(?i)^app')", {"apple", "APPLE"}),
+            # Best-effort parsing reads "1" and "10" as days of the current month, so bound from above.
+            ("toDateTime(properties.value) < '2025-01-01'", {"date"}),
         ):
             with self.subTest(expr):
                 disabled_results, _ = query_results(select_item, expr, PropertyGroupsMode.DISABLED)

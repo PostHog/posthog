@@ -730,12 +730,14 @@ class TestEventPropertySkipIndexes(_PropertySkipIndexTestBase):
             ("is_not_set", PropertyOperator.IS_NOT_SET, None, {PG_KEYS_INDEX}, {PG_VALUES_INDEX}),
             # Multi-value IN → ``and(has(map, key), in(map[key], tuple(...)))`` — keys only; ``transform_null_in`` defaults break a direct values-bloom probe.
             ("in_multi", PropertyOperator.IN_, ["2", "5"], {PG_KEYS_INDEX}, {PG_VALUES_INDEX}),
-            # Range and positive pattern ops keep their comparison behind ``and(has(map, key), ...)`` — keys only.
+            # Range and positive pattern ops keep their comparison behind ``and(indexHint(has(map, key)), ...)`` — keys only.
             ("lt", PropertyOperator.LT, "5", {PG_KEYS_INDEX}, {PG_VALUES_INDEX}),
             ("icontains", PropertyOperator.ICONTAINS, "5", {PG_KEYS_INDEX}, {PG_VALUES_INDEX}),
             ("gte", PropertyOperator.GTE, "5", {PG_KEYS_INDEX}, {PG_VALUES_INDEX}),
+            ("regex", PropertyOperator.REGEX, "[0-9]", {PG_KEYS_INDEX}, {PG_VALUES_INDEX}),
             # Negated patterns are true for an absent key, so no key probe is added.
             ("not_icontains", PropertyOperator.NOT_ICONTAINS, "5", set(), {PG_KEYS_INDEX, PG_VALUES_INDEX}),
+            ("not_regex", PropertyOperator.NOT_REGEX, "[0-9]", set(), {PG_KEYS_INDEX, PG_VALUES_INDEX}),
         ]
     )
     def test_property_group_optimized(
@@ -908,6 +910,7 @@ class TestPersonOnEventsPropertySkipIndexes(_PropertySkipIndexTestBase):
             ("in_multi", PropertyOperator.IN_, ["2", "5"], {PG_KEYS_INDEX}, {PG_VALUES_INDEX}),
             ("lt", PropertyOperator.LT, "5", {PG_KEYS_INDEX}, {PG_VALUES_INDEX}),
             ("icontains", PropertyOperator.ICONTAINS, "5", {PG_KEYS_INDEX}, {PG_VALUES_INDEX}),
+            ("regex", PropertyOperator.REGEX, "[0-9]", {PG_KEYS_INDEX}, {PG_VALUES_INDEX}),
         ]
     )
     def test_property_group_optimized(
