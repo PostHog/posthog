@@ -31,4 +31,5 @@ Then tell the user the date, and that the reminder is an in-app notification onl
 
 Follow [qualitative-feedback.md](../../diagnosing-experiment-health/references/qualitative-feedback.md) for its shape, and load `creating-surveys` for the rest.
 Attach it the way the app does. Pass the experiment's `feature_flag.id`, from `experiment-get`, as `linked_flag_id`, whatever the rollout, and leave out `linkedFlagVariant` so it reaches everyone in the experiment.
+Before you create it, warn the user about the exposure interaction in Decision 2 there, on a draft experiment too.
 Then link the survey with its `_posthogUrl`, and tell the user its responses show on the experiment's User feedback tab, which lists only surveys linked to its flag.

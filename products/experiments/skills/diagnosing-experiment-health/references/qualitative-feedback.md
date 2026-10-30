@@ -97,7 +97,7 @@ The risk is highest where the application reads the flag on one page only, or on
 Draft and stopped surveys never trigger the check. `[HIGH]`
 
 So: create as a draft, show the user what it will ask and who it will reach, and let them launch with `survey-launch`.
-If the survey links the flag on a running experiment, mention the exposure interaction first.
+If the survey links the flag, mention the exposure interaction first, on a draft experiment too. It starts once the survey and the experiment are both running.
 
 ## Variant targeting fails silently on mobile
 
