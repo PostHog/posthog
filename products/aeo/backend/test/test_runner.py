@@ -177,6 +177,18 @@ class _BlockingEngine(_StubEngine):
         return super().run(prompt, trace_id=trace_id, custom_properties=custom_properties)
 
 
+def test_a_stopped_run_ends_after_the_prompt_in_hand(team: Team, settings) -> None:
+    settings.AEO_RUN_CONCURRENCY = 1
+    upsert_prompts(team, [PromptCandidate(text=f"q{i}?", source="imported", topic="t") for i in range(4)])
+    stop = threading.Event()
+    stop.set()
+
+    summary, _ = run_citation_checks(team, engines=[_StubEngine()], stop=stop)
+
+    assert summary.rows_written == 1
+    assert AEOCitationCheck.objects.for_team(team.id).count() == 1
+
+
 def test_an_interrupted_run_does_not_start_the_queued_prompts(team: Team, settings, monkeypatch) -> None:
     settings.AEO_RUN_CONCURRENCY = 2
     upsert_prompts(team, [PromptCandidate(text=f"q{i}?", source="imported", topic="t") for i in range(5)])

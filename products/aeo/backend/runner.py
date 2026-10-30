@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import uuid
 import datetime as dt
+import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Optional
 
@@ -44,13 +45,15 @@ def run_citation_checks(
     engines: Optional[list[CitationEngine]] = None,
     limit: Optional[int] = None,
     record: bool = True,
+    stop: Optional[threading.Event] = None,
 ) -> tuple[CitationRunSummary, list[dict[str, Any]]]:
     """Run every due prompt against every engine; record the results.
 
     Returns (summary, per-check field values). Rows are written per prompt so an
     interrupted run keeps the checks it already paid for, and a later run skips
     the prompts it covered. With record=False the engines still run (and cost
-    money) but nothing is written — smoke-test mode.
+    money) but nothing is written — smoke-test mode. Setting `stop` ends the run
+    after the prompt in hand and drops the queued ones.
     """
     engines = engines if engines is not None else available_engines()
     if not engines:
@@ -106,6 +109,12 @@ def run_citation_checks(
                     write_failures += len(result.fields_per_engine)
             if done % 100 == 0:
                 logger.info("aeo_citation_run_progress", team_id=team.id, run_id=run_id, done=done, total=len(prompts))
+            if stop is not None and stop.is_set():
+                logger.warning(
+                    "aeo_citation_run_stopped", team_id=team.id, run_id=run_id, done=done, total=len(prompts)
+                )
+                pool.shutdown(wait=False, cancel_futures=True)
+                break
     except BaseException:
         # A Celery time limit or a worker shutdown lands here. Drop the queued prompts so they
         # make no more paid calls whose results nobody records.

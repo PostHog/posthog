@@ -19,7 +19,7 @@ from django.conf import settings
 
 import structlog
 from celery import shared_task
-from redis.exceptions import LockError
+from redis.exceptions import LockError, LockNotOwnedError
 from redis.lock import Lock
 
 from posthog.celery_queues import CeleryQueue
@@ -101,15 +101,17 @@ def run_aeo_citation_checks_for_team_task(team_id: int) -> None:
     if not _citation_tracking_enabled(team):
         logger.info("aeo_citation_task_flag_disabled", team_id=team_id)
         return
-    lease = get_client().lock(f"aeo_citation_run:{team_id}", timeout=RUN_LEASE_SECONDS)
+    # thread_local=False: the renewal thread must see the token the task thread acquired.
+    lease = get_client().lock(f"aeo_citation_run:{team_id}", timeout=RUN_LEASE_SECONDS, thread_local=False)
     if not lease.acquire(blocking=False):
         logger.info("aeo_citation_task_already_running", team_id=team_id)
         return
     stop_renewing = threading.Event()
-    renewer = threading.Thread(target=_renew_lease, args=(lease, stop_renewing, team_id), daemon=True)
+    lease_lost = threading.Event()
+    renewer = threading.Thread(target=_renew_lease, args=(lease, stop_renewing, lease_lost, team_id), daemon=True)
     renewer.start()
     try:
-        run_citation_checks(team)
+        run_citation_checks(team, stop=lease_lost)
     except Exception:
         # The runner already absorbs per-prompt failures, so anything reaching here is
         # unexpected. Re-raise so Celery marks the task failed and alerting sees it.
@@ -125,11 +127,16 @@ def run_aeo_citation_checks_for_team_task(team_id: int) -> None:
             logger.warning("aeo_citation_task_lease_expired", team_id=team_id)
 
 
-def _renew_lease(lease: Lock, stop: threading.Event, team_id: int) -> None:
+def _renew_lease(lease: Lock, stop: threading.Event, lost: threading.Event, team_id: int) -> None:
+    """Keeps the lease alive until `stop`; sets `lost` once the lease is gone so the run ends
+    instead of overlapping the dispatch that now owns it."""
     while not stop.wait(RUN_LEASE_RENEW_SECONDS):
         try:
             lease.reacquire()
-        except LockError:
-            # The lease expired and a later dispatch may own it; the run keeps going and release() tolerates it.
+        except LockNotOwnedError:
             logger.warning("aeo_citation_task_lease_lost", team_id=team_id)
+            lost.set()
             return
+        except Exception as error:
+            # A Redis blip must not end renewal; the next tick retries well inside the TTL.
+            logger.warning("aeo_citation_task_lease_renew_failed", team_id=team_id, error=str(error)[:300])
