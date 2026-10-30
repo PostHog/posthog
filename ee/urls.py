@@ -4,7 +4,6 @@ from django.conf import settings
 from django.contrib import admin
 from django.contrib.admin.exceptions import NotRegistered
 from django.urls import include, path, re_path
-from django.views.decorators.csrf import csrf_exempt
 from django.views.generic import RedirectView
 
 from django_otp.plugins.otp_static.models import StaticDevice
@@ -24,7 +23,6 @@ from products.cdp.backend.api import hooks
 from ee.admin.loginas_views import loginas_user, upgrade_impersonation
 from ee.api import integration
 from ee.api.vercel import vercel_connect, vercel_sso
-from ee.support_sidebar_max.views import MaxChatViewSet
 
 from .api import billing, conversation, core_memory, organization_billing, project_billing
 
@@ -175,7 +173,6 @@ else:
 
 urlpatterns: list[Any] = [
     path("api/saml/metadata/", saml_metadata_view),
-    path("max/chat/", csrf_exempt(MaxChatViewSet.as_view({"post": "create"})), name="max_chat"),
     re_path(r"^login/vercel/?$", vercel_sso.VercelSSOViewSet.as_view({"get": "sso_redirect"})),
     re_path(r"^login/vercel/continue/?$", vercel_sso.VercelSSOViewSet.as_view({"get": "sso_continue"})),
     re_path(

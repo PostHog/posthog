@@ -64,14 +64,14 @@ function webhookFacts({ method, url, body }: PresentationOf<'webhook'>): StepFac
     }
 }
 
-function aiTaskFacts({ title, prompt, repository, writes }: PresentationOf<'ai-task'>): StepFacts {
+function aiTaskFacts({ title, prompt, repositories, writes }: PresentationOf<'ai-task'>): StepFacts {
     const instructions = plainVariables(prompt ?? '')
     return {
         headline: title ? plainVariables(title) : firstSentence(instructions) || 'AI task',
         detail: firstSentence(instructions) || undefined,
         fields: [
             ['Instructions', instructions || 'Not set'],
-            ...fieldIf('Repository', repository),
+            ...fieldIf(repositories.length > 1 ? 'Repositories' : 'Repository', repositories.join(', ')),
             ...fieldIf('Writes', joinList(writes)),
         ],
     }

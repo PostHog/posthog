@@ -101,7 +101,9 @@ jobs:
         permissions:
             contents: read
             pull-requests: read
-        runs-on: ubuntu-24.04
+        # Merge-queue runs use Depot because GitHub-hosted runners queue for minutes at busy hours
+        # and this job sits on the queue's required-check path. Other runs stay on free GitHub-hosted runners.
+        runs-on: ${{ startsWith(github.head_ref, 'trunk-merge/') && 'depot-ubuntu-24.04' || 'ubuntu-24.04' }}
         # 7 not 5: the debounce step below sleeps up to 60s, so widen the budget to
         # keep ample headroom. A timeout here skips Playwright, which the aggregator
         # would count as a pass.
@@ -272,8 +274,9 @@ jobs:
               # launches. After the wait, if the PR head has already moved past this run's
               # SHA, skip: the newer run is the real gate (and always runs, since the tip
               # is never stale against itself). Single pushes just pay the short wait.
+              # Trunk rarely re-pushes a merge-queue branch, and the concurrency group cancels the older run.
               id: debounce
-              if: steps.decide.outputs.shouldRun == 'true' && github.event_name == 'pull_request'
+              if: steps.decide.outputs.shouldRun == 'true' && github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/')
               env:
                   GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
                   REPO: ${{ github.repository }}
@@ -1415,7 +1418,8 @@ jobs:
     playwright_tests:
         needs: [changes, playwright, vr-complete]
         name: Playwright tests pass
-        runs-on: ubuntu-24.04
+        # Same runner choice as `changes`.
+        runs-on: ${{ startsWith(github.head_ref, 'trunk-merge/') && 'depot-ubuntu-24.04' || 'ubuntu-24.04' }}
         timeout-minutes: 5
         if: ${{ !cancelled() }}
         steps:
