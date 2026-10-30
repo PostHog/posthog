@@ -976,7 +976,7 @@ class TestFindScannerCandidatesActivity:
             if not is_filter_error:
                 assert scanner.filter_error is None
                 return
-            assert exc_info.value.non_retryable is True
+            assert isinstance(exc_info.value, ApplicationError) and exc_info.value.non_retryable is True
             assert scanner.filter_error == filter_error_message(error)
 
             fast_query.reset_mock()
