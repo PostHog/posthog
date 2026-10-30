@@ -75,6 +75,24 @@ PLAIN_ENDPOINTS: dict[str, PlainEndpointConfig] = {
     "label_types": PlainEndpointConfig(
         incremental_fields=[],
     ),
+    # No list query below accepts an updatedAt filter. `discussions` only filters on lastActivityAt,
+    # which a status change such as resolving does not move, so it stays full refresh too.
+    "customer_groups": PlainEndpointConfig(
+        incremental_fields=[],
+    ),
+    "customer_surveys": PlainEndpointConfig(
+        incremental_fields=[],
+    ),
+    "discussions": PlainEndpointConfig(
+        incremental_fields=[],
+    ),
+    # Executions have no createdAt, and startedAt moves from enqueue to start time, so no stable partition key.
+    "workflow_executions": PlainEndpointConfig(
+        incremental_fields=[],
+        partition_mode=None,
+        partition_format=None,
+        partition_keys=None,
+    ),
 }
 
 ENDPOINTS = tuple(PLAIN_ENDPOINTS.keys())

@@ -87,6 +87,9 @@ SOURCE_FEATURE_NAMES = (*(f"source_{product}" for product in SOURCE_PRODUCTS), "
 # dag's `inbox_project_vectors` writes one row per (team, kind), and the training and serving
 # inputs both read these names, so the two sides cannot order the kinds differently.
 PROJECT_VECTOR_KINDS = ("typical", "open", "action", "dismiss")
+# Every kind `project_vectors()` can build. An experiment family can read a kind the stored table
+# and the serving path do not carry, such as `fixed`, which comes from the status stream.
+TRAINING_PROJECT_VECTOR_KINDS = (*PROJECT_VECTOR_KINDS, "fixed")
 # Below this many reports, a kind's mean is mostly one report's text, so the row keeps an all-zero
 # vector and the kind has no history.
 MIN_PROJECT_HISTORY_REPORTS = 5
@@ -445,23 +448,26 @@ FEATURE_SETS: Mapping[str, FeatureSet] = MappingProxyType(
 class ProjectInputs:
     """The project vectors of some teams, one row per team in the order the caller asked for."""
 
-    # (teams, kinds, EMBEDDING_DIMENSIONS) float32, in `PROJECT_VECTOR_KINDS` order. All zero where
+    # (teams, kinds, EMBEDDING_DIMENSIONS) float32, in the caller's kind order. All zero where
     # the team has no row for the kind or its history is too thin.
     vectors: np.ndarray
     # (teams, kinds) float32, 1.0 where the kind had at least `MIN_PROJECT_HISTORY_REPORTS` reports.
     has_history: np.ndarray
 
 
-def project_inputs(project_vectors: pd.DataFrame, team_ids: Sequence[int]) -> ProjectInputs:
-    """The project vectors of `team_ids` from one day of `inbox_project_vectors`.
+def project_inputs(
+    project_vectors: pd.DataFrame, team_ids: Sequence[int], kinds: Sequence[str] = PROJECT_VECTOR_KINDS
+) -> ProjectInputs:
+    """The project vectors of `team_ids` from one day of `inbox_project_vectors`, in `kinds` order.
 
     `project_vectors` carries the `team_id`, `kind`, `vector` and `n_reports` columns of that table.
     Training and serving both build the network's `project` and `has_history` inputs here, so a
     team without a row, a kind without a row and a thin kind read the same on both sides.
     """
     position = {int(team_id): index for index, team_id in enumerate(team_ids)}
-    vectors = np.zeros((len(team_ids), len(PROJECT_VECTOR_KINDS), EMBEDDING_DIMENSIONS), dtype=np.float32)
-    has_history = np.zeros((len(team_ids), len(PROJECT_VECTOR_KINDS)), dtype=np.float32)
+    kind_position = {kind: index for index, kind in enumerate(kinds)}
+    vectors = np.zeros((len(team_ids), len(kinds), EMBEDDING_DIMENSIONS), dtype=np.float32)
+    has_history = np.zeros((len(team_ids), len(kinds)), dtype=np.float32)
     for team_id, kind, vector, n_reports in zip(
         project_vectors["team_id"],
         project_vectors["kind"],
@@ -470,9 +476,9 @@ def project_inputs(project_vectors: pd.DataFrame, team_ids: Sequence[int]) -> Pr
         strict=True,
     ):
         team = position.get(int(team_id))
-        if team is None or kind not in PROJECT_VECTOR_KINDS:
+        kind_index = kind_position.get(kind)
+        if team is None or kind_index is None:
             continue
-        kind_index = PROJECT_VECTOR_KINDS.index(kind)
         vectors[team, kind_index] = vector
         has_history[team, kind_index] = float(int(n_reports) >= MIN_PROJECT_HISTORY_REPORTS)
     return ProjectInputs(vectors=vectors, has_history=has_history)

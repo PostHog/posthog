@@ -64,6 +64,7 @@ class ResourceType(StrEnum):
     HOG_FUNCTION = "hog_function"
     INTEGRATION = "integration"
     SESSION_RECORDING_PLAYLIST = "session_recording_playlist"
+    SIGNAL_SCOUT = "signal_scout"
     TASK = "task"
     USAGE_METRIC = "usage_metric"
     ACTION = "action"

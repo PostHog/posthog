@@ -32,7 +32,7 @@ from products.experiments.backend.health.skips import (
     not_checked,
 )
 
-# pinned: the subcodes are sent as `finding_variant` on the health finding events, so insights group on them.
+# pinned: the subcodes are sent as `finding_subcode` on the health finding events, so insights group on them.
 EXPOSURE_EVENT_NOT_INGESTED = "exposure_event_not_ingested"
 FILTER_ON_ANOTHER_FLAG = "filter_on_another_flag"
 FILTER_ON_PROPERTY_NOT_INGESTED = "filter_on_property_not_ingested"

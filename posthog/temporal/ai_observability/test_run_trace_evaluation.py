@@ -23,6 +23,7 @@ from posthog.hogql_queries.ai.trace_query_runner import TraceQueryRunner
 from posthog.models import Organization, PropertyDefinition, Team, User
 from posthog.models.ai_events.test_util import bulk_create_ai_events
 from posthog.models.event.util import bulk_create_events
+from posthog.temporal.ai_observability.judge_images import JudgeImages
 from posthog.temporal.ai_observability.run_session_evaluation import fetch_session_for_evaluation
 from posthog.temporal.ai_observability.trace_summarization.fetch_and_format import _fetch_and_format_trace
 
@@ -159,6 +160,47 @@ class TestFormatTraceForJudge:
         assert "[SPAN]" in transcript
         assert "gpt-4o" in transcript
         assert "What is 2+2?" in transcript
+
+    def test_numbers_images_only_for_a_judge_with_images(self):
+        image = {"type": "image_url", "image_url": {"url": f"phaiblob://v1/sha256/{'a' * 64}?mime=image%2Fpng&size=1"}}
+        otel_blob = {"type": "blob", "modality": "image", "mime_type": "image/png", "content": "aGk="}
+        trace = create_trace(
+            [
+                create_trace_event(
+                    "$ai_generation",
+                    **{
+                        "$ai_input": [
+                            {"role": "user", "content": [image, {"type": "text", "text": "Describe the chart."}]},
+                            {
+                                "role": "user",
+                                "content": [{"type": "tool_result", "tool_use_id": "t1", "content": [image]}],
+                            },
+                            {"role": "user", "parts": [otel_blob]},
+                            {
+                                "type": "function_call_output",
+                                "call_id": "c1",
+                                "output": [
+                                    {
+                                        "type": "input_image",
+                                        "image_url": f"phaiblob://v1/sha256/{'c' * 64}?mime=image%2Fpng&size=1",
+                                    }
+                                ],
+                            },
+                        ],
+                        "$ai_output": "A rising line.",
+                    },
+                )
+            ]
+        )
+
+        plain = format_trace_for_judge(trace)
+        marked = format_trace_for_judge(trace, JudgeImages(team_id=1).marker)
+
+        assert "[image 1]" not in plain
+        # The message and the tool result repeat one image, and the OTel part adds a second.
+        assert marked.count("[image 1]") == 2
+        assert "[image 2]" in marked
+        assert "[image 3]" in marked
 
     def test_includes_tool_catalog(self):
         tools = [{"type": "function", "function": {"name": "search_docs", "description": "Search the docs"}}]

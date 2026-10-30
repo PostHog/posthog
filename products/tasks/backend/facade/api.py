@@ -6987,7 +6987,14 @@ def _task_detail_queryset():
     ).prefetch_related("runs")
 
 
-def _visible_task_qs(team_id: int, user_id: int | None, *, bypass_visibility: bool = False, for_control: bool = False):
+def _visible_task_qs(
+    team_id: int,
+    user_id: int | None,
+    *,
+    bypass_visibility: bool = False,
+    for_control: bool = False,
+    for_list: bool = False,
+):
     """Team-scoped live tasks, gated by read visibility — or by the narrower
     control predicate when ``for_control`` (mutations, runs, agent commands).
 
@@ -6997,8 +7004,11 @@ def _visible_task_qs(team_id: int, user_id: int | None, *, bypass_visibility: bo
     """
     qs = Task.objects.filter(team_id=team_id, deleted=False).filter(scout_trial_visibility_q(user_id))
     if not bypass_visibility:
+        channel_team_id = team_id if for_list else None
         qs = qs.filter(
-            task_control_q(user_id) if for_control else task_visibility_q(user_id) | _shared_slack_thread_q()
+            task_control_q(user_id, channel_team_id)
+            if for_control
+            else task_visibility_q(user_id, channel_team_id) | _shared_slack_thread_q()
         )
         # Another product may hide tasks it owns from this user, for example the copies of chats a
         # user cannot continue as tasks yet.
@@ -7066,7 +7076,7 @@ def get_conversation_task_dtos(
     )
     tasks = (
         Task.objects.filter(team_id=team_id, id__in=task_ids, deleted=False)
-        .filter(task_visibility_q(user_id))
+        .filter(task_visibility_q(user_id, team_id))
         .select_related("created_by")
         .prefetch_related(Prefetch("team", queryset=Team.objects.only("id", "name")))
         .annotate(_latest_run_id=Subquery(latest_run_id_sq))
@@ -7155,7 +7165,7 @@ def is_scout_trial_task(task_id: str | UUID, team_id: int) -> bool:
 
 
 def list_pinned_task_ids(team_id: int, user_id: int, *, exclude_task_ids: Iterable[UUID] = ()) -> list[UUID]:
-    visible_tasks = _visible_task_qs(team_id, user_id).exclude(id__in=exclude_task_ids).values("id")
+    visible_tasks = _visible_task_qs(team_id, user_id, for_list=True).exclude(id__in=exclude_task_ids).values("id")
     return list(
         TaskPin.objects.filter(user_id=user_id, task_id__in=Subquery(visible_tasks))
         .order_by("-pinned_at")
@@ -7202,7 +7212,7 @@ def list_workflow_last_runs(
         return {}
     latest_run = TaskRun.objects.filter(task=OuterRef("pk"), team_id=team_id).order_by("-created_at", "-id")
     rows = (
-        _visible_task_qs(team_id, user_id)
+        _visible_task_qs(team_id, user_id, for_list=True)
         .filter(hog_flow_id__in=ids, internal=False)
         .order_by("hog_flow_id", "-created_at", "-id")
         .distinct("hog_flow_id")
@@ -7288,7 +7298,7 @@ def _task_source(origin_product: str, client_provenance: str | None) -> str:
 def list_task_sources(team_id: int, user_id: int, *, exclude_task_ids: Iterable[UUID] = ()) -> list[str]:
     """Distinct task list sources of the user's own visible, non-archived, non-internal tasks."""
     pairs = (
-        _visible_task_qs(team_id, user_id)
+        _visible_task_qs(team_id, user_id, for_list=True)
         .filter(internal=False, archived=False, created_by_id=user_id)
         .exclude(id__in=exclude_task_ids)
         .order_by()
@@ -7303,7 +7313,7 @@ def _list_tasks_queryset(
 ) -> QuerySet[Task]:
     latest_run = TaskRun.objects.filter(task=OuterRef("pk"), team_id=team_id).order_by("-created_at", "-id")
     ordering = TASK_LIST_ORDERINGS.get(filters.get("ordering") or "", TASK_LIST_ORDERINGS[DEFAULT_TASK_LIST_ORDERING])
-    qs = _visible_task_qs(team_id, user_id, bypass_visibility=bypass_visibility).order_by(*ordering)
+    qs = _visible_task_qs(team_id, user_id, bypass_visibility=bypass_visibility, for_list=True).order_by(*ordering)
 
     origin_product = filters.get("origin_product")
     if origin_product:
@@ -7589,7 +7599,7 @@ def search_tasks(
     if not normalized:
         return []
     visible_task_ids = (
-        _visible_task_qs(team_id, user_id, bypass_visibility=bypass_visibility)
+        _visible_task_qs(team_id, user_id, bypass_visibility=bypass_visibility, for_list=True)
         .filter(internal=False)
         .exclude(id__in=exclude_task_ids)
         .values("id")
@@ -7646,7 +7656,7 @@ def list_task_repositories(team_id: int, user_id: int | None, *, exclude_task_id
     """Distinct repositories used by non-deleted, non-internal visible tasks for the team."""
     tasks = (
         Task.objects.filter(team_id=team_id, deleted=False, internal=False)
-        .filter(task_visibility_q(user_id))
+        .filter(task_visibility_q(user_id, team_id))
         .exclude(id__in=exclude_task_ids)
     )
     plural = (
@@ -7744,7 +7754,7 @@ def get_task_summaries(
     )
     tasks = (
         Task.objects.filter(team_id=team_id, deleted=False, id__in=ids)
-        .filter(task_visibility_q(user_id))
+        .filter(task_visibility_q(user_id, team_id))
         .exclude(id__in=exclude_task_ids)
         .annotate(
             _latest_run=Subquery(latest_run.values("_data")[:1]),
@@ -10623,7 +10633,7 @@ def list_channel_contributors(team_id: int, user_id: int | None) -> list[contrac
         return []
     task_rows = (
         Task.objects.filter(
-            task_visibility_q(user_id),
+            task_visibility_q(user_id, team_id),
             team_id=team_id,
             channel_id__in=channel_ids,
             deleted=False,
@@ -11673,7 +11683,7 @@ def list_mentions(
         team_id=team_id,
         mentioned_user_id=user_id,
         # task__in keeps the visibility rules single-sourced in _visible_task_qs.
-        task__in=_visible_task_qs(team_id, user_id),
+        task__in=_visible_task_qs(team_id, user_id, for_list=True),
         # Legacy turn_complete rows are hidden from threads (see list_thread_messages),
         # so their indexed mentions must not surface notifications pointing at them.
     ).exclude(message__event="turn_complete")
@@ -11754,7 +11764,7 @@ ACTIVITY_FEED_EXCLUDED_ORIGIN_PRODUCTS = (Task.OriginProduct.SIGNALS_SCOUT,)
 
 def _activity_visible_task_qs(team_id: int, user_id: int) -> QuerySet[Task]:
     return (
-        _visible_task_qs(team_id, user_id)
+        _visible_task_qs(team_id, user_id, for_list=True)
         .filter(internal=False, archived=False)
         .exclude(origin_product__in=ACTIVITY_FEED_EXCLUDED_ORIGIN_PRODUCTS)
     )

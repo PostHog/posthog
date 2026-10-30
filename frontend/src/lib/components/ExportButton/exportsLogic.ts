@@ -342,9 +342,10 @@ export const exportsLogic = kea<exportsLogicType>([
                     : (listed ?? (await fetchExportOrNull(fresh.id)))
                 if (!latest || isRendering(latest)) {
                     // Still rendering, or a fetch miss. Release the claim so a later poll can
-                    // notify, and keep an out-of-list export polling.
+                    // notify, and keep polling an export the list no longer shows as rendering, such as
+                    // one whose owner retries after a failure the generic row still records.
                     cache.notifiedExportIds.delete(fresh.id)
-                    if (!listed) {
+                    if (!listed || !isRendering(listed)) {
                         pending.push(latest ?? fresh)
                     }
                     continue

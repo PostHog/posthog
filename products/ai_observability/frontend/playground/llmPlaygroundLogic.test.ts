@@ -800,6 +800,7 @@ describe('llmPlaygroundLogic', () => {
                     providerKeyId: 'key-1',
                     supportsDecisions: false,
                     supportsChat: true,
+                    supportsReasoning: false,
                 }))
             )
         })

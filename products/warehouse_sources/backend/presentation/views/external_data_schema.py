@@ -57,6 +57,7 @@ from products.warehouse_sources.backend.facade.models import (
     mark_schema_running_unless_halted,
     resolve_destinations,
     resolve_sync_type,
+    self_managed_table_ref,
     sync_frequency_interval_to_sync_frequency,
     sync_frequency_to_sync_frequency_interval,
     update_sync_type_config_keys,
@@ -551,6 +552,11 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
     """A schema of an external data source: its sync configuration and the warehouse table it syncs into."""
 
     table = serializers.SerializerMethodField(read_only=True)
+    pending_self_managed_table = serializers.SerializerMethodField(
+        read_only=True,
+        help_text="Whether this schema is linked to an existing self-managed table that its first sync will import. "
+        "Until then the table keeps reading the original bucket.",
+    )
     incremental = serializers.SerializerMethodField(read_only=True)
     status = serializers.SerializerMethodField(read_only=True)
     sync_type = serializers.ChoiceField(
@@ -737,6 +743,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "latest_error",
             "incremental",
             "status",
+            "pending_self_managed_table",
             "sync_type",
             "incremental_field",
             "incremental_field_type",
@@ -770,6 +777,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "last_synced_at",
             "latest_error",
             "status",
+            "pending_self_managed_table",
             "incremental_sync_blocked",
             "next_full_refresh_at",
             "description",
@@ -947,6 +955,11 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
 
     def get_status(self, schema: ExternalDataSchema) -> str | None:
         return schema_display_status(schema)
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_pending_self_managed_table(self, schema: ExternalDataSchema) -> bool:
+        ref = self_managed_table_ref(schema)
+        return schema.table_id is None and ref is not None and ref.abandon_reason is None
 
     def get_incremental(self, schema: ExternalDataSchema) -> bool:
         return schema.is_incremental
@@ -2080,6 +2093,11 @@ class ExternalDataSchemaListSerializer(serializers.ModelSerializer):
         read_only=True, help_text="The synced warehouse table (id, name, row_count), or null if not yet synced."
     )
     status = serializers.SerializerMethodField(read_only=True, help_text="Current sync status for this schema.")
+    pending_self_managed_table = serializers.SerializerMethodField(
+        read_only=True,
+        help_text="Whether this schema is linked to an existing self-managed table that its first sync will import. "
+        "Until then the table keeps reading the original bucket.",
+    )
 
     sync_frequency = serializers.SerializerMethodField(
         read_only=True, help_text="How often this table is scheduled to sync, or null if no interval is set."
@@ -2098,6 +2116,7 @@ class ExternalDataSchemaListSerializer(serializers.ModelSerializer):
             "sync_frequency",
             "latest_error",
             "table",
+            "pending_self_managed_table",
         ]
         read_only_fields = fields
 
@@ -2121,6 +2140,11 @@ class ExternalDataSchemaListSerializer(serializers.ModelSerializer):
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_status(self, schema: ExternalDataSchema) -> str | None:
         return schema_display_status(schema)
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_pending_self_managed_table(self, schema: ExternalDataSchema) -> bool:
+        ref = self_managed_table_ref(schema)
+        return schema.table_id is None and ref is not None and ref.abandon_reason is None
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_sync_frequency(self, schema: ExternalDataSchema) -> str | None:
