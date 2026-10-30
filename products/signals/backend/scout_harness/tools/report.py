@@ -2126,6 +2126,7 @@ async def emit_report(
     idempotency_key: str | None = None,
     tags: list[str] | None = None,
     slack_message: str | None = None,
+    update_existing_message: bool = False,
 ) -> EmitReportResult:
     """Author a full report: judge for safety, then persist at the judged status. Async entry (used by
     the in-Temporal runner); routes the sync DB work through `database_sync_to_async`.
@@ -2325,6 +2326,7 @@ async def emit_report(
                 # findings using the emission id); edits keep per-delivery ids since each notifies.
                 delivery_id=persisted.report_id,
                 slack_message=slack_message,
+                update_existing_message=update_existing_message,
             )
         await _maybe_autostart_report(team_id=team.id, report_id=persisted.report_id)
     return await finish(_emit_result(persisted.report_id, judgement))
@@ -2352,6 +2354,7 @@ def emit_report_sync(
     idempotency_key: str | None = None,
     tags: list[str] | None = None,
     slack_message: str | None = None,
+    update_existing_message: bool = False,
 ) -> EmitReportResult:
     """Sync entry used by the DRF view path. Mirrors `emit_report` but keeps the sync DB work on the
     calling thread/connection (gates, persist) — only the safety-judge LLM call, the free-form repo
@@ -2521,6 +2524,7 @@ def emit_report_sync(
                 output_id=persisted.report_id,
                 delivery_id=persisted.report_id,
                 slack_message=slack_message,
+                update_existing_message=update_existing_message,
             )
         async_to_sync(_maybe_autostart_report)(team_id=team.id, report_id=persisted.report_id)
     return finish(_emit_result(persisted.report_id, judgement))
@@ -2548,6 +2552,7 @@ def _do_edit_report(
     priority: PriorityAssessment | None = None,
     tags: list[str] | None = None,
     slack_message: str | None = None,
+    update_existing_message: bool = False,
 ) -> EditReportResult:
     """Fully-sync edit core (no LLM step). The async/sync entrypoints both funnel here — directly in
     the sync path, via `database_sync_to_async` in the async path. The autostart re-eval bridges an
@@ -2843,6 +2848,7 @@ def _do_edit_report(
                 output_id=report_id,
                 edit_note=_edit_update_text(append_note, append_evidence) if note_only else None,
                 slack_message=slack_message,
+                update_existing_message=update_existing_message,
             )
     # After the commit, never inside it: a rolled-back edit must not leave signal rows bound to the
     # report. After the delivery claim above too, so the evidence emits don't widen the window in
@@ -3157,6 +3163,7 @@ async def edit_report(
     priority_explanation: str | None = None,
     tags: list[str] | None = None,
     slack_message: str | None = None,
+    update_existing_message: bool = False,
 ) -> EditReportResult:
     """Edit an existing inbox report: rewrite title/summary, append a note or fresh evidence, set
     suggested reviewers, and/or repoint it at another repository (both re-run autostart, so a report
@@ -3234,6 +3241,7 @@ async def edit_report(
         title=title,
         summary=summary,
         slack_message=slack_message,
+        update_existing_message=update_existing_message,
         append_note=append_note,
         append_evidence=built_evidence,
         reviewers=built_reviewers
@@ -3302,6 +3310,7 @@ def edit_report_sync(
     priority_explanation: str | None = None,
     tags: list[str] | None = None,
     slack_message: str | None = None,
+    update_existing_message: bool = False,
 ) -> EditReportResult:
     """Sync entry used by the DRF view path. Same behavior as `edit_report`, on the calling thread."""
     if reviewer_proposal is not None and reviewer_proposal.outcome != "selected" and suggested_reviewers is None:
@@ -3367,6 +3376,7 @@ def edit_report_sync(
         title=title,
         summary=summary,
         slack_message=slack_message,
+        update_existing_message=update_existing_message,
         append_note=append_note,
         append_evidence=built_evidence,
         reviewers=built_reviewers

@@ -41293,6 +41293,8 @@ export namespace Schemas {
       reviewer_retry_reason?: string;
       /** Id of the report to edit (must belong to this project). */
       report_id: string;
+      /** Opt in to updating the stored top-level Slack message for this report, including note-only edits. Set slack_message to the full replacement body. Without it, the latest report card is used. A missing or deleted message is posted again and its new ID is stored. Default false keeps note-only edits as new messages. */
+      update_existing_message?: boolean;
       /**
          * Optional Slack message body, separate from the report text. Delivered as Markdown without an added title, buttons, or footer. Follow the scout's requested message format. Omit to use the standard report card. Uses only the scout's configured Slack destination.
          * @maxLength 6000
@@ -42249,6 +42251,8 @@ export namespace Schemas {
      * Request body for `emit-report`. Run attribution is taken from the URL path.
      */
     export interface EmitReportRequest {
+      /** Opt in to updating the stored top-level Slack message for this report, including note-only edits. Set slack_message to the full replacement body. Without it, the latest report card is used. A missing or deleted message is posted again and its new ID is stored. Default false keeps note-only edits as new messages. */
+      update_existing_message?: boolean;
       /**
          * Optional Slack message body, separate from the report text. Delivered as Markdown without an added title, buttons, or footer. Follow the scout's requested message format. Omit to use the standard report card. Uses only the scout's configured Slack destination.
          * @maxLength 6000

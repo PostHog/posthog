@@ -317,9 +317,9 @@ class TestScoutReportAPI(APIBaseTest):
         assert second["idempotent_replay"] is False
         assert SignalReport.objects.filter(team=self.team).count() == 2
 
-    @parameterized.expand([(None,), ("*workflow*: example-ci\n*status*: CI running",)])
+    @parameterized.expand([(None, False), ("*workflow*: example-ci\n*status*: CI running", True)])
     def test_report_emit_and_edit_enqueue_configured_slack_destination_after_commit(
-        self, slack_message: str | None
+        self, slack_message: str | None, update_existing_message: bool
     ) -> None:
         run = _make_run(self.team)
         config = run.scout_config
@@ -336,7 +336,13 @@ class TestScoutReportAPI(APIBaseTest):
             self.captureOnCommitCallbacks(execute=True),
         ):
             emitted = self.client.post(
-                self._emit_url(str(run.id)), data={**self._payload(), "slack_message": slack_message}, format="json"
+                self._emit_url(str(run.id)),
+                data={
+                    **self._payload(),
+                    "slack_message": slack_message,
+                    "update_existing_message": update_existing_message,
+                },
+                format="json",
             )
             report_id = emitted.json()["report_id"]
             edited = self.client.post(
@@ -345,6 +351,7 @@ class TestScoutReportAPI(APIBaseTest):
                     "report_id": report_id,
                     "append_note": "Re-validated on the next run",
                     "slack_message": slack_message,
+                    "update_existing_message": update_existing_message,
                 },
                 format="json",
             )
@@ -415,7 +422,9 @@ class TestScoutReportAPI(APIBaseTest):
         # message, even when the rewrite also appended a note. Charts are content the message shows,
         # so a chart change with a note re-posts the report too.
         assert enqueue.call_args_list[0].kwargs["edit_note"] is None
-        assert enqueue.call_args_list[1].kwargs["edit_note"] == "Re-validated on the next run"
+        assert enqueue.call_args_list[1].kwargs["edit_note"] == (
+            None if update_existing_message else "Re-validated on the next run"
+        )
         assert enqueue.call_args_list[2].kwargs["edit_note"] is None
         assert enqueue.call_args_list[3].kwargs["edit_note"] is None
 

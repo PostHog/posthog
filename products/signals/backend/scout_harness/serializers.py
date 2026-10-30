@@ -1624,6 +1624,16 @@ class ReportLinkWriteSerializer(serializers.Serializer):
 class EmitReportRequestSerializer(serializers.Serializer):
     """Request body for `emit-report`. Run attribution is taken from the URL path."""
 
+    update_existing_message = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Opt in to updating the stored top-level Slack message for this report, including note-only edits. "
+            "Set slack_message to the full replacement body. Without it, the latest report card is used. "
+            "A missing or deleted message is posted again and its new ID is stored. "
+            "Default false keeps note-only edits as new messages."
+        ),
+    )
     slack_message = serializers.CharField(
         required=False,
         allow_null=True,
@@ -1839,6 +1849,16 @@ class EditReportRequestSerializer(ReviewerProposalSerializer):
     """Request body for `edit-report`. Can target ANY of the team's inbox reports, not just scout-authored ones."""
 
     report_id = serializers.CharField(help_text="Id of the report to edit (must belong to this project).")
+    update_existing_message = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Opt in to updating the stored top-level Slack message for this report, including note-only edits. "
+            "Set slack_message to the full replacement body. Without it, the latest report card is used. "
+            "A missing or deleted message is posted again and its new ID is stored. "
+            "Default false keeps note-only edits as new messages."
+        ),
+    )
     slack_message = serializers.CharField(
         required=False,
         allow_null=True,

@@ -3156,6 +3156,7 @@ export const SignalsScoutEditReportParams = () => zod.object({
 
 export const signalsScoutEditReportBodyReviewerRetryReasonMax = 500
 
+export const signalsScoutEditReportBodyUpdateExistingMessageDefault = false
 export const signalsScoutEditReportBodySlackMessageMax = 6000
 
 export const signalsScoutEditReportBodyTitleMax = 300
@@ -3240,6 +3241,12 @@ export const SignalsScoutEditReportBody = () => zod
             .optional()
             .describe('Reason the reviewer lookup failed.'),
         report_id: zod.string().describe('Id of the report to edit (must belong to this project).'),
+        update_existing_message: zod
+            .boolean()
+            .default(signalsScoutEditReportBodyUpdateExistingMessageDefault)
+            .describe(
+                'Opt in to updating the stored top-level Slack message for this report, including note-only edits. Set slack_message to the full replacement body. Without it, the latest report card is used. A missing or deleted message is posted again and its new ID is stored. Default false keeps note-only edits as new messages.'
+            ),
         slack_message: zod
             .string()
             .max(signalsScoutEditReportBodySlackMessageMax)
@@ -3614,6 +3621,7 @@ export const SignalsScoutEmitReportParams = () => zod.object({
     run_id: zod.string().describe('UUID of the `SignalScoutRun` bridge row.'),
 })
 
+export const signalsScoutEmitReportBodyUpdateExistingMessageDefault = false
 export const signalsScoutEmitReportBodySlackMessageMax = 6000
 
 export const signalsScoutEmitReportBodyTitleMax = 300
@@ -3665,6 +3673,12 @@ export const signalsScoutEmitReportBodyIdempotencyKeyMax = 200
 
 export const SignalsScoutEmitReportBody = () => zod
     .object({
+        update_existing_message: zod
+            .boolean()
+            .default(signalsScoutEmitReportBodyUpdateExistingMessageDefault)
+            .describe(
+                'Opt in to updating the stored top-level Slack message for this report, including note-only edits. Set slack_message to the full replacement body. Without it, the latest report card is used. A missing or deleted message is posted again and its new ID is stored. Default false keeps note-only edits as new messages.'
+            ),
         slack_message: zod
             .string()
             .max(signalsScoutEmitReportBodySlackMessageMax)

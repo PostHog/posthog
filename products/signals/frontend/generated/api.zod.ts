@@ -2685,6 +2685,7 @@ export const SignalsScoutRecordCheckResultBody = /* @__PURE__ */ zod
  */
 export const signalsScoutEditReportBodyReviewerRetryReasonMax = 500
 
+export const signalsScoutEditReportBodyUpdateExistingMessageDefault = false
 export const signalsScoutEditReportBodySlackMessageMax = 6000
 
 export const signalsScoutEditReportBodyTitleMax = 300
@@ -2769,6 +2770,12 @@ export const SignalsScoutEditReportBody = /* @__PURE__ */ zod
             .optional()
             .describe('Reason the reviewer lookup failed.'),
         report_id: zod.string().describe('Id of the report to edit (must belong to this project).'),
+        update_existing_message: zod
+            .boolean()
+            .default(signalsScoutEditReportBodyUpdateExistingMessageDefault)
+            .describe(
+                'Opt in to updating the stored top-level Slack message for this report, including note-only edits. Set slack_message to the full replacement body. Without it, the latest report card is used. A missing or deleted message is posted again and its new ID is stored. Default false keeps note-only edits as new messages.'
+            ),
         slack_message: zod
             .string()
             .max(signalsScoutEditReportBodySlackMessageMax)
@@ -3108,6 +3115,7 @@ export const SignalsScoutEditReportBody = /* @__PURE__ */ zod
  * The second emit channel: author a complete `SignalReport` directly instead of emitting a weak signal. The report passes the safety judge, then surfaces at the status the scout's `actionability` call implies (or is suppressed). Backing `evidence` is written as bound signals so the report behaves like a pipeline report. Safe to retry: resending an emission returns the report the first call authored (`idempotent_replay` true) rather than a second one, keyed on `idempotency_key` or, without one, on the report's content. Use `reports` to find a report from an earlier run and `edit-report` to update it instead of authoring a near-duplicate.
  * @summary Author a full report for a run
  */
+export const signalsScoutEmitReportBodyUpdateExistingMessageDefault = false
 export const signalsScoutEmitReportBodySlackMessageMax = 6000
 
 export const signalsScoutEmitReportBodyTitleMax = 300
@@ -3159,6 +3167,12 @@ export const signalsScoutEmitReportBodyIdempotencyKeyMax = 200
 
 export const SignalsScoutEmitReportBody = /* @__PURE__ */ zod
     .object({
+        update_existing_message: zod
+            .boolean()
+            .default(signalsScoutEmitReportBodyUpdateExistingMessageDefault)
+            .describe(
+                'Opt in to updating the stored top-level Slack message for this report, including note-only edits. Set slack_message to the full replacement body. Without it, the latest report card is used. A missing or deleted message is posted again and its new ID is stored. Default false keeps note-only edits as new messages.'
+            ),
         slack_message: zod
             .string()
             .max(signalsScoutEmitReportBodySlackMessageMax)

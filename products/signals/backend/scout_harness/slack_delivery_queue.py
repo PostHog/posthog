@@ -28,6 +28,7 @@ def queue_configured_scout_slack_delivery(
     delivery_id: str | None = None,
     edit_note: str | None = None,
     slack_message: str | None = None,
+    update_existing_message: bool = False,
 ) -> None:
     """Snapshot a run's configured destination and enqueue delivery after the current commit.
 
@@ -47,7 +48,9 @@ def queue_configured_scout_slack_delivery(
             return
 
         base_delivery_id = delivery_id or str(uuid.uuid4())
-        note_snapshot = edit_note[:MAX_SLACK_NOTE_SNAPSHOT_LEN] if edit_note is not None else None
+        note_snapshot = (
+            edit_note[:MAX_SLACK_NOTE_SNAPSHOT_LEN] if edit_note is not None and not update_existing_message else None
+        )
         for index, target in enumerate(destination.targets):
             transaction.on_commit(
                 partial(

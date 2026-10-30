@@ -418,6 +418,53 @@ class TestScoutSlackDelivery(BaseTest):
         assert update["ts"] == "1785418710.000100"
         assert "Edited draft with a new date." in update["blocks"][2]["text"]
 
+    @parameterized.expand([(False, False), (True, False), (True, True)])
+    def test_report_status_updates_reuse_the_top_level_message_only_when_opted_in(
+        self, opted_in: bool, original_deleted: bool
+    ) -> None:
+        emission = self._make_emission()
+        report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY, title="CI report")
+        integration = Integration.objects.create(
+            team=self.team, kind=Integration.IntegrationKind.SLACK, integration_id="T_SCOUTS"
+        )
+        client = MagicMock()
+        client.chat_postMessage.side_effect = [
+            {"ts": timestamp, "channel": "CSCOUTS"}
+            for timestamp in ["1785418710.000100", "1785418710.000200", "1785418710.000300"]
+        ]
+        if original_deleted:
+            client.chat_update.side_effect = [
+                SlackApiError(message="deleted", response=FakeSlackResponse({"error": "message_not_found"})),
+                {},
+            ]
+        with (
+            patch("products.signals.backend.scout_harness.slack_delivery.SlackIntegration") as slack,
+            patch(
+                "products.signals.backend.scout_harness.slack_delivery_queue.get_scout_slack_destination",
+                return_value=ScoutSlackDestination(integration_id=integration.id, targets=("CSCOUTS|#scout-findings",)),
+            ),
+            patch.object(deliver_scout_slack_output, "delay", side_effect=deliver_scout_slack_output.run),
+        ):
+            slack.return_value.client = client
+            for index, state in enumerate(["CI running", "CI passed", "Approved"]):
+                with self.captureOnCommitCallbacks(execute=True):
+                    queue_configured_scout_slack_delivery(
+                        run_id=emission.scout_run_id,
+                        output_type="report",
+                        output_id=str(report.id),
+                        edit_note="Status changed" if index else None,
+                        slack_message=f"*status*: {state}",
+                        update_existing_message=opted_in,
+                    )
+        if opted_in:
+            assert client.chat_postMessage.call_count == (2 if original_deleted else 1)
+            update = client.chat_update.call_args.kwargs
+            assert update["ts"] == ("1785418710.000200" if original_deleted else "1785418710.000100")
+            assert update["blocks"] == [{"type": "markdown", "text": "*status*: Approved"}]
+        else:
+            assert client.chat_postMessage.call_count == 3
+            client.chat_update.assert_not_called()
+
     @parameterized.expand([(None,), ("*workflow*: example-ci\n*status*: CI running",)])
     def test_note_only_edit_delivers_the_note_instead_of_the_report(self, slack_message: str | None) -> None:
         # Without the edit_note branch a note-only edit re-posts the full report message, which is

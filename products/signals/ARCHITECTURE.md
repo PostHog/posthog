@@ -707,6 +707,8 @@ Per-scout binding for the headless **Signals agent**: one row per `(team, skill_
 
 Report emit and edit requests accept an optional `slack_message`, separate from the inbox report text. The existing safety review includes this text. Delivery snapshots it with the configured destination and sends it as Markdown without the standard report heading, button, or follow-up invitation. Report visibility and assignment checks still apply. Omitting the field keeps the standard report card.
 
+Report calls can opt in to `update_existing_message`. This makes note-only edits use the full-delivery path, which reuses the stored `SignalReportSlackThread` for the report, workspace, and destination. Superseded queued deliveries yield to the latest one. A missing Slack message is posted again and linked so future changes update the replacement. The option is off by default; ordinary note-only edits still post new messages. A custom `slack_message` supplies the complete replacement body, otherwise delivery rebuilds the current report card.
+
 The structured run close-out also accepts `slack_message`. After a successful run, the runner queues it through the same destination and retry path using the run ID as the delivery ID. Dry runs and private trials do not send it. This lets scout instructions define short workflow updates and a different final summary, such as a PR table. Message bodies have a 6,000-character limit and cannot select another Slack destination.
 
 #### Scout rubrics
