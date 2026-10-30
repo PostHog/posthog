@@ -1,5 +1,6 @@
 import json
 import time
+import asyncio
 from datetime import timedelta
 from uuid import uuid4
 
@@ -51,12 +52,30 @@ from products.signals.backend.temporal.monitoring_assessment import (
     MonitoringAssessmentInput,
     MonitoringAssessmentWorkflow,
     exhaust_monitoring_assessment_activity,
+    start_monitoring_assessment,
 )
 from products.signals.backend.tracker_issues import complete_monitoring_tracker_issues
 from products.tasks.backend.models import Task, TaskRun
 
 
 class TestMonitoringAggregation(SimpleTestCase):
+    @parameterized.expand([("connection",), ("rpc",)])
+    async def test_assessment_dispatch_bounds_stalled_temporal_calls(self, stage: str) -> None:
+        async def stalled(*args: object, **kwargs: object) -> None:
+            await asyncio.Future()
+
+        client = AsyncMock()
+        connect = AsyncMock(return_value=client)
+        if stage == "connection":
+            connect.side_effect = stalled
+        else:
+            client.start_workflow.side_effect = stalled
+        with (
+            patch("products.signals.backend.temporal.monitoring_assessment.async_connect", connect),
+            self.assertRaises(TimeoutError),
+        ):
+            await start_monitoring_assessment(2, str(uuid4()), str(uuid4()), timeout_seconds=0)
+
     @parameterized.expand(
         [("inconclusive",), ("technical_errors",), ("collector_failure",), ("resumed",), ("cancelled",)]
     )
