@@ -7,13 +7,11 @@ import {
   useState,
 } from "react";
 import { currentRepository, type PiChats } from "../chats";
+import { messageOf } from "../errors";
 import { type LayoutState, panes, renameTask } from "../layout";
 import { type LocalSession, runningLocals } from "../local";
 import { LEGACY_PREFIX, LocalChats, linkLocalChats } from "../localChats";
 import type { AgentPrompt } from "../prompts";
-
-const messageOf = (error: unknown): string =>
-  error instanceof Error ? error.message : String(error);
 
 export interface LocalChatsState {
   // True for a chat that runs on this machine, also before its agent has started.
