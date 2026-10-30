@@ -2421,6 +2421,11 @@ export interface ExperimentHealthFindingApi {
      * @nullable
      */
     subcode: string | null
+    /**
+     * A stable qualifier below the subcode: where a sample ratio mismatch is located ('library', 'page'), what leaves nobody exposed ('test_account_filter'), or why a check could not read what it needs ('no_history_access'). Null when the finding names none.
+     * @nullable
+     */
+    reason: string | null
     /** How much the problem affects the results: critical, warning, or info.
      *
      * * `critical` - Critical severity
