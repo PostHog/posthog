@@ -522,7 +522,7 @@ describe("App", () => {
     }
   });
 
-  it("compacts a live local chat with /compact and says how much it freed", async () => {
+  it("compacts a live local chat with /compact, noticed only while it runs", async () => {
     const sessions = join(homedir(), ".config", "posthog-tui", "local");
     mkdirSync(sessions, { recursive: true });
     writeFileSync(join(sessions, "compacting.jsonl"), "");
@@ -575,7 +575,7 @@ describe("App", () => {
         expect(compact).toHaveBeenCalledWith("keep the test plan"),
       );
       await vi.waitFor(() =>
-        expect(stripTerminalSequences(output())).toContain("Compacted 150k"),
+        expect(stripTerminalSequences(output())).not.toContain("Compacting…"),
       );
     } finally {
       instance.unmount();

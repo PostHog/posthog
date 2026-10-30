@@ -63,6 +63,13 @@ export function usageStatus(
   return `\u001b[2m${shells}${usage ? " • " : ""}\u001b[22m${usage}`;
 }
 
+// 150000 reads "150k", and 1240000 "1.2M".
+export function tokenCount(tokens: number): string {
+  if (tokens >= 999_500)
+    return `${(tokens / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
+  return tokens >= 1000 ? `${Math.round(tokens / 1000)}k` : String(tokens);
+}
+
 // The status line the agent's background shells extension last set, from the run's extension events.
 export const SHELLS_STATUS_KEY = "background-shells";
 

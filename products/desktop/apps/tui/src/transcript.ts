@@ -11,6 +11,7 @@ import {
   type ConversationItem,
 } from "@posthog/ui/features/sessions/components/buildConversationItems";
 import { z } from "zod";
+import { tokenCount } from "./usage";
 
 export type TranscriptLine =
   | UserLine
@@ -77,8 +78,10 @@ export function transcriptFrom(
   const built =
     runtime === "pi"
       ? buildAgentConversationItems(
-          entries.flatMap((entry): AgentConversationEvent[] =>
-            entry.type === "pi_event" && entry.event ? [entry.event] : [],
+          withCompactions(
+            entries.flatMap((entry): AgentConversationEvent[] =>
+              entry.type === "pi_event" && entry.event ? [entry.event] : [],
+            ),
           ),
           null,
         )
@@ -152,6 +155,77 @@ function withImages(
   });
 }
 
+// Statuses that stand in for a compaction: the /compact that started it, and what it freed.
+const COMPACT_REQUESTED = "tui_compact_requested";
+const COMPACTED = "tui_compacted";
+
+type Compaction = Extract<
+  AgentConversationEvent,
+  { type: "runtime_status" }
+>["compaction"];
+
+// A compaction's summary is for the model, so the chat shows a line about it in its place.
+// The summary arrives as an agent message with the same time as the compaction's end.
+function withCompactions(
+  events: AgentConversationEvent[],
+): AgentConversationEvent[] {
+  return events.flatMap((event, index) => {
+    const previous = events[index - 1];
+    const ended = (status: AgentConversationEvent | undefined): boolean =>
+      status?.type === "runtime_status" &&
+      status.status === "compacting" &&
+      status.isComplete === true;
+    if (
+      event.type === "assistant_message_chunk" &&
+      ended(previous) &&
+      previous.timestamp === event.timestamp
+    )
+      return [];
+    if (event.type !== "runtime_status" || event.status !== "compacting")
+      return [event];
+    if (!event.isComplete) {
+      return event.compaction?.reason === "manual"
+        ? [
+            event,
+            {
+              ...event,
+              status: COMPACT_REQUESTED,
+              message: ["/compact", event.compaction.instructions]
+                .filter(Boolean)
+                .join(" "),
+            },
+          ]
+        : [event];
+    }
+    // A stopped compaction ends without a summary, and freed nothing.
+    const summary = events[index + 1];
+    const compacted =
+      summary?.type === "assistant_message_chunk" &&
+      summary.timestamp === event.timestamp;
+    return compacted
+      ? [
+          event,
+          {
+            ...event,
+            status: COMPACTED,
+            isComplete: undefined,
+            message: compactedText(event.compaction),
+          },
+        ]
+      : [event];
+  });
+}
+
+function compactedText(compaction: Compaction): string {
+  const automatic = compaction && compaction.reason !== "manual";
+  const before = compaction?.tokensBefore;
+  if (before === undefined)
+    return automatic ? "Compacted automatically" : "Compacted";
+  const after = compaction?.estimatedTokensAfter;
+  const sizes = `${tokenCount(before)}${after === undefined ? "" : ` → ~${tokenCount(after)}`} tokens`;
+  return automatic ? `Compacted automatically: ${sizes}` : `Compacted ${sizes}`;
+}
+
 // Bookkeeping the harness asks for every turn; it says nothing about the work.
 const SUMMARY_TOOL = "task_summary_update";
 // Buttons the agent offers; the desktop app draws them, and here the action picker does.
@@ -203,6 +277,12 @@ function toLine(item: ConversationItem): TranscriptLine[] {
         },
       ];
     case "status":
+      if (update.status === COMPACT_REQUESTED && update.message)
+        return [{ kind: "user", id: item.id, text: update.message }];
+      if (update.status === COMPACTED && update.message)
+        return [
+          { kind: "notice", id: item.id, text: update.message, tone: "info" },
+        ];
       return update.error
         ? [{ kind: "notice", id: item.id, text: update.error, tone: "error" }]
         : [];

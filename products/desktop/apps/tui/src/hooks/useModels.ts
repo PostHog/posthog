@@ -37,10 +37,6 @@ export interface Models {
   modelLabel: (paneId: string, taskId: string | null) => string | undefined;
 }
 
-// 150000 reads "150k".
-const tokenCount = (tokens: number): string =>
-  tokens >= 1000 ? `${Math.round(tokens / 1000)}k` : String(tokens);
-
 const without = <V>(map: Map<string, V>, key: string): Map<string, V> => {
   const next = new Map(map);
   next.delete(key);
@@ -310,13 +306,9 @@ export function useModels({
       return;
     }
     showNotice("Compacting…");
+    // The chat shows the compaction and what it freed, so the notice only covers the wait.
     target.control.compact(instructions || undefined).then(
-      ({ tokensBefore, estimatedTokensAfter }) =>
-        flashNotice(
-          estimatedTokensAfter === undefined
-            ? `Compacted ${tokenCount(tokensBefore)} tokens`
-            : `Compacted ${tokenCount(tokensBefore)} → ~${tokenCount(estimatedTokensAfter)} tokens`,
-        ),
+      () => clearNotice(),
       (error: unknown) => flashNotice(`Couldn't compact: ${messageOf(error)}`),
     );
   };
