@@ -16,6 +16,7 @@ from products.tasks.backend.exceptions import (
     SandboxTimeoutError,
 )
 from products.tasks.backend.facade.contracts import AgentStartupFailure
+from products.tasks.backend.facade.profiles import get_task_profile
 from products.tasks.backend.logic.services.launch_preparation_metrics import record_launch_preparation_ms
 from products.tasks.backend.logic.services.modal_sandbox import ModalSandbox
 from products.tasks.backend.logic.services.sandbox import ExecutionResult, sandbox_repo_path
@@ -710,17 +711,18 @@ def _mock_github_integration(mocker, pr_base: str | None):
 
 
 @pytest.mark.parametrize(
-    "internal,expected",
+    "internal,profile,expected",
     [
         # Internal/autonomous runs (support reply, signals) get shared team
         # connections only — never a resolved member's personal MCP creds.
-        (True, False),
+        (True, None, False),
         # User-initiated Code runs get shared + the creator's personal installs.
-        (False, True),
+        (False, None, True),
+        (False, get_task_profile("business_knowledge"), False),
     ],
 )
-def test_include_personal_mcp_for_task(mocker, internal, expected) -> None:
-    task = mocker.Mock(internal=internal)
+def test_include_personal_mcp_for_task(mocker, internal, profile, expected) -> None:
+    task = mocker.Mock(internal=internal, stored_profile=profile)
     assert _include_personal_mcp_for_task(task) is expected
 
 
@@ -747,7 +749,7 @@ def test_prepare_launch_retries_task_read_and_keeps_db_drop_identity(mocker) -> 
     ],
 )
 def test_prepare_launch_relabels_only_non_transient_token_errors(mocker, raised, expected) -> None:
-    task = mocker.Mock(internal=True, created_by_id=None, team_id=1)
+    task = mocker.Mock(internal=True, stored_profile=None, created_by_id=None, team_id=1)
     mocker.patch(
         "products.tasks.backend.temporal.process_task.activities.start_agent_server.Task.objects.select_related"
     ).return_value.get.return_value = task
@@ -814,6 +816,7 @@ def _mock_prepare_launch_dependencies(mocker) -> None:
     prefix = "products.tasks.backend.temporal.process_task.activities.start_agent_server"
     task = mocker.Mock(
         internal=True,
+        stored_profile=None,
         runtime="claude",
         origin_product=None,
         mcp_builtin_agent_key=None,
@@ -1182,6 +1185,7 @@ async def test_start_agent_server_uses_captured_sandbox_event_ingest_flag(
         created_by_id=None,
         team_id=1,
         internal=True,
+        stored_profile=None,
         origin_product="support_reply",
         mcp_builtin_agent_key="support",
         mcp_credential_owner_id=17,
@@ -1279,6 +1283,7 @@ async def test_start_agent_server_forwards_imported_and_relayed_mcp_servers(mock
         created_by_id=None,
         team_id=1,
         internal=False,
+        stored_profile=None,
         origin_product="user_created",
         mcp_builtin_agent_key=None,
         mcp_credential_owner_id=None,
@@ -1338,6 +1343,7 @@ async def test_start_agent_server_passes_initial_permission_mode(mocker) -> None
         created_by_id=None,
         team_id=1,
         internal=False,
+        stored_profile=None,
         origin_product="user_created",
         mcp_builtin_agent_key=None,
         mcp_credential_owner_id=None,

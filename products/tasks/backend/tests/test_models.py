@@ -25,6 +25,7 @@ from posthog.storage import object_storage
 
 from products.tasks.backend.facade.profiles import (
     GithubAccess,
+    GithubResolution,
     PrAuthorship,
     Repository,
     SourceKind,
@@ -58,6 +59,8 @@ FLOW_SOURCE = TaskSource(kind=SourceKind.HOG_FLOW, id=str(SOURCE_ID))
 REPORT_PROFILE = replace(BUSINESS_KNOWLEDGE, key="test.report", source_kind=SourceKind.SIGNAL_REPORT)
 POSTHOG_AI_BOT_PROFILE = replace(BUSINESS_KNOWLEDGE, key="test.posthog_ai_bot", origin_product="posthog_ai")
 PI_PROFILE = replace(BUSINESS_KNOWLEDGE, key="test.pi", runtimes=("pi",))
+NO_GITHUB_PROFILE = replace(BUSINESS_KNOWLEDGE, key="test.no_github", github_resolution=GithubResolution.NEVER)
+SUPPORT_AGENT_PROFILE = replace(BUSINESS_KNOWLEDGE, key="test.support_agent", mcp_agent="support")
 
 # Far enough back that any bump is unambiguously forward, and stable so a test can assert the
 # clock did *not* move.
@@ -668,24 +671,25 @@ class TestTask(TestCase):
 
     @parameterized.expand(
         [
-            (Task.OriginProduct.SIGNALS_CHAT, False),
-            (Task.OriginProduct.SIGNAL_REPORT, False),
-            (Task.OriginProduct.SIGNALS_SCOUT_SUGGESTIONS, False),
-            (Task.OriginProduct.AUTORESEARCH, False),
-            (Task.OriginProduct.ACCOUNT_AUDIT, False),
-            (Task.OriginProduct.WORKFLOW, False),
-            (Task.OriginProduct.SUPPORT_REPLY, False),
-            (Task.OriginProduct.TASK_ANALYSIS, False),
-            (Task.OriginProduct.SPACE_SETUP, False),
-            (Task.OriginProduct.USER_CREATED, True),
-            (Task.OriginProduct.SLACK, True),
-            (Task.OriginProduct.IMAGE_BUILDER, True),
-            (Task.OriginProduct.SIGNALS_SCOUT, True),
+            (Task.OriginProduct.SIGNALS_CHAT, None, False),
+            (Task.OriginProduct.SIGNAL_REPORT, None, False),
+            (Task.OriginProduct.SIGNALS_SCOUT_SUGGESTIONS, None, False),
+            (Task.OriginProduct.AUTORESEARCH, None, False),
+            (Task.OriginProduct.ACCOUNT_AUDIT, None, False),
+            (Task.OriginProduct.WORKFLOW, None, False),
+            (Task.OriginProduct.SUPPORT_REPLY, None, False),
+            (Task.OriginProduct.TASK_ANALYSIS, None, False),
+            (Task.OriginProduct.SPACE_SETUP, None, False),
+            (Task.OriginProduct.USER_CREATED, None, True),
+            (Task.OriginProduct.SLACK, None, True),
+            (Task.OriginProduct.IMAGE_BUILDER, None, True),
+            (Task.OriginProduct.SIGNALS_SCOUT, None, True),
+            (None, NO_GITHUB_PROFILE, False),
         ]
     )
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_and_run_attaches_github_to_a_repo_less_task_only_for_opted_in_origins(
-        self, origin_product, attaches_github, mock_execute_workflow
+        self, origin_product, profile, attaches_github, mock_execute_workflow
     ):
         user = User.objects.create(email="test@test.com")
         integration = Integration.objects.create(team=self.team, kind="github", config={})
@@ -695,7 +699,7 @@ class TestTask(TestCase):
                 team=self.team,
                 title="Repo-less task",
                 description="No repository",
-                origin_product=origin_product,
+                **({"profile": profile} if profile else {"origin_product": origin_product}),
                 user_id=user.id,
             )
 
@@ -740,6 +744,28 @@ class TestTask(TestCase):
 
         state = TaskRun.objects.get(id=mock_execute_workflow.call_args.kwargs["run_id"]).state
         self.assertEqual((task.runtime, state.get("sandbox_template")), expected)
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_and_run_takes_the_agent_key_from_the_profile(self, _mock_execute_workflow):
+        user = User.objects.create(email="agent@test.com")
+
+        with (
+            patch.dict(
+                "products.tasks.backend.facade.profiles._profiles",
+                {SUPPORT_AGENT_PROFILE.key: SUPPORT_AGENT_PROFILE},
+            ),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            task = Task.create_and_run(
+                team=self.team,
+                title="Agent task",
+                description="Runs as the support agent",
+                profile=SUPPORT_AGENT_PROFILE,
+                user_id=user.id,
+                mcp_builtin_agent_key="support",
+            )
+
+            self.assertEqual(task.mcp_builtin_agent_key, "support")
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_run_keeps_the_previous_template_and_refuses_a_forbidden_one(self, mock_execute_workflow):
