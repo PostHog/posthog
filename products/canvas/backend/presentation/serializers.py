@@ -1415,6 +1415,18 @@ class CanvasStateResponseSerializer(serializers.Serializer):
         many=True,
         help_text="The canvas's shared entries plus the caller's own user-scoped entries.",
     )
+    count = serializers.IntegerField(help_text="Number of entries in the whole selection, across all pages.")
+    next = serializers.URLField(
+        allow_null=True,
+        help_text=(
+            "URL of the next page, or null when complete. It pages the same way as this request: by cursor "
+            "when the request used a cursor, otherwise by offset."
+        ),
+    )
+    previous = serializers.URLField(
+        allow_null=True,
+        help_text="URL of the previous page by offset, or null on the first page and for a cursor request.",
+    )
     next_offset = serializers.IntegerField(
         allow_null=True,
         help_text="Next entry offset, or null when complete. Null when the request used a cursor.",

@@ -1850,10 +1850,13 @@ class TestCanvasState(CanvasAPIBaseTest):
         assert "value" not in first["entries"][0]
         assert first["next_offset"] == 1
         assert first["complete"] is False
-        second = self.client.get(url, {"keys_only": "true", "limit": "1", "offset": "1"}).json()
+        assert (first["count"], first["previous"]) == (2, None)
+        second = self.client.get(first["next"]).json()
         assert [entry["key"] for entry in second["entries"]] == ["policy"]
         assert second["next_offset"] is None
         assert second["complete"] is True
+        assert (second["count"], second["next"]) == (2, None)
+        assert [entry["key"] for entry in self.client.get(second["previous"]).json()["entries"]] == ["board"]
         selected = self.client.get(url, {"key": "policy"}).json()
         assert [(entry["key"], entry["value"]) for entry in selected["entries"]] == [("policy", "a long policy")]
 

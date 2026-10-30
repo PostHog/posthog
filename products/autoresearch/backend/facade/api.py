@@ -28,6 +28,8 @@ import structlog
 from posthog.dataclasses import frozen
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.paging import Page, PageRequest
+from posthog.queryset_paging import select_page
 from posthog.storage.object_storage import ObjectStorageError
 
 from products.actions.backend.models.action import Action
@@ -623,7 +625,7 @@ def _training_run_row(
 # ── Pipelines ──────────────────────────────────────────────────────────────
 
 
-def list_pipelines(team_id: int, *, offset: int, limit: int) -> tuple[list[Pipeline], int]:
+def list_pipelines(team_id: int, page: PageRequest) -> Page[Pipeline]:
     """One page of the team's non-archived pipelines, newest first, plus the total count."""
     qs = (
         AutoresearchPipeline.objects.for_team(team_id)
@@ -631,24 +633,16 @@ def list_pipelines(team_id: int, *, offset: int, limit: int) -> tuple[list[Pipel
         .select_related("created_by")
         .order_by("-created_at")
     )
-    count = qs.count()
-    rows = list(
-        qs[offset : offset + limit].prefetch_related(
-            Prefetch(
-                "models",
-                queryset=AutoresearchModel.objects.for_team(team_id)
-                .filter(role=AutoresearchModel.Role.CHAMPION)
-                .order_by("-created_at"),
-                to_attr="prefetched_champions",
-            )
-        )
-    )
-    champions: dict[UUID, AutoresearchModel] = {
-        row.id: row.prefetched_champions[0] for row in rows if row.prefetched_champions
-    }
-    activity = _pipeline_activity(team_id, [row.id for row in rows], champions)
-    pipelines = [_pipeline_to_contract(row, champion=champions.get(row.id), activity=activity[row.id]) for row in rows]
-    return pipelines, count
+    rows = select_page(qs, page)
+    champions: dict[UUID, AutoresearchModel] = {}
+    for model in (
+        AutoresearchModel.objects.for_team(team_id)
+        .filter(pipeline_id__in=[row.id for row in rows.results], role=AutoresearchModel.Role.CHAMPION)
+        .order_by("-created_at")
+    ):
+        champions.setdefault(model.pipeline_id, model)
+    activity = _pipeline_activity(team_id, [row.id for row in rows.results], champions)
+    return rows.map(lambda row: _pipeline_to_contract(row, champion=champions.get(row.id), activity=activity[row.id]))
 
 
 def get_pipeline(team_id: int, pipeline_id: str | UUID) -> Pipeline:
@@ -1121,14 +1115,13 @@ def validate_features_sql(features_sql: str) -> None:
 # ── Models ─────────────────────────────────────────────────────────────────
 
 
-def list_models(team_id: int, *, pipeline_id: str | UUID | None, offset: int, limit: int) -> tuple[list[Model], int]:
+def list_models(team_id: int, *, pipeline_id: str | UUID | None, page: PageRequest) -> Page[Model]:
     qs = AutoresearchModel.objects.for_team(team_id).order_by("-created_at")
     if pipeline_id:
         qs = qs.filter(pipeline_id=_as_uuid(pipeline_id))
-    count = qs.count()
-    rows = list(qs[offset : offset + limit])
-    in_shadow = shadow_set_ids(team_id, {row.pipeline_id for row in rows})
-    return [_model_to_contract(row, in_shadow_set=row.pk in in_shadow) for row in rows], count
+    rows = select_page(qs, page)
+    in_shadow = shadow_set_ids(team_id, {row.pipeline_id for row in rows.results})
+    return rows.map(lambda row: _model_to_contract(row, in_shadow_set=row.pk in in_shadow))
 
 
 def get_model(team_id: int, model_id: str | UUID, *, pipeline_id: str | UUID | None = None) -> Model | None:
@@ -1147,12 +1140,11 @@ def get_model(team_id: int, model_id: str | UUID, *, pipeline_id: str | UUID | N
 # ── Operational runs ───────────────────────────────────────────────────────
 
 
-def list_runs(team_id: int, *, pipeline_id: str | UUID | None, offset: int, limit: int) -> tuple[list[Run], int]:
+def list_runs(team_id: int, *, pipeline_id: str | UUID | None, page: PageRequest) -> Page[Run]:
     qs = AutoresearchRun.objects.for_team(team_id).order_by("-created_at")
     if pipeline_id:
         qs = qs.filter(pipeline_id=_as_uuid(pipeline_id))
-    count = qs.count()
-    return [_run_to_contract(row) for row in qs[offset : offset + limit]], count
+    return select_page(qs, page).map(_run_to_contract)
 
 
 def get_run(team_id: int, run_id: str | UUID, *, pipeline_id: str | UUID | None = None) -> Run | None:
@@ -1419,14 +1411,11 @@ def _segment_thresholds(team_id: int, pipeline: AutoresearchPipeline) -> Predict
 # ── Training runs ──────────────────────────────────────────────────────────
 
 
-def list_training_runs(
-    team_id: int, *, pipeline_id: str | UUID | None, offset: int, limit: int
-) -> tuple[list[TrainingRun], int]:
+def list_training_runs(team_id: int, *, pipeline_id: str | UUID | None, page: PageRequest) -> Page[TrainingRun]:
     qs = AutoresearchTrainingRun.objects.for_team(team_id).prefetch_related("iterations").order_by("-created_at")
     if pipeline_id:
         qs = qs.filter(pipeline_id=_as_uuid(pipeline_id))
-    count = qs.count()
-    return [_training_run_to_contract(row) for row in qs[offset : offset + limit]], count
+    return select_page(qs, page).map(_training_run_to_contract)
 
 
 def get_training_run(
@@ -1993,12 +1982,9 @@ def delete_artifact(
 # ── Suggestions ────────────────────────────────────────────────────────────
 
 
-def list_suggestions(
-    team_id: int, *, pipeline_id: str | UUID | None, offset: int, limit: int
-) -> tuple[list[Suggestion], int]:
+def list_suggestions(team_id: int, *, pipeline_id: str | UUID | None, page: PageRequest) -> Page[Suggestion]:
     qs = _suggestion_rows(team_id, pipeline_id=pipeline_id).order_by("-created_at")
-    count = qs.count()
-    return [_suggestion_to_contract(row) for row in qs[offset : offset + limit]], count
+    return select_page(qs, page).map(_suggestion_to_contract)
 
 
 def _suggestion_rows(team_id: int, *, pipeline_id: str | UUID | None) -> Any:
