@@ -1326,6 +1326,37 @@ describe('StateManager', () => {
         })
     })
 
+    // A false field removes search guidance, so only a successful read may produce it.
+    describe('getOrFetchBusinessKnowledgeContent', () => {
+        const projectId = '42'
+        const rejected = new Error('Synthetic list failure')
+
+        it.each<[string, unknown, unknown, { hasSources?: boolean; hasRepositories?: boolean }]>([
+            [
+                'sources and repositories',
+                { count: 3 },
+                { repos: ['example/docs'] },
+                { hasSources: true, hasRepositories: true },
+            ],
+            ['an empty project', { count: 0 }, { repos: [] }, { hasSources: false, hasRepositories: false }],
+            ['failed reads as unknown', rejected, rejected, { hasSources: undefined, hasRepositories: undefined }],
+            [
+                'a failed source read beside repositories',
+                rejected,
+                { repos: ['example/docs'] },
+                { hasSources: undefined, hasRepositories: true },
+            ],
+        ])('reads %s', async (_name, sources, repositories, expected) => {
+            const request = vi.fn(({ path }: { path: string }) => {
+                const response = path.endsWith('/sources/') ? sources : repositories
+                return response instanceof Error ? Promise.reject(response) : Promise.resolve(response)
+            })
+            ;(stateManager as any)._api = { config: { apiToken: 'phx_test' }, request }
+
+            expect(await stateManager.getOrFetchBusinessKnowledgeContent(projectId)).toEqual(expected)
+        })
+    })
+
     describe('getOrFetchIntegrationKinds', () => {
         const projectId = '42'
 

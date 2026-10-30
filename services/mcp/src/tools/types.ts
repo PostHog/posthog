@@ -44,6 +44,13 @@ export type CachedUser = ApiUser
 export type CachedOrg = Schemas.Organization
 export type CachedProject = Schemas.ProjectBackwardCompat
 
+/** What the active project holds for business knowledge search. A field is undefined when it could not be read,
+ *  and an unknown field keeps its search guidance, so a failed read never hides content the project has. */
+export type BusinessKnowledgeContent = {
+    hasSources?: boolean | undefined
+    hasRepositories?: boolean | undefined
+}
+
 export type State = {
     projectId: string | undefined
     orgId: string | undefined
@@ -72,7 +79,9 @@ export type State = {
     Record<PrefixedString<'gatewayTools'>, Schemas.AvailableToolsResponse | undefined> &
     Record<PrefixedString<'gatewayToolsFetchedAt'>, number | undefined> &
     Record<PrefixedString<'warehouseObjectCount'>, number | undefined> &
-    Record<PrefixedString<'warehouseObjectCountFetchedAt'>, number | undefined>
+    Record<PrefixedString<'warehouseObjectCountFetchedAt'>, number | undefined> &
+    Record<PrefixedString<'businessKnowledgeContent'>, BusinessKnowledgeContent | undefined> &
+    Record<PrefixedString<'businessKnowledgeContentFetchedAt'>, number | undefined>
 
 export type Env = {
     /**

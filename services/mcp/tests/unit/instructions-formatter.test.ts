@@ -91,7 +91,7 @@ describe('InstructionsFormatter', () => {
 
             expect(result).toContain('### PostHog knowledge sources')
             expect(result).not.toContain('`business-knowledge-documents-search`')
-            expect(result).toContain('check current PostHog documentation through Inkeep')
+            expect(result).toContain('- PostHog features, SDKs, setup, or pricing: call the `docs-search` tool.')
         })
 
         it('omits knowledge guidance when only business knowledge search is available', () => {
@@ -223,24 +223,77 @@ describe('InstructionsFormatter', () => {
             expect(result.indexOf('business-knowledge-repositories-search')).toBeLessThan(
                 result.indexOf('`call docs-search')
             )
-            expect(result).toContain('Code or doc misses')
+            expect(result).toContain("The user's own code, or doc misses")
             expect(result.length).toBeLessThanOrEqual(2048)
         })
     })
 
-    describe('repository search guidance', () => {
+    // A business knowledge line sends the agent to a search, so it must appear only when the
+    // project holds content that search can return. An unread field keeps its line.
+    describe('business knowledge content gating', () => {
+        const bothTools = [
+            { name: 'docs-search', category: 'Docs' },
+            { name: 'business-knowledge-documents-search', category: 'Business knowledge' },
+            { name: 'business-knowledge-repositories-search', category: 'Business knowledge' },
+        ]
         it.each([
-            { name: 'repo search without knowledge search', bk: false, repo: true, expected: false },
-            { name: 'knowledge search without repo search', bk: true, repo: false, expected: false },
-            { name: 'both', bk: true, repo: true, expected: true },
-        ])('names repository search only when both tools are advertised: $name', ({ bk, repo, expected }) => {
-            const tools = [
-                { name: 'docs-search', category: 'Docs' },
-                ...(bk ? [{ name: 'business-knowledge-documents-search', category: 'Business knowledge' }] : []),
-                ...(repo ? [{ name: 'business-knowledge-repositories-search', category: 'Business knowledge' }] : []),
-            ]
-            const result = new InstructionsFormatter().buildToolsInstructions({ ...fullCtx, tools })
-            expect(result.includes('`business-knowledge-repositories-search`')).toBe(expected)
+            { name: 'unread content', content: undefined, documents: true, repos: 'fallback' },
+            {
+                name: 'sources and repositories',
+                content: { hasSources: true, hasRepositories: true },
+                documents: true,
+                repos: 'fallback',
+            },
+            {
+                name: 'sources only',
+                content: { hasSources: true, hasRepositories: false },
+                documents: true,
+                repos: 'none',
+            },
+            {
+                name: 'repositories only',
+                content: { hasSources: false, hasRepositories: true },
+                documents: false,
+                repos: 'primary',
+            },
+            {
+                name: 'no content',
+                content: { hasSources: false, hasRepositories: false },
+                documents: false,
+                repos: 'none',
+            },
+            { name: 'only a failed source read', content: { hasRepositories: false }, documents: true, repos: 'none' },
+        ])('$name', ({ content, documents, repos }) => {
+            const result = new InstructionsFormatter().buildToolsInstructions({
+                ...fullCtx,
+                tools: bothTools,
+                businessKnowledgeContent: content,
+            })
+
+            expect(result).toContain('- PostHog features, SDKs, setup, or pricing: call the `docs-search` tool.')
+            expect(result.includes('call `business-knowledge-documents-search`')).toBe(documents)
+            expect(result.includes('call `business-knowledge-repositories-search`')).toBe(repos !== 'none')
+            expect(result.includes("- The user's own code, or a company question that document search")).toBe(
+                repos === 'fallback'
+            )
+            expect(result.includes("- The user's own company, product, code, or docs:")).toBe(repos === 'primary')
+            expect(result.includes('a company term that you cannot map to an event or property')).toBe(
+                documents || repos !== 'none'
+            )
+        })
+
+        it('gates the exec tool description the same way', () => {
+            const result = new InstructionsFormatter().buildExecToolDescription({
+                docsSearchEnabled: true,
+                businessKnowledgeSearchEnabled: true,
+                businessKnowledgeRepoSearchEnabled: true,
+                businessKnowledgeContent: { hasSources: false, hasRepositories: true },
+            })
+
+            expect(result).not.toContain('business-knowledge-documents-search')
+            expect(result).toContain(
+                "- The user's own company, code, or docs: `call business-knowledge-repositories-search <json_input>`."
+            )
         })
     })
 
@@ -475,6 +528,11 @@ describe('InstructionsFormatter', () => {
             expect(result).toContain('### PostHog knowledge sources')
             expect(result).not.toMatch(/every user request|even when the request looks simple/)
             expect(result).toContain('call neither search')
+            // Nearly every request to this server is about project data, so that topic must not trigger a search.
+            expect(result).not.toContain("the user's PostHog project and its data")
+            expect(result).toContain(
+                'A request to query, compute, or build something from project data: call neither search'
+            )
             // The gate is the topic, never the location: a PostHog SDK question that names a
             // file in the user's repository still has to reach docs-search.
             expect(result).toContain('The topic decides, not the location')

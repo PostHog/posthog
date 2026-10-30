@@ -110,7 +110,14 @@ Primarily oriented toward coding agents (PostHog Desktop, PostHog AI, Claude Cod
 
 ### Knowledge source checks
 
-When the MCP server advertises Business Knowledge or documentation search tools, its agent instructions require one search of each available source before the first answer to a request. Business Knowledge is searched first, followed by current PostHog documentation. If a search fails or returns no relevant result, the agent continues with the other available evidence. In exec sessions with skill discovery enabled, the agent loads the relevant skill before it runs these searches.
+When the MCP server advertises documentation search, its agent instructions pick a search by the topic of the request.
+A question about the user's own company, product, internal terms, or policies goes to Business Knowledge.
+A question about PostHog features, SDKs, or setup goes to PostHog documentation.
+A request to query or build something from project data runs neither search, unless it names a company term that no event or property explains.
+The Business Knowledge lines appear only for content the project holds: document search when it has sources, and repository search when it has selected GitHub repositories.
+A project with neither gets no Business Knowledge guidance.
+If a search fails or returns no relevant result, the agent continues with the other available evidence.
+In exec sessions with skill discovery enabled, the agent loads the relevant skill before it runs these searches.
 
 ## Intent prompt trials
 
