@@ -845,6 +845,10 @@ class PostgresSource(
             # parent) — deterministic, so don't retry. `XminUnsupportedError` matches once Temporal
             # wraps the failure; the message fragment matches the raw activity-level `str(e)`.
             "XminUnsupportedError": None,
+            "is already the name of another table of this source": (
+                "The history table for this table would have the same name as another table of this source. "
+                "Choose the consolidated table only for this table, or rename the other table on your database."
+            ),
             "xmin replication": None,
             "NoSuchTableError": None,
             "is not permitted to log in": _ROLE_CANNOT_LOG_IN_ERROR,

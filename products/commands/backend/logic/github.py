@@ -13,7 +13,8 @@ import structlog
 
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
-from posthog.models.integration import GitHubIntegration, GitHubIntegrationError, Integration
+from posthog.integrations import IntegrationManager
+from posthog.models.integration import GitHubIntegration, GitHubIntegrationError
 
 from .commands import REPOSITORY_NAME_RE, PullRequestFacts
 
@@ -60,13 +61,10 @@ class InstallationGitHub:
         those writes off projects that never did. The project a command runs in is picked later.
         """
         # nosemgrep: github-installation-first-team -- any of the given projects serves, see the docstring
-        integration = (
-            Integration.objects.filter(kind="github", integration_id=installation_id, team_id__in=team_ids)
-            .order_by("id")
-            .first()
-        )
-        if integration is None:
+        rows = IntegrationManager.github.oauth.list_by_external_id(installation_id, team_ids=team_ids)
+        if not rows:
             return None
+        integration = min(rows, key=lambda row: row.id)
         return cls(GitHubIntegration(integration, source=_SOURCE, priority=Priority.CRITICAL))
 
     def collaborator_permission(self, repository: str, login: str, github_user_id: int) -> str:

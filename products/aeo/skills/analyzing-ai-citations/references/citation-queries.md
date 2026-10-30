@@ -3,6 +3,21 @@
 HogQL recipes over `system.aeo_citation_checks`, one row per prompt x engine x run. Every
 query runs through `posthog:execute-sql`. All of them follow the three papercuts below.
 
+## Contents
+
+- [Papercuts](#papercuts)
+- [Citation rate per engine](#citation-rate-per-engine)
+- [Citation rate by topic](#citation-rate-by-topic)
+- [Daily citation rate per engine](#daily-citation-rate-per-engine)
+- [Top cited domains across the set, own domain marked](#top-cited-domains-across-the-set-own-domain-marked)
+- [Prompts answered but never cited in N days](#prompts-answered-but-never-cited-in-n-days)
+- [Latest result per prompt and engine](#latest-result-per-prompt-and-engine)
+- [Which of our pages get cited](#which-of-our-pages-get-cited)
+- [Searches the engines ran](#searches-the-engines-ran)
+- [Position when cited](#position-when-cited)
+- [Brand sentiment per engine](#brand-sentiment-per-engine)
+- [Runner health](#runner-health)
+
 ## Papercuts
 
 | Wrong                         | Right                                                                                       | Why                                                                             |

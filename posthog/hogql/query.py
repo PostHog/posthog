@@ -19,6 +19,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast, query_stats
+from posthog.hogql.compilation import bounded_compilation
 from posthog.hogql.constants import (
     HogQLDialect,
     HogQLGlobalSettings,
@@ -877,6 +878,7 @@ class HogQLQueryExecutor:
         self._evaluate_prompt_jev()
         return self.select_query, self._prompt_jev_tables
 
+    @bounded_compilation
     def _prepare_execution(self, *, embedded_select: bool = False) -> _PreparedExecution:
         self.context.clear_reads()
         self._parse_query()

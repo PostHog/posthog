@@ -66,7 +66,7 @@ from products.review_hog.backend.reviewer.persistence import (
 )
 from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_PIPELINE, REVIEW_DESIGN_SINGLE_AGENT
 from products.review_hog.backend.temporal.activities import SandboxStageInput, _prepare_single_agent_prompt
-from products.review_hog.backend.temporal.types import TRIGGER_INBOX, TRIGGER_LABEL, TRIGGER_UI
+from products.review_hog.backend.temporal.types import TRIGGER_INBOX, TRIGGER_STAMPHOG, TRIGGER_UI
 from products.signals.backend.facade.report_artefacts import Commit
 from products.signals.backend.facade.taxonomy import ArtefactAttribution, ReportPriority
 from products.tasks.backend.facade.run_config import ReasoningEffort
@@ -213,7 +213,7 @@ class TestUpsertReviewReport(BaseTest):
             repository="o/r",
             pr_url="u",
             pr_metadata=_pr_metadata(),
-            trigger_source=TRIGGER_LABEL,
+            trigger_source=TRIGGER_STAMPHOG,
             lift_tier_on_human_trigger=True,
         )
         assert self._routing(report_id) == ("human", "P2", "xhigh")
@@ -250,7 +250,7 @@ class TestUpsertReviewReport(BaseTest):
             repository="o/r",
             pr_url="u",
             pr_metadata=_pr_metadata(),
-            trigger_source=TRIGGER_LABEL,
+            trigger_source=TRIGGER_STAMPHOG,
             lift_tier_on_human_trigger=True,
         )
         # The unparseable value is left as-is: the lift is skipped rather than raising or relabeling.
@@ -346,7 +346,7 @@ class TestUpsertReviewReport(BaseTest):
             trigger_source="inbox",
         )
         upsert_review_report(
-            team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata(), trigger_source="label"
+            team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata(), trigger_source="stamphog"
         )
 
         row = ReviewReport.objects.for_team(self.team.id).get(id=report_id)
@@ -354,10 +354,10 @@ class TestUpsertReviewReport(BaseTest):
         assert row.trigger_source == "inbox"
 
     def test_provenance_backfills_only_when_missing(self) -> None:
-        # The reverse overlap: a label-created report later re-triggered by the inbox flow gains the
+        # The reverse overlap: a Stamphog-created report later re-triggered by the inbox flow gains the
         # missing signal link but keeps its creating trigger.
         report_id = upsert_review_report(
-            team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata(), trigger_source="label"
+            team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata(), trigger_source="stamphog"
         )
         signal_report_id = str(uuid.uuid4())
         upsert_review_report(
@@ -371,7 +371,7 @@ class TestUpsertReviewReport(BaseTest):
 
         row = ReviewReport.objects.for_team(self.team.id).get(id=report_id)
         assert str(row.signal_report_id) == signal_report_id
-        assert row.trigger_source == "label"
+        assert row.trigger_source == "stamphog"
 
 
 class TestPersistResults(BaseTest):

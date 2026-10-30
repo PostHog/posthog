@@ -1,7 +1,8 @@
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
-import { combineUrl, router } from 'kea-router'
 /* oxlint-disable react-hooks/rules-of-hooks -- useMocks is a test helper, not a React hook */
+import { waitFor } from '@testing-library/react'
+import { combineUrl, router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 import type { CaptureOptions } from 'posthog-js'
@@ -15,6 +16,7 @@ import { initKeaTests } from '~/test/init'
 import { OriginProduct, Task, TaskRun, TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
 import { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
+import { myClaim } from './__mocks__/inboxMocks'
 import { inboxSceneLogic, mergeSignalRuns } from './inboxSceneLogic'
 import { inboxBulkActionsLogic } from './logics/inboxBulkActionsLogic'
 import { reportListLogic, sectionListLogicProps } from './logics/reportListLogic'
@@ -404,6 +406,17 @@ describe('inboxSceneLogic routing', () => {
     // A rank read at open time is null on a cold load, and joins to no impression row. The event is
     // then captured after the wait, so it also has to carry the moment the report opened: a scroll
     // or an action taken during the wait would otherwise read earlier than the open.
+    // The detail pane reads the selected report. A claim from its list row must reach it, or the open report
+    // keeps offering a claim the user already holds.
+    it('shows a claim made from a list row on the open report', () => {
+        mountLogic()
+        logic.actions.loadSelectedReportSuccess({ id: 'r1', title: 'Crash on login', assignee: null } as SignalReport)
+
+        inboxBulkActionsLogic.actions.reportClaimChanged('r1', myClaim)
+
+        expect(logic.values.selectedReport?.assignee).toEqual(myClaim)
+    })
+
     it('holds `Inbox report opened` until the list answers, then reports the rank and the open time', async () => {
         const report = { id: 'r1', title: 'Crash on login' } as SignalReport
         useMocks({
@@ -624,6 +637,62 @@ describe('inboxSceneLogic routing', () => {
                 addEventListenerSpy.mockRestore()
                 removeEventListenerSpy.mockRestore()
             }
+        })
+
+        // A write that timed out or lost its response can still have saved, so the open report must not keep its
+        // local copy. A failure on another report must not refetch this one.
+        test.each([
+            { failedReportId: 'report-1', fetches: 2 },
+            { failedReportId: 'report-2', fetches: 1 },
+        ])(
+            'a failed write on $failedReportId fetches the open report $fetches times',
+            async ({ failedReportId, fetches }) => {
+                const reportGet = mockReportGet()
+                mountLogic()
+                logic.actions.setSelectedReportId('report-1')
+                await expectLogic(logic).toDispatchActions(['loadSelectedReportSuccess'])
+
+                inboxBulkActionsLogic.actions.reportWriteFailed([failedReportId])
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(reportGet).toHaveBeenCalledTimes(fetches)
+            }
+        )
+
+        it('keeps a claim made while a refresh is in flight, and takes the other fields from the refresh', async () => {
+            let releaseRefresh: () => void = () => {}
+            const heldRefresh = new Promise<void>((resolve) => {
+                releaseRefresh = resolve
+            })
+            let fetches = 0
+            const reportGet = jest.fn(async () => {
+                if (fetches++ === 0) {
+                    return [200, { id: 'report-1', title: 'Crash on login', status: SignalReportStatus.READY }]
+                }
+                await heldRefresh
+                return [
+                    200,
+                    { id: 'report-1', title: 'Crash on login after refresh', status: SignalReportStatus.READY },
+                ]
+            })
+            useMocks({
+                get: { '/api/projects/:team_id/signals/reports/report-1/': reportGet },
+                post: { '/api/projects/:team_id/signals/reports/:id/viewed/': [204, null] },
+            })
+            mountLogic()
+            logic.actions.setSelectedReportId('report-1')
+            await expectLogic(logic).toDispatchActions(['loadSelectedReportSuccess'])
+
+            setTabVisibility('visible')
+            await waitFor(() => expect(reportGet).toHaveBeenCalledTimes(2))
+            inboxBulkActionsLogic.actions.reportClaimChanged('report-1', myClaim)
+            releaseRefresh()
+            await expectLogic(logic).toDispatchActions(['loadSelectedReportSuccess'])
+
+            expect(logic.values.selectedReport).toMatchObject({
+                title: 'Crash on login after refresh',
+                assignee: myClaim,
+            })
         })
 
         // The lists behind the detail pane reconcile only on `reportStateChanged`, so a refresh that

@@ -36,6 +36,7 @@ export const INBOX_EVENTS = {
     VALUE_SUMMARY_VIEWED: 'Inbox value summary viewed',
     VALUE_SUMMARY_DISMISSED: 'Inbox value summary dismissed',
     PANEL_LOAD_TIMED_OUT: 'Inbox panel load timed out',
+    WRITE_TIMED_OUT: 'Inbox write timed out',
     QUERY_CHANGED: 'Inbox query changed',
     REPORTS_IMPRESSED: 'Inbox reports impressed',
     REPORT_OPENED: 'Inbox report opened',
@@ -234,6 +235,9 @@ export type InboxPanelName = 'runs' | 'config' | 'sources' | 'scratchpad' | 'fin
 
 /** A panel read that carries its own timeout, named so each one's stall rate reads separately. */
 export type InboxPanelLoad = 'scout_notes' | 'scout_memory'
+
+/** A report write that carries its own timeout. `state` covers dismiss, resolve, restore, and monitoring. */
+export type InboxWrite = 'claim' | 'priority' | 'state'
 
 /** Which control moved the report list to a new query. `url` is a shared/deep link being applied. */
 export type InboxQueryChange =
@@ -944,6 +948,14 @@ export function captureInboxPanelViewed(params: { panel: InboxPanelName; itemCou
 export function capturePanelLoadTimedOut(params: { load: InboxPanelLoad; timeoutMs: number }): void {
     captureInboxEvent(INBOX_EVENTS.PANEL_LOAD_TIMED_OUT, {
         load: params.load,
+        timeout_ms: params.timeoutMs,
+    })
+}
+
+/** A report write was aborted for taking too long. Like a stalled panel read, it records no `client_request_failure`. */
+export function captureWriteTimedOut(params: { write: InboxWrite; timeoutMs: number }): void {
+    captureInboxEvent(INBOX_EVENTS.WRITE_TIMED_OUT, {
+        write: params.write,
         timeout_ms: params.timeoutMs,
     })
 }
