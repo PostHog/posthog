@@ -24,6 +24,7 @@ import type { PiControl } from "../models";
 import { moveCursor, type SheetKey, sheetKey } from "../sheet";
 import { DoublePress, optionSplitFor, shortcutFor } from "../shortcuts";
 import { workspaceOf } from "../sidebar";
+import type { HistoryNav } from "./useHistory";
 import type { Notice } from "./useNotice";
 import type { SearchState } from "./useSearch";
 import type { SettingsState } from "./useSettings";
@@ -60,6 +61,7 @@ export function useKeys({
   typed,
   toggleSidebar,
   cycleMode,
+  history,
   repoPickerKey,
   notice: { flashNotice, clearNotice },
 }: {
@@ -78,6 +80,7 @@ export function useKeys({
   typed: () => void;
   toggleSidebar: () => void;
   cycleMode: (paneId: string, step: 1 | -1) => void;
+  history: HistoryNav;
   // Gives a key to the pane's open /repo picker; false when it has none.
   repoPickerKey: (paneId: string, sequence: string) => boolean;
   notice: Notice;
@@ -168,6 +171,8 @@ export function useKeys({
       );
       return;
     }
+    if (shortcut === "historyBack") return history.back();
+    if (shortcut === "historyForward") return history.forward();
     if (shortcut === "toggleSidebar") {
       toggleSidebar();
       return;

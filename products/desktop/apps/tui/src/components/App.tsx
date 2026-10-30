@@ -11,6 +11,7 @@ import { runClaudeSetupToken } from "../claudeSetup";
 import { dividerGlyphs } from "../dividers";
 import { useAccount } from "../hooks/useAccount";
 import { useChatPlace } from "../hooks/useChatPlace";
+import { useHistory } from "../hooks/useHistory";
 import { useKeys } from "../hooks/useKeys";
 import { useLocalChats } from "../hooks/useLocalChats";
 import { useMcpSheet } from "../hooks/useMcpSheet";
@@ -471,9 +472,11 @@ export function App({
     },
   });
 
+  const history = useHistory({ layout, setLayout });
   const { onKey, setOffer, setTurn, pickerFor } = useKeys({
     layout,
     setLayout,
+    history,
     sidebar,
     search,
     settings,

@@ -1152,7 +1152,7 @@ describe("App", () => {
     }
   });
 
-  it("shows a Claude Code chat's mode on the composer's rule and cycles it with Ctrl+] and Ctrl+Shift+]", async () => {
+  it("shows a Claude Code chat's mode on the composer's rule and cycles it with Ctrl+M and Ctrl+Shift+M", async () => {
     const modes = [
       { id: "auto", name: "Auto Mode" },
       { id: "plan", name: "Plan Mode" },
@@ -1183,11 +1183,11 @@ describe("App", () => {
         { timeout: 3000 },
       );
       let mark = output().length;
-      press("\x1d");
+      press("\x1b[109;5u");
       await vi.waitFor(() => expect(setMode).toHaveBeenCalledWith("plan"));
       await vi.waitFor(() => expect(drawnSince(mark)).toContain("◯ Plan Mode"));
       mark = output().length;
-      press("\x1b[93;6u");
+      press("\x1b[109;6u");
       await vi.waitFor(() => expect(setMode).toHaveBeenLastCalledWith("auto"));
       await vi.waitFor(() =>
         expect(drawnSince(mark)).toContain("⏵⏵ Auto Mode"),
