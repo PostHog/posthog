@@ -104,6 +104,22 @@ function messagePreviewProperties(message?: string): Record<string, any> {
     }
 }
 
+/** Claim an agent's draft before sending it. Each draft can be claimed once, so a review link open in
+ * two tabs files one ticket. Returns false when the send must stop. */
+async function claimAgentDraft({ ai_draft_id, message, kind }: SupportFormFields): Promise<boolean> {
+    if (!ai_draft_id) {
+        return true
+    }
+    try {
+        await posthogSupportDraftsClaimCreate(String(ApiConfig.getCurrentProjectId()), ai_draft_id)
+        return true
+    } catch {
+        captureSupportTicketBlocked({ surface: 'support_form', reason: 'draft_already_sent', message, kind })
+        lemonToast.error('This draft was already sent or has expired. Check your tickets for it.')
+        return false
+    }
+}
+
 // Deliberately a different event from the widget endpoint's own `support ticket send failed`, which
 // reports requests the server rejected. That one names the offending field but has no session and no
 // draft, so only an engineer can act on it. This one means the message never left the browser, so it
@@ -533,7 +549,7 @@ export const supportLogic = kea<supportLogicType>([
             // Trimmed before validating and sending: restore-by-email matches the stored trait
             // exactly, so stray whitespace would make the ticket unrecoverable
             const email = formValues.email.trim()
-            const { ai_conversation_id, ai_trace_id, ai_feedback_rating, ai_draft_id } = formValues
+            const { ai_conversation_id, ai_trace_id, ai_feedback_rating } = formValues
 
             // Attribute PostHog AI (/ticket, feedback) handovers to the conversation. The ticket id
             // only exists once the send resolves — capturing from here means it fires no matter which
@@ -597,23 +613,11 @@ export const supportLogic = kea<supportLogicType>([
                 })
                 return
             }
-            if (ai_draft_id) {
-                // Each agent draft can be claimed once, so a review link open in two tabs files one ticket
-                try {
-                    await posthogSupportDraftsClaimCreate(String(ApiConfig.getCurrentProjectId()), ai_draft_id)
-                } catch {
-                    captureSupportTicketBlocked({
-                        surface: 'support_form',
-                        reason: 'draft_already_sent',
-                        message,
-                        kind,
-                    })
-                    lemonToast.error('This draft was already sent or has expired. Check your tickets for it.')
-                    return
-                }
-                // Claimed now, so a retry after a failed send goes out as an ordinary ticket
-                actions.setSendSupportRequestValue('ai_draft_id', null)
+            if (!(await claimAgentDraft(formValues))) {
+                return
             }
+            // Claimed now, so a retry after a failed send goes out as an ordinary ticket
+            actions.setSendSupportRequestValue('ai_draft_id', null)
             try {
                 const response = await posthog.conversations!.sendMessage(
                     outgoingMessage,
