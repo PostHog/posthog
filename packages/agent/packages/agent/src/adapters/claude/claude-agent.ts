@@ -138,8 +138,11 @@ import {
   resolveInitialModelId,
 } from "./session/model-config";
 import {
+  AUTO_COMPACT_WINDOW_ENV,
+  applyContextWindowEnv,
   CONTEXT_WINDOW_1M_BETA,
   CONTEXT_WINDOW_200K_TOKENS,
+  contextWindowKey,
   DEFAULT_EFFORT,
   fastModeStateEnabled,
   getContextWindowOptions,
@@ -334,10 +337,6 @@ function isSdkMcpServer(
   return cfg.type === "sdk";
 }
 
-function betasKey(betas: string[] | undefined): string {
-  return (betas ?? []).join(",");
-}
-
 function externalMcpServers(
   servers: Record<string, McpServerConfig> | undefined,
 ): Record<string, McpServerConfig> {
@@ -415,10 +414,10 @@ function sumSdkUsage(usage: SdkTokenUsage): number {
 
 const CONTEXT_USAGE_TIMEOUT_MS = 5_000;
 
-async function fetchContextUsedTokens(
+async function fetchContextUsage(
   sdkQuery: Query,
   logger: Logger,
-): Promise<number | null> {
+): Promise<{ totalTokens: number; maxTokens?: number } | null> {
   try {
     const usage = await withTimeout(
       sdkQuery.getContextUsage(),
@@ -430,7 +429,10 @@ async function fetchContextUsedTokens(
       );
       return null;
     }
-    return usage.value.totalTokens;
+    return {
+      totalTokens: usage.value.totalTokens,
+      maxTokens: usage.value.maxTokens > 0 ? usage.value.maxTokens : undefined,
+    };
   } catch (error) {
     logger.error("Failed to fetch context usage from SDK:", error);
     return null;
@@ -830,7 +832,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       throw RequestError.internalError(undefined, SESSION_ENDED_MESSAGE);
     }
 
-    await this.applyPendingBetas();
+    await this.applyPendingContextWindow();
 
     const hasInFlightTurns =
       this.session.activeTurn !== null || this.session.turnQueue.length > 0;
@@ -1383,13 +1385,16 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
             }
             if (message.subtype === "compact_boundary") {
               await ensureActiveTurn();
-              const usedTokens = await withAbort(
-                fetchContextUsedTokens(query, this.logger),
+              const usage = await withAbort(
+                fetchContextUsage(query, this.logger),
                 cancelController.signal,
               );
-              if (usedTokens.result === "success" && usedTokens.value != null) {
-                lastAssistantTotalUsage = usedTokens.value;
-                session.contextUsed = usedTokens.value;
+              if (usage.result === "success" && usage.value != null) {
+                lastAssistantTotalUsage = usage.value.totalTokens;
+                session.contextUsed = usage.value.totalTokens;
+                if (usage.value.maxTokens) {
+                  session.lastContextWindowSize = usage.value.maxTokens;
+                }
                 session.contextSize = windowSize();
                 await this.client.sessionUpdate({
                   sessionId,
@@ -1596,28 +1601,21 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
                 message.usage.cache_creation_input_tokens ?? 0;
             }
 
-            // SDK can underreport context window (e.g. 200k for 1M models).
-            // Use SDK value only if it's larger than what gateway reported.
-            const contextWindows = Object.values(message.modelUsage).map(
-              (m) => m.contextWindow,
+            const usage = await withAbort(
+              fetchContextUsage(query, this.logger),
+              cancelController.signal,
             );
-            if (contextWindows.length > 0) {
-              const sdkContextWindow = Math.min(...contextWindows);
-              if (sdkContextWindow > windowSize()) {
-                session.lastContextWindowSize = sdkContextWindow;
-              }
+            const contextUsage =
+              usage.result === "success" ? usage.value : null;
+            if (contextUsage?.maxTokens) {
+              session.lastContextWindowSize = contextUsage.maxTokens;
             }
-
-            if (!isTaskNotification && lastAssistantTotalUsage === null) {
-              const usedTokens = await withAbort(
-                fetchContextUsedTokens(query, this.logger),
-                cancelController.signal,
-              );
-              const total =
-                usedTokens.result === "success" ? (usedTokens.value ?? 0) : 0;
-              if (total > 0) {
-                recordContextUsage(total);
-              }
+            if (
+              !isTaskNotification &&
+              lastAssistantTotalUsage === null &&
+              (contextUsage?.totalTokens ?? 0) > 0
+            ) {
+              recordContextUsage(contextUsage?.totalTokens ?? 0);
             }
 
             session.contextSize = windowSize();
@@ -2346,7 +2344,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       session.budgetGuard?.onConversationCleared();
       session.input = newInput;
       session.queryOptions = newOptions;
-      session.liveBetas = newOptions.betas;
+      session.liveContextKey = contextWindowKey(newOptions);
       session.abortController = newAbortController;
       session.contextUsed = undefined;
 
@@ -2498,6 +2496,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     await Promise.all(postClearNotifications);
 
     this.refreshMcpMetadata(newQuery);
+    void this.syncContextWindow(session);
     return { stopReason: "end_turn" };
   }
 
@@ -2619,14 +2618,15 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     }
   }
 
-  private async applyPendingBetas(): Promise<void> {
+  private async applyPendingContextWindow(): Promise<void> {
     const session = this.session;
     if (
       session.querySwap ||
       session.activeTurn !== null ||
       session.turnQueue.length > 0 ||
       !supports1MContext(session.modelId ?? "") ||
-      betasKey(session.queryOptions.betas) === betasKey(session.liveBetas)
+      session.liveContextKey === undefined ||
+      contextWindowKey(session.queryOptions) === session.liveContextKey
     ) {
       return;
     }
@@ -2727,7 +2727,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       prev.query = newQuery;
       prev.input = newInput;
       prev.queryOptions = newOptions;
-      prev.liveBetas = newOptions.betas;
+      prev.liveContextKey = contextWindowKey(newOptions);
       prev.abortController = newAbortController;
 
       const result = await withTimeout(
@@ -2756,6 +2756,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     }
 
     this.refreshMcpMetadata(newQuery);
+    void this.syncContextWindow(prev);
   }
 
   /**
@@ -2813,6 +2814,13 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         error: error instanceof Error ? error.message : String(error),
       });
       return false;
+    }
+  }
+
+  private async syncContextWindow(session: Session): Promise<void> {
+    const usage = await fetchContextUsage(session.query, this.logger);
+    if (usage?.maxTokens) {
+      session.lastContextWindowSize = usage.maxTokens;
     }
   }
 
@@ -2898,6 +2906,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       this.session.modelId = resolvedValue;
       this.session.lastContextWindowSize =
         this.getContextWindowForModel(resolvedValue);
+      await this.syncContextWindow(this.session);
       this.rebuildEffortConfigOption(resolvedValue);
       this.rebuildContextWindowConfigOption(resolvedValue);
       this.rebuildFastModeConfigOption(resolvedValue);
@@ -2911,9 +2920,11 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     } else if (params.configId === "context_window") {
       const enable1M = resolvedValue === "1m";
       // queryOptions is read per prompt, so this applies from the next turn.
-      this.session.queryOptions.betas = enable1M
-        ? [CONTEXT_WINDOW_1M_BETA]
-        : undefined;
+      this.session.queryOptions.env ??= {};
+      applyContextWindowEnv(
+        this.session.queryOptions.env,
+        enable1M ? "1m" : "200k",
+      );
       this.session.lastContextWindowSize = enable1M
         ? this.getContextWindowForModel(this.session.modelId ?? "")
         : CONTEXT_WINDOW_200K_TOKENS;
@@ -3370,7 +3381,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       query: q,
       sdkSessionId: sessionId,
       queryOptions: options,
-      liveBetas: options.betas,
+      liveContextKey: contextWindowKey(options),
       buildInProcessMcpServers,
       localToolsServerNames,
       input,
@@ -3713,6 +3724,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
 
     if (!creationOpts.skipBackgroundFetches) {
       this.deferBackgroundFetches(q);
+      void this.syncContextWindow(session);
     }
 
     return { sessionId, modes, configOptions };
@@ -3916,9 +3928,9 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
   ): SessionConfigOption | null {
     const contextOptions = getContextWindowOptions(modelId);
     if (!contextOptions) return null;
-    const is1M = this.session.queryOptions.betas?.includes(
-      CONTEXT_WINDOW_1M_BETA,
-    );
+    const is1M =
+      this.session.queryOptions.betas?.includes(CONTEXT_WINDOW_1M_BETA) &&
+      this.session.queryOptions.env?.[AUTO_COMPACT_WINDOW_ENV] === undefined;
     return {
       id: "context_window",
       name: "Context Window",
@@ -3941,6 +3953,9 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     }
     // Switching onto a 1M-capable model restores the default 1M window.
     this.session.queryOptions.betas = [CONTEXT_WINDOW_1M_BETA];
+    if (this.session.queryOptions.env) {
+      applyContextWindowEnv(this.session.queryOptions.env, "1m");
+    }
     const contextOption = this.contextWindowConfigOption(modelId);
     this.session.configOptions = contextOption
       ? [...withoutContext, contextOption]

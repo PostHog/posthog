@@ -48,6 +48,25 @@ export { supports1MContext, supportsFastMode };
 
 export const CONTEXT_WINDOW_1M_BETA = "context-1m-2025-08-07";
 export const CONTEXT_WINDOW_200K_TOKENS = 200_000;
+export const AUTO_COMPACT_WINDOW_ENV = "CLAUDE_CODE_AUTO_COMPACT_WINDOW";
+
+export function applyContextWindowEnv(
+  env: Record<string, string | undefined>,
+  contextWindow: "200k" | "1m" | undefined,
+): void {
+  if (contextWindow === "200k") {
+    env[AUTO_COMPACT_WINDOW_ENV] = String(CONTEXT_WINDOW_200K_TOKENS);
+  } else if (contextWindow === "1m") {
+    delete env[AUTO_COMPACT_WINDOW_ENV];
+  }
+}
+
+export function contextWindowKey(options: {
+  betas?: string[];
+  env?: Record<string, string | undefined>;
+}): string {
+  return `${(options.betas ?? []).join(",")}|${options.env?.[AUTO_COMPACT_WINDOW_ENV] ?? ""}`;
+}
 
 interface ContextWindowOption {
   value: string;

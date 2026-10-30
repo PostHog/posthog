@@ -57,7 +57,11 @@ import type { EffortLevel } from "../types";
 import type { RunBudgetGuard } from "./budget-guard";
 import { loadUserClaudeJsonMcpServers } from "./mcp-config";
 import { createMemoryKillNoticeHook } from "./memory-kill-hook";
-import { DEFAULT_MODEL, resolveFallbackModel } from "./models";
+import {
+  applyContextWindowEnv,
+  DEFAULT_MODEL,
+  resolveFallbackModel,
+} from "./models";
 import { isPinnedSettingsFile, pinnedSettingsDir } from "./pinned-settings";
 import { createRtkRewriteHook } from "./rtk-hook";
 import type { SettingsManager } from "./settings";
@@ -202,6 +206,7 @@ function buildEnvironment(
   bedrockGatewayVariant?: BedrockGatewayVariant,
   contextWiki?: ContextWikiEnv,
   machineAuth?: MachineClaudeAuth,
+  contextWindow?: "200k" | "1m",
 ): Record<string, string> {
   // SDK 0.3.142 made MCP servers connect in the background by default. That
   // default is what we want: a slow or unreachable user MCP server (PostHog
@@ -233,6 +238,7 @@ function buildEnvironment(
     applyGatewayAuth(env, gateway, aiSessionId, bedrockGatewayVariant);
   }
   applyContextWikiEnv(env, contextWiki);
+  applyContextWindowEnv(env, contextWindow);
   return env;
 }
 
@@ -751,8 +757,7 @@ export function buildSessionOptions(params: BuildOptionsParams): Options {
 
   const options: Options = {
     ...params.userProvidedOptions,
-    betas:
-      params.contextWindow === "200k" ? undefined : ["context-1m-2025-08-07"],
+    betas: ["context-1m-2025-08-07"],
     systemPrompt: params.systemPrompt ?? buildSystemPrompt(),
     settingSources: params.userProvidedOptions?.settingSources ?? [
       "user",
@@ -791,6 +796,7 @@ export function buildSessionOptions(params: BuildOptionsParams): Options {
       params.bedrockGatewayVariant,
       params.contextWiki,
       params.machineAuth,
+      params.contextWindow,
     ),
     hooks: buildHooks(
       params.userProvidedOptions?.hooks,

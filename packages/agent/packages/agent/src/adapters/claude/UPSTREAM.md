@@ -253,8 +253,9 @@ Fork of `@anthropic-ai/claude-agent-acp`. Upstream repo: https://github.com/anth
   `modelVersionsCompatible` filter.
 - **compact_boundary getContextUsage** (#747, 398f763): compact_boundary now fetches the
   authoritative post-compaction `used` via `query.getContextUsage()` (helper
-  `fetchContextUsedTokens`), falling back to 0 on failure. `size` still comes from the
-  gateway-learned window (getContextUsage under-reports 1M windows). Our fork-specific
+  `fetchContextUsage`), falling back to 0 on failure. `size` also comes from
+  getContextUsage (`maxTokens`), which reports the effective window, including the 1M beta
+  and `CLAUDE_CODE_AUTO_COMPACT_WINDOW`. Our fork-specific
   `promptReplayed = true` side effect is preserved.
 - **New SDK message handling** (#747, 398f763): `tool_progress` -> `tool_call_update` `in_progress`
   with `elapsedTimeSeconds`; `rate_limit_event` -> `usage_update` carrying `_claude/rateLimit`;

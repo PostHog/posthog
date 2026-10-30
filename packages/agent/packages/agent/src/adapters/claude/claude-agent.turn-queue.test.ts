@@ -188,29 +188,30 @@ describe("ClaudeAcpAgent turn queue input dispatch", () => {
   it.each([
     {
       name: "rebuilds the query when the context window changed",
-      liveBetas: undefined,
+      liveContextKey: "context-1m-2025-08-07|200000",
       rebuilds: 1,
     },
     {
       name: "keeps the query when the context window is unchanged",
-      liveBetas: ["context-1m-2025-08-07"],
+      liveContextKey: "context-1m-2025-08-07|",
       rebuilds: 0,
     },
-  ])("$name before the next prompt", async ({ liveBetas, rebuilds }) => {
+  ])("$name before the next prompt", async ({ liveContextKey, rebuilds }) => {
     const sessionId = "s-context-window";
     const harness = installHarness(sessionId);
     const session = (
       harness.agent as unknown as {
         session: {
           modelId: string;
-          liveBetas?: string[];
+          liveContextKey?: string;
           queryOptions: Record<string, unknown>;
         };
       }
     ).session;
     session.modelId = "claude-opus-5-5";
-    session.liveBetas = liveBetas;
+    session.liveContextKey = liveContextKey;
     session.queryOptions.betas = ["context-1m-2025-08-07"];
+    session.queryOptions.env = {};
     const rebuiltQuery = createMockQuery();
     vi.mocked(sdkQuery).mockReturnValue(
       rebuiltQuery as unknown as ReturnType<typeof sdkQuery>,
@@ -231,6 +232,7 @@ describe("ClaudeAcpAgent turn queue input dispatch", () => {
         betas: ["context-1m-2025-08-07"],
         resume: sessionId,
       });
+      expect(options?.env?.CLAUDE_CODE_AUTO_COMPACT_WINDOW).toBeUndefined();
       const sent = await (rebuiltInput as AsyncIterable<SDKUserMessage>)
         [Symbol.asyncIterator]()
         .next();
