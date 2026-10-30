@@ -3,8 +3,6 @@
 #
 # DO NOT EDIT BY HAND. Mechanical output of `hogli lint:frontend-layers --update-baseline`.
 # Fixed one? Run `hogli lint:frontend-layers --prune-baseline` to drop it.
-frontend/@posthog/lemon-ui/src/index.ts -> frontend/src/styles/global.scss
-frontend/src/index.tsx -> frontend/src/styles/index.tsx
 frontend/src/layout/ErrorProjectUnavailable.tsx -> frontend/src/scenes/organization/CreateOrganizationModal.tsx
 frontend/src/layout/GlobalModals.tsx -> frontend/src/scenes/authentication/two-factor-setup/TwoFactorSetupModal.tsx
 frontend/src/layout/GlobalModals.tsx -> frontend/src/scenes/billing/PaymentEntryModal.tsx
@@ -565,7 +563,6 @@ frontend/src/lib/utils/eventUsageLogic.ts -> products/business_intelligence/fron
 frontend/src/lib/utils/eventUsageLogic.ts -> products/experiments/frontend/experimentStatus.ts
 frontend/src/lib/utils/events.ts -> frontend/src/taxonomy/taxonomy.tsx
 frontend/src/lib/utils/getAppContext.ts -> frontend/src/lib/oauth/oauthClient.ts
-frontend/src/lib/utils/time-tree.ts -> frontend/src/vendor/bintrees/index.ts
 frontend/src/loadPostHogJS.tsx -> products/webmcp/frontend/webmcpToolError.ts
 frontend/src/models/cohortsModel.ts -> frontend/src/exporter/exporterViewLogic.ts
 frontend/src/models/cohortsModel.ts -> frontend/src/scenes/cohorts/CohortFilters/constants.tsx
