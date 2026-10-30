@@ -313,7 +313,10 @@ class SecureEnclaveSigningSetup:
         click.echo("To delete the Secure Enclave key as well:")
         click.echo(f"  sc_auth list-ctk-identities   # find the hash of the `{KEY_LABEL}` key")
         click.echo(f"  sc_auth delete-ctk-identity -h <hash> && rm {KEY_PATH} {KEY_PATH}.pub")
-        click.echo("Keep your previous signing key on GitHub, so commits you already pushed stay verified.")
+        click.echo(
+            "Remove your previous signing key at https://github.com/settings/keys, so it can't sign verified "
+            "commits anymore. Commits you already pushed stay verified."
+        )
 
     def run(self) -> None:
         self._check_platform()
