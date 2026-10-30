@@ -71,6 +71,24 @@ describe('McpCustomHarnessesSettings', () => {
         await waitFor(() => expect(screen.queryByText('Beta bot')).not.toBeInTheDocument())
     })
 
+    it.each([
+        ['a valid data URI shows a preview', 'data:image/png;base64,iVBORw0KGgo=', true],
+        ['a web address shows no preview, so the browser never fetches it', 'https://example.com/icon.png', false],
+    ])('%s', async (_, icon, showsPreview) => {
+        render(
+            <Provider>
+                <McpCustomHarnessesSettings />
+            </Provider>
+        )
+        await userEvent.click(await screen.findByText('Add custom harness'))
+        await userEvent.click(screen.getByPlaceholderText('data:image/png;base64,...'))
+        await userEvent.paste(icon)
+
+        for (const background of ['light', 'dark']) {
+            expect(screen.queryByLabelText(`Icon preview on a ${background} background`) !== null).toBe(showsPreview)
+        }
+    })
+
     it('blocks opening another form while a save is pending', async () => {
         stored = [
             { id: 'a', name: 'Alpha', match_pattern: 'alpha', created_at: '', updated_at: '' },

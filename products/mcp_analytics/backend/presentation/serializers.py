@@ -1,6 +1,6 @@
 import json
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import IntegrityError, transaction
@@ -15,8 +15,16 @@ from posthog.schema import (
     SessionPropertyFilter,
 )
 
-from products.mcp_analytics.backend.facade.constants import MAX_CUSTOM_HARNESSES, UNIDENTIFIED_HARNESS_LABEL
+from products.mcp_analytics.backend.facade.constants import (
+    HARNESS_LABELS,
+    MARKED_CLIENT_NAMES,
+    MAX_CUSTOM_HARNESSES,
+    UNIDENTIFIED_HARNESS_LABEL,
+)
 from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPCustomHarness
+
+if TYPE_CHECKING:
+    from django.db.models import QuerySet
 
 _PROPERTY_FILTERS_ADAPTER: pydantic.TypeAdapter[list[AnyPropertyFilterDiscriminated]] = pydantic.TypeAdapter(
     list[AnyPropertyFilterDiscriminated]
@@ -865,6 +873,9 @@ class MCPMissingCapabilityCreateSerializer(MCPAnalyticsSubmissionContextSerializ
 
 
 DUPLICATE_MATCH_PATTERN_ERROR = "A custom harness already uses this pattern."
+_BUILT_IN_HARNESS_LABELS = frozenset(
+    label.lower() for label in (*HARNESS_LABELS, *MARKED_CLIENT_NAMES, UNIDENTIFIED_HARNESS_LABEL)
+)
 
 
 class MCPCustomHarnessSerializer(serializers.ModelSerializer):
@@ -878,15 +889,34 @@ class MCPCustomHarnessSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = MCPCustomHarness
-        fields = ["id", "name", "match_pattern", "created_at", "updated_at"]
+        fields = ["id", "name", "match_pattern", "icon", "created_at", "updated_at"]
         read_only_fields = ["id", "created_at", "updated_at"]
-        extra_kwargs = {"name": {"help_text": "Name to show for calls from this harness."}}
+        extra_kwargs = {
+            "name": {"help_text": "Name to show for calls from this harness."},
+            "icon": {
+                "help_text": (
+                    "Optional icon shown next to the harness name. A base64 data URI of a PNG, GIF or WebP image "
+                    "with a transparent background, 16 KB or smaller and at most 256 by 256 pixels. The icon shows "
+                    "in one color, like the built-in harness logos. An empty string means no icon."
+                )
+            },
+        }
+
+    def _other_team_harnesses(self) -> "QuerySet[MCPCustomHarness]":
+        others = MCPCustomHarness.objects.for_team(self.context["get_team"]().id)
+        return others.exclude(pk=self.instance.pk) if self.instance is not None else others
 
     def validate_name(self, value: str) -> str:
-        # The dashboard gives these two labels their own meaning, so a team rule must not produce them.
-        if value.strip().lower() in {"other", UNIDENTIFIED_HARNESS_LABEL.lower()}:
-            raise serializers.ValidationError(f"{value.strip()} is a built-in label. Choose another name.")
-        return value
+        name = value.strip()
+        if self.instance is not None and name == self.instance.name:
+            return name
+        # The dashboard shows its own logo for a built-in label, so a team rule with that name would lose its icon.
+        if name.lower() in _BUILT_IN_HARNESS_LABELS:
+            raise serializers.ValidationError(f"{name} is a built-in label. Choose another name.")
+        # The dashboard finds a harness icon by name, so two rules with one name would share one icon.
+        if self._other_team_harnesses().filter(name__iexact=name).exists():
+            raise serializers.ValidationError("Another custom harness already uses this name.")
+        return name
 
     def validate_match_pattern(self, value: str) -> str:
         pattern = value.strip().lower()
@@ -897,10 +927,7 @@ class MCPCustomHarnessSerializer(serializers.ModelSerializer):
         return pattern
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
-        team_id = self.context["get_team"]().id
-        others = MCPCustomHarness.objects.for_team(team_id)
-        if self.instance is not None:
-            others = others.exclude(pk=self.instance.pk)
+        others = self._other_team_harnesses()
         if "match_pattern" in attrs and others.filter(match_pattern=attrs["match_pattern"]).exists():
             raise serializers.ValidationError({"match_pattern": DUPLICATE_MATCH_PATTERN_ERROR})
         if self.instance is None and others.count() >= MAX_CUSTOM_HARNESSES:
