@@ -83,4 +83,9 @@ export default defineCommand({
 
     exitCode: (result) =>
         result.languages.length > 0 && result.languages.every((entry) => entry.status === 'up_to_date') ? 0 : 1,
+
+    telemetry: ({ result }) => ({
+        languages: result.languages.map((entry) => (isLanguage(entry.language) ? entry.language : 'unknown')),
+        statuses: result.languages.map((entry) => entry.status),
+    }),
 })
