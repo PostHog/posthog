@@ -2088,7 +2088,9 @@ class TestSendEmailReplyMultiConfig(BaseTest):
 
         message = message_from_bytes(mock_send_mime.call_args.args[1])
         html_part = next(part for part in message.walk() if part.get_content_type() == "text/html")
-        html = html_part.get_payload(decode=True).decode()
+        payload = html_part.get_payload(decode=True)
+        assert isinstance(payload, bytes)
+        html = payload.decode()
         assert '<a href="https://example.com/docs"' in html and ">the docs</a>" in html
         assert "<br" in html
         assert html.count("<p>") == 2
