@@ -35,6 +35,7 @@ from posthog.slack.formatting import escape_slack_mrkdwn
 from posthog.temporal.common.client import sync_connect
 from posthog.utils import get_instance_region
 
+from products.access_control.backend.facade.contracts import ObjectAccessRef
 from products.access_control.backend.facade.user_access_control import (
     UserAccessControl,
     access_level_satisfied_for_resource,
@@ -45,9 +46,11 @@ from products.conversations.backend.models.ticket import Ticket
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.error_tracking.backend.facade import api as error_tracking_facade
-from products.experiments.backend.facade import api as experiments_facade
-from products.experiments.backend.facade.contracts import StoredArmResult, StoredPrimaryResult
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.facade import (
+    api as experiments_facade,
+    slack as experiments_slack,
+)
+from products.experiments.backend.facade.contracts import ExperimentUnfurl, StoredArmResult, StoredPrimaryResult
 from products.exports.backend.facade import api as exports_facade
 from products.feature_flags.backend.facade.config import ConfigFormatError
 from products.feature_flags.backend.facade.filters import condition_rollout_percentage
@@ -726,21 +729,12 @@ def _date_range(query: object) -> str | None:
     return f"Last {unit}" if amount == 1 else f"Last {_count(amount, unit)}"
 
 
-def _primary_metric(metrics: object) -> str | None:
-    first = metrics[0] if isinstance(metrics, list) and metrics else None
-    name = first.get("name") if isinstance(first, dict) else None
-    return name if isinstance(name, str) and name else None
+def _variant_row(key: object, rollout_percentage: float) -> _ChartRow:
+    return _ChartRow(label=_chart_label(key), bar=_bar(rollout_percentage / 100), value=f"{rollout_percentage}%")
 
 
 def _variant_rows(variants: list[dict]) -> list[_ChartRow]:
-    return [
-        _ChartRow(
-            label=_chart_label(variant["key"]),
-            bar=_bar(variant["rollout_percentage"] / 100),
-            value=f"{variant['rollout_percentage']}%",
-        )
-        for variant in variants
-    ]
+    return [_variant_row(variant["key"], variant["rollout_percentage"]) for variant in variants]
 
 
 def _flag_variants(flag: FeatureFlag) -> list[dict]:
@@ -997,31 +991,34 @@ def _flag_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _SkipRe
 
 def _experiment_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _SkipReason:
     experiment = (
-        Experiment.objects.filter(team_id=ctx.team.pk, pk=ref, deleted=False).select_related("feature_flag").first()
-        if ref.isdigit()
-        else None
+        experiments_slack.get_experiment_unfurl(team_id=ctx.team.pk, experiment_id=int(ref)) if ref.isdigit() else None
     )
     if not experiment:
         return "not_found"
-    if not ctx.uac.check_access_level_for_object(experiment, required_level="viewer"):
+    # The experiment can sit on the legacy parent of the sharer's team. Access rules resolve against the sharer's team,
+    # and the check raises for a reference to another team, so the reference names the sharer's team.
+    access_ref = ObjectAccessRef(
+        resource="experiment", id=str(experiment.id), team_id=ctx.team.pk, created_by_id=experiment.created_by_id
+    )
+    if not ctx.uac.check_access_level_for_ref(access_ref, "viewer"):
         return "no_access"
     details: list[str] = []
     if experiment.start_date:
         days = ((experiment.end_date or timezone.now()) - experiment.start_date).days + 1
         details.append(f"Ran {_count(days, 'day')}" if experiment.end_date else f"Day {days}")
     stats = _stored_primary_result(experiment)
-    metric = stats.metric_name if stats else _primary_metric(experiment.metrics)
+    metric = stats.metric_name if stats else experiment.primary_metric_name
     if metric:
         details.append(f"Metric: {metric}")
-    variants = _flag_variants(experiment.feature_flag)
     if stats:
-        details.append(f"Split {'/'.join(str(variant['rollout_percentage']) for variant in variants)}")
+        details.append(f"Split {'/'.join(str(variant.rollout_percentage) for variant in experiment.variants)}")
+    variant_rows = [_variant_row(variant.key, variant.rollout_percentage) for variant in experiment.variants]
     return _UnfurlCard(
         label="Experiment",
         title=experiment.name,
-        status=_humanize(experiment.status_label),
+        status=_humanize(experiment.status),
         details=tuple(details),
-        chart=_experiment_chart(stats) if stats else _chart_rows(_variant_rows(variants)),
+        chart=_experiment_chart(stats) if stats else _chart_rows(variant_rows),
         body="\n\n".join(
             part for part in (_experiment_verdict(stats) if stats else None, experiment.description) if part
         ),
@@ -1029,11 +1026,11 @@ def _experiment_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _
     )
 
 
-def _stored_primary_result(experiment: Experiment) -> StoredPrimaryResult | None:
+def _stored_primary_result(experiment: ExperimentUnfurl) -> StoredPrimaryResult | None:
     try:
-        stats = experiments_facade.get_stored_primary_result(team_id=experiment.team_id, experiment_id=experiment.pk)
+        stats = experiments_facade.get_stored_primary_result(team_id=experiment.team_id, experiment_id=experiment.id)
     except Exception:
-        logger.exception("slack_app_unfurl_experiment_results_failed", experiment_id=experiment.pk)
+        logger.exception("slack_app_unfurl_experiment_results_failed", experiment_id=experiment.id)
         return None
     if (
         stats is None
