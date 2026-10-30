@@ -102,7 +102,8 @@ export function sha256HmacBase64Key(
 }
 
 // DER prefix of an Ed25519 SubjectPublicKeyInfo. Node only imports public keys in a container format.
-const ED25519_SPKI_PREFIX = Buffer.from('302a300506032b6570032100', 'hex')
+// Kept as hex so importing this module in a browser, which has no Buffer, doesn't throw.
+const ED25519_SPKI_PREFIX_HEX = '302a300506032b6570032100'
 
 // Buffer.from skips characters outside the alphabet, so check the whole string first. Python and Rust use the same patterns.
 const HEX_PATTERN = /^(?:[0-9a-fA-F]{2})*$/
@@ -145,7 +146,7 @@ export function ed25519Verify(
     }
     try {
         const key = crypto.createPublicKey({
-            key: Buffer.concat([ED25519_SPKI_PREFIX, keyBytes]),
+            key: Buffer.concat([Buffer.from(ED25519_SPKI_PREFIX_HEX, 'hex'), keyBytes]),
             format: 'der',
             type: 'spki',
         })
