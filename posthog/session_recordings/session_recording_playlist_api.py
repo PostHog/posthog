@@ -684,6 +684,15 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer, UserAccess
         return updated_playlist
 
 
+class SessionRecordingPlaylistRecordingsQuerySerializer(serializers.Serializer):
+    limit = serializers.IntegerField(
+        required=False, default=50, min_value=1, help_text="Number of recordings to return. Defaults to 50."
+    )
+    offset = serializers.IntegerField(
+        required=False, default=0, min_value=0, help_text="Number of recordings to skip. Defaults to 0."
+    )
+
+
 @extend_schema(tags=["replay"])
 class SessionRecordingPlaylistViewSet(
     TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet
@@ -1003,8 +1012,10 @@ class SessionRecordingPlaylistViewSet(
         tag_queries(team_id=self.team.id, product=Product.REPLAY, feature=Feature.QUERY)
         playlist = self.get_object()
 
-        limit = int(request.GET.get("limit", 50))
-        offset = int(request.GET.get("offset", 0))
+        paging = SessionRecordingPlaylistRecordingsQuerySerializer(data=request.GET)
+        paging.is_valid(raise_exception=True)
+        limit: int = paging.validated_data["limit"]
+        offset: int = paging.validated_data["offset"]
 
         # Handle synthetic playlists differently
         if getattr(playlist, "_is_synthetic", False):

@@ -915,6 +915,19 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
         assert response.status_code == status.HTTP_200_OK
         assert {x["id"] for x in response.json()["results"]} == set(sessions_newest_first[:2])
 
+    @parameterized.expand([("non_numeric_limit", {"limit": "abc"}), ("negative_offset", {"offset": -1})])
+    def test_recordings_rejects_bad_paging_params(self, _name: str, params: dict[str, str | int]) -> None:
+        playlist = SessionRecordingPlaylist.objects.create(
+            team=self.team, name="collection", created_by=self.user, type="collection"
+        )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/session_recording_playlists/{playlist.short_id}/recordings",
+            data=params,
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
     @parameterized.expand(
         [
             ("narrow_window_excludes", "-1d", False),
