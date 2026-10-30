@@ -96,6 +96,7 @@ export function useSend({
   compact,
   openSearch,
   openSettings,
+  openHelp,
   onChatStarted,
   runShell,
   repos,
@@ -142,6 +143,7 @@ export function useSend({
   ) => void;
   openSearch: () => void;
   openSettings: () => void;
+  openHelp: () => void;
   repos: Pick<RepoPicker, "open" | "reposFor">;
   onChatStarted: (paneId: string, taskId: string) => void;
   runShell: (
@@ -423,6 +425,11 @@ export function useSend({
     }
     if (slash?.command === "settings" || slash?.command === "config") {
       openSettings();
+      return;
+    }
+    if (slash?.command === "help") {
+      track("help opened");
+      openHelp();
       return;
     }
     if (slash?.command === "billing") {

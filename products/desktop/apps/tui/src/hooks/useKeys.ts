@@ -49,6 +49,7 @@ export function useKeys({
   sidebar,
   search,
   settings,
+  help,
   composerFor,
   modalFor,
   onModalKey,
@@ -65,6 +66,7 @@ export function useKeys({
   sidebar: SidebarState;
   search: SearchState;
   settings: SettingsState;
+  help: { open: boolean; close: () => void };
   composerFor: (paneId: string) => Composer;
   modalFor: (paneId: string) => OpenModal | undefined;
   onModalKey: (paneId: string, modal: OpenModal, key: SheetKey) => void;
@@ -125,6 +127,7 @@ export function useKeys({
     }
     if (shortcut === "settings") return settings.toggle();
     if (settings.open && shortcut === "close") return settings.toggle();
+    if (help.open && (shortcut === "close" || key.escape)) return help.close();
     if (shortcut === "close") return close();
     // Layout and chats are saved as they change, so quitting loses nothing.
     if (shortcut === "quit") return exit();
@@ -136,8 +139,8 @@ export function useKeys({
       ).__posthogTuiReload?.();
       return;
     }
-    // The open search or settings take every other key through onKey.
-    if (search.open || settings.open) return;
+    // The open search, settings or help take every other key through onKey.
+    if (search.open || settings.open || help.open) return;
     // Inside a split workspace a new chat takes the focused pane; elsewhere it takes the main view.
     if (shortcut === "newChat") {
       const inSplit = activeWorkspace(layout).root.kind === "split";
@@ -213,7 +216,7 @@ export function useKeys({
   // Typing in a focused pane goes to its composer; the app's own keys stay with the app.
   const onKey = (sequence: string): void => {
     const optionSplit = optionSplitFor(sequence);
-    if (optionSplit && !search.open && !settings.open) {
+    if (optionSplit && !search.open && !settings.open && !help.open) {
       track("pane split", { direction: optionSplit, via: "option" });
       setLayout((current) => splitFocused(current, optionSplit));
       return;
@@ -225,6 +228,11 @@ export function useKeys({
     }
     if (settings.open) {
       settings.onKey(sequence);
+      return;
+    }
+    // Help takes no keys of its own: Esc closes it, and anything else waits.
+    if (help.open) {
+      if (matchesKey(sequence, "escape")) help.close();
       return;
     }
     // A dropped file goes to the pane under the pointer, which takes focus, like a click would.
