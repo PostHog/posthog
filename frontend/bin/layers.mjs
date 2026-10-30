@@ -10,6 +10,7 @@ const RULES = [
     ['kernel', /\/generated\//],
     ['kernel', /^frontend\/src\/lib\/(utils|logic|lemon-ui|ui|api[a-z-]*|constants|dayjs|hooks|colors)(\/|\.|$)/],
     ['kernel', /^frontend\/src\/(types|initKea|globals)\.tsx?$/],
+    ['kernel', /^frontend\/src\/(styles|vendor)\//],
     ['kernel', /^frontend\/@posthog\//],
     ['kernel', /^(common|packages)\//],
     ['query', /^frontend\/src\/queries\//],

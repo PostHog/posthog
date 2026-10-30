@@ -6,6 +6,7 @@ describe('layers.mjs', () => {
         ['products/signals/frontend/generated/api.schemas.ts', 'kernel'],
         ['frontend/src/lib/utils/css-classes.ts', 'kernel'],
         ['frontend/src/lib/api.ts', 'kernel'],
+        ['frontend/src/styles/global.scss', 'kernel'],
         ['frontend/src/queries/nodes/DataTable/DataTable.tsx', 'query'],
         ['frontend/src/layout/navigation-3000/Navigation.tsx', 'shell'],
         ['frontend/src/lib/components/Command/Command.tsx', 'shell'],
