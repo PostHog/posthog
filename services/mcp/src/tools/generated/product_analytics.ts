@@ -174,7 +174,6 @@ const AssistantDataVisualizationAxisDisplaySettings = z.object({
         .enum(['left', 'right'])
         .describe('Which Y axis this numeric series should use. Use `right` for a secondary Y axis.')
         .optional(),
-    suffix: z.string().describe('Value suffix (e.g. ` ms`). Omit for `percent`, which adds `%`.').optional(),
 })
 
 const AssistantDataVisualizationAxisSettings = z.object({
