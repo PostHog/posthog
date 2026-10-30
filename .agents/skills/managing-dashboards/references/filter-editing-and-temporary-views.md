@@ -61,7 +61,7 @@ Use explicit actions for each boundary:
 - `previewDashboardChanges` updates dashboard data only.
 - `saveDashboardChanges` sends one dashboard update with `filters` and `variables`.
 - `discardDashboardChanges` clears the user draft and restores the saved configuration.
-- Layout changes have no draft. Each move or resize saves on its own, `undoLayoutChange` takes back the last one, and the activity log restores an earlier layout.
+- Layout changes have no draft. Each move or resize saves on its own and `undoLayoutChange` takes back the last one. The undo stack lives only in the mounted logic; earlier layouts are not persisted.
 
 Save behavior:
 

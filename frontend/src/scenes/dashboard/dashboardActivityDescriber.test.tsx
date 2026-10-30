@@ -1,16 +1,13 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, fireEvent, render, waitFor } from '@testing-library/react'
+import { cleanup, render } from '@testing-library/react'
 
 import { ActivityLogItem, humanize } from 'lib/components/ActivityLog/humanizeActivity'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { initKeaTests } from '~/test/init'
 import { ActivityScope } from '~/types'
 
 import { dashboardActivityDescriber } from './dashboardActivityDescriber'
-import { dashboardLogic } from './dashboardLogic'
 
 describe('dashboardActivityDescriber', () => {
     afterEach(cleanup)
@@ -158,53 +155,5 @@ describe('dashboardActivityDescriber', () => {
         expect(render(<>{description}</>).container).toHaveTextContent(
             'Mia Chen created the dashboard Activation overview'
         )
-    })
-    it.each([true, false])('describes a layout change, offering a restore when the undo flag is %s', async (flagOn) => {
-        featureFlagLogic.actions.setFeatureFlags(flagOn ? [FEATURE_FLAGS.DASHBOARD_LAYOUT_UNDO] : [], {
-            [FEATURE_FLAGS.DASHBOARD_LAYOUT_UNDO]: flagOn,
-        })
-        const restoreTilePlacements = jest.fn()
-        const logic = { actions: { restoreTilePlacements } }
-        jest.spyOn(dashboardLogic, 'findMounted').mockReturnValue(logic as any)
-        const logItem: ActivityLogItem = {
-            ...makeLogItem(null),
-            detail: {
-                name: 'Activation overview',
-                merge: null,
-                trigger: null,
-                changes: [
-                    {
-                        type: ActivityScope.DASHBOARD,
-                        action: 'changed',
-                        field: 'tile_layouts',
-                        before: {
-                            '7': { layouts: { sm: { x: 0, y: 0, w: 6, h: 5 } }, group_key: null },
-                            '8': { layouts: { sm: { x: 6, y: 0, w: 6, h: 5 } }, group_key: null },
-                        },
-                        after: {
-                            '7': { layouts: { sm: { x: 6, y: 0, w: 6, h: 5 } }, group_key: null },
-                            '8': { layouts: { sm: { x: 6, y: 0, w: 6, h: 5 } }, group_key: null },
-                        },
-                    },
-                ],
-            },
-        }
-        const [item] = humanize([logItem], () => dashboardActivityDescriber, false)
-        const { container, getByText, queryByText } = render(<>{item.description}</>)
-
-        expect(container).toHaveTextContent('rearranged 1 tile')
-        if (!flagOn) {
-            expect(queryByText('Restore previous layout')).not.toBeInTheDocument()
-            return
-        }
-        fireEvent.click(getByText('Restore previous layout'))
-
-        await waitFor(() =>
-            expect(restoreTilePlacements).toHaveBeenCalledWith({
-                7: { layouts: { sm: { x: 0, y: 0, w: 6, h: 5 } }, group_key: null },
-                8: { layouts: { sm: { x: 6, y: 0, w: 6, h: 5 } }, group_key: null },
-            })
-        )
-        expect(dashboardLogic.findMounted).toHaveBeenCalledWith({ id: 42 })
     })
 })

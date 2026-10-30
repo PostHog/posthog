@@ -1466,12 +1466,8 @@ export interface dashboardLogicActions {
     undoLayoutChange: () => {
         value: true
     }
-    restoreTilePlacements: (
-        placements: Record<number, TilePlacement>,
-        recordUndo?: boolean
-    ) => {
+    restoreTilePlacements: (placements: Record<number, TilePlacement>) => {
         placements: Record<number, TilePlacement>
-        recordUndo: boolean
     }
     stopWidgetRefreshes: (tileIds: number[]) => {
         tileIds: number[]
@@ -2170,11 +2166,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
         pushLayoutUndo: (placements: Record<number, TilePlacement>) => ({ placements }),
         popLayoutUndo: true,
         undoLayoutChange: true,
-        /** Put tiles back where `placements` says and save that, e.g. an undo or a version from the activity log. */
-        restoreTilePlacements: (placements: Record<number, TilePlacement>, recordUndo: boolean = true) => ({
-            placements,
-            recordUndo,
-        }),
+        /** Put tiles back where `placements` says and save that, without recording it as an undo step. */
+        restoreTilePlacements: (placements: Record<number, TilePlacement>) => ({ placements }),
         applyDashboardUpdate: (dashboard: DashboardType, savedPlacements: Record<number, TilePlacement>) => ({
             dashboard,
             savedPlacements,
@@ -5915,9 +5908,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 return
             }
             actions.popLayoutUndo()
-            actions.restoreTilePlacements(placements, false)
+            actions.restoreTilePlacements(placements)
         },
-        restoreTilePlacements: ({ placements, recordUndo }) => {
+        restoreTilePlacements: ({ placements }) => {
             if (!values.dashboard) {
                 return
             }
@@ -5927,7 +5920,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             )
             actions.applyDashboardUpdate({ ...values.dashboard, tiles }, values.savedTilePlacements)
             actions.clearDraftLayouts()
-            actions.saveEditModeChanges('layout', recordUndo)
+            actions.saveEditModeChanges('layout', false)
         },
         saveEditModeChangesFailure: () => {
             cache.resolveEditSaveApplied?.()

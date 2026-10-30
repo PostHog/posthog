@@ -1,19 +1,11 @@
 import { useActions, useValues } from 'kea'
 
-import { IconClock } from '@posthog/icons'
-
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-
-import { SidePanelActivityTab } from '~/layout/navigation-3000/sidepanel/panels/activity/sidePanelActivityLogic'
-import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import {
-    SceneMenuBarItem,
     SceneMenuBarRadioGroup,
     SceneMenuBarRadioItem,
-    SceneMenuBarSeparator,
     SceneMenuBarSubMenu,
 } from '~/layout/scenes/components/SceneMenuBar'
-import { DashboardTileSpacing, SidePanelTab, TileGroupDisplay } from '~/types'
+import { DashboardTileSpacing, TileGroupDisplay } from '~/types'
 
 import {
     DASHBOARD_GRID_COMPACTION_LABELS,
@@ -26,16 +18,8 @@ import {
 import { dashboardLogic } from './dashboardLogic'
 
 export function DashboardCustomizeSubMenu(): JSX.Element | null {
-    const {
-        dashboard,
-        currentLayoutSize,
-        canEditDashboard,
-        tileGroupSections,
-        tileGroupDisplay,
-        dashboardGridCompactionSaving,
-    } = useValues(dashboardLogic)
-    const { openSidePanel } = useActions(sidePanelStateLogic)
-    const layoutUndoEnabled = useFeatureFlag('DASHBOARD_LAYOUT_UNDO')
+    const { dashboard, currentLayoutSize, tileGroupSections, tileGroupDisplay, dashboardGridCompactionSaving } =
+        useValues(dashboardLogic)
     const { changeDashboardTileSpacing, changeDashboardGridCompaction, changeTileGroupDisplay } =
         useActions(dashboardLogic)
 
@@ -47,19 +31,6 @@ export function DashboardCustomizeSubMenu(): JSX.Element | null {
 
     return (
         <SceneMenuBarSubMenu label="Customize">
-            {canEditDashboard && layoutUndoEnabled && (
-                <>
-                    {/* Layout changes save as they happen, so earlier layouts live in the activity log. */}
-                    <SceneMenuBarItem
-                        onClick={() => openSidePanel(SidePanelTab.Activity, SidePanelActivityTab.All)}
-                        data-attr="dashboard-menubar-layout-history"
-                    >
-                        <IconClock />
-                        Layout history
-                    </SceneMenuBarItem>
-                    <SceneMenuBarSeparator />
-                </>
-            )}
             <SceneMenuBarSubMenu label="Tile density">
                 <SceneMenuBarRadioGroup
                     value={dashboard.customization?.tile_spacing ?? 'standard'}

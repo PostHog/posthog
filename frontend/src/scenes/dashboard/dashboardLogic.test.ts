@@ -1767,22 +1767,6 @@ describe('dashboardLogic', () => {
                 expect(xOf()).toEqual(startX)
                 expect(logic.values.canUndoLayoutChange).toBe(false)
             })
-
-            it('records an undo step for a restored layout version', async () => {
-                await storeComputedLayouts()
-                const firstTile = logic.values.dashboard!.tiles[0]
-                const saved = logic.values.savedTilePlacements[firstTile.id]
-                const restoredSm = { ...saved.layouts!.sm!, x: saved.layouts!.sm!.x + 3 }
-
-                await expectLogic(logic, () => {
-                    logic.actions.restoreTilePlacements({
-                        [firstTile.id]: { layouts: { sm: restoredSm } as DashboardTile['layouts'], group_key: null },
-                    })
-                }).toFinishAllListeners()
-
-                expect(logic.values.savedTilePlacements[firstTile.id].layouts?.sm?.x).toEqual(restoredSm.x)
-                expect(logic.values.canUndoLayoutChange).toBe(true)
-            })
         })
 
         it('keeps saved settings when an older layout save finishes later', async () => {
