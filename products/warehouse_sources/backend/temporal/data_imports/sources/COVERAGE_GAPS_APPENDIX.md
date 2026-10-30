@@ -9578,11 +9578,11 @@ Today (18): `browsers`, `cities`, `countries`, `devices`, `entry_pages`, `exit_p
 
 Diffed against: <https://plausible.io/docs/stats-api>
 
-- [ ] `visit:channel` — Plausible's acquisition-channel dimension — the default breakdown in its own dashboard and not derivable from source or utm_medium (high)
-- [ ] `event:props:{key}` — custom event property breakdowns; the only way to analyze custom-event dimensions such as plan or signup method (high)
-- [ ] `event:hostname` — splits traffic across subdomains and multi-domain sites, which every other table silently merges (medium)
+- [x] `visit:channel` — Plausible's acquisition-channel dimension — the default breakdown in its own dashboard and not derivable from source or utm_medium (high)
+- [x] `event:props:{key}` — custom event property breakdowns; the only way to analyze custom-event dimensions such as plan or signup method (high)
+- [x] `event:hostname` — splits traffic across subdomains and multi-domain sites, which every other table silently merges (medium)
 - [ ] `visit:browser_version` — browser version breakdown for compatibility analysis (low)
-- [ ] `visit:os_version` — OS version breakdown for compatibility analysis (low)
+- [x] `visit:os_version` — OS version breakdown for compatibility analysis (low)
 - [ ] `visit:entry_page_hostname / visit:exit_page_hostname` — hostname-qualified entry and exit pages for multi-domain sites (low)
 
 Note: Plausible's Stats API v2 is a single POST /api/v2/query endpoint; a PostHog 'table' is one breakdown dimension. Coverage is close to complete — 18 of the 24 documented dimensions are already exposed. Custom properties (event:props:\*) are open-ended per site, so implementing them would need dynamic table discovery rather than a fixed table.
