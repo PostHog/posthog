@@ -1679,14 +1679,14 @@ def run_gateway_env_vars(ctx: TaskProcessingContext, task: Task) -> dict[str, st
         raise GatewayTokenUnavailableError(
             "Pi scouts require a scoped AI gateway token", {"team_id": ctx.team_id, "run_id": ctx.run_id}
         )
+    if trial and not env_vars.get("AI_GATEWAY_TOKEN"):
+        raise GatewayNotConfiguredError("Trial work requires accounted AI gateway execution")
     # Retry provisioning if coverage cannot be recorded; otherwise fallback usage can look fully accounted for.
     record_gateway_routing(
         run_id=ctx.run_id,
         team_id=ctx.team_id,
         uses_gateway=bool(env_vars.get("AI_GATEWAY_TOKEN")),
     )
-    if trial and not env_vars.get("AI_GATEWAY_TOKEN"):
-        raise GatewayNotConfiguredError("Trial work requires accounted AI gateway execution")
     return env_vars
 
 

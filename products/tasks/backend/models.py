@@ -859,6 +859,23 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         if live_run_ids:
             execute_after_commit(lambda: log_run_started_beside_live_run(task_run, live_run_ids))
 
+    def uses_self_driving_billing(self, mode: str) -> bool:
+        if mode != "background":
+            return False
+        if self.origin_product == self.OriginProduct.SIGNALS_SCOUT:
+            return True
+        if self.origin_product != self.OriginProduct.SIGNAL_REPORT:
+            return False
+        if self.internal or self.signal_report_id is None:
+            return True
+        from products.signals.backend.task_run_artefacts import (
+            is_report_implementation_task,  # noqa: PLC0415 -- Signals models depend on Tasks
+        )
+
+        return is_report_implementation_task(
+            team_id=self.team_id, report_id=str(self.signal_report_id), task_id=str(self.id)
+        )
+
     def create_run(
         self,
         environment: Optional["TaskRun.Environment"] = None,
@@ -886,6 +903,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         )
 
         effective_environment = environment or TaskRun.Environment.CLOUD
+        uses_self_driving_billing = self.uses_self_driving_billing(mode)
         trial_admission = (
             (
                 prepare_task_trial(
@@ -894,7 +912,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                 if _trial_admission is False
                 else _trial_admission
             )
-            if effective_environment == TaskRun.Environment.CLOUD
+            if effective_environment == TaskRun.Environment.CLOUD and uses_self_driving_billing
             else None
         )
         dedicated_stream = (extra_state or {}).get("use_dedicated_stream")
@@ -902,6 +920,8 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             dedicated_stream = dedicated_stream_configured()
 
         with transaction.atomic():
+            if trial_admission is not None:
+                trial_admission.lock_report(self.signal_report_id)
             task = (
                 Task.objects.select_for_update(of=("self",))
                 .select_related("created_by", "team")
@@ -986,7 +1006,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
 
             if task.origin_product in (Task.OriginProduct.SIGNAL_REPORT, Task.OriginProduct.SIGNALS_SCOUT):
                 state.pop("billing_product", None)
-                if mode != "background":
+                if not uses_self_driving_billing:
                     state["billing_product"] = "posthog_ai"
                 elif task.origin_product == Task.OriginProduct.SIGNAL_REPORT and state.get("ai_stage") in {
                     None,
@@ -1866,7 +1886,10 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         )
 
         trial_admission = prepare_task_trial(
-            team=task.team, origin=task.origin_product, report_id=task.signal_report_id, mode=mode
+            team=task.team,
+            origin=task.origin_product,
+            report_id=task.signal_report_id,
+            mode=mode if task.uses_self_driving_billing(mode) else "interactive",
         )
         with transaction.atomic():
             task.save()

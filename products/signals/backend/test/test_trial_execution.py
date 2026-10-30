@@ -7,11 +7,13 @@ from parameterized import parameterized
 
 from posthog.llm.gateway_usage import GatewayRequestCost
 
+from products.signals.backend.constants import FIRST_REPORT_SCOUT
 from products.signals.backend.facade.trial import check_trial_run_quota, prepare_task_trial, start_task_trial
 from products.signals.backend.free_trial import self_driving_free_trial_enabled
-from products.signals.backend.models import SignalReport, SignalSpend
+from products.signals.backend.models import SignalReport, SignalScoutConfig, SignalScoutRun, SignalSpend
 from products.signals.backend.quota import trial_quota_gate
-from products.signals.backend.spend import record_llm_spend
+from products.signals.backend.spend import record_llm_spend, record_task_spend
+from products.signals.backend.task_run_artefacts import record_report_task
 from products.signals.backend.trial.models import SignalTrialGrant, SignalTrialReportReservation
 from products.signals.backend.trial.policy import TrialPolicy, TrialRefused
 from products.signals.backend.trial.reports import (
@@ -54,9 +56,65 @@ class TestTrialExecution(BaseTest):
     ) -> TaskRun:
         report = SignalReport.objects.create(team=self.team, triggering_signal_id=uuid4())
         task = Task.objects.create(
-            team=self.team, title="Trial run", origin_product="signal_report", signal_report_id=report.id
+            team=self.team,
+            title="Trial run",
+            origin_product="signal_report",
+            signal_report_id=report.id,
+            internal=stage != "implementation",
         )
+        if stage == "implementation":
+            record_report_task(
+                team_id=self.team.id, report_id=str(report.id), task_id=str(task.id), relationship="implementation"
+            )
         return task.create_run(extra_state={"ai_stage": stage}, mode=mode, environment=environment)
+
+    @parameterized.expand([(True,), (False,)])
+    def test_background_discussion_keeps_posthog_ai_funding(self, claimed: bool) -> None:
+        if claimed:
+            self.claim()
+        report = SignalReport.objects.create(team=self.team, triggering_signal_id=uuid4())
+        task = Task.objects.create(
+            team=self.team, title="Discuss report", origin_product="signal_report", signal_report=report
+        )
+        record_report_task(
+            team_id=self.team.id, report_id=str(report.id), task_id=str(task.id), relationship="discussion"
+        )
+        run = task.create_run(mode="background")
+        assert run.state["billing_product"] == "posthog_ai"
+        assert run.state["ai_stage"] == "inbox"
+        assert "self_driving_funding" not in run.state
+        assert not SignalSpend.objects.for_team(self.team.id).filter(task_run_id=run.id).exists()
+
+    @parameterized.expand(
+        [
+            (FIRST_REPORT_SCOUT, "onboarding", True),
+            (FIRST_REPORT_SCOUT, "manual", False),
+            ("signals-scout-general", "onboarding", False),
+        ]
+    )
+    def test_disabled_scout_only_runs_for_authorized_first_report(
+        self, skill_name: str, triggered_by: str, allowed: bool
+    ) -> None:
+        self.claim()
+        config = SignalScoutConfig.objects.for_team(self.team.id).create(
+            team_id=self.team.id, skill_name=skill_name, enabled=False
+        )
+        task = Task.objects.create(team=self.team, title="First report", origin_product="signals_scout")
+        run = task.create_run()
+        scout_run = SignalScoutRun.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            task_run=run,
+            scout_config=config,
+            skill_name=skill_name,
+            skill_version=1,
+            metadata={"triggered_by": triggered_by},
+        )
+        record_task_spend(team_id=self.team.id, run_id=str(run.id), stage="scout", scout_run_id=str(scout_run.id))
+        if allowed:
+            assert start_task_trial(team=self.team, run_id=run.id)
+        else:
+            with self.assertRaisesMessage(TrialRefused, "scout_disabled"):
+                start_task_trial(team=self.team, run_id=run.id)
 
     def test_cost_notification_updates_grant_without_trial_polling(self) -> None:
         grant = self.claim()
@@ -234,7 +292,7 @@ class TestTrialExecution(BaseTest):
             team=self.team, status=SignalReport.Status.IN_PROGRESS, triggering_signal_id=uuid4()
         )
         research_task = Task.objects.create(
-            team=self.team, title="Research", origin_product="signal_report", signal_report_id=report.id
+            team=self.team, title="Research", origin_product="signal_report", signal_report_id=report.id, internal=True
         )
         research = research_task.create_run(extra_state={"ai_stage": "research"})
         queued = research_task.create_run(extra_state={"ai_stage": "research"})

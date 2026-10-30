@@ -8,6 +8,7 @@ from django.db import transaction
 
 from posthog.dataclasses import frozen
 
+from products.signals.backend.constants import FIRST_REPORT_SCOUT
 from products.signals.backend.spend import refresh_task_spend
 from products.signals.backend.trial.billing import paid_trial_continuation_authorized
 from products.signals.backend.trial.funding import TrialFunding
@@ -28,13 +29,15 @@ class TaskTrialAdmission:
     paid_authorized: bool
     parent: TrialFunding | None = None
 
-    def bind(self, *, origin: str, stage: str, report_id: UUID | None) -> dict[str, str | int]:
+    def lock_report(self, report_id: UUID | None) -> None:
         from products.signals.backend.models import SignalReport  # noqa: PLC0415 -- Tasks model import cycle
 
+        if report_id is not None:
+            SignalReport.objects.select_for_update().get(team_id=self.team.id, id=report_id)
+
+    def bind(self, *, origin: str, stage: str, report_id: UUID | None) -> dict[str, str | int]:
         policy = TrialPolicy(self.team)
         with transaction.atomic():
-            if report_id is not None:
-                SignalReport.objects.select_for_update().get(team_id=self.team.id, id=report_id)
             funding = policy.admit(
                 paid_authorized=self.paid_authorized,
                 parent=self.parent,
@@ -119,7 +122,12 @@ def start_task_trial(*, team: "Team", run_id: UUID) -> bool:
             .filter(task_run_id=run_id)
             .first()
         )
-        if scout is None or not scout.scout_config or not scout.scout_config.enabled:
+        onboarding = (
+            scout is not None
+            and scout.skill_name == FIRST_REPORT_SCOUT
+            and scout.metadata.get("triggered_by") == "onboarding"
+        )
+        if scout is None or not scout.scout_config or (not scout.scout_config.enabled and not onboarding):
             raise TrialRefused("scout_disabled")
     refresh_task_spend(team_id=team.id, run_id=str(run_id), strict=True)
     policy.check_funding(

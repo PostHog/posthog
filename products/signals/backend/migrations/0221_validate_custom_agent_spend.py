@@ -10,6 +10,7 @@ class Migration(migrations.Migration):
 
     operations = [
         ValidateConstraint(model_name="signalspend", name="signals_owner_spend_kind_owner_v2"),
+        migrations.RunSQL("SET LOCAL lock_timeout = '1s'", reverse_sql=migrations.RunSQL.noop),
         migrations.RemoveConstraint(
             model_name="signalspend",
             name="signals_owner_spend_kind_owner",

@@ -1,4 +1,4 @@
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from threading import Event
@@ -21,12 +21,49 @@ from products.tasks.backend.models import Task, TaskRun
 class TestTrialExecutionConcurrency(NonAtomicBaseTest):
     CLASS_DATA_LEVEL_SETUP = False
 
+    def test_waiting_for_report_does_not_lock_its_task(self) -> None:
+        report = SignalReport.objects.create(team=self.team, triggering_signal_id=uuid4())
+        task = Task.objects.create(
+            team=self.team, title="Implementation", origin_product="signal_report", signal_report=report, internal=True
+        )
+        report_requested = Event()
+
+        def observe(
+            execute: Callable[..., object], sql: str, params: object, many: bool, context: dict[str, object]
+        ) -> object:
+            if '"signals_signalreport"' in sql and "FOR UPDATE" in sql:
+                report_requested.set()
+            return execute(sql, params, many, context)
+
+        def create_run() -> None:
+            close_old_connections()
+            try:
+                with connection.execute_wrapper(observe):
+                    task.create_run()
+            finally:
+                close_old_connections()
+
+        with patch("products.signals.backend.trial.policy.posthoganalytics.feature_enabled", return_value=True):
+            TrialPolicy(self.team).claim(user_id=self.user.pk)
+            with ThreadPoolExecutor(max_workers=1) as pool:
+                with transaction.atomic():
+                    SignalReport.objects.select_for_update().get(team_id=self.team.id, id=report.id)
+                    pending = pool.submit(create_run)
+                    assert report_requested.wait(timeout=10)
+                    Task.objects.select_for_update(nowait=True).get(id=task.id, team_id=self.team.id)
+                pending.result(timeout=10)
+        assert task.runs.count() == 1
+
     def test_report_lock_precedes_trial_grant_lock_during_admission(self) -> None:
         with patch("products.signals.backend.trial.policy.posthoganalytics.feature_enabled", return_value=True):
             TrialPolicy(self.team).claim(user_id=self.user.pk)
             report = SignalReport.objects.create(team=self.team, triggering_signal_id=uuid4())
             task = Task.objects.create(
-                team=self.team, title="Report admission", origin_product="signal_report", signal_report=report
+                team=self.team,
+                title="Report admission",
+                origin_product="signal_report",
+                signal_report=report,
+                internal=True,
             )
             original = TrialPolicy.locked_grant
 
@@ -58,7 +95,11 @@ class TestTrialExecutionConcurrency(NonAtomicBaseTest):
             signal_id = str(uuid4())
             report = SignalReport.objects.create(team=self.team, triggering_signal_id=signal_id)
             task = Task.objects.create(
-                team=self.team, title="Concurrent run", origin_product="signal_report", signal_report_id=report.id
+                team=self.team,
+                title="Concurrent run",
+                origin_product="signal_report",
+                signal_report_id=report.id,
+                internal=True,
             )
             record_llm_spend(
                 "initial",
