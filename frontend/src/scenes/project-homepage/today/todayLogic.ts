@@ -448,7 +448,7 @@ export interface todayLogicMeta {
         forYouView: (forYouViewChoice: TodayForYouView | null, featureFlags: FeatureFlagsSet) => TodayForYouView
         feedSources: (forYouRows: TodayForYouRows) => TodayFeedSource[]
         activeFeedSource: (feedSource: string | null, feedSources: TodayFeedSource[]) => string | null
-        feedRows: (forYouRows: TodayForYouRows, activeFeedSource: any) => TodayForYouRow[]
+        feedRows: (forYouRows: TodayForYouRows, activeFeedSource: string | null) => TodayForYouRow[]
         forYouVisibleRows: (forYouRows: TodayForYouRows, listExpanded: Record<TodayList, boolean>) => TodayForYouRow[]
         forYouCanShowMore: (
             forYouRows: TodayForYouRows,
