@@ -75,6 +75,7 @@ export function T3CodeTaskSetup({
                             onChange={setMachine}
                             options={machines.map(({ host, name }) => ({ label: name, value: host }))}
                             placeholder="Choose a machine"
+                            disabledReason={taskResultLoading ? 'Wait until the task is created' : undefined}
                             data-attr="workflow-t3-code-machine"
                         />
                     </LemonField.Pure>
@@ -112,11 +113,13 @@ export function T3CodeTaskSetup({
                                     projects?.length === 0 ? 'This machine has no projects' : 'Choose a project'
                                 }
                                 disabledReason={
-                                    projects !== null || projectsResultLoading
-                                        ? undefined
-                                        : pendingApproval?.kind === 'projects'
-                                          ? "Allow PostHog to read this machine's projects first"
-                                          : "PostHog couldn't load this machine's projects"
+                                    taskResultLoading
+                                        ? 'Wait until the task is created'
+                                        : projects !== null || projectsResultLoading
+                                          ? undefined
+                                          : pendingApproval?.kind === 'projects'
+                                            ? "Allow PostHog to read this machine's projects first"
+                                            : "PostHog couldn't load this machine's projects"
                                 }
                                 data-attr="workflow-t3-code-project"
                             />

@@ -21,12 +21,20 @@ const machinesRetrieve = workflowT3CodeMachinesRetrieve as jest.Mock
 const projectsCreate = workflowT3CodeProjectsCreate as jest.Mock
 const webhookTasksCreate = workflowT3CodeWebhookTasksCreate as jest.Mock
 
-function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+interface Deferred<T> {
+    promise: Promise<T>
+    resolve: (value: T) => void
+    reject: (error: Error) => void
+}
+
+function deferred<T>(): Deferred<T> {
     let resolve: (value: T) => void = () => {}
-    const promise = new Promise<T>((r) => {
-        resolve = r
+    let reject: (error: Error) => void = () => {}
+    const promise = new Promise<T>((onResolve, onReject) => {
+        resolve = onResolve
+        reject = onReject
     })
-    return { promise, resolve }
+    return { promise, resolve, reject }
 }
 
 function projectsOn(machine: string): T3CodeProjectsApi {
@@ -51,7 +59,10 @@ describe('t3CodeTaskSetupLogic', () => {
         logic.mount()
     })
 
-    it('ignores the projects of a machine the member switched away from', async () => {
+    it.each([
+        ['answers', (reply: Deferred<T3CodeProjectsApi>) => reply.resolve(projectsOn('laptop'))],
+        ['fails', (reply: Deferred<T3CodeProjectsApi>) => reply.reject(new Error('The laptop is offline'))],
+    ])('ignores a machine the member switched away from when it %s late', async (_case, settleLaptop) => {
         const laptopProjects = deferred<T3CodeProjectsApi>()
         const devboxProjects = deferred<T3CodeProjectsApi>()
         projectsCreate.mockImplementation((_teamId: string, { machine }: { machine: string }) =>
@@ -61,10 +72,10 @@ describe('t3CodeTaskSetupLogic', () => {
         logic.actions.setMachine('laptop')
         logic.actions.setMachine('devbox')
         devboxProjects.resolve(projectsOn('devbox'))
-        laptopProjects.resolve(projectsOn('laptop'))
+        settleLaptop(laptopProjects)
 
         await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.projects).toEqual(projectsOn('devbox').projects)
+        expect(logic.values).toMatchObject({ projects: projectsOn('devbox').projects, error: null })
     })
 
     it('drops the webhook URL of a task created for a selection the member left', async () => {

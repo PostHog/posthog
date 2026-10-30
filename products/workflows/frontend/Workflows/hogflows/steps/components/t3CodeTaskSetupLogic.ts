@@ -1,3 +1,4 @@
+import type { BreakPointFunction } from 'kea'
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
@@ -82,6 +83,24 @@ export type t3CodeTaskSetupLogicType = MakeLogicType<
     T3CodeTaskSetupLogicProps
 >
 
+async function replyForSelection<T>(
+    request: Promise<T>,
+    breakpoint: BreakPointFunction,
+    isStillSelected: () => boolean
+): Promise<T | null> {
+    try {
+        const reply = await request
+        breakpoint()
+        return isStillSelected() ? reply : null
+    } catch (error) {
+        breakpoint()
+        if (isStillSelected()) {
+            throw error
+        }
+        return null
+    }
+}
+
 function errorDetail(errorObject: unknown, fallback: string): string {
     return errorObject instanceof ApiError && errorObject.detail ? errorObject.detail : fallback
 }
@@ -111,12 +130,14 @@ export const t3CodeTaskSetupLogic = kea<t3CodeTaskSetupLogicType>([
                     if (!machine) {
                         return null
                     }
-                    const projectsResult = await workflowT3CodeProjectsCreate(String(values.currentTeamId), {
-                        machine,
-                        approval_token: approvalToken,
-                    })
-                    breakpoint()
-                    return values.machine === machine ? projectsResult : null
+                    return await replyForSelection(
+                        workflowT3CodeProjectsCreate(String(values.currentTeamId), {
+                            machine,
+                            approval_token: approvalToken,
+                        }),
+                        breakpoint,
+                        () => values.machine === machine
+                    )
                 },
             },
         ],
@@ -128,14 +149,16 @@ export const t3CodeTaskSetupLogic = kea<t3CodeTaskSetupLogicType>([
                     if (!machine || !project) {
                         return null
                     }
-                    const taskResult = await workflowT3CodeWebhookTasksCreate(String(values.currentTeamId), {
-                        machine,
-                        project_id: project,
-                        title,
-                        approval_token: approvalToken,
-                    })
-                    breakpoint()
-                    return values.machine === machine && values.project === project ? taskResult : null
+                    return await replyForSelection(
+                        workflowT3CodeWebhookTasksCreate(String(values.currentTeamId), {
+                            machine,
+                            project_id: project,
+                            title,
+                            approval_token: approvalToken,
+                        }),
+                        breakpoint,
+                        () => values.machine === machine && values.project === project
+                    )
                 },
             },
         ],

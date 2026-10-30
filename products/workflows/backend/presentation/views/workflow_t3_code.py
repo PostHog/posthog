@@ -107,7 +107,7 @@ class T3CodeErrorSerializer(serializers.Serializer):
 
 class SignedInMemberPermission(BasePermission):
     # The member approves each T3 Code call in the app, so an API token must not answer its own approval.
-    message = "Set up the T3 Code step in the PostHog app."
+    message = "API keys can't set up the T3 Code step. Sign in to the PostHog app to set it up."
 
     def has_permission(self, request: Request, view: Any) -> bool:
         return isinstance(request.successful_authenticator, SessionAuthentication)
