@@ -114,10 +114,7 @@ function reportInsightSaved(
 
 export const UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES = 3
 
-/**
- * The numeric ID of the insight. While its state is still loading (for example, right after a save), only the
- * short ID may be known, so the ID is looked up from it.
- */
+/** Right after a save the insight state can hold only the short ID, so the numeric ID is looked up from it. */
 async function resolveInsightId(insight: Partial<InsightModel>): Promise<number> {
     const insightId = insight.id || (insight.short_id ? await getInsightId(insight.short_id) : undefined)
     if (!insightId) {
@@ -839,7 +836,6 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                 addInsightToDashboard: async ({ dashboardId, callback }, breakpoint) => {
                     const insightId = await resolveInsightId(values.insight)
                     const tile = await insightsApi.addToDashboard(insightId, dashboardId)
-                    // Before the breakpoint, so the callback runs even when a newer loader action superseded this one.
                     callback?.()
                     breakpoint()
                     const updatedInsight = {
@@ -1273,8 +1269,6 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             const insightNumericId =
                 values.insight.id || (values.insight.short_id ? await getInsightId(values.insight.short_id) : undefined)
             const { name, description, favorited, deleted, tags } = values.insight
-            // A new insight goes on the dashboards it was started from. A saved one keeps the dashboards it
-            // sits on, because the save does not change them.
             const dashboards = insightNumericId
                 ? liveDashboardIds(values.insight.dashboard_tiles)
                 : values.insight.dashboards

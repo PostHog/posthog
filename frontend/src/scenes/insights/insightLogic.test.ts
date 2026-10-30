@@ -1208,7 +1208,6 @@ describe('insightLogic', () => {
                 expect.objectContaining({ dashboards: expect.anything() }),
                 expect.anything()
             )
-            // The copy goes on the dashboards the original sits on.
             expect(addToDashboard.mock.calls).toEqual([
                 [12, 1],
                 [12, 2],
