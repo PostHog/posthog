@@ -28,6 +28,7 @@ from products.slack_app.backend.facade.api import slack_artifact_delivery_state_
 from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.slack_app.backend.slack_thread import SlackThreadContext
 from products.tasks.backend.facade import contracts
+from products.tasks.backend.logic.services.ai_run_defaults import resolve_ai_run_selection
 from products.tasks.backend.logic.services.code_usage_gate import usage_limit_response
 from products.tasks.backend.logic.services.gateway_model_pin import model_allowed_by_product_pin
 from products.tasks.backend.logic.services.model_catalogue import runtime_adapter_for
@@ -42,6 +43,7 @@ from products.tasks.backend.logic.services.workflow_task_skills import (
     resolve_attached_skills,
 )
 from products.tasks.backend.metrics import observe_workflow_task_create
+from products.tasks.backend.model_catalog import CLAUDE
 from products.tasks.backend.models import Channel, Task, TaskRun
 from products.tasks.backend.temporal.constants import WORKFLOW_RUN_IDLE_TIMEOUT_SECONDS
 
@@ -221,7 +223,7 @@ def create_workflow_task(
     )
 
     gateway_server_ids = resolve_connectors(team.id, connector_ids)
-    run_model = model if model_allowed_by_product_pin("workflows", model) else None
+    run_adapter, run_model = _workflow_run_selection(team.id, owner_id, model)
 
     gate_owner = User.objects.filter(id=owner_id).first()
     if gate_owner is None:
@@ -388,7 +390,7 @@ def create_workflow_task(
                 origin_key=origin_key,
                 output_schema=output_schema,
                 extra_run_state=extra_run_state,
-                runtime_adapter=runtime_adapter_for(run_model),
+                runtime_adapter=run_adapter,
                 model=run_model,
                 reasoning_effort=reasoning_effort,
                 slack_thread_context=thread_context,
@@ -470,6 +472,15 @@ def _resolve_channel(team_id: int, owner_id: int, channel_ref: str | None) -> Ch
 def _task_dto(task: Task, *, created: bool) -> contracts.WorkflowTaskDTO:
     run = task.latest_run
     return contracts.WorkflowTaskDTO(task_id=task.id, run_id=run.id if run is not None else None, created=created)
+
+
+def _workflow_run_selection(team_id: int, owner_id: int, model: str | None) -> tuple[str | None, str | None]:
+    if model and model_allowed_by_product_pin("workflows", model):
+        return runtime_adapter_for(model), model
+    default = resolve_ai_run_selection(team_id, owner_id)
+    if model_allowed_by_product_pin("workflows", default.model):
+        return None, None
+    return CLAUDE, None
 
 
 def _find_replayed_task(
