@@ -8,7 +8,7 @@ from datetime import UTC, date, datetime, timedelta
 from typing import cast
 from uuid import UUID
 
-from django.db.models import Count, IntegerField, Min, QuerySet, Sum, Value
+from django.db.models import Count, IntegerField, QuerySet, Sum, Value
 from django.db.models.functions import Coalesce, TruncDay
 
 import structlog
@@ -17,7 +17,6 @@ from dateutil.relativedelta import relativedelta
 from posthog.dataclasses import frozen
 from posthog.date_util import start_of_month
 from posthog.models.organization import Organization
-from posthog.models.team import Team
 from posthog.settings.utils import get_from_env
 
 from products.replay_vision.backend.billing import (
@@ -615,42 +614,42 @@ def spend_projection(
 
 
 @frozen
-class SpendProjectionByTeam:
-    """Usage report rows: each org's projection on one of its teams, so the org report's sum is the org's."""
+class UnreportedSpend:
+    """An org's spend that a usage report has not counted yet, through to the period end."""
 
-    # Credits the enabled scanners spend from now to the period end, not a rate, so billing needs no clock.
-    scanners_period_credits: list[tuple[int, int]]
-    backfills_committed_credits: list[tuple[int, int]]
+    # Credits, not a rate, so billing needs no clock.
+    scanner_credits: int
+    backfill_credits: int
 
 
-def spend_projection_by_team() -> SpendProjectionByTeam:
-    """Every org's rest-of-period spend projection, for billing's forecast.
+def unreported_spend_by_org(report_cutoff: datetime) -> dict[UUID, UnreportedSpend]:
+    """Every org's spend after a usage report's cutoff, for billing's forecast.
 
-    The projection is org-wide (free-only scanners share the org's free credits), so it cannot be split
-    across teams. Each org's value lands on its lowest billable team id instead.
+    The report counts receipts up to its cutoff, but the projection starts now. The spend in between,
+    receipts since the cutoff and in-flight reservations, goes onto the scanner figure.
     """
     org_ids = set(ReplayScanner.objects.filter(enabled=True).values_list("team__organization_id", flat=True)) | set(
         ReplayScannerBackfill.objects.unscoped()
         .filter(status__in=ACTIVE_BACKFILL_STATUSES)
         .values_list("team__organization_id", flat=True)
     )
-    # The usage report skips demo teams, so a value on one would never reach billing.
-    team_by_org = dict(
-        Team.objects.filter(organization_id__in=org_ids)
-        .exclude(is_demo=True)
+    receipts_since_cutoff = dict(
+        ReplayObservationUsage.objects.filter(organization_id__in=org_ids, created_at__gte=report_cutoff)
         .values("organization_id")
-        .annotate(first_team_id=Min("id"))
-        .values_list("organization_id", "first_team_id")
+        .annotate(total=Sum("credits"))
+        .values_list("organization_id", "total")
     )
-    scanners: list[tuple[int, int]] = []
-    backfills: list[tuple[int, int]] = []
-    for org_id, team_id in team_by_org.items():
-        projection = spend_projection(org_id)
-        if projection.scanners_period_credits:
-            scanners.append((team_id, projection.scanners_period_credits))
-        if projection.backfills_committed_credits:
-            backfills.append((team_id, projection.backfills_committed_credits))
-    return SpendProjectionByTeam(scanners_period_credits=scanners, backfills_committed_credits=backfills)
+    result: dict[UUID, UnreportedSpend] = {}
+    for org_id in org_ids:
+        state = quota_state(org_id)
+        projection = spend_projection(org_id, org_state=state)
+        result[org_id] = UnreportedSpend(
+            scanner_credits=projection.scanners_period_credits
+            + (receipts_since_cutoff.get(org_id) or 0)
+            + state.credits_reserved,
+            backfill_credits=projection.backfills_committed_credits,
+        )
+    return result
 
 
 @frozen

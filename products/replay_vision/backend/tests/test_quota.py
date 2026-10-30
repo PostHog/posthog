@@ -841,28 +841,30 @@ class TestProjectedMonthlyObservations(_VisionQuotaTestCase):
         snapshot = compute_quota_snapshot(organization_id=self.organization.id)
         assert snapshot.projected_monthly_credits == 0
 
-    @time_machine.travel("2026-09-16T00:00:00Z", tick=False)
-    def test_spend_projection_by_team_reports_each_org_on_its_lowest_billable_team(self) -> None:
-        demo_team = Team.objects.create(organization=self.organization, name="demo-team", is_demo=True)
-        other_team = Team.objects.create(organization=self.organization, name="second-team")
-        Team.objects.filter(pk=self.team.pk).update(is_demo=True)
-        self._make_scanner(team=other_team, name="paid", estimate=100)  # 100 × 15 credits
-        # Free-only spend fills the free tier, so paid scanners reach paid tiers sooner.
-        self._make_scanner(team=demo_team, name="free", estimate=100, free_only=True)
+    def test_unreported_spend_adds_spend_after_the_report_cutoff(self) -> None:
+        ReplayScanner.objects.filter(pk=self.scanner.pk).update(enabled=True)
+        self._make_scanner(team=self.team, name="paid", estimate=100)  # 100 × 15 credits
         quiet_org = Organization.objects.create(name="quiet-org")
         quiet_team = Team.objects.create(organization=quiet_org, name="quiet-team")
         self._make_scanner(team=quiet_team, name="off", enabled=False, estimate=999)
+        with time_machine.travel("2026-09-15T12:00:00Z", tick=False):
+            self._make_observation(status=ObservationStatus.SUCCEEDED, completed_at=timezone.now())
+        with time_machine.travel("2026-09-16T03:00:00Z", tick=False):
+            self._make_observation(status=ObservationStatus.SUCCEEDED, completed_at=timezone.now())
+            self._make_observation(status=ObservationStatus.RUNNING)
+            with patch.object(
+                quota,
+                "_sum_active_backfill_remaining_credits",
+                return_value=quota.BackfillCommitments(paid=400, free_only=0),
+            ):
+                spend = quota.unreported_spend_by_org(report_cutoff=datetime(2026, 9, 16, tzinfo=UTC))
 
-        with patch.object(
-            quota,
-            "_sum_active_backfill_remaining_credits",
-            return_value=quota.BackfillCommitments(paid=400, free_only=0),
-        ):
-            rows = quota.spend_projection_by_team()
-
-        # Half of September is left, so half of the 30-day rate.
-        assert rows.scanners_period_credits == [(other_team.id, (1500 + 1500) // 2)]
-        assert rows.backfills_committed_credits == [(other_team.id, 400)]
+        # The 15-credit receipt and reservation after midnight count; the receipt before it is in the report.
+        assert spend == {
+            self.organization.id: quota.UnreportedSpend(
+                scanner_credits=round(1500 * (14 + 21 / 24) / 30) + 15 + 15, backfill_credits=400
+            )
+        }
 
 
 class TestVisionQuotaEndpoint(_VisionQuotaTestCase):
