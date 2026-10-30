@@ -62,7 +62,9 @@ from products.experiments.backend.hogql_queries.metric_events_precompute import 
 )
 from products.experiments.backend.hogql_queries.precompute_policy import (
     BLOCKING_PRECOMPUTE_SKIP_REASONS,
+    MetricEventsPrecomputePlan,
     ensure_exposures_precomputed,
+    metric_events_precompute_plan,
     team_precompute_skip_reason,
 )
 from products.experiments.backend.hogql_queries.utils import (
@@ -282,6 +284,18 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
     def _metric_events_precompute_applicable(self) -> bool:
         return self._metric_events_precompute.applicable
 
+    @cached_property
+    def metric_events_precompute_plan(self) -> MetricEventsPrecomputePlan:
+        """Whether this metric can read metric-events precompute now. The precomputation_mode override does not apply."""
+        return metric_events_precompute_plan(self._team_experiments_config, self._metric_events_precompute)
+
+    def _builds_metric_events(self) -> bool:
+        if self.query.precomputation_mode == PrecomputationMode.DIRECT:
+            return False
+        if self.query.precomputation_mode == PrecomputationMode.PRECOMPUTED:
+            return self.metric_events_precompute_plan.metric_skip_reason is None
+        return self.metric_events_precompute_plan.reads_precomputed
+
     def _metric_events_ineligibility_reason(self) -> Optional[str]:
         return self._metric_events_precompute.ineligibility_reason()
 
@@ -366,7 +380,7 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
                     },
                 )
 
-            if self._metric_events_precompute_applicable():
+            if self._builds_metric_events():
                 try:
                     with tags_context(
                         experiment_query_surface="precompute_build", experiment_precompute_table="metric_events"
