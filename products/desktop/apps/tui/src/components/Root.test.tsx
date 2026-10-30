@@ -5,11 +5,7 @@ import { Root } from "./Root";
 
 describe("Root", () => {
   it.each([
-    [
-      "signed out",
-      null,
-      ["Sign in to PostHog", "US cloud", "EU cloud", "Local dev"],
-    ],
+    ["signed out", null, ["PostHog", "Signed out · type /login"]],
     [
       "signed in",
       { apiHost: "https://us.posthog.com" } as TuiAuth,

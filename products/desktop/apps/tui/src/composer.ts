@@ -46,6 +46,8 @@ export function isTyping(sequence: string): boolean {
 export const SLASH_COMMANDS = [
   { name: "model", description: "Switch this chat's model" },
   { name: "new", description: "Start a new chat" },
+  { name: "login", description: "Sign in to PostHog" },
+  { name: "logout", description: "Sign out and clear your workspaces" },
 ];
 
 const DIM = (text: string): string => `\u001b[2m${text}\u001b[22m`;

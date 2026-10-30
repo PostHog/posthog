@@ -18,7 +18,7 @@ import { transcriptFrom, withPending } from "../transcript";
 import { Spinner } from "./Spinner";
 
 function useRunView(
-  runs: CloudRuns,
+  runs: CloudRuns | null,
   task: Task | undefined,
 ): { view: RunView; loadOlder: () => void } {
   const taskId = task?.id;
@@ -29,7 +29,7 @@ function useRunView(
   // Keyed on ids only: each list refresh brings a new task object for the same run.
   useEffect(() => {
     setView(emptyRunView);
-    if (!taskId || !cloudRunId) return;
+    if (!taskId || !cloudRunId || !runs) return;
     const current = runs.watch(taskId, cloudRunId, setView);
     subscription.current = current;
     return () => {
@@ -58,7 +58,8 @@ export function Pane({
   title: string;
   paneTaskId: string | null;
   task: Task | undefined;
-  runs: CloudRuns;
+  // Null while signed out.
+  runs: CloudRuns | null;
   chat: ChatView;
   composer: Composer;
   // A message just sent from this pane that the run has not echoed yet.

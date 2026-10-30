@@ -32,10 +32,14 @@ describe("App", () => {
     expect(
       renderToString(
         <App
-          work={work}
-          runs={{} as CloudRuns}
-          chats={{} as PiChats}
-          control={() => ({}) as PiControl}
+          session={{
+            work,
+            runs: {} as CloudRuns,
+            chats: {} as PiChats,
+            control: () => ({}) as PiControl,
+          }}
+          login={async () => {}}
+          logout={() => {}}
         />,
       ),
     ).toContain("PostHog");
@@ -56,10 +60,14 @@ describe("App", () => {
 
     const { instance } = renderInTerminal(
       <App
-        work={work}
-        runs={runs}
-        chats={{} as PiChats}
-        control={() => ({}) as PiControl}
+        session={{
+          work,
+          runs: runs,
+          chats: {} as PiChats,
+          control: () => ({}) as PiControl,
+        }}
+        login={async () => {}}
+        logout={() => {}}
       />,
     );
     await vi.waitFor(() => expect(runs.watch).toHaveBeenCalledTimes(1));

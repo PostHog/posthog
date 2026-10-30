@@ -1,4 +1,10 @@
-import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import type { OAuthAuthInfo, OAuthCredentials } from "@earendil-works/pi-ai";
@@ -10,6 +16,12 @@ import { type CloudRegion, getCloudUrlFromRegion } from "@posthog/shared";
 
 // Its own token chain, so a refresh here never rotates away hog's refresh token.
 const AUTH_PATH = join(homedir(), ".config", "posthog-tui", "auth.json");
+
+export const REGIONS: { id: CloudRegion; label: string }[] = [
+  { id: "us", label: "US cloud" },
+  { id: "eu", label: "EU cloud" },
+  { id: "dev", label: "Local dev" },
+];
 
 export interface SignInCallbacks {
   onAuth: (info: OAuthAuthInfo) => void;
@@ -49,6 +61,10 @@ export class TuiAuth {
     );
     save(credentials, path);
     return new TuiAuth(credentials, path);
+  }
+
+  static logout(path: string = AUTH_PATH): void {
+    rmSync(path, { force: true });
   }
 
   get apiHost(): string {
