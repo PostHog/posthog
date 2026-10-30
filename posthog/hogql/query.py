@@ -115,33 +115,33 @@ TRANSIENT_S3_ERROR_RETRY_DELAY_SECONDS = 1.0
 MAIN_CLUSTER_WORKLOADS = (Workload.DEFAULT, Workload.ONLINE, Workload.OFFLINE)
 
 
-def _contains_bytes(value: object) -> bool:
+def _contains_raw_bytes(value: object) -> bool:
     if value is None or isinstance(value, str):
         return False
     if isinstance(value, bytes):
         return True
     if isinstance(value, list):
-        return any(_contains_bytes(item) for item in value)
+        return any(_contains_raw_bytes(item) for item in value)
     if isinstance(value, tuple):
-        return any(_contains_bytes(item) for item in value)
+        return any(_contains_raw_bytes(item) for item in value)
     if isinstance(value, dict):
-        return any(_contains_bytes(key) or _contains_bytes(item) for key, item in value.items())
+        return any(_contains_raw_bytes(key) or _contains_raw_bytes(item) for key, item in value.items())
     return False
 
 
-def _raise_for_non_utf8_string_results(rows: Sequence[Sequence[object]], types: Sequence[tuple[str, str]]) -> None:
-    """Raise an actionable error when ClickHouse returns undecodable bytes in String columns."""
+def _raise_for_raw_bytes_in_string_results(rows: Sequence[Sequence[object]], types: Sequence[tuple[str, str]]) -> None:
+    """Reject raw bytes in String results because query responses and their cache use JSON."""
     columns_with_bytes: list[str] = []
     for column, (column_name, column_type) in enumerate(types):
         if "String" not in column_type:
             continue
-        if any(_contains_bytes(row[column]) for row in rows):
+        if any(_contains_raw_bytes(row[column]) for row in rows):
             columns_with_bytes.append(column_name)
 
     if columns_with_bytes:
         column_names = ", ".join(repr(column_name) for column_name in columns_with_bytes)
         raise QueryError(
-            f"Query result column(s) {column_names} contain bytes that are not valid UTF-8. "
+            f"Query result column(s) {column_names} contain raw bytes that cannot be returned as JSON. "
             "Encode the affected values with `hex()` or `base64Encode()` in your query to preserve the original bytes."
         )
 
@@ -1051,7 +1051,7 @@ class HogQLQueryExecutor:
                     # Files backing a warehouse table can be replaced mid-read; one retry re-lists them
                     sleep(TRANSIENT_S3_ERROR_RETRY_DELAY_SECONDS)
                     self.results, self.types = run_clickhouse_query()
-                _raise_for_non_utf8_string_results(self.results, self.types)
+                _raise_for_raw_bytes_in_string_results(self.results, self.types)
             except Exception as e:
                 if self.debug:
                     self.results = []

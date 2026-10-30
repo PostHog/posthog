@@ -2452,9 +2452,9 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(
             str(error.exception),
-            "Query result column(s) 'invalid_scalar', 'invalid_array', 'invalid_map' contain bytes that are not "
-            "valid UTF-8. Encode the affected values with `hex()` or `base64Encode()` in your query to preserve "
-            "the original bytes.",
+            "Query result column(s) 'invalid_scalar', 'invalid_array', 'invalid_map' contain raw bytes that cannot "
+            "be returned as JSON. Encode the affected values with `hex()` or `base64Encode()` in your query to "
+            "preserve the original bytes.",
         )
 
         response = execute_hogql_query(
@@ -2469,7 +2469,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(
             str(error.exception),
-            "Query result column(s) 'invalid_map_keys' contain bytes that are not valid UTF-8. "
+            "Query result column(s) 'invalid_map_keys' contain raw bytes that cannot be returned as JSON. "
             "Encode the affected values with `hex()` or `base64Encode()` in your query to preserve the original bytes.",
         )
 
