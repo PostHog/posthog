@@ -44,6 +44,7 @@ from products.signals.backend.enums import (
     SignalSourceType,
     SuggestedSourceProduct,
 )
+from products.signals.backend.report_check_final_agents import MonitoringScoutCheck
 from products.signals.backend.report_check_monitoring_timing import MonitoringCheckTiming, MonitoringCheckTimingState
 from products.signals.backend.report_checks import (
     CHECK_CONFIG_SCHEMAS,
@@ -2648,7 +2649,7 @@ def redact_check_config(config: Mapping[str, object], policy: ReportMetricAccess
 class MonitoringCheckTimingSerializer(serializers.Serializer):
     state = serializers.ChoiceField(
         choices=MonitoringCheckTimingState.choices,
-        help_text="Whether this check has an interim measurement due, is paused, or has finished its observation window. No state implies a final verdict.",
+        help_text="Whether this check is Monitoring, awaiting or running final verification, has an interim measurement due, or is paused. No state implies a final verdict.",
     )
     started_at = serializers.DateTimeField(
         allow_null=True, help_text="Original Monitoring start for this check's report."
@@ -2697,6 +2698,18 @@ class SignalReportCheckSerializer(serializers.ModelSerializer):
         timing = MonitoringCheckTiming.for_check(instance, now=now)
         if timing is None or not self._monitoring_enabled(instance):
             return None
+        if instance.kind == SignalReportCheck.Kind.AGENT and timing.state == MonitoringCheckTimingState.WINDOW_ENDED:
+            running_by_report = cast(
+                dict[uuid.UUID, dict[uuid.UUID, MonitoringScoutCheck]],
+                self.context.setdefault("report_check_running_verifications", {}),
+            )
+            if instance.report_id not in running_by_report:
+                running_by_report[instance.report_id] = MonitoringCheckTiming.running_verifications(
+                    instance.report, now=now
+                )
+            timing = MonitoringCheckTiming.for_check(
+                instance, now=now, verification=running_by_report[instance.report_id].get(instance.id)
+            )
         return dict(MonitoringCheckTimingSerializer(timing).data)
 
     def to_representation(self, instance: SignalReportCheck) -> dict[str, object]:

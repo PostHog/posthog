@@ -49,6 +49,7 @@ from products.signals.backend.report_metric_refresh import MetricMeasurement
 from products.signals.backend.report_monitoring_attempts import check_definition_version, complete_implementation
 from products.signals.backend.scout_harness.limits import STALE_RUN_CUTOFF_S, TRIGGERED_BY_MONITORING
 from products.signals.backend.scout_harness.prompt import SignalScoutRunSummary
+from products.signals.backend.serializers import SignalReportCheckSerializer
 from products.signals.backend.temporal.agentic.scout_scheduler import (
     RunSignalsScoutInput,
     RunSignalsScoutOutput,
@@ -168,6 +169,50 @@ class FinalAuthoredAgentChecksSetup(PostHogTestCase):
 
 
 class TestFinalAuthoredAgentChecks(FinalAuthoredAgentChecksSetup, BaseTest):
+    @parameterized.expand(
+        [
+            ("running", "in_progress", "verifying"),
+            ("queued", "queued", "window_ended"),
+            ("finished", "completed", "window_ended"),
+            ("stale_run", "in_progress", "window_ended"),
+            ("old_attempt", "in_progress", "window_ended"),
+            ("changed_definition", "in_progress", "window_ended"),
+            ("submitted", "in_progress", "window_ended"),
+            ("retry_backoff", "completed", "window_ended"),
+            ("archived", "in_progress", "archived"),
+        ]
+    )
+    def test_check_timing_only_verifies_a_live_current_assignment(self, case: str, status: str, state: str) -> None:
+        run = self._run("Verifying the assigned check.", status=status)
+        if case == "stale_run":
+            SignalScoutRun.objects.for_team(self.team.id).filter(id=run.id).update(
+                created_at=self.now - timedelta(seconds=STALE_RUN_CUTOFF_S)
+            )
+        elif case == "old_attempt":
+            run.metadata["run_note"] = build_monitoring_run_note(replace(self.binding, attempt_id=uuid4()), self.check)
+            run.save(update_fields=["metadata"])
+        elif case == "changed_definition":
+            self.check.title = "A revised expectation"
+            self.check.save(update_fields=["title"])
+        elif case == "submitted":
+            submit_monitoring_scout_result(
+                run, MonitoringScoutResult.model_validate_json(self._payload("insufficient"))
+            )
+        elif case == "retry_backoff":
+            self.check.monitoring_dispatch_after = self.now + timedelta(minutes=5)
+            self.check.save(update_fields=["monitoring_dispatch_after"])
+        elif case == "archived":
+            self.report.status = SignalReport.Status.SUPPRESSED
+            self.report.status_before_suppression = SignalReport.Status.MONITORING
+        self.check.report = self.report
+        context = {"report_monitoring_enabled_by_team": {self.team.id: True}, "report_check_timing_now": self.now}
+
+        with self.assertNumQueries(0 if case == "archived" else 4):
+            data = SignalReportCheckSerializer([self.check, self.check], many=True, context=context).data
+
+        assert [row["monitoring_timing"]["state"] for row in data] == [state, state]
+        assert self.check.dispatched_at is None
+
     def test_due_selection_uses_original_membership_soak_and_version(self) -> None:
         assert self.binding.window_start == self.start
         assert self.binding.window_end == self.start + timedelta(hours=1)

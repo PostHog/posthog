@@ -140,7 +140,34 @@ describe('reportCheckPresentation', () => {
                     },
                 },
                 'Awaiting verification',
-                'The observation window has ended. Interim measurements have stopped. A final verdict has not been recorded.',
+                'The observation window has ended. Final verification is pending.',
+            ],
+            [
+                'an agent check awaits its final window without appearing paused',
+                {
+                    monitoring_timing: {
+                        state: 'monitoring',
+                        started_at: '2026-09-20T09:00:00Z',
+                        ends_at: '2026-09-27T09:00:00Z',
+                        next_measurement_at: null,
+                    },
+                },
+                'Monitoring',
+                'Final verification is scheduled for the end of this check’s observation window.',
+            ],
+            [
+                'a final scout runs without a legacy dispatch timestamp',
+                {
+                    dispatched_at: null,
+                    monitoring_timing: {
+                        state: 'verifying',
+                        started_at: '2026-09-20T09:00:00Z',
+                        ends_at: '2026-09-27T09:00:00Z',
+                        next_measurement_at: null,
+                    },
+                },
+                'Verifying',
+                'The scout is running the final check.',
             ],
             [
                 'a paused Monitoring check does not promise a scout run',

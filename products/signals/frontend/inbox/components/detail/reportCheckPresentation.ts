@@ -126,6 +126,14 @@ const MONITORING_CHECK_ROWS: Record<
     NonNullable<SignalReportCheckApi['monitoring_timing']>['state'],
     Pick<ReportCheckRowData, 'tag' | 'detail'>
 > = {
+    monitoring: {
+        tag: { label: 'Monitoring', type: 'primary' },
+        detail: 'Final verification is scheduled for the end of this check’s observation window.',
+    },
+    verifying: {
+        tag: { label: 'Verifying', type: 'primary' },
+        detail: 'The scout is running the final check.',
+    },
     scheduled: {
         tag: { label: 'Scheduled', type: 'primary' },
         detail: 'Interim measurements collect evidence during this check’s observation window.',
@@ -136,7 +144,7 @@ const MONITORING_CHECK_ROWS: Record<
     },
     window_ended: {
         tag: { label: 'Awaiting verification', type: 'warning' },
-        detail: 'The observation window has ended. Interim measurements have stopped. A final verdict has not been recorded.',
+        detail: 'The observation window has ended. Final verification is pending.',
     },
     no_interim_measurements: {
         tag: { label: 'Observing', type: 'primary' },

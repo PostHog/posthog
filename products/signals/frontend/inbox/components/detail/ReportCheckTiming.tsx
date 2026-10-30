@@ -28,7 +28,13 @@ export function ReportCheckTiming({
             )}
             {timing?.ends_at && (
                 <span>
-                    <span>{timing.state === 'window_ended' ? 'Window ended: ' : 'Window end: '}</span>
+                    <span>
+                        {timing.state === 'monitoring'
+                            ? 'Final verification scheduled for: '
+                            : timing.state === 'window_ended' || timing.state === 'verifying'
+                              ? 'Window ended: '
+                              : 'Window end: '}
+                    </span>
                     <TZLabel time={timing.ends_at} timestampStyle="absolute" formatDate="MMM D" />
                 </span>
             )}

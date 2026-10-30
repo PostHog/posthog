@@ -5662,6 +5662,8 @@ export interface AgentCheckConfigApi {
 export type SignalReportCheckConfigApi = MetricThresholdConfigApi | AgentCheckConfigApi
 
 /**
+ * * `monitoring` - Monitoring
+ * * `verifying` - Verifying
  * * `scheduled` - Scheduled
  * * `due` - Due
  * * `window_ended` - Window ended
@@ -5676,6 +5678,8 @@ export type MonitoringCheckTimingStateEnumApi =
     (typeof MonitoringCheckTimingStateEnumApi)[keyof typeof MonitoringCheckTimingStateEnumApi]
 
 export const MonitoringCheckTimingStateEnumApi = {
+    Monitoring: 'monitoring',
+    Verifying: 'verifying',
     Scheduled: 'scheduled',
     Due: 'due',
     WindowEnded: 'window_ended',
@@ -5688,8 +5692,10 @@ export const MonitoringCheckTimingStateEnumApi = {
 } as const
 
 export interface MonitoringCheckTimingApi {
-    /** Whether this check has an interim measurement due, is paused, or has finished its observation window. No state implies a final verdict.
+    /** Whether this check is Monitoring, awaiting or running final verification, has an interim measurement due, or is paused. No state implies a final verdict.
      *
+     * * `monitoring` - Monitoring
+     * * `verifying` - Verifying
      * * `scheduled` - Scheduled
      * * `due` - Due
      * * `window_ended` - Window ended
