@@ -10,7 +10,12 @@ class OrganizationEventsRetentionConfigInline(admin.StackedInline):
     extra = 1
     max_num = 1
     classes = ("collapse",)
-    fields = ["default_events_retention_months", "min_events_retention_months", "max_events_retention_months"]
+    fields = [
+        "default_events_retention_months",
+        "delete_monthly",
+        "min_events_retention_months",
+        "max_events_retention_months",
+    ]
 
 
 class TeamEventsRetentionConfigInline(admin.StackedInline):
@@ -20,4 +25,4 @@ class TeamEventsRetentionConfigInline(admin.StackedInline):
     extra = 1
     max_num = 1
     classes = ("collapse",)
-    fields = ["events_retention_months"]
+    fields = ["events_retention_months", "delete_monthly"]

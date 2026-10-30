@@ -12,16 +12,27 @@ from posthog.dataclasses import frozen
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 
+# Where neither the team nor its organization sets a window, once the team is admitted to plan-window deletion.
+DEFAULT_RETENTION_WINDOW_MONTHS = 24
+
 RETENTION_MONTHS_HELP = (
     "Events are deleted one calendar month at a time. A month is deleted only when every event in it is "
     "older than this many months. For example, with 13 months, the events of March 2025 are deleted on "
-    "the first monthly run after 1 May 2026."
+    "the first cleanup after 1 May 2026."
 )
 
 
 def _months_field(help_text: str) -> models.PositiveSmallIntegerField:
     return models.PositiveSmallIntegerField(
         null=True, blank=True, validators=[MinValueValidator(1)], help_text=help_text
+    )
+
+
+def _delete_monthly_field(window: str) -> models.BooleanField:
+    return models.BooleanField(
+        default=False,
+        help_text=f"Delete events older than {window} at every monthly cleanup. Otherwise they're deleted at the "
+        "cleanup every 3 months, at least 3 months after the window gets shorter.",
     )
 
 
@@ -34,9 +45,10 @@ class OrganizationEventsRetentionConfig(models.Model):
         "posthog.Organization", on_delete=models.CASCADE, primary_key=True, db_constraint=False, related_name="+"
     )
     default_events_retention_months = _months_field(
-        "Applies to every team in the organization that has no value of its own. Leave empty to keep the events "
-        f"of those teams. {RETENTION_MONTHS_HELP}"
+        "Applies to every team in the organization that has no value of its own. Leave empty to use 24 months, or "
+        f"the plan's window if that's shorter. {RETENTION_MONTHS_HELP}"
     )
+    delete_monthly = _delete_monthly_field("the default")
     min_events_retention_months = _months_field("The shortest retention a team in this organization may set.")
     max_events_retention_months = _months_field("The longest retention a team in this organization may set.")
 
@@ -115,9 +127,9 @@ class TeamEventsRetentionConfig(models.Model):
     team = models.OneToOneField(Team, on_delete=models.CASCADE, primary_key=True, db_constraint=False)
     events_retention_months = _months_field(
         "Overrides the organization's default and has to fall within the organization's range. Leave empty to use "
-        "the organization's default. Events are kept only when neither this nor the organization's default is set. "
-        f"{RETENTION_MONTHS_HELP}"
+        f"the organization's default. {RETENTION_MONTHS_HELP}"
     )
+    delete_monthly = _delete_monthly_field("this window")
 
     class Meta:
         constraints = [
@@ -171,10 +183,11 @@ class TeamEventsRetention:
     organization_id: UUID
     team_id: int
     months: int
+    delete_monthly: bool
 
 
 def effective_events_retention(team_ids: Sequence[int] | None = None) -> list[TeamEventsRetention]:
-    """Every team with an effective events retention: its own value, else its organization's default."""
+    """Every team with a window set: its own, else its organization's default, with that row's monthly deletion."""
     team_table = Team._meta.db_table
     team_config_table = TeamEventsRetentionConfig._meta.db_table
     org_config_table = OrganizationEventsRetentionConfig._meta.db_table
@@ -184,7 +197,9 @@ def effective_events_retention(team_ids: Sequence[int] | None = None) -> list[Te
             f"""
             SELECT team.organization_id,
                    team.id,
-                   COALESCE(team_config.events_retention_months, org_config.default_events_retention_months)
+                   COALESCE(team_config.events_retention_months, org_config.default_events_retention_months),
+                   CASE WHEN team_config.events_retention_months IS NOT NULL THEN team_config.delete_monthly
+                        ELSE org_config.delete_monthly END
             FROM {team_table} AS team
             LEFT JOIN {team_config_table} AS team_config ON team_config.team_id = team.id
             LEFT JOIN {org_config_table} AS org_config ON org_config.organization_id = team.organization_id
@@ -195,8 +210,10 @@ def effective_events_retention(team_ids: Sequence[int] | None = None) -> list[Te
             [list(team_ids)] if team_ids is not None else [],
         )
         return [
-            TeamEventsRetention(organization_id=organization_id, team_id=team_id, months=months)
-            for organization_id, team_id, months in cursor.fetchall()
+            TeamEventsRetention(
+                organization_id=organization_id, team_id=team_id, months=months, delete_monthly=delete_monthly
+            )
+            for organization_id, team_id, months, delete_monthly in cursor.fetchall()
         ]
 
 
@@ -211,6 +228,7 @@ class ConfiguredEventsRetention:
     organization_min_months: int | None
     organization_max_months: int | None
     billing_months: int
+    delete_monthly: bool
 
     @property
     def months(self) -> int | None:
@@ -248,7 +266,9 @@ def configured_events_retention(*, offset: int, limit: int) -> list[ConfiguredEv
                    org_config.default_events_retention_months,
                    org_config.min_events_retention_months,
                    org_config.max_events_retention_months,
-                   team.event_retention_months
+                   team.event_retention_months,
+                   CASE WHEN team_config.events_retention_months IS NOT NULL THEN team_config.delete_monthly
+                        ELSE COALESCE(org_config.delete_monthly, false) END
             {_CONFIGURED_RETENTION_FROM}
             ORDER BY organization.name, organization.id, team.id
             LIMIT %s OFFSET %s
@@ -266,6 +286,7 @@ def configured_events_retention(*, offset: int, limit: int) -> list[ConfiguredEv
                 organization_min_months=min_months,
                 organization_max_months=max_months,
                 billing_months=billing_months,
+                delete_monthly=delete_monthly,
             )
             for (
                 organization_id,
@@ -277,5 +298,6 @@ def configured_events_retention(*, offset: int, limit: int) -> list[ConfiguredEv
                 min_months,
                 max_months,
                 billing_months,
+                delete_monthly,
             ) in cursor.fetchall()
         ]

@@ -3135,8 +3135,10 @@ def _retention_window_label(months: int) -> str:
     return f"{months} months"
 
 
-def send_events_deletion_notice(organization_id: str, team_ids: list[int], deletion_on: datetime.date) -> None:
-    """Tell an organization's admins that the events cleanup starts deleting events past the plan's window.
+def send_events_deletion_notice(
+    organization_id: str, team_ids: list[int], deletion_on: datetime.date, window_months: int
+) -> None:
+    """Tell an organization's admins that the events cleanup starts deleting events past the projects' window.
 
     Sends inline, because the cleanup must know whether the notice went out before it schedules the deletion.
     """
@@ -3154,7 +3156,6 @@ def send_events_deletion_notice(organization_id: str, team_ids: list[int], delet
     if not teams or not recipients:
         raise EventsDeletionNoticeNotSent(f"no projects or admins to notify in organization {organization_id}")
 
-    window_months = min(team.event_retention_months for team in teams)
     window = _retention_window_label(window_months)
     # The key names the window and the listed projects. A same-day rerun after a downgrade, or one that lists other
     # projects, then sends its own notice, and the delivery check does not pass on an earlier notice that said less.
@@ -3183,6 +3184,7 @@ def send_events_deletion_notice(organization_id: str, team_ids: list[int], delet
                 }
                 for team in teams
             ],
+            "plan_window": _retention_window_label(min(team.event_retention_months for team in teams)),
             "billing_url": absolute_uri("/organization/billing"),
             "docs_url": EVENTS_RETENTION_DOCS_URL,
         },

@@ -9,6 +9,7 @@ from dateutil.relativedelta import relativedelta
 
 from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
+from posthog.models.events_plan_deletion import TeamEventsPlanDeletion, retention_window
 from posthog.models.events_retention_config import effective_events_retention
 from posthog.models.organization import ProductFeature
 from posthog.models.team.team import Team
@@ -49,10 +50,16 @@ def should_enforce_events_retention(team_id: int) -> bool:
     )
 
 
+def events_deletion_applies(team_id: int, setting_months: int | None) -> bool:
+    """Whether the cleanup deletes the team's events: a window set in settings always does, the default only once enforced."""
+    return setting_months is not None or should_enforce_events_retention(team_id)
+
+
 def events_retention_months_for_team(team: Optional[Team], team_id: Optional[int]) -> Optional[int]:
     """Months of events retention to floor a query's events scans to, or None if retention isn't enforced.
 
-    The plan's window, shortened by the window set in project or organization settings. Computed once per query in
+    The window set in project or organization settings, else the default once the team is admitted to plan-window
+    deletion, else the plan's window; never past the plan's window. Computed once per query in
     prepare_ast_for_printing. The cohort gate runs first and is DB-free, so non-cohort teams (the vast majority during
     rollout) never hit Postgres here — only an enforced team triggers the lean field load.
     """
@@ -69,23 +76,28 @@ def events_retention_months_for_team(team: Optional[Team], team_id: Optional[int
         if team is None:
             return None
 
-    plan_months = team.event_retention_months or DEFAULT_EVENT_RETENTION_MONTHS
-    configured_months = _configured_events_retention_months(team)
-    return min(plan_months, configured_months) if configured_months is not None else plan_months
+    return _queryable_months(team)
 
 
-_REQUEST_CACHED_CONFIGURED_RETENTION_ATTR = "_request_cached_configured_events_retention_months"
+_REQUEST_CACHED_QUERYABLE_MONTHS_ATTR = "_request_cached_queryable_events_retention_months"
 
 
-def _configured_events_retention_months(team: Team) -> int | None:
-    """Memoise the window set in settings on the team instance, which is request-scoped in practice.
+def _queryable_months(team: Team) -> int:
+    """Memoise the window on the team instance, which is request-scoped in practice.
 
     Every insight on a dashboard and every query it prints asks again, and each ask is a Postgres query.
     """
-    if not hasattr(team, _REQUEST_CACHED_CONFIGURED_RETENTION_ATTR):
-        configured = effective_events_retention(team_ids=[team.id])
-        setattr(team, _REQUEST_CACHED_CONFIGURED_RETENTION_ATTR, configured[0].months if configured else None)
-    return getattr(team, _REQUEST_CACHED_CONFIGURED_RETENTION_ATTR)
+    if not hasattr(team, _REQUEST_CACHED_QUERYABLE_MONTHS_ATTR):
+        plan_months = team.event_retention_months or DEFAULT_EVENT_RETENTION_MONTHS
+        setting = effective_events_retention(team_ids=[team.id])
+        setting_months = setting[0].months if setting else None
+        # The default waits for admission, so that a team's notice arrives before its window shrinks.
+        if setting_months is None and not TeamEventsPlanDeletion.objects.filter(team_id=team.id).exists():
+            months = plan_months
+        else:
+            months = retention_window(plan_months, setting_months)
+        setattr(team, _REQUEST_CACHED_QUERYABLE_MONTHS_ATTR, months)
+    return getattr(team, _REQUEST_CACHED_QUERYABLE_MONTHS_ATTR)
 
 
 def events_retention_floor_date(team: Team, retention_months: int) -> date:

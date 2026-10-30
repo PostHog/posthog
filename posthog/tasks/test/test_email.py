@@ -189,7 +189,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         web = Team.objects.create(organization=org, name="Web app", event_retention_months=12)
         mobile = Team.objects.create(organization=org, name="Mobile app", event_retention_months=12)
 
-        send_events_deletion_notice(str(org.id), [web.id, mobile.id], dt.date(2027, 2, 3))
+        send_events_deletion_notice(str(org.id), [web.id, mobile.id], dt.date(2027, 2, 3), 12)
 
         [message] = mocked_email_messages
         assert sorted(recipient["raw_email"] for recipient in message.to) == ["admin@posthog.com", "owner@posthog.com"]
@@ -207,9 +207,8 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         mobile = Team.objects.create(organization=self.organization, name="Mobile app", event_retention_months=24)
 
         for team_ids in ([web.id, mobile.id], [mobile.id, web.id], [mobile.id]):
-            send_events_deletion_notice(str(self.organization.id), team_ids, dt.date(2027, 2, 3))
-        Team.objects.filter(id__in=[web.id, mobile.id]).update(event_retention_months=12)
-        send_events_deletion_notice(str(self.organization.id), [web.id, mobile.id], dt.date(2027, 2, 3))
+            send_events_deletion_notice(str(self.organization.id), team_ids, dt.date(2027, 2, 3), 24)
+        send_events_deletion_notice(str(self.organization.id), [web.id, mobile.id], dt.date(2027, 2, 3), 12)
 
         first, repeat, other_projects, shorter_window = (message.campaign_key for message in mocked_email_messages)
         assert repeat == first
@@ -225,7 +224,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         set_instance_setting("EMAIL_ENABLED", email_enabled)
 
         with self.assertRaises(EventsDeletionNoticeNotSent):
-            send_events_deletion_notice(str(self.organization.id), [self.team.id], dt.date(2027, 2, 3))
+            send_events_deletion_notice(str(self.organization.id), [self.team.id], dt.date(2027, 2, 3), 24)
 
     def test_workflow_email_subjects_survive_a_newline_in_the_name(self, MockEmailMessage: MagicMock) -> None:
         # A CR or LF in the workflow name would make Django reject the whole email as a multiline

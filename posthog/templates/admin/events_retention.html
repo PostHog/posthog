@@ -35,7 +35,7 @@
     <p><a href="/admin/">&larr; Back to admin</a></p>
     <p class="help">
         Billing months is <code>Team.event_retention_months</code>, which the billing plan sets. It only hides older events in queries.
-        Deletion retention is the staff setting that the monthly cleanup enforces.
+        Deletion retention is the window set in settings. The cleanup deletes past it every month when the window deletes monthly, else every 3 months.
         The cleanup deletes one calendar month at a time, and only when every event in that month is older than the retention.
     </p>
     {% if rows %}

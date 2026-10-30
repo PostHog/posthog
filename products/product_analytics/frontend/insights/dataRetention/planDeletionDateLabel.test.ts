@@ -7,11 +7,16 @@ const RETENTION: EventsRetentionApi = {
     retained_from: '2025-11-03',
     docs_url: 'https://posthog.com/docs/data/events-retention',
     project_retention_months: null,
+    delete_monthly: false,
+    next_deletion_on: '2027-02-03',
+    next_deletion_before: '2026-02-01',
     organization_retention_months: null,
+    organization_delete_monthly: false,
     plan_retention_months: 12,
+    default_retention_months: 12,
     min_retention_months: 1,
     max_retention_months: 12,
-    next_deletion_on: '2027-02-03',
+    next_monthly_cleanup_on: '2026-11-03',
 }
 
 describe('planDeletionDateLabel', () => {

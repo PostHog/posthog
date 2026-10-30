@@ -1,5 +1,5 @@
 from dataclasses import replace
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
@@ -8,20 +8,23 @@ from django.db import models
 from dateutil.relativedelta import relativedelta
 
 from posthog.dataclasses import frozen
-from posthog.models.events_retention_config import effective_events_retention
+from posthog.models.events_retention_config import DEFAULT_RETENTION_WINDOW_MONTHS, TeamEventsRetention
 from posthog.models.team import Team
-from posthog.models.team.event_retention import DEFAULT_EVENT_RETENTION_MONTHS, should_enforce_events_retention
 
 PASS_INTERVAL_MONTHS = 3
+CLEANUP_DAY_OF_MONTH = 3
+CLEANUP_HOUR = 21
 
 
 class TeamEventsPlanDeletion(models.Model):
-    """When the events cleanup next deletes a team's events past its plan's window. Teams without a row aren't admitted."""
+    """When the events cleanup next deletes a team's events past its window. Teams without a row aren't admitted."""
 
     team = models.OneToOneField(Team, on_delete=models.CASCADE, primary_key=True, db_constraint=False)
-    months = models.PositiveSmallIntegerField(help_text="The plan's events retention window at the last cleanup.")
+    months = models.PositiveSmallIntegerField(
+        help_text="The window the team's passes delete past, as of the last cleanup or settings change."
+    )
     next_deletion_on = models.DateField(
-        help_text="The cleanup on or after this date deletes the team's events older than the plan's window."
+        help_text="The cleanup on or after this date deletes the team's events older than the window."
     )
 
     @property
@@ -44,45 +47,49 @@ def cleanup_date() -> date:
     return datetime.now(ZoneInfo(cleanup_timezone())).date()
 
 
-def _next_pass(today: date) -> date:
-    return today + relativedelta(months=PASS_INTERVAL_MONTHS)
+def cleanup_on_or_after(day: date) -> date:
+    run_on = day.replace(day=CLEANUP_DAY_OF_MONTH)
+    return run_on if run_on >= day else run_on + relativedelta(months=1)
 
 
-def admitted(plan_months: int, today: date) -> PlanDeletionState:
-    return PlanDeletionState(months=plan_months, next_deletion_on=_next_pass(today))
+def next_cleanup_on() -> date:
+    now = datetime.now(ZoneInfo(cleanup_timezone()))
+    return cleanup_on_or_after(now.date() + timedelta(days=1) if now.hour >= CLEANUP_HOUR else now.date())
 
 
-def is_downgrade(state: PlanDeletionState, plan_months: int) -> bool:
-    return plan_months < state.months
+def next_pass_on(today: date) -> date:
+    return cleanup_on_or_after(today + relativedelta(months=PASS_INTERVAL_MONTHS))
 
 
-def with_plan(state: PlanDeletionState, plan_months: int, today: date) -> PlanDeletionState:
-    # A shorter window gives the organization a full interval to upgrade before the extra months are deleted.
+def retention_window(plan_months: int, setting_months: int | None) -> int:
+    """The window a team's passes delete past: the one set in settings, else the default, never past the plan's."""
+    return min(plan_months, setting_months if setting_months is not None else DEFAULT_RETENTION_WINDOW_MONTHS)
+
+
+def admitted(window_months: int, today: date) -> PlanDeletionState:
+    return PlanDeletionState(months=window_months, next_deletion_on=next_pass_on(today))
+
+
+def is_shorter_window(state: PlanDeletionState, window_months: int) -> bool:
+    return window_months < state.months
+
+
+def with_window(state: PlanDeletionState, window_months: int, today: date) -> PlanDeletionState:
+    # A shorter window gives the organization a full interval to change it back before the extra months are deleted.
     next_deletion_on = (
-        max(state.next_deletion_on, _next_pass(today)) if is_downgrade(state, plan_months) else state.next_deletion_on
+        max(state.next_deletion_on, next_pass_on(today))
+        if is_shorter_window(state, window_months)
+        else state.next_deletion_on
     )
-    return PlanDeletionState(months=plan_months, next_deletion_on=next_deletion_on)
+    return PlanDeletionState(months=window_months, next_deletion_on=next_deletion_on)
 
 
 def after_pass(state: PlanDeletionState, today: date) -> PlanDeletionState:
-    return replace(state, next_deletion_on=_next_pass(today))
+    return replace(state, next_deletion_on=next_pass_on(today))
 
 
-def deletion_months(setting_months: int | None, plan_months: int | None, pass_due: bool) -> int | None:
-    """The retention window the cleanup deletes past for a team this run, or None to delete nothing."""
-    windows = [setting_months]
-    if pass_due and plan_months is not None and plan_months < DEFAULT_EVENT_RETENTION_MONTHS:
-        windows.append(plan_months)
-    set_windows = [months for months in windows if months is not None]
-    return min(set_windows) if set_windows else None
-
-
-def next_plan_deletion_on(team: Team) -> date | None:
-    """The date of the team's next pass, or None while the pass deletes nothing the monthly setting cleanup doesn't."""
-    if team.event_retention_months >= DEFAULT_EVENT_RETENTION_MONTHS or not should_enforce_events_retention(team.id):
-        return None
-    setting = effective_events_retention(team_ids=[team.id])
-    if setting and setting[0].months <= team.event_retention_months:
-        return None
-    row = TeamEventsPlanDeletion.objects.filter(team_id=team.id).first()
-    return with_plan(row.state, team.event_retention_months, cleanup_date()).next_deletion_on if row else None
+def deletion_months(setting: TeamEventsRetention | None, pass_months: int | None) -> int | None:
+    """The window the cleanup deletes past for a team this run, or None to delete nothing."""
+    monthly_months = setting.months if setting is not None and setting.delete_monthly else None
+    windows = [months for months in (monthly_months, pass_months) if months is not None]
+    return min(windows) if windows else None

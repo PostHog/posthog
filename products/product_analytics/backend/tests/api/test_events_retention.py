@@ -73,41 +73,52 @@ class TestEventsRetentionAPI(APIBaseTest):
             "retained_from": retained_from,
             "docs_url": "https://posthog.com/docs/data/events-retention",
             "project_retention_months": None,
+            "delete_monthly": False,
+            "next_deletion_on": None,
+            "next_deletion_before": None,
             "organization_retention_months": None,
+            "organization_delete_monthly": False,
             "plan_retention_months": 12,
+            "default_retention_months": 12,
             "min_retention_months": 1,
             "max_retention_months": 12,
-            "next_deletion_on": None,
+            "next_monthly_cleanup_on": "2026-10-03",
         }
 
     @parameterized.expand(
         [
-            ("admitted", 12, 12, None, "2026-11-03"),
-            ("longest_plan", 12, 84, None, None),
-            ("setting_deletes_first", 12, 12, 12, None),
-            ("setting_above_plan_after_downgrade", 12, 12, 24, "2026-11-03"),
-            ("downgrade_before_the_next_cleanup", 24, 12, None, "2026-12-22"),
+            ("pass", 24, 24, None, False, ("2026-11-03", "2024-11-01")),
+            ("shorter_window_pushes_the_pass", 24, 12, None, False, ("2027-01-03", "2026-01-01")),
+            ("monthly_window", None, 24, 12, True, ("2026-10-03", "2025-10-01")),
+            ("set_window_without_a_pass", None, 24, 12, False, (None, None)),
+            ("not_admitted", None, 84, None, False, (None, None)),
         ]
     )
     @time_machine.travel("2026-09-22T20:00:00Z", tick=False)
-    def test_reports_the_next_plan_deletion(
+    def test_reports_the_next_deletion(
         self,
         _name: str,
-        stored_months: int,
+        stored_months: int | None,
         plan_months: int,
         setting_months: int | None,
-        next_deletion_on: str | None,
+        delete_monthly: bool,
+        expected: tuple[str | None, str | None],
     ) -> None:
         self.team.event_retention_months = plan_months
         self.team.save()
         if setting_months is not None:
-            TeamEventsRetentionConfig.objects.create(team=self.team, events_retention_months=setting_months)
-        TeamEventsPlanDeletion.objects.create(team=self.team, months=stored_months, next_deletion_on=date(2026, 11, 3))
+            TeamEventsRetentionConfig.objects.create(
+                team=self.team, events_retention_months=setting_months, delete_monthly=delete_monthly
+            )
+        if stored_months is not None:
+            TeamEventsPlanDeletion.objects.create(
+                team=self.team, months=stored_months, next_deletion_on=date(2026, 11, 3)
+            )
 
         response = self.client.get(self.url())
 
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()["next_deletion_on"] == next_deletion_on
+        assert (response.json()["next_deletion_on"], response.json()["next_deletion_before"]) == expected
 
     @override_settings(EVENTS_DATA_RETENTION_ENFORCED=False)
     def test_reports_no_window_until_retention_is_enforced(self) -> None:
@@ -120,6 +131,7 @@ class TestEventsRetentionAPI(APIBaseTest):
         assert response.json()["retained_from"] is None
         assert response.json()["next_deletion_on"] is None
 
+    @time_machine.travel("2026-09-22T20:00:00Z", tick=False)
     def test_organization_admin_sets_and_clears_the_project_window(self) -> None:
         self._set_membership("organization_admin")
         OrganizationEventsRetentionConfig.objects.create(
@@ -131,7 +143,13 @@ class TestEventsRetentionAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["retention_months"] == 6
         assert response.json()["project_retention_months"] == 6
+        assert (response.json()["delete_monthly"], response.json()["next_deletion_on"]) == (False, "2027-01-03")
         assert ActivityLog.objects.filter(team_id=self.team.id, scope="Team", activity="updated").exists()
+
+        response = self.client.post(self.url(), {"retention_months": 6, "delete_monthly": True}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert (response.json()["delete_monthly"], response.json()["next_deletion_on"]) == (True, "2026-10-03")
 
         response = self.client.post(self.url(), {"retention_months": None}, format="json")
 
@@ -142,33 +160,45 @@ class TestEventsRetentionAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("longer_than_the_plan", "organization_admin", 36, status.HTTP_400_BAD_REQUEST),
-            ("shorter_than_the_staff_minimum", "organization_admin", 3, status.HTTP_400_BAD_REQUEST),
-            ("only_a_project_admin", "project_admin", 6, status.HTTP_403_FORBIDDEN),
+            ("longer_than_the_plan", "organization_admin", 36, False, status.HTTP_400_BAD_REQUEST),
+            ("shorter_than_the_staff_minimum", "organization_admin", 3, False, status.HTTP_400_BAD_REQUEST),
+            ("monthly_without_a_window", "organization_admin", None, True, status.HTTP_400_BAD_REQUEST),
+            ("only_a_project_admin", "project_admin", 6, False, status.HTTP_403_FORBIDDEN),
         ]
     )
-    def test_rejects_a_project_window(self, _name: str, level: str, months: int, expected_status: int) -> None:
+    def test_rejects_a_project_window(
+        self, _name: str, level: str, months: int | None, delete_monthly: bool, expected_status: int
+    ) -> None:
         self._set_membership(level)
         OrganizationEventsRetentionConfig.objects.create(organization=self.organization, min_events_retention_months=6)
 
-        response = self.client.post(self.url(), {"retention_months": months}, format="json")
+        response = self.client.post(
+            self.url(), {"retention_months": months, "delete_monthly": delete_monthly}, format="json"
+        )
 
         assert response.status_code == expected_status
         assert not TeamEventsRetentionConfig.objects.filter(team=self.team).exists()
 
+    @time_machine.travel("2026-09-22T20:00:00Z", tick=False)
     def test_organization_admin_sets_and_clears_the_default_window(self) -> None:
         self._set_membership("organization_admin")
 
-        response = self.client.post(self.organization_url(), {"retention_months": 12}, format="json")
+        response = self.client.post(
+            self.organization_url(), {"retention_months": 12, "delete_monthly": True}, format="json"
+        )
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {
             "organization_retention_months": 12,
+            "organization_delete_monthly": True,
             "plan_retention_months": 24,
+            "default_retention_months": 24,
             "min_retention_months": 1,
             "max_retention_months": 24,
+            "next_monthly_cleanup_on": "2026-10-03",
         }
-        assert self.client.get(self.url()).json()["retention_months"] == 12
+        project = self.client.get(self.url()).json()
+        assert (project["retention_months"], project["delete_monthly"]) == (12, True)
         assert ActivityLog.objects.filter(
             organization_id=self.organization.id, scope="Organization", activity="updated"
         ).exists()

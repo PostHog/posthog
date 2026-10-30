@@ -1,12 +1,10 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, Link } from '@posthog/lemon-ui'
+import { Link } from '@posthog/lemon-ui'
 
 import { useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { urls } from 'scenes/urls'
-
-import { planDeletionDateLabel } from 'products/product_analytics/frontend/insights/dataRetention/planDeletionDateLabel'
 
 import { eventsRetentionSettingsLogic } from './eventsRetentionSettingsLogic'
 import { EventsRetentionWindowForm } from './EventsRetentionWindowForm'
@@ -21,24 +19,14 @@ export function ProjectEventsRetentionSetting(): JSX.Element | null {
     }
 
     const organizationMonths = projectRetention.organization_retention_months
-    const planMonths = projectRetention.plan_retention_months
+    const fallbackMonths = organizationMonths ?? projectRetention.default_retention_months
     const fallback =
         organizationMonths !== null
             ? `the organization's window of ${organizationMonths} months`
-            : `your plan's window of ${planMonths} months`
-    const deletionDateLabel = planDeletionDateLabel(projectRetention)
+            : `the default window of ${fallbackMonths} months`
 
     return (
         <div>
-            {deletionDateLabel && (
-                <LemonBanner
-                    type="warning"
-                    className="max-w-160 mb-4"
-                    action={{ children: 'Upgrade plan', to: urls.organizationBilling() }}
-                >
-                    {`Events older than your plan's window of ${planMonths} months will be deleted starting ${deletionDateLabel}, and then every 3 months. Deleted events can't be restored.`}
-                </LemonBanner>
-            )}
             <p className="max-w-160 text-sm text-secondary mb-4">
                 Choose how long this project keeps events. This replaces the window set in{' '}
                 <Link to={urls.settings('organization-details', 'organization-events-retention')}>
@@ -51,15 +39,16 @@ export function ProjectEventsRetentionSetting(): JSX.Element | null {
             </p>
             <EventsRetentionWindowForm
                 retentionMonths={projectRetention.project_retention_months}
+                deleteMonthly={projectRetention.delete_monthly}
+                fallbackMonths={fallbackMonths}
                 minMonths={projectRetention.min_retention_months}
                 maxMonths={projectRetention.max_retention_months}
-                planMonths={planMonths}
+                planMonths={projectRetention.plan_retention_months}
                 keptBy="This project"
-                removedDescription={
-                    organizationMonths !== null
-                        ? `This project will use ${fallback}. Older events are deleted at the next monthly cleanup and can't be restored.`
-                        : `This project will keep events for ${fallback}.`
-                }
+                removedDescription={`This project will use ${fallback}, and the organization's choice of when to delete older events.`}
+                nextMonthlyCleanupOn={projectRetention.next_monthly_cleanup_on}
+                nextDeletionOn={projectRetention.next_deletion_on}
+                nextDeletionBefore={projectRetention.next_deletion_before}
                 saving={projectRetentionLoading}
                 restrictionReason={restrictionReason}
                 onSave={updateProjectRetention}

@@ -189,6 +189,26 @@ class OrganizationEventsRetention:
     """The window an organization set for its projects, and the windows its admins can set, in months."""
 
     organization_months: int | None
+    organization_delete_monthly: bool
     plan_months: int
+    default_months: int
     min_months: int
     max_months: int
+    next_cleanup_on: date
+
+
+@dataclass(frozen=True)
+class ScheduledEventsDeletion:
+    """The next cleanup that deletes a project's events, and the date before which it deletes them."""
+
+    deletes_on: date
+    deletes_before: date
+
+
+@dataclass(frozen=True)
+class ProjectEventsRetention:
+    """The window set for a project, whether its window deletes monthly, and its next deletion."""
+
+    project_months: int | None
+    delete_monthly: bool
+    next_deletion: ScheduledEventsDeletion | None

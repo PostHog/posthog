@@ -77,24 +77,27 @@ class TestEventsRetentionConfig(BaseTest):
 
     def test_effective_retention_prefers_the_team_value_over_the_org_default(self) -> None:
         OrganizationEventsRetentionConfig.objects.create(
-            organization=self.organization, default_events_retention_months=13
+            organization=self.organization, default_events_retention_months=13, delete_monthly=True
         )
         overrides = Team.objects.create(organization=self.organization, name="Overrides")
-        TeamEventsRetentionConfig.objects.create(team=overrides, events_retention_months=18)
+        TeamEventsRetentionConfig.objects.create(team=overrides, events_retention_months=18, delete_monthly=False)
         cleared = Team.objects.create(organization=self.organization, name="Cleared")
-        TeamEventsRetentionConfig.objects.create(team=cleared, events_retention_months=None)
+        TeamEventsRetentionConfig.objects.create(team=cleared, events_retention_months=None, delete_monthly=False)
         other_org = Organization.objects.create(name="No default")
         Team.objects.create(organization=other_org, name="Keeps everything")
         own_value = Team.objects.create(organization=other_org, name="Own value")
         TeamEventsRetentionConfig.objects.create(team=own_value, events_retention_months=24)
 
-        retention = {(item.organization_id, item.team_id): item.months for item in effective_events_retention()}
+        retention = {
+            (item.organization_id, item.team_id): (item.months, item.delete_monthly)
+            for item in effective_events_retention()
+        }
 
         assert retention == {
-            (self.organization.id, self.team.id): 13,
-            (self.organization.id, overrides.id): 18,
-            (self.organization.id, cleared.id): 13,
-            (other_org.id, own_value.id): 24,
+            (self.organization.id, self.team.id): (13, True),
+            (self.organization.id, overrides.id): (18, False),
+            (self.organization.id, cleared.id): (13, True),
+            (other_org.id, own_value.id): (24, False),
         }
 
     def test_configured_retention_lists_teams_with_a_value_or_an_org_config(self) -> None:

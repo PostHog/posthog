@@ -8,6 +8,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.models.events_plan_deletion import TeamEventsPlanDeletion
 from posthog.models.events_retention_config import TeamEventsRetentionConfig
 from posthog.models.organization import Organization, ProductFeature
 from posthog.models.team.event_retention import (
@@ -87,18 +88,22 @@ class TestReconcileOrganizationEventsRetention(BaseTest):
 class TestEventsRetentionMonthsForTeam(BaseTest):
     @parameterized.expand(
         [
-            ("plan_window_only", None, 24),
-            ("shorter_set_window", 12, 12),
-            ("set_window_longer_than_a_downgraded_plan", 36, 24),
+            ("plan_window_until_admitted", 84, None, False, 84),
+            ("default_once_admitted", 84, None, True, 24),
+            ("plan_shorter_than_the_default", 12, None, True, 12),
+            ("shorter_set_window", 24, 12, False, 12),
+            ("set_window_longer_than_a_downgraded_plan", 24, 36, False, 24),
         ]
     )
-    def test_takes_the_shorter_of_the_plan_and_the_set_window(
-        self, _name: str, set_months: int | None, expected: int
+    def test_takes_the_shorter_of_the_plan_and_the_set_or_default_window(
+        self, _name: str, plan_months: int, set_months: int | None, admitted: bool, expected: int
     ) -> None:
-        self.team.event_retention_months = 24
+        self.team.event_retention_months = plan_months
         self.team.save()
         if set_months is not None:
             TeamEventsRetentionConfig.objects.create(team=self.team, events_retention_months=set_months)
+        if admitted:
+            TeamEventsPlanDeletion.objects.create(team=self.team, months=24, next_deletion_on=timezone.now().date())
 
         assert events_retention_months_for_team(self.team, self.team.id) == expected
         with self.assertNumQueries(0):
