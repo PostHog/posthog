@@ -20,6 +20,7 @@ Copy-link options are in the More report actions menu. Report actions do not off
 
 A draft pull request shows the approval and merge controls, a draft note, and a secondary Ready for review button.
 Use Run skill on an open pull request to search team skills. Skills you choose often appear first, including before the store loads. If your team has no skills, the menu links to the skills store. The new cloud task opens with the skill, pull request URL, and repository set; review the prompt before you send it.
+Invoking a skill authorizes the PR changes its steps require, even when the task otherwise stops with local changes ready for review. Without a skill or direct publishing request, the task remains review-first.
 Marking a draft ready does not approve or merge it. Existing merge checks still apply.
 Eligible pull requests show Refund in the header. The existing feature flag, billing checks, and confirmation dialog still apply.
 

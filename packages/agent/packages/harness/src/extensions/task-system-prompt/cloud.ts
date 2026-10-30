@@ -37,7 +37,7 @@ export class CloudTaskPrompt {
       return (
         `An open pull request already exists: ${prUrl}\n` +
         `Use that PR as context if it is helpful, but stop with local changes ready for review.\n` +
-        `Do NOT create commits, push to the PR branch, update the pull request, create a new branch, or create a new pull request unless the user explicitly asks.`
+        `Do NOT create commits, push to the PR branch, update the pull request, create a new branch, or create a new pull request unless the user explicitly asks. A skill the user invokes counts as an explicit ask for the publishing steps that skill requires.`
       );
     }
 
@@ -219,7 +219,7 @@ This task already has an open pull request: ${prUrl}
 Do the requested work, but stop with local changes ready for review.
 
 Important:
-- Do NOT create new commits, push to the branch, or update the pull request unless the user explicitly asks.
+- Do NOT create new commits, push to the branch, or update the pull request unless the user explicitly asks. A skill the user invokes counts as an explicit ask for the publishing steps that skill requires.
 - Do NOT create a new branch or a new pull request unless the user explicitly asks.
 ${commonInstructions}
 `;

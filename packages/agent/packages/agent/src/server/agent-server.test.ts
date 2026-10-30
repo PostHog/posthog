@@ -3305,6 +3305,24 @@ describe("AgentServer HTTP Mode", () => {
       distinct_id: "user-1",
     };
 
+    it("explains user-invoked skill consent when a publish command is blocked", async () => {
+      const testServer = exposeCloudClient(createServer({ createPr: false }));
+      const { requestPermission } = testServer.createCloudClient(basePayload);
+      const result = await requestPermission({
+        options: [{ optionId: "allow_once", kind: "allow_once" }],
+        toolCall: {
+          kind: "execute",
+          _meta: { toolName: "Bash" },
+          rawInput: { command: "git push origin main" },
+        },
+      });
+
+      expect(result.outcome).toEqual({ outcome: "cancelled" });
+      expect(result._meta?.message).toContain(
+        "A skill the user invokes counts as an explicit ask for the publishing steps that skill requires.",
+      );
+    });
+
     it("relays a relayed-server tool call when the desktop is connected", async () => {
       const testServer = exposeCloudClient(createServer());
       testServer.config.relayMcpServers = ["slack"];
@@ -7589,7 +7607,7 @@ describe("AgentServer HTTP Mode", () => {
       expect(prompt).toContain("stop with local changes ready for review");
       expect(prompt).toContain("https://github.com/org/repo/pull/1");
       expect(prompt).toContain(
-        "Do NOT create new commits, push to the branch, or update the pull request unless the user explicitly asks.",
+        "Do NOT create new commits, push to the branch, or update the pull request unless the user explicitly asks. A skill the user invokes counts as an explicit ask for the publishing steps that skill requires.",
       );
       expect(prompt).not.toContain("gh pr checkout");
       expect(prompt).not.toContain("Create a draft pull request");
@@ -8360,6 +8378,9 @@ describe("AgentServer HTTP Mode", () => {
       expect(context).toContain("stop with local changes ready for review");
       expect(context).toContain(
         "Do NOT create commits, push to the PR branch, update the pull request",
+      );
+      expect(context).toContain(
+        "A skill the user invokes counts as an explicit ask for the publishing steps that skill requires.",
       );
       expect(context).not.toContain("gh pr checkout");
     });
