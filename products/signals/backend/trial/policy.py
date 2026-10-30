@@ -92,7 +92,9 @@ class TrialPolicy:
         grant = self.grant()
         return grant if grant is not None and self.enabled() else None
 
-    def claim(self, *, user_id: int, limits: TrialLimits = STANDARD_TRIAL_LIMITS) -> SignalTrialGrant:
+    def claim(
+        self, *, user_id: int, limits: TrialLimits = STANDARD_TRIAL_LIMITS, api_scopes: list[str] | None = None
+    ) -> SignalTrialGrant:
         from products.signals.backend.models import SignalScoutConfig  # noqa: PLC0415 -- model registration cycle
 
         self.check_enabled()
@@ -115,7 +117,7 @@ class TrialPolicy:
                 allowance_microusd=limits.allowance_microusd,
                 report_limit=limits.report_limit,
             )
-            self._pause_excess_scouts(grant)
+            self._pause_excess_scouts(grant, api_scopes=api_scopes)
             transaction.on_commit(
                 lambda: logger.info(
                     "signals_trial_claimed",
@@ -126,10 +128,10 @@ class TrialPolicy:
             )
             return grant
 
-    def _pause_excess_scouts(self, grant: SignalTrialGrant) -> None:
+    def _pause_excess_scouts(self, grant: SignalTrialGrant, *, api_scopes: list[str] | None) -> None:
         from products.signals.backend.models import SignalScoutConfig  # noqa: PLC0415 -- model registration cycle
         from products.signals.backend.scout_harness.lifecycle_lock import (
-            user_holds_scout_lifecycle_claim,  # noqa: PLC0415 -- lifecycle permissions depend on Signals models
+            user_holds_scout_lifecycle_claims,  # noqa: PLC0415 -- lifecycle permissions depend on Signals models
         )
 
         configs = list(
@@ -138,17 +140,16 @@ class TrialPolicy:
             .order_by("created_at", "id")
         )
         excess = configs[grant.scout_limit :]
+        if excess and api_scopes is not None and not {"*", "signal_scout:write"}.intersection(api_scopes):
+            raise PermissionDenied("Starting this trial would pause scouts and requires signal_scout:write access.")
         locked = [config for config in excess if config.lifecycle_locked]
         if locked:
             team = Team.objects.get(pk=self.team_id)
             user = User.objects.get(pk=grant.claimed_by_id)
-            for config in locked:
-                if not user_holds_scout_lifecycle_claim(
-                    team=team, skill_name=config.skill_name, config=config, user=user
-                ):
-                    raise PermissionDenied(
-                        "Starting this trial would pause a locked scout. Only the person its runs act as or a project admin can do that."
-                    )
+            if not user_holds_scout_lifecycle_claims(team=team, configs=locked, user=user):
+                raise PermissionDenied(
+                    "Starting this trial would pause a locked scout. Only the person its runs act as or a project admin can do that."
+                )
         for config in excess:
             config.status = SignalScoutConfig.Status.PAUSED_BY_SYSTEM
             config.enabled = False

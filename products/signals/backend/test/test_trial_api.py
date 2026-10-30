@@ -97,20 +97,34 @@ class TestTrialAPI(APIBaseTest):
             assert SignalSourceConfig.objects.filter(team=self.team, enabled=True).exists() is allowed
 
     @parameterized.expand(
-        [(path, allowed) for path in ("trial", "source", "source_update") for allowed in (False, True)]
+        [
+            (path, parent_access, scout_scope, count, allowed)
+            for path in ("trial", "source", "source_update")
+            for parent_access, scout_scope, count, allowed in (
+                (False, "signal_scout:write", 4, False),
+                (True, "signal_scout:write", 4, True),
+                (True, None, 4, False),
+                (True, "signal_scout:read", 4, False),
+                (True, "*", 4, True),
+                (True, None, 3, True),
+            )
+        ]
     )
-    def test_child_activation_requires_credential_access_to_parent(self, path: str, allowed: bool) -> None:
+    def test_activation_requires_credential_access_to_scouts(
+        self, path: str, parent_access: bool, scout_scope: str | None, count: int, allowed: bool
+    ) -> None:
         child = Team.objects.create(organization=self.organization, parent_team=self.team, name="Child")
         scouts = [
-            SignalScoutConfig.objects.create(team=self.team, skill_name=f"signals-scout-access-{i}") for i in range(4)
+            SignalScoutConfig.objects.create(team=self.team, skill_name=f"signals-scout-access-{i}")
+            for i in range(count)
         ]
         raw = generate_random_token_personal()
         PersonalAPIKey.objects.create(
             label="Trial project access",
             user=self.user,
             secure_value=hash_key_value(raw),
-            scopes=["project:write", "task:write"],
-            scoped_teams=[child.id, self.team.id] if allowed else [child.id],
+            scopes=["project:write", "task:write", *([scout_scope] if scout_scope else [])],
+            scoped_teams=[child.id, self.team.id] if parent_access else [child.id],
         )
         self.client.logout()
         data = {"source_product": "error_tracking", "source_type": "issue_created", "enabled": True}
@@ -132,7 +146,7 @@ class TestTrialAPI(APIBaseTest):
         assert SignalTrialGrant.objects.for_team(self.team.id).exists() is allowed
         for scout in scouts:
             scout.refresh_from_db()
-        assert sum(scout.enabled for scout in scouts) == (3 if allowed else 4)
+        assert sum(scout.enabled for scout in scouts) == (3 if allowed else count)
 
     @parameterized.expand([(False,), (True,)])
     def test_source_activation_enrolls_once_before_backfill(self, existing: bool) -> None:

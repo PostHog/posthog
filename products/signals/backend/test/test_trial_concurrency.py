@@ -57,11 +57,15 @@ class TestTrialConcurrency(NonAtomicBaseTest):
                 close_old_connections()
 
         def claim(
-            policy: TrialPolicy, *, user_id: int, limits: TrialLimits = STANDARD_TRIAL_LIMITS
+            policy: TrialPolicy,
+            *,
+            user_id: int,
+            limits: TrialLimits = STANDARD_TRIAL_LIMITS,
+            api_scopes: list[str] | None = None,
         ) -> SignalTrialGrant:
             with ThreadPoolExecutor(max_workers=1) as pool:
                 assert not pool.submit(can_lock_skill).result(timeout=10)
-            return original(policy, user_id=user_id, limits=limits)
+            return original(policy, user_id=user_id, limits=limits, api_scopes=api_scopes)
 
         def billing() -> TrialBillingStatus:
             assert not connection.in_atomic_block
@@ -147,7 +151,7 @@ class TestTrialConcurrency(NonAtomicBaseTest):
                 close_old_connections()
                 try:
                     barrier.wait(timeout=10)
-                    with TrialService(team).enroll_on_activation(user=self.user, enabled=True):
+                    with TrialService(team).enroll_on_activation(user=self.user, enabled=True, api_scopes=None):
                         pass
                     return True
                 except TrialRefused:

@@ -12,7 +12,7 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.models import OrganizationMembership, User
-from posthog.permissions import APIScopePermission, TeamMemberLightManagementPermission
+from posthog.permissions import APIScopePermission, TeamMemberLightManagementPermission, get_authenticator_scopes
 
 from products.signals.backend.presentation.scout_permissions import ScoutCanonicalTeamAccessPermission
 from products.signals.backend.trial.billing import TrialContinuation
@@ -102,7 +102,10 @@ class SelfDrivingTrialViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         serializer.is_valid(raise_exception=True)
         service = TrialService(self.team)
         try:
-            service.activate(user_id=cast(User, request.user).pk)
+            service.activate(
+                user_id=cast(User, request.user).pk,
+                api_scopes=get_authenticator_scopes(request.successful_authenticator),
+            )
         except TrialRefused as error:
             raise ValidationError({"reason": error.reason}) from error
         return Response(SelfDrivingTrialStatusSerializer(self._status(service)).data)

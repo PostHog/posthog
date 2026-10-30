@@ -571,6 +571,7 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 user=cast(User, self.request.user),
                 enabled=serializer.validated_data.get("enabled", True),
                 parent_access_allowed=self._can_reach_canonical_team(),
+                api_scopes=get_authenticator_scopes(self.request.successful_authenticator),
             ):
                 instance = serializer.save(team_id=team_id, created_by=self.request.user)
         except IntegrityError:
@@ -621,6 +622,7 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 user=cast(User, self.request.user),
                 enabled=serializer.validated_data.get("enabled", False),
                 parent_access_allowed=self._can_reach_canonical_team(),
+                api_scopes=get_authenticator_scopes(self.request.successful_authenticator),
             ):
                 instance = serializer.save()
         except IntegrityError:

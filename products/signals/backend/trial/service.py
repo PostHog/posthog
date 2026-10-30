@@ -101,7 +101,7 @@ class TrialService:
         if level is None or level < OrganizationMembership.Level.MEMBER:
             raise PermissionDenied("You need access to this project to start a trial.")
 
-    def activate(self, *, user_id: int) -> None:
+    def activate(self, *, user_id: int, api_scopes: list[str] | None) -> None:
         user = User.objects.get(pk=user_id)
         self._capture_enrollment(user, source="explicit", outcome="attempted")
         with self._enrollment_outcome(user, source="explicit"):
@@ -112,10 +112,10 @@ class TrialService:
             billing = self.billing_status()
             if not billing.ready:
                 raise TrialRefused("billing_not_ready")
-            self.policy.claim(user_id=user_id, limits=billing.limits)
+            self.policy.claim(user_id=user_id, limits=billing.limits, api_scopes=api_scopes)
 
     def enroll_on_activation(
-        self, *, user: User, enabled: bool, parent_access_allowed: bool = False
+        self, *, user: User, enabled: bool, api_scopes: list[str] | None, parent_access_allowed: bool = False
     ) -> AbstractContextManager[None]:
         if not enabled or not self.policy.enabled() or self.policy.grant() is not None:
             return nullcontext()
@@ -131,14 +131,16 @@ class TrialService:
         except Exception as error:
             self._capture_enrollment_error(user, "activation", error)
             raise
-        return self._claim_on_activation(user=user, billing=billing)
+        return self._claim_on_activation(user=user, billing=billing, api_scopes=api_scopes)
 
     @contextmanager
-    def _claim_on_activation(self, *, user: User, billing: TrialBillingStatus) -> Iterator[None]:
+    def _claim_on_activation(
+        self, *, user: User, billing: TrialBillingStatus, api_scopes: list[str] | None
+    ) -> Iterator[None]:
         # Read billing before taking locks; roll back the grant if the activation write fails.
         with self._enrollment_outcome(user, source="activation"), transaction.atomic():
             try:
-                self.policy.claim(user_id=user.pk, limits=billing.limits)
+                self.policy.claim(user_id=user.pk, limits=billing.limits, api_scopes=api_scopes)
             except TrialRefused as error:
                 if error.reason != "organization_limit" or not billing.paid_authorized:
                     raise

@@ -2880,6 +2880,7 @@ def create_scout_for_source(
     max_enabled_scouts = max_enabled_scouts_for_team(team.id)
     enrollment = TrialService(team).enroll_on_activation(
         user=user,
+        api_scopes=get_authenticator_scopes(request.successful_authenticator),
         enabled=config_options.get(
             "enabled", not SignalScoutConfig.objects.for_team(team.id).filter(skill_name=name).exists()
         ),
@@ -3670,6 +3671,7 @@ class SignalScoutConfigViewSet(ScoutTrialConfigMixin, TeamAndOrgViewSetMixin, vi
         with (
             TrialService(team).enroll_on_activation(
                 user=cast(User, request.user),
+                api_scopes=get_authenticator_scopes(request.successful_authenticator),
                 enabled=serializer.validated_data.get(
                     "enabled", not SignalScoutConfig.objects.for_team(team_id).filter(skill_name=skill_name).exists()
                 ),
@@ -3748,6 +3750,7 @@ class SignalScoutConfigViewSet(ScoutTrialConfigMixin, TeamAndOrgViewSetMixin, vi
         with (
             TrialService(team).enroll_on_activation(
                 user=cast(User, request.user),
+                api_scopes=get_authenticator_scopes(request.successful_authenticator),
                 enabled=serializers.BooleanField().run_validation(request.data.get("enabled", False)),
             ),
             transaction.atomic(),
@@ -4067,7 +4070,9 @@ class SignalScoutConfigViewSet(ScoutTrialConfigMixin, TeamAndOrgViewSetMixin, vi
             team,
             surface=surface,
             activation=TrialService(team).enroll_on_activation(
-                user=cast(User, request.user), enabled=surface in (None, "wizard")
+                user=cast(User, request.user),
+                enabled=surface in (None, "wizard"),
+                api_scopes=get_authenticator_scopes(request.successful_authenticator),
             ),
         )
         # Exclude held-back scouts from the materialized fleet response too: a scout that was
