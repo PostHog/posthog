@@ -760,8 +760,7 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
             }
         },
         submitEditingKeyFailure: ({ error }) => {
-            // kea-forms catches the rejected API call and only passes the client-side validation errors to the
-            // fields, so the server's message has to be copied over here or the user sees nothing.
+            // kea-forms swallows the rejected API call, so the server's message has to be copied to the form here
             if (!(error instanceof ApiError)) {
                 return
             }
@@ -773,8 +772,7 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
         },
         setEditingKeyValue: async ({ name, value }) => {
             const key = Array.isArray(name) ? name[0] : name
-            // A server error for this field is stale once its value changes, and kea-forms only drops it on blur.
-            // Left in place it keeps editingKeyHasErrors true and blocks a resubmit from the Enter key.
+            // kea-forms only drops a manual error on blur, and a stale one blocks a resubmit from the Enter key
             if (key in values.editingKeyManualErrors) {
                 const { [key]: _stale, ...remainingErrors } = values.editingKeyManualErrors
                 actions.setEditingKeyManualErrors(remainingErrors)
