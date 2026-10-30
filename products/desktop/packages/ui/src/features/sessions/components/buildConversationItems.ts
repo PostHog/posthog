@@ -716,6 +716,8 @@ function completePromptTurn(
   const wasCancelled = turn.stopReason === "cancelled";
   turn.context.turnCancelled = wasCancelled;
 
+  if (b.isCompacting) markRuntimeStatusComplete(b, "compacting");
+
   if (turn.gitAction.isGitAction && turn.gitAction.actionType) {
     b.items.push({
       type: "git_action_result",

@@ -380,6 +380,39 @@ describe("buildConversationItems", () => {
     },
   );
 
+  it("shows a new compaction after a turn was cancelled during compaction", () => {
+    const cancelledResponse: AcpMessage = {
+      type: "acp_message",
+      ts: 3,
+      message: { jsonrpc: "2.0", id: 1, result: { stopReason: "cancelled" } },
+    };
+    const result = buildConversationItems(
+      [
+        userPromptMsg(1, 1, "first"),
+        statusMsg(2, "compacting"),
+        cancelledResponse,
+        userPromptMsg(4, 2, "second"),
+        statusMsg(5, "compacting"),
+      ],
+      null,
+    );
+
+    const statusRows = result.items
+      .filter(
+        (i): i is Extract<ConversationItem, { type: "session_update" }> =>
+          i.type === "session_update" && i.update.sessionUpdate === "status",
+      )
+      .map((i) => ({
+        turn: i.id.split("-item-")[0],
+        isComplete: (i.update as { isComplete?: boolean }).isComplete,
+      }));
+    expect(statusRows).toEqual([
+      { turn: "turn-1-1", isComplete: true },
+      { turn: "turn-4-2", isComplete: undefined },
+    ]);
+    expect(result.isCompacting).toBe(true);
+  });
+
   it("builds a compact boundary without optional metadata", () => {
     const result = buildConversationItems(
       [
