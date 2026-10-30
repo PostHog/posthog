@@ -15,7 +15,7 @@ from posthog.slack.channels import MAX_HEADER_CHARS, MAX_SECTION_CHARS
 
 from products.alerts_platform.backend.delivery.message import UNTRACKED_GROUPS_LABEL
 from products.alerts_platform.backend.delivery.slack import SlackTransport, blocks_for, content_for
-from products.alerts_platform.backend.delivery.transport import DeliveryError, MessageHandle
+from products.alerts_platform.backend.delivery.transport import DeliveryError, DestinationMisconfigured, MessageHandle
 from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
     AlertEventKind,
@@ -195,13 +195,22 @@ class TestSlackTransport(APIBaseTest):
         with pytest.raises(DeliveryError):
             self._send(team_id=self.team.id + 1)
 
-    def test_a_refusal_from_slack_becomes_a_delivery_error(self) -> None:
+    @parameterized.expand(
+        [
+            ("not_in_channel", True),
+            ("account_inactive", True),
+            ("channel_not_found", True),
+            ("ratelimited", False),
+            ("internal_error", False),
+        ]
+    )
+    def test_a_refusal_from_slack_becomes_a_delivery_error(self, code: str, misconfigured: bool) -> None:
         with patch("products.alerts_platform.backend.delivery.slack.SlackIntegration") as slack_integration:
-            slack_integration.return_value.client.chat_postMessage.side_effect = SlackApiError(
-                "channel_not_found", {"error": "channel_not_found"}
-            )
-            with pytest.raises(DeliveryError):
+            slack_integration.return_value.client.chat_postMessage.side_effect = SlackApiError(code, {"error": code})
+            with pytest.raises(DeliveryError) as refused:
                 SlackTransport().deliver(team_id=self.team.id, target=self.target, message=MESSAGE)
+
+        assert isinstance(refused.value, DestinationMisconfigured) is misconfigured
 
     def test_a_message_whose_image_slack_cannot_fetch_goes_again_without_it(self) -> None:
         message = alert_message(image=MessageImage(url="https://app.example.com/chart.png", alt_text="Insight chart"))

@@ -27,7 +27,7 @@ from posthog.slack.formatting import escape_slack_mrkdwn
 
 from products.alerts_platform.backend.delivery.describers import slack_renderer_for
 from products.alerts_platform.backend.delivery.message import UNTRACKED_GROUPS_LABEL, AlertMessage
-from products.alerts_platform.backend.delivery.transport import DeliveryError, MessageHandle
+from products.alerts_platform.backend.delivery.transport import DeliveryError, DestinationMisconfigured, MessageHandle
 from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
     AlertEventKind,
@@ -161,6 +161,21 @@ def _without_image_content(content: SlackMessageContent) -> SlackMessageContent:
     )
 
 
+_MISCONFIGURED_ERRORS: Final = frozenset(
+    {
+        "account_inactive",
+        "channel_not_found",
+        "invalid_auth",
+        "is_archived",
+        "missing_scope",
+        "not_authed",
+        "not_in_channel",
+        "token_expired",
+        "token_revoked",
+    }
+)
+
+
 def _refused_image(error: SlackApiError, content: SlackMessageContent) -> bool:
     return error.response.get("error") == IMAGE_REFUSAL and _without_image_content(content) != content
 
@@ -193,7 +208,7 @@ class SlackTransport:
         workspace_id = target.get("slack_workspace_id")
         channel = target.get("slack_channel_id")
         if workspace_id is None or channel is None:
-            raise DeliveryError("This Slack destination is missing its workspace or channel.")
+            raise DestinationMisconfigured("This Slack destination is missing its workspace or channel.")
 
         slack = SlackIntegration(self._integration(team_id=team_id, workspace_id=workspace_id), source=EGRESS_SOURCE)
         content = content_for(team_id=team_id, message=message)
@@ -222,9 +237,9 @@ class SlackTransport:
                 content = _without_image_content(content)
                 response = post(content)
         except SlackApiError as error:
-            # A refusal a person can fix, such as a channel the bot has left, rather than a
-            # transport failure a retry would clear.
-            raise DeliveryError(f"Slack refused the message: {error.response.get('error')}") from error
+            code = error.response.get("error")
+            refusal = DestinationMisconfigured if code in _MISCONFIGURED_ERRORS else DeliveryError
+            raise refusal(f"Slack refused the message: {code}") from error
         timestamp = response.get("ts")
         if not timestamp:
             raise DeliveryError("Slack accepted the message but returned no timestamp to reply to.")
@@ -296,5 +311,5 @@ class SlackTransport:
             id=workspace_id, team_id=team_id, kind__in=SLACK_INTEGRATION_KINDS
         ).first()
         if integration is None:
-            raise DeliveryError("The Slack workspace for this alert is not connected.")
+            raise DestinationMisconfigured("The Slack workspace for this alert is not connected.")
         return integration
