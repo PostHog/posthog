@@ -124,9 +124,10 @@ class WrappedTableReferenceCollector(TraversingVisitor):
     and it excludes a nested query's alias of the same name.
     """
 
-    def __init__(self, table: ast.TableOrSelectType) -> None:
+    def __init__(self, table: ast.TableOrSelectType, context: HogQLContext) -> None:
         super().__init__()
         self.table = table
+        self.context = context
         self.exports: dict[str, WrappedTableExport] = {}
         self.fields: dict[int, tuple[ast.FieldType, str]] = {}
         self.properties: dict[int, tuple[ast.PropertyType, str, bool]] = {}
@@ -152,16 +153,17 @@ class WrappedTableReferenceCollector(TraversingVisitor):
         self._note_hops(hops)
 
     def visit_call(self, node: ast.Call) -> None:
-        if node.name == "toJSONString" and len(node.args) == 1 and self._collect_document_read(node.args[0]):
+        if node.name == "toJSONString" and len(node.args) == 1 and self._collect_serialized_read(node.args[0]):
             return
         super().visit_call(node)
 
-    def _collect_document_read(self, expr: ast.Expr) -> bool:
-        """Collects a property of this table that `toJSONString` serializes, so the subquery exports its JSON text.
+    def _collect_serialized_read(self, expr: ast.Expr) -> bool:
+        """Collects a property of this table under a user-written `toJSONString`, exporting what a direct read serializes.
 
-        Exporting the stored text would serialize it again outside, which quotes an object or an array. The property-type
-        pass rewrites `JSONExtractRaw(t.properties, 'key')` to this shape before the wrapper runs, so JSON functions on
-        a wrapped table read the same text they read from the table itself.
+        A key with a property definition exports its stored value and the outer call stays, so the result is the
+        converted value as in a direct read. A key without one exports its JSON text, because serializing the stored
+        text again would quote an object, an array or a number. The compiler's own serialization, from a JSON function
+        rewrite, arrives with its read already marked `as_json` and takes the second path whatever the definition.
         """
         while isinstance(expr, ast.Alias):
             expr = expr.expr
@@ -170,7 +172,9 @@ class WrappedTableReferenceCollector(TraversingVisitor):
         hops = _hops_to_table(expr.type.field_type.table_type, self.table)
         if hops is None or any(isinstance(hop, ast.LazyJoinType) for hop in hops):
             return False
-        self._collect_property(expr.type, as_json=True)
+        swapper = self.context.property_swapper
+        as_json = expr.type.as_json or swapper is None or not swapper.converts(expr.type)
+        self._collect_property(expr.type, as_json=as_json)
         return True
 
     def _collect_property(self, property_type: ast.PropertyType, as_json: bool = False) -> None:
@@ -278,7 +282,7 @@ class LazyTableResolver(TraversingVisitor):
                 for table_alias, table_type in select_type.tables.items():
                     if table_type is not join_ptr.type:
                         continue
-                    collector = WrappedTableReferenceCollector(table_type)
+                    collector = WrappedTableReferenceCollector(table_type, self.context)
                     collector.visit(join_ptr.constraint)
                     if collector.reads_lazy_join:
                         tables_to_wrap.append(table_alias)
@@ -297,7 +301,7 @@ class LazyTableResolver(TraversingVisitor):
         assert join_ptr is not None and isinstance(join_ptr.table, ast.Field), f"Table {table_alias} not found"
 
         # Collect while the outer reads still identify the table they belong to.
-        collector = WrappedTableReferenceCollector(original_table_type)
+        collector = WrappedTableReferenceCollector(original_table_type, self.context)
         collector.visit(node)
 
         subquery = ast.SelectQuery(
