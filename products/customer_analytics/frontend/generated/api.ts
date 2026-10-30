@@ -12,6 +12,8 @@ import type {
     AccountApi,
     AccountNotebookApi,
     AccountNotesListParams,
+    AccountPersonsPageApi,
+    AccountPersonsQueryRequestApi,
     AccountPresenceApi,
     AccountPresenceListRequestApi,
     AccountPresenceViewerApi,
@@ -34,11 +36,13 @@ import type {
     AccountsListParams,
     AccountsMeetingsListParams,
     AccountsNotebooksListParams,
+    AccountsPersonsRetrieveParams,
     AccountsRelationshipsListParams,
     AccountsSummariesListParams,
     AccountsSupportTicketMessagesListParams,
     AccountsTableQueryRequestApi,
     AccountsTableQueryResponseApi,
+    ActorsQueryResponseApi,
     AnnouncementApi,
     AnnouncementChannelApi,
     AnnouncementsListParams,
@@ -811,6 +815,59 @@ export const accountsRelationshipsEndCreate = async (
     return apiMutator<AccountRelationshipApi>(getAccountsRelationshipsEndCreateUrl(projectId, accountId, id), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getAccountsPersonsRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params?: AccountsPersonsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/accounts/${id}/persons/?${stringifiedParams}`
+        : `/api/projects/${projectId}/accounts/${id}/persons/`
+}
+
+export const accountsPersonsRetrieve = async (
+    projectId: string,
+    id: string,
+    params?: AccountsPersonsRetrieveParams,
+    options?: RequestInit
+): Promise<AccountPersonsPageApi[]> => {
+    return apiMutator<AccountPersonsPageApi[]>(getAccountsPersonsRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAccountsPersonsQueryCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/accounts/${id}/persons/`
+}
+
+/**
+ * Run an account-user table query. Requires query, account, and person read scopes.
+ */
+export const accountsPersonsQueryCreate = async (
+    projectId: string,
+    id: string,
+    accountPersonsQueryRequestApi: AccountPersonsQueryRequestApi,
+    options?: RequestInit
+): Promise<ActorsQueryResponseApi> => {
+    return apiMutator<ActorsQueryResponseApi>(getAccountsPersonsQueryCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(accountPersonsQueryRequestApi),
     })
 }
 

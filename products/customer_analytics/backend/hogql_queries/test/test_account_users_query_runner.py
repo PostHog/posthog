@@ -9,29 +9,51 @@ from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
-from posthog.schema import CacheMissResponse, QueryStatus
+from posthog.schema import CacheMissResponse, HogQLQueryResponse, QueryStatus
 
+from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.constants import AvailableFeature
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
+from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import ExecutionMode, get_query_runner
 from posthog.models import OrganizationMembership, PropertyDefinition, Team, User
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
-from posthog.test.persons import create_person
+from posthog.test.persons import create_person, update_person
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.customer_analytics.backend.logic.account_persons import AccountPersonsReader
 from products.customer_analytics.backend.models import TeamCustomerAnalyticsConfig
+from products.customer_analytics.backend.presentation.views.account_persons import AccountPersonsQuerySerializer
 from products.customer_analytics.backend.test.factories import create_account
 
 FLAG_CHECK = "products.customer_analytics.backend.logic.account_persons.posthog_feature_flag_enabled"
+
+
+class TestAccountPersonsQueryValidation(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ({"limit": 0}, "limit"),
+            ({"limit": 501}, "limit"),
+            ({"offset": -1}, "offset"),
+            ({"sort_column": "unselected"}, "sort_column"),
+            ({"sort_direction": "sideways"}, "sort_direction"),
+            ({"filters": "invalid"}, "filters"),
+            ({"filters": json.dumps([{"type": "hogql", "key": "1=1"}])}, "filters"),
+        ]
+    )
+    def test_invalid_parameters(self, parameters: dict, field: str) -> None:
+        serializer = AccountPersonsQuerySerializer(data=parameters)
+        assert not serializer.is_valid()
+        assert field in serializer.errors
 
 
 class TestMembershipSchema(QueryMatchingTest, SimpleTestCase):
@@ -60,7 +82,7 @@ class TestAccountUsersQuery(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest)
         self.enterContext(patch(FLAG_CHECK, return_value=True))
         TeamCustomerAnalyticsConfig.objects.update_or_create(team=self.team, defaults={"account_group_type_index": 0})
         self.account = create_account(team_id=self.team.pk, external_id="workspace-demo")
-        self.endpoint = f"/api/projects/{self.team.pk}/query/"
+        self.endpoint = f"/api/projects/{self.team.pk}/accounts/{self.account.id}/persons/"
         self.first = create_person(
             team=self.team,
             distinct_ids=["member-one", "member-one-alias"],
@@ -225,7 +247,7 @@ class TestAccountUsersQuery(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest)
         [
             (refresh, interface)
             for refresh in ("async", "force_async", "async_except_on_cache_miss", "lazy_async", "legacy")
-            for interface in ("generic", "wrapped")
+            for interface in ("dedicated", "generic", "wrapped")
         ]
     )
     def test_async_account_user_requests_are_rejected(self, refresh: str, interface: str) -> None:
@@ -237,11 +259,24 @@ class TestAccountUsersQuery(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest)
             data["async"] = True
         else:
             data["refresh"] = refresh
-        endpoint = self.endpoint
+        endpoint = self.endpoint if interface == "dedicated" else f"/api/projects/{self.team.pk}/query/"
         with patch("posthog.hogql_queries.query_runner.enqueue_process_query_task") as enqueue:
             response = self.client.post(endpoint, data, format="json")
         assert response.status_code == 400, response.content
         enqueue.assert_not_called()
+
+    @parameterized.expand(["missing_source", "other_source", "different_account", "other_query"])
+    def test_widget_endpoint_rejects_queries_outside_its_account(self, condition: str) -> None:
+        query = self._get_widget_query()
+        if condition == "missing_source":
+            query.pop("source")
+        elif condition == "other_source":
+            query["source"] = {"kind": "PersonsNode"}
+        elif condition == "different_account":
+            query["source"]["accountId"] = str(create_account(team_id=self.team.pk, external_id="other-workspace").id)
+        else:
+            query = {"kind": "HogQLQuery", "query": "select 1"}
+        assert self.client.post(self.endpoint, {"query": query}, format="json").status_code == 400
 
     @parameterized.expand([(True, 403), (False, 200)])
     def test_account_user_query_ids_are_unavailable(self, account_users: bool, expected: int) -> None:
@@ -280,8 +315,122 @@ class TestAccountUsersQuery(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest)
             ],
         )
 
+    def test_persons_are_narrowed_aggregated_and_paginated(self) -> None:
+        self.first.properties["email"] = "updated@example.com"
+        del self.first.properties["private_note"]
+        self.first.version = (self.first.version or 0) + 1
+        update_person(self.first)
+        flush_persons_and_events()
+        response = self.client.get(
+            self.endpoint, {"limit": "1", "properties": json.dumps(["email", "plan", "private_note"])}
+        )
+        assert response.status_code == 200, response.content
+        page = response.json()
+        assert page["has_more"] and page["next_offset"] == 1
+        assert page["columns"] == ["email", "plan", "private_note"]
+        person = page["results"][0]
+        assert person["id"] == str(self.first.uuid)
+        assert set(person["distinct_ids"]) == {"member-one", "member-one-alias"}
+        assert person["properties"] == {"email": "updated@example.com", "plan": "paid", "private_note": None}
+        assert person["display_name"] == "updated@example.com"
+        assert person["account_first_seen"] == "2024-01-01T00:00:00Z"
+        assert person["account_last_seen"] == "2024-01-09T00:00:00Z"
+        next_page = self.client.get(self.endpoint, {"limit": 1, "offset": page["next_offset"]}).json()
+        assert [item["id"] for item in next_page["results"]] == [str(self.second.uuid)]
+        assert not next_page["has_more"] and next_page["next_offset"] is None
+
     @parameterized.expand(
-        [(side, interface) for side in ("mapping", "person") for interface in ("widget", "membership")]
+        [
+            ({"search": "first@example.com"}, "first"),
+            ({"search": "First member"}, "first"),
+            ({"search": "member-one-alias"}, "first"),
+            ({"filters": json.dumps([{"key": "plan", "operator": "exact", "value": "free"}])}, "second"),
+            (
+                {"properties": json.dumps(["email"]), "sort_column": "email", "sort_direction": "asc", "limit": 1},
+                "first",
+            ),
+            ({"sort_column": "account_first_seen", "sort_direction": "desc", "limit": 1}, "second"),
+        ]
+    )
+    def test_search_filter_and_sort(self, parameters: dict, expected: str) -> None:
+        response = self.client.get(self.endpoint, parameters)
+        assert response.status_code == 200, response.content
+        assert [item["id"] for item in response.json()["results"]] == [str(getattr(self, expected).uuid)]
+
+    def test_search_by_person_id(self) -> None:
+        response = self.client.get(self.endpoint, {"search": str(self.second.uuid)})
+        assert response.status_code == 200, response.content
+        assert [person["id"] for person in response.json()["results"]] == [str(self.second.uuid)]
+
+    def test_current_mapping_combines_reassigned_aliases(self) -> None:
+        sync_execute(
+            "INSERT INTO person_distinct_id2 (team_id, distinct_id, person_id, is_deleted, version) VALUES",
+            [
+                {
+                    "team_id": self.team.pk,
+                    "distinct_id": "member-two",
+                    "person_id": self.first.uuid,
+                    "is_deleted": 0,
+                    "version": 100,
+                }
+            ],
+        )
+        response = self.client.get(self.endpoint)
+        assert response.status_code == 200, response.content
+        assert [person["id"] for person in response.json()["results"]] == [str(self.first.uuid)]
+        assert set(response.json()["results"][0]["distinct_ids"]) == {"member-one", "member-one-alias", "member-two"}
+
+    @parameterized.expand([("empty-workspace",), (None,)])
+    def test_empty_account_returns_an_empty_page(self, external_id: str | None) -> None:
+        account = create_account(team_id=self.team.pk, external_id=external_id)
+        response = self.client.get(f"/api/projects/{self.team.pk}/accounts/{account.id}/persons/")
+        assert response.status_code == 200, response.content
+        assert response.json()["results"] == []
+        assert not response.json()["has_more"]
+
+    def test_query_tags_and_slo_exclude_property_values(self) -> None:
+        execute = HogQLHasMorePaginator.execute_hogql_query
+        tags = []
+
+        def execute_with_tags(
+            paginator: HogQLHasMorePaginator,
+            query: ast.SelectQuery | ast.SelectSetQuery,
+            *,
+            query_type: str,
+            **kwargs: Any,
+        ) -> HogQLQueryResponse:
+            tags.append(get_query_tags().model_dump())
+            return execute(paginator, query, query_type=query_type, **kwargs)
+
+        with (
+            patch.object(HogQLHasMorePaginator, "execute_hogql_query", execute_with_tags),
+            patch("posthoganalytics.capture") as capture,
+        ):
+            response = self.client.get(
+                self.endpoint,
+                {
+                    "properties": json.dumps(["plan"]),
+                    "filters": json.dumps([{"key": "plan", "operator": "exact", "value": "paid"}]),
+                },
+            )
+        assert response.status_code == 200, response.content
+        assert tags and all(tag["product"] == "customer_analytics" for tag in tags)
+        completions = [
+            call.kwargs["properties"]
+            for call in capture.call_args_list
+            if call.kwargs.get("event") == "slo_operation_completed"
+            and call.kwargs["properties"].get("operation") == "account_persons_list"
+        ]
+        assert len(completions) == 1
+        assert completions[0]["target_duration_ms"] == 500
+        assert completions[0]["selected_property_count"] == 1
+        assert completions[0]["result_count"] == 1
+        assert completions[0]["has_filters"]
+        assert "duration_ms" in completions[0]
+        assert "paid" not in json.dumps(completions[0])
+
+    @parameterized.expand(
+        [(side, interface) for side in ("mapping", "person") for interface in ("rest", "widget", "membership")]
     )
     def test_deleted_identity_is_not_returned(self, deleted_side: str, interface: str) -> None:
         if deleted_side == "mapping":
@@ -312,22 +461,34 @@ class TestAccountUsersQuery(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest)
                     }
                 ],
             )
-        columns = ["persons.id"] if interface == "widget" else ["source.distinct_ids"]
-        response = self._run_widget_query(select=columns, limit=1)
-        assert response.status_code == 200, response.content
-        page = response.json()
-        assert len(page["results"]) == 1
-        assert not page["hasMore"]
-        if interface == "widget":
-            assert page["results"][0][0] == str(self.first.uuid)
+        if interface == "rest":
+            response = self.client.get(self.endpoint)
+            assert response.status_code == 200, response.content
+            assert [person["id"] for person in response.json()["results"]] == [str(self.first.uuid)]
         else:
-            assert set(page["results"][0][0]) == {"member-one", "member-one-alias"}
+            columns = ["persons.id"] if interface == "widget" else ["source.distinct_ids"]
+            response = self._run_widget_query(select=columns, limit=1)
+            assert response.status_code == 200, response.content
+            page = response.json()
+            assert len(page["results"]) == 1
+            assert not page["hasMore"]
+            if interface == "widget":
+                assert page["results"][0][0] == str(self.first.uuid)
+            else:
+                assert set(page["results"][0][0]) == {"member-one", "member-one-alias"}
 
     @parameterized.expand(
         [
+            ("account_only", ["account:read"], 403, "rest"),
+            ("person_only", ["person:read"], 403, "rest"),
+            ("both", ["account:read", "person:read"], 200, "rest"),
             ("query_account_only", ["query:read", "account:read"], 403, "query"),
             ("query_person_only", ["query:read", "person:read"], 403, "query"),
             ("query_both", ["query:read", "account:read", "person:read"], 200, "query"),
+            ("widget_account_only", ["account:read"], 403, "widget"),
+            ("widget_person_only", ["person:read"], 403, "widget"),
+            ("widget_without_query", ["account:read", "person:read"], 403, "widget"),
+            ("widget_all", ["query:read", "account:read", "person:read"], 200, "widget"),
         ]
     )
     def test_tokens_require_both_scopes(self, _name: str, scopes: list[str], expected: int, interface: str) -> None:
@@ -337,13 +498,54 @@ class TestAccountUsersQuery(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest)
         )
         self.client.logout()
         headers = {"authorization": f"Bearer {token}"}
-        response = self.client.post(
-            self.endpoint,
-            {"query": self._get_widget_query(), "refresh": "blocking"},
-            format="json",
-            headers=headers,
-        )
+        if interface in {"query", "widget"}:
+            response = self.client.post(
+                self.endpoint if interface == "widget" else f"/api/projects/{self.team.pk}/query/",
+                {"query": self._get_widget_query(), "refresh": "blocking"},
+                format="json",
+                headers=headers,
+            )
+        else:
+            response = self.client.get(self.endpoint, headers=headers)
         assert response.status_code == expected, response.content
+
+    @parameterized.expand([("flag_disabled",), ("account_hidden",), ("other_team",), ("group_unconfigured",)])
+    def test_inaccessible_accounts_return_404(self, condition: str) -> None:
+        if condition == "account_hidden":
+            self.organization.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL}]
+            self.organization.save()
+            AccessControl.objects.create(
+                team=self.team,
+                resource="account",
+                resource_id=str(self.account.id),
+                access_level="none",
+                organization_member=OrganizationMembership.objects.get(user=self.user, organization=self.organization),
+            )
+        elif condition == "other_team":
+            other_team = Team.objects.create(organization=self.organization)
+            other = create_account(team_id=other_team.pk, external_id="workspace-demo")
+            self.endpoint = f"/api/projects/{self.team.pk}/accounts/{other.id}/persons/"
+        elif condition == "group_unconfigured":
+            TeamCustomerAnalyticsConfig.objects.filter(team=self.team).update(account_group_type_index=None)
+        with patch(FLAG_CHECK, return_value=condition != "flag_disabled"):
+            response = self.client.get(self.endpoint)
+        assert response.status_code == 404, response.content
+
+    def test_bad_parameter_returns_400(self) -> None:
+        assert self.client.get(self.endpoint, {"limit": -1}).status_code == 400
+
+    @parameterized.expand([("GET",), ("POST",)])
+    def test_session_requests_are_throttled(self, method: str) -> None:
+        with patch(
+            "products.customer_analytics.backend.presentation.views.account_persons.AccountPersonsWebBurstThrottle.rate",
+            "1/minute",
+        ):
+            if method == "GET":
+                assert self.client.get(self.endpoint).status_code == 200
+                assert self.client.get(self.endpoint).status_code == 429
+            else:
+                assert self._run_widget_query().status_code == 200
+                assert self._run_widget_query().status_code == 429
 
     def _restrict_properties(self, property_type: int = PropertyDefinition.Type.PERSON) -> None:
         self.organization.available_product_features = [{"key": AvailableFeature.PROPERTY_ACCESS_CONTROL}]
@@ -358,3 +560,25 @@ class TestAccountUsersQuery(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest)
                 group_type_index=0 if property_type == PropertyDefinition.Type.GROUP else None,
             )
             PropertyAccessControl.objects.create(team=self.team, property_definition=definition, access_level="none")
+
+    def test_restricted_properties_are_hidden_from_columns_names_and_search(self) -> None:
+        self._restrict_properties()
+        response = self.client.get(self.endpoint, {"properties": json.dumps(["email", "private_note", "plan"])})
+        assert response.status_code == 200, response.content
+        page = response.json()
+        assert page["columns"] == ["plan"]
+        for person in page["results"]:
+            assert set(person["properties"]) == {"plan"}
+            assert person["display_name"] == person["id"]
+        assert self.client.get(self.endpoint, {"search": "first@example.com"}).json()["results"] == []
+        assert len(self.client.get(self.endpoint, {"search": "member-one"}).json()["results"]) == 1
+
+    @parameterized.expand([("filter",), ("sort",)])
+    def test_restricted_properties_cannot_filter_or_sort(self, operation: str) -> None:
+        self._restrict_properties()
+        parameters = (
+            {"properties": json.dumps(["email"]), "sort_column": "email"}
+            if operation == "sort"
+            else {"filters": json.dumps([{"key": "email", "operator": "is_set"}])}
+        )
+        assert self.client.get(self.endpoint, parameters).status_code == 403
