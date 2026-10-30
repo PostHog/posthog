@@ -44,6 +44,7 @@ const MOCK_PROPERTY_DEFINITION = {
     is_numerical: false,
     property_type: 'String',
     type: 'event',
+    group_type_index: null,
     updated_at: '2026-04-15T10:00:00Z',
     updated_by: null,
     verified: false,
