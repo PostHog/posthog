@@ -60,7 +60,7 @@ REQUEST_TIMEOUT_SECONDS = 60
 AUTH_FAILED_MESSAGE = "Platform.sh authentication failed"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class PlatformShResumeConfig:
     # Next URL to fetch. For top-level tables (organizations, regions) it's the next page URL; for
     # fan-out tables it's the current organizations page URL (resume re-fans that page and its children,
@@ -80,6 +80,12 @@ class PlatformShAuthenticationError(Exception):
 class PlatformShUntrustedURLError(Exception):
     """Raised when a next-page/resume URL points off the configured API host. We attach the bearer
     token to every request, so following an off-host URL would leak it; refuse instead."""
+
+
+class PlatformShPaginationError(Exception):
+    """Raised when a page-numbered list repeats a page it already returned. The server is ignoring
+    the page param, so the rows past the first page can't be fetched; fail rather than sync a short
+    table."""
 
 
 class PlatformShPageCapExceededError(Exception):
@@ -247,21 +253,31 @@ def _iter_envelope_pages(
         items = body.get(items_key) if isinstance(body, dict) else None
         if not items:
             return
+        if max_pages is not None and page_count >= max_pages:
+            # Only a guessed page-number URL is fetched past the cap: an empty probe means the list
+            # ended exactly at the cap, anything else means rows remain.
+            raise PlatformShPageCapExceededError(
+                f"Platform.sh: page cap of {max_pages} reached with more pages remaining; "
+                f"raise max_pages_per_parent to sync this parent fully. context={page_cap_context or {}}"
+            )
         next_url = _next_link(body, url, client)
+        guessed_next = False
         if page_number_param is not None:
-            # A server that ignores the page param returns the same page forever; stop on a page
-            # that brings no new rows instead of looping to the page cap.
             page_ids = {item.get("id") for item in items}
             if page_ids <= seen_ids:
-                return
+                raise PlatformShPaginationError(
+                    f"Platform.sh: {url} repeated a page it already returned; the server ignored "
+                    f"`{page_number_param}`, so the full list can't be fetched. context={page_cap_context or {}}"
+                )
             seen_ids |= page_ids
             if next_url is None:
                 next_url = _with_page_number(url, page_number_param, page_count + 2)
+                guessed_next = True
         yield items, url
         page_count += 1
         if not next_url:
             return
-        if max_pages is not None and page_count >= max_pages:
+        if max_pages is not None and page_count >= max_pages and not guessed_next:
             raise PlatformShPageCapExceededError(
                 f"Platform.sh: page cap of {max_pages} reached with more pages remaining; "
                 f"raise max_pages_per_parent to sync this parent fully. context={page_cap_context or {}}"

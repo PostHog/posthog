@@ -24,7 +24,7 @@ from products.warehouse_sources.backend.types import IncrementalField, Increment
 # until that's confirmed.
 
 
-@dataclass
+@dataclass(frozen=True)
 class PlatformShEndpointConfig:
     name: str
     # Path template appended to the API base. Fan-out children carry a placeholder filled from the
@@ -157,9 +157,9 @@ PLATFORM_SH_ENDPOINTS: dict[str, PlatformShEndpointConfig] = {
         response_envelope=False,
         page_size=None,
         include_parent_fields={"project_id": "project_id", "id": "environment_id"},
-        # Variable values can hold secrets even when the variable isn't flagged sensitive.
-        drop_keys=["variables"],
-        strip_keys_recursive=["basic_auth"],
+        # Variable values can hold secrets even when the variable isn't flagged sensitive, and they
+        # appear at the top level and under each app and worker.
+        strip_keys_recursive=["basic_auth", "variables"],
     ),
     "invoices": PlatformShEndpointConfig(
         name="invoices",

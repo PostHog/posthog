@@ -1,3 +1,4 @@
+import dataclasses
 from typing import Any
 
 import pytest
@@ -19,6 +20,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.platform_s
     AUTH_FAILED_MESSAGE,
     PlatformShAuthenticationError,
     PlatformShClient,
+    PlatformShPageCapExceededError,
+    PlatformShPaginationError,
     PlatformShResumeConfig,
     PlatformShUntrustedURLError,
     platform_sh_source,
@@ -212,34 +215,60 @@ class TestGetRowsOrgFanOut:
 
     @parameterized.expand(
         [
-            ("stops_on_empty_page", [[{"id": "inv-3"}], []], ["inv-1", "inv-2", "inv-3"], [None, "2", "3"]),
-            ("stops_when_page_param_is_ignored", [[{"id": "inv-1"}, {"id": "inv-2"}]], ["inv-1", "inv-2"], [None, "2"]),
+            ("stops_on_empty_page", None, [[{"id": "inv-3"}], []], ["inv-1", "inv-2", "inv-3"], [None, "2", "3"], None),
+            (
+                "raises_when_page_param_is_ignored",
+                None,
+                [[{"id": "inv-1"}, {"id": "inv-2"}]],
+                ["inv-1", "inv-2"],
+                [None, "2"],
+                PlatformShPaginationError,
+            ),
+            ("empty_probe_at_cap_completes", 1, [[]], ["inv-1", "inv-2"], [None, "2"], None),
+            (
+                "rows_past_cap_raise",
+                1,
+                [[{"id": "inv-3"}]],
+                ["inv-1", "inv-2"],
+                [None, "2"],
+                PlatformShPageCapExceededError,
+            ),
         ]
     )
     def test_invoices_fall_back_to_page_numbers_without_next_link(
         self,
         _name: str,
+        max_pages: int | None,
         later_pages: list[list[dict[str, Any]]],
         expected_ids: list[str],
         expected_page_params: list[str | None],
+        expected_error: type[Exception] | None,
     ) -> None:
-        # Invoices document only a `page` param and no `_links`; stopping after the first page
-        # would truncate the table, and a server that ignores `page` must not loop to the cap.
+        # Invoices document only a `page` param and no `_links`. Stopping after the first page, or
+        # treating a repeated page as the end, would silently sync a short table; a list that ends
+        # exactly at the page cap must still complete.
         first_page = [
             {"id": "inv-1", "total": 10.0, "invoice_pdf": {"url": "https://example.com/inv-1.pdf"}},
             {"id": "inv-2", "total": 20.0},
         ]
-        result = _driver().run(
-            "invoices",
-            [
-                _token(),
-                ScriptedResponse(json=_envelope([{"id": "org-1"}])),
-                ScriptedResponse(json=_envelope(first_page)),
-                *[ScriptedResponse(json=_envelope(page)) for page in later_pages],
-            ],
-        )
+        invoices_config = PLATFORM_SH_ENDPOINTS["invoices"]
+        if max_pages is not None:
+            invoices_config = dataclasses.replace(invoices_config, max_pages_per_parent=max_pages)
+        with mock.patch.dict(PLATFORM_SH_ENDPOINTS, {"invoices": invoices_config}):
+            result = _driver().run(
+                "invoices",
+                [
+                    _token(),
+                    ScriptedResponse(json=_envelope([{"id": "org-1"}])),
+                    ScriptedResponse(json=_envelope(first_page)),
+                    *[ScriptedResponse(json=_envelope(page)) for page in later_pages],
+                ],
+            )
 
-        assert result.raised is None
+        if expected_error is None:
+            assert result.raised is None
+        else:
+            assert isinstance(result.raised, expected_error)
         assert [row["id"] for row in result.rows] == expected_ids
         assert all(row["organization_id"] == "org-1" and "invoice_pdf" not in row for row in result.rows)
         invoice_requests = [request for request in result.requests if request.path.endswith("/invoices")]
@@ -248,8 +277,8 @@ class TestGetRowsOrgFanOut:
     def test_deployments_fan_out_through_environments(self) -> None:
         # Deployment ids ("current") repeat in every environment, so both parent ids must be
         # injected for the composite key. Branch names with "/" must be escaped in the path, an
-        # inactive environment has nothing deployed, and an environment deleted mid-sync must not
-        # fail the whole table.
+        # inactive environment has nothing deployed, an environment deleted mid-sync must not fail
+        # the whole table, and app-level variables can hold secrets.
         result = _driver().run(
             "deployments",
             [
@@ -269,6 +298,7 @@ class TestGetRowsOrgFanOut:
                             "id": "current",
                             "variables": [{"name": "API_KEY", "value": "hunter2"}],
                             "http_access": {"is_enabled": True, "basic_auth": {"admin": "hunter2"}},
+                            "webapps": {"app": {"type": "python:3.12", "variables": {"env": {"API_KEY": "hunter2"}}}},
                         }
                     ]
                 ),
@@ -282,6 +312,7 @@ class TestGetRowsOrgFanOut:
                 {
                     "id": "current",
                     "http_access": {"is_enabled": True},
+                    "webapps": {"app": {"type": "python:3.12"}},
                     "project_id": "proj-1",
                     "environment_id": "feature/x",
                 }
