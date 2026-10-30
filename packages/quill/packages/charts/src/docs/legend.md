@@ -68,6 +68,7 @@ A percent chart, and a secondary axis without a format, keep the plain number fo
 `BoxPlot` and `ScatterChart` ignore `values`.
 The summaries are computed only while the legend is shown.
 A left or right table legend gets more width than a list legend, up to 60% of the chart or 480px.
+On a chart narrower than 480px it moves below the plot (above for `left`), so the plot and the series names keep their room.
 
 ## Lower-level primitives
 
