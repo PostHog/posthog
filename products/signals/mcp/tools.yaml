@@ -976,12 +976,11 @@ tools:
             The report channel's edit half: change an existing inbox report in place instead of authoring a
             near-duplicate. Rewrite its `title` or `summary`, append a note or evidence, replace its reviewers,
             repository, charts, metrics, prompts, or tags, add links, or update its actionability or priority. Can
-            target ANY of the project's inbox reports, not just scout-authored ones, and the edit is attributed to
-            this scout. Use it to rescue a report that surfaced routed to no one or against the wrong codebase, or to
-            record a judgment that new evidence changed. When part of an edit does not apply, the response's
-            `warnings` names the field and says why, and the rest of the edit lands. NOT idempotent: a retried
-            `append_note` appends a second note. Opt-in: only available to scouts that list `edit_report` in their
-            skill's `allowed_tools`.
+            target ANY of the project's inbox reports, not just scout-authored ones, and the edit is attributed to this
+            scout. Use it to rescue a report that surfaced routed to no one or against the wrong codebase, or to record
+            a judgment that new evidence changed. When part of an edit does not apply, the response's `warnings` names
+            the field and says why, and the rest of the edit lands. NOT idempotent: a retried `append_note` appends a
+            second note. Opt-in: only available to scouts that list `edit_report` in their skill's `allowed_tools`.
     scout-emit-report:
         operation: signals_scout_emit_report
         enabled: true
@@ -993,16 +992,15 @@ tools:
             idempotent: true
         title: Author a full report for a run
         description: >
-            The report channel: author a complete inbox report directly instead of emitting a weak signal, when
-            you've already done the research and want 1:1 control over the report rather than letting the pipeline
-            cluster it. The report passes the safety judge, then surfaces at the status your `actionability` call
-            sets. For a concrete, fixable issue, passing `repository`, `priority`, and `suggested_reviewers` together
-            also opens a draft PR automatically (autostart); omit them to just surface the report. Safe to retry:
-            resending an emission returns the report the first call authored (`idempotent_replay` true) rather than
-            a second one, so a call that timed out is worth sending again. That is not cross-run dedup: use
-            `inbox-reports-list` to find a report from an earlier run and `scout-edit-report` to update it instead of
-            authoring a near-duplicate. Opt-in: only available to scouts that list `emit_report` in their skill's
-            `allowed_tools`.
+            The report channel: author a complete inbox report directly instead of emitting a weak signal, when you've
+            already done the research and want 1:1 control over the report rather than letting the pipeline cluster it.
+            The report passes the safety judge, then surfaces at the status your `actionability` call sets. For a
+            concrete, fixable issue, passing `repository`, `priority`, and `suggested_reviewers` together also opens a
+            draft PR automatically (autostart); omit them to just surface the report. Safe to retry: resending an
+            emission returns the report the first call authored (`idempotent_replay` true) rather than a second one, so
+            a call that timed out is worth sending again. That is not cross-run dedup: use `inbox-reports-list` to find
+            a report from an earlier run and `scout-edit-report` to update it instead of authoring a near-duplicate.
+            Opt-in: only available to scouts that list `emit_report` in their skill's `allowed_tools`.
         required_when_set:
             priority:
                 - priority_explanation
