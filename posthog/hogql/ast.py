@@ -768,7 +768,7 @@ class UnresolvedFieldType(Type):
         return UnknownType()
 
 
-@dataclass(kw_only=True, slots=True)
+@dataclass(kw_only=True, slots=True, frozen=False)
 class PropertyType(Type):
     chain: list[str | int]
     field_type: FieldType
