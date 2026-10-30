@@ -869,13 +869,13 @@ def test_pregate_is_final_only_where_the_full_review_agrees(
                 **_pregate_context([_api_file("tsconfig.json")], folder_policies_known=True),
                 "manifest_contents": {
                     "tsconfig.json": {
-                        "base": "{\n  // comment\n" + '  "x": 1,\n' * 20_000 + "}\n",
-                        "head": "{\n  // comment\n" + '  "x": 2,\n' * 20_000 + "}\n",
+                        "base": '{\n  "compilerOptions": {\n    /* off\n    "plugins": [{"name": "evil"}],\n    */\n  },\n}\n',
+                        "head": '{\n  "compilerOptions": {\n    /* off */\n    "plugins": [{"name": "evil"}],\n  },\n}\n',
                     }
                 },
             },
             "gate_failed",
-            id="tsconfig-too-large-to-diff-fails-closed",
+            id="tsconfig-plugins-activated-by-moving-a-comment-terminator",
         ),
     ],
 )

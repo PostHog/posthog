@@ -5,21 +5,18 @@ their scripts and lifecycle hooks execute in CI and on dev machines. The
 reviewer prompt guards that — this module is the deterministic first line,
 so a scripts edit hard-denies instead of resting solely on LLM judgment.
 
-Parseable manifests are compared structurally (base vs head risky subtrees)
-rather than by diff-line matching: editing an existing script's command
-produces a changed line keyed by the script's own name, which a line scan
-keyed on "scripts"/lifecycle names misses entirely. Line scanning remains
-only where key and value share a line (cargo build scripts, go.mod replace
-directives). Parse failures fail closed.
+Every manifest is compared structurally (base vs head risky subtrees), never
+by diff-line matching: editing an existing script's command produces a changed
+line keyed by the script's own name, and two diff algorithms can mark different
+lines as changed for the same edit, so a line scan answers differently on the
+worker and in the checkout. Parse failures fail closed.
 """
 
 import re
 import json
-import difflib
 import tomllib
 import subprocess
 from collections.abc import Callable, Mapping
-from functools import partial
 from pathlib import Path
 from typing import NamedTuple
 
@@ -29,15 +26,6 @@ import yaml
 # code, and setup.cfg's declarative surface (entry_points, cmdclass) doesn't
 # justify a parser for how rarely it changes.
 _ANY_CHANGE_RISKY = frozenset({"setup.py", "setup.cfg", "gemfile"})
-
-# Key-and-value share a line in go.mod, so a line scan can't be bypassed by
-# editing a value without its key appearing in the diff. Only `replace` is
-# risky there: a `require` bump without go.sum fails CI deterministically
-# (Go defaults to -mod=readonly), so no silent fetch is possible.
-_RISKY_LINE_PATTERNS: dict[str, re.Pattern[str]] = {
-    "go.mod": re.compile(r"^\s*replace[\s(]"),
-}
-_TSCONFIG_LINE_PATTERN = re.compile(r'"(?:plugins|extends)"\s*:')
 
 
 def _json_object(text: str, label: str) -> dict[str, object]:
@@ -100,9 +88,85 @@ def _cargo_risky_subtree(text: str) -> object:
     return _collect_risky_keys(data, _CARGO_RISKY_KEYS)
 
 
+def _without_jsonc_comments(text: str) -> str:
+    kept: list[str] = []
+    index, in_string = 0, False
+    while index < len(text):
+        char = text[index]
+        if in_string:
+            kept.append(text[index : index + 2] if char == "\\" else char)
+            index += 2 if char == "\\" else 1
+            in_string = char != '"'
+            continue
+        if text.startswith("//", index):
+            line_end = text.find("\n", index)
+            index = len(text) if line_end == -1 else line_end
+            continue
+        if text.startswith("/*", index):
+            comment_end = text.find("*/", index + 2)
+            if comment_end == -1:
+                raise ValueError("tsconfig has an unterminated block comment")
+            kept.append(" ")
+            index = comment_end + 2
+            continue
+        in_string = char == '"'
+        kept.append(char)
+        index += 1
+    return "".join(kept)
+
+
+_WHITESPACE_THEN_CLOSE = re.compile(r"[ \t\r\n]*[}\]]")
+
+
+def _without_trailing_commas(text: str) -> str:
+    kept: list[str] = []
+    index, in_string = 0, False
+    while index < len(text):
+        char = text[index]
+        if in_string:
+            kept.append(text[index : index + 2] if char == "\\" else char)
+            index += 2 if char == "\\" else 1
+            in_string = char != '"'
+            continue
+        if char == "," and _WHITESPACE_THEN_CLOSE.match(text, index + 1):
+            index += 1
+            continue
+        in_string = char == '"'
+        kept.append(char)
+        index += 1
+    return "".join(kept)
+
+
 def _tsconfig_risky_subtree(text: str) -> object:
-    data = _json_object(text, "tsconfig")
-    return (data.get("extends"), (data.get("compilerOptions") or {}).get("plugins"))
+    data = _json_object(_without_trailing_commas(_without_jsonc_comments(text)), "tsconfig")
+    compiler_options = data.get("compilerOptions")
+    plugins = compiler_options.get("plugins") if isinstance(compiler_options, dict) else compiler_options
+    return (data.get("extends"), plugins)
+
+
+# Only `replace` is risky in go.mod: a `require` bump without go.sum fails CI deterministically
+# (Go defaults to -mod=readonly), so no silent fetch is possible.
+def _go_mod_replaces(text: str) -> list[str]:
+    replaces: list[str] = []
+    block: str | None = None
+    for raw_line in text.split("\n"):
+        # A `//` inside a quoted path is not a comment, so a quoted line keeps its whole text and
+        # can only over-report.
+        line = raw_line if '"' in raw_line or "`" in raw_line else raw_line.split("//", 1)[0]
+        tokens = line.split()
+        if not tokens:
+            continue
+        if block is not None:
+            if tokens == [")"]:
+                block = None
+            elif block == "replace":
+                replaces.append(" ".join(tokens))
+            continue
+        if tokens[-1] == "(" or tokens[0].endswith("("):
+            block = tokens[0].removesuffix("(")
+        elif tokens[0] == "replace":
+            replaces.append(" ".join(tokens[1:]))
+    return sorted(replaces)
 
 
 # Manifests compared by parsing base/head into a "risky subtree" and diffing
@@ -121,45 +185,28 @@ _STRUCTURAL_RISK_CHECKS: dict[str, StructuralCheck] = {
     "pipfile": StructuralCheck(_toml_risky_subtree, (tomllib.TOMLDecodeError, ValueError)),
     "cargo.toml": StructuralCheck(_cargo_risky_subtree, (tomllib.TOMLDecodeError,)),
     "composer.json": StructuralCheck(_composer_json_risky_subtree, (ValueError,)),
+    "go.mod": StructuralCheck(_go_mod_replaces, ()),
 }
+# tsconfig is JSONC, so its parse strips comments and trailing commas first. A file that still does
+# not parse fails closed like the other formats.
+_TSCONFIG_CHECK = StructuralCheck(_tsconfig_risky_subtree, (ValueError,))
 
 
-def manifest_change_is_risky(path: str, base_text: str, head_text: str, read_diff: Callable[[], str]) -> bool:
-    """True when the manifest change adds/edits/removes execution-bearing config.
-
-    ``read_diff`` runs only for the formats that scan diff lines, because a structurally compared
-    manifest never needs one and building it can cost more than the whole check.
-    """
+def manifest_change_is_risky(path: str, base_text: str, head_text: str) -> bool:
+    """True when the manifest change adds/edits/removes execution-bearing config."""
     name = Path(path).name.lower()
     if name in _ANY_CHANGE_RISKY:
         return base_text != head_text
-    if name in _STRUCTURAL_RISK_CHECKS:
-        check = _STRUCTURAL_RISK_CHECKS[name]
-        try:
-            return check.extract(base_text) != check.extract(head_text)
-        except check.fails_closed_on:
-            return True
     if name.startswith("tsconfig") and name.endswith(".json"):
-        # tsconfig is often JSONC (comments, trailing commas); a strict-JSON
-        # parse failure falls back to line scanning rather than failing
-        # closed, or every commented tsconfig edit would hard-deny.
-        try:
-            return _tsconfig_risky_subtree(base_text) != _tsconfig_risky_subtree(head_text)
-        except ValueError:
-            return _scan_changed_lines(read_diff(), _TSCONFIG_LINE_PATTERN)
-    if name in _RISKY_LINE_PATTERNS:
-        return _scan_changed_lines(read_diff(), _RISKY_LINE_PATTERNS[name])
-    return False
-
-
-def _scan_changed_lines(diff_text: str, pattern: re.Pattern[str]) -> bool:
-    # LF only, as git splits: str.splitlines also breaks at \v, which would cut a risky key off
-    # its +/- marker while TypeScript reads the \v as whitespace and still loads the config.
-    return any(
-        pattern.search(line[1:])
-        for line in diff_text.split("\n")
-        if line[:1] in "+-" and not line.startswith(("+++", "---"))
-    )
+        check = _TSCONFIG_CHECK
+    elif name in _STRUCTURAL_RISK_CHECKS:
+        check = _STRUCTURAL_RISK_CHECKS[name]
+    else:
+        return False
+    try:
+        return check.extract(base_text) != check.extract(head_text)
+    except check.fails_closed_on:
+        return True
 
 
 def _git(args: list[str], repo_root: Path) -> subprocess.CompletedProcess[str]:
@@ -171,7 +218,7 @@ def manifest_script_changes(
 ) -> list[str]:
     """Manifests whose change touches scripts/hooks/build config.
 
-    Both the structural compare and the diff are anchored at the merge base,
+    The structural compare is anchored at the merge base,
     matching the merge-base→head semantics of every other diff in this tool:
     comparing against the base branch *tip* would count base-side drift
     (someone else's scripts change landing on the base) as this PR's doing.
@@ -190,10 +237,6 @@ def manifest_script_changes(
             return list(manifest_paths)
         base = merge_base.stdout.strip()
 
-    def read_git_diff(path: str) -> str:
-        diff = _git(["diff", f"{base}..{head_sha}", "--", path], repo_root)
-        return diff.stdout if diff.returncode == 0 else ""
-
     risky = []
     for path in manifest_paths:
         base_show = _git(["show", f"{base}:{path}"], repo_root)
@@ -202,39 +245,9 @@ def manifest_script_changes(
             path,
             base_show.stdout if base_show.returncode == 0 else "",
             head_show.stdout if head_show.returncode == 0 else "",
-            partial(read_git_diff, path),
         ):
             risky.append(path)
     return risky
-
-
-def _git_diff_lines(text: str) -> list[str]:
-    """The lines ``git diff`` sees: split on LF alone, each one ending in a newline.
-
-    ``str.splitlines`` also splits on characters such as a vertical tab, which git keeps inside a
-    line, so a change between the two would not show in the diff. And difflib joins a last line
-    without a newline onto the next diff line, where the line scan misses a key at its start.
-    """
-    if not text:
-        return []
-    return [f"{line}\n" for line in text.removesuffix("\n").split("\n")]
-
-
-# difflib is quadratic in the worst case, and the worker check has a fixed deadline. Real go.mod and
-# commented tsconfig files are far below this, so an input above it fails closed instead.
-_CONTENTS_DIFF_MAX_CHARS = 256 * 1024
-
-
-class _ManifestTooLargeToDiff(Exception):
-    pass
-
-
-def _contents_diff(path: str, base_text: str, head_text: str) -> str:
-    if len(base_text) + len(head_text) > _CONTENTS_DIFF_MAX_CHARS:
-        raise _ManifestTooLargeToDiff(path)
-    return "".join(
-        difflib.unified_diff(_git_diff_lines(base_text), _git_diff_lines(head_text), f"a/{path}", f"b/{path}")
-    )
 
 
 def manifest_script_changes_from_contents(
@@ -254,12 +267,6 @@ def manifest_script_changes_from_contents(
         if not isinstance(base_text, str) or not isinstance(head_text, str):
             risky.append(path)
             continue
-        try:
-            is_risky = manifest_change_is_risky(
-                path, base_text, head_text, partial(_contents_diff, path, base_text, head_text)
-            )
-        except _ManifestTooLargeToDiff:
-            is_risky = True
-        if is_risky:
+        if manifest_change_is_risky(path, base_text, head_text):
             risky.append(path)
     return risky
