@@ -19,6 +19,7 @@ import { messageOf } from "../errors";
 import { useChatPlace } from "../hooks/useChatPlace";
 import { useLocalChats } from "../hooks/useLocalChats";
 import { useNotice } from "../hooks/useNotice";
+import { useWorkList } from "../hooks/useWorkList";
 import {
   activeWorkspace,
   allPanes,
@@ -40,7 +41,6 @@ import {
   splitSizes,
 } from "../layout";
 import type { LocalSession } from "../local";
-import { LEGACY_PREFIX } from "../localChats";
 import {
   type ModelChoice,
   modelSheet,
@@ -69,7 +69,6 @@ import {
   moveSelection,
   selectionKey,
   sidebarRows,
-  type WorkPage,
 } from "../sidebar";
 import { statusChips } from "../status";
 import {
@@ -82,7 +81,6 @@ import type { WorkList } from "../work";
 import { Pane } from "./Pane";
 import { HEADER_GAP, Sidebar } from "./Sidebar";
 
-const PAGE_SIZE = 10;
 // One shared empty list, so panes with no pending commands keep a stable prop.
 const NO_SHELLS: PendingShell[] = [];
 
@@ -95,10 +93,7 @@ interface OpenModal {
   // Set when the answer is typed in the composer instead of picked from the list.
   submitText?: (text: string) => void;
 }
-const REFRESH_MS = 10_000;
 const CLOSE_CONFIRM_MS = 1_000;
-// Log entries per preloaded run: roughly the last ten messages.
-const PREVIEW_ENTRIES = 300;
 
 function boxOf(element: DOMElement): ScreenBox {
   const { x, y, width, height } = measureElement(element);
@@ -179,15 +174,7 @@ export function App({
     : undefined;
   const { placeFor, setPlace } = useChatPlace();
   const { exit } = useApp();
-  const [limit, setLimit] = useState(PAGE_SIZE);
-  const [page, setPage] = useState<WorkPage>({
-    tasks: null,
-    hasMore: false,
-    loadingMore: false,
-    error: null,
-  });
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
-  const [known, setKnown] = useState<Map<string, Task>>(new Map());
   const [pending, setPending] = useState<Map<string, string>>(new Map());
   // Each pane reports the agent's open action offer; the picker's cursor and dismissals live here.
   const offers = useRef(new Map<string, ActionsLine | null>());
@@ -266,90 +253,22 @@ export function App({
 
   useEffect(() => saveLayout(layout), [layout]);
 
-  useEffect(() => {
-    if (!work) return;
-    let cancelled = false;
-    const refresh = (): void => {
-      refreshLocalActive();
-      work.listRecent(limit).then(
-        ({ tasks, hasMore }) => {
-          if (!cancelled) {
-            setPage({ tasks, hasMore, loadingMore: false, error: null });
-          }
-        },
-        (error: unknown) => {
-          if (!cancelled) {
-            setPage((current) => ({
-              ...current,
-              loadingMore: false,
-              error: error instanceof Error ? error.message : String(error),
-            }));
-          }
-        },
-      );
-    };
-    refresh();
-    const timer = setInterval(refresh, REFRESH_MS);
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-    };
-  }, [work, limit, refreshLocalActive]);
-
-  // Preloads each listed cloud run's recent messages, one at a time, so opening one shows them at once.
-  const prefetched = useRef(new Set<string>());
-  useEffect(() => {
-    const pending = (page.tasks ?? []).flatMap((task) => {
-      const run = task.latest_run;
-      return run &&
-        run.environment !== "local" &&
-        !prefetched.current.has(run.id)
-        ? [{ taskId: task.id, runId: run.id }]
-        : [];
-    });
-    if (!runs) return;
-    for (const { runId } of pending) prefetched.current.add(runId);
-    void (async () => {
-      for (const { taskId, runId } of pending) {
-        await runs.prefetch(taskId, runId, PREVIEW_ENTRIES).catch(() => {
-          prefetched.current.delete(runId);
-        });
-      }
-    })();
-  }, [runs, page.tasks]);
-
-  // Open tasks and local chats outside the recent page are fetched once each, so they keep a title and a transcript.
-  const openTaskIds = [
-    ...allPanes(layout).flatMap((pane) => (pane.taskId ? [pane.taskId] : [])),
-    ...localActive.keys(),
-  ];
-  const missing = page.tasks
-    ? [...new Set(openTaskIds)].filter(
-        (id) =>
-          !id.startsWith(LEGACY_PREFIX) &&
-          !known.has(id) &&
-          !fresh.has(id) &&
-          !page.tasks?.some((task) => task.id === id),
-      )
-    : [];
-  const missingKey = missing.join();
-  useEffect(() => {
-    if (!work) return;
-    for (const taskId of missingKey ? missingKey.split(",") : []) {
-      work.get(taskId).then(
-        (task) => setKnown((current) => new Map(current).set(taskId, task)),
-        () => {},
-      );
-    }
-  }, [work, missingKey]);
-  const taskOf = (taskId: string | null): Task | undefined => {
-    if (!taskId) return undefined;
-    const listed = page.tasks?.find((task) => task.id === taskId);
-    const recent = fresh.get(taskId);
-    if (recent && recent.latest_run?.id !== listed?.latest_run?.id)
-      return recent;
-    return listed ?? known.get(taskId) ?? recent;
-  };
+  const {
+    page,
+    known,
+    taskOf,
+    loadMore,
+    reset: resetWork,
+  } = useWorkList({
+    work,
+    runs,
+    fresh,
+    openTaskIds: [
+      ...allPanes(layout).flatMap((pane) => (pane.taskId ? [pane.taskId] : [])),
+      ...localActive.keys(),
+    ],
+    onRefresh: refreshLocalActive,
+  });
 
   const openModal = (
     paneId: string,
@@ -545,8 +464,7 @@ export function App({
     const fresh = initialLayout();
     setLayout(fresh);
     saveLayout(fresh);
-    setPage({ tasks: null, hasMore: false, loadingMore: false, error: null });
-    setKnown(new Map());
+    resetWork();
     setFresh(new Map());
     setPending(new Map());
     flashNotice("Signed out");
@@ -773,8 +691,7 @@ export function App({
     setSelected(selectionKey(row));
     const next = activateRow(layout, row);
     if (next === "viewMore") {
-      setPage((current) => ({ ...current, loadingMore: true }));
-      setLimit((current) => current + PAGE_SIZE);
+      loadMore();
     } else {
       setLayout(next);
     }

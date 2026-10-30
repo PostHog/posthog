@@ -58,3 +58,19 @@ export class WorkList {
     return { tasks, hasMore: count > tasks.length };
   }
 }
+
+// A task this app just started or resumed wins until the list shows the same run, so a new run appears at once.
+export function findTask(
+  taskId: string | null,
+  sources: {
+    listed: Task[] | null;
+    known: Map<string, Task>;
+    fresh: Map<string, Task>;
+  },
+): Task | undefined {
+  if (!taskId) return undefined;
+  const listed = sources.listed?.find((task) => task.id === taskId);
+  const recent = sources.fresh.get(taskId);
+  if (recent && recent.latest_run?.id !== listed?.latest_run?.id) return recent;
+  return listed ?? sources.known.get(taskId) ?? recent;
+}
