@@ -39,6 +39,11 @@ export function currentRepository(cwd?: string): string | null {
 // How many repositories each GitHub connection returns per search.
 const REPOSITORY_PAGE = 30;
 
+type GithubConnection =
+  | { github_integration: number }
+  | { github_user_integration: string }
+  | Record<string, never>;
+
 // What the command endpoint answers when a message is sent into a run that has ended.
 const RUN_ENDED =
   /Failed to queue user message|Task run workflow has ended|No active sandbox/;
@@ -76,8 +81,11 @@ export class PiChats {
       description: prompt,
       repository: repositories[0],
       runtime: "pi",
-      // The API takes every repository to clone; the client's type does not list the field yet.
-      ...(repositories.length > 0 ? { repositories } : {}),
+      // One repository needs nothing more: the server finds the GitHub connection that reaches it. Several need the
+      // list and that connection named; the client's type does not list `repositories` yet.
+      ...(repositories.length > 1
+        ? { repositories, ...(await this.connectionFor(repositories[0])) }
+        : {}),
     } as Parameters<PostHogAPIClient["createTask"]>[0]);
     const run = await this.api.createTaskRun(task.id, {
       environment: "cloud",
@@ -97,20 +105,13 @@ export class PiChats {
 
   // The GitHub repositories the team's integrations and the user's own GitHub connections can clone, matching `query`.
   async searchRepositories(query: string): Promise<string[]> {
-    this.integrations ??= Promise.all([
-      this.api
-        .getIntegrations()
-        .then((all) =>
-          (all as { id: number; kind: string }[]).filter(
-            (integration) => integration.kind === "github",
-          ),
-        ),
-      this.api.getGithubUserIntegrations(),
-    ]).catch((error: unknown) => {
-      this.integrations = null;
-      throw error;
-    });
-    const [team, user] = await this.integrations;
+    const [team, user] = await this.loadIntegrations();
+    const connections: GithubConnection[] = [
+      ...team.map((integration) => ({ github_integration: integration.id })),
+      ...user.map((integration) => ({
+        github_user_integration: integration.id,
+      })),
+    ];
     const pages = await Promise.allSettled([
       ...team.map((integration) =>
         this.api.getGithubRepositoriesPage(
@@ -129,9 +130,13 @@ export class PiChats {
         ),
       ),
     ]);
-    const found = pages.flatMap((page) =>
-      page.status === "fulfilled" ? page.value.repositories : [],
-    );
+    const found = pages.flatMap((page, index) => {
+      if (page.status !== "fulfilled") return [];
+      for (const repository of page.value.repositories)
+        if (!this.connections.has(repository))
+          this.connections.set(repository, connections[index]);
+      return page.value.repositories;
+    });
     if (found.length === 0) {
       const failed = pages.find((page) => page.status === "rejected");
       if (failed) throw failed.reason;
@@ -140,8 +145,38 @@ export class PiChats {
   }
 
   private integrations: Promise<
-    [{ id: number }[], { installation_id: string }[]]
+    [{ id: number }[], { id: string; installation_id: string }[]]
   > | null = null;
+
+  private loadIntegrations(): Promise<
+    [{ id: number }[], { id: string; installation_id: string }[]]
+  > {
+    this.integrations ??= Promise.all([
+      this.api
+        .getIntegrations()
+        .then((all) =>
+          (all as { id: number; kind: string }[]).filter(
+            (integration) => integration.kind === "github",
+          ),
+        ),
+      this.api.getGithubUserIntegrations(),
+    ]).catch((error: unknown) => {
+      this.integrations = null;
+      throw error;
+    });
+    return this.integrations;
+  }
+
+  // The GitHub connection each searched repository came from, which a task with several repositories must name.
+  private readonly connections = new Map<string, GithubConnection>();
+
+  // A repository never searched for falls back to the team's first GitHub integration.
+  private async connectionFor(repository: string): Promise<GithubConnection> {
+    const known = this.connections.get(repository);
+    if (known) return known;
+    const [team] = await this.loadIntegrations();
+    return team[0] ? { github_integration: team[0].id } : {};
+  }
 
   // A local chat's task row: the server names it from the first message, and the chat runs on this machine with no run.
   createLocal(prompt: string, repository = this.repository): Promise<Task> {
