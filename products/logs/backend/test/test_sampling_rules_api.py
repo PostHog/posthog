@@ -324,6 +324,20 @@ class TestLogsSamplingRulesAPI(APIBaseTest):
         assert r.status_code == status.HTTP_200_OK, r.json()
         assert [rule["id"] for rule in r.json()] == [span_b["id"], span_a["id"]]
 
+    def test_list_pages_one_source_in_priority_order(self):
+        names = ["first", "second", "third"]
+        for name in names:
+            self.client.post(self.base_url, self._payload(name=name), format="json")
+        self.client.post(self.base_url, self._payload(name="span", source="spans"), format="json")
+
+        first_page = self.client.get(f"{self.base_url}?limit=2").json()
+        second_page = self.client.get(f"{self.base_url}?limit=2&offset=2").json()
+
+        assert [r["name"] for r in first_page["results"]] == names[:2]
+        assert first_page["next"] is not None
+        assert [r["name"] for r in second_page["results"]] == names[2:]
+        assert second_page["next"] is None
+
     @parameterized.expand(
         [
             ("patch", "patch", {"source": "logs"}),

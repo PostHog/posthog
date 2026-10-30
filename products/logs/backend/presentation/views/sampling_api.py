@@ -6,7 +6,7 @@ from typing import Any, cast
 from django.db import transaction
 from django.db.models import F, Max, QuerySet
 
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema, extend_schema_view
 from pydantic import ValidationError as PydanticValidationError
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
@@ -310,6 +310,7 @@ class LogsSamplingRuleSimulateResponseSerializer(serializers.Serializer):
 LOGS_SPAN_DROP_RULES_FLAG = "logs-span-drop-rules"
 
 
+@extend_schema_view(list=extend_schema(parameters=[LogsSamplingRuleSourceQuerySerializer]))
 class LogsSamplingRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "logs"
     queryset = LogsExclusionRule.objects.all().order_by("priority", "created_at")
@@ -380,13 +381,10 @@ class LogsSamplingRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         queryset = queryset.filter(team_id=self.team_id)
         if self.action == "list":
-            queryset = queryset.filter(source=self._requested_source())
+            source = self._requested_source()
+            self._assert_tracing_access_for_span_rules(source, "viewer")
+            queryset = queryset.filter(source=source)
         return queryset
-
-    @extend_schema(parameters=[LogsSamplingRuleSourceQuerySerializer])
-    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        self._assert_tracing_access_for_span_rules(self._requested_source(), "viewer")
-        return super().list(request, *args, **kwargs)
 
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = cast(LogsExclusionRule, self.get_object())
