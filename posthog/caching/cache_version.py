@@ -25,6 +25,9 @@ def read_cache_version(key: str, timeout: int) -> int:
 def bump_cache_version(key: str, timeout: int) -> None:
     try:
         cache.incr(key)
+        # incr keeps the old expiry. If the key expired, the version would start again at 0 and could
+        # match entries that are still cached.
+        cache.touch(key, timeout=timeout)
     except ValueError:
         try:
             cache.add(key, 1, timeout=timeout)
