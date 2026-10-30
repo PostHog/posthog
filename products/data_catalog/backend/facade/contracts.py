@@ -110,6 +110,7 @@ class UncoveredGroup:
     sample_sql: str
     draft_name: str | None
     draft_description: str | None
+    draft_definition: str | None = None
 
 
 @dataclass(frozen=True)
