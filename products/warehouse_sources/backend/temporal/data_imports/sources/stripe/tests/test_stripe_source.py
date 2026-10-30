@@ -1,7 +1,9 @@
+import shutil
 import functools
 import threading
 import contextvars
 from collections.abc import Callable
+from datetime import timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Optional, cast
@@ -29,6 +31,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     ParentTableRef,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    DriveResult,
     RecordedRequest,
     ScriptedResponse,
     SourceDriver,
@@ -66,6 +69,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
     HISTORY_EVENT_TYPE_COLUMN,
     HISTORY_PREVIOUS_ATTRIBUTES_COLUMN,
     HISTORY_SNAPSHOT_EVENT_TYPE,
+    INVOICE_ITEM_RESOURCE_NAME,
     INVOICE_PAYMENT_RESOURCE_NAME,
     INVOICE_RESOURCE_NAME,
     PAYMENT_INTENT_RESOURCE_NAME,
@@ -233,6 +237,107 @@ class TestStripeGetRowsIncrementalCursor:
         rows = [row for table in tables for row in table.to_pylist()]
         assert [row["id"] for row in rows] == [f"ch_{i}" for i in range(5)]
         assert len(tables) > 1
+
+
+NOW = 1_800_000_000
+
+
+def _stripe_list_api(objects: list[dict[str, Any]], field: str) -> Callable[[RecordedRequest], ScriptedResponse]:
+    # Stripe filters on `created` even for an object that only shows another timestamp, such as an invoice item's `date`.
+    def respond(request: RecordedRequest) -> ScriptedResponse:
+        newer_than, up_to = request.param("created[gt]"), request.param("created[lte]")
+        rows = [
+            obj
+            for obj in sorted(objects, key=lambda obj: (-obj[field], obj["id"]))
+            if (newer_than is None or obj[field] > int(newer_than)) and (up_to is None or obj[field] <= int(up_to))
+        ]
+        ids = [obj["id"] for obj in rows]
+        limit = int(request.param("limit") or DEFAULT_LIMIT)
+        starting_after, ending_before = request.param("starting_after"), request.param("ending_before")
+        if ending_before is not None:
+            newer = rows[: ids.index(ending_before)]
+            page, has_more = newer[-limit:], len(newer) > limit
+        else:
+            older = rows[ids.index(starting_after) + 1 :] if starting_after is not None else rows
+            page, has_more = older[:limit], len(older) > limit
+        return ScriptedResponse(json={"object": "list", "url": "/v1/list", "data": page, "has_more": has_more})
+
+    return respond
+
+
+class TestStripeLatestObjectsOldestFirst:
+    def _sync(self, resource: str, objects: list[dict[str, Any]], field: str, watermark: int) -> DriveResult:
+        result = SourceDriver(
+            StripeSource(),
+            StripeSourceConfig(auth_method=StripeAuthMethodConfig(selection="api_key", stripe_secret_key="sk_test")),
+        ).run(
+            resource,
+            _stripe_list_api(objects, field),
+            incremental_field=field,
+            db_incremental_field_last_value=watermark,
+            api_version=STRIPE_API_VERSION_ACACIA,
+        )
+        assert result.raised is None
+        return result
+
+    @pytest.mark.parametrize(
+        "resource, object_type, field, run_seconds, several_runs",
+        [
+            (CHARGE_RESOURCE_NAME, "charge", "created", 15 * 60, False),
+            (CHARGE_RESOURCE_NAME, "charge", "created", 0, True),
+            (INVOICE_ITEM_RESOURCE_NAME, "invoiceitem", "date", 0, True),
+            (INVOICE_RESOURCE_NAME, "invoice", "created", 0, True),
+        ],
+        ids=["within_budget", "budget_spent", "invoice_item_by_date", "invoice_with_lines"],
+    )
+    def test_a_backlog_loads_each_object_once_across_runs(
+        self, resource: str, object_type: str, field: str, run_seconds: int, several_runs: bool
+    ) -> None:
+        watermark = NOW - 40 * 86_400
+        # Older objects are loaded already. Pairs share a timestamp, so a run must not stop between them.
+        timestamps = [watermark - 86_400, watermark] + [NOW - 600 * (i // 2) for i in range(250)]
+        objects: list[dict[str, Any]] = [
+            {
+                "id": f"obj_{i:03}",
+                "object": object_type,
+                field: timestamp,
+                "lines": {"object": "list", "data": [], "has_more": False, "url": "/v1/lines"},
+            }
+            for i, timestamp in enumerate(timestamps)
+        ]
+        loaded: list[str] = []
+        runs = 0
+        with patch.object(stripe_module, "INCREMENTAL_RUN_SECONDS", run_seconds):
+            while rows := [
+                row for table in self._sync(resource, objects, field, watermark).items for row in table.to_pylist()
+            ]:
+                runs += 1
+                loaded.extend(row["id"] for row in rows)
+                # The pipeline stages the newest value a desc source read as the run's watermark.
+                watermark = max(row[field] for row in rows)
+
+        assert sorted(loaded) == sorted(obj["id"] for obj in objects[2:])
+        assert (runs > 1) is several_runs
+
+    def test_a_backlog_with_nothing_at_or_before_the_watermark_loads_in_one_run(self) -> None:
+        charges: list[dict[str, Any]] = [
+            {"id": f"ch_{i:03}", "object": "charge", "created": NOW - 60 * i} for i in range(150)
+        ]
+
+        with patch.object(stripe_module, "INCREMENTAL_RUN_SECONDS", 0):
+            result = self._sync(CHARGE_RESOURCE_NAME, charges, "created", NOW - 86_400)
+
+        assert sorted(row["id"] for table in result.items for row in table.to_pylist()) == sorted(
+            charge["id"] for charge in charges
+        )
+
+    def test_a_read_within_one_page_keeps_one_request(self) -> None:
+        charges = [{"id": f"ch_{day}", "object": "charge", "created": NOW - day * 86_400} for day in (1, 300)]
+
+        result = self._sync(CHARGE_RESOURCE_NAME, charges, "created", NOW - 3 * 365 * 86_400)
+
+        assert len(result.requests) == 1
+        assert [row["id"] for table in result.items for row in table.to_pylist()] == ["ch_1", "ch_300"]
 
 
 class TestStripeFlatResourceResumeCursor:
@@ -2101,15 +2206,32 @@ class TestCreateWebhookPermissionErrorCopy:
             assert unreachable_phrase not in (result.error or "")
 
 
-class TestCreateWebhookLimitErrorCopy:
-    # Regression test: hitting Stripe's webhook-endpoint cap used to surface Stripe's raw error
-    # verbatim, so the user couldn't tell the account-wide limit was the cause or how to recover.
-    def test_webhook_limit_error_gives_actionable_message(self):
+class TestCreateWebhookFailureCopy:
+    # Regression test: these failures used to surface Stripe's raw error verbatim, so the user
+    # couldn't tell the cause or how to recover.
+    @parameterized.expand(
+        [
+            (
+                "webhook_limit",
+                stripe_lib.InvalidRequestError(
+                    "You have reached the maximum of 100 test webhook endpoints.", param=None
+                ),
+                "webhook endpoint limit",
+            ),
+            (
+                "network_error",
+                stripe_lib.APIConnectionError(
+                    "Unexpected error communicating with Stripe. If this problem persists, let us know at "
+                    "support@stripe.com.\n\n(Network error: ConnectionError: connection refused)"
+                ),
+                "couldn't reach Stripe",
+            ),
+        ]
+    )
+    def test_failure_gives_actionable_message(self, _name, error, expected_phrase):
         with patch.object(stripe_module, "StripeClient") as mock_client_cls:
             mock_client = mock_client_cls.return_value
-            mock_client.webhook_endpoints.create.side_effect = stripe_lib.InvalidRequestError(
-                "You have reached the maximum of 100 test webhook endpoints.", param=None
-            )
+            mock_client.webhook_endpoints.create.side_effect = error
 
             result = create_webhook(
                 api_key="sk_test_123",
@@ -2119,8 +2241,9 @@ class TestCreateWebhookLimitErrorCopy:
             )
 
         assert result.success is False
-        assert "webhook endpoint limit" in (result.error or "")
+        assert expected_phrase in (result.error or "")
         assert "manually" in (result.error or "")
+        assert "support@stripe.com" not in (result.error or "")
 
 
 class TestRepinWebhookApiVersion:
@@ -2611,3 +2734,221 @@ class TestStripeNestedSweepResume:
 
         assert "starting_after" not in nested_params[0]
         assert [row["id"] for row in rows] == ["txn_1"]
+
+
+class _PipelineAroundTheSweep:
+    """Stands in for the pipeline and the resumable source manager around the Stripe source.
+
+    It holds the two behaviours the duplicate rows came from: a cursor commits only after the
+    table it covers is written, and an attempt that finds resume state appends to what earlier
+    attempts wrote, while an attempt that finds none overwrites the table.
+    """
+
+    def __init__(self) -> None:
+        self.table: list[dict] = []
+        self.committed: Optional[stripe_module.StripeResumeConfig] = None
+        self._staged: Optional[stripe_module.StripeResumeConfig] = None
+
+    def can_resume(self) -> bool:
+        return self.committed is not None
+
+    def load_state(self) -> Optional[stripe_module.StripeResumeConfig]:
+        return self.committed
+
+    def save_state(self, state: stripe_module.StripeResumeConfig) -> None:
+        self._staged = state
+
+    def clear_state(self) -> None:
+        self.committed = None
+        self._staged = None
+
+    def safe_point(self) -> None:
+        pass
+
+    def run_attempt(self, resolved: ParentTableRef, nested_method, interrupt_after_tables: Optional[int] = None):
+        resource = StripeNestedResource(
+            method=nested_method,
+            nested_parent_param="customer",
+            parent_id="id",
+            parent=StripeResource(method=MagicMock(side_effect=AssertionError("the listing must not be paged"))),
+            parent_name=CUSTOMER_RESOURCE_NAME,
+        )
+        webhooks = MagicMock(spec=WebhookSourceManager)
+        webhooks.webhook_enabled = mock.AsyncMock(return_value=False)
+        with (
+            patch.object(stripe_module, "StripeClient"),
+            patch.object(stripe_module, "STRIPE_CHUNK_SIZE", 1),
+            patch.object(
+                stripe_module, "_build_resources", return_value={CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME: resource}
+            ),
+            patch.object(stripe_module, "_resolve_warehouse_parent", return_value=resolved),
+        ):
+            response = stripe_module.stripe_source(
+                api_key="sk_test_123",
+                account_id=None,
+                endpoint=CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME,
+                db_incremental_field_last_value=None,
+                db_incremental_field_earliest_value=None,
+                logger=MagicMock(),
+                resumable_source_manager=cast(Any, self),
+                webhook_source_manager=webhooks,
+                api_version=STRIPE_API_VERSION_ACACIA,
+                team_id=1,
+                source_id="source-1",
+                use_warehouse_parent=True,
+            )
+            # The pipeline asks only after the source is built, which is the source's last chance
+            # to drop resume state it will not honour.
+            if not self.can_resume():
+                self.table = []
+            items = response.items()
+            for written, table in enumerate(items, start=1):
+                self.table.extend(table.to_pylist())
+                if self._staged is not None:
+                    self.committed, self._staged = self._staged, None
+                if interrupt_after_tables is not None and written >= interrupt_after_tables:
+                    items.close()
+                    return
+
+
+def _paging_nested_method():
+    """A nested list method that honours `starting_after`, as Stripe does, and records each call.
+
+    A resumed sweep re-enters the parent it was paginating with a cursor into that parent's own
+    pages, so a fake that ignored the cursor would duplicate a row the real API would not return.
+    """
+    calls: list[tuple[str, Optional[str]]] = []
+
+    def _nested(customer, params):
+        cursor = params.get("starting_after")
+        calls.append((customer, cursor))
+        return _list_object([] if cursor == f"cbt_{customer}" else [{"id": f"cbt_{customer}"}])
+
+    return _nested, calls
+
+
+class TestStripeWarehouseResumeAcrossParentVersions:
+    """A resumed `CustomerBalanceTransaction` run whose parent table committed since the last attempt.
+
+    The Customer schema is webhook-synced, so its Delta table gains a version every drain, and
+    each attempt of a long sweep pins whichever version is newest when it starts.
+    """
+
+    _CUSTOMERS = [{"id": "cus_1", "balance": -1}, {"id": "cus_2", "balance": -1}, {"id": "cus_3", "balance": -1}]
+
+    def _interrupted_run(self, tmp_path) -> tuple[_PipelineAroundTheSweep, str, ParentTableRef]:
+        uri = _write_customer_parent_table(tmp_path, self._CUSTOMERS)
+        pinned = ParentTableRef(uri=uri, version=deltalake.DeltaTable(uri).version())
+        pipeline = _PipelineAroundTheSweep()
+        nested_method, _ = _paging_nested_method()
+        pipeline.run_attempt(pinned, nested_method, interrupt_after_tables=1)
+        assert [row["id"] for row in pipeline.table] == ["cbt_cus_1"]
+        deltalake.write_deltalake(
+            uri,
+            pa.table({"id": [c["id"] for c in self._CUSTOMERS], "balance": [-1, -2, -1]}),
+            mode="overwrite",
+        )
+        return pipeline, uri, ParentTableRef(uri=uri, version=deltalake.DeltaTable(uri).version())
+
+    def test_the_resumed_attempt_continues_on_the_version_it_checkpointed_against(self, tmp_path):
+        pipeline, _uri, newest = self._interrupted_run(tmp_path)
+        nested_method, calls = _paging_nested_method()
+
+        pipeline.run_attempt(newest, nested_method)
+
+        assert [row["id"] for row in pipeline.table] == ["cbt_cus_1", "cbt_cus_2", "cbt_cus_3"]
+        assert calls == [("cus_1", "cbt_cus_1"), ("cus_2", None), ("cus_3", None)]
+
+    def test_a_checkpoint_too_old_to_read_restarts_as_a_fresh_attempt(self, tmp_path):
+        pipeline, _uri, newest = self._interrupted_run(tmp_path)
+        nested_method, calls = _paging_nested_method()
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent.MAX_SNAPSHOT_ROLLBACK",
+            timedelta(0),
+        ):
+            pipeline.run_attempt(newest, nested_method)
+
+        assert [row["id"] for row in pipeline.table] == ["cbt_cus_1", "cbt_cus_2", "cbt_cus_3"]
+        assert calls == [("cus_1", None), ("cus_2", None), ("cus_3", None)]
+
+    def test_a_rebuilt_parent_table_restarts_as_a_fresh_attempt(self, tmp_path):
+        pipeline, uri, _newest = self._interrupted_run(tmp_path)
+        shutil.rmtree(uri)
+        _write_customer_parent_table(tmp_path, self._CUSTOMERS)
+        deltalake.write_deltalake(uri, pa.table({"id": ["cus_4"], "balance": [-1]}), mode="append")
+        nested_method, calls = _paging_nested_method()
+
+        pipeline.run_attempt(ParentTableRef(uri=uri, version=deltalake.DeltaTable(uri).version()), nested_method)
+
+        assert sorted(row["id"] for row in pipeline.table) == ["cbt_cus_1", "cbt_cus_2", "cbt_cus_3", "cbt_cus_4"]
+        assert all(cursor is None for _customer, cursor in calls)
+
+    @pytest.mark.parametrize(
+        "parent_path,state",
+        [
+            ("warehouse", stripe_module.StripeResumeConfig(starting_after="cus_1")),
+            (
+                "warehouse",
+                stripe_module.StripeResumeConfig(
+                    warehouse_fragment_index=0,
+                    warehouse_row_offset=1,
+                    warehouse_table_uri="s3://elsewhere",
+                    warehouse_version=0,
+                ),
+            ),
+            (
+                "api",
+                stripe_module.StripeResumeConfig(
+                    warehouse_fragment_index=0,
+                    warehouse_row_offset=1,
+                    warehouse_table_uri="s3://elsewhere",
+                    warehouse_version=0,
+                ),
+            ),
+        ],
+        ids=["api_cursor_on_the_warehouse_path", "another_table", "warehouse_position_on_the_api_path"],
+    )
+    def test_resume_state_the_sweep_cannot_honour_is_dropped_before_the_pipeline_reads_it(
+        self, parent_path, state, tmp_path
+    ):
+        uri = _write_customer_parent_table(tmp_path, self._CUSTOMERS)
+        resolved = ParentTableRef(uri=uri, version=deltalake.DeltaTable(uri).version())
+        manager = MagicMock()
+        manager.can_resume.return_value = True
+        manager.load_state.return_value = state
+
+        reconciled, _table_id = stripe_module._reconcile_warehouse_resume(
+            CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME,
+            resolved if parent_path == "warehouse" else None,
+            manager,
+            MagicMock(),
+        )
+
+        manager.clear_state.assert_called_once()
+        assert reconciled == (resolved if parent_path == "warehouse" else None)
+
+    @pytest.mark.parametrize(
+        "endpoint,state",
+        [
+            (CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME, stripe_module.StripeResumeConfig(starting_after="cus_1")),
+            (
+                CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME,
+                stripe_module.StripeResumeConfig(
+                    warehouse_fragment_index=0,
+                    warehouse_row_offset=1,
+                    warehouse_table_uri="s3://x",
+                    warehouse_version=0,
+                ),
+            ),
+        ],
+        ids=["api_cursor_on_the_api_path", "unconverted_endpoint"],
+    )
+    def test_resume_state_the_sweep_honours_is_kept(self, endpoint, state):
+        manager = MagicMock()
+        manager.can_resume.return_value = True
+        manager.load_state.return_value = state
+
+        stripe_module._reconcile_warehouse_resume(endpoint, None, manager, MagicMock())
+
+        manager.clear_state.assert_not_called()

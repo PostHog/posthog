@@ -45,18 +45,31 @@ from products.signals.backend.ranking.serving_manifest import (
     ONNX_MODEL_FILE,
     ONNX_MODEL_KIND,
     PINNED_ROLE,
+    PROJECT_VECTORS_ENGAGEMENT_DATE_METADATA_KEY,
+    PROJECT_VECTORS_SCHEMA_VERSION_METADATA_KEY,
     RECENT_ROLE,
     SERVED_ROLE,
     ServingManifest,
     ServingManifestEntry,
     model_key,
+    serving_engagement_key,
     serving_manifest_key,
     serving_model_prefix,
     serving_project_vectors_key,
+    serving_user_vectors_key,
 )
 from products.signals.backend.ranking.sinks import REPORT_SCORED_EVENT
 from products.signals.dags.inbox_ranking.common import partition_object_key
-from products.signals.dags.inbox_ranking.dataset.dag import LABELS_TABLE, PROJECT_VECTORS_TABLE, STATE_TABLE
+from products.signals.dags.inbox_ranking.dataset.dag import (
+    LABELS_TABLE,
+    PROJECT_VECTORS_TABLE,
+    STATE_TABLE,
+    USER_VECTORS_TABLE,
+)
+from products.signals.dags.inbox_ranking.dataset.project_vectors import (
+    PROJECT_VECTORS_SCHEMA_VERSION,
+    USER_VECTORS_SCHEMA_VERSION,
+)
 from products.signals.dags.inbox_ranking.training.calibration import (
     BUCKETS,
     calibration_buckets,
@@ -66,6 +79,9 @@ from products.signals.dags.inbox_ranking.training.classification import classifi
 from products.signals.dags.inbox_ranking.training.dag import (
     _STATE_READ_COLUMNS,
     METADATA_FILE,
+    NO_FRESH_PROJECT_VECTORS,
+    STALE_ENGAGEMENT_EXPORT,
+    UNKNOWN_SCHEMA_VERSION,
     _delete_other_objects,
     _pinned_models,
     _publish_manifest,
@@ -80,6 +96,7 @@ from products.signals.dags.inbox_ranking.training.dag import (
 from products.signals.dags.inbox_ranking.training.examples import (
     STATE_LAG_LIMIT,
     Snapshot,
+    activity_vector_as_of,
     assemble_snapshot,
     birth_day_positives,
     build_examples,
@@ -88,6 +105,12 @@ from products.signals.dags.inbox_ranking.training.examples import (
     example_columns,
     holdout_mask,
     reports_missing_birth_snapshot,
+)
+from products.signals.dags.inbox_ranking.training.families import (
+    MODEL_FAMILIES,
+    NN_MODEL_NAME,
+    NN_WITH_PRIO_MODEL_NAME,
+    ModelFamily,
 )
 from products.signals.dags.inbox_ranking.training.heads import ACTION_LABEL_COLUMNS, HEADS_BY_NAME, Head
 from products.signals.dags.inbox_ranking.training.promotion import (
@@ -120,12 +143,8 @@ from products.signals.dags.inbox_ranking.training.train import HoldoutGrade, _he
 from products.signals.dags.inbox_ranking.training.unseen import (
     CANDIDATE_ROLE,
     LEGACY_POOL_NAME,
-    MODEL_FAMILIES,
-    NN_MODEL_NAME,
-    NN_WITH_PRIO_MODEL_NAME,
     POOL_NAME,
     SERVED_SCORES_TABLE,
-    ModelFamily,
     calibration_rows,
     chance_band,
     empty_scores_write_allowed,
@@ -142,6 +161,15 @@ from products.signals.dags.inbox_ranking.training.within_team import NO_TEAMS, W
 
 # A per-head XGBoost family on the report vector. The sweep still serves this learner.
 EMBEDDINGS_MODEL_NAME = "report_embeddings_xgb"
+EXPERIMENT_MODEL_NAME = "report_embeddings_experiment"
+_EMBEDDINGS_FAMILY = ModelFamily(name=EMBEDDINGS_MODEL_NAME, feature_set=REPORT_EMBEDDINGS_FEATURE_SET)
+_EXPERIMENT_FAMILY = ModelFamily(
+    name=EXPERIMENT_MODEL_NAME,
+    feature_set=REPORT_EMBEDDINGS_FEATURE_SET,
+    experiment=True,
+    baseline=EMBEDDINGS_MODEL_NAME,
+    expires=datetime.date(2026, 9, 30),
+)
 EMBEDDING_FEATURE_SETS = (REPORT_EMBEDDINGS_FEATURE_SET,)
 
 
@@ -454,6 +482,47 @@ def test_holdout_mask_cuts_by_report_not_by_row():
         }
     )
     assert holdout_mask(examples, holdout_days=7).tolist() == [False, False, True, True]
+
+
+ACTIVITY_AS_OF = datetime.datetime(2026, 8, 10, 12, 0, tzinfo=datetime.UTC)
+
+
+@pytest.mark.parametrize(
+    "generated_hours_before,expected_hours_before",
+    [
+        ([], None),
+        ([72, 24, 48], 24),
+        # A summary built after the scoring moment did not exist yet.
+        ([24, -1], 24),
+        ([24 * 8], None),
+    ],
+    ids=["no_vector_yet", "newest_of_several", "vector_after_the_moment", "stale_vector"],
+)
+def test_activity_vector_as_of_reads_the_newest_vector_before_the_moment(generated_hours_before, expected_hours_before):
+    generated_ats = [ACTIVITY_AS_OF - datetime.timedelta(hours=hours) for hours in generated_hours_before]
+    vectors = pd.DataFrame(
+        {
+            "team_id": [1] * len(generated_ats) + [2, 1],
+            "user_id": [7] * len(generated_ats) + [7, 8],
+            # Another team's user 7 and another user of team 1, both fresher than any of user 7's vectors.
+            "generated_at": pd.to_datetime(
+                generated_ats + [ACTIVITY_AS_OF - datetime.timedelta(hours=1)] * 2, utc=True
+            ),
+            "embedding_small": [[float(hours)] for hours in generated_hours_before] + [[-1.0], [-2.0]],
+        }
+    )
+
+    found = activity_vector_as_of(
+        vectors, team_id=1, user_id=7, as_of=ACTIVITY_AS_OF, max_age=datetime.timedelta(days=7)
+    )
+
+    if expected_hours_before is None:
+        assert found is None
+    else:
+        assert found is not None
+        assert found.embedding == [float(expected_hours_before)]
+        assert found.age == datetime.timedelta(hours=expected_hours_before)
+        assert found.generated_at == ACTIVITY_AS_OF - found.age
 
 
 class _FakeClient:
@@ -2145,16 +2214,24 @@ def test_a_model_published_before_model_kind_existed_reads_as_xgboost():
 class _AppObjectStore:
     """The deployment's object store, the one the Temporal workers can reach."""
 
-    def __init__(self, existing: dict[str, bytes] | None = None, fail_on: str | None = None):
+    def __init__(
+        self,
+        existing: dict[str, bytes] | None = None,
+        fail_on: str | None = None,
+        metadata: dict[str, dict[str, str]] | None = None,
+    ):
         self.objects = dict(existing or {})
+        self.metadata = dict(metadata or {})
         self.fail_on = fail_on
         self.written: list[str] = []
-        self.extras: dict[str, dict[str, str] | None] = {}
+        self.extras: dict[str, dict[str, Any] | None] = {}
 
-    def head_object(self, bucket: str, file_key: str) -> dict[str, int] | None:
-        return {"ContentLength": len(self.objects[file_key])} if file_key in self.objects else None
+    def head_object(self, bucket: str, file_key: str) -> dict[str, Any] | None:
+        if file_key not in self.objects:
+            return None
+        return {"ContentLength": len(self.objects[file_key]), "Metadata": self.metadata.get(file_key, {})}
 
-    def write(self, bucket: str, key: str, content: str | bytes, extras: dict[str, str] | None) -> None:
+    def write(self, bucket: str, key: str, content: str | bytes, extras: dict[str, Any] | None) -> None:
         if self.fail_on is not None and self.fail_on in key:
             raise RuntimeError("object store write failed")
         self.objects[key] = content if isinstance(content, bytes) else content.encode()
@@ -2324,6 +2401,125 @@ def test_project_vectors_are_published_before_the_manifest_that_names_them(
         assert mirror.objects == {}
 
 
+@pytest.mark.parametrize(
+    "source_present,already_published,write_fails",
+    [(True, False, False), (True, True, False), (False, False, False), (True, False, True)],
+)
+def test_user_vectors_are_published_when_present_and_never_block_the_manifest_or_reach_the_mirror(
+    monkeypatch: pytest.MonkeyPatch, source_present: bool, already_published: bool, write_fails: bool
+) -> None:
+    prefix = settings.INBOX_RANKING_DATASET_S3_PREFIX
+    partition_key = "2026-08-19"
+    target = serving_user_vectors_key(prefix, partition_key)
+    store = _AppObjectStore(
+        {target: b"published before"} if already_published else None, fail_on="/user_vectors/" if write_fails else None
+    )
+    mirror = _AppObjectStore()
+    dataset = _serving_dataset_s3(prefix, partition_key)
+    if source_present:
+        dataset.objects[partition_object_key(prefix, USER_VECTORS_TABLE, partition_key)] = b"user vectors"
+    capture = _run_serving_manifest(monkeypatch, store, mirror=mirror, dataset_client=dataset)
+
+    named = source_present and not write_fails
+    manifest = ServingManifest.model_validate_json(store.objects[serving_manifest_key(prefix)])
+    assert manifest.user_vectors == (target if named else None)
+    assert _manifest_event(capture)["user_vectors_key"] == manifest.user_vectors
+    assert store.written[-1] == serving_manifest_key(prefix)
+    if named and not already_published:
+        assert store.objects[target] == b"user vectors"
+        assert store.extras[target] == {
+            "Metadata": {PROJECT_VECTORS_SCHEMA_VERSION_METADATA_KEY: str(USER_VECTORS_SCHEMA_VERSION)}
+        }
+    # Per-user data stays in the deployment that owns the users.
+    assert not any("/user_vectors/" in key for key in mirror.objects)
+    assert ServingManifest.model_validate_json(mirror.objects[serving_manifest_key(prefix)]).user_vectors is None
+
+
+_MIRROR_PARTITION = "2026-08-19"
+
+
+def _mirror_day(offset: int) -> str:
+    return (datetime.date.fromisoformat(_MIRROR_PARTITION) - datetime.timedelta(days=offset)).isoformat()
+
+
+def _mirror_vectors_metadata(engagement_offset: int, schema_version: int = PROJECT_VECTORS_SCHEMA_VERSION):
+    return {
+        PROJECT_VECTORS_SCHEMA_VERSION_METADATA_KEY: str(schema_version),
+        PROJECT_VECTORS_ENGAGEMENT_DATE_METADATA_KEY: _mirror_day(engagement_offset),
+    }
+
+
+@pytest.mark.parametrize(
+    "mirror_days,expected_offset,skip_reason",
+    [
+        ({0: _mirror_vectors_metadata(1)}, 0, None),
+        ({1: _mirror_vectors_metadata(2)}, 1, None),
+        (
+            {
+                0: _mirror_vectors_metadata(1, schema_version=PROJECT_VECTORS_SCHEMA_VERSION + 1),
+                1: _mirror_vectors_metadata(2),
+            },
+            1,
+            None,
+        ),
+        ({}, None, NO_FRESH_PROJECT_VECTORS),
+        ({4: _mirror_vectors_metadata(5)}, None, NO_FRESH_PROJECT_VECTORS),
+        (
+            {0: _mirror_vectors_metadata(1, schema_version=PROJECT_VECTORS_SCHEMA_VERSION + 1)},
+            None,
+            UNKNOWN_SCHEMA_VERSION,
+        ),
+        ({0: _mirror_vectors_metadata(4)}, None, STALE_ENGAGEMENT_EXPORT),
+        (
+            {0: {PROJECT_VECTORS_SCHEMA_VERSION_METADATA_KEY: str(PROJECT_VECTORS_SCHEMA_VERSION)}},
+            None,
+            STALE_ENGAGEMENT_EXPORT,
+        ),
+    ],
+)
+def test_the_mirror_manifest_names_the_mirror_regions_own_fresh_project_vectors(
+    monkeypatch: pytest.MonkeyPatch,
+    mirror_days: dict[int, dict[str, str]],
+    expected_offset: int | None,
+    skip_reason: str | None,
+) -> None:
+    prefix = settings.INBOX_RANKING_DATASET_S3_PREFIX
+    mirror_keys = {offset: serving_project_vectors_key(prefix, _mirror_day(offset)) for offset in mirror_days}
+    # The fake has no read method, so a publish that read a mirror object body would fail the mirror.
+    mirror = _AppObjectStore(
+        dict.fromkeys(mirror_keys.values(), b"mirror region vectors"),
+        metadata={key: mirror_days[offset] for offset, key in mirror_keys.items()},
+    )
+    before = dict(mirror.objects)
+    dataset = _serving_dataset_s3(
+        prefix,
+        _MIRROR_PARTITION,
+        model_kind=ONNX_MODEL_KIND,
+        project_vector_kinds=("typical", "open", "action", "dismiss"),
+    )
+    dataset.objects[partition_object_key(prefix, PROJECT_VECTORS_TABLE, _MIRROR_PARTITION)] = b"this region vectors"
+    capture = _run_serving_manifest(monkeypatch, _AppObjectStore(), mirror=mirror, dataset_client=dataset)
+
+    event = _manifest_event(capture)
+    assert b"this region vectors" not in mirror.objects.values()
+    assert not any("/project_vectors/" in key for key in mirror.written)
+    if expected_offset is None:
+        assert mirror.objects == before
+        assert event["mirror_published"] is False
+        assert event["mirror_skip_reason"] == skip_reason
+        assert event["mirror_project_vectors_key"] is None
+        return
+    manifest = ServingManifest.model_validate_json(mirror.objects[serving_manifest_key(prefix)])
+    assert manifest.served.reads_project_vectors
+    assert manifest.project_vectors == mirror_keys[expected_offset]
+    assert mirror.written[-1] == serving_manifest_key(prefix)
+    assert event["mirror_published"] is True
+    assert "mirror_skip_reason" not in event
+    assert event["mirror_project_vectors_key"] == mirror_keys[expected_offset]
+    assert event["mirror_project_vectors_date"] == _mirror_day(expected_offset)
+    assert event["mirror_engagement_export_date"] == _mirror_day(expected_offset + 1)
+
+
 def test_recent_versions_and_challengers_come_from_the_window_and_skip_a_version_missing_its_booster(monkeypatch):
     # A booster deleted by a re-run would fail the whole publish, and a version older than the
     # window would keep a stale model in every pass. A challenger is one version per other family,
@@ -2337,6 +2533,9 @@ def test_recent_versions_and_challengers_come_from_the_window_and_skip_a_version
         (NN_WITH_PRIO_MODEL_NAME, "2026-08-19", False),
         (NN_WITH_PRIO_MODEL_NAME, "2026-08-18", True),
         (NN_MODEL_NAME, "2026-08-17", True),
+        # Readable, with every file, and newest in the window: an experiment never serves, so it is
+        # no challenger either.
+        (EXPERIMENT_MODEL_NAME, "2026-08-19", True),
     ):
         folder = model_object_key(prefix, name, version, "")
         client.objects[folder + METADATA_FILE] = json.dumps(
@@ -2347,7 +2546,7 @@ def test_recent_versions_and_challengers_come_from_the_window_and_skip_a_version
     monkeypatch.setattr(settings, "INBOX_RANKING_SERVING_RECENT_VERSIONS", 3)
     store = _AppObjectStore()
 
-    _run_serving_manifest(monkeypatch, store, dataset_client=client, families=MODEL_FAMILIES)
+    _run_serving_manifest(monkeypatch, store, dataset_client=client, families=(*MODEL_FAMILIES, _EXPERIMENT_FAMILY))
 
     manifest = ServingManifest.model_validate_json(store.objects[serving_manifest_key(prefix)])
     assert [(entry.model_name, entry.model_version, entry.roles) for entry in manifest.models] == [
@@ -2473,7 +2672,12 @@ def test_a_missing_pin_is_dropped_and_the_manifest_still_publishes(monkeypatch):
     missing_key = model_key(EMBEDDINGS_MODEL_NAME, pin_version)
     absent_key = model_key(EMBEDDINGS_MODEL_NAME, "2026-07-01")
     denied_key = model_key(EMBEDDINGS_MODEL_NAME, "2026-06-01")
-    pins = (missing_key, absent_key, denied_key, retired_key)
+    experiment_key = model_key(EXPERIMENT_MODEL_NAME, pin_version)
+    client.objects[model_object_key(prefix, EXPERIMENT_MODEL_NAME, pin_version, METADATA_FILE)] = json.dumps(
+        _serving_metadata(EXPERIMENT_MODEL_NAME, pin_version, heads=("open",), **_FEATURE_FIELDS)
+    ).encode()
+    client.objects[model_object_key(prefix, EXPERIMENT_MODEL_NAME, pin_version, "open.ubj")] = b"booster"
+    pins = (missing_key, absent_key, denied_key, retired_key, experiment_key)
     monkeypatch.setattr(
         "products.signals.dags.inbox_ranking.training.dag.read_ranking_overrides",
         lambda now: RankingOverrides(pin=pins),
@@ -2483,7 +2687,9 @@ def test_a_missing_pin_is_dropped_and_the_manifest_still_publishes(monkeypatch):
     )
     store = _AppObjectStore()
 
-    _run_serving_manifest(monkeypatch, store, dataset_client=denied_client)
+    _run_serving_manifest(
+        monkeypatch, store, dataset_client=denied_client, families=(_EMBEDDINGS_FAMILY, _EXPERIMENT_FAMILY)
+    )
 
     manifest = ServingManifest.model_validate_json(store.objects[serving_manifest_key(prefix)])
     assert not set(pins) & {entry.key for entry in manifest.models}
@@ -2494,6 +2700,7 @@ def test_a_missing_pin_is_dropped_and_the_manifest_still_publishes(monkeypatch):
     assert METADATA_FILE in dropped[absent_key]
     assert "AccessDenied" in dropped[denied_key]
     assert "this build can produce" in dropped[retired_key]
+    assert "is an experiment family" in dropped[experiment_key]
 
 
 def test_the_serving_prefix_layout_is_stable():
@@ -2502,6 +2709,11 @@ def test_the_serving_prefix_layout_is_stable():
     assert (
         serving_model_prefix("inbox_ranking", model_key(EMBEDDINGS_MODEL_NAME, "2026-08-19"))
         == "inbox_ranking/serving/models/report_embeddings_xgb@2026-08-19"
+    )
+    # The mirror's write grant covers only the serving prefix.
+    assert (
+        serving_engagement_key("inbox_ranking", "2026-08-19")
+        == "inbox_ranking/serving/engagement/2026-08-19/engagement.parquet"
     )
 
 

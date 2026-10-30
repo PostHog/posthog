@@ -2,6 +2,7 @@ import dagster
 
 from posthog.dags import (
     add_index_to_materialized_column,
+    apply_deleted_mask,
     backfill_materialized_column,
     ch_examples,
     clickhouse_cleanup,
@@ -20,6 +21,7 @@ from posthog.dags import (
     property_definitions,
     warehouse_object_reads_daily,
 )
+from posthog.dags.common import deletion_run_log
 
 from . import loggers, resources
 
@@ -33,12 +35,14 @@ defs = dagster.Definitions(
     ],
     jobs=[
         add_index_to_materialized_column.add_index_to_materialized_column,
+        apply_deleted_mask.apply_deleted_mask_job,
         clickhouse_cleanup.clickhouse_deletion_sweep_job,
         create_materialized_column.create_materialized_column,
         drop_materialized_column.drop_materialized_column,
         deletes.deletes_job,
         deletes.manual_deletes_job,
-        deletes.monthly_old_events_cleanup_job,
+        deletes.delete_team_product_documents_job,
+        deletes.monthly_retention_events_cleanup_job,
         export_query_log_archive_to_s3.export_query_log_archive_to_s3,
         backfill_materialized_column.backfill_materialized_column,
         fix_person_id_overrides.fix_person_id_overrides_job,
@@ -66,12 +70,13 @@ defs = dagster.Definitions(
         part_breaker.break_oversized_parts_schedule,
         data_deletion_requests.auto_approve_deletion_requests_schedule,
         warehouse_object_reads_daily.warehouse_object_reads_daily_schedule,
-        deletes.monthly_old_events_cleanup_schedule,
+        deletes.monthly_retention_events_cleanup_schedule,
     ],
     sensors=[
         clickhouse_cleanup.run_cleanup_sweep_after_deletes,
         deletes.run_deletes_after_squash,
         deletes.run_deletes_after_manual_trigger,
+        deletion_run_log.reconcile_deletion_run_logs,
         data_deletion_requests.data_deletion_request_pickup_sensor,
         data_deletion_requests.verify_queued_deletion_requests,
         warehouse_object_reads_daily.warehouse_object_reads_daily_overdue_sensor,

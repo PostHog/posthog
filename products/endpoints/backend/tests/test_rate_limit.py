@@ -8,6 +8,7 @@ from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 from rest_framework.parsers import JSONParser
 from rest_framework.request import Request
 from rest_framework.test import APIRequestFactory
@@ -338,7 +339,7 @@ def _create_ready_materialized_endpoint(team, user, name: str, materialized_at) 
         query={"kind": "HogQLQuery", "query": "SELECT 1"},
         created_by=user,
         saved_query=saved_query,
-        data_freshness_seconds=3600,
+        cache_ttl_seconds=3600,
     )
 
 
@@ -516,6 +517,41 @@ class TestEndpointThrottles(APIBaseTest):
             throttle.allow_request(request, view)
         self.assertEqual(throttle.scope, expected_scope)
 
+    @parameterized.expand(
+        [
+            ("materialized", True, "materialized_endpoint_burst", "materialized_rate"),
+            ("inline", False, "api_queries_burst", "inline_rate"),
+        ]
+    )
+    def test_refusal_records_reason_and_sends_one_event_per_window(
+        self, _name, materialized, expected_scope, expected_reason
+    ):
+        if materialized:
+            _create_ready_materialized_endpoint(self.team, self.user, "refused", timezone.now())
+        request = MagicMock()
+        request.data = {}
+        request.query_params = {}
+        view = MagicMock()
+        view.team_id = self.team.id
+        view.kwargs = {"name": "refused"}
+        labels = {"scope": expected_scope, "reason": expected_reason}
+        before = REGISTRY.get_sample_value("posthog_endpoint_rate_limited_total", labels) or 0
+
+        with (
+            patch("posthog.rate_limit.PersonalOrProjectSecretApiKeyRateThrottle.allow_request", return_value=False),
+            patch("products.endpoints.backend.logic.rate_limit_signal.posthoganalytics.capture") as mock_capture,
+        ):
+            self.assertFalse(EndpointBurstThrottle().allow_request(request, view))
+            self.assertFalse(EndpointBurstThrottle().allow_request(request, view))
+
+        self.assertEqual(REGISTRY.get_sample_value("posthog_endpoint_rate_limited_total", labels), before + 2)
+        events = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "endpoint rate limited"]
+        self.assertEqual(len(events), 1)
+        self.assertEqual(
+            {k: events[0].kwargs["properties"][k] for k in ("team_id", "endpoint_name", "reason")},
+            {"team_id": self.team.id, "endpoint_name": "refused", "reason": expected_reason},
+        )
+
 
 class TestMaterializationStateCacheTimeout(APIBaseTest):
     def setUp(self):
@@ -569,7 +605,7 @@ class TestMaterializationStateCacheTimeout(APIBaseTest):
             query={"kind": "HogQLQuery", "query": "SELECT 1"},
             created_by=self.user,
             saved_query=saved_query,
-            data_freshness_seconds=3600,
+            cache_ttl_seconds=3600,
         )
 
         with patch("products.endpoints.backend.rate_limit.cache.set", wraps=cache.set) as cache_set:

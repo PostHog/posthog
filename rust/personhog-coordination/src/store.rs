@@ -49,6 +49,9 @@ enum StoreKey<'a> {
     MigrationHistoryPrefix,
     SealAck(&'a str),
     SealAcksPrefix,
+    DrainReport { topic: &'a str, group: &'a str },
+    DrainReportsForTopic(&'a str),
+    DrainReportsPrefix,
 }
 
 impl StoreKey<'_> {
@@ -88,6 +91,11 @@ impl StoreKey<'_> {
             StoreKey::MigrationHistoryPrefix => format!("{prefix}migrations/history/"),
             StoreKey::SealAck(pod) => format!("{prefix}seal_acks/{pod}"),
             StoreKey::SealAcksPrefix => format!("{prefix}seal_acks/"),
+            StoreKey::DrainReport { topic, group } => {
+                format!("{prefix}changelog/drained/{topic}/{group}")
+            }
+            StoreKey::DrainReportsForTopic(topic) => format!("{prefix}changelog/drained/{topic}/"),
+            StoreKey::DrainReportsPrefix => format!("{prefix}changelog/drained/"),
         }
     }
 }
@@ -350,6 +358,25 @@ impl PersonhogStore {
         count_call("register_router");
         let key = self.key(StoreKey::Router(&router.router_name));
         Ok(self.inner.put(&key, router, Some(lease_id)).await?)
+    }
+
+    pub async fn get_router_with_revision(
+        &self,
+        router_name: &str,
+    ) -> Result<(Option<RegisteredRouter>, i64)> {
+        count_call("get_router_with_revision");
+        let key = self.key(StoreKey::Router(router_name));
+        Ok(self.inner.get_with_revision(&key).await?)
+    }
+
+    pub async fn watch_router_from(
+        &self,
+        router_name: &str,
+        start_revision: i64,
+    ) -> Result<WatchStream> {
+        count_call("watch_router_from");
+        let key = self.key(StoreKey::Router(router_name));
+        Ok(self.inner.watch_key_from(&key, start_revision).await?)
     }
 
     pub async fn list_routers(&self) -> Result<Vec<RegisteredRouter>> {
@@ -1445,20 +1472,47 @@ impl PersonhogStore {
         writer_group: &str,
     ) -> Result<bool> {
         count_call("seed_changelog_config");
-        let key = self.key(StoreKey::ChangelogConfig);
         let config = ChangelogConfig {
             writer_group: writer_group.to_string(),
             ..ChangelogConfig::new(topic, partitions)
         };
+        self.create_changelog_config(serde_json::to_vec(&config)?)
+            .await
+    }
+
+    /// Create-if-absent with bytes a backup recorded, written back as they
+    /// were stored so fields this build does not know survive the round trip.
+    pub async fn restore_changelog_config_raw(&self, value: &[u8]) -> Result<bool> {
+        count_call("restore_changelog_config_raw");
+        self.create_changelog_config(value.to_vec()).await
+    }
+
+    async fn create_changelog_config(&self, value: Vec<u8>) -> Result<bool> {
+        let key = self.key(StoreKey::ChangelogConfig);
         let txn = Txn::new()
             .when(vec![Compare::create_revision(
                 key.clone(),
                 CompareOp::Equal,
                 0,
             )])
-            .and_then(vec![TxnOp::put(key, serde_json::to_vec(&config)?, None)]);
+            .and_then(vec![TxnOp::put(key, value, None)]);
         let resp = self.inner.txn(txn).await?;
         Ok(resp.succeeded())
+    }
+
+    /// The stored config bytes, unparsed, and the revision of the read.
+    pub async fn get_changelog_config_raw_with_revision(&self) -> Result<(Option<Vec<u8>>, i64)> {
+        count_call("get_changelog_config_raw_with_revision");
+        let key = self.key(StoreKey::ChangelogConfig);
+        let resp = self
+            .inner
+            .client()
+            .clone()
+            .get(key, None)
+            .await
+            .map_err(assignment_coordination::error::Error::from)?;
+        let revision = resp.header().map(|h| h.revision()).unwrap_or(0);
+        Ok((resp.kvs().first().map(|kv| kv.value().to_vec()), revision))
     }
 
     /// Bypasses the protocol: see the crate's `test-support` feature.

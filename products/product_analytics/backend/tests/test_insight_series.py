@@ -1,13 +1,16 @@
 from datetime import datetime, timedelta
+from types import SimpleNamespace
 from typing import Any, cast
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 from unittest.mock import patch
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
+
+from posthog.schema import QueryStatus
 
 from posthog.constants import AvailableFeature
 from posthog.hogql_queries.query_runner import ExecutionMode
@@ -15,11 +18,62 @@ from posthog.models import Team, User
 from posthog.week_start_day import WeekStartDay
 
 from products.access_control.backend.facade.testing import create_access_control
+from products.actions.backend.models.action import Action
 from products.product_analytics.backend import insight_series
 from products.product_analytics.backend.facade.api import get_insight_series
 from products.product_analytics.backend.facade.contracts import InsightDashboardContext
 from products.product_analytics.backend.insight_series import _visible
 from products.product_analytics.backend.models.insight import Insight
+
+
+class TestBoundedInsightQuery(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("cached", True, False, False, 0.0, 0),
+            ("finishes", False, True, False, 0.0, 1),
+            ("fails", False, True, True, 0.0, 1),
+            ("still_running", False, False, False, 0.0, 3),
+            ("starts_near_deadline", False, False, False, 0.5, 1),
+            ("already_expired", False, False, False, 0.6, 0),
+        ]
+    )
+    def test_wait_returns_results_or_stops_at_the_shared_deadline(
+        self, _name: str, cached: bool, complete: bool, error: bool, start: float, polls: int
+    ) -> None:
+        clock = [start]
+        results = {"results": [_result("signed up")]}
+        pending = {"query_status": {"id": "query-1", "complete": False}}
+
+        def advance(seconds: float) -> None:
+            clock[0] += seconds
+
+        with (
+            patch("posthog.api.services.query.process_query_dict", return_value=results if cached else pending) as run,
+            patch.object(insight_series, "monotonic", side_effect=lambda: clock[0]),
+            patch.object(insight_series, "sleep", side_effect=advance),
+            patch.object(
+                insight_series,
+                "get_query_status",
+                return_value=QueryStatus(
+                    id="query-1", team_id=1, complete=complete, error=error, results=results if complete else None
+                ),
+            ) as status,
+        ):
+            found = insight_series.insight_series(
+                cast(Team, SimpleNamespace(pk=1)),
+                cast(User, None),
+                short_id="abc",
+                name="Sign-ups",
+                query={"kind": "TrendsQuery", "series": [SIGNED_UP]},
+                dashboard=None,
+                blocking=True,
+                wait_until=0.6,
+            )
+
+        self.assertEqual(found is not None and bool(found.series), cached or (complete and not error))
+        self.assertEqual(status.call_count, polls)
+        self.assertLessEqual(clock[0], 0.6)
+        self.assertEqual(run.call_args.kwargs["execution_mode"], ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE)
 
 
 class TestVisibleResults(SimpleTestCase):
@@ -29,38 +83,58 @@ class TestVisibleResults(SimpleTestCase):
                 "by value",
                 None,
                 {'{"series":1,"breakdown_value":["Chrome"]}': {"hidden": True}},
+                None,
                 ["0 Chrome", "1 Safari"],
             ),
-            ("by position", "position", {"2": {"hidden": True}}, ["0 Chrome", "1 Chrome"]),
+            ("by position", "position", {"2": {"hidden": True}}, None, ["0 Chrome", "1 Chrome"]),
             (
                 "a visible customization",
                 None,
                 {'{"series":0,"breakdown_value":["Chrome"]}': {"color": "preset-2"}},
+                None,
+                ["0 Chrome", "1 Chrome", "1 Safari"],
+            ),
+            (
+                "a formula row is keyed by its formula, not the series at its order",
+                None,
+                {'{"series":1,"breakdown_value":["Chrome"]}': {"hidden": True}},
+                [{"formula": "A+B"}, {"formula": "A-B"}],
                 ["0 Chrome", "1 Chrome", "1 Safari"],
             ),
         ]
     )
     def test_hidden_trend_results_are_left_out(
-        self, _name: str, by: str | None, customizations: dict[str, Any], expected: list[str]
+        self,
+        _name: str,
+        by: str | None,
+        customizations: dict[str, Any],
+        formula_nodes: list[dict[str, Any]] | None,
+        expected: list[str],
     ) -> None:
         results = [
-            {"action": {"order": order}, "breakdown_value": browser}
+            {"order": order, "breakdown_value": browser}
             for order, browser in ((1, "Chrome"), (1, "Safari"), (0, "Chrome"))
         ]
+        query = {
+            "kind": "TrendsQuery",
+            "series": [{"kind": "EventsNode", "event": "signed up"}, {"kind": "EventsNode", "event": "logged in"}],
+            "trendsFilter": {
+                "resultCustomizationBy": by,
+                "resultCustomizations": customizations,
+                "formulaNodes": formula_nodes,
+            },
+        }
 
-        visible = _visible({"resultCustomizationBy": by, "resultCustomizations": customizations}, results)
+        visible = _visible(query, results)
 
-        self.assertEqual(sorted(f"{r['action']['order']} {r['breakdown_value']}" for r in visible), expected)
+        self.assertEqual(sorted(f"{r['order']} {r['breakdown_value']}" for r in visible), expected)
 
 
-def _result(label: str, breakdown: Any = None, **action: Any) -> dict[str, Any]:
-    return {
-        "action": {"name": "signed up", "order": 0, **action},
-        "label": label,
-        "breakdown_value": breakdown,
-        "days": ["2026-10-12"],
-        "data": [1],
-    }
+SIGNED_UP = {"kind": "EventsNode", "event": "signed up", "name": "signed up"}
+
+
+def _result(label: str, order: int = 0, breakdown: Any = None) -> dict[str, Any]:
+    return {"label": label, "order": order, "breakdown_value": breakdown, "days": ["2026-10-12"], "data": [1]}
 
 
 class TestSeriesNames(SimpleTestCase):
@@ -68,33 +142,36 @@ class TestSeriesNames(SimpleTestCase):
         [
             (
                 "a cohort breakdown shows the cohort name",
-                1,
-                [_result("Enterprise", 12), _result("Free", 13)],
+                [SIGNED_UP],
+                [_result("Enterprise", breakdown=12), _result("Free", breakdown=13)],
                 {"Enterprise": False, "Free": False},
             ),
             (
                 "several series name each series once",
-                2,
-                [
-                    _result("signed up - Chrome", "Chrome"),
-                    _result("logged in - Chrome", "Chrome", name="logged in", custom_name="Logins"),
-                ],
+                [SIGNED_UP, {"kind": "EventsNode", "event": "logged in", "name": "logged in", "custom_name": "Logins"}],
+                [_result("signed up - Chrome", 0, "Chrome"), _result("logged in - Chrome", 1, "Chrome")],
                 {"signed up · Chrome": False, "Logins · Chrome": False},
             ),
             (
+                "a series saved without a kind takes its event",
+                [{"event": "signed up"}],
+                [_result("signed up")],
+                {"signed up": False},
+            ),
+            (
                 "first group occurrences add up",
-                3,
                 [
-                    _result("signed up", math="first_time_for_group"),
-                    _result("signed up", math="first_matching_event_for_group", custom_name="Matches"),
-                    _result("signed up", math="dau", custom_name="Daily people"),
+                    {**SIGNED_UP, "math": "first_time_for_group"},
+                    {**SIGNED_UP, "math": "first_matching_event_for_group", "custom_name": "Matches"},
+                    {**SIGNED_UP, "math": "dau", "custom_name": "Daily people"},
                 ],
+                [_result("signed up", 0), _result("signed up", 1), _result("signed up", 2)],
                 {"signed up": False, "Matches": False, "Daily people": True},
             ),
         ]
     )
     def test_series_names_and_averaging(
-        self, _name: str, series_count: int, results: list[dict[str, Any]], expected: dict[str, bool]
+        self, _name: str, series: list[dict[str, Any]], results: list[dict[str, Any]], expected: dict[str, bool]
     ) -> None:
         with patch.object(insight_series, "_run", return_value={"results": results}):
             found = insight_series.insight_series(
@@ -102,7 +179,7 @@ class TestSeriesNames(SimpleTestCase):
                 cast(User, None),
                 short_id="abc",
                 name="Sign-ups",
-                query={"kind": "TrendsQuery", "series": [{}] * series_count},
+                query={"kind": "TrendsQuery", "series": series},
                 dashboard=None,
             )
 
@@ -346,12 +423,15 @@ class TestGetInsightSeries(ClickhouseTestMixin, BaseTest):
             query={"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", **query}},
         )
 
+    @override_settings(IN_UNIT_TESTING=True)
     def test_a_daily_trend_returns_each_series_with_its_averaging_and_display_format(self) -> None:
         self._signups((2, "Chrome"), (2, "Chrome"), (9, "Chrome"))
+        action = Action.objects.create(team=self.team, name="Signed up action", steps_json=[{"event": "signed up"}])
         insight = self._insight(
             series=[
                 {"kind": "EventsNode", "event": "signed up", "custom_name": "Sign-ups"},
                 {"kind": "EventsNode", "event": "signed up", "math": "dau", "custom_name": "Daily people"},
+                {"kind": "ActionsNode", "id": action.pk},
             ],
             trendsFilter={"aggregationAxisFormat": "percentage", "display": "Metric", "decimalPlaces": 1_000_000},
         )
@@ -367,7 +447,13 @@ class TestGetInsightSeries(ClickhouseTestMixin, BaseTest):
                 found.decimal_places,
                 {name: (len(points), sum(v for _, v in points)) for name, points in found.series.items()},
             ),
-            ("day", ["Daily people"], "percentage", 9, {"Sign-ups": (56, 3.0), "Daily people": (56, 2.0)}),
+            (
+                "day",
+                ["Daily people"],
+                "percentage",
+                9,
+                {"Sign-ups": (56, 3.0), "Daily people": (56, 2.0), "Signed up action": (56, 3.0)},
+            ),
         )
 
     def test_a_charted_sql_insight_returns_its_daily_series(self) -> None:

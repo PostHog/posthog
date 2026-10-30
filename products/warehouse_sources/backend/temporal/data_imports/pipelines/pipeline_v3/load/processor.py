@@ -23,16 +23,17 @@ from posthog.exceptions_capture import capture_exception
 from posthog.utils import get_machine_id
 
 from products.data_warehouse.backend.facade.api import update_external_job_status
+from products.warehouse_sources.backend.ad_hoc_sync import resume_schedule_after_ad_hoc_run
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
     CDC_OP_COLUMN,
-    SCD2_VALID_FROM_COLUMN,
-    SCD2_VALID_TO_COLUMN,
+    CURRENT_HISTORY_PARTITION,
     TOAST_OMITTED_COLUMN,
     enrich_delete_rows,
     enrich_toast_omitted_rows,
+    history_naming_of,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolution import (
     has_engine_seq,
@@ -61,6 +62,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.writer import (
     DeltaWriter,
     commit_members_tag,
+    dedupe_incremental_batch,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.hogql_schema import HogQLSchema
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.partitioning import (
@@ -100,6 +102,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     LOADED_PREFIX_PROMOTION_TOTAL,
     PARQUET_READ_DURATION_SECONDS,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.replace_rows import (
+    apply_replace_scope,
+    replace_scope_applies,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.table_handles import (
     GROUP_TABLE_HANDLES,
 )
@@ -107,6 +113,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     ExportSignalMessage,
     SyncTypeLiteral,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.replace_scope import ReplaceScopeRun
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3 import (
     read_parquet,
     read_parquet_first_values,
@@ -163,6 +170,7 @@ def _read_existing_rows_by_first_pk(
     existing_delta_table: deltalake.DeltaTable,
     first_pk: str,
     first_components: list[Any],
+    partition: tuple[str, str] | None = None,
 ) -> pa.Table:
     """Read the existing rows whose `first_pk` value is in `first_components`.
 
@@ -171,12 +179,15 @@ def _read_existing_rows_by_first_pk(
     unimplemented, so pushing an `in` predicate down onto a string primary key raises
     `ArrowNotImplementedError`. When that happens, read the table and filter in PyArrow
     after casting the key to `string`, which has working kernels.
+
+    `partition` limits both reads to one partition, as `(column, value)`.
     """
+    partitions = None if partition is None else [(partition[0], "=", partition[1])]
     try:
-        return existing_delta_table.to_pyarrow_table(filters=[(first_pk, "in", first_components)])
+        return existing_delta_table.to_pyarrow_table(filters=[(first_pk, "in", first_components), *(partitions or [])])
     except pa.lib.ArrowNotImplementedError:
         logger.warning("cdc_delete_enrichment_pushdown_fallback", primary_key=first_pk)
-        existing = existing_delta_table.to_pyarrow_table()
+        existing = existing_delta_table.to_pyarrow_table(partitions=partitions)
         key = existing.column(first_pk).cast(pa.string())
         wanted = pa.array(first_components, pa.string())
         return existing.filter(pc.is_in(key, value_set=wanted))
@@ -235,7 +246,18 @@ def _enrich_cdc_rows(
                 # For composite PKs that IN is a superset — narrow in PyArrow below.
                 first_pk = present_pks[0]
                 first_components = list({t[0] for t in enrich_key_set})
-                existing_rows = _read_existing_rows_by_first_pk(existing_delta_table, first_pk, first_components)
+                history = history_naming_of(pa_table.column_names) if cdc_write_mode == "scd2_append" else None
+                # The open rows of a partitioned history table all sit in its current partition.
+                partition_column = history.partition_column if history is not None else None
+                current_partition = (
+                    (partition_column, CURRENT_HISTORY_PARTITION)
+                    if partition_column is not None
+                    and partition_column in (existing_delta_table.metadata().partition_columns or [])
+                    else None
+                )
+                existing_rows = _read_existing_rows_by_first_pk(
+                    existing_delta_table, first_pk, first_components, current_partition
+                )
 
                 # For composite PKs the IN filter is a superset — narrow to exact matches.
                 if len(present_pks) > 1 and existing_rows.num_rows > 0:
@@ -254,20 +276,20 @@ def _enrich_cdc_rows(
                 # For SCD2 tables, keep only "current" rows (valid_to IS NULL) so we
                 # enrich with the most recent state rather than a historical one.
                 if (
-                    cdc_write_mode == "scd2_append"
+                    history is not None
                     and existing_rows.num_rows > 0
-                    and SCD2_VALID_TO_COLUMN in existing_rows.column_names
+                    and history.valid_to in existing_rows.column_names
                 ):
-                    existing_rows = existing_rows.filter(pc.is_null(existing_rows.column(SCD2_VALID_TO_COLUMN)))
+                    existing_rows = existing_rows.filter(pc.is_null(existing_rows.column(history.valid_to)))
 
                 # TOAST fill first so DELETE enrichment copies resolved values,
                 # not the nulls standing in for omitted columns.
                 pa_table = enrich_toast_omitted_rows(pa_table, primary_keys, existing_rows)
-                pa_table = enrich_delete_rows(pa_table, primary_keys, existing_rows)
+                pa_table = enrich_delete_rows(pa_table, primary_keys, existing_rows, history)
 
                 # Only place the previous state is still in hand to compare against.
                 if verify_deletes and delete_key_set:
-                    report = verify_delete_enrichment(pa_table, present_pks, existing_rows)
+                    report = verify_delete_enrichment(pa_table, present_pks, existing_rows, history)
                     if not report.ok:
                         CDC_DELETE_ENRICHMENT_VIOLATIONS_TOTAL.inc(report.rows_with_nulled_columns)
                         logger.warning(
@@ -364,17 +386,57 @@ def _apply_partitioning(
     return pa_table
 
 
-def _partial_data_loading_applies(export_signal: ExportSignalMessage, schema: ExternalDataSchema) -> bool:
-    """Whether this batch feeds partial data loading (first-ever sync, Stripe only).
+def _dedupe_before_write(pa_table: pa.Table, primary_keys: list[str]) -> pa.Table:
+    """Drop the rows that `DeltaWriter.write` would drop, before the batch goes to the writer.
+
+    The writer deduplicates too, but its caller holds the batch until the write returns. If only
+    the writer deduplicated, the batch as read and its deduplicated copy would both stay in memory
+    for the whole upsert. The caller rebinds its batch to this result, so the batch as read is freed
+    first, and a set holds one Arrow copy of its rows through the write (see `_ARROW_COPIES_HELD`).
+
+    This keys on the partition column whenever the batch has one. The writer keys on it only when
+    the table is partitioned by it, so these keys are never fewer than the keys of the writer. The
+    last row of each writer key is also the last row of its key here, so the rows that land do not
+    change. When both use the same keys, the pass in the writer finds no repeated key and makes no
+    copy.
+    """
+    deduped, dedupe_keys = dedupe_incremental_batch(
+        pa_table, primary_keys, use_partitioning=PARTITION_KEY in pa_table.column_names
+    )
+    dropped = pa_table.num_rows - deduped.num_rows
+    if dropped > 0:
+        logger.warning(
+            "dropped_duplicate_primary_key_rows",
+            dropped=dropped,
+            dedupe_keys=dedupe_keys,
+            batch_rows=pa_table.num_rows,
+        )
+    return deduped
+
+
+def _partial_data_loading_applies(
+    export_signal: ExportSignalMessage, schema: ExternalDataSchema, job: ExternalDataJob
+) -> bool:
+    """Whether this batch feeds partial data loading (first-ever sync of a new table, Stripe only).
+
+    A reset or full refresh also loads the table from empty, but readers already query that
+    table. It keeps its served copy until the final batch publishes the complete new one, so a
+    reader never sees part of the rows. Only a table that this job created publishes each batch.
 
     Read before the write as well as after: `previous_file_uris` only exists to serve this
     feature, and collecting it means listing every file in the table.
     """
-    return export_signal.is_first_ever_sync and supports_partial_data_loading(schema)
+    if not export_signal.is_first_ever_sync or not supports_partial_data_loading(schema):
+        return False
+    served_table = schema.table
+    return served_table is None or served_table.created_at >= job.created_at
 
 
 def _rebuild_compaction_due(
-    export_signal: ExportSignalMessage, schema: ExternalDataSchema, members: list[tuple[str, int]]
+    export_signal: ExportSignalMessage,
+    schema: ExternalDataSchema,
+    job: ExternalDataJob,
+    members: list[tuple[str, int]],
 ) -> bool:
     """Whether this write of a rebuild run checks the table for compaction (see `compact_during_rebuild`).
 
@@ -387,7 +449,7 @@ def _rebuild_compaction_due(
     return (
         (export_signal.is_first_ever_sync or export_signal.sync_type == "full_refresh")
         and export_signal.cdc_write_mode is None
-        and not _partial_data_loading_applies(export_signal, schema)
+        and not _partial_data_loading_applies(export_signal, schema, job)
         and all(run_uuid == export_signal.run_uuid for run_uuid, _ in members)
         and any(index > 0 and index % REBUILD_COMPACT_CHECK_EVERY == 0 for _, index in members)
         and is_schema_flag_enabled(schema, REBUILD_COMPACTION_FLAG)
@@ -403,7 +465,7 @@ async def _handle_partial_data_loading(
     internal_schema: HogQLSchema,
 ) -> None:
     """Make data available for querying during first-ever sync for Stripe sources."""
-    if not _partial_data_loading_applies(export_signal, schema):
+    if not _partial_data_loading_applies(export_signal, schema, job):
         return
 
     current_file_uris = delta_table.file_uris()
@@ -582,6 +644,7 @@ def _refuse_incomplete_run(export_signal: ExportSignalMessage) -> None:
         before_batch_index=export_signal.batch_index,
     )
     if unfinished.count == 0:
+        _refuse_unloaded_continued_jobs(export_signal)
         return
 
     INCOMPLETE_RUN_COMPLETIONS_REFUSED_TOTAL.inc()
@@ -594,6 +657,37 @@ def _refuse_incomplete_run(export_signal: ExportSignalMessage) -> None:
         before_batch_index=export_signal.batch_index,
         unfinished_batches=unfinished.count,
         first_unfinished_batch_index=unfinished.first_batch_index,
+        unfinished_states=list(unfinished.states),
+    )
+    raise IncompleteRunError()
+
+
+def _refuse_unloaded_continued_jobs(export_signal: ExportSignalMessage) -> None:
+    """Raise when a batch of a job whose cursor this run continues did not load.
+
+    Those batches hold the rows before the continued cursor, and no later run reads them again
+    once this run completes. A failed job keeps the committed cursor, and the next job does not
+    continue it, so that job reads those rows again.
+    """
+    if not export_signal.continued_job_ids:
+        return
+    unfinished = BatchQueue.get_unfinished_batches_of_jobs_sync(
+        settings.WAREHOUSE_SOURCES_DATABASE_URL,
+        team_id=export_signal.team_id,
+        schema_id=export_signal.schema_id,
+        job_ids=export_signal.continued_job_ids,
+    )
+    if unfinished.count == 0:
+        return
+
+    INCOMPLETE_RUN_COMPLETIONS_REFUSED_TOTAL.inc()
+    logger.error(
+        "run_completion_refused_unfinished_continued_job_batches",
+        team_id=export_signal.team_id,
+        external_data_schema_id=export_signal.schema_id,
+        external_data_job_id=export_signal.job_id,
+        continued_job_ids=export_signal.continued_job_ids,
+        unfinished_batches=unfinished.count,
         unfinished_states=list(unfinished.states),
     )
     raise IncompleteRunError()
@@ -654,6 +748,9 @@ def _mark_job_completed(export_signal: ExportSignalMessage) -> None:
 
     _release_pipeline_lock_for_job(export_signal)
 
+    if job_completed:
+        _resume_schedule_after_ad_hoc_run(export_signal)
+
 
 # tonic's timeout layer cancels a call that outruns the client's per-request RPC deadline and
 # surfaces it as status CANCELLED with the message "Timeout expired" — the client-side analog of
@@ -681,6 +778,37 @@ def _is_retryable_temporal_rpc_error(exc: BaseException) -> bool:
     # reach the Temporal frontend (DNS blip, connection refused/reset) surfaces as the Rust
     # bridge's untyped RuntimeError rather than an RPCError — treat it the same way.
     return isinstance(exc, RuntimeError) and str(exc).startswith("Failed client connect:")
+
+
+@retry(
+    retry=retry_if_exception(_is_retryable_temporal_rpc_error),
+    stop=stop_after_attempt(3),
+    wait=wait_exponential_jitter(initial=1, max=5),
+    reraise=True,
+)
+def _resume_schedule_with_retry(export_signal: ExportSignalMessage) -> bool:
+    return resume_schedule_after_ad_hoc_run(export_signal.schema_id, export_signal.team_id, export_signal.job_id)
+
+
+def _resume_schedule_after_ad_hoc_run(export_signal: ExportSignalMessage) -> None:
+    try:
+        if _resume_schedule_with_retry(export_signal):
+            logger.info(
+                "schedule_resumed_after_ad_hoc_run",
+                team_id=export_signal.team_id,
+                external_data_schema_id=export_signal.schema_id,
+                external_data_job_id=export_signal.job_id,
+            )
+    except Exception as e:
+        # The job is already Completed, so a failed unpause must not fail and retry the batch.
+        logger.error(
+            "failed_to_resume_schedule_after_ad_hoc_run",
+            team_id=export_signal.team_id,
+            external_data_schema_id=export_signal.schema_id,
+            external_data_job_id=export_signal.job_id,
+            exc_info=True,
+        )
+        capture_exception(e)
 
 
 def _trigger_ducklake_register_data_imports(export_signal: ExportSignalMessage, prepared_queryable_folder: str) -> None:
@@ -1319,7 +1447,8 @@ def _process_message_reported(
 
         if export_signal.sync_type == "incremental" and export_signal.cdc_write_mode is None:
             rebuild = TableRebuildRun(schema.sync_type_config)
-            if any(rebuild.replaces(run_uuid) for run_uuid, _ in members):
+            replace_run = ReplaceScopeRun(schema.sync_type_config)
+            if any(rebuild.replaces(run_uuid) or replace_run.replaces(run_uuid) for run_uuid, _ in members):
                 if constituents is not None:
                     raise CoalescingDeclined("a batch belongs to an attempt that a later attempt replaced")
                 logger.info(
@@ -1401,6 +1530,14 @@ def _process_message_reported(
                 verify_ownership()
             append_runs.start_run(export_signal)
 
+        if replace_scope_applies(export_signal):
+            # Before the table is read, so the batch is fitted to the table that the deletes leave.
+            if verify_ownership is not None:
+                verify_ownership()
+            report_phase("replace_rows")
+            with timer.step("replace_rows"):
+                apply_replace_scope(export_signal, schema, delta_table_ref, verify_ownership)
+
         logger.debug(
             "message_received",
             team_id=export_signal.team_id,
@@ -1443,15 +1580,26 @@ def _process_message_reported(
             with timer.step("table_open"):
                 existing_delta_table = async_to_sync(delta_table_ref.get_delta_table)()
 
-        with timer.step("partition"):
-            pa_table = _apply_partitioning(export_signal, pa_table, existing_delta_table, schema)
+        # A run whose source read no rows sends one empty batch only to carry its replace scope.
+        is_scope_carrier = export_signal.replace_scope is not None and pa_table.num_rows == 0
+        if is_scope_carrier and existing_delta_table is None:
+            # Writing the carrier would create a table that holds only the scope column.
+            raise ValueError(
+                f"The Delta table of schema {export_signal.schema_id} is missing, so the empty batch of "
+                f"run {export_signal.run_uuid} cannot apply its replace scope"
+            )
+        skips_write = is_scope_carrier
+
+        if not skips_write:
+            with timer.step("partition"):
+                pa_table = _apply_partitioning(export_signal, pa_table, existing_delta_table, schema)
 
         # Capture file URIs before write for partial data loading. The listing is O(files in
         # table), so skip it entirely when no consumer wants it — during a long first sync the
         # table can hold millions of files and every batch would pay to build a list nothing reads.
         previous_file_uris = (
             existing_delta_table.file_uris()
-            if existing_delta_table is not None and _partial_data_loading_applies(export_signal, schema)
+            if existing_delta_table is not None and _partial_data_loading_applies(export_signal, schema, job)
             else []
         )
 
@@ -1512,6 +1660,9 @@ def _process_message_reported(
             with timer.step("ownership_check"):
                 verify_ownership()
 
+        # The row metrics count the batch as read, before the dedupe below drops repeated keys.
+        source_rows = pa_table.num_rows
+
         # The writer narrows this to `merge` for an upsert; an append stays `write` to its commit.
         report_phase("write")
         if cdc_write_mode == "scd2_append":
@@ -1525,18 +1676,30 @@ def _process_message_reported(
                 timer.step("write"),
                 DELTA_WRITE_DURATION_SECONDS.labels(write_type="scd2_append").time(),
             ):
+                # The lane stamped the batch with its table's validity columns, so the batch names them.
+                history = history_naming_of(pa_table.column_names)
                 scd2_writer = Scd2DeltaWriter(
                     delta_table_ref,
-                    valid_from_column=SCD2_VALID_FROM_COLUMN,
-                    valid_to_column=SCD2_VALID_TO_COLUMN,
+                    valid_from_column=history.valid_from,
+                    valid_to_column=history.valid_to,
+                    partition_column=history.partition_column,
+                    current_partition=CURRENT_HISTORY_PARTITION,
                 )
                 delta_table = async_to_sync(scd2_writer.write)(
                     data=pa_table,
                     primary_keys=primary_keys or [],
                     commit_metadata=commit_metadata,
                 )
+        elif skips_write and existing_delta_table is not None:
+            delta_table = existing_delta_table
         else:
-            write_type = _get_write_type(export_signal.sync_type)
+            # The scope already removed every row this run brings again, so its batches only add rows.
+            # A first sync or a reset keeps the incremental load, whose batch 0 overwrites the table.
+            write_type: Literal["incremental", "full_refresh", "append"] = (
+                "append"
+                if export_signal.replace_scope is not None and not export_signal.is_first_ever_sync
+                else _get_write_type(export_signal.sync_type)
+            )
 
             # First batch should overwrite the table, but only if not resuming
             should_overwrite_table = export_signal.batch_index == 0 and not export_signal.is_resume
@@ -1553,6 +1716,8 @@ def _process_message_reported(
                 timer.step("write"),
                 DELTA_WRITE_DURATION_SECONDS.labels(write_type=write_type).time(),
             ):
+                if write_type == "incremental" and primary_keys:
+                    pa_table = _dedupe_before_write(pa_table, primary_keys)
                 delta_writer = DeltaWriter(delta_table_ref)
                 delta_table = async_to_sync(delta_writer.write)(
                     data=pa_table,
@@ -1564,7 +1729,7 @@ def _process_message_reported(
                 )
                 deltalite_file_count_change = delta_writer.deltalite_file_count_change
 
-        DELTA_ROWS_WRITTEN_TOTAL.inc(pa_table.num_rows)
+        DELTA_ROWS_WRITTEN_TOTAL.inc(source_rows)
 
         # Marked as soon as the commit lands, before post-load: the final row of a run carries its own
         # data now, so a post-load failure must send the retry down the post-load-only path rather
@@ -1589,7 +1754,7 @@ def _process_message_reported(
         # sampled count needs that read only when the commit's own numbers cannot give it: batch 0
         # is a sample, so the read would otherwise cost each run a log listing.
         with timer.step("post_write"):
-            if (sample_file_count and file_count is None) or _partial_data_loading_applies(export_signal, schema):
+            if (sample_file_count and file_count is None) or _partial_data_loading_applies(export_signal, schema, job):
                 current_delta_table = async_to_sync(delta_table_ref.get_delta_table)()
                 if current_delta_table is not None:
                     delta_table = current_delta_table
@@ -1607,7 +1772,7 @@ def _process_message_reported(
             team_id=export_signal.team_id,
             external_data_schema_id=export_signal.schema_id,
             batch_index=export_signal.batch_index,
-            rows_written=pa_table.num_rows,
+            rows_written=source_rows,
             batch_count=len(members),
             delta_version=delta_table_ref.latest_known_version(delta_table),
             file_count=file_count,
@@ -1633,7 +1798,7 @@ def _process_message_reported(
             finals = final_run_signals(constituents)
         else:
             finals = [export_signal] if export_signal.is_final_batch else []
-        if not finals and _rebuild_compaction_due(export_signal, schema, members):
+        if not finals and _rebuild_compaction_due(export_signal, schema, job, members):
             _compact_during_rebuild(delta_table_ref, verify_ownership, timer)
         _promote_loaded_prefixes(constituents if constituents is not None else [export_signal], finals, schema)
         for run_signal in finals:

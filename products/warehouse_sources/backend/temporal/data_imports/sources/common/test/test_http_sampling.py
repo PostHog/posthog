@@ -444,6 +444,7 @@ def test_sample_payload_omits_streamed_response_body():
         "x-sn-apikey",
         "x-auth-token",
         "X-Metabase-Session",
+        "KALSHI-ACCESS-SIGNATURE",
         "Cookie",
         "Set-Cookie",
         "Proxy-Authorization",

@@ -3,7 +3,8 @@ A flag setting that decides the variant draw changed after launch while people w
 group type the flag matches by, the bucketing identifier, or persistence across authentication. Pure functions, no
 I/O: `health/exposure_gate.py` loads the changes and the exposure answers.
 
-People exposed before such a change get a new draw, so they can get another variant after it.
+People exposed before such a change get a new draw, so they can get another variant after it. When fewer than
+MIN_EXPOSED_UNITS_TO_WARN were exposed before the last change, that can't move the results, so it is info.
 """
 
 from products.experiments.backend.facade.contracts import (
@@ -21,19 +22,17 @@ from products.experiments.backend.health.bucketing_changes import (
 from products.experiments.backend.health.checks.change_wording import duration, suggested_start, the_change
 from products.experiments.backend.health.checks.flag_change_findings import (
     change_finding,
-    changes_not_checked,
+    changes_to_check,
     delay_after_launch,
-    history_to_check,
+    exposed_when,
+    few_exposed_units,
+    leave_out,
     not_checked_finding,
 )
-from products.experiments.backend.health.context import (
-    BucketingChange,
-    BucketingSetting,
-    FlagHistory,
-    FlagHistoryNotChecked,
-    HealthContext,
-)
+from products.experiments.backend.health.context import FlagHistory, FlagHistoryNotChecked, HealthContext
+from products.experiments.backend.health.skips import CheckOutcome, CheckSkip
 from products.experiments.backend.health.split_changes import format_change_time
+from products.feature_flags.backend.facade.edits import BucketingChange, BucketingSetting
 
 _TITLE = "The flag's variant assignment changed after launch"
 _KEY_TITLE = "The flag key changed after launch"
@@ -48,16 +47,17 @@ _SETTING_NAMES = {
 }
 
 
-def bucketing_changed_mid_run(ctx: HealthContext) -> ExperimentHealthFinding | None:
-    history = history_to_check(ctx)
-    if history is None:
-        return None
+def bucketing_changed_mid_run(ctx: HealthContext) -> CheckOutcome:
+    history = changes_to_check(ctx)
+    if isinstance(history, CheckSkip):
+        return history
     if isinstance(history, FlagHistoryNotChecked):
         return _not_checked(history)
     effect = bucketing_net_effect(history.counted(BucketingChange))
     if effect is None:
         return None
 
+    few = few_exposed_units(history, ExperimentHealthFlagChangeKind.BUCKETING)
     if effect.shape == BucketingChangeShape.REVERTED:
         first_at = format_change_time(effect.first.changed_at, history.team_timezone)
         changed = _changed_settings(effect)
@@ -74,13 +74,22 @@ def bucketing_changed_mid_run(ctx: HealthContext) -> ExperimentHealthFinding | N
                 ],
             )
         last_at = format_change_time(effect.last.changed_at, history.team_timezone)
+        set_back = f"{changed} changed on {first_at} and {_was(effect)} set back on {last_at}."
+        if few is not None:
+            return _finding(
+                history,
+                effect,
+                severity=ExperimentHealthFindingSeverity.INFO,
+                title=_TITLE,
+                sentences=[set_back, exposed_when(history, effect, few), *leave_out(history, effect, few)],
+            )
         return _finding(
             history,
             effect,
             severity=ExperimentHealthFindingSeverity.WARNING,
             title=_TITLE,
             sentences=[
-                f"{changed} changed on {first_at} and {_was(effect)} set back on {last_at}.",
+                set_back,
                 *delay_after_launch(history, effect),
                 "People exposed in between got a new variant draw, so they may have switched variants.",
                 f"Move the start date to {suggested_start(effect.last.changed_at, history.team_timezone)}, or "
@@ -88,14 +97,29 @@ def bucketing_changed_mid_run(ctx: HealthContext) -> ExperimentHealthFinding | N
             ],
         )
 
+    title = _KEY_TITLE if effect.shape == BucketingChangeShape.KEY_CHANGED else _TITLE
+    what_changed = [_what_changed(net, history.team_timezone) for net in effect.net_changes]
+    if few is not None:
+        return _finding(
+            history,
+            effect,
+            severity=ExperimentHealthFindingSeverity.INFO,
+            title=title,
+            sentences=[
+                *what_changed,
+                exposed_when(history, effect, few),
+                *leave_out(history, effect, few),
+                *_key_state(effect),
+            ],
+        )
     start_at = suggested_start(effect.last.changed_at, history.team_timezone)
     return _finding(
         history,
         effect,
         severity=ExperimentHealthFindingSeverity.WARNING,
-        title=_KEY_TITLE if effect.shape == BucketingChangeShape.KEY_CHANGED else _TITLE,
+        title=title,
         sentences=[
-            *(_what_changed(net, history.team_timezone) for net in effect.net_changes),
+            *what_changed,
             *delay_after_launch(history, effect),
             *_consequence(effect),
             f"Reset the experiment, or move its start date to {start_at}.",
@@ -104,7 +128,7 @@ def bucketing_changed_mid_run(ctx: HealthContext) -> ExperimentHealthFinding | N
 
 
 def _not_checked(history: FlagHistoryNotChecked) -> ExperimentHealthFinding | None:
-    effect = bucketing_net_effect(changes_not_checked(history, BucketingChange))
+    effect = bucketing_net_effect(history.of_kind(BucketingChange))
     if effect is None:
         return None
     if effect.shape == BucketingChangeShape.REVERTED:
@@ -167,6 +191,15 @@ def _consequence(effect: BucketingNetEffect) -> list[str]:
     ]
 
 
+def _key_state(effect: BucketingNetEffect) -> list[str]:
+    if effect.shape != BucketingChangeShape.KEY_CHANGED:
+        return []
+    key = next(change for change in effect.net_changes if change.setting == BucketingSetting.KEY)
+    return [
+        f"Code that still uses {describe_bucketing_value(BucketingSetting.KEY, key.before)} no longer gets this flag."
+    ]
+
+
 def _changed_settings(effect: BucketingNetEffect) -> str:
     names = list(dict.fromkeys(_SETTING_NAMES[setting] for setting in effect.changed_settings))
     joined = names[0] if len(names) == 1 else f"{', '.join(names[:-1])} and {names[-1]}"
@@ -188,6 +221,7 @@ def _finding(
     return change_finding(
         history,
         effect,
+        kind=ExperimentHealthFlagChangeKind.BUCKETING,
         code=ExperimentHealthFindingCode.BUCKETING_CHANGED_MID_RUN,
         subcode=effect.shape.value,
         severity=severity,

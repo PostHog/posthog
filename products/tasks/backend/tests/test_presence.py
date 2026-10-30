@@ -186,6 +186,7 @@ class PresenceFanoutSuppressionTestCase(TestCase):
             team=self.team,
             created_by=self.user,
             title="Watching Task",
+            state={"created_on_mobile": True},
             description="d",
             origin_product=Task.OriginProduct.USER_CREATED,
         )

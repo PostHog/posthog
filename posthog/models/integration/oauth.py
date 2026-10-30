@@ -19,11 +19,11 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.cache_utils import cache_for
 from posthog.credentials_service.callers import CredentialsCaller
-from posthog.credentials_service.client import credentials_service_enabled
+from posthog.credentials_service.instance_settings import get_many_or_instance_settings
 from posthog.credentials_service.settings_fallback import get_many_or_settings
 from posthog.dataclasses import frozen
 from posthog.egress.slack.observability import record_slack_api_response
-from posthog.models.instance_setting import get_instance_settings
+from posthog.integrations.contracts import IntegrationRecord
 from posthog.models.user import User
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
 from posthog.schema_enums import SlackIntegrationScope
@@ -50,6 +50,11 @@ def _extract_oauth_error_message(res: requests.Response) -> str | None:
         return text[:300] if text else None
 
     if isinstance(body, dict):
+        graph_error = body.get("error")
+        if isinstance(graph_error, dict):
+            # Meta's Graph API nests the error in an object whose trace id and codes mean nothing to the customer.
+            message = graph_error.get("message")
+            return str(message) if message else None
         description = body.get("error_description") or body.get("message")
         code = body.get("error")
         if description and code:
@@ -67,6 +72,58 @@ def _extract_oauth_error_message(res: requests.Response) -> str | None:
     return snippet[:300] if snippet else None
 
 
+_INVALID_GRANT_MESSAGE = (
+    "This authorization is no longer valid. Start the connection again and approve access without waiting in between."
+)
+
+_STRIPE_MODE_MISMATCH_MESSAGE = (
+    "Stripe approved this connection in test mode or a sandbox, but PostHog can only connect live mode Stripe accounts. "
+    "Starting the connection again won't fix this. To sync your live data, change Authentication type to "
+    "Restricted API key and use a key you create in live mode."
+)
+
+
+_CLIENT_CREDENTIALS_REJECTED_MESSAGE = (
+    "PostHog couldn't finish this connection because the provider rejected PostHog's own app credentials. "
+    "Contact support so we can fix it."
+)
+
+
+def _oauth_error_field(res: requests.Response, field: str) -> str | None:
+    try:
+        body = res.json()
+    except Exception:
+        return None
+    value = body.get(field) if isinstance(body, dict) else None
+    return value if isinstance(value, str) else None
+
+
+def _oauth_error_code(res: requests.Response) -> str | None:
+    return _oauth_error_field(res, "error")
+
+
+def _is_client_credentials_rejected(res: requests.Response) -> bool:
+    # The provider refused PostHog's client id or secret, so starting the connection again fails the same way.
+    if _oauth_error_code(res) == "invalid_client":
+        return True
+    try:
+        body = res.json()
+    except Exception:
+        return False
+    graph_error = body.get("error") if isinstance(body, dict) else None
+    message = graph_error.get("message") if isinstance(graph_error, dict) else None
+    return isinstance(message, str) and "validating client secret" in message.lower()
+
+
+def _is_stripe_mode_mismatch(kind: str, res: requests.Response) -> bool:
+    # The install link that issued the code fixes its mode, and Stripe redeems it only with the secret
+    # key of that mode. A retry gets a code from the same link, so it fails the same way.
+    if kind != "stripe":
+        return False
+    description = _oauth_error_field(res, "error_description") or ""
+    return "authorization code only supports returning" in description
+
+
 def _raise_oauth_validation_error(kind: str, res: requests.Response) -> NoReturn:
     """Raise a ValidationError describing a failed OAuth token exchange.
 
@@ -74,6 +131,14 @@ def _raise_oauth_validation_error(kind: str, res: requests.Response) -> NoReturn
     a useful message instead of the generic "Something went wrong" fallback that follows from a
     bare Exception (which surfaces as a 500 with no detail).
     """
+    if _oauth_error_code(res) == "invalid_grant":
+        if _is_stripe_mode_mismatch(kind, res):
+            raise ValidationError(_STRIPE_MODE_MISMATCH_MESSAGE)
+        # The code expired, was already exchanged, or was issued for another account. The
+        # provider's description can echo the code itself, so it stays in the logs.
+        raise ValidationError(_INVALID_GRANT_MESSAGE)
+    if _is_client_credentials_rejected(res):
+        raise ValidationError(_CLIENT_CREDENTIALS_REJECTED_MESSAGE)
     provider_error = _extract_oauth_error_message(res)
     if provider_error:
         raise ValidationError(f"{kind} OAuth failed: {provider_error}")
@@ -482,25 +547,6 @@ OAUTH_CLIENT_FALLBACK_KEYS: dict[str, tuple[str, str]] = {
 SLACK_APP_CLIENT_CREDENTIAL_KEYS = ["SLACK_APP_CLIENT_ID", "SLACK_APP_CLIENT_SECRET"]
 
 
-def _slack_instance_setting(key: str) -> str | None:
-    return get_instance_settings([key])[key] or None
-
-
-def _slack_app_client_credentials() -> dict[str, str]:
-    """Slack's app credentials, with instance settings in place of Django settings.
-
-    Self-hosted deployments edit these in the instance settings UI, and the value there wins over
-    the environment variable it defaults from. With the service off, the client would read the
-    environment variable directly and ignore that edit, so the service is only asked when it is on.
-    """
-    if not credentials_service_enabled():
-        values = get_instance_settings(SLACK_APP_CLIENT_CREDENTIAL_KEYS)
-        return {key: values[key] or "" for key in SLACK_APP_CLIENT_CREDENTIAL_KEYS}
-    return get_many_or_settings(
-        SLACK_APP_CLIENT_CREDENTIAL_KEYS, CREDENTIALS_CALLER, settings_lookup=_slack_instance_setting
-    )
-
-
 class OauthIntegration:
     supported_kinds = [
         "slack",
@@ -536,8 +582,8 @@ class OauthIntegration:
     def __str__(self) -> str:
         return f"OauthIntegration(integration={self.integration.id}, kind={self.integration.kind}, team={self.integration.team_id})"
 
-    def __init__(self, integration: model.Integration) -> None:
-        self.integration = integration
+    def __init__(self, integration: IntegrationRecord) -> None:
+        self.integration = model.integration_model(integration)
 
     @classmethod
     @cache_for(timedelta(minutes=5))
@@ -563,7 +609,7 @@ class OauthIntegration:
             client_id, client_secret = values[target.client_id_key], values[target.client_secret_key]
             not_configured = f"PostHog connect app not configured for region {target.region}"
         elif kind == "slack":
-            values = _slack_app_client_credentials()
+            values = get_many_or_instance_settings(SLACK_APP_CLIENT_CREDENTIAL_KEYS, CREDENTIALS_CALLER)
             client_id, client_secret = values["SLACK_APP_CLIENT_ID"], values["SLACK_APP_CLIENT_SECRET"]
             not_configured = "Slack app not configured"
         elif kind == "apple-ads":

@@ -1,4 +1,4 @@
-from typing import cast
+from typing import Any, cast
 
 from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
@@ -10,17 +10,24 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.config import (
     AzureBlobConfig,
     DiscoveryOptions,
-    normalize_prefix,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.fields import (
     FEATURE_FLAG,
     KEYWORDS,
     discovery_options_from,
     file_option_fields,
-    folder_fields,
     secret_field,
     source_caption,
-    text_field,
+    url_field,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.locations import (
+    AZURE_EXAMPLE_URL,
+    parse_azure_url,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.self_managed import (
+    SelfManagedCredential,
+    SelfManagedLocation,
+    UnmappableTableError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.source_base import (
     ObjectStorageSource,
@@ -44,6 +51,7 @@ class AzureBlobSource(ObjectStorageSource[AzureBlobSourceConfig]):
 
     api_docs_url = "https://learn.microsoft.com/en-us/rest/api/storageservices/blob-service-rest-api"
     requires_team_feature_flag = FEATURE_FLAG
+    self_managed_service = "azure"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -51,19 +59,26 @@ class AzureBlobSource(ObjectStorageSource[AzureBlobSourceConfig]):
 
     @property
     def connection_host_fields(self) -> list[str]:
-        # The account and container pick where the stored key is sent, so changing either must re-require it.
-        return ["account_name", "container"]
+        # The URL picks the account and container the stored key is sent to, so changing it must re-require the key.
+        return ["url_pattern"]
 
     def object_store_config(self, config: AzureBlobSourceConfig) -> AzureBlobConfig:
-        return AzureBlobConfig(
-            account_name=config.account_name.strip().lower(),
-            account_key=config.account_key.strip(),
-            container=config.container.strip(),
-            prefix=normalize_prefix(config.path),
-        )
+        return AzureBlobConfig.from_url(parse_azure_url(config.url_pattern), account_key=config.account_key.strip())
 
     def discovery_options(self, config: AzureBlobSourceConfig) -> DiscoveryOptions:
         return discovery_options_from(config)
+
+    def self_managed_connection_inputs(
+        self, location: SelfManagedLocation, credential: SelfManagedCredential
+    ) -> dict[str, Any]:
+        # ClickHouse reads Azure with the storage account name as the access key. A key for another
+        # account than the URL's never read these files, so it isn't moved to this one.
+        if credential.access_key.strip().lower() != location.account:
+            raise UnmappableTableError("the access key isn't the storage account name in the URL")
+        return {
+            "url_pattern": f"https://{location.account}.blob.core.windows.net/{location.bucket}/",
+            "account_key": credential.access_secret,
+        }
 
     @property
     def get_source_config(self) -> SourceConfig:
@@ -79,9 +94,7 @@ class AzureBlobSource(ObjectStorageSource[AzureBlobSourceConfig]):
             fields=cast(
                 list[FieldType],
                 [
-                    text_field("account_name", "Storage account name", "mycompanystorage"),
-                    text_field("container", "Container", "exports"),
-                    *folder_fields("container"),
+                    url_field(AZURE_EXAMPLE_URL),
                     secret_field(
                         "account_key",
                         "Account key",

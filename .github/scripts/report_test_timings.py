@@ -1099,6 +1099,8 @@ def main(argv: list[str] | None = None) -> int:
             len(prior_failed_by_job),
         )
 
+    # Metrics need the full unfiltered run, not the signal-trimmed emission set.
+    full_shards = shards
     pre_filter = sum(len(s.tests) for s in shards)
     min_duration_seconds = math.inf if args.signals_only else args.min_duration_seconds
     shards = filter_shards(shards, min_duration_seconds, prior_failed_by_job)
@@ -1117,10 +1119,6 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.timings is not None:
-        # Metrics need the full unfiltered run, not the signal-trimmed emission set.
-        full_shards = collect_shards(args.artifacts_root, args.runner)
-        if run_attempt > 1:
-            full_shards, _ = partition_run_attempt(full_shards, run_attempt)
         payload = json.dumps(build_timings_report(full_shards, args.artifacts_root, args.runner), indent=2)
         if str(args.timings) == "-":
             sys.stdout.write(payload + "\n")

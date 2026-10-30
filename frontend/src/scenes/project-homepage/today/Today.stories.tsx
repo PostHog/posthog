@@ -1,4 +1,4 @@
-import type { Meta, StoryObj } from '@storybook/react'
+import type { Decorator, Meta, StoryObj } from '@storybook/react'
 import { fireEvent, waitFor, within } from '@testing-library/dom'
 import userEvent from '@testing-library/user-event'
 import { ReactNode } from 'react'
@@ -87,6 +87,7 @@ const CONVERSATIONS = [
         status: 'idle',
         type: 'assistant',
         updated_at: '2026-09-28T16:10:00Z',
+        user: ADA,
     },
     {
         id: 'chat-2',
@@ -94,6 +95,7 @@ const CONVERSATIONS = [
         status: 'idle',
         type: 'assistant',
         updated_at: '2026-09-25T09:00:00Z',
+        user: ADA,
     },
 ]
 
@@ -474,10 +476,7 @@ const OPEN_REPORT_COUNT = 46
 // a story. Clearing it makes each story start clean, so only the sample stories show sample reports.
 // A story's `spaceFeedView` parameter is written after the clear, so it starts with that saved space feed view, the
 // way a returning person sees it.
-function clearTodayStorage(
-    Story: () => JSX.Element,
-    { parameters }: { parameters: { spaceFeedView?: Record<string, unknown> } }
-): JSX.Element {
+const clearTodayStorage: Decorator = (Story, { parameters }) => {
     for (const key of Object.keys(window.localStorage)) {
         if (/today|spaceFeedViewLogic/i.test(key)) {
             window.localStorage.removeItem(key)
@@ -567,6 +566,7 @@ const HIGHLIGHTS: HighlightsApi = {
     generated_at: '2026-09-28T18:00:00Z',
     day: '2026-09-28',
     refresh_at: '2026-09-29T00:00:00Z',
+    pins: [],
     pulse: [
         {
             key: 'insight:wKu1pSx2',
@@ -581,6 +581,7 @@ const HIGHLIGHTS: HighlightsApi = {
             period_starts: PERIOD_STARTS(12, 'week'),
             reason: 'dashboard',
             dashboard_name: 'Growth',
+            dashboard_id: 41,
             opened_days: 9,
             last_opened: '2026-09-27',
             previous_value: 3956,
@@ -603,6 +604,7 @@ const HIGHLIGHTS: HighlightsApi = {
             period_starts: PERIOD_STARTS(28, 'day'),
             reason: 'key_metric',
             dashboard_name: null,
+            dashboard_id: null,
             opened_days: null,
             last_opened: null,
             previous_value: 1017,
@@ -621,6 +623,7 @@ const HIGHLIGHTS: HighlightsApi = {
             period_starts: PERIOD_STARTS(28, 'day'),
             reason: 'key_metric',
             dashboard_name: null,
+            dashboard_id: null,
             opened_days: null,
             last_opened: null,
             previous_value: 353,
@@ -639,6 +642,7 @@ const HIGHLIGHTS: HighlightsApi = {
             period_starts: PERIOD_STARTS(28, 'day'),
             reason: 'key_metric',
             dashboard_name: null,
+            dashboard_id: null,
             opened_days: null,
             last_opened: null,
             previous_value: 18012,
@@ -656,6 +660,7 @@ const HIGHLIGHTS: HighlightsApi = {
             score: 0.85,
             priority: 'P1',
             source: 'alerts',
+            product: 'alerts',
         },
         {
             key: 'new_error:0195a0b2-0000-0000-0000-000000000001',
@@ -667,6 +672,7 @@ const HIGHLIGHTS: HighlightsApi = {
             score: 0.82,
             priority: 'P1',
             source: 'errors',
+            product: 'error_tracking',
         },
         {
             key: 'home:rev01',
@@ -678,6 +684,7 @@ const HIGHLIGHTS: HighlightsApi = {
             score: 0.6,
             priority: 'P2',
             source: 'home',
+            product: 'today',
         },
         {
             key: 'key_metric:payment_event',
@@ -689,6 +696,7 @@ const HIGHLIGHTS: HighlightsApi = {
             score: 0.57,
             priority: 'P2',
             source: 'key_metrics',
+            product: 'today',
         },
         {
             key: 'experiment_ended:12',
@@ -700,6 +708,7 @@ const HIGHLIGHTS: HighlightsApi = {
             score: 0.6,
             priority: 'P3',
             source: 'experiments',
+            product: 'experiments',
         },
         {
             key: 'assigned_quiet',
@@ -711,8 +720,52 @@ const HIGHLIGHTS: HighlightsApi = {
             score: 0.35,
             priority: 'P4',
             source: 'errors',
+            product: 'error_tracking',
         },
     ],
+}
+
+const CHECKOUT_METRIC: HighlightsApi['pulse'][number] = {
+    ...HIGHLIGHTS.pulse[0],
+    key: 'insight:chk01',
+    name: 'Checkout conversion',
+    value: 0.342,
+    change_pct: 4.1,
+    series: [0.31, 0.32, 0.3, 0.33, 0.32, 0.31, 0.33, 0.32, 0.33, 0.33, 0.329, 0.342],
+    url: '/insights/chk01',
+    value_format: { format: 'percentage_scaled', prefix: null, postfix: null, decimal_places: 1 },
+    reason: 'routine',
+    dashboard_name: null,
+    dashboard_id: null,
+    previous_value: 0.329,
+    movers: [],
+}
+
+const RETENTION_METRIC: HighlightsApi['pulse'][number] = {
+    ...CHECKOUT_METRIC,
+    key: 'insight:ret01',
+    name: 'Week 1 retention',
+    value: 0.412,
+    change_pct: -1.2,
+    series: [0.42, 0.41, 0.43, 0.42, 0.4, 0.41, 0.42, 0.41, 0.42, 0.42, 0.417, 0.412],
+    url: '/insights/ret01',
+    previous_value: 0.417,
+}
+
+const REVENUE_METRIC: HighlightsApi['pulse'][number] = {
+    ...CHECKOUT_METRIC,
+    key: 'insight:arr01',
+    name: 'Monthly recurring revenue',
+    value: 48200,
+    change_pct: 3.4,
+    series: [39000, 40100, 41000, 41800, 42600, 43300, 44000, 44900, 45700, 46200, 46600, 48200],
+    url: '/insights/arr01',
+    value_format: { format: 'numeric', prefix: '$', postfix: null, decimal_places: 0 },
+    previous_value: 46600,
+}
+
+function storyHighlights(): HighlightsApi {
+    return { ...HIGHLIGHTS, pulse: [...HIGHLIGHTS.pulse, CHECKOUT_METRIC, RETENTION_METRIC, REVENUE_METRIC] }
 }
 
 const meta: Meta = {
@@ -758,7 +811,7 @@ const meta: Meta = {
                 ],
                 '/api/users/@me/integrations/': { results: [] },
                 '/api/users/@me/integrations/slack/linkable_workspaces/': { results: [] },
-                '/api/projects/:team_id/today/highlights/': HIGHLIGHTS,
+                '/api/projects/:team_id/today/highlights/': () => [200, storyHighlights()],
                 '/api/projects/:team_id/task_channels/': SPACES,
                 '/api/projects/:team_id/task_channels/:id/': (req) => [
                     200,
@@ -767,6 +820,8 @@ const meta: Meta = {
                 '/api/users/@me/integrations/codex/': { status: 'not_connected' },
                 '/api/code/invites/check-access/': { has_access: true, has_loops_access: false },
                 '/api/projects/:team_id/tasks/repositories/': { repositories: [] },
+                '/api/projects/:team_id/sandbox_environments/': { results: [], next: null },
+                '/api/projects/:team_id/sandbox_custom_images/': { results: [], next: null },
                 '/api/projects/:team_id/tasks/': ({ request }) => {
                     const params = new URL(request.url).searchParams
                     const results = params.get('pinned')
@@ -818,6 +873,7 @@ const meta: Meta = {
                     const results = type ? LIBRARY.filter((entry) => entry.type === type) : LIBRARY
                     return [200, { results, count: results.length }]
                 },
+                '/api/projects/:team_id/file_system/frequent/': [],
                 '/api/environments/:team_id/file_system/unfiled/': { results: [], count: 0 },
                 '/api/projects/:team_id/canvases/canvas-building/': VIEW_CANVASES[1],
                 '/api/projects/:team_id/tasks/task-canvas-building/': {
@@ -869,6 +925,51 @@ export default meta
 type Story = StoryObj<{}>
 
 export const Home: Story = {}
+
+export const HomeWithFrequentItems: Story = {
+    parameters: {
+        featureFlags: {
+            [FEATURE_FLAGS.TODAY_RAIL_NAV]: true,
+            [FEATURE_FLAGS.POSTHOG_CODE_TASK_ANALYSIS]: true,
+            [FEATURE_FLAGS.TODAY_JUMP_BACK_RANKING]: 'test',
+        },
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/file_system/frequent/': [
+                    {
+                        id: 'fs-frequent-1',
+                        path: 'Dashboards/Daily operations',
+                        type: 'dashboard',
+                        ref: '81',
+                        href: '/dashboard/81',
+                        last_viewed_at: '2026-09-27T09:00:00Z',
+                    },
+                    {
+                        id: 'fs-frequent-2',
+                        path: 'Notebooks/Weekly review',
+                        type: 'notebook',
+                        ref: 'weekly-review',
+                        href: '/notebooks/weekly-review',
+                        last_viewed_at: '2026-09-21T09:00:00Z',
+                    },
+                ],
+            },
+        }),
+    ],
+}
+
+export const HomeWithRecentRanking: Story = {
+    ...HomeWithFrequentItems,
+    parameters: {
+        featureFlags: {
+            [FEATURE_FLAGS.TODAY_RAIL_NAV]: true,
+            [FEATURE_FLAGS.POSTHOG_CODE_TASK_ANALYSIS]: true,
+            [FEATURE_FLAGS.TODAY_JUMP_BACK_RANKING]: 'control',
+        },
+    },
+}
 
 export const HomeWithSampleReports: Story = {
     parameters: { pageUrl: `${urls.projectHomepage()}?sample=1` },
@@ -950,6 +1051,20 @@ export const ReportInANarrowWindow: Story = {
 }
 
 export const ChatsPane: Story = {
+    parameters: {
+        featureFlags: [
+            FEATURE_FLAGS.TODAY_RAIL_NAV,
+            FEATURE_FLAGS.POSTHOG_CODE_TASK_ANALYSIS,
+            FEATURE_FLAGS.PHAI_SANDBOX_MODE,
+        ],
+    },
+    play: async ({ canvasElement }) => {
+        await userEvent.click(await within(canvasElement).findByLabelText('Chats'))
+    },
+}
+
+// Without the sandbox flag, the Chats pane starts a legacy chat instead of a task.
+export const ChatsPaneOnLegacyPostHogAi: Story = {
     play: async ({ canvasElement }) => {
         await userEvent.click(await within(canvasElement).findByLabelText('Chats'))
     },

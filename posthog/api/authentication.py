@@ -62,6 +62,7 @@ from posthog.event_usage import report_user_logged_in, report_user_password_rese
 from posthog.exceptions_capture import capture_exception
 from posthog.geoip import get_geoip_properties
 from posthog.helpers.dev_login import is_dev_login_allowed
+from posthog.helpers.dev_oauth_connectors import seeded_dev_oauth_connector_links
 from posthog.helpers.email_utils import EmailLookupHandler
 from posthog.helpers.sso import (
     GITHUB_EMAIL_LOOKUP_ERROR,
@@ -525,20 +526,20 @@ class LoginPrecheckSerializer(serializers.Serializer):
     @staticmethod
     def _available_local_methods(email: str, *, saml_available: bool, oidc_available: bool = False) -> dict[str, Any]:
         """
-        Report whether this account can log in with a password, and which of its linked social
-        identities are actually usable on this instance, so the login form can stop offering a
-        password box (or a dead SSO button) to an account that cannot use it.
+        Report whether an account exists for this email, whether it can log in with a password,
+        and which of its linked social identities are actually usable on this instance.
 
-        An email with no active user looks identical to a user who does have a password — a typo
-        must never be a dead end, and it keeps the account-existence signal limited to accounts
-        that are genuinely passwordless.
+        The auth page asks for the email first and uses `account_exists` to choose between the
+        login step and the signup step. Signup already refuses an email that has an account, so
+        this tells a caller nothing the signup precheck does not.
         """
         # Same lookup login itself uses (`UserManager.get_by_natural_key`), so precheck can never
         # describe a different account than the one a password would authenticate: case-insensitive,
-        # and deterministic (active first, then last logged in) if case variations coexist.
-        user = EmailLookupHandler.get_user_by_email(email)
+        # and deterministic (active first, then last logged in) if case variations coexist. A
+        # deactivated account counts as existing, because signup cannot reuse its email either.
+        user = EmailLookupHandler.get_user_by_email(email, is_active=None)
         if user is None:
-            return {"password_login_available": True, "social_providers": []}
+            return {"account_exists": False, "password_login_available": True, "social_providers": []}
 
         # Mirrors `UserSerializer.get_has_password`: `has_usable_password()` is True for an empty
         # password, so the `bool(...)` half of the check is load-bearing.
@@ -555,6 +556,7 @@ class LoginPrecheckSerializer(serializers.Serializer):
             usable_providers.add("oidc")
 
         return {
+            "account_exists": True,
             "password_login_available": password_login_available,
             "social_providers": sorted(linked_providers & usable_providers),
         }
@@ -728,9 +730,31 @@ class DevLoginUserSerializer(serializers.Serializer):
     )
 
 
+class DevOAuthConnectorSerializer(serializers.Serializer):
+    client_id = serializers.CharField(
+        read_only=True, help_text="Client ID of the connector application, which is its CIMD document URL."
+    )
+    client_name = serializers.CharField(read_only=True, help_text="Application name, shown on the auth screens.")
+    logo_uri = serializers.CharField(
+        read_only=True, allow_null=True, help_text="HTTPS logo from the connector's CIMD document, or null."
+    )
+    redirect_host = serializers.CharField(
+        read_only=True, allow_null=True, help_text="Host of the application's redirect URI."
+    )
+    authorize_path = serializers.CharField(
+        read_only=True,
+        help_text="The /oauth/authorize path the connector sends people to, for the login page's next parameter.",
+    )
+
+
 class DevLoginUserListSerializer(serializers.Serializer):
     users = DevLoginUserSerializer(
         many=True, read_only=True, help_text="Every active user, seeded accounts first, then most recently used."
+    )
+    oauth_connectors = DevOAuthConnectorSerializer(
+        many=True,
+        read_only=True,
+        help_text="Connector applications registered by generate_demo_data, to start a pending OAuth connection.",
     )
 
 
@@ -762,7 +786,9 @@ class DevLoginViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
         for entry in users:
             entry["label"] = DEV_LOGIN_KNOWN_EMAIL_LABELS.get(entry["email"])
 
-        return Response({"users": users})
+        return Response(
+            DevLoginUserListSerializer({"users": users, "oauth_connectors": seeded_dev_oauth_connector_links()}).data
+        )
 
 
 class TwoFactorSerializer(serializers.Serializer):

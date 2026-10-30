@@ -90,7 +90,7 @@ Report triage mechanics live in `inbox-exploration`; what matters here is how ac
 - **Verify before implementing.** A scout report is an LLM diagnosis, not ground truth — confirm the cited entities and behavior against the live data or code before fixing.
   A report that doesn't hold up is a dismissal candidate, and dismissing it _well_ is valuable work (see below).
 - **Close every report with the honest state**: `resolved` when the work landed (PR-backed fixes resolve themselves on merge — don't resolve at PR-open time), `suppressed` (dismissed) when it's not real or not worth fixing, `potential` (snoozed) when it's real but deferred.
-- **The dismissal note is a steering message.** On a dismiss, snooze, or restore, the `dismissal_note` is forwarded to the scout that filed the report, and every future run reads it as prior context (a `wrong_repo` dismissal forwards even without a note, since the repositories it names are the feedback).
+- **The dismissal note is a steering message.** On a dismiss, snooze, or restore, the `dismissal_note` is forwarded to the scout that filed the report, and every future run reads it as prior context. A `wrong_assignee` or `wrong_repo` dismissal forwards even without a note because the reason itself is routing feedback.
   Write it for that reader: name the evidence that settles it ("staging traffic — hosts match `*.dev.example.com`, ignore this pattern"), not just the verdict.
   A well-written dismissal is the cheapest scout edit you will ever make; a bare dismissal teaches nothing and the report comes back.
   Two caveats: forwarding is best-effort and requires the dismisser to hold scout-steering (skill-editor) access on the canonical project, and a dismissal made on a child environment's report never forwards at all; in both cases the note still lands on the report but never reaches the scout, so for a steer that must stick, confirm it arrived (`posthog:scout-notes-list`, with a credential that also holds `task:read`, since derived notes are hidden without it) or have someone authorized leave a note directly.
@@ -136,8 +136,9 @@ Which `scopes` value each granted scope writes under:
 | `warehouse_table:write` | `DataQualityCheck`                            |
 | `llm_skill:write`       | `PersonalAPIKey`                              |
 | `canvas:write`          | `Canvas`                                      |
+| `experiment:write`      | `Experiment`, `FeatureFlag`                   |
 
-Some grants also reach objects they are not named for: both warehouse grants reach the data quality checks on their subject, and `llm_skill:write` reaches the skill-store install command, which mints or rotates the acting user's marketplace credential.
+Some grants also reach objects they are not named for: both warehouse grants reach the data quality checks on their subject, `experiment:write` reaches the linked feature flag when a launch or pause turns it on or off, and `llm_skill:write` reaches the skill-store install command, which mints or rotates the acting user's marketplace credential.
 The scope-named objects themselves still log nothing: a skill body edit (including another scout's) and a warehouse table write leave no row, so read the skill's version history instead.
 A canvas publish leaves no activity row either. Read the canvas's version history: each version a scout published records the run's task.
 

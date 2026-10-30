@@ -24,13 +24,12 @@ from temporalio.service import RPCError
 
 from posthog.dataclasses import frozen
 from posthog.ingress.contracts import DeliveryOwnership, WebhookDelivery
+from posthog.integrations import IntegrationManager
 from posthog.models.comment import Comment
-from posthog.models.integration import Integration
 from posthog.models.team import Team
 from posthog.slack.identity import resolve_slack_profile_by_email
 from posthog.temporal.common.client import sync_connect
 
-from products.conversations.backend import role_sla
 from products.conversations.backend.channel_summary_ids import build_channel_summary_workflow_id
 from products.conversations.backend.facade.types import (
     AccountEmailThreadMessage as AccountEmailThreadMessage,
@@ -43,7 +42,6 @@ from products.conversations.backend.facade.types import (
     EmailThreadParticipantSummary as EmailThreadParticipantSummary,
     PublicHumanReplies as PublicHumanReplies,
     ResolvedTicketRevision as ResolvedTicketRevision,
-    RoleSlaBreach as RoleSlaBreach,
     SupportChannel as SupportChannel,
     SupportSlackSender as SupportSlackSender,
     SupportTicketMessage as SupportTicketMessage,
@@ -59,10 +57,11 @@ from products.conversations.backend.models import (
     Status,
     Ticket,
 )
-from products.conversations.backend.models.constants import WORKFLOW_AUTHOR_TYPE
+from products.conversations.backend.models.constants import WORKFLOW_AUTHOR_TYPE, Channel
 from products.conversations.backend.services.messages import public_human_ticket_replies
-from products.conversations.backend.slack import get_slack_client
+from products.conversations.backend.slack import _is_internal_channel, get_slack_client
 from products.conversations.backend.support_slack import (
+    automated_update_channel_allowed,
     get_support_slack_bot_token,
     supporthog_lacks_custom_identity_scope,
 )
@@ -438,6 +437,59 @@ def post_ticket_internal_note(team_id: int, ticket_id: str, content: str, *, ded
         content=content,
         item_context={"author_type": "AI", "is_private": True, "internal_note_key": dedupe_key},
     )
+    return str(comment.id)
+
+
+def post_ticket_automated_update(
+    team_id: int, ticket_id: str, *, public_content: str, private_content: str, dedupe_key: str
+) -> str | None:
+    source_ticket = Ticket.objects.filter(team_id=team_id, id=ticket_id).select_related("team").first()
+    if source_ticket is None:
+        return None
+    checked_channel = source_ticket.slack_channel_id
+    send_to_slack = False
+    if (
+        source_ticket.channel_source == Channel.SLACK
+        and checked_channel
+        and source_ticket.slack_thread_ts
+        and automated_update_channel_allowed(source_ticket.team, checked_channel)
+    ):
+        try:
+            send_to_slack = _is_internal_channel(get_slack_client(source_ticket.team), checked_channel)
+        except Exception:
+            logger.exception("Failed to check support Slack channel before automated update", ticket_id=ticket_id)
+
+    with transaction.atomic():
+        ticket = Ticket.objects.select_for_update().filter(team_id=team_id, id=ticket_id).first()
+        if ticket is None:
+            return None
+        if Comment.objects.filter(
+            team_id=team_id,
+            scope="conversations_ticket",
+            item_id=ticket_id,
+            item_context__automated_update_key=dedupe_key,
+            deleted=False,
+        ).exists():
+            return None
+        send_to_slack = bool(
+            send_to_slack
+            and ticket.channel_source == Channel.SLACK
+            and ticket.slack_channel_id == checked_channel
+            and ticket.slack_thread_ts == source_ticket.slack_thread_ts
+        )
+        comment = Comment.objects.create(
+            team_id=team_id,
+            scope="conversations_ticket",
+            item_id=ticket_id,
+            content=public_content if send_to_slack else private_content,
+            item_context={
+                "author_type": "AI",
+                "is_private": not send_to_slack,
+                "automated_update_key": dedupe_key,
+                "internal_channel_only": send_to_slack,
+                **({"internal_note_key": dedupe_key} if not send_to_slack else {}),
+            },
+        )
     return str(comment.id)
 
 
@@ -839,13 +891,12 @@ def list_email_threads_for_account_matching(
             continue
         integration_ids.add(int(integration_id))
 
-    integration_owner_ids = dict(
-        Integration.objects.filter(
-            team_id=team_id,
-            id__in=integration_ids,
-            kind=Integration.IntegrationKind.GOOGLE_CALENDAR,
-        ).values_list("id", "created_by_id")
-    )
+    integration_owner_ids = {
+        integration_id: integration.created_by_id
+        for integration_id, integration in IntegrationManager.google_calendar.oauth.get_many(
+            team_id, integration_ids
+        ).items()
+    }
     matching_threads: list[EmailThreadForAccountMatching] = []
     for thread in thread_page:
         normalized_thread_id = str(thread.id)
@@ -1047,12 +1098,6 @@ def _email_thread_addresses(value: object) -> list[EmailThreadAddress]:
         if isinstance(email, str) and isinstance(name, str):
             addresses.append(EmailThreadAddress(name=name, email=email))
     return addresses
-
-
-def list_role_sla_breaches(
-    team_id: int, user_id: int, *, due_after: datetime, due_before: datetime
-) -> list[RoleSlaBreach]:
-    return role_sla.list_role_sla_breaches(team_id, user_id, due_after=due_after, due_before=due_before)
 
 
 def list_account_email_thread_messages(

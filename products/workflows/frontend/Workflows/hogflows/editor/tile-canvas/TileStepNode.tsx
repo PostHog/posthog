@@ -3,6 +3,7 @@ import { useRef } from 'react'
 
 import { cn } from 'lib/utils/css-classes'
 
+import { StepImportNotesBadge } from '../../../import/StepImportNotesBadge'
 import type { HogFlow, HogFlowAction } from '../../types'
 import { tileCanvasLogic } from './tileCanvasLogic'
 import { hasStepMenu } from './tileCanvasModel'
@@ -44,7 +45,10 @@ export function TileStepNode({
             )}
         >
             <TileFace tile={tile} count={count} />
-            {hover.mounted && <TileHoverCard open={hover.open} action={action} tile={tile} count={count} />}
+            {interactive && workflow.id ? <StepImportNotesBadge workflowId={workflow.id} stepId={action.id} /> : null}
+            {hover.mounted && (
+                <TileHoverCard open={hover.open} action={action} tile={tile} count={count} workflowId={workflow.id} />
+            )}
         </div>
     )
 
@@ -66,7 +70,7 @@ export function TileStepNode({
             }
         >
             {interactive ? <TileStepMenu action={action}>{face}</TileStepMenu> : face}
-            <TileCaption facts={tile.facts} />
+            <TileCaption facts={tile.facts} name={tile.customName} />
         </div>
     )
 }

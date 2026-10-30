@@ -5,6 +5,8 @@ it. Which destinations an alert has is resolved before this, so a change to that
 reaches no transport.
 """
 
+from datetime import UTC
+
 from django.utils import timezone
 
 import structlog
@@ -16,17 +18,26 @@ from products.alerts_platform.backend.delivery.thread_store import ThreadBusy, T
 from products.alerts_platform.backend.delivery.transport import (
     DeliveryError,
     DeliveryTransport,
+    DestinationMisconfigured,
     MessageHandle,
     RootEditor,
 )
 from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
     AnnouncedTransition,
+    DeliveryPath,
     EvaluationAnnouncement,
     IncidentAction,
+    MessageLink,
 )
 from products.alerts_platform.backend.logic.platform_reads import alert_snapshot
-from products.alerts_platform.backend.temporal.metrics import increment_root_edit_failures, safe_record
+from products.alerts_platform.backend.temporal.metrics import (
+    DeliveryOutcomeLabel,
+    increment_deliveries,
+    increment_root_edit_failures,
+    record_delivery_lag,
+    safe_record,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -43,8 +54,11 @@ def deliver(
     announcement: EvaluationAnnouncement,
     incident_action: IncidentAction | None = None,
     source_alert_url: str | None = None,
+    source_incident_key: str | None = None,
+    project: MessageLink | None = None,
 ) -> None:
     channel_target = transport.channel_target(target)
+    source = announcement.source.value
     busy = 0
 
     for transition in announcement.transitions:
@@ -57,25 +71,6 @@ def deliver(
             channel_target=channel_target,
             transition=transition,
         )
-        if key is None:
-            _send(
-                transport=transport,
-                team_id=team_id,
-                configuration_id=configuration_id,
-                target=target,
-                destination_id=destination_id,
-                message=build_message(
-                    announcement,
-                    transition,
-                    team_id=team_id,
-                    incident_action=incident_action,
-                    source_alert_url=source_alert_url,
-                    overflowed=overflowed,
-                ),
-                in_reply_to=None,
-            )
-            continue
-
         try:
             claim = thread_store.claim(key, evaluation_key)
         except ThreadBusy:
@@ -83,8 +78,12 @@ def deliver(
             # in the channel twice. The holder may also have died, and then its claim frees
             # this thread only when it goes stale. The caller waits and runs the send again.
             busy += 1
+            safe_record(increment_deliveries, source, transport.provider, DeliveryPath.NATIVE.value, "busy")
             continue
         if claim is None:
+            safe_record(
+                increment_deliveries, source, transport.provider, DeliveryPath.NATIVE.value, "already_delivered"
+            )
             continue
 
         try:
@@ -101,6 +100,8 @@ def deliver(
                     incident_action=incident_action,
                     source_alert_url=source_alert_url,
                     overflowed=overflowed,
+                    source_incident_key=source_incident_key,
+                    project=project,
                 ),
                 in_reply_to=claim.handle,
             )
@@ -142,6 +143,8 @@ def _send(
             succeeded=False,
             error=str(error) if isinstance(error, DeliveryError) else type(error).__name__,
         )
+        outcome: DeliveryOutcomeLabel = "misconfigured" if isinstance(error, DestinationMisconfigured) else "failed"
+        safe_record(increment_deliveries, message.source.value, transport.provider, DeliveryPath.NATIVE.value, outcome)
         raise
     record_delivery(
         team_id=team_id,
@@ -150,7 +153,17 @@ def _send(
         destination_id=destination_id,
         succeeded=True,
     )
+    safe_record(increment_deliveries, message.source.value, transport.provider, DeliveryPath.NATIVE.value, "sent")
+    safe_record(record_delivery_lag, message.source.value, transport.provider, _lag_ms(message.transition))
     return sent
+
+
+def _lag_ms(transition: AnnouncedTransition) -> int:
+    # History rows come back from ClickHouse without a zone, and their times are UTC.
+    decided_at = transition.occurred_at
+    if decided_at.tzinfo is None:
+        decided_at = decided_at.replace(tzinfo=UTC)
+    return max(0, int((timezone.now() - decided_at).total_seconds() * 1000))
 
 
 def _edit_root(
@@ -183,19 +196,19 @@ def _thread_key(
     provider: str,
     channel_target: str,
     transition: AnnouncedTransition,
-) -> ThreadKey | None:
-    """Which conversation this message belongs to, or None when it belongs to none.
+) -> ThreadKey:
+    """Which conversation this message belongs to.
 
-    A message about no firing, which is a failed or a turned-off check, continues no
-    conversation and starts none. Keying one on the absent firing would thread every such
-    message for a configuration into the first one, which is the defect the episode prevents.
+    A message about no known firing, which is a failed or a turned-off check or the resolve of a
+    firing that began before the platform recorded starts, continues no conversation. Keying one
+    on the absent firing would thread every such message for a configuration into the first one,
+    which is the defect the episode prevents. So it is keyed on its own transition: it starts a
+    conversation nothing else joins, and a retried delivery still finds its claim and sends nothing.
     """
-    if transition.episode_started_at is None:
-        return None
     return ThreadKey(
         configuration_id=configuration_id,
         grouping_key=transition.grouping_key,
         provider=provider,
         channel_target=channel_target,
-        episode_started_at=transition.episode_started_at,
+        episode_started_at=transition.episode_started_at or transition.occurred_at,
     )

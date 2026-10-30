@@ -21,6 +21,7 @@ import GUIDELINES from '@shared/guidelines.md'
 import { randomUUID } from 'node:crypto'
 
 import { mapErrorToAuthResponse } from '@/lib/auth-errors'
+import { StateLookupCache } from '@/lib/cache/StateLookupCache'
 import { isLegacyDialectOnlyClient } from '@/lib/client-detection'
 import { MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@/lib/constants'
 import { McpSessionResetRequiredError, SESSION_RESET_REQUIRED_REASON } from '@/lib/errors'
@@ -41,6 +42,7 @@ import {
 import { trackInitEvent } from './analytics'
 import type { RedisLike } from './cache/RedisCache'
 import { getEnv, MCP_EXEC_SKILLS_FEATURE_FLAG } from './constants'
+import { GuidanceEngine } from './guidance/engine'
 import { InstructionsBuilder } from './instructions'
 import { InterviewRecruitment, InterviewRequestError } from './interview-recruitment'
 import { initDurationSeconds, initTotal } from './metrics'
@@ -108,6 +110,15 @@ function isRequest(msg: JSONRPCMessage): msg is JSONRPCRequest {
     )
 }
 
+// The SDK owns minting; only restore handles it accepts before resolving tool targets.
+const SDK_CONVERSATION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+
+function echoedConversationId(request: JSONRPCRequest): string | undefined {
+    const value = (request.params?.arguments as { conversation_id?: unknown } | undefined)?.conversation_id
+    const id = typeof value === 'string' ? value.trim().toLowerCase() : undefined
+    return id && SDK_CONVERSATION_ID.test(id) ? id : undefined
+}
+
 type JsonRpcResultResponse = { jsonrpc: typeof JSONRPC_VERSION; id: number | string; result: unknown }
 type JsonRpcErrorResponse = {
     jsonrpc: typeof JSONRPC_VERSION
@@ -155,8 +166,16 @@ class McpDispatcher {
         this.resourceCatalog = new ResourceCatalog(env, redis)
         this.stateResolver = new RequestStateResolver(catalog, redis, env)
         this.instructionsBuilder = new InstructionsBuilder(GUIDELINES)
-        this.skillCatalogService = new SkillCatalogService(redis, { archiveUrl: env.POSTHOG_MCP_SKILLS_URL })
-        this.toolExecutor = new ToolExecutor(catalog, this.instructionsBuilder, this.skillCatalogService)
+        this.skillCatalogService = new SkillCatalogService(redis, {
+            archiveUrl: env.POSTHOG_MCP_SKILLS_URL,
+            expectedArchiveSha: env.POSTHOG_MCP_SKILLS_SHA256,
+        })
+        this.toolExecutor = new ToolExecutor(
+            catalog,
+            this.instructionsBuilder,
+            this.skillCatalogService,
+            new GuidanceEngine(redis)
+        )
         this.interviewRecruitment = new InterviewRecruitment(redis)
     }
 
@@ -261,7 +280,14 @@ class McpDispatcher {
             props.mcpSessionId = randomUUID()
         }
 
-        const needsState = requests.some((r) => TRACKED_METHODS.has(r.method))
+        if (!props.mcpSessionId && requests.length === 1 && requests[0]!.method === Method.ToolsCall) {
+            props.mcpConversationId = echoedConversationId(requests[0]!) ?? props.mcpConversationId
+        }
+
+        const carriedContextHandle = Boolean(props.mcpSessionId || props.mcpConversationId)
+        const sessionlessBatch = wasArray && !props.mcpSessionId
+        const lookups = sessionlessBatch ? new StateLookupCache() : undefined
+        const needsState = !sessionlessBatch && requests.some((r) => TRACKED_METHODS.has(r.method))
         let state: ResolvedState | undefined
         try {
             state = needsState ? await this.stateResolver.resolve(props) : undefined
@@ -309,6 +335,7 @@ class McpDispatcher {
                 props,
                 state,
                 getPublicUrl(req).origin,
+                carriedContextHandle,
                 canStream
                     ? (request) => {
                           elicitation = request
@@ -329,7 +356,36 @@ class McpDispatcher {
             return new Response(JSON.stringify(result), { status, headers })
         }
 
-        const results = await Promise.all(requests.map((r) => this.dispatch(r, props, state, getPublicUrl(req).origin)))
+        const results = await Promise.all(
+            requests.map(async (request) => {
+                if (!sessionlessBatch) {
+                    return this.dispatch(request, props, state, getPublicUrl(req).origin, carriedContextHandle)
+                }
+                const itemProps = { ...props }
+                if (request.method === Method.ToolsCall) {
+                    itemProps.mcpConversationId = echoedConversationId(request) ?? props.mcpConversationId
+                }
+                let itemState: ResolvedState | undefined
+                try {
+                    itemState = TRACKED_METHODS.has(request.method)
+                        ? await this.stateResolver.resolve(itemProps, lookups)
+                        : undefined
+                } catch (error) {
+                    if (mapErrorToAuthResponse(error)) {
+                        throw error
+                    }
+                    console.error('[McpDispatcher] Internal error:', error)
+                    return jsonRpcMethodError(request.id, ErrorCode.InternalError, 'Internal error')
+                }
+                return this.dispatch(
+                    request,
+                    itemProps,
+                    itemState,
+                    getPublicUrl(req).origin,
+                    Boolean(itemProps.mcpSessionId || itemProps.mcpConversationId)
+                )
+            })
+        )
         return new Response(JSON.stringify(results), { status: 200, headers })
     }
 
@@ -338,6 +394,7 @@ class McpDispatcher {
         props: RequestProperties,
         state: ResolvedState | undefined,
         requestOrigin: string,
+        carriedContextHandle: boolean,
         onLegacyElicitation?: (request: JSONRPCRequest) => void
     ): Promise<JsonRpcResponse> {
         const { id, method, params } = request
@@ -356,6 +413,7 @@ class McpDispatcher {
                 stateless,
                 id,
                 requestOrigin,
+                carriedContextHandle,
                 onLegacyElicitation
             )
             if (result === METHOD_NOT_FOUND) {
@@ -380,6 +438,7 @@ class McpDispatcher {
         stateless: boolean,
         requestId: string | number,
         requestOrigin: string,
+        carriedContextHandle: boolean,
         onLegacyElicitation?: (request: JSONRPCRequest) => void
     ): Promise<unknown> {
         // SEP-2575 removed `initialize` and `ping` from the modern dialect.
@@ -399,6 +458,11 @@ class McpDispatcher {
                     state!,
                     params
                         ? {
+                              carriedContextHandle,
+                              resolveConversation: (conversationId) => {
+                                  props.mcpConversationId = conversationId
+                                  return this.stateResolver.resolve(props, state!.reqCtx.lookups)
+                              },
                               beforeExecute: (callState) =>
                                   this.interviewRecruitment.beforeToolCall(
                                       params,

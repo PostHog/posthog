@@ -198,6 +198,21 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
    rate drops materially (toward ≤50%) on frozen-PR evals with the valid-finding set intact (item 5's
    coverage matrix as the guard); kill if valid findings drop with the noise.
 
+### ✅ BUILT 2026-10-29 — no label starts a review; Stamphog hands off through the finished-review hook (#124327)
+
+- **What.** The `reviewhog` label no longer starts a review, and a `labeled` delivery starts nothing.
+  This replaces the 2026-08-21 label handler below.
+  When Stamphog refuses or escalates a self-driving PR, its finished-review hook (`facade/finished_review_hooks.py`) calls a callback `receivers.py` registers.
+  The callback queues `process_stamphog_handoff`, which reviews the head Stamphog judged (`stamphog_handoff.py`).
+  The review is Standard, or Deep once the PR has a published Deep review.
+- **Why the hook.** Stamphog already calls the finished-review hooks right after its terminal save.
+  A second registry would repeat it with a different payload.
+  `FinishedReviewRun` gains `head_sha` and `request_external_review`, because a gate-blocked refusal is stored as `WAIT` and the verdict alone does not say to hand off.
+- **No installation id in the payload.** Stamphog's installation belongs to its own GitHub App, so it never matches a PostHog App `Integration`.
+  The handoff finds the owning project and installation by repository name (`RepositoryOwnership.find_by_name`).
+- **Skips.** A head with a pending or completed review is not reviewed again; a failed status lookup raises so the task retries.
+  A missing owner, missing integration, missing run user, or running resolution is a no-op counted in `posthog_review_hog_stamphog_handoff_total`.
+
 ### ✅ BUILT 2026-10-16 — push gate skips follow-ups that rarely surface anything (live)
 
 - **What.** Three live push gate rules run after `draft`: `late_follow_up` (the push would start review 9 or a later

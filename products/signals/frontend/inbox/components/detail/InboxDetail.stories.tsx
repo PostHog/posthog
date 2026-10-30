@@ -7,6 +7,8 @@ import { FEATURE_FLAGS } from 'lib/constants'
 
 import { mswDecorator } from '~/mocks/browser'
 
+import type { ReportPlanApi } from 'products/signals/frontend/generated/api.schemas'
+
 import {
     makeReport,
     mockArtefacts,
@@ -150,7 +152,7 @@ const detailMocks = mswDecorator({
             200,
             mockTaskRun(req.params.taskId as string, req.params.runId as string),
         ],
-        '/api/projects/:id/tasks/:taskId/runs/:runId/logs': () => new HttpResponse(mockRunLog()),
+        '/api/projects/:id/tasks/:taskId/runs/:runId/log_entries': () => new HttpResponse(mockRunLog()),
     },
     post: {
         '/api/environments/:team_id/query/:kind/': reportMetricQueryHandler,
@@ -233,6 +235,7 @@ export const StatusBlock: Story = {
                 task_id: null,
                 agent: 'Build agent',
                 claimed_at: '2026-06-11T10:00:00Z',
+                responsible_user: null,
             },
         })
         return (
@@ -258,6 +261,69 @@ export const ReportReadyToImplement: Story = {
     render: () => (
         <Frame>
             <ReportDetail report={reportTabReports[0]} />
+        </Frame>
+    ),
+}
+
+export const ReportWithoutCodeAccess: Story = {
+    ...ReportReadyToImplement,
+    parameters: {
+        featureFlags: { ...meta.parameters?.featureFlags, [FEATURE_FLAGS.SELF_DRIVING_GITHUB_OPTIONAL]: true },
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:id/integrations/': { results: [], next: null, count: 0 },
+                '/api/projects/:id/signals/onboarding/': {
+                    draft: null,
+                    completed_at: null,
+                    github_optional_available: true,
+                },
+                '/api/projects/:id/signals/reports/:reportId/artefacts': (req) => {
+                    const results = mockArtefacts(req.params.reportId as string).results.filter(
+                        (artefact) => !['commit', 'suggested_reviewers', 'task_run'].includes(artefact.type)
+                    )
+                    return [200, { results, count: results.length }]
+                },
+            },
+        }),
+    ],
+    render: () => (
+        <Frame>
+            <ReportDetail
+                report={{
+                    ...reportTabReports[0],
+                    research_context: { mode: 'data_only', repository_status: 'no_integration' },
+                }}
+            />
+        </Frame>
+    ),
+}
+
+export const ReportClaimedByTeammate: Story = {
+    decorators: [readyToImplementMocks],
+    render: () => (
+        <Frame>
+            <ReportDetail
+                report={{
+                    ...reportTabReports[0],
+                    assignee: {
+                        claim_id: '019e64b8-0000-7000-8000-000000000098',
+                        kind: 'user',
+                        user: { id: 1, uuid: 'u-1', email: 'octo@example.com', first_name: 'Octo', last_name: 'Cat' },
+                        task_id: null,
+                        agent: null,
+                        claimed_at: '2026-06-10T10:00:00Z',
+                        responsible_user: {
+                            id: 1,
+                            uuid: 'u-1',
+                            email: 'octo@example.com',
+                            first_name: 'Octo',
+                            last_name: 'Cat',
+                        },
+                    },
+                }}
+            />
         </Frame>
     ),
 }
@@ -359,7 +425,97 @@ export const ReportMinimal: Story = {
     ),
 }
 
+const exportsPlan: ReportPlanApi = {
+    id: '019e64b8-0000-7000-8000-000000000201',
+    title: 'feat(exports): Make large exports reliable',
+    status: 'ready',
+    steps: [
+        {
+            id: '019e64b8-0000-7000-8000-000000000211',
+            title: 'feat(exports): Split large exports into chunks',
+            status: 'resolved',
+            depends_on: [],
+            implementation_pr_url: 'https://github.com/example/app/pull/41',
+            implementation_pr_state: 'merged',
+            suppression_source: null,
+        },
+        {
+            id: '019e64b8-0000-7000-8000-000000000212',
+            title: 'feat(exports): Retry failed chunks with backoff',
+            status: 'ready',
+            depends_on: ['019e64b8-0000-7000-8000-000000000211'],
+            implementation_pr_url: 'https://github.com/example/app/pull/42',
+            implementation_pr_state: 'open',
+            suppression_source: null,
+        },
+        {
+            id: '019e64b8-0000-7000-8000-000000000213',
+            title: 'feat(exports): Show export progress while it runs',
+            status: 'ready',
+            depends_on: ['019e64b8-0000-7000-8000-000000000212'],
+            implementation_pr_url: null,
+            implementation_pr_state: null,
+            suppression_source: null,
+        },
+    ],
+}
+
+export const ReportPlanStep: Story = {
+    render: () => (
+        <Frame>
+            <ReportDetail
+                report={makeReport({
+                    id: exportsPlan.steps[1].id,
+                    title: exportsPlan.steps[1].title,
+                    summary:
+                        'Retry a failed chunk up to three times with exponential backoff before the export fails. ' +
+                        'Keep the chunks that already succeeded.\n\n## Plan\n\n' +
+                        `This is layer 2 of 3 of the plan '${exportsPlan.title}'.`,
+                    priority: 'P2',
+                    actionability: 'immediately_actionable',
+                    plan: exportsPlan,
+                })}
+            />
+        </Frame>
+    ),
+}
+
+export const ReportPlan: Story = {
+    render: () => (
+        <Frame>
+            <ReportDetail
+                report={makeReport({
+                    id: exportsPlan.id,
+                    title: exportsPlan.title,
+                    summary:
+                        'Large exports time out and leave people without their data.\n\n## Problem\n\n' +
+                        'An export runs as one job, so one slow query fails the whole export.\n\n## Solution\n\n' +
+                        'Split exports into chunks, retry the chunks that fail, and show progress while it runs.',
+                    priority: 'P2',
+                    actionability: 'immediately_actionable',
+                    plan: exportsPlan,
+                })}
+            />
+        </Frame>
+    ),
+}
+
 export const PullRequest: Story = {
+    render: () => (
+        <Frame>
+            <ReportDetail report={pullRequestReports[0]} />
+        </Frame>
+    ),
+}
+
+export const PullRequestPlainTitle: Story = {
+    parameters: {
+        featureFlags: {
+            [FEATURE_FLAGS.SIGNALS_REPORT_METRICS]: true,
+            [FEATURE_FLAGS.SIGNALS_EXPECTED_IMPACT_DISPLAY]: true,
+            [FEATURE_FLAGS.SIGNALS_PLAIN_REPORT_TITLES]: 'test',
+        },
+    },
     render: () => (
         <Frame>
             <ReportDetail report={pullRequestReports[0]} />

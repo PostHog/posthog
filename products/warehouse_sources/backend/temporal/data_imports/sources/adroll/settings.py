@@ -15,6 +15,8 @@ class AdRollEndpointConfig:
     # Fan-out parent (campaigns/ads are fetched per advertisable EID).
     advertisable_scoped: bool = False
     parent_key: Optional[str] = None
+    # Fan-out through the advertisable's active pixel: advertisable -> get_pixel -> this endpoint.
+    pixel_scoped: bool = False
     # Query param the parent advertisable EID binds to. The reporting endpoints filter on a list
     # of advertisables (`advertisables`); the entity endpoints scope to one (`advertisable`).
     resolve_param: str = "advertisable"
@@ -26,6 +28,8 @@ class AdRollEndpointConfig:
     def __post_init__(self) -> None:
         if self.advertisable_scoped and self.parent_key is None:
             raise ValueError(f"advertisable_scoped endpoint '{self.name}' must define parent_key")
+        if self.pixel_scoped and not self.advertisable_scoped:
+            raise ValueError(f"pixel_scoped endpoint '{self.name}' must also be advertisable_scoped")
 
 
 # AdRoll's default quota is only 100 API requests per day, so every endpoint is either a single
@@ -45,6 +49,11 @@ ADROLL_ENDPOINTS: dict[str, AdRollEndpointConfig] = {
     "advertisables": AdRollEndpointConfig(
         name="advertisables",
         path="/api/v1/organization/get_advertisables",
+    ),
+    # Omitting `per_page` opts out of pagination, so the response carries every user.
+    "users": AdRollEndpointConfig(
+        name="users",
+        path="/api/v1/organization/get_users",
     ),
     "campaigns": AdRollEndpointConfig(
         name="campaigns",
@@ -73,6 +82,23 @@ ADROLL_ENDPOINTS: dict[str, AdRollEndpointConfig] = {
         path="/api/v1/advertisable/get_segments",
         advertisable_scoped=True,
         parent_key="_advertisable_eid",
+    ),
+    # The advertisable's active pixel; `results` is a single object, not a list.
+    "pixels": AdRollEndpointConfig(
+        name="pixels",
+        path="/api/v1/advertisable/get_pixel",
+        advertisable_scoped=True,
+        parent_key="_advertisable_eid",
+    ),
+    # Conversion, segment, prospect and cart rules of the advertisable's active pixel. Costs two
+    # requests per advertisable (get_pixel, then get_rules) against the daily quota.
+    "rules": AdRollEndpointConfig(
+        name="rules",
+        path="/api/v1/pixel/get_rules",
+        advertisable_scoped=True,
+        pixel_scoped=True,
+        parent_key="_pixel_eid",
+        resolve_param="pixel",
     ),
     # `data_format=entity` is the only response shape the CRUD API documents: one row per entity
     # carrying its delivery metrics. Per-day breakdowns need the GraphQL Reporting API.

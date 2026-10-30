@@ -141,6 +141,19 @@ class TestGetRows:
         assert body["pagination"]["offset"] == 4
         assert body["date_range"] == ["2024-01-01", "2024-01-31"]
 
+    def test_custom_property_table_queries_its_key_with_event_scoped_metrics(self):
+        result = _run(
+            [_page([_result(["2024-01-01", "pro"], [5, 6, 7, 8])])],
+            endpoint="custom_property_plan",
+        )
+
+        body = result.requests[0].json()
+        assert body["dimensions"] == ["time:day", "event:props:plan"]
+        assert body["metrics"] == ["visitors", "visits", "pageviews", "events"]
+        assert result.items[0] == [
+            {"date": "2024-01-01", "property_value": "pro", "visitors": 5, "visits": 6, "pageviews": 7, "events": 8}
+        ]
+
     def test_http_error_raises(self):
         result = _run([ScriptedResponse(status=400, json={"error": "bad query"})])
 

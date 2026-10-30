@@ -31,9 +31,12 @@ Reference: <https://docs.withpersona.com/reference> · Base URL: `https://api.wi
 | `events`                    | `/events`                                                     | Append only  | `id`        | `created_at`         |
 | `inquiry_templates`         | `/inquiry-templates`                                          | Full refresh | `id`        | —                    |
 | `inquiry_template_versions` | `/inquiry-template-versions?filter[inquiry-template-id]={id}` | Full refresh | `id`        | —                    |
+| `reports`                   | `/reports`                                                    | Full refresh | `id`        | `created_at`         |
+| `workflow_runs`             | `/workflow-runs`                                              | Full refresh | `id`        | `created_at`         |
+| `inquiry_sessions`          | `/inquiry-sessions`                                           | Full refresh | `id`        | `created_at`         |
 
 Object ids are globally unique and type-prefixed (`inq_`, `ver_`, `acc_`, `case_`, `txn_`, `evt_`,
-`itmpl_`, `itmplv_`), so `id` is a safe standalone primary key. Persona kebab-case attributes (`created-at`)
+`itmpl_`, `itmplv_`, `rep_`, `wfr_`, `iqse_`), so `id` is a safe standalone primary key. Persona kebab-case attributes (`created-at`)
 normalize to the snake_case warehouse columns (`created_at`).
 
 ## Verifications are a fan-out, not a list endpoint
@@ -67,6 +70,19 @@ sandbox API keys, so the table is off by default.
 
 `GET /workflow-versions` is not synced. It requires `filter[workflow-id]`, and Persona has no
 endpoint that lists workflows, so there is no set of workflow ids to fan out over.
+
+## Reports, workflow runs, and inquiry sessions are full refresh
+
+`GET /reports`, `GET /workflow-runs`, and `GET /inquiry-sessions` are ordinary paginated lists, but none
+of them takes a created-at window. Their only filters are `reference-id`/`account-id`, `status`, and
+`inquiry-id`. So they are full refresh only, partitioned on the immutable `created_at`. Inquiry sessions
+are roughly one row per attempt at every inquiry, so that table is off by default.
+
+## Account relations are not synced
+
+`GET /accounts/{account-id}/relations` requires `filter[key]`, a relation key that each customer defines
+on their account types. Persona has no endpoint that lists account types or their relation keys, so there
+is no set of keys to fan out over, and each account would need one request per key.
 
 ## Verification note
 

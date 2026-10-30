@@ -136,7 +136,7 @@ const REPORT_STATE_INSTRUCTIONS = `Keep the report's own state honest while you 
 - Read the report before you start. This run took the report when its task was created, but a rerun of a run that released it starts unclaimed: claim it again first, so the work you are about to do is visible to everyone else.
 - Opening the PR is enough by itself. The PR is linked to the report for you, and merging it resolves the report. Do NOT set the state to resolved because you opened a PR: that closes the PR you just opened.
 - If the work is finished without a PR, set the state to resolved with the reason that fits (\`fixed_outside_posthog\`, \`pr_merged\`, or \`already_fixed\`) and a short note that says what you did.
-- If the report holds no work to do, set the state to suppressed with the reason that says why (\`report_unclear\`, \`analysis_wrong\`, \`wrong_repo\` with \`corrected_repository\`, \`wontfix_intentional\`, \`wontfix_irrelevant\`, or \`other\`) and a short note, then release your claim: suppressing does not release it for you.
+- If the report holds no work to do, set the state to suppressed with the reason that says why (\`report_unclear\`, \`analysis_wrong\`, \`wrong_repo\` with \`corrected_repository\`, \`wontfix_intentional\`, \`wontfix_irrelevant\`, or \`other\`) and a short note, then release your claim: suppressing does not release it for you. A report sent to the wrong person still holds work, so do not suppress it for that reason.
 - If you stop for any other reason, release your claim on the report, so it does not look like work is still in flight.`
 
 export function buildCreatePrReportPrompt(report: SignalReport, feedback?: string): string {
@@ -357,7 +357,8 @@ async function createReportTask(
     fallbackTitle: string,
     runtimeSelection: ReportRuntimeSelection,
     discussionQuestion?: string,
-    warmLease: ReportWarmLease | null = null
+    warmLease: ReportWarmLease | null = null,
+    matchWarmRun: boolean = true
 ): Promise<{ taskId: string; runId: string }> {
     const isDiscussion = relationship === SIGNAL_REPORT_TASK_DISCUSSION_RELATIONSHIP
     // `repository` is intentionally omitted: the backend resolves it for signal_report tasks.
@@ -370,7 +371,8 @@ async function createReportTask(
         ...(isDiscussion
             ? {
                   signal_report_discussion_question: discussionQuestion?.trim() ?? '',
-                  branch: null,
+                  // The backend claims a matching warm run when `branch` is present.
+                  ...(matchWarmRun ? { branch: null } : {}),
                   ...runtimeSelection,
                   pending_user_message: prompt,
               }
@@ -443,6 +445,10 @@ export interface inboxTaskKickoffLogicValues {
     freeTrialDisabledReason: string | null
     isCreatingPr: boolean
     isDiscussing: boolean
+    lastQuickAskFailure: {
+        question: string
+        reportId: string
+    } | null
     lastReportRun: ReportRunRef | null
     metricCheckReplacementDisabledReason: string | null
     reportChatContext: ReportChatContext | null
@@ -480,6 +486,13 @@ export interface inboxTaskKickoffLogicActions {
     setSidePanelOptions: (options: string | null) => {
         options: string | null
     } // sidePanelStateLogic
+    alignReportDiscussion: (
+        report: SignalReport,
+        reportUrl: string
+    ) => {
+        report: SignalReport
+        reportUrl: string
+    }
     createPrFailure: () => {
         value: true
     }
@@ -499,9 +512,11 @@ export interface inboxTaskKickoffLogicActions {
         question: string,
         agentQuestion?: string,
         intent?: ReportDiscussionIntent,
-        pullRequestUrl?: string
+        pullRequestUrl?: string,
+        background?: boolean
     ) => {
         agentQuestion: string | undefined
+        background: boolean | undefined
         intent: ReportDiscussionIntent | undefined
         pullRequestUrl: string | undefined
         question: string
@@ -531,6 +546,13 @@ export interface inboxTaskKickoffLogicActions {
         runId: string
         streamKey: string | undefined
         taskId: string
+    }
+    quickAskFailed: (
+        reportId: string,
+        question: string
+    ) => {
+        question: string
+        reportId: string
     }
     releaseReportDiscussionWarm: () => {
         value: true
@@ -596,6 +618,7 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
     })),
 
     actions({
+        alignReportDiscussion: (report: SignalReport, reportUrl: string) => ({ report, reportUrl }),
         openReportDiscussion: (report: SignalReport, reportUrl: string) => ({ report, reportUrl }),
         openReportTask: (report: SignalReport, taskId: string, runId: string, streamKey?: string) => ({
             report,
@@ -612,7 +635,8 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
             question: string,
             agentQuestion?: string,
             intent?: ReportDiscussionIntent,
-            pullRequestUrl?: string
+            pullRequestUrl?: string,
+            background?: boolean
         ) => ({
             report,
             reportUrl,
@@ -620,6 +644,7 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
             agentQuestion,
             intent,
             pullRequestUrl,
+            background,
         }),
         createPrFromReport: (report: SignalReport, feedback?: string) => ({ report, feedback }),
         warmReportDiscussion: (report: SignalReport) => ({ report }),
@@ -627,6 +652,7 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
         setReportWarmLease: (lease: ReportWarmLease | null) => ({ lease }),
         discussReportSuccess: true,
         discussReportFailure: true,
+        quickAskFailed: (reportId: string, question: string) => ({ reportId, question }),
         createPrSuccess: true,
         createPrFailure: true,
     }),
@@ -635,7 +661,7 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
         reportChatContext: [
             null as ReportChatContext | null,
             {
-                openReportDiscussion: (_, { report, reportUrl }) => ({ report, reportUrl }),
+                alignReportDiscussion: (_, { report, reportUrl }) => ({ report, reportUrl }),
                 openReportTask: (_, { report }) => ({
                     report,
                     reportUrl: `${window.location.origin}${addProjectIdIfMissing(urls.inboxReport('reports', report.id))}`,
@@ -654,6 +680,13 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
             null as ReportWarmLease | null,
             {
                 setReportWarmLease: (_, { lease }) => lease,
+            },
+        ],
+        lastQuickAskFailure: [
+            null as { reportId: string; question: string } | null,
+            {
+                quickAskFailed: (_, failure) => failure,
+                discussReportSuccess: () => null,
             },
         ],
         isDiscussing: [
@@ -704,10 +737,17 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
     }),
 
     listeners(({ actions, cache, values }) => ({
-        openReportDiscussion: ({ report }) => {
+        alignReportDiscussion: ({ report }) => {
             cache.disposables.dispose(OPTIMISTIC_REPORT_STREAM)
             actions.clearActiveCreation()
             actions.setHistoryExpanded(false)
+            const warmReportIds = [values.reportWarmLease?.reportId, cache.warmingReportId, cache.pendingWarmReport?.id]
+            if (warmReportIds.some((id) => id && id !== report.id)) {
+                actions.releaseReportDiscussionWarm()
+            }
+        },
+        openReportDiscussion: ({ report, reportUrl }) => {
+            actions.alignReportDiscussion(report, reportUrl)
             actions.openSidePanel(SidePanelTab.Max, REPORT_AI_PANEL)
             if (!values.isCreatingPr) {
                 actions.warmReportDiscussion(report)
@@ -818,7 +858,7 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
             actions.setActiveCreation({ streamKey: resolvedStreamKey ?? runId, taskId, runId })
             actions.openSidePanel(SidePanelTab.Max, REPORT_AI_PANEL)
         },
-        discussReport: async ({ report, reportUrl, question, agentQuestion, intent, pullRequestUrl }) => {
+        discussReport: async ({ report, reportUrl, question, agentQuestion, intent, pullRequestUrl, background }) => {
             // The CTAs carry this as a `disabledReason`, but Discuss also submits on Enter, and the
             // run endpoint enforces no consent of its own.
             const disabledReason =
@@ -834,9 +874,13 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                     blockedReason: disabledReason,
                 })
                 actions.discussReportFailure()
+                if (background) {
+                    actions.quickAskFailed(report.id, question)
+                }
                 return
             }
-            const contextItems = values.contextItems
+            // The sidebar context can belong to another report, and the quick ask shows no attachments.
+            const contextItems = background ? [] : values.contextItems
             // The composer renders from a snapshot that can go stale between load and submit (the
             // report resolves, fails, or gets suppressed meanwhile), so the action-vs-answer framing
             // is derived from the report's current server-side state. A failed refetch fails closed:
@@ -871,6 +915,9 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
             if (values.currentProjectId == null) {
                 lemonToast.error("Couldn't ask AI about this report. Try again.")
                 actions.discussReportFailure()
+                if (background) {
+                    actions.quickAskFailed(report.id, question)
+                }
                 return
             }
             try {
@@ -885,10 +932,12 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                     ...selectedPullRequest,
                     ...contextItems,
                 ])
-                const warmLease = values.reportWarmLease?.reportId === report.id ? values.reportWarmLease : null
+                // A background ask leaves the warm sandbox to the sidebar composer it was started for.
+                const warmLease =
+                    !background && values.reportWarmLease?.reportId === report.id ? values.reportWarmLease : null
                 if (warmLease) {
                     actions.setReportWarmLease(null)
-                } else if (cache.warmingReportId === report.id) {
+                } else if (!background && cache.warmingReportId === report.id) {
                     cache.warmReleaseRequested = true
                 }
                 const { taskId, runId } = await createReportTask(
@@ -900,13 +949,19 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                     'Ask AI about report',
                     await launchSelection(values),
                     question,
-                    warmLease
+                    warmLease,
+                    !background
                 )
                 const sentContextKeys = contextItems.filter((item) => item.type !== 'text').map(attachedContextItemKey)
                 if (sentContextKeys.length > 0) {
                     actions.markContextSent(taskId, sentContextKeys)
                 }
-                if (panelStillOnReport(values.reportChatContext, report.id)) {
+                if (background) {
+                    lemonToast.success('Asked AI about this report', {
+                        toastId: `report-quick-ask-${runId}`,
+                        button: { label: 'View', action: () => actions.openReportTask(report, taskId, runId) },
+                    })
+                } else if (panelStillOnReport(values.reportChatContext, report.id)) {
                     const streamKey = `report-discussion-${uuid()}`
                     const stream = runStreamLogic({ streamKey })
                     cache.disposables.add(() => stream.mount(), OPTIMISTIC_REPORT_STREAM, {
@@ -922,16 +977,35 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
             } catch (error: any) {
                 handleKickoffError(error, report, 'discuss', "Couldn't ask AI about this report. Try again.")
                 actions.discussReportFailure()
+                if (background) {
+                    actions.quickAskFailed(report.id, question)
+                }
             }
         },
         createPrFromReport: async ({ report, feedback }) => {
-            if (values.createPrDisabledReason) {
-                lemonToast.error(values.createPrDisabledReason)
+            // Lazy: a static import puts the inbox setup stack in the shell bundle of every logged-in page.
+            const githubAccess = await import('./logics/reportGithubAccessLogic').catch((error) => {
+                handleKickoffError(error, report, 'create_pr', "Couldn't start the PR task. Try again.")
+                return null
+            })
+            if (!githubAccess) {
+                actions.createPrFailure()
+                return
+            }
+            const { reportGithubAccessLogic } = githubAccess
+            const disabledReason =
+                values.createPrDisabledReason ??
+                (
+                    reportGithubAccessLogic.findMounted({ report, surface: 'triage_mode' }) ??
+                    reportGithubAccessLogic.findMounted({ report })
+                )?.values.disabledReason
+            if (disabledReason) {
+                lemonToast.error(disabledReason)
                 captureInboxReportActionCompleted({
                     report,
                     actionType: 'create_pr',
                     outcome: 'blocked',
-                    blockedReason: values.createPrDisabledReason,
+                    blockedReason: disabledReason,
                 })
                 actions.createPrFailure()
                 return

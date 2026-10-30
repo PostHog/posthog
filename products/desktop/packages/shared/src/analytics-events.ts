@@ -1273,6 +1273,8 @@ type ChannelActionType =
   | "expand_channel"
   | "activity_unreads_toggle"
   | "activity_mark_all_read"
+  | "mark_task_read"
+  | "mark_task_unread"
   | "activity_load_more";
 
 type TaskFeedActionType = "create" | "update" | "delete" | "open";

@@ -21,7 +21,7 @@ from posthog.temporal.health_checks.processing import _process_batch_detection
 from posthog.temporal.health_checks.registry import HEALTH_CHECKS, ensure_registry_loaded
 
 from products.early_access_features.backend.models import EarlyAccessFeature
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.facade.testing import create_experiment
 from products.feature_flags.backend.flag_status import ROLLOUT_FULLY_ROLLED_OUT, ROLLOUT_NOT_ROLLED_OUT, ROLLOUT_PARTIAL
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.temporal.health_checks.stale_flags import (
@@ -119,9 +119,9 @@ class TestStaleFlagsDetect(BaseTest):
                 team=self.team, name="t", content={"steps": []}, internal_targeting_flag=flag, archived=True
             )
         elif link == "experiment":
-            Experiment.objects.create(team=self.team, created_by=self.user, feature_flag=flag)
+            create_experiment(team_id=self.team.id, feature_flag_id=flag.id, created_by_id=self.user.id)
         elif link == "deleted_experiment":
-            Experiment.objects.create(team=self.team, created_by=self.user, feature_flag=flag, deleted=True)
+            create_experiment(team_id=self.team.id, feature_flag_id=flag.id, created_by_id=self.user.id, deleted=True)
         elif link == "early_access_feature":
             EarlyAccessFeature.objects.create(team=self.team, name="f", stage="beta", feature_flag=flag)
         elif link == "dependent_flag":
@@ -883,7 +883,7 @@ class TestStaleFlagsDetect(BaseTest):
         assert len(after) == len(before)
 
     @patch("posthog.temporal.health_checks.processing.emit_health_check_alert")
-    def test_issue_lifecycle(self, _mock_alert) -> None:
+    def test_issue_lifecycle(self, mock_alert) -> None:
         flag_a = self._create_flag("lifecycle-a", **stale_by_usage())
         flag_b = self._create_flag("lifecycle-b", **stale_by_usage())
         check = StaleFeatureFlagsCheck()
@@ -931,6 +931,9 @@ class TestStaleFlagsDetect(BaseTest):
         run(gate_answer=False)
         assert active_issues().count() == 2
 
+        # The runs above fired and resolved issues, and none of them reached a destination.
+        mock_alert.assert_not_called()
+
 
 class TestStaleFlagsContract(SimpleTestCase):
     def _issue(self, payload: dict[str, Any]) -> HealthIssue:
@@ -942,20 +945,23 @@ class TestStaleFlagsContract(SimpleTestCase):
             unique_hash="h",
         )
 
-    def test_registered_dry_until_the_gate_reaches_every_worker(self) -> None:
+    def test_registered_with_the_live_flag_as_the_only_gate(self) -> None:
         ensure_registry_loaded()
         registration = HEALTH_CHECKS["stale_feature_flags"]
         assert registration.owner == JobOwners.TEAM_FEATURE_FLAGS
         assert registration.product == Product.FEATURE_FLAGS
-        # Web writes these into the schedule before the worker redeploys, so a worker without
-        # `eligible_team_ids` must still find a dry registration. The follow-up drops both and
-        # leaves the flag as the only gate.
-        assert registration.dry_run is True
-        assert registration.rollout_percentage == 0.01
+        # These are the framework defaults. A `rollout_percentage` below 1.0 samples teams out before
+        # `eligible_team_ids` runs, and `dry_run` drops the writes after detection. Overriding either
+        # one means a team the flag enables can still get no issues.
+        assert registration.dry_run is False
+        assert registration.rollout_percentage == 1.0
         assert registration.schedule == "0 6 * * 1"
         assert registration.remediation is not None
-        # Payloads carry flag keys and names, so the Health API must gate them on flag access.
+        # Payloads carry one flag's key, name and rollout state, so the Health API must gate each
+        # issue on access to that flag, not only on access to flags as a resource.
         assert registration.access_controlled_resource == "feature_flag"
+        assert registration.access_controlled_object_key == "flag_id"
+        assert registration.access_controlled_object_model is FeatureFlag
 
     def test_remediation_orders_code_removal_before_archive(self) -> None:
         remediation = StaleFeatureFlagsCheck.remediation

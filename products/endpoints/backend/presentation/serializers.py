@@ -10,8 +10,6 @@ from rest_framework import serializers
 
 from posthog.api.shared import UserBasicSerializer
 
-from products.endpoints.backend.facade.enums import MaterializationFixStatus
-
 
 class EndpointRequestSerializer(serializers.Serializer):
     """Schema for creating/updating endpoints. OpenAPI docs only — validation uses Pydantic."""
@@ -128,66 +126,6 @@ class EndpointMaterializationSerializer(serializers.Serializer):
     )
 
 
-class EndpointMaterializationSuggestionRequestSerializer(serializers.Serializer):
-    """Request body for the AI materialization-fix suggestion action."""
-
-    version = serializers.IntegerField(
-        required=False,
-        allow_null=True,
-        help_text="Endpoint version to suggest a fix for. Defaults to the latest version.",
-    )
-
-
-class EndpointMaterializationSuggestionSerializer(serializers.Serializer):
-    """AI-suggested query rewrite that would make the endpoint materializable."""
-
-    suggestion_status = serializers.ChoiceField(
-        choices=[s.value for s in MaterializationFixStatus],
-        help_text=(
-            "Outcome of the suggestion run: 'ok' — the suggested query passes the live materialization "
-            "checks; 'cannot_fix' — no semantically equivalent rewrite exists; 'invalid' — a suggestion "
-            "was produced but never passed validation (suggested_query carries the last attempt); "
-            "'model_error' — the model returned no usable response."
-        ),
-    )
-    suggested_query = serializers.CharField(
-        allow_null=True,
-        help_text="The complete rewritten SQL query, or null when no rewrite was produced.",
-    )
-    explanation = serializers.CharField(
-        allow_null=True,
-        help_text="User-facing explanation of what was changed and why, or why no fix exists.",
-    )
-    attempts = serializers.IntegerField(
-        help_text="How many suggest→validate rounds were used.",
-    )
-    error = serializers.CharField(
-        allow_null=True,
-        help_text="Last validation failure when the suggestion did not pass the checks.",
-    )
-    original_reason = serializers.CharField(
-        help_text="The materialization blocker that triggered the suggestion.",
-    )
-
-
-class EndpointMaterializationConditionsSerializer(serializers.Serializer):
-    """The live materialization rules, for agents that want to rewrite a rejected query themselves."""
-
-    conditions_source = serializers.CharField(
-        help_text=(
-            "Python source code of the checks that decide whether an endpoint query can be materialized, "
-            "read from the running system — always matches what this instance enforces. Reason from it to "
-            "rewrite a rejected query into a form that passes every check."
-        ),
-    )
-    rewrite_contract = serializers.CharField(
-        help_text=(
-            "Hard rules a rewrite must obey so it stays semantically equivalent to the original query "
-            "(same results for all variable values, keep every variable placeholder unchanged)."
-        ),
-    )
-
-
 class EndpointColumnSerializer(serializers.Serializer):
     """A column in the endpoint's query result."""
 
@@ -214,7 +152,10 @@ class EndpointResponseSerializer(serializers.Serializer):
         help_text="Whether the endpoint can be executed via the API.",
     )
     data_freshness_seconds = serializers.IntegerField(
-        help_text="How fresh the data is, in seconds. One of: 900, 1800, 3600, 21600, 43200, 86400, 604800.",
+        help_text=(
+            "Effective data freshness, in seconds. Materialized endpoints use the node's refresh target, "
+            "which can differ from the standard freshness choices. Other endpoints use the cache duration."
+        ),
     )
     endpoint_path = serializers.CharField(
         help_text="Relative API path to execute this endpoint (e.g. /api/projects/{team_id}/endpoints/{name}/run).",

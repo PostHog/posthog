@@ -13,6 +13,9 @@ import type {
     AppMetricsTotalsResponseApi,
     DashboardImportApi,
     DashboardImportCreateApi,
+    MetricsAlertCreateDestinationApi,
+    MetricsAlertDeleteDestinationApi,
+    MetricsAlertDestinationApi,
     MetricsAttributeValuesRetrieveParams,
     MetricsAttributesRetrieveParams,
     MetricsCreatedDashboardApi,
@@ -371,6 +374,24 @@ export const metricsDashboardTemplatesPreviewCreate = async (
     })
 }
 
+export const getMetricsDashboardTemplatesRegenerateCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/metrics/dashboard_templates/${id}/regenerate/`
+}
+
+/**
+ * Discard the panels and the preview of a generated template, and generate it again from its metrics.
+ */
+export const metricsDashboardTemplatesRegenerateCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<MetricsDashboardTemplateApi> => {
+    return apiMutator<MetricsDashboardTemplateApi>(getMetricsDashboardTemplatesRegenerateCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getMetricsDashboardTemplatesRejectCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/metrics/dashboard_templates/${id}/reject/`
 }
@@ -641,5 +662,65 @@ export const metricsVariableOptionsCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(_metricVariableOptionsRequestApi),
+    })
+}
+
+export const getMetricsAlertsDestinationsListUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/metrics_alerts/${id}/destinations/`
+}
+
+/**
+ * List the notification destinations of a metrics alert.
+ */
+export const metricsAlertsDestinationsList = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<MetricsAlertDestinationApi[]> => {
+    return apiMutator<MetricsAlertDestinationApi[]>(getMetricsAlertsDestinationsListUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getMetricsAlertsDestinationsCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/metrics_alerts/${id}/destinations/`
+}
+
+/**
+ * Add a notification destination to a metrics alert. It hears the transitions in `event_kinds`. A PagerDuty destination opens an incident when the alert fires and resolves it when the alert resolves.
+ */
+export const metricsAlertsDestinationsCreate = async (
+    projectId: string,
+    id: string,
+    metricsAlertCreateDestinationApi: MetricsAlertCreateDestinationApi,
+    options?: RequestInit
+): Promise<MetricsAlertDestinationApi> => {
+    return apiMutator<MetricsAlertDestinationApi>(getMetricsAlertsDestinationsCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(metricsAlertCreateDestinationApi),
+    })
+}
+
+export const getMetricsAlertsDestinationsDeleteCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/metrics_alerts/${id}/destinations/delete/`
+}
+
+/**
+ * Delete notification destinations of a metrics alert.
+ */
+export const metricsAlertsDestinationsDeleteCreate = async (
+    projectId: string,
+    id: string,
+    metricsAlertDeleteDestinationApi: MetricsAlertDeleteDestinationApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getMetricsAlertsDestinationsDeleteCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(metricsAlertDeleteDestinationApi),
     })
 }

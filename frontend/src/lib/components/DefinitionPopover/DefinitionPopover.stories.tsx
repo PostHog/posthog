@@ -248,9 +248,7 @@ export const WithoutTimestamps: Story = {
 // Covers the column-field pickers shown when a data warehouse table is
 // selected as an insight series in the legacy TaxonomicFilter path
 // (`DefinitionPopoverContents` → `DefinitionView` DWH branch). Pins the
-// `pill` variant of the category-dropdown experiment. The rebuild variant
-// of the same view is covered by `DataWarehouseConfig` in
-// `TaxonomicFilterMenu.stories.tsx`.
+// `pill` variant of the category-dropdown experiment.
 
 const mockDataWarehouseTable = {
     id: 'dwh-table-1',
