@@ -549,29 +549,37 @@ describe('EmailService', () => {
         describe('queue-to-send latency', () => {
             // The job was created a minute ago and rescheduled after a throttle, so it became due again 5 seconds ago.
             // Running the email step clones the invocation, which resets queueScheduledAt before the send.
+            const transactionalSend = (): void => {
+                invocation.state.globals.event.event = '$transactional_email'
+                invocation.hogFunction.metadata = { message_category_type: 'transactional' }
+            }
+
             it.each([
-                ['workflow', 'bulk', 'its rescheduled time', (): void => {}, 5_000, 60_000],
+                ['workflow', 'bulk', 'false', 'its rescheduled time', (): void => {}, 5_000, 60_000],
+                ['transactional_api', 'fast', 'false', 'its creation', transactionalSend, 60_000, Infinity],
+                // Alerts leave out a wait that the team sending cap causes on purpose.
                 [
                     'transactional_api',
                     'fast',
-                    'its creation',
+                    'true',
+                    'its creation after a team cap delay',
                     (): void => {
-                        invocation.state.globals.event.event = '$transactional_email'
-                        invocation.hogFunction.metadata = { message_category_type: 'transactional' }
+                        transactionalSend()
+                        invocation.queueMetadata = { teamCapped: true }
                     },
                     60_000,
                     Infinity,
                 ],
             ])(
-                'observes the wait of a retried %s send on the %s lane from %s',
-                async (source, priorityClass, _from, setUp, minWaitMs, maxWaitMs) => {
+                'observes the wait of a retried %s send on the %s lane with team_capped=%s from %s',
+                async (source, priorityClass, teamCapped, _from, setUp, minWaitMs, maxWaitMs) => {
                     setUp()
                     invocation.queue = 'email'
                     invocation.queueCreatedAt = DateTime.utc().minus({ seconds: 60 })
                     invocation.queueDueAt = DateTime.utc().minus({ seconds: 5 })
                     invocation.queueScheduledAt = undefined
                     const name = 'cdp_email_queue_to_send_ms'
-                    const labels = { source, priority_class: priorityClass }
+                    const labels = { source, priority_class: priorityClass, team_capped: teamCapped }
                     const countBefore = await metricValue(name, labels, `${name}_count`)
                     const sumBefore = await metricValue(name, labels, `${name}_sum`)
 
@@ -888,6 +896,8 @@ describe('EmailService', () => {
                 expect(result.finished).toBe(false)
                 // The reschedule must carry the email payload forward, same as the workflow limit.
                 expect(result.invocation.queueParameters).toEqual(invocation.queueParameters)
+                // The flag labels the eventual send's queue wait, so alerts can leave out the cap delay.
+                expect(result.invocation.queueMetadata).toMatchObject({ teamCapped: true })
                 const scheduledMs = result.invocation.queueScheduledAt!.toMillis()
                 expect(scheduledMs).toBeGreaterThanOrEqual(before + minMs)
                 expect(scheduledMs).toBeLessThan(before + maxMs + 5000)
