@@ -448,9 +448,7 @@ def _parse_gmail_message(
     if not body_plain and body_html:
         body_plain = html_to_text(body_html)
     elif looks_like_html_document(body_plain):
-        # The sender put a document in the text part. Flatten it, and keep the document
-        # as the HTML of this message when no `text/html` part came with it, so link
-        # recovery still has the hrefs.
+        # Keep the document as this message's HTML, so link recovery still has the hrefs.
         body_html = body_html or body_plain
         body_plain = html_to_text(body_plain)
 

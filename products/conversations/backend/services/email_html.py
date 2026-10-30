@@ -27,11 +27,9 @@ _HTML_SKIPPED_TAGS = frozenset({"head", "script", "style", "title"})
 _HTML_WHITESPACE_RE = re.compile(r"\s+")
 _BLANK_LINES_RE = re.compile(r"\n{3,}")
 _PREFORMATTED_PLACEHOLDER_RE = re.compile(r"\x00(\d+)\x00")
-# A text part that opens with a doctype or an `<html>` tag is a document, not prose.
-# The test stays this narrow on purpose: a support email often quotes markup, and
-# flattening prose that merely contains tags would drop what the customer wanted to show.
+# Narrow on purpose: a support email that quotes markup has to keep it.
 _HTML_DOCUMENT_START_RE = re.compile(
-    r"[\s﻿]*(?:<\?xml[^>]*>\s*)?(?:<!doctype\s+html|<html[\s>])",
+    r"[\s\ufeff]*(?:<\?xml[^>]*>\s*)?(?:<!doctype\s+html|<html[\s>])",
     re.IGNORECASE,
 )
 

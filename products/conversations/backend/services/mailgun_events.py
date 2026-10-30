@@ -614,10 +614,8 @@ def _parse_inbound_email(request: MailgunRequest, config: EmailChannel) -> Parse
     stripped_text = request.POST.get("stripped-text", "")[:MAX_EMAIL_BODY_LENGTH]
     body_html = request.POST.get("body-html", "")[:MAX_EMAIL_BODY_LENGTH]
     stripped_html = request.POST.get("stripped-html", "")[:MAX_EMAIL_BODY_LENGTH]
-    # A sender that puts a whole HTML document in the `text/plain` part gives us markup
-    # where the inbox expects prose. Both scopes come from that one part, so both are
-    # flattened, and the document stays as the HTML of its scope when the message carried
-    # no HTML part, so link recovery still has the hrefs.
+    # A document in the `text/plain` part gives us markup where the inbox expects prose. Both
+    # scopes come from that one part, and it stays as their HTML so link recovery keeps the hrefs.
     if looks_like_html_document(body_plain) or looks_like_html_document(stripped_text):
         logger.info("email_inbound_html_text_part", team_id=config.team_id)
         body_html = body_html or body_plain

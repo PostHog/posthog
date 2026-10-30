@@ -1779,9 +1779,7 @@ class TestEmailInboundContent(MailgunWebhookTestMixin, BaseTest):
                 {"body-plain": "Full body text"},
                 "Full body text",
             ),
-            # A sender can put a whole HTML document in the text/plain part. The inbox
-            # renders Markdown, so the document reaches the reader as tags and code
-            # blocks unless ingestion flattens it.
+            # A whole HTML document in the text/plain part has to reach the reader as prose.
             (
                 "html_document_in_text_part",
                 {
