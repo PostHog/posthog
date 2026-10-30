@@ -19,6 +19,7 @@ from products.ai_observability.backend.llm.errors import (
     QuotaExceededError,
     StructuredOutputParseError,
 )
+from products.ai_observability.backend.llm.images import ImagePart
 from products.ai_observability.backend.llm.providers.openai import OpenAIAdapter, OpenAIConfig
 from products.ai_observability.backend.llm.types import AnalyticsContext, CompletionRequest, OutputSchema
 
@@ -175,6 +176,75 @@ class TestOpenAIStreamOutputSchema:
             "json_schema": {"name": "verdict", "schema": schema, "strict": True},
         }
         assert "response_format" not in self._stream_kwargs(None)
+
+
+class TestOpenAIImageParts:
+    @pytest.mark.parametrize(
+        ("image", "expected_url"),
+        [
+            pytest.param(
+                ImagePart(mime_type="image/png", url="https://example.com/a.png"),
+                "https://example.com/a.png",
+                id="link",
+            ),
+            pytest.param(ImagePart(mime_type="image/png", data=b"hi"), "data:image/png;base64,aGk=", id="inline"),
+        ],
+    )
+    @pytest.mark.parametrize("json_fallback", [False, True], ids=["plain", "json_fallback"])
+    def test_image_parts_are_sent_as_image_url_blocks(self, image: ImagePart, expected_url: str, json_fallback: bool):
+        request = CompletionRequest(
+            model="gpt-4.1",
+            messages=[{"role": "user", "content": [image, {"type": "text", "text": "hi"}]}],
+            provider="openai",
+            response_format=_Verdict if json_fallback else None,
+        )
+        mock_client = MagicMock()
+        mock_client.beta.chat.completions.parse.side_effect = _make_bad_request_error(
+            "response_format is not supported"
+        )
+        mock_client.chat.completions.create.return_value.usage = None
+        mock_client.chat.completions.create.return_value.choices[0].message.content = '{"verdict": true}'
+        with patch("products.ai_observability.backend.llm.providers.openai.openai.OpenAI", return_value=mock_client):
+            OpenAIAdapter().complete(request, api_key="sk-test", analytics=AnalyticsContext(capture=False))
+
+        sent = mock_client.chat.completions.create.call_args.kwargs["messages"]
+        assert next(message for message in sent if message["role"] == "user")["content"] == [
+            {"type": "image_url", "image_url": {"url": expected_url}},
+            {"type": "text", "text": "hi"},
+        ]
+
+
+class TestOpenAICompleteReasoningEffort:
+    @parameterized.expand(
+        [
+            ("original_gpt5_keeps_minimal", "gpt-5-mini", "minimal", "minimal"),
+            ("later_gpt5_maps_minimal_to_low", "gpt-5.1", "minimal", "low"),
+            ("o_series_maps_minimal_to_low", "o4-mini", "minimal", "low"),
+            ("level_passes_through", "gpt-5.1", "high", "high"),
+            ("non_reasoning_model_omits_effort", "gpt-4.1", "high", None),
+            ("chat_variant_omits_effort", "gpt-5-chat-latest", "high", None),
+            ("no_level_omits_effort", "gpt-5-mini", None, None),
+        ]
+    )
+    def test_structured_completion_sends_supported_reasoning_effort(
+        self, _name: str, model: str, level: str | None, expected: str | None
+    ) -> None:
+        mock_client = MagicMock()
+        mock_client.beta.chat.completions.parse.return_value.choices = [MagicMock(message=MagicMock(parsed=None))]
+        request = CompletionRequest(
+            model=model,
+            system="s",
+            messages=[{"role": "user", "content": "x"}],
+            provider="openai",
+            response_format=_Verdict,
+            reasoning_level=level,  # type: ignore[arg-type]
+        )
+
+        with patch("products.ai_observability.backend.llm.providers.openai.openai.OpenAI", return_value=mock_client):
+            OpenAIAdapter().complete(request, api_key="sk-test", analytics=AnalyticsContext(capture=False))
+
+        effort = mock_client.beta.chat.completions.parse.call_args.kwargs["reasoning_effort"]
+        assert (None if effort is openai.omit else effort) == expected
 
 
 class TestOpenAIAdapterErrorMapping:

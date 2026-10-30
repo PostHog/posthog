@@ -42,7 +42,7 @@ from products.cdp.backend.models.hog_functions.hog_function import HogFunction, 
 from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.early_access_features.backend.models import EarlyAccessFeature
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.facade.testing import create_experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
@@ -509,7 +509,7 @@ class TestFileSystemAPI(APIBaseTest):
         """
         # Create 5 objects
         ff = FeatureFlag.objects.create(team=self.team, key="Beta Feature", created_by=self.user)
-        Experiment.objects.create(team=self.team, name="Experiment #1", created_by=self.user, feature_flag=ff)
+        create_experiment(team_id=self.team.id, name="Experiment #1", created_by_id=self.user.id, feature_flag_id=ff.id)
         Dashboard.objects.create(team=self.team, name="User Dashboard", created_by=self.user)
         Insight.objects.create(team=self.team, saved=True, name="Marketing Insight", created_by=self.user)
         Notebook.objects.create(team=self.team, title="Data Exploration", created_by=self.user)
@@ -528,7 +528,9 @@ class TestFileSystemAPI(APIBaseTest):
         Ensure that the 'type' query parameter filters creation to a single type.
         """
         flag = FeatureFlag.objects.create(team=self.team, key="Only Flag", created_by=self.user)
-        Experiment.objects.create(team=self.team, name="Experiment #1", feature_flag=flag, created_by=self.user)
+        create_experiment(
+            team_id=self.team.id, name="Experiment #1", feature_flag_id=flag.id, created_by_id=self.user.id
+        )
         FileSystem.objects.all().delete()
 
         # Filter for feature_flag only => creates 1 new 'leaf' item
@@ -2697,19 +2699,19 @@ class TestDestroyRepairsLeftoverHogFunctions(APIBaseTest):
 
     def _prepare_experiment_case(self):
         feature_flag = FeatureFlag.objects.create(team=self.team, key="exp-flag", created_by=self.user)
-        experiment = Experiment.objects.create(
-            team=self.team,
+        experiment_id = create_experiment(
+            team_id=self.team.id,
             name="Experiment",
-            feature_flag=feature_flag,
-            created_by=self.user,
+            feature_flag_id=feature_flag.id,
+            created_by_id=self.user.id,
         )
         fs_entry = self._ensure_file_system_entry(
-            file_type="experiment", ref=str(experiment.id), fallback_name=str(experiment.id)
+            file_type="experiment", ref=str(experiment_id), fallback_name=str(experiment_id)
         )
         return {
             "fs_entry": fs_entry,
-            "item_id": str(experiment.id),
-            "ref": str(experiment.id),
+            "item_id": str(experiment_id),
+            "ref": str(experiment_id),
             "path": fs_entry.path,
         }
 

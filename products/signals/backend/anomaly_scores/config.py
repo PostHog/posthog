@@ -5,6 +5,7 @@ field falls back to its default, and no default is unbounded.
 """
 
 import uuid
+import hashlib
 import dataclasses
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any
@@ -118,8 +119,13 @@ DEFAULT_TICK_INTERVALS = (IntervalType.DAY, IntervalType.WEEK, IntervalType.MONT
 class AnomalyScoringConfig:
     enabled: bool = False
     organization_ids: tuple[str, ...] = ()
-    # Empty means every team of the organizations in `organization_ids`.
+    # Empty means every team of the organizations in `organization_ids`. The percentage rollout ignores it.
     allow_team_ids: tuple[int, ...] = ()
+    # Scores this percentage of the organizations with a project that has an enabled signal source.
+    # Only those projects are scored. A higher percentage keeps the organizations of a lower one.
+    self_driving_organization_percentage: float = 0.0
+    # The tick never scores these organizations, even when another field enrolls them.
+    deny_organization_ids: tuple[str, ...] = ()
     skip_team_ids: tuple[int, ...] = ()
     intervals: tuple[IntervalType, ...] = DEFAULT_TICK_INTERVALS
     # Smooths the spend over the hour, so one tick cannot use the whole query budget. With the split on,
@@ -166,25 +172,32 @@ def _positive_int(value: Any, default: int) -> int:
     return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else default
 
 
+def _percentage(value: Any, default: float) -> float:
+    if isinstance(value, bool) or not isinstance(value, int | float) or not 0 <= value <= 100:
+        return default
+    return float(value)
+
+
 def _team_ids(value: Any) -> tuple[int, ...]:
     if not isinstance(value, list):
         return ()
     return tuple(item for item in value if isinstance(item, int) and not isinstance(item, bool))
 
 
-def _is_uuid(value: str) -> bool:
+def _canonical_uuid(value: str) -> str | None:
     try:
-        uuid.UUID(value)
+        return str(uuid.UUID(value))
     except ValueError:
-        return False
-    return True
+        return None
 
 
 def _organization_ids(value: Any) -> tuple[str, ...]:
     if not isinstance(value, list):
         return ()
-    # A value that is not a UUID would fail the organization lookup of the whole tick.
-    return tuple(item for item in value if isinstance(item, str) and _is_uuid(item))
+    # A value that is not a UUID would fail the organization lookup of the whole tick. The canonical form
+    # lets `covers_team` compare ids as strings, so an id in another UUID format still matches.
+    ids = (_canonical_uuid(item) for item in value if isinstance(item, str))
+    return tuple(item for item in ids if item is not None)
 
 
 def _intervals(value: Any) -> tuple[IntervalType, ...]:
@@ -230,6 +243,10 @@ def parse_config(payload: Any) -> AnomalyScoringConfig:
         enabled=True,
         organization_ids=_organization_ids(payload.get("organization_ids")),
         allow_team_ids=_team_ids(payload.get("allow_team_ids")),
+        self_driving_organization_percentage=_percentage(
+            payload.get("self_driving_organization_percentage"), defaults.self_driving_organization_percentage
+        ),
+        deny_organization_ids=_organization_ids(payload.get("deny_organization_ids")),
         skip_team_ids=_team_ids(payload.get("skip_team_ids")),
         intervals=_intervals(payload.get("intervals")),
         max_insights_per_tick=min(
@@ -279,14 +296,40 @@ def parse_config(payload: Any) -> AnomalyScoringConfig:
     )
 
 
+# A new salt reorders every organization, so change the version only to start a new rollout order.
+_ROLLOUT_SALT = "anomaly-scoring-self-driving-v1"
+_ROLLOUT_BUCKETS = 10_000
+
+
+def organization_rollout_bucket(organization_id: "uuid.UUID | str") -> int:
+    """The organization's fixed place in the percentage rollout, from 0 to `_ROLLOUT_BUCKETS` - 1."""
+    digest = hashlib.sha256(f"{_ROLLOUT_SALT}:{uuid.UUID(str(organization_id))}".encode()).digest()
+    return int.from_bytes(digest[:8], "big") % _ROLLOUT_BUCKETS
+
+
+def in_rollout(config: AnomalyScoringConfig, organization_id: "uuid.UUID | str") -> bool:
+    threshold = config.self_driving_organization_percentage * _ROLLOUT_BUCKETS / 100
+    return organization_rollout_bucket(organization_id) < threshold
+
+
 def covers_team(config: AnomalyScoringConfig, team: "Team") -> bool:
-    """Whether the tick scores this team's insights. The event quota check of `queue.eligible_teams` is left out."""
-    return (
-        config.enabled
-        and str(team.organization_id) in config.organization_ids
-        and team.id not in config.skip_team_ids
-        and (not config.allow_team_ids or team.id in config.allow_team_ids)
+    """Whether the tick scores this team's insights. The single-team form of `queue.eligible_teams`.
+
+    The event quota check of `queue.eligible_teams` is left out. The skip list and the denylist win over every
+    enrollment. The percentage rollout enrolls only the projects that have an enabled signal source.
+    """
+    organization_id = str(team.organization_id)
+    if not config.enabled or team.id in config.skip_team_ids or organization_id in config.deny_organization_ids:
+        return False
+    if organization_id in config.organization_ids:
+        return not config.allow_team_ids or team.id in config.allow_team_ids
+    if not in_rollout(config, organization_id):
+        return False
+    from products.signals.backend.facade.api import (
+        has_enabled_source,  # noqa: PLC0415 — the facade imports this module through `search`
     )
+
+    return has_enabled_source(team.id)
 
 
 def read_payload() -> dict | None:
@@ -300,5 +343,7 @@ def read_config(payload: Any) -> AnomalyScoringConfig:
         enabled=config.enabled,
         organizations=len(config.organization_ids),
         allow_teams=len(config.allow_team_ids),
+        self_driving_organization_percentage=config.self_driving_organization_percentage,
+        denied_organizations=len(config.deny_organization_ids),
     )
     return config

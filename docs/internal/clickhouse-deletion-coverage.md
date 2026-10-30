@@ -316,7 +316,12 @@ When one of those runs starts during a copy, the shard stops, and its error name
 
 `_fetch_stats` counts only the events tables. It feeds `AUTO_APPROVE_MAX_EVENTS`, a cost heuristic rather than a completeness claim, so a request auto-approved as small may move somewhat more rows than measured.
 
-`cleanup_old_events_by_partition` stays events-only. It enforces the events retention that staff set for each team, and every other personal-data table already expires sooner under its own TTL.
+`cleanup_old_events_by_partition` stays events-only. It enforces the events retention that staff set for each team.
+The sessions tables are built from events and have no TTL, so `cleanup_old_sessions_by_partition` deletes them with the same retention after the events are gone.
+In deployed cloud they are `sessions` (v1), `raw_sessions` (v2) and `raw_sessions_v3` on the sessions satellite cluster, named by `CLICKHOUSE_SESSIONS_CLUSTER`.
+Elsewhere they are `sharded_sessions`, `sharded_raw_sessions` and `sharded_raw_sessions_v3` on the main cluster.
+The job skips any of these tables that does not exist.
+Other personal-data tables expire sooner under their own TTL.
 It deletes a month only when every event in it is older than the retention. A month that is only partly past the retention waits for a later run, for manual runs too.
 
 Staff set the retention in Django admin, on the team and organization pages:
@@ -328,7 +333,7 @@ Staff set the retention in Django admin, on the team and organization pages:
 - The Events retention page under Custom tools (`/admin/events-retention/`) lists every team that has a value of its own or belongs to an organization with a config.
   It shows each team's billing months (`Team.event_retention_months`), its effective retention, where that comes from, and the first month the cleanup keeps, 100 teams per page.
 
-`monthly_retention_events_cleanup_job` has four steps:
+`monthly_retention_events_cleanup_job` has six steps:
 
 - `update_plan_deletions` tracks each team's plan window in `TeamEventsPlanDeletion`. It reads the teams where `should_enforce_events_retention` is true and whose plan window is under 84 months or who already have a row.
   - It admits new teams in organization order, then team order. A team whose first pass, 3 months out, would delete events takes one place in `max_new_plan_deletion_teams` and gets a notice. Any other team is admitted without a notice.
@@ -337,10 +342,12 @@ Staff set the retention in Django admin, on the team and organization pages:
   - It writes all its changes in one transaction at the end, then hands on the teams whose pass is due.
 - `plan_old_events_cleanup` reads every team's effective retention when the run starts. For a team whose pass is due, it uses the shorter of that retention and the plan window. It logs each team's window in months, then finds the months that hold events for each team and keeps the ones entirely past that team's window. It logs the teams due in each month.
 - `cleanup_old_events_by_partition` deletes each planned month for the teams due in that month only. A team with 13 months and a team with 18 months share the older months, and the 13-month team also has months of its own.
-- `advance_plan_deletion_passes` moves the next pass of each team that the cleanup completed 3 months out, after the deletes succeed.
+- `advance_plan_deletion_passes` moves the next pass of each team that the cleanup completed 3 months out, after the events deletes succeed.
+- `plan_old_sessions_cleanup` starts after the events are deleted. It finds the sessions partitions entirely past each team's retention, so a month whose events an earlier run deleted still gets its sessions deleted. Plan-window passes don't delete sessions.
+- `cleanup_old_sessions_by_partition` deletes each planned sessions month for the teams due in it. Sessions partition by the month a session started, so a session that continues into a kept month is deleted with the due month.
 
-A manual run can narrow the plan with `team_ids` and `partitions`. A listed team with no retention and no pass due is ignored.
-A pass completes only for a team the cleanup includes, and only when `partitions` is empty. Otherwise the pass stays due for the next full run.
+A manual run can narrow each plan with `team_ids` and `partitions`, set separately on the events and the sessions plan steps. A listed team with no retention and no pass due is ignored.
+A pass completes only for a team the events plan includes, and only when its `partitions` is empty. Otherwise the pass stays due for the next full run.
 The `update_plan_deletions` config has its own `team_ids` for admission, and a manual run admits no team unless that config sets `max_new_plan_deletion_teams`.
 `monthly_retention_events_cleanup_schedule` starts one run on the 3rd of each month at 21:00 local time (Europe/Paris in EU, America/Los_Angeles elsewhere), and skips when no team has a retention or a row and `PLAN_DELETION_TEAMS_PER_RUN` is 0. It is stopped by default.
 Pass dates are dates in that local time zone, so the date in a notice is the day its deletes start.

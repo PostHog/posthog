@@ -117,6 +117,13 @@ impl RawHermesFrame {
         self.get_ref().ok().map(|r| r.to_string())
     }
 
+    // No upload can resolve a frame without a chunk id, because the symbol set lookup
+    // keys on it. The chunk id is part of `frame_id`, so every frame with this raw id
+    // fails the same way.
+    pub fn can_never_resolve(&self) -> bool {
+        self.chunk_id.is_none()
+    }
+
     fn get_ref(&self) -> Result<OrChunkId<HermesRef>, HermesError> {
         self.chunk_id
             .as_ref()

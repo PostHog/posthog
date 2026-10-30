@@ -38,6 +38,7 @@ from products.signals.backend.anomaly_scores.config import (
     DISABLED,
     AnomalyScoringConfig,
     ScoringRun,
+    covers_team,
     parse_config,
 )
 from products.signals.backend.anomaly_scores.emission import SCORER_DISTINCT_ID, score_events
@@ -84,7 +85,7 @@ from products.signals.backend.anomaly_scores.tick import (
     plan_tick,
     run_insight,
 )
-from products.signals.backend.models import AnomalyScoringState, SignalTeamConfig
+from products.signals.backend.models import AnomalyScoringState, SignalSourceConfig, SignalTeamConfig
 from products.subscriptions.backend.facade.testing import create_subscription
 
 NEW_YORK = ZoneInfo("America/New_York")
@@ -141,6 +142,8 @@ class TestTickConfig(SimpleTestCase):
                 "enabled": True,
                 "organization_ids": [ORGANIZATION_ID, "not-a-uuid"],
                 "allow_team_ids": [2, True, "3"],
+                "self_driving_organization_percentage": 101,
+                "deny_organization_ids": [ORGANIZATION_ID.upper(), "not-a-uuid", 3],
                 "intervals": ["minute", "week"],
                 "max_insights_per_tick": 0,
                 "limits": {"max_backfill_buckets": 100_000, "max_series": -1},
@@ -152,6 +155,8 @@ class TestTickConfig(SimpleTestCase):
 
         assert config.organization_ids == (ORGANIZATION_ID,)
         assert config.allow_team_ids == (2,)
+        assert config.self_driving_organization_percentage == 0.0
+        assert config.deny_organization_ids == (ORGANIZATION_ID,)
         assert config.intervals == (IntervalType.WEEK,)
         assert config.max_insights_per_tick == DISABLED.max_insights_per_tick
         assert (config.limits.max_backfill_buckets, config.limits.max_series) == (90, 20)
@@ -732,6 +737,62 @@ class TestEligibleTeams(BaseTest):
             eligible = {team.id for team in eligible_teams(config)}
 
         assert eligible == {teams[name].id for name in expected}
+
+    @parameterized.expand(
+        [
+            # name, listed, percentage, denied, skipped, allow_other, has_source, enrolled
+            ("listed_without_source", True, 0.0, False, False, False, False, True),
+            ("listed_and_denied", True, 0.0, True, False, False, False, False),
+            ("rollout", False, 100.0, False, False, False, True, True),
+            ("rollout_without_source", False, 100.0, False, False, False, False, False),
+            ("rollout_at_zero", False, 0.0, False, False, False, True, False),
+            ("rollout_denied", False, 100.0, True, False, False, True, False),
+            ("rollout_team_skipped", False, 100.0, False, True, False, True, False),
+            ("rollout_ignores_the_allowlist", False, 100.0, False, False, True, True, True),
+        ]
+    )
+    def test_enrollment_by_list_and_rollout(
+        self,
+        _name: str,
+        listed: bool,
+        percentage: float,
+        denied: bool,
+        skipped: bool,
+        allow_other: bool,
+        has_source: bool,
+        enrolled: bool,
+    ) -> None:
+        other = Team.objects.create(organization=Organization.objects.create(name="other"), name="other")
+        own_organization = (str(self.organization.id),)
+        config = AnomalyScoringConfig(
+            enabled=True,
+            organization_ids=own_organization if listed else (),
+            self_driving_organization_percentage=percentage,
+            deny_organization_ids=own_organization if denied else (),
+            skip_team_ids=(self.team.id,) if skipped else (),
+            allow_team_ids=(other.id,) if allow_other else (),
+        )
+        if has_source:
+            SignalSourceConfig.objects.create(
+                team=self.team, source_product="error_tracking", source_type="issue_created", enabled=True
+            )
+
+        with patch("products.signals.backend.anomaly_scores.queue.list_limited_team_attributes", return_value=[]):
+            eligible = {team.id for team in eligible_teams(config)}
+
+        assert covers_team(config, Team.objects.get(id=self.team.id)) is enrolled
+        assert (self.team.id in eligible) is enrolled
+        assert other.id not in eligible
+
+    def test_rollout_skips_a_team_that_turned_scoring_off(self) -> None:
+        SignalSourceConfig.objects.create(
+            team=self.team, source_product="error_tracking", source_type="issue_created", enabled=True
+        )
+        SignalTeamConfig.objects.create(team=self.team, anomaly_scoring_enabled=False)
+        config = AnomalyScoringConfig(enabled=True, self_driving_organization_percentage=100.0)
+
+        with patch("products.signals.backend.anomaly_scores.queue.list_limited_team_attributes", return_value=[]):
+            assert self.team.id not in {team.id for team in eligible_teams(config)}
 
 
 _DEFAULT_INTERVALS = (IntervalType.DAY, IntervalType.WEEK, IntervalType.MONTH)
