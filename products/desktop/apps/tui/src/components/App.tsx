@@ -1,4 +1,5 @@
 import type { EventEmitter } from "node:events";
+import type { Task } from "@posthog/shared";
 import { Box, type DOMElement, measureElement, useApp, useInput } from "ink";
 import { type ReactElement, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -11,6 +12,7 @@ import {
   type LayoutState,
   loadLayout,
   paneIds,
+  panes,
   saveLayout,
   splitFocused,
 } from "../layout";
@@ -70,6 +72,7 @@ export function App({
     error: null,
   });
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const [known, setKnown] = useState<Map<string, Task>>(new Map());
   const [selected, setSelected] = useState(-1);
   const [notice, setNotice] = useState<string | null>(null);
   const closeGuard = useRef(new DoublePress(CLOSE_CONFIRM_MS));
@@ -106,9 +109,33 @@ export function App({
     };
   }, [work, limit]);
 
+  // Open tasks outside the recent page are fetched once each, so they keep a title and a transcript.
+  const openTaskIds = layout.workspaces
+    .flatMap((w) => panes(w.root))
+    .flatMap((pane) => (pane.taskId ? [pane.taskId] : []));
+  const missing = page.tasks
+    ? openTaskIds.filter(
+        (id) => !known.has(id) && !page.tasks?.some((task) => task.id === id),
+      )
+    : [];
+  const missingKey = missing.join();
+  useEffect(() => {
+    for (const taskId of missingKey ? missingKey.split(",") : []) {
+      work.get(taskId).then(
+        (task) => setKnown((current) => new Map(current).set(taskId, task)),
+        () => {},
+      );
+    }
+  }, [work, missingKey]);
+  const taskOf = (taskId: string | null): Task | undefined =>
+    taskId
+      ? (page.tasks?.find((task) => task.id === taskId) ?? known.get(taskId))
+      : undefined;
+
   const rows = useMemo(
-    () => sidebarRows({ layout, work: page, collapsed, working: new Set() }),
-    [layout, page, collapsed],
+    () =>
+      sidebarRows({ layout, work: page, collapsed, working: new Set(), known }),
+    [layout, page, collapsed, known],
   );
   const selectedIndex = selected < 0 ? firstSelectable(rows) : selected;
   const workspace = activeWorkspace(layout);
@@ -203,7 +230,7 @@ export function App({
 
   const titleOf = (taskId: string | null): string => {
     if (taskId === null) return "New chat";
-    return page.tasks?.find((task) => task.id === taskId)?.title ?? "Loading…";
+    return taskOf(taskId)?.title ?? "Loading…";
   };
 
   const renderNode = (
@@ -223,7 +250,7 @@ export function App({
       >
         <Pane
           title={titleOf(node.taskId)}
-          task={page.tasks?.find((task) => task.id === node.taskId)}
+          task={taskOf(node.taskId)}
           runs={runs}
           focused={!sidebarFocused && node.id === workspace.focusedPaneId}
         />

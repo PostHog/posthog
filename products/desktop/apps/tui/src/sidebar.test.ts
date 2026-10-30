@@ -71,6 +71,18 @@ describe("sidebarRows", () => {
     ]);
   });
 
+  it("titles an open task outside the recent page from the tasks fetched for it", () => {
+    const layout = openTask(initialLayout(), "old");
+    const rows = sidebarRows({
+      layout,
+      work: page({ tasks: [task("a")] }),
+      collapsed: new Set(),
+      working: new Set(),
+      known: new Map([["old", task("old")]]),
+    });
+    expect(labels(rows)).toEqual(["# Work", "Task old", "Task a"]);
+  });
+
   it("hides a collapsed workspace's tasks", () => {
     const layout = openTask(
       splitFocused(openTask(initialLayout(), "a"), "row"),

@@ -2,7 +2,7 @@ import { PostHogAPIClient } from "@posthog/api-client/posthog-client";
 import { describe, expect, it } from "vitest";
 import { WorkList } from "./work";
 
-function fakeApi(total: number) {
+function fakeApi(total: number, hang = false) {
   const requests: URL[] = [];
   const api = new PostHogAPIClient(
     "https://us.posthog.com",
@@ -16,6 +16,7 @@ function fakeApi(total: number) {
         if (url.pathname === "/api/users/@me/") {
           return Response.json({ id: 7, uuid: "u", team: { id: 2 } });
         }
+        if (hang) return new Promise<Response>(() => {});
         const limit = Number(url.searchParams.get("limit"));
         const results = Array.from(
           { length: Math.min(limit, total) },
@@ -50,4 +51,22 @@ describe("WorkList", () => {
       });
     },
   );
+
+  it("shares one request between overlapping refreshes", async () => {
+    const { api, requests } = fakeApi(3);
+    const list = new WorkList(api);
+
+    await Promise.all([list.listRecent(10), list.listRecent(10)]);
+
+    expect(
+      requests.filter((url) => url.pathname.endsWith("/tasks/")),
+    ).toHaveLength(1);
+  });
+
+  it("gives up on a request that hangs so the next refresh can try again", async () => {
+    const { api } = fakeApi(3, true);
+    const list = new WorkList(api, 50);
+
+    await expect(list.listRecent(10)).rejects.toThrow("Timed out loading work");
+  });
 });
