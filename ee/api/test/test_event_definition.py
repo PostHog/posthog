@@ -5,6 +5,7 @@ import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.db import connection
 from django.utils import timezone
 
 import dateutil.parser
@@ -704,7 +705,10 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         event = EnterpriseEventDefinition.objects.create(
             team=self.demo_team, name="checkout_completed", description="Paid", verified=True
         )
-        EventDefinition.objects.filter(pk=event.pk).update(base_description=None, base_verified=False)
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "UPDATE posthog_eventdefinition SET description = NULL, verified = NULL WHERE id = %s", [event.pk]
+            )
 
         response = self.client.get("/api/projects/@current/event_definitions/?verified=true&search=checkout_completed")
 

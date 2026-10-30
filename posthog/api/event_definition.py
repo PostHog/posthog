@@ -64,7 +64,6 @@ from posthog.taxonomy.definition_search import (
 from posthog.taxonomy.taxonomy import CORE_EVENTS, STALE_EVENT_DAYS
 from posthog.utils import get_safe_cache, relative_date_parse
 
-from products.event_definitions.backend.models.enterprise_copies import EVENT_DEFINITION_COPIES
 from products.event_definitions.backend.models.property_definition import effective_project_id_expr
 
 # If EE is enabled, we use ee.api.ee_event_definition.EnterpriseEventDefinitionSerializer
@@ -173,16 +172,11 @@ def create_event_definitions_sql(
     if order_expressions is None:
         order_expressions = []
 
-    # Qualified, because the base table carries copies of the enterprise columns under the same names.
-    # The copies stay out of the enterprise read: `.raw()` maps a result column to every field with that
-    # column name, and the copies are not filled in yet.
+    # Qualified, because the base table also has columns with the enterprise column names.
     event_definition_fields = {
         f'{f.model._meta.db_table}."{f.column}"'
         for f in event_definition_model(is_enterprise)._meta.get_fields()
-        if isinstance(f, Field)
-        and f.column is not None
-        and f.column not in ["deprecated_tags", "tags"]
-        and not (is_enterprise and f.name in EVENT_DEFINITION_COPIES.values())
+        if isinstance(f, Field) and f.column is not None and f.column not in ["deprecated_tags", "tags"]
     }
     # Django relies on PK being present in the result set to tell if it's a saved instance
     event_definition_fields.add("id as pk")

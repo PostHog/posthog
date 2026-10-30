@@ -1,66 +1,72 @@
-"""The enterprise definition fields, and the base-table fields that hold a copy of each.
+"""Copies of the enterprise definition fields on the base tables.
 
 The enterprise fields move from `ee_enterpriseeventdefinition` and `ee_enterprisepropertydefinition`
-onto `posthog_eventdefinition` and `posthog_propertydefinition`. Until reads move over, the enterprise
-models write each value to both tables, and nothing reads the copies. Django does not let a field on
-the base model share a name with a field on the enterprise subclass, so the copies carry a `base_`
-prefix. Their columns already have the final names.
+onto `posthog_eventdefinition` and `posthog_propertydefinition`, into columns with the same names.
+Until reads move over, the enterprise models write each value to both tables, and nothing reads the
+copies. Django does not track the base-table columns yet: a model with two fields on one column name
+breaks `.raw()` on Django 6, and the definition list endpoints build their rows with `.raw()`.
 """
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Sequence
 
-from django.db import models
+from django.db import connections, models, router
 
-EVENT_DEFINITION_COPIES: Mapping[str, str] = {
-    "description": "base_description",
-    "owner": "base_owner",
-    "updated_at": "base_updated_at",
-    "updated_by": "base_updated_by",
-    "verified": "base_verified",
-    "verified_at": "base_verified_at",
-    "verified_by": "base_verified_by",
-    "hidden": "base_hidden",
-    "default_columns": "base_default_columns",
-}
+EVENT_DEFINITION_COPIED_FIELDS: Sequence[str] = (
+    "description",
+    "owner",
+    "updated_at",
+    "updated_by",
+    "verified",
+    "verified_at",
+    "verified_by",
+    "hidden",
+    "default_columns",
+)
 
-PROPERTY_DEFINITION_COPIES: Mapping[str, str] = {
-    "description": "base_description",
-    "updated_at": "base_updated_at",
-    "updated_by": "base_updated_by",
-    "verified": "base_verified",
-    "verified_at": "base_verified_at",
-    "verified_by": "base_verified_by",
-    "hidden": "base_hidden",
-}
+PROPERTY_DEFINITION_COPIED_FIELDS: Sequence[str] = (
+    "description",
+    "updated_at",
+    "updated_by",
+    "verified",
+    "verified_at",
+    "verified_by",
+    "hidden",
+)
 
 
-def _attname(instance: models.Model, name: str) -> str:
+def _concrete_field(instance: models.Model, name: str) -> models.Field:
     field = instance._meta.get_field(name)
     if not isinstance(field, models.Field):
         raise TypeError(f"{instance._meta.label}.{name} is not a concrete field")
-    return field.attname
+    return field
 
 
 def copy_enterprise_fields(
-    instance: models.Model, copies: Mapping[str, str], update_fields: Iterable[str] | None
-) -> set[str] | None:
-    """Copy the enterprise values onto their base-table fields, and return the `update_fields` to save.
+    instance: models.Model,
+    base_model: type[models.Model],
+    field_names: Sequence[str],
+    update_fields: Iterable[str] | None,
+) -> None:
+    """Write the saved enterprise values to the same-named columns of the base table.
 
-    A partial save that names an enterprise field must also name its copy, or the copy goes stale.
+    Call it after the enterprise save, in the same transaction, so `updated_at` holds the value that
+    auto_now wrote. A partial save copies only the fields it saved.
     """
-    for source_name, target_name in copies.items():
-        setattr(instance, _attname(instance, target_name), getattr(instance, _attname(instance, source_name)))
+    fields = [_concrete_field(instance, name) for name in field_names]
+    if update_fields is not None:
+        requested = set(update_fields)
+        fields = [field for field in fields if field.name in requested or field.attname in requested]
+    if not fields:
+        return
 
-    if update_fields is None:
-        return None
-    requested = set(update_fields)
-    return requested | {copies[name] for name in copies if name in requested or _attname(instance, name) in requested}
-
-
-def saves_updated_at(update_fields: Iterable[str] | None) -> bool:
-    """Whether a save writes `updated_at`, so its copy must follow.
-
-    The enterprise `updated_at` uses auto_now, which Django fills while it writes the enterprise row,
-    after the base row is already written. So the copy has to be written after the save.
-    """
-    return update_fields is None or "updated_at" in update_fields
+    using = router.db_for_write(base_model, instance=instance)
+    connection = connections[using]
+    quote = connection.ops.quote_name
+    # Trusted identifiers: the table and column names come from Django model metadata.
+    assignments = ", ".join(f"{quote(field.column)} = %s" for field in fields)
+    query = (
+        f"UPDATE {quote(base_model._meta.db_table)} SET {assignments} WHERE {quote(base_model._meta.pk.column)} = %s"
+    )
+    values = [field.get_db_prep_save(getattr(instance, field.attname), connection) for field in fields]
+    with connection.cursor() as cursor:
+        cursor.execute(query, [*values, instance.pk])

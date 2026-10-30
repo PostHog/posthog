@@ -1,10 +1,10 @@
 import pytest
 from posthog.test.base import BaseTest
 
+from django.db import connection
 from django.utils import timezone
 
-from products.event_definitions.backend.models.enterprise_copies import PROPERTY_DEFINITION_COPIES
-from products.event_definitions.backend.models.property_definition import PropertyDefinition
+from products.event_definitions.backend.models.enterprise_copies import PROPERTY_DEFINITION_COPIED_FIELDS
 
 from ee.models.property_definition import EnterprisePropertyDefinition
 
@@ -37,9 +37,12 @@ class TestPropertyDefinition(BaseTest):
         definition.save(update_fields=["description"])
 
         saved = EnterprisePropertyDefinition.objects.get(pk=definition.pk)
-        copies = PropertyDefinition.objects.get(pk=definition.pk)
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT description, updated_at, updated_by_id, verified, verified_at, verified_by_id, hidden FROM posthog_propertydefinition WHERE id = %s",
+                [saved.pk],
+            )
+            copies = cursor.fetchone()
         assert saved.description == "second"
         assert saved.hidden is False
-        assert {source: copies.serializable_value(target) for source, target in PROPERTY_DEFINITION_COPIES.items()} == {
-            source: saved.serializable_value(source) for source in PROPERTY_DEFINITION_COPIES
-        }
+        assert copies == tuple(saved.serializable_value(name) for name in PROPERTY_DEFINITION_COPIED_FIELDS)

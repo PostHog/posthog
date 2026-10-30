@@ -5,6 +5,7 @@ import pytest
 import time_machine
 from posthog.test.base import APIBaseTest
 
+from django.db import connection
 from django.db.utils import IntegrityError
 from django.utils import timezone
 
@@ -509,7 +510,11 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         definition = EnterprisePropertyDefinition.objects.create(
             team=self.team, name="billing_plan_tier", description="Paid tier", verified=True
         )
-        PropertyDefinition.objects.filter(pk=definition.pk).update(base_description=None, base_verified=False)
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "UPDATE posthog_propertydefinition SET description = NULL, verified = NULL WHERE id = %s",
+                [definition.pk],
+            )
 
         response = self.client.get(
             "/api/projects/@current/property_definitions/?verified=true&search=billing_plan_tier"

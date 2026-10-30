@@ -3,9 +3,8 @@ from django.db import models, transaction
 
 from products.event_definitions.backend.models import PropertyDefinition
 from products.event_definitions.backend.models.enterprise_copies import (
-    PROPERTY_DEFINITION_COPIES,
+    PROPERTY_DEFINITION_COPIED_FIELDS,
     copy_enterprise_fields,
-    saves_updated_at,
 )
 
 
@@ -37,11 +36,10 @@ class EnterprisePropertyDefinition(PropertyDefinition):
     )
 
     def save(self, *args, **kwargs) -> None:
-        update_fields = kwargs.get("update_fields")
-        kwargs["update_fields"] = copy_enterprise_fields(self, PROPERTY_DEFINITION_COPIES, update_fields)
-        # One transaction: an overlapping save waits on the row lock, so it cannot write an older
-        # updated_at copy after a newer one.
+        # One transaction: an overlapping save waits on the row lock, so the copies cannot end up
+        # older than this row.
         with transaction.atomic():
             super().save(*args, **kwargs)
-            if saves_updated_at(update_fields):
-                PropertyDefinition.objects.filter(pk=self.pk).update(base_updated_at=self.updated_at)
+            copy_enterprise_fields(
+                self, PropertyDefinition, PROPERTY_DEFINITION_COPIED_FIELDS, kwargs.get("update_fields")
+            )

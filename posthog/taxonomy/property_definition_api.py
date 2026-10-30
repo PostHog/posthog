@@ -41,7 +41,6 @@ from posthog.taxonomy.taxonomy import (
     QUERY_DEPRECATED_EVENT_PROPERTIES,
 )
 
-from products.event_definitions.backend.models.enterprise_copies import PROPERTY_DEFINITION_COPIES
 from products.event_definitions.backend.models.property_definition import effective_project_id_expr
 
 tracer = trace.get_tracer(__name__)
@@ -659,9 +658,6 @@ class PropertyDefinitionViewSet(
                         and f.column is not None
                         and f.column not in ["deprecated_tags", "tags"]
                         and hasattr(f, "cached_col")
-                        # `.raw()` maps a result column to every field with that column name, and the
-                        # base-table copies of the enterprise columns are not filled in yet.
-                        and f.name not in PROPERTY_DEFINITION_COPIES.values()
                     ]
                 )
 
