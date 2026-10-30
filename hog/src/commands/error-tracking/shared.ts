@@ -64,7 +64,11 @@ export const UPLOAD_OPTIONS = {
         type: 'boolean',
         description: 'JavaScript and CSS: remove sourcemap references and delete the maps after a successful upload',
     },
-    batchSize: { type: 'string', placeholder: 'count', description: 'Symbol sets per upload request (default 50)' },
+    batchSize: {
+        type: 'string',
+        placeholder: 'count',
+        description: 'Symbol sets per upload request (default 50, 10 for native symbols)',
+    },
     concurrency: { type: 'string', placeholder: 'count', description: 'Parallel file uploads (default 10)' },
 } as const satisfies Record<string, OptionSpec>
 
@@ -134,7 +138,7 @@ export function readOptions(options: RawOptions, env: Env): ErrorTrackingOptions
         publicPathPrefix: options.publicPathPrefix,
         force: options.force === true,
         skipOnConflict: options.skipOnConflict === true,
-        batchSize: count('--batch-size', options.batchSize, 50),
+        batchSize: options.batchSize === undefined ? undefined : count('--batch-size', options.batchSize, 50),
         concurrency: count('--concurrency', options.concurrency ?? env.POSTHOG_CLI_SOURCEMAP_UPLOAD_CONCURRENCY, 10),
         deleteAfter: options.deleteAfter === true,
         dryRun: options.dryRun === true,

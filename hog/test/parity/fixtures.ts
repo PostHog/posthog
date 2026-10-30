@@ -1,5 +1,5 @@
-import { mkdirSync, writeFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { dirname, join, relative } from 'node:path'
 
 // Fixture files written into a fresh folder per run, outside any git repository unless a scenario
 // builds one, so neither CLI picks up the machine's own git or CI state.
@@ -42,4 +42,21 @@ export const GIT_REPO: Record<string, string> = {
     '.git/refs/heads/main': 'c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00\n',
     '.git/config':
         '[core]\n\tbare = false\n[remote "origin"]\n\turl = https://x-access-token:secret@github.com/PostHog/example-app.git\n\tfetch = +refs/heads/*:refs/remotes/origin/*\n',
+}
+
+// Every file under a checked-in fixture folder except its README, keyed by relative path.
+export function readTree(root: string, prefix = ''): Record<string, Uint8Array> {
+    const files: Record<string, Uint8Array> = {}
+    const visit = (folder: string): void => {
+        for (const entry of readdirSync(folder, { withFileTypes: true })) {
+            const path = join(folder, entry.name)
+            if (entry.isDirectory()) {
+                visit(path)
+            } else if (entry.name !== 'README.md') {
+                files[join(prefix, relative(root, path))] = readFileSync(path)
+            }
+        }
+    }
+    visit(root)
+    return files
 }

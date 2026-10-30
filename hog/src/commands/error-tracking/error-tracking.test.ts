@@ -1,5 +1,15 @@
 import { describe, expect, test } from 'bun:test'
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs'
+import {
+    chmodSync,
+    cpSync,
+    existsSync,
+    mkdirSync,
+    mkdtempSync,
+    readFileSync,
+    rmSync,
+    symlinkSync,
+    writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -188,6 +198,82 @@ describe('hog error-tracking upload', () => {
         })
         expect(result.exitCode).toBe(1)
         expect(result.error()).toMatchObject({ code: 'no_hermes_maps' })
+    })
+
+    const NATIVE = join(import.meta.dir, '../../../test/parity/native/bin')
+    // A 64-bit Mach-O whose LC_UUID command claims a size of 0, which never advances to the next one.
+    const header = Buffer.alloc(32)
+    header.writeUInt32LE(0xfeedfacf, 0)
+    header.writeUInt32LE(0x0100000c, 4)
+    header.writeUInt32LE(0x6, 12)
+    header.writeUInt32LE(2, 16)
+    header.writeUInt32LE(48, 20)
+    const uuidCommand = Buffer.alloc(24, 0xab)
+    uuidCommand.writeUInt32LE(0x1b, 0)
+    uuidCommand.writeUInt32LE(0, 4)
+    const ZERO_CMDSIZE = Buffer.concat([header, uuidCommand, Buffer.alloc(24)])
+
+    test.each([
+        [
+            'other uploads go ahead when no native file is usable',
+            readFileSync(join(NATIVE, 'linux/checkout-no-debug')),
+            ['mapping.txt', '--map-id', 'map-1'],
+            0,
+            'map-1',
+        ],
+        [
+            'the failure names every skipped native file',
+            readFileSync(join(NATIVE, 'linux/checkout-no-debug')),
+            [],
+            1,
+            'bin/native: ',
+        ],
+        ['a Mach-O load command smaller than its header is skipped', ZERO_CMDSIZE, [], 1, 'smaller than its header'],
+    ])('upload: %s', async (_name, binary, paths, exitCode, expected) => {
+        const folder = project({ 'mapping.txt': SMALL_MAPPING })
+        mkdirSync(join(folder, 'bin'))
+        writeFileSync(join(folder, 'bin/native'), binary)
+        const result = await runHog(['et', 'upload', '--dry-run', 'bin', ...paths], {
+            env: { CLAUDECODE: '1' },
+            cwd: folder,
+            useDisk: true,
+        })
+        expect(result.exitCode).toBe(exitCode)
+        expect(exitCode === 0 ? JSON.stringify(result.json().symbolSets) : result.error().message).toContain(expected)
+    })
+
+    test.each([
+        ['skips a dSYM member that matches an ignore glob', ['Shop.app.dSYM/Contents/Resources/DWARF/**'], false],
+        ['follows a dSYM member that is a symlink, as posthog-cli does', [], true],
+    ])('upload %s', async (_name, ignore, linkOutside) => {
+        const folder = project({
+            'posthog.json': JSON.stringify({ errorTracking: { sources: [{ path: 'apple', ignore }] } }),
+        })
+        cpSync(join(NATIVE, 'apple/Shop.app.dSYM'), join(folder, 'apple/Shop.app.dSYM'), { recursive: true })
+        if (linkOutside) {
+            const member = join(folder, 'apple/Shop.app.dSYM/Contents/Resources/DWARF/Shop')
+            cpSync(member, join(folder, 'outside/Shop'))
+            rmSync(member)
+            symlinkSync(join(folder, 'outside/Shop'), member)
+        }
+        const result = await runHog(['et', 'upload', '--dry-run'], {
+            env: { CLAUDECODE: '1' },
+            cwd: folder,
+            useDisk: true,
+        })
+
+        if (linkOutside) {
+            expect(result.exitCode).toBe(0)
+            expect(result.json().symbolSets).toEqual([
+                expect.objectContaining({ path: 'apple/Shop.app.dSYM', status: 'planned' }),
+            ])
+        } else {
+            expect(result.exitCode).toBe(1)
+            expect(result.error()).toMatchObject({
+                code: 'no_debug_symbols',
+                message: expect.stringContaining('apple/Shop.app.dSYM: '),
+            })
+        }
     })
 
     test('--dry-run reads the release from the repository a symlinked mapping points into', async () => {

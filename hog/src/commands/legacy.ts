@@ -12,7 +12,6 @@ export const LEGACY_COMMANDS: CommandTree = {
         description: 'Download event definitions and generate a typed SDK',
         use: 'posthog-cli exp schema',
     }),
-    dsym: defineLegacy({ description: 'Upload Apple dSYM debug symbol files to PostHog', use: 'posthog-cli dsym' }),
     'symbol-sets': defineLegacy({
         description: 'Upload, download, and manage symbol sets',
         use: 'posthog-cli symbol-sets',

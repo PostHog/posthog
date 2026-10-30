@@ -7,7 +7,7 @@ import { EXIT_USAGE, HogError } from '@/core/errors'
 
 import { cleanUp, cssTargets, jsTarget, type CleanupTarget } from './cleanup'
 import { contentHash } from './container'
-import { discover, isIgnored, listFiles, type Artifact, type Root } from './discover'
+import { discover, isDsymBundle, isIgnored, listFiles, type Artifact, type Root } from './discover'
 import { GitError, gitInfo, type GitInfo } from './git'
 import {
     injectEventMode,
@@ -31,6 +31,16 @@ import {
     type SourcePair,
 } from './kinds/js'
 import { proguardContainer } from './kinds/proguard'
+import {
+    dedupeNativeFiles,
+    dsymSlices,
+    dsymUpload,
+    mergePreferDsym,
+    nativeCandidates,
+    nativeUpload,
+    type NativeFile,
+    type NativeProblem,
+} from './native/package'
 import { fetchOrCreateRelease, resolveRelease, type Release, type ReleaseFields } from './release'
 import { SymbolSetClient, type SymbolSetUpload, type UploadStatus } from './upload'
 
@@ -42,7 +52,8 @@ export interface ErrorTrackingOptions {
     publicPathPrefix?: string
     force: boolean
     skipOnConflict: boolean
-    batchSize: number
+    // Undefined uses posthog-cli's default for each artifact type.
+    batchSize?: number
     concurrency: number
     deleteAfter: boolean
     dryRun: boolean
@@ -267,7 +278,7 @@ export interface UploadReport {
 interface Planned {
     artifact: Artifact
     upload: SymbolSetUpload
-    policy: { force: boolean; skipOnConflict: boolean }
+    policy: { force: boolean; skipOnConflict: boolean; batchSize: number }
 }
 
 function proguardGit(ctx: Context, artifact: Artifact): GitInfo | undefined {
@@ -329,7 +340,11 @@ export async function upload(
                     releaseId: release?.id ?? null,
                     data: proguardContainer(artifact.path, artifact.display),
                 },
-                policy: { force: options.force, skipOnConflict: options.skipOnConflict },
+                policy: {
+                    force: options.force,
+                    skipOnConflict: options.skipOnConflict,
+                    batchSize: options.batchSize ?? 50,
+                },
             })
         }
     }
@@ -385,10 +400,12 @@ export async function upload(
             warnings.push(`Duplicate chunk ID ${chunkId} across symbol sets: hog uploads the first one.`)
         }
         // Event mode always replaces what PostHog has, because the payload changes with each release.
-        const policy =
-            options.releaseMode === 'event'
+        const policy = {
+            ...(options.releaseMode === 'event'
                 ? { force: true, skipOnConflict: false }
-                : { force: options.force, skipOnConflict: options.skipOnConflict }
+                : { force: options.force, skipOnConflict: options.skipOnConflict }),
+            batchSize: options.batchSize ?? 50,
+        }
         for (const { pair, upload: item } of prepared.uploads) {
             planned.push({ artifact: read.artifacts.get(pair)!, upload: item, policy })
         }
@@ -418,10 +435,12 @@ export async function upload(
                 }
             }
         }
-        const policy =
-            options.releaseMode === 'event'
+        const policy = {
+            ...(options.releaseMode === 'event'
                 ? { force: true, skipOnConflict: false }
-                : { force: options.force, skipOnConflict: options.skipOnConflict }
+                : { force: options.force, skipOnConflict: options.skipOnConflict }),
+            batchSize: options.batchSize ?? 50,
+        }
         let uploadable = 0
         for (const { artifact, map } of maps) {
             const reason = hermesSkipReason(map)
@@ -445,6 +464,52 @@ export async function upload(
                 'None of the Hermes maps has a chunk ID, so nothing was uploaded.',
                 'Run `hog error-tracking inject` on the Metro bundle before the Hermes build, and `hog error-tracking clone` after it.'
             )
+        }
+    }
+
+    const nativeArtifacts = selection.artifacts.filter(
+        (artifact) => artifact.kind === 'elf' || artifact.kind === 'dsym'
+    )
+    if (nativeArtifacts.length > 0) {
+        const before = skipped.length
+        const native = packageNative(nativeArtifacts, selection.cwd, skipped)
+        if (native.length === 0 && planned.length === 0) {
+            const details = skipped
+                .slice(before)
+                .map((skip) => `\n  ${skip.path}: ${skip.reason}`)
+                .join('')
+            throw new HogError(
+                'no_debug_symbols',
+                `None of the native files or dSYM bundles could be uploaded:${details}`,
+                'Build with debug info and a build ID, and upload before stripping.'
+            )
+        }
+        // Like `symbol-sets upload`, the release comes from the flags, then git around the first
+        // path. A git error only drops the git metadata.
+        let git: GitInfo | undefined
+        try {
+            git = gitInfo(ctx.runtime.env, resolve(selection.cwd, nativeArtifacts[0]!.root.path))
+        } catch (error) {
+            if (!(error instanceof GitError)) {
+                throw error
+            }
+        }
+        const { name, version } = resolveRelease(fields, git)
+        let releaseId: string | null = null
+        if (name !== undefined && version !== undefined) {
+            reported = { name, version, id: null }
+            if (!options.dryRun) {
+                releaseId = (await releases.get(name, version, git)).id
+                reported.id = releaseId
+            }
+        }
+        const policy = {
+            force: options.force,
+            skipOnConflict: options.skipOnConflict,
+            batchSize: options.batchSize ?? 10,
+        }
+        for (const { artifact, upload: item } of native) {
+            planned.push({ artifact, upload: { ...item, releaseId }, policy })
         }
     }
 
@@ -482,7 +547,7 @@ export async function upload(
     const statuses = new Map<string, UploadStatus>()
     const groups = new Map<string, Planned[]>()
     for (const item of planned) {
-        const key = `${item.policy.force}:${item.policy.skipOnConflict}`
+        const key = `${item.policy.force}:${item.policy.skipOnConflict}:${item.policy.batchSize}`
         const group = groups.get(key)
         if (group) {
             group.push(item)
@@ -494,7 +559,7 @@ export async function upload(
         const client = await session.getClient()
         const outcome = await client.upload(
             group.map((item) => item.upload),
-            { batchSize: options.batchSize, concurrency: options.concurrency, ...group[0]!.policy }
+            { concurrency: options.concurrency, ...group[0]!.policy }
         )
         for (const [chunkId, status] of outcome.status) {
             statuses.set(chunkId, status)
@@ -615,4 +680,73 @@ export async function cloneMaps(
         chunkId: to.map.chunkId,
         releaseId: to.map.releaseId,
     }
+}
+
+const NATIVE_PROBLEMS: Record<NativeProblem, string> = {
+    no_debug_info: 'it has no debug info. Build with debug info, and upload before stripping it.',
+    no_build_id:
+        "it has no GNU build ID, so crashes can't be matched to it. Link with `-Wl,--build-id=sha1`. Go needs `-ldflags=-B=gobuildid`.",
+    missing_uuid: "it has no LC_UUID, so crashes can't be matched to it. Link without `-no_uuid`.",
+    compressed_dwarf:
+        "its DWARF is compressed (`__zdebug` sections), which PostHog can't read yet. Go needs `-ldflags=-compressdwarf=false` on macOS.",
+}
+
+// `symbol-sets upload`: native files are parsed and deduplicated by debug ID, dSYM bundles are
+// split per slice, and a dSYM wins over a native file with the same ID.
+function packageNative(
+    artifacts: Artifact[],
+    cwd: string,
+    skipped: Skip[]
+): { artifact: Artifact; upload: SymbolSetUpload }[] {
+    const owners = new Map<SymbolSetUpload, Artifact>()
+    const files: { file: NativeFile; artifact: Artifact }[] = []
+    for (const artifact of artifacts.filter((candidate) => !isDsymBundle(candidate.path))) {
+        let candidates
+        try {
+            candidates = nativeCandidates(artifact.path)
+        } catch (error) {
+            skipped.push({ path: artifact.display, reason: `hog couldn't parse it: ${(error as Error).message}` })
+            continue
+        }
+        for (const candidate of candidates) {
+            if ('problem' in candidate) {
+                skipped.push({ path: artifact.display, reason: NATIVE_PROBLEMS[candidate.problem] })
+            } else {
+                files.push({ file: candidate.file, artifact })
+            }
+        }
+    }
+    const byFile = new Map(files.map(({ file, artifact }) => [file, artifact]))
+    const natives = dedupeNativeFiles(
+        files.map(({ file }) => file),
+        (dropped, kept) =>
+            skipped.push({
+                path: byFile.get(dropped)!.display,
+                reason: `${byFile.get(kept)!.display} has the same debug ID and is at least as large, so hog uploads that one.`,
+            })
+    ).map((file) => {
+        const upload = nativeUpload(file)
+        owners.set(upload, byFile.get(file)!)
+        return upload
+    })
+    const dsyms: SymbolSetUpload[] = []
+    for (const artifact of artifacts.filter((candidate) => isDsymBundle(candidate.path))) {
+        try {
+            const folder = resolve(cwd, artifact.root.path)
+            for (const slice of dsymSlices(artifact.path, (member) => !isIgnored(artifact.root, folder, member))) {
+                const upload = dsymUpload(slice)
+                owners.set(upload, artifact)
+                dsyms.push(upload)
+            }
+        } catch (error) {
+            skipped.push({ path: artifact.display, reason: `hog couldn't read the dSYM: ${(error as Error).message}` })
+        }
+    }
+    const merged = mergePreferDsym(dsyms, natives, (dropped) =>
+        skipped.push({
+            path: owners.get(dropped)!.display,
+            reason: `a dSYM bundle has the same UUID ${dropped.chunkId}, so hog uploads the bundle.`,
+        })
+    )
+    return merged.map((upload) => ({ artifact: owners.get(upload)!, upload }))
 }

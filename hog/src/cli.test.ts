@@ -37,12 +37,12 @@ describe('hog', () => {
     )
 
     test.each([
-        ['help for an unported command', ['help', 'dsym', 'upload'], 'posthog-cli dsym upload --help'],
+        ['help for an unported command', ['help', 'logs', 'import'], 'posthog-cli exp logs import --help'],
         ['an unported subcommand of a ported group', ['query', 'editor'], 'posthog-cli exp query editor'],
         [
             'hog globals that posthog-cli takes before the subcommand',
-            ['-o', 'json', '--host', 'https://eu.example.com', 'dsym', 'upload', '--dotenv-file=p.env', '--dir', 'x'],
-            'posthog-cli --host https://eu.example.com --dotenv-file p.env dsym upload --dir x',
+            ['-o', 'json', '--host', 'https://eu.example.com', 'logs', 'import', '--dotenv-file=p.env', '--dir', 'x'],
+            'posthog-cli --host https://eu.example.com --dotenv-file p.env exp logs import --dir x',
         ],
         [
             'an --output that the legacy command owns',

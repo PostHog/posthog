@@ -45,3 +45,4 @@ common/hogql_parser/HogQLParserBaseVisitor.cpp linguist-generated
 common/hogql_parser/HogQLParserBaseVisitor.h linguist-generated
 hog/test/parity/bundles/** linguist-generated -text
 hog/test/parity/golden/** linguist-generated
+hog/test/parity/native/bin/** binary linguist-generated
