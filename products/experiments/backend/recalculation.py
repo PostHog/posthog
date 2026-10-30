@@ -55,11 +55,9 @@ from products.experiments.backend.temporal.models import (
 # value, so a legitimately-slow run can finish without being clobbered. It is also tight enough that an operator
 # can recover within an hour if the workflow never started (Temporal connect failure, transient infra issue,
 # etc.). See the rollback in start_metrics_recalculation_workflow for the happy-path failure handling; this TTL
-# is the defense-in-depth backstop if that rollback itself fails. Calcs on the activity and precompute queues have
-# no calc budget, so request_recalculation asks Temporal whether the workflow of a row past this threshold still
-# runs before it treats the row as stale.
+# is the defense-in-depth backstop if that rollback itself fails. Runs on the calc queues have no calc budget, so
+# _running_past_staleness_threshold checks their workflow before a row is treated as stale.
 _STALE_RECALC_THRESHOLD = timedelta(minutes=30)
-# request_recalculation describes the workflow of a row past the threshold while it holds the experiment lock.
 _WORKFLOW_DESCRIBE_TIMEOUT = timedelta(seconds=5)
 
 # rate limiting manual reloads (including agents).
@@ -341,8 +339,7 @@ def _cancel_superseded_workflows(recalculation_ids: list[str]) -> None:
 
 
 def _workflow_running(recalculation_id: str) -> bool:
-    # Any error answers False, which keeps the plain staleness threshold. A run that never started answers
-    # False too, because Temporal does not find its workflow.
+    # Any error, including a workflow that never started, keeps the plain staleness threshold.
     try:
         temporal = sync_connect()
         handle = temporal.get_workflow_handle(metrics_recalculation_workflow_id(recalculation_id))

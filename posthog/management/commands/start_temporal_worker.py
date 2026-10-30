@@ -502,7 +502,6 @@ _task_queue_specs = [
         [],
         EXPERIMENT_RECALCULATION_ACTIVITY_QUEUE_ACTIVITIES,
     ),
-    # Calcs that read the aux-cluster precompute table get a smaller fixed cap of their own.
     (
         settings.EXPERIMENTS_RECALCULATION_PRECOMPUTE_TASK_QUEUE,
         [],

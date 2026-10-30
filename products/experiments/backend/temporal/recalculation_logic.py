@@ -125,8 +125,7 @@ def _get_recalc_state(recalculation_id: str) -> _RecalcState:
 def _reads_precomputed_metric_events(
     experiment: Experiment, team_experiments_config: TeamExperimentsConfig, metric_dict: dict[str, Any]
 ) -> bool:
-    # Only the task queue depends on it, so an error sends the calc to the direct-scan queue instead of failing
-    # the discovery of the whole run.
+    # Only the task queue depends on it, so an error must not fail the discovery of the whole run.
     try:
         runner = ExperimentQueryRunner(
             query=ExperimentQuery(experiment_id=experiment.id, metric=build_metric(metric_dict)),

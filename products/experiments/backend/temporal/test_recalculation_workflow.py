@@ -675,8 +675,7 @@ class TestExperimentMetricsRecalculationWorkflow:
 
     @parameterized.expand(
         [
-            # An old worker ignores the unknown input fields and records no marker for the missing patch, so the
-            # new code must replay that history with the old queue and the old budget.
+            # An old worker ignores the new input fields and records no marker for the missing patch.
             ("before_the_activity_queue", "recalc-activity-task-queue-2026-10", None),
             ("before_the_precompute_queue", CALC_QUEUES_WAIT_PATCH, _ACTIVITY_TASK_QUEUE),
         ]

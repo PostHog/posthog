@@ -132,7 +132,6 @@ class ExperimentMetricToRecalculate:
     metric_uuid: str
     # "primary" or "secondary": the metric's role in the experiment, not its kind.
     role: str
-    # Discovery sets it, so the workflow can pick the calc's task queue before the calc runs.
     reads_precomputed_metric_events: bool = False
 
 

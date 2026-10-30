@@ -41,8 +41,7 @@ with temporalio.workflow.unsafe.imports_passed_through():
     from products.experiments.backend.temporal.recalculation_metrics import increment_workflow_finished
 
 
-# Gates the per-metric precompute queue and the calc-queue timeouts. Pre-patch histories scheduled every calc on
-# the activity queue with the schedule_to_close budget, so they must replay that way.
+# Pre-patch histories scheduled every calc on the activity queue with the schedule_to_close budget.
 CALC_QUEUES_WAIT_PATCH = "recalc-precompute-queue-wait-2026-10"
 
 
@@ -176,8 +175,7 @@ class ExperimentMetricsRecalculationWorkflow(PostHogWorkflow):
                 return inputs.precompute_task_queue
             return activity_task_queue
 
-        # On the calc queues the worker slots are the cap, so a calc waits for a slot for as long as it takes.
-        # start_to_close and the heartbeat still bound each attempt, and MAX_METRIC_ATTEMPTS bounds the retries.
+        # The worker slots cap the calc queues, so a calc waits for a slot instead of timing out and retrying.
         calc_schedule_to_close = (
             None if on_calc_queues else timedelta(seconds=METRIC_CALC_SCHEDULE_TO_CLOSE_TIMEOUT_SECONDS)
         )
