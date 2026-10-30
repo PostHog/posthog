@@ -40,7 +40,9 @@ jobs:
         name: Mobile CI
         # Dispatch on every PR so repository rules can require "Mobile CI Pass".
         # Its own changes job skips the work when the diff does not touch the app.
-        if: contains(fromJSON('["opened", "synchronize", "reopened"]'), github.event.action)
+        # Edits and ready_for_review also post the check, so a PR whose last push
+        # predates this job can get it without a push and a full CI rerun.
+        if: contains(fromJSON('["opened", "synchronize", "reopened", "edited", "ready_for_review"]'), github.event.action)
         uses: ./.github/workflows/mobile-ci.yml
         secrets:
             GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
