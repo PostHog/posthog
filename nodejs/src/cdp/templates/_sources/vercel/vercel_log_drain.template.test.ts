@@ -91,14 +91,14 @@ describe('vercel log drain template', () => {
                 query: {},
             }),
         ],
-    ])('caps a %s batch at 200 lines and reports the dropped count', async (_name, buildRequest) => {
-        const logs = Array.from({ length: 205 }, (_, i) => ({ ...vercelLogDrain, id: `log${i}`, requestId: `req${i}` }))
+    ])('caps a %s batch at 100 lines and reports the dropped count', async (_name, buildRequest) => {
+        const logs = Array.from({ length: 105 }, (_, i) => ({ ...vercelLogDrain, id: `log${i}`, requestId: `req${i}` }))
 
         const response = await tester.invoke({}, { request: buildRequest(logs) })
 
         expect(response.error).toBeUndefined()
-        expect(response.capturedPostHogEvents).toHaveLength(200)
-        expect(response.capturedPostHogEvents[199].properties.vercel_log_id).toBe('log199')
+        expect(response.capturedPostHogEvents).toHaveLength(100)
+        expect(response.capturedPostHogEvents[99].properties.vercel_log_id).toBe('log99')
         expect(response.logs.map((l) => l.message)).toContainEqual(expect.stringContaining('Dropped 5 log(s)'))
         expect(response.execResult).toMatchObject({ httpResponse: { status: 200 } })
     })

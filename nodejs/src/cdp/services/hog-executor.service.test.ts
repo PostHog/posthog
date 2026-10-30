@@ -650,11 +650,15 @@ describe('Hog Executor', () => {
             `)
         })
 
-        it('rejects a second postHogCapture from a destination', async () => {
+        it.each([
+            ['a destination', 'destination', undefined],
+            ['a source webhook outside the multi-capture templates', 'source_webhook', 'template-source-webhook'],
+        ])('rejects a second postHogCapture from %s', async (_name, type, template_id) => {
             const hog = `postHogCapture({'event': 'one', 'distinct_id': 'd'})
 postHogCapture({'event': 'two', 'distinct_id': 'd'})`
             const fn = createHogFunction({
-                type: 'destination',
+                type: type as HogFunctionType['type'],
+                template_id,
                 hog,
                 bytecode: await compileHog(hog),
                 ...HOG_INPUTS_EXAMPLES.simple_fetch,
@@ -665,7 +669,7 @@ postHogCapture({'event': 'two', 'distinct_id': 'd'})`
             expect(result.capturedPostHogEvents.map((e) => e.event)).toEqual(['one'])
         })
 
-        it('captures every event from a source webhook up to the cap, then refuses and meters the rest', async () => {
+        it('captures every event from a log drain source up to the cap, then refuses and meters the rest', async () => {
             const overflow = MAX_SOURCE_WEBHOOK_CAPTURED_EVENTS + 3
             const hog = `let refused := 0
 for (let i := 0; i < ${overflow}; i := i + 1) {
@@ -676,6 +680,7 @@ for (let i := 0; i < ${overflow}; i := i + 1) {
 return refused`
             const fn = createHogFunction({
                 type: 'source_webhook',
+                template_id: 'template-source-vercel-log-drain',
                 hog,
                 bytecode: await compileHog(hog),
                 ...HOG_INPUTS_EXAMPLES.simple_fetch,
@@ -695,12 +700,13 @@ return refused`
             )
         })
 
-        it('discards the events a source webhook captured before it failed', async () => {
+        it('discards the events a log drain source captured before it failed', async () => {
             const hog = `postHogCapture({'event': 'one', 'distinct_id': 'd'})
 postHogCapture({'event': 'two', 'distinct_id': 'd'})
 throw Error('boom')`
             const fn = createHogFunction({
                 type: 'source_webhook',
+                template_id: 'template-source-vercel-log-drain',
                 hog,
                 bytecode: await compileHog(hog),
                 ...HOG_INPUTS_EXAMPLES.simple_fetch,

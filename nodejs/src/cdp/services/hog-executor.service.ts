@@ -33,12 +33,19 @@ export interface HogExecutorConfig {
 
 export const MAX_ASYNC_STEPS = 5
 export const MAX_HOG_LOGS = 25
-// A source webhook turns one inbound request into events, and log shippers batch many
-// lines per request. This cap is the hard ceiling on events per invocation, counted across
-// async steps because the previous step's events carry into the next result. A 512 KB body
-// can carry thousands of small lines, so the cap is reachable, and calls past it are dropped
-// with a warning and a `dropped` metric instead of failing the whole batch.
-export const MAX_SOURCE_WEBHOOK_CAPTURED_EVENTS = 500
+// A log drain source turns one inbound request into events, and log shippers batch many
+// lines per request. Only functions built from these templates may capture more than once;
+// a user-authored source webhook keeps the single-call rule because its Hog is unreviewed.
+export const MULTI_CAPTURE_SOURCE_TEMPLATE_IDS: ReadonlySet<string> = new Set(['template-source-vercel-log-drain'])
+// Hard ceiling on events per invocation, counted across async steps because the previous
+// step's events carry into the next result. A 512 KB body can carry thousands of small lines,
+// so the cap is reachable, and calls past it are dropped with a warning and a `dropped`
+// metric instead of failing the whole batch.
+export const MAX_SOURCE_WEBHOOK_CAPTURED_EVENTS = 100
+
+export function allowsMultipleCaptures(hogFunction: Pick<HogFunctionType, 'type' | 'template_id'>): boolean {
+    return hogFunction.type === 'source_webhook' && MULTI_CAPTURE_SOURCE_TEMPLATE_IDS.has(hogFunction.template_id ?? '')
+}
 
 const hogExecutionDuration = new Histogram({
     name: 'cdp_hog_function_execution_duration_ms',
@@ -276,7 +283,7 @@ export class HogExecutorService {
                                 throw new Error("[HogFunction] - postHogCapture call missing 'distinct_id' property")
                             }
 
-                            if (invocation.hogFunction.type === 'source_webhook') {
+                            if (allowsMultipleCaptures(invocation.hogFunction)) {
                                 if (result.capturedPostHogEvents.length >= MAX_SOURCE_WEBHOOK_CAPTURED_EVENTS) {
                                     droppedCaptures++
                                     return false
@@ -410,7 +417,7 @@ export class HogExecutorService {
             result.finished = true // Explicitly set to true to prevent infinite loops
             // A failed source webhook answers 5xx and the sender retries the same body, so events
             // captured before the failure would be ingested twice. Dropping them keeps a retry clean.
-            if (invocation.hogFunction.type === 'source_webhook' && result.capturedPostHogEvents.length > 0) {
+            if (allowsMultipleCaptures(invocation.hogFunction) && result.capturedPostHogEvents.length > 0) {
                 addLog(
                     'warn',
                     `Discarded ${result.capturedPostHogEvents.length} captured events because the function failed`

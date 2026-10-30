@@ -39,7 +39,7 @@ let logs := []
 let body := request.stringBody ?? ''
 // Every kept line costs a hash and a large property map inside the function's synchronous
 // time budget, so a batch is capped and the lines past the cap are counted and reported.
-let maxLogs := 200
+let maxLogs := 100
 let droppedLogs := 0
 
 fun isValidLog(obj) {
