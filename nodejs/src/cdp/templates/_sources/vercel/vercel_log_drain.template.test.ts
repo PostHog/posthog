@@ -79,6 +79,30 @@ describe('vercel log drain template', () => {
         expect(response.capturedPostHogEvents.map((e) => e.properties.vercel_log_id)).toEqual(['ndjson1', 'ndjson2'])
     })
 
+    it.each([
+        ['JSON array', (logs: Record<string, any>[]) => createVercelRequest(logs)],
+        [
+            'NDJSON',
+            (logs: Record<string, any>[]) => ({
+                method: 'POST',
+                headers: {},
+                body: {},
+                stringBody: logs.map((log) => JSON.stringify(log)).join('\n'),
+                query: {},
+            }),
+        ],
+    ])('caps a %s batch at 200 lines and reports the dropped count', async (_name, buildRequest) => {
+        const logs = Array.from({ length: 205 }, (_, i) => ({ ...vercelLogDrain, id: `log${i}`, requestId: `req${i}` }))
+
+        const response = await tester.invoke({}, { request: buildRequest(logs) })
+
+        expect(response.error).toBeUndefined()
+        expect(response.capturedPostHogEvents).toHaveLength(200)
+        expect(response.capturedPostHogEvents[199].properties.vercel_log_id).toBe('log199')
+        expect(response.logs.map((l) => l.message)).toContainEqual(expect.stringContaining('Dropped 5 log(s)'))
+        expect(response.execResult).toMatchObject({ httpResponse: { status: 200 } })
+    })
+
     it('should return 405 for non-POST methods', async () => {
         const response = await tester.invoke(
             {},

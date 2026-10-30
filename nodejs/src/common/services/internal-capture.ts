@@ -50,6 +50,29 @@ export class InternalCaptureService {
         }
     }
 
+    // Capture reads one token per request body, so every event in a batch must share a team_token.
+    async captureBatch(events: InternalCaptureEvent[]): Promise<FetchResponse> {
+        const tokens = new Set(events.map((event) => event.team_token))
+        if (tokens.size !== 1) {
+            throw new Error(`captureBatch requires exactly one team_token per batch, got ${tokens.size}`)
+        }
+        try {
+            const response = await internalFetch(this.config.CAPTURE_INTERNAL_URL, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(events.map((event) => this.prepareEvent(event))),
+            })
+            internalCaptureCounter.inc({ status: response.status.toString() }, events.length)
+            return response
+        } catch (e) {
+            internalCaptureCounter.inc({ status: 'error' }, events.length)
+            logger.error('Error capturing internal event batch', { error: e, count: events.length })
+            throw e
+        }
+    }
+
     async capture(event: InternalCaptureEvent): Promise<FetchResponse> {
         logger.debug('Capturing internal event', { event, url: this.config.CAPTURE_INTERNAL_URL })
         try {

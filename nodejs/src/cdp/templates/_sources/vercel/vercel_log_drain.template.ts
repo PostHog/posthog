@@ -37,6 +37,10 @@ if (notEmpty(inputs.auth_header) and inputs.auth_header != request.headers['auth
 
 let logs := []
 let body := request.stringBody ?? ''
+// Every kept line costs a hash and a large property map inside the function's synchronous
+// time budget, so a batch is capped and the lines past the cap are counted and reported.
+let maxLogs := 200
+let droppedLogs := 0
 
 fun isValidLog(obj) {
     return typeof(obj) == 'object' and notEmpty(obj.id) and notEmpty(obj.deploymentId)
@@ -44,6 +48,10 @@ fun isValidLog(obj) {
 
 fun pushLog(obj) {
     if (not isValidLog(obj)) {
+        return
+    }
+    if (length(logs) >= maxLogs) {
+        droppedLogs := droppedLogs + 1
         return
     }
     logs := arrayPushBack(logs, obj)
@@ -70,8 +78,11 @@ if (hasNewlines) {
         if (empty(s)) {
             continue
         }
-        let obj := jsonParse(s)
-        pushLog(obj)
+        if (length(logs) >= maxLogs) {
+            droppedLogs := droppedLogs + 1
+        } else {
+            pushLog(jsonParse(s))
+        }
     }
 } else if (notEmpty(body)) {
     pushParsed(jsonParse(body))
@@ -92,6 +103,10 @@ if (empty(logs)) {
             }
         }
     }
+}
+
+if (droppedLogs > 0) {
+    print(f'Warning: Dropped {droppedLogs} log(s). A batch is capped at {maxLogs} lines; configure the drain to send smaller batches.')
 }
 
 let limit := toInt(inputs.max_message_len ?? 262144)
@@ -196,6 +211,13 @@ if (inputs.page_routes_only) {
 let day := formatDateTime(now(), '%Y-%m-%d')
 let salt := inputs.salt_secret ?? ''
 let strategy := inputs.distinct_id_strategy ?? 'fixed_salt'
+let customTemplate := inputs.custom_template ?? ''
+let strategyLabel := strategy
+if (strategy == 'custom' and empty(customTemplate)) {
+    print('vercel log drain: custom_template empty, falling back to rotating_salt')
+    strategy := 'rotating_salt'
+    strategyLabel := 'rotating_salt_fallback'
+}
 
 // Hashed strategies emit a 22-char unpadded base64 prefix of sha256, matching
 // the visual format of PostHog cookieless distinct IDs (132 bits of entropy —
@@ -216,7 +238,7 @@ fun captureLog(log) {
     let scheme := proxy.scheme ?? 'https'
     let path := proxy.path ?? log.path ?? ''
 
-    let activeStrategy := strategy
+    let activeStrategy := strategyLabel
     let distinctId := ''
 
     if (strategy == 'rotating_salt') {
@@ -226,30 +248,23 @@ fun captureLog(log) {
     } else if (strategy == 'ip') {
         distinctId := f'http_log_{clientIp}'
     } else if (strategy == 'custom') {
-        let customTemplate := inputs.custom_template ?? ''
-        if (empty(customTemplate)) {
-            print('vercel log drain: custom_template empty, falling back to rotating_salt')
+        let result := customTemplate
+        // Note: {salt} is intentionally NOT a placeholder — exposing the secret
+        // in distinct_ids would defeat its purpose (events are stored in plain text).
+        result := replaceAll(result, '{day}', day)
+        result := replaceAll(result, '{ip}', clientIp)
+        result := replaceAll(result, '{host}', host)
+        result := replaceAll(result, '{ua}', userAgent)
+        result := replaceAll(result, '{path}', path)
+        result := replaceAll(result, '{project_id}', toString(log.projectId))
+        // Guard: if every placeholder resolved to empty, fall back to rotating_salt
+        // so we don't collapse all such requests onto a single 'http_log_' id.
+        if (empty(result)) {
+            print('vercel log drain: custom_template substituted to empty, falling back to rotating_salt')
             distinctId := f'http_log_{shortHash(f'{salt}:{day}:{clientIp}:{host}:{userAgent}')}'
             activeStrategy := 'rotating_salt_fallback'
         } else {
-            let result := customTemplate
-            // Note: {salt} is intentionally NOT a placeholder — exposing the secret
-            // in distinct_ids would defeat its purpose (events are stored in plain text).
-            result := replaceAll(result, '{day}', day)
-            result := replaceAll(result, '{ip}', clientIp)
-            result := replaceAll(result, '{host}', host)
-            result := replaceAll(result, '{ua}', userAgent)
-            result := replaceAll(result, '{path}', path)
-            result := replaceAll(result, '{project_id}', toString(log.projectId))
-            // Guard: if every placeholder resolved to empty, fall back to rotating_salt
-            // so we don't collapse all such requests onto a single 'http_log_' id.
-            if (empty(result)) {
-                print('vercel log drain: custom_template substituted to empty, falling back to rotating_salt')
-                distinctId := f'http_log_{shortHash(f'{salt}:{day}:{clientIp}:{host}:{userAgent}')}'
-                activeStrategy := 'rotating_salt_fallback'
-            } else {
-                distinctId := f'http_log_{result}'
-            }
+            distinctId := f'http_log_{result}'
         }
     } else {
         // Unknown strategy value — treat as rotating_salt
@@ -351,15 +366,18 @@ fun captureLog(log) {
         props['proxy_user_agent'] := proxy.userAgent
     }
 
-    postHogCapture({
+    return postHogCapture({
         'event': '$http_log',
         'distinct_id': distinctId,
         'properties': props
     })
 }
 
+// postHogCapture returns false once the executor's per-invocation cap is reached.
 for (let _, log in selectedLogs) {
-    captureLog(log)
+    if (not captureLog(log)) {
+        break
+    }
 }
 
 return {

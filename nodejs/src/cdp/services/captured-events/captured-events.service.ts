@@ -5,7 +5,11 @@ import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
 import { TeamManager } from '~/common/utils/team-manager'
 
+import { Team } from '../../../types'
 import { CyclotronJobInvocationResult } from '../../types'
+
+export const CAPTURE_BATCH_SIZE = 100
+export const CAPTURE_BATCH_CONCURRENCY = 5
 
 const capturedEventsPending = new Gauge({
     name: 'cdp_captured_events_pending',
@@ -68,8 +72,12 @@ export class CapturedEventsService {
                 if (!capturedEvents || capturedEvents.length === 0) {
                     return
                 }
+                const teams = new Map<number, Team | null>()
                 for (const event of capturedEvents) {
-                    const team = await this.teamManager.getTeam(event.team_id)
+                    if (!teams.has(event.team_id)) {
+                        teams.set(event.team_id, await this.teamManager.getTeam(event.team_id))
+                    }
+                    const team = teams.get(event.team_id)
                     if (!team) {
                         continue
                     }
@@ -101,13 +109,33 @@ export class CapturedEventsService {
             return
         }
 
-        await Promise.all(
-            events.map((event) =>
-                this.internalCaptureService.capture(event).catch((error) => {
-                    logger.error('Error capturing internal event', { error })
-                    captureException(error)
-                })
+        // One source webhook request can now emit hundreds of events, so events are grouped per
+        // team token into batch requests and sent a few batches at a time. Capture reads one token
+        // per request body, which is why the grouping is per token and not per flush.
+        const byToken = new Map<string, InternalCaptureEvent[]>()
+        for (const event of events) {
+            const group = byToken.get(event.team_token)
+            if (group) {
+                group.push(event)
+            } else {
+                byToken.set(event.team_token, [event])
+            }
+        }
+        const batches: InternalCaptureEvent[][] = []
+        for (const group of byToken.values()) {
+            for (let i = 0; i < group.length; i += CAPTURE_BATCH_SIZE) {
+                batches.push(group.slice(i, i + CAPTURE_BATCH_SIZE))
+            }
+        }
+        for (let i = 0; i < batches.length; i += CAPTURE_BATCH_CONCURRENCY) {
+            await Promise.all(
+                batches.slice(i, i + CAPTURE_BATCH_CONCURRENCY).map((batch) =>
+                    this.internalCaptureService.captureBatch(batch).catch((error) => {
+                        logger.error('Error capturing internal events', { error, count: batch.length })
+                        captureException(error)
+                    })
+                )
             )
-        )
+        }
     }
 }

@@ -665,11 +665,15 @@ postHogCapture({'event': 'two', 'distinct_id': 'd'})`
             expect(result.capturedPostHogEvents.map((e) => e.event)).toEqual(['one'])
         })
 
-        it('captures every event from a source webhook up to the cap and warns once', async () => {
+        it('captures every event from a source webhook up to the cap, then refuses and meters the rest', async () => {
             const overflow = MAX_SOURCE_WEBHOOK_CAPTURED_EVENTS + 3
-            const hog = `for (let i := 0; i < ${overflow}; i := i + 1) {
-    postHogCapture({'event': f'line {i}', 'distinct_id': 'd'})
-}`
+            const hog = `let refused := 0
+for (let i := 0; i < ${overflow}; i := i + 1) {
+    if (not postHogCapture({'event': f'line {i}', 'distinct_id': 'd'})) {
+        refused := refused + 1
+    }
+}
+return refused`
             const fn = createHogFunction({
                 type: 'source_webhook',
                 hog,
@@ -684,11 +688,30 @@ postHogCapture({'event': 'two', 'distinct_id': 'd'})`
             expect(result.capturedPostHogEvents[MAX_SOURCE_WEBHOOK_CAPTURED_EVENTS - 1].event).toBe(
                 `line ${MAX_SOURCE_WEBHOOK_CAPTURED_EVENTS - 1}`
             )
-            expect(
-                result.logs.filter((log) =>
-                    log.message.includes(`more than ${MAX_SOURCE_WEBHOOK_CAPTURED_EVENTS} times`)
-                )
-            ).toHaveLength(1)
+            expect(result.execResult).toBe(3)
+            expect(result.logs.filter((log) => log.message.includes('3 more times than the limit'))).toHaveLength(1)
+            expect(result.metrics).toContainEqual(
+                expect.objectContaining({ metric_kind: 'other', metric_name: 'dropped', count: 3 })
+            )
+        })
+
+        it('discards the events a source webhook captured before it failed', async () => {
+            const hog = `postHogCapture({'event': 'one', 'distinct_id': 'd'})
+postHogCapture({'event': 'two', 'distinct_id': 'd'})
+throw Error('boom')`
+            const fn = createHogFunction({
+                type: 'source_webhook',
+                hog,
+                bytecode: await compileHog(hog),
+                ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                ...HOG_FILTERS_EXAMPLES.no_filters,
+            })
+            const result = await executor.execute(createExampleInvocation(fn))
+            expect(result.error).toContain('boom')
+            expect(result.capturedPostHogEvents).toEqual([])
+            expect(result.logs.map((log) => log.message)).toContainEqual(
+                'Discarded 2 captured events because the function failed'
+            )
         })
     })
 

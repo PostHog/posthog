@@ -266,7 +266,9 @@ describe('SourceWebhooksConsumer', () => {
                 expect(mockInternalFetch).toHaveBeenCalledTimes(1)
                 const internalEvents = mockInternalFetch.mock.calls[0][1]
 
-                expect(parseJSON(internalEvents.body)).toMatchObject({
+                // Captured events are sent as one array body per team token
+                expect(parseJSON(internalEvents.body)).toHaveLength(1)
+                expect(parseJSON(internalEvents.body)[0]).toMatchObject({
                     api_key: team.api_token,
                     event: 'my-event',
                     distinct_id: 'test-distinct-id',

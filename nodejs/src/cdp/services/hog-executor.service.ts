@@ -34,9 +34,10 @@ export interface HogExecutorConfig {
 export const MAX_ASYNC_STEPS = 5
 export const MAX_HOG_LOGS = 25
 // A source webhook turns one inbound request into events, and log shippers batch many
-// lines per request. The public webhook route caps bodies at 512 KB and one log line is
-// at least about 1 KB, so 500 is the most lines a body can carry; anything past the cap
-// is dropped with a warning instead of failing the whole batch.
+// lines per request. This cap is the hard ceiling on events per invocation, counted across
+// async steps because the previous step's events carry into the next result. A 512 KB body
+// can carry thousands of small lines, so the cap is reachable, and calls past it are dropped
+// with a warning and a `dropped` metric instead of failing the whole batch.
 export const MAX_SOURCE_WEBHOOK_CAPTURED_EVENTS = 500
 
 const hogExecutionDuration = new Histogram({
@@ -227,7 +228,7 @@ export class HogExecutorService {
 
             try {
                 let hogLogs = 0
-                let captureLimitWarned = false
+                let droppedCaptures = 0
 
                 const asyncFunctions = (options.asyncFunctionsNames ?? []).reduce(
                     (acc, fn) => {
@@ -277,14 +278,8 @@ export class HogExecutorService {
 
                             if (invocation.hogFunction.type === 'source_webhook') {
                                 if (result.capturedPostHogEvents.length >= MAX_SOURCE_WEBHOOK_CAPTURED_EVENTS) {
-                                    if (!captureLimitWarned) {
-                                        captureLimitWarned = true
-                                        addLog(
-                                            'warn',
-                                            `postHogCapture was called more than ${MAX_SOURCE_WEBHOOK_CAPTURED_EVENTS} times. Only the first ${MAX_SOURCE_WEBHOOK_CAPTURED_EVENTS} events were captured.`
-                                        )
-                                    }
-                                    return
+                                    droppedCaptures++
+                                    return false
                                 }
                             } else if (result.capturedPostHogEvents.length > 0) {
                                 throw new Error(
@@ -318,12 +313,27 @@ export class HogExecutorService {
                                     ...eventProperties,
                                 },
                             })
+                            return true
                         },
                         ...options.functions,
                     },
                 })
 
                 hogExecutionDuration.observe(execHogOutcome.durationMs)
+
+                if (droppedCaptures > 0) {
+                    addLog(
+                        'warn',
+                        `postHogCapture was called ${droppedCaptures} more times than the limit of ${MAX_SOURCE_WEBHOOK_CAPTURED_EVENTS}. Only the first ${MAX_SOURCE_WEBHOOK_CAPTURED_EVENTS} events were captured.`
+                    )
+                    result.metrics.push({
+                        team_id: invocation.teamId,
+                        app_source_id: invocation.hogFunction.id,
+                        metric_kind: 'other',
+                        metric_name: 'dropped',
+                        count: droppedCaptures,
+                    })
+                }
 
                 result.invocation.state.timings.push({
                     kind: 'hog',
@@ -398,6 +408,15 @@ export class HogExecutorService {
         } catch (err) {
             result.error = redactSensitiveValues(err.message, sensitiveValues)
             result.finished = true // Explicitly set to true to prevent infinite loops
+            // A failed source webhook answers 5xx and the sender retries the same body, so events
+            // captured before the failure would be ingested twice. Dropping them keeps a retry clean.
+            if (invocation.hogFunction.type === 'source_webhook' && result.capturedPostHogEvents.length > 0) {
+                addLog(
+                    'warn',
+                    `Discarded ${result.capturedPostHogEvents.length} captured events because the function failed`
+                )
+                result.capturedPostHogEvents = []
+            }
         }
 
         return result
