@@ -28,17 +28,6 @@ class FindBlockingCalls(TraversingVisitor):
         super().visit_call(node)
 
 
-class FindVariableReferences(TraversingVisitor):
-    def __init__(self) -> None:
-        super().__init__()
-        self.names: list[str] = []
-
-    def visit_field(self, node: ast.Field) -> None:
-        if len(node.chain) > 1 and node.chain[0] == "variables":
-            self.names.append(str(node.chain[1]))
-        super().visit_field(node)
-
-
 class FindPlaceholders(TraversingVisitor):
     def __init__(self):
         super().__init__()
@@ -102,12 +91,6 @@ class ReplacePlaceholders(CloningVisitor):
         from posthog.hogql.compiler.bytecode import create_bytecode
 
         from common.hogvm.python.execute import execute_bytecode
-
-        if "variables" not in (self.placeholders or {}):
-            variable_finder = FindVariableReferences()
-            variable_finder.visit(node.expr)
-            if variable_finder.names:
-                raise QueryError(f"Variable {variable_finder.names[0]} is missing from query")
 
         if self._deadline is None:
             self._deadline = time.monotonic() + PLACEHOLDER_EXPANSION_BUDGET.total_seconds()

@@ -31,11 +31,21 @@ class ReplaceVariables(CloningVisitor):
         self.insight_variables = insight_variables_by_ids(team.pk, [v.variableId for v in variables])
         self.variables = variables
         self.team = team
+        self._inside_placeholder = False
 
     def visit_placeholder(self, node):
-        if not (node.chain and node.chain[0] == "variables"):
+        if node.chain and len(node.chain) > 1 and node.chain[0] == "variables":
+            return self._resolve_variable(str(node.chain[1]))
+        self._inside_placeholder = True
+        try:
             return super().visit_placeholder(node)
-        return self._resolve_variable(node.chain[1])
+        finally:
+            self._inside_placeholder = False
+
+    def visit_field(self, node):
+        if self._inside_placeholder and len(node.chain) > 1 and node.chain[0] == "variables":
+            return self._resolve_variable(str(node.chain[1]))
+        return super().visit_field(node)
 
     def _resolve_variable(self, variable_code_name: str) -> ast.Expr:
         if not self.variables:

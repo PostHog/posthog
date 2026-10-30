@@ -1893,28 +1893,58 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             execute_hogql_query(query, team=self.team)
         self.assertEqual(str(e.exception), "Table 'events' does not accept arguments")
 
-    def test_variables_missing_from_query_with_suggestion(self):
+    @parameterized.expand(
+        [
+            (
+                "field_with_other_variable",
+                "SELECT {variables.variable_two}",
+                True,
+                "Variable variable_two is missing from query. Did you mean: variable_one?",
+            ),
+            (
+                "expression_with_other_variable",
+                "SELECT {variables.variable_two == 'value' ? 1 : 2}",
+                True,
+                "Variable variable_two is missing from query. Did you mean: variable_one?",
+            ),
+            (
+                "field_without_variables",
+                "SELECT {variables.variable_two}",
+                False,
+                "Variable variable_two is missing from query",
+            ),
+            (
+                "expression_without_variables",
+                "SELECT {variables.variable_two == 'value' ? 1 : 2}",
+                False,
+                "Variable variable_two is missing from query",
+            ),
+        ]
+    )
+    def test_variables_missing_from_query(
+        self, _name: str, query: str, send_other_variable: bool, expected_error: str
+    ) -> None:
         insight_variable = InsightVariable.objects.create(
             team=self.team,
             name="Variable One",
             code_name="variable_one",
             type=InsightVariable.Type.STRING,
         )
-        variables = {
-            "variable_one": HogQLVariable(
-                code_name="variable_one",
-                value="value",
-                variableId=str(insight_variable.id),
-            )
-        }
+        variables = (
+            {
+                "variable_one": HogQLVariable(
+                    code_name="variable_one",
+                    value="value",
+                    variableId=str(insight_variable.id),
+                )
+            }
+            if send_other_variable
+            else None
+        )
 
-        query = "SELECT {variables.variable_two}"
         with self.assertRaises(QueryError) as e:
             execute_hogql_query(query, team=self.team, variables=variables)
-        self.assertEqual(
-            str(e.exception),
-            "Variable variable_two is missing from query. Did you mean: variable_one?",
-        )
+        self.assertEqual(str(e.exception), expected_error)
 
     @parameterized.expand(
         [

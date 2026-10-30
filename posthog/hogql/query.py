@@ -196,20 +196,20 @@ class HogQLQueryExecutor:
                     parser_mode=sanitize_client_parser_mode(self.query_modifiers.parserMode),
                 )
 
-    @tracer.start_as_current_span("HogQLQueryExecutor._process_variables")
-    def _process_variables(self):
-        with self.timings.measure("variables"):
-            if self.variables and len(self.variables.keys()) > 0:
-                self.select_query = replace_variables(
-                    node=self.select_query, variables=list(self.variables.values()), team=self.team
-                )
-
     @tracer.start_as_current_span("HogQLQueryExecutor._process_placeholders")
     def _process_placeholders(self):
         with self.timings.measure("replace_placeholders"):
             if not self.placeholders:
                 self.placeholders = {}
             finder = find_placeholders(self.select_query)
+
+            if self.variables or finder.placeholder_fields or finder.placeholder_expressions:
+                with self.timings.measure("variables"):
+                    self.select_query = replace_variables(
+                        node=self.select_query,
+                        variables=list(self.variables.values()) if self.variables else [],
+                        team=self.team,
+                    )
 
             if finder.has_filters:
                 if "filters" in self.placeholders and self.filters is not None:
@@ -232,11 +232,7 @@ class HogQLQueryExecutor:
                 )
 
             if finder.placeholder_fields or finder.placeholder_expressions:
-                placeholders: dict[str, Any] = self.placeholders
-                if self.variables:
-                    variable_values = {variable.code_name: variable.value for variable in self.variables.values()}
-                    placeholders = {"variables": variable_values, **self.placeholders}
-                self.select_query = cast(ast.SelectQuery, replace_placeholders(self.select_query, placeholders))
+                self.select_query = cast(ast.SelectQuery, replace_placeholders(self.select_query, self.placeholders))
 
     @tracer.start_as_current_span("HogQLQueryExecutor._apply_limit")
     def _apply_limit(self):
@@ -853,7 +849,6 @@ class HogQLQueryExecutor:
         register the returned tables on their context and send them with the query.
         """
         self._parse_query()
-        self._process_variables()
         self._process_placeholders()
         self._evaluate_prompt_jev()
         return self.select_query, self._prompt_jev_tables
@@ -873,7 +868,6 @@ class HogQLQueryExecutor:
             if trino_execution is not None:
                 return trino_execution
 
-        self._process_variables()
         self._process_placeholders()
         if PromptJevFinder.contains(self.select_query):
             if embedded_select or not self._executing or self.connection_id is not None:

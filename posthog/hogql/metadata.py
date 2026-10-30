@@ -179,11 +179,7 @@ def get_hogql_metadata(
                     hogql_ast = replace_variables(
                         hogql_ast, list(query.variables.values()) if query.variables else [], team
                     )
-                    placeholders = query.globals
-                    if query.variables:
-                        variable_values = {variable.code_name: variable.value for variable in query.variables.values()}
-                        placeholders = {"variables": variable_values, **(query.globals or {})}
-                    hogql_ast = cast(ast.SelectQuery, replace_placeholders(hogql_ast, placeholders))
+                    hogql_ast = cast(ast.SelectQuery, replace_placeholders(hogql_ast, query.globals))
 
             heuristic_warnings.extend(run_metadata_heuristics(hogql_ast))
             hogql_table_names = get_table_names(hogql_ast)
