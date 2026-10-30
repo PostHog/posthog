@@ -159,11 +159,48 @@ describe("CloudRuns.agentRestarted", () => {
     expect(engine.retry).not.toHaveBeenCalled();
   });
 
+  // The backend answers the resume before the run's status leaves completed, and the engine drops a watch it opens on a
+  // finished run, so a hold taken then would miss the sandbox's token request; it opens the watch again until the
+  // run is live, and reads a failure as the restart's own only once the run was.
+  it("opens the stream again while a resumed run still reads as finished, and fails only on a failure after it was live", async () => {
+    const { engine, runs } = setup();
+    const restarted = runs.agentRestarted("t1", "r1", since, 60_000, 10);
+    await vi.waitFor(() => expect(engine.watch).toHaveBeenCalledTimes(1));
+    engine.emit(CloudTaskEvent.Update, {
+      ...base,
+      kind: "snapshot",
+      newEntries: [started(1)],
+      status: "failed",
+      errorMessage: "Sandbox lost",
+    });
+    await vi.waitFor(() => expect(engine.watch).toHaveBeenCalledTimes(2));
+    engine.emit(CloudTaskEvent.Update, {
+      ...base,
+      kind: "status",
+      status: "queued",
+    });
+    engine.emit(CloudTaskEvent.Update, {
+      ...base,
+      kind: "status",
+      status: "failed",
+      errorMessage: "Sandbox failed to start",
+    });
+    await expect(restarted).rejects.toThrow("Sandbox failed to start");
+    // The engine drops the watch of a failed run itself, so the hold has nothing left to close.
+    await pastGrace();
+    expect(engine.unwatch).not.toHaveBeenCalled();
+  });
+
   it("gives up when the run fails to come back", async () => {
     const { engine, runs } = setup();
     const restarted = runs.agentRestarted("t1", "r1", since);
     await vi.waitFor(() => expect(engine.watch).toHaveBeenCalled());
 
+    engine.emit(CloudTaskEvent.Update, {
+      ...base,
+      kind: "status",
+      status: "in_progress",
+    });
     engine.emit(CloudTaskEvent.Update, {
       taskId: "t1",
       runId: "r1",
