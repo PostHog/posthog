@@ -2453,6 +2453,7 @@ def _mirror_vectors_metadata(engagement_offset: int, schema_version: int = PROJE
     "mirror_days,expected_offset,skip_reason",
     [
         ({0: _mirror_vectors_metadata(1)}, 0, None),
+        ({0: _mirror_vectors_metadata(1, schema_version=1)}, 0, None),
         ({1: _mirror_vectors_metadata(2)}, 1, None),
         (
             {

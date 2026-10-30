@@ -42,13 +42,13 @@ def parse_verdict(payload: object) -> AdapterVerdict:
 
 def submit(payload: object, *, team_id: int) -> IntakeOutcome:
     verdict = parse_verdict(payload)
+    writer = writer_settings()
+    if writer is None or writer.team_id != team_id:
+        return IntakeOutcome(status="unconfigured")
     capture_verdict(verdict, team_id=team_id)
     request = verdict.request
     if request is None:
         return IntakeOutcome(status="no_docs")
-    writer = writer_settings()
-    if writer is None or writer.team_id != team_id:
-        return IntakeOutcome(status="unconfigured")
     existing_task = tasks_facade.get_task_by_origin_key(team_id, request.dedupe_id)
     if existing_task is not None and not latest_run_failed(existing_task):
         return IntakeOutcome(status="duplicate", task_id=existing_task.id)
