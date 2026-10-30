@@ -1413,8 +1413,7 @@ export interface EvaluationRunsStats {
 
 // Counts every matching run server-side. queryEvaluationRuns caps its fetch at
 // EVALUATION_RUNS_QUERY_LIMIT, so summary stats can't be derived from that list without
-// undercounting. Counting semantics mirror the evaluations list view (evaluationMetricsLogic)
-// so both surfaces report the same totals.
+// undercounting.
 export async function queryEvaluationRunsStats(params: {
     evaluation?: EvaluationConfig | null
     evaluationId?: string

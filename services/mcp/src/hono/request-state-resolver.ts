@@ -24,7 +24,7 @@ import {
     getScopeGatedTools,
     type ScopeGatedTool,
 } from '@/tools/toolDefinitions'
-import type { Context, Env, PinnedActiveContext, Tool, ZodObjectAny } from '@/tools/types'
+import type { BusinessKnowledgeContent, Context, Env, PinnedActiveContext, Tool, ZodObjectAny } from '@/tools/types'
 
 import { McpSessionRedisStore } from './cache/McpSessionRedisStore'
 import type { RedisLike } from './cache/RedisCache'
@@ -76,6 +76,8 @@ export interface ResolvedState {
     carriedContextHandle?: boolean | undefined
     /** The organization's AI data processing consent; undefined when the org could not be read. */
     aiConsentGiven?: boolean | undefined
+    /** Read only when a business knowledge search tool is advertised; undefined when unread. */
+    businessKnowledgeContent?: BusinessKnowledgeContent | undefined
     oauthClientId: string | undefined
     clientProfile: MCPClientProfile
     requestContext: MCPRequestContext
@@ -157,6 +159,11 @@ export function switchToolsToExclude(pinned: { organizationId?: string | undefin
 // running the task interactively and comes back empty for the service account the scheduled
 // run uses, so instructions learned on one path silently fail on the other.
 const DIRECT_GATEWAY_MOUNT_ORIGINS: ReadonlySet<string> = new Set(['signals_scout'])
+
+const BUSINESS_KNOWLEDGE_SEARCH_TOOLS: ReadonlySet<string> = new Set([
+    'business-knowledge-documents-search',
+    'business-knowledge-repositories-search',
+])
 
 function mountsGatewayServersDirectly(taskOriginProduct: string | undefined): boolean {
     return taskOriginProduct !== undefined && DIRECT_GATEWAY_MOUNT_ORIGINS.has(taskOriginProduct)
@@ -336,6 +343,9 @@ export class RequestStateResolver {
                 () => context.stateManager.getUser()
             )
         ).filter(isHeld)
+        const businessKnowledgeContent = allTools.some(({ name }) => BUSINESS_KNOWLEDGE_SEARCH_TOOLS.has(name))
+            ? await this.resolveBusinessKnowledgeContent(context)
+            : undefined
         // Scope-gated hints are only consumed by the exec `search` command, which
         // only exists in single-exec mode — skip the extra scan otherwise.
         const scopeGatedTools = useSingleExec ? getScopeGatedTools(apiKeyScopes, filterOptions).filter(isHeld) : []
@@ -357,6 +367,7 @@ export class RequestStateResolver {
             projectHasData: flagAnalyticsContext?.projectHasData,
             analyticsContext: flagAnalyticsContext,
             aiConsentGiven: aiConsentGiven ?? undefined,
+            businessKnowledgeContent,
             oauthClientId: oauthClientId || undefined,
             clientProfile,
             requestContext,
@@ -469,6 +480,15 @@ export class RequestStateResolver {
             sessionScoped: true,
             orgId: overrideOrg !== undefined ? (overrideOrg ?? undefined) : organizationId,
             projectId: overrideProject !== undefined ? (overrideProject ?? undefined) : projectId,
+        }
+    }
+
+    private async resolveBusinessKnowledgeContent(context: Context): Promise<BusinessKnowledgeContent | undefined> {
+        try {
+            const projectId = await context.stateManager.getProjectId()
+            return await context.stateManager.getOrFetchBusinessKnowledgeContent(projectId)
+        } catch {
+            return undefined
         }
     }
 

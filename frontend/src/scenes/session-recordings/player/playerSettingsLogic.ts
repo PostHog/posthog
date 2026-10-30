@@ -15,7 +15,7 @@ import { urls } from 'scenes/urls'
 
 import { AutoplayDirection, ReplayTabs, SessionRecordingSidebarStacking } from '~/types'
 
-export type WatchPanelSection = 'overview'
+export type WatchPanelSection = 'overview' | 'observations'
 export type WatchDebugDock = 'bottom' | 'right'
 
 export enum TimestampFormat {
@@ -66,6 +66,9 @@ export interface playerSettingsLogicValues {
 export interface playerSettingsLogicActions {
     dismissDebugHint: () => {
         value: true
+    }
+    openWatchPanelSection: (section: WatchPanelSection) => {
+        section: WatchPanelSection
     }
     setAutoplayDirection: (autoplayDirection: AutoplayDirection) => {
         autoplayDirection: AutoplayDirection
@@ -125,7 +128,7 @@ export interface playerSettingsLogicActions {
         dock: WatchDebugDock
     }
     toggleWatchPanelSection: (section: WatchPanelSection) => {
-        section: 'overview'
+        section: WatchPanelSection
     }
 }
 
@@ -181,6 +184,7 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         setPreferClassicReplayLayout: (preferClassicReplayLayout: boolean) => ({ preferClassicReplayLayout }),
         setStaffLayoutOverride: (layout: ReplayLayout | null) => ({ layout }),
         toggleWatchPanelSection: (section: WatchPanelSection) => ({ section }),
+        openWatchPanelSection: (section: WatchPanelSection) => ({ section }),
         setWatchDebugDock: (dock: WatchDebugDock) => ({ dock }),
         dismissDebugHint: true,
         setLegacyDebugLinkPending: (pending: boolean) => ({ pending }),
@@ -301,6 +305,7 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
             {
                 toggleWatchPanelSection: (state, { section }) =>
                     state.includes(section) ? state.filter((s) => s !== section) : [...state, section],
+                openWatchPanelSection: (state, { section }) => (state.includes(section) ? state : [...state, section]),
             },
         ],
     })),
