@@ -21,6 +21,7 @@ import posthoganalytics
 from prometheus_client import Counter
 from rest_framework.exceptions import Throttled, ValidationError
 from temporalio.client import WorkflowExecutionStatus
+from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
@@ -31,7 +32,7 @@ from posthog.models.scoping import get_current_team_id, team_scope
 from posthog.models.user import User
 from posthog.ph_client import feature_enabled_or_false
 from posthog.settings import CLICKHOUSE_CLUSTER
-from posthog.temporal.common.client import sync_connect
+from posthog.temporal.common.client import async_connect, sync_connect
 
 from products.experiments.backend.metric_calculation.config import build_calculation_configs
 from products.experiments.backend.metric_calculation.results import MetricResultStore
@@ -338,20 +339,35 @@ def _cancel_superseded_workflows(recalculation_ids: list[str]) -> None:
             pass
 
 
-def _workflow_running(recalculation_id: str) -> bool:
-    # Any error, including a workflow that never started, keeps the plain staleness threshold.
+async def _describe_workflow_status(recalculation_id: str) -> WorkflowExecutionStatus | None:
+    client = await async_connect()
+    description = await client.get_workflow_handle(metrics_recalculation_workflow_id(recalculation_id)).describe()
+    return description.status
+
+
+def _workflow_may_be_running(recalculation_id: str) -> bool:
+    # Only a workflow that Temporal reports closed or does not find lets the row go stale. An unknown state keeps
+    # the row, because a replacement run cannot start while Temporal is unreachable.
     try:
-        temporal = sync_connect()
-        handle = temporal.get_workflow_handle(metrics_recalculation_workflow_id(recalculation_id))
-        description = asyncio.run(handle.describe(rpc_timeout=_WORKFLOW_DESCRIBE_TIMEOUT))
-    except Exception:
-        return False
-    return description.status == WorkflowExecutionStatus.RUNNING
+        status = asyncio.run(
+            asyncio.wait_for(
+                _describe_workflow_status(recalculation_id), timeout=_WORKFLOW_DESCRIBE_TIMEOUT.total_seconds()
+            )
+        )
+    except RPCError as e:
+        if e.status == RPCStatusCode.NOT_FOUND:
+            return False
+        capture_exception(e)
+        return True
+    except Exception as e:
+        capture_exception(e)
+        return True
+    return status == WorkflowExecutionStatus.RUNNING
 
 
 def _running_past_staleness_threshold(experiment: Experiment) -> ExperimentMetricsRecalculation | None:
-    """An active run older than _STALE_RECALC_THRESHOLD whose workflow still runs. Callers hold the lock and
-    have already found no active run inside the threshold.
+    """An active run older than _STALE_RECALC_THRESHOLD whose workflow may still run. Callers hold the team scope
+    and have already found no active run inside the threshold.
 
     Calcs on the activity and precompute queues have no total budget, so a healthy run can wait in a queue for
     longer than the threshold. Without this check, a new request would mark that run FAILED and cancel it.
@@ -367,7 +383,7 @@ def _running_past_staleness_threshold(experiment: Experiment) -> ExperimentMetri
         .order_by("-created_at")
         .first()
     )
-    if candidate is None or not _workflow_running(str(candidate.id)):
+    if candidate is None or not _workflow_may_be_running(str(candidate.id)):
         return None
     return candidate
 
@@ -621,7 +637,7 @@ def get_active_recalculation(experiment: Experiment) -> ExperimentMetricsRecalcu
             .filter(active_recalculation_filter())
             .order_by("-created_at")
             .first()
-        )
+        ) or _running_past_staleness_threshold(experiment)
 
 
 def _terminal_recalculations(experiment: Experiment) -> QuerySet[ExperimentMetricsRecalculation]:

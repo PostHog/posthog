@@ -45,6 +45,7 @@ from products.experiments.backend.temporal.scheduled_recalculation_logic import 
     record_exposure_check,
     team_has_scheduled_recalculation_enabled,
 )
+from products.experiments.backend.test.utils import WORKFLOW_NOT_FOUND, patch_recalculation_workflow_status
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
@@ -326,7 +327,8 @@ class TestScheduledRecalculationLogic(BaseTest):
                 team=self.team, experiment=experiment, status=status, started_at=stale
             )
             ExperimentMetricsRecalculation.objects.filter(id=recalc.id).update(created_at=stale)
-        self._assert_discovery_and_start_skip(experiment, None)
+        with patch_recalculation_workflow_status(WORKFLOW_NOT_FOUND):
+            self._assert_discovery_and_start_skip(experiment, None)
 
     @parameterized.expand(
         [

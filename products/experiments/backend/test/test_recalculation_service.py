@@ -4,7 +4,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 import time_machine
 from posthog.test.base import BaseTest, ClickhouseTestMixin
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import patch
 
 from django.test import override_settings
 from django.utils import timezone
@@ -41,6 +41,7 @@ from products.experiments.backend.recalculation import (
     request_recalculation,
     request_recalculation_without_age_limit,
 )
+from products.experiments.backend.test.utils import WORKFLOW_NOT_FOUND, patch_recalculation_workflow_status
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
@@ -51,18 +52,6 @@ def _mean_metric(uuid: str) -> dict:
         "metric_type": "mean",
         "source": {"kind": "EventsNode", "event": "purchase"},
     }
-
-
-def _describe_workflow(state: WorkflowExecutionStatus | Exception):
-    handle = MagicMock()
-    if isinstance(state, Exception):
-        handle.describe = AsyncMock(side_effect=state)
-    else:
-        handle.describe = AsyncMock(return_value=MagicMock(status=state))
-    return patch(
-        "products.experiments.backend.recalculation.sync_connect",
-        return_value=MagicMock(get_workflow_handle=MagicMock(return_value=handle)),
-    )
 
 
 def _calculation_key(experiment: Experiment, metric_uuid: str) -> str:
@@ -298,6 +287,7 @@ class TestRecalculationService(BaseTest):
             patch("products.experiments.backend.recalculation.feature_enabled_or_false", side_effect=evaluate_flag),
             patch("products.experiments.backend.recalculation.posthoganalytics.capture") as mock_capture,
             patch("products.experiments.backend.recalculation._cancel_superseded_workflows") as mock_cancel,
+            patch_recalculation_workflow_status(WORKFLOW_NOT_FOUND),
             self.captureOnCommitCallbacks(execute=True),
         ):
             result = request(exp, self.user, "manual")
@@ -355,7 +345,7 @@ class TestRecalculationService(BaseTest):
                 "pending_stale_by_created_at",
                 "pending",
                 "created_at",
-                RPCError("workflow not found", RPCStatusCode.NOT_FOUND, b""),
+                WORKFLOW_NOT_FOUND,
             ),
             ("in_progress_stale_by_started_at", "in_progress", "started_at", WorkflowExecutionStatus.TERMINATED),
         ]
@@ -375,7 +365,7 @@ class TestRecalculationService(BaseTest):
 
         with (
             patch("products.experiments.backend.recalculation._cancel_superseded_workflows") as mock_cancel,
-            _describe_workflow(workflow_state),
+            patch_recalculation_workflow_status(workflow_state),
             self.captureOnCommitCallbacks(execute=True),
         ):
             result = request_recalculation(exp, self.user, "manual")
@@ -388,19 +378,29 @@ class TestRecalculationService(BaseTest):
         assert stale_row.status == "failed"
         mock_cancel.assert_called_once_with([str(stale_row.id)])
 
-    def test_request_recalculation_keeps_a_stale_row_whose_workflow_still_runs(self):
-        exp = self._launched_experiment(flag_key="stale-but-running")
+    @parameterized.expand(
+        [
+            ("workflow_running", WorkflowExecutionStatus.RUNNING),
+            ("temporal_unavailable", RPCError("connection refused", RPCStatusCode.UNAVAILABLE, b"")),
+        ]
+    )
+    def test_request_recalculation_keeps_a_stale_row_whose_workflow_may_run(
+        self, name: str, workflow_state: WorkflowExecutionStatus | Exception
+    ):
+        exp = self._launched_experiment(flag_key=f"stale-but-{name}")
         waiting_row = ExperimentMetricsRecalculation.objects.create(
             team=self.team, experiment=exp, status="in_progress", started_at=timezone.now() - timedelta(hours=2)
         )
 
         with (
             patch("products.experiments.backend.recalculation._cancel_superseded_workflows") as mock_cancel,
-            _describe_workflow(WorkflowExecutionStatus.RUNNING),
+            patch_recalculation_workflow_status(workflow_state),
             self.captureOnCommitCallbacks(execute=True),
         ):
             result = request_recalculation(exp, self.user, "manual")
+            active = get_active_recalculation(exp)
 
+        assert active == waiting_row
         assert result["is_existing"] is True
         assert result["id"] == str(waiting_row.id)
         waiting_row.refresh_from_db()
@@ -512,7 +512,8 @@ class TestRecalculationService(BaseTest):
                     created_at=timezone.now() - timedelta(hours=2)
                 )
 
-        active = get_active_recalculation(exp)
+        with patch_recalculation_workflow_status(WORKFLOW_NOT_FOUND):
+            active = get_active_recalculation(exp)
         latest = get_latest_recalculation(exp)
         assert (active.id if active else None) == (row.id if row and expect_active else None)
         assert (latest.id if latest else None) == (row.id if row and expect_latest else None)

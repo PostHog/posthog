@@ -136,7 +136,7 @@ def _reads_precomputed_metric_events(
             user_facing=False,
             error_event_context=None,
         )
-        return runner.reads_precomputed_metric_events()
+        return runner.may_read_precomputed_metric_events()
     except Exception as e:
         capture_exception(e)
         return False

@@ -203,21 +203,23 @@ class TestRecalculationActivities(BaseTest):
 
     @parameterized.expand(
         [
-            # name, team precompute enabled, funnel order, reads the precompute table
-            ("ordered_funnel_on_precompute_team", True, "ordered", True),
-            ("unordered_funnel_on_precompute_team", True, "unordered", False),
-            ("ordered_funnel_on_direct_scan_team", False, "ordered", False),
+            # name, team precompute enabled, funnel order, experiment age, reads the precompute table
+            ("ordered_funnel_on_precompute_team", True, "ordered", timedelta(days=7), True),
+            ("unordered_funnel_on_precompute_team", True, "unordered", timedelta(days=7), False),
+            ("ordered_funnel_on_direct_scan_team", False, "ordered", timedelta(days=7), False),
+            # The experiment can pass the minimum precompute runtime while the calc waits in a queue.
+            ("young_experiment_on_precompute_team", True, "ordered", timedelta(hours=1), True),
         ]
     )
     @time_machine.travel("2026-06-23T05:00:00Z", tick=False)
     def test_discover_marks_metrics_that_read_the_precompute_table(
-        self, name: str, precompute_enabled: bool, funnel_order_type: str, expected: bool
+        self, name: str, precompute_enabled: bool, funnel_order_type: str, age: timedelta, expected: bool
     ):
         TeamExperimentsConfig.objects.update_or_create(
             team=self.team, defaults={"experiment_precomputation_enabled": precompute_enabled}
         )
         exp = self._experiment(flag_key=f"discover-precompute-{name}")
-        exp.start_date = timezone.now() - timedelta(days=7)
+        exp.start_date = timezone.now() - age
         exp.metrics = [
             {
                 "uuid": "m1",

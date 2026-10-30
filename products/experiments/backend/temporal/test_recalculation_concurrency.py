@@ -21,6 +21,7 @@ from products.experiments.backend.models.experiment import (
     ExperimentMetricsRecalculation,
 )
 from products.experiments.backend.recalculation import request_recalculation
+from products.experiments.backend.test.utils import WORKFLOW_NOT_FOUND, patch_recalculation_workflow_status
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
@@ -82,6 +83,7 @@ def test_superseded_result_cannot_overwrite_a_replacement_during_commit(
 
     with (
         patch("products.experiments.backend.recalculation._cancel_superseded_workflows"),
+        patch_recalculation_workflow_status(WORKFLOW_NOT_FOUND),
         ThreadPoolExecutor(max_workers=1) as executor,
     ):
         with transaction.atomic():
