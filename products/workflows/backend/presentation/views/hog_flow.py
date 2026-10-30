@@ -30,7 +30,6 @@ from drf_spectacular.utils import (
 )
 from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
@@ -52,6 +51,7 @@ from posthog.api.app_metrics2 import (
 from posthog.api.documentation import _FallbackSerializer
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.mixins import ValidatedRequest, validated_request
+from posthog.api.pagination import FacadeLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import (
@@ -67,6 +67,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Team, User
 from posthog.models.property.parse import expand_cohort_properties, parse_property_group_data
+from posthog.paging import Page, PageRequest
 from posthog.permissions import (
     AccessControlPermission,
     get_authenticator_scoped_team_ids,
@@ -4830,7 +4831,7 @@ class _ProposalPages:
         return list_proposals(hog_flow_id=self.hog_flow_id, status=self.status, offset=offset, limit=page.stop - offset)
 
 
-class HogFlowPagination(LimitOffsetPagination):
+class HogFlowPagination(FacadeLimitOffsetPagination):
     default_limit = 100
     max_limit = 500
 
@@ -5295,39 +5296,34 @@ class HogFlowViewSet(
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         query = self._list_query()
         paginator = cast(HogFlowPagination, self.paginator)
-        # The default page size always applies, so there is always a limit.
-        limit = cast(int, paginator.get_limit(request))
-        offset = paginator.get_offset(request)
-        try:
-            page = list_workflows(
-                team_id=self.team_id,
-                query=query,
-                # Service credentials are synthetic users that UserAccessControl cannot evaluate.
-                user_access_control=None if is_service_auth(request) else self.user_access_control,
-                # Half implemented: admins may want to list workflows they cannot open.
-                include_all_if_admin=request.GET.get("admin_include_all") == "true",
-                offset=offset,
-                limit=limit,
-            )
-        except WorkflowListFiltersInvalid as invalid:
-            raise exceptions.ValidationError(
-                {
-                    name: [exceptions.ErrorDetail(error.message, code=error.code) for error in errors]
-                    for name, errors in invalid.errors.items()
-                }
-            )
 
-        # The MCP summary serializer has no last_run, so only the full list row pays for the lookup.
-        if self.get_serializer_class() is HogFlowMinimalSerializer:
-            # One lookup for every loop on the page, so each row does not query tasks on its own.
-            loop_ids = [flow.id for flow in page.results if flow.origin_product == HogFlowOriginProduct.LOOPS]
-            self._workflow_last_runs = list_workflow_last_runs(self.team_id, request.user.id, loop_ids)
+        def fetch(page_request: PageRequest) -> Page[Workflow]:
+            try:
+                page = list_workflows(
+                    team_id=self.team_id,
+                    query=query,
+                    # Service credentials are synthetic users that UserAccessControl cannot evaluate.
+                    user_access_control=None if is_service_auth(request) else self.user_access_control,
+                    # Half implemented: admins may want to list workflows they cannot open.
+                    include_all_if_admin=request.GET.get("admin_include_all") == "true",
+                    page=page_request,
+                )
+            except WorkflowListFiltersInvalid as invalid:
+                raise exceptions.ValidationError(
+                    {
+                        name: [exceptions.ErrorDetail(error.message, code=error.code) for error in errors]
+                        for name, errors in invalid.errors.items()
+                    }
+                )
 
-        paginator.request = request
-        paginator.limit = limit
-        paginator.offset = offset
-        paginator.count = page.count
-        return paginator.get_paginated_response(self.get_serializer(page.results, many=True).data)
+            # The MCP summary serializer has no last_run, so only the full list row pays for the lookup.
+            if self.get_serializer_class() is HogFlowMinimalSerializer:
+                # One lookup for every loop on the page, so each row does not query tasks on its own.
+                loop_ids = [flow.id for flow in page.results if flow.origin_product == HogFlowOriginProduct.LOOPS]
+                self._workflow_last_runs = list_workflow_last_runs(self.team_id, request.user.id, loop_ids)
+            return page
+
+        return paginator.get_paginated_facade_response(request, self, fetch)
 
     @validated_request(
         query_serializer=SendCalendarQuerySerializer,
