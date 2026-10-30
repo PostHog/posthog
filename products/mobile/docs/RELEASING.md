@@ -96,7 +96,11 @@ Rotate the key and certificate together, retain the old material securely for ol
 ### Receipts, ordering and retries
 
 The workflow run and `mobile-production` deployment report its outcome. The `mobile-staging` deployment records the build/update staging outcome.
-The GitHub prerelease `mobile-release/<id>` contains a machine-readable JSON receipt; the Actions run also retains a receipt artifact, including a claimed receipt if publishing fails.
+The GitHub prerelease `mobile-release/<id>` shows the request's release notes, version, submission or update outcome, and links to its source and workflow.
+Completed releases attach the full machine-readable receipt as `mobile-release-receipt.json`. The publisher uploads and downloads that file to verify its contents before publishing the Markdown description or advancing the production pointer.
+Draft releases retain their claimed/staged JSON description for recovery, even if an interruption leaves a completed attachment on the draft.
+Receipt lookup reads the attachment for completed releases and still accepts older JSON descriptions. An unreadable attachment stops publication rather than falling back to stale data.
+The Actions run also retains a receipt artifact, including a claimed receipt if publishing fails.
 A completed request rerun does not repeat EAS publication. If only the production pointer update failed, rerunning repairs it without resubmitting.
 
 GitHub keeps at most one pending job in a concurrency group. When several requests merge quickly, a newer pending job can replace an older one.
