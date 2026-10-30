@@ -11510,6 +11510,22 @@
         },
         "feature_flag": "posthog-connect"
     },
+    "posthog-support-ticket-create": {
+        "description": "Open a support ticket with the PostHog support team, sent and verified as the signed-in user, about the project in the URL. A person on the support team reads every ticket, so use this only as a last step. Before you call it: search the docs with docs-search, check the project with health-issues-list and the other read tools, and try the fix the docs give. Show the user the ticket text and get their OK before you send it. Put everything support needs in the first message: exact error text, event names, flag keys, SDK names and versions, links to the PostHog pages involved, and what you already tried. Never include secrets, API keys or personal data. For a request to permanently delete events, use request_type data_deletion with a HogQL query that has a time range, its current event count, and deletion_consent set to true only after the user confirms. Do not use this tool for the user's own customers' tickets: those are the conversations-tickets-* tools.",
+        "category": "PostHog support",
+        "feature": "posthog_support",
+        "summary": "Open a ticket with PostHog support",
+        "title": "Open a ticket with PostHog support",
+        "required_scopes": ["posthog_support:write"],
+        "api_operations": ["POST /api/projects/{project_id}/posthog_support/tickets/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "posthog-support-agent-tickets"
+    },
     "pr-lifecycle": {
         "description": "The timeline of a single pull request: a header (number, title, author, state, draft, timestamps) plus ordered events: opened, ready for review, converted to draft, CI started, CI finished, and merged or closed. Use this to answer \"where is this PR stuck and what happened to it\". Draft/ready transitions appear only when the issue-events table is synced and cover a bounded recent window. metric_quality is \"partial\": review and comment events are not yet available. For aggregate questions use the pull-requests and workflow-health tools.",
         "category": "Engineering analytics",

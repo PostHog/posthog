@@ -22,12 +22,14 @@ import type {
     ConversationsTicketsListParams,
     ConversationsTicketsMessagesListParams,
     ConversationsViewsListParams,
+    CreatePostHogSupportTicketApi,
     PaginatedTicketListApi,
     PaginatedTicketMessageListApi,
     PaginatedTicketViewListApi,
     PatchedTicketNoteUpdateRequestApi,
     PatchedTicketUpdateRequestApi,
     PatchedTicketViewApi,
+    PostHogSupportTicketCreatedApi,
     SigningSecretApi,
     TicketApi,
     TicketFullEmailApi,
@@ -681,5 +683,26 @@ export const conversationsZendeskImportsStatusRetrieve = async (
     return apiMutator<ZendeskImportJobApi>(getConversationsZendeskImportsStatusRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getPosthogSupportTicketsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/posthog_support/tickets/`
+}
+
+/**
+ * Open a support ticket with the PostHog support team as the signed-in user. The ticket is verified as sent by this user and is about the project in the URL. Search the docs first: only open a ticket when the docs and the project's own data do not answer the question.
+ * @summary Open a ticket with PostHog support
+ */
+export const posthogSupportTicketsCreate = async (
+    projectId: string,
+    createPostHogSupportTicketApi: CreatePostHogSupportTicketApi,
+    options?: RequestInit
+): Promise<PostHogSupportTicketCreatedApi> => {
+    return apiMutator<PostHogSupportTicketCreatedApi>(getPosthogSupportTicketsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(createPostHogSupportTicketApi),
     })
 }

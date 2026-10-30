@@ -675,6 +675,7 @@ export namespace Schemas {
      * * `organization_member` - organization_member
      * * `person` - person
      * * `plugin` - plugin
+     * * `posthog_support` - posthog_support
      * * `product_enablement` - product_enablement
      * * `product_tour` - product_tour
      * * `project` - project
@@ -797,6 +798,7 @@ export namespace Schemas {
       OrganizationMember: 'organization_member',
       Person: 'person',
       Plugin: 'plugin',
+      PosthogSupport: 'posthog_support',
       ProductEnablement: 'product_enablement',
       ProductTour: 'product_tour',
       Project: 'project',
@@ -919,6 +921,7 @@ export namespace Schemas {
        * * `organization_member` - organization_member
        * * `person` - person
        * * `plugin` - plugin
+       * * `posthog_support` - posthog_support
        * * `product_enablement` - product_enablement
        * * `product_tour` - product_tour
        * * `project` - project
@@ -1164,6 +1167,7 @@ export namespace Schemas {
        * * `organization_member` - organization_member
        * * `person` - person
        * * `plugin` - plugin
+       * * `posthog_support` - posthog_support
        * * `product_enablement` - product_enablement
        * * `product_tour` - product_tour
        * * `project` - project
@@ -1572,6 +1576,7 @@ export namespace Schemas {
        * * `organization_member` - organization_member
        * * `person` - person
        * * `plugin` - plugin
+       * * `posthog_support` - posthog_support
        * * `product_enablement` - product_enablement
        * * `product_tour` - product_tour
        * * `project` - project
@@ -28071,6 +28076,72 @@ export namespace Schemas {
      */
     export interface CreateOutput {
       id: string;
+    }
+
+    /**
+     * * `question` - Question
+     * * `bug` - Bug
+     * * `data_deletion` - Data deletion
+     * * `billing` - Billing
+     * * `other` - Other
+     */
+    export type PostHogSupportRequestTypeEnum = typeof PostHogSupportRequestTypeEnum[keyof typeof PostHogSupportRequestTypeEnum];
+
+
+    export const PostHogSupportRequestTypeEnum = {
+      Question: 'question',
+      Bug: 'bug',
+      DataDeletion: 'data_deletion',
+      Billing: 'billing',
+      Other: 'other',
+    } as const;
+
+    export interface CreatePostHogSupportTicket {
+      /** What kind of help this is. Use `data_deletion` only to ask PostHog staff to permanently delete events, and fill `deletion_query`, `expected_event_count` and `deletion_consent`.
+       *
+       * * `question` - Question
+       * * `bug` - Bug
+       * * `data_deletion` - Data deletion
+       * * `billing` - Billing
+       * * `other` - Other */
+      request_type: PostHogSupportRequestTypeEnum;
+      /**
+         * One line that says what the problem or question is.
+         * @maxLength 200
+         */
+      subject: string;
+      /**
+         * The full problem or question in plain text. Include event names, flag keys, SDK names and versions, and links to the PostHog pages involved. Do not include secrets, API keys or personal data.
+         * @maxLength 4000
+         */
+      description: string;
+      /**
+         * What you expected to happen.
+         * @maxLength 1000
+         */
+      expected?: string;
+      /**
+         * What happened instead, with exact error messages.
+         * @maxLength 1000
+         */
+      actual?: string;
+      /**
+         * Docs pages read and steps already tried, so support does not repeat them.
+         * @maxLength 1000
+         */
+      already_tried?: string;
+      /**
+         * For `data_deletion` only: a HogQL query with a time range that selects exactly the events to delete. Sent as raw text, so paste it unchanged.
+         * @maxLength 4000
+         */
+      deletion_query?: string;
+      /**
+         * For `data_deletion` only: the number of events the deletion query returns now.
+         * @minimum 0
+         */
+      expected_event_count?: number;
+      /** For `data_deletion` only: true confirms that the user wants these events permanently deleted. Ask the user before you set it. Deleted events cannot be restored. */
+      deletion_consent?: boolean;
     }
 
     export interface CreateRepoInput {
@@ -72482,6 +72553,7 @@ export namespace Schemas {
        * * `organization_member` - organization_member
        * * `person` - person
        * * `plugin` - plugin
+       * * `posthog_support` - posthog_support
        * * `product_enablement` - product_enablement
        * * `product_tour` - product_tour
        * * `project` - project
@@ -96566,6 +96638,15 @@ export namespace Schemas {
     export interface PostHogConnectionTargetError {
       /** Why the connected project's context could not be read. */
       error: string;
+    }
+
+    export interface PostHogSupportTicketCreated {
+      /** ID of the new ticket in PostHog's support inbox. */
+      ticket_id: string;
+      /** Status of the ticket, `new` right after creation. */
+      ticket_status: string;
+      /** When support received the first message. */
+      created_at: string;
     }
 
     /**

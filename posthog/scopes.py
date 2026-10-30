@@ -106,6 +106,8 @@ APIScopeObject = Literal[
     "organization_member",
     "person",
     "plugin",
+    # Opening and following tickets with PostHog's own support team, as the signed-in user.
+    "posthog_support",
     "product_enablement",
     "product_tour",
     "project",
