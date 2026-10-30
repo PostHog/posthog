@@ -3,7 +3,10 @@ import { urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import 'lib/components/CyclotronJob/integrations/integrationSetups'
-import { getIntegrationSetup } from 'lib/components/CyclotronJob/integrations/integrationSetupRegistry'
+import {
+    IntegrationSetupDefinition,
+    getIntegrationSetup,
+} from 'lib/components/CyclotronJob/integrations/integrationSetupRegistry'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -21,6 +24,7 @@ export interface destinationConnectSceneLogicValues {
     breadcrumbs: Breadcrumb[]
     destinationDefinition: WarehouseDestinationDefinition | null
     integrationId: number | null
+    integrationSetup: IntegrationSetupDefinition | null
     isModalOpen: boolean
     kind: string | null
     loadedMigrationItemId: string | null
@@ -61,8 +65,9 @@ export interface destinationConnectSceneLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         destinationDefinition: (kind: string | null) => WarehouseDestinationDefinition | null
         breadcrumbs: (destinationDefinition: WarehouseDestinationDefinition | null) => Breadcrumb[]
+        integrationSetup: (kind: string | null) => IntegrationSetupDefinition | null
         setupDefaults: (
-            kind: string | null,
+            integrationSetup: IntegrationSetupDefinition | null,
             vendorConfig: Record<string, unknown> | null
         ) => Record<string, any> | undefined
     }
@@ -138,10 +143,18 @@ export const destinationConnectSceneLogic = kea<destinationConnectSceneLogicType
                       ) ?? null)
                     : null,
         ],
+        integrationSetup: [
+            (s) => [s.kind],
+            (kind: string | null): IntegrationSetupDefinition | null =>
+                kind ? (getIntegrationSetup(kind) ?? null) : null,
+        ],
         setupDefaults: [
-            (s) => [s.kind, s.vendorConfig],
-            (kind: string | null, vendorConfig: Record<string, unknown> | null): Record<string, any> | undefined => {
-                const keys = kind ? getIntegrationSetup(kind)?.vendorConfigKeys : undefined
+            (s) => [s.integrationSetup, s.vendorConfig],
+            (
+                integrationSetup: IntegrationSetupDefinition | null,
+                vendorConfig: Record<string, unknown> | null
+            ): Record<string, any> | undefined => {
+                const keys = integrationSetup?.vendorConfigKeys
                 if (!keys || !vendorConfig) {
                     return undefined
                 }
