@@ -27,6 +27,7 @@ from posthog.models.activity_logging.utils import (
     ACTIVITY_LOG_CREDENTIAL_ID_MAX_LENGTH,
     ActivityCredential,
     activity_storage,
+    is_uncached_reverse_one_to_one,
 )
 from posthog.models.utils import ActivityDetailEncoder, UUIDTModel
 
@@ -1234,6 +1235,23 @@ def safely_get_field_value(instance: models.Model | None, field: str):
         return None
 
 
+def _is_unchanged_without_a_query(
+    field: Any, previous: models.Model, current: models.Model, current_deferred: set[str]
+) -> bool:
+    """Decide from loaded values alone whether a field can differ, so the diff skips its read."""
+    if is_uncached_reverse_one_to_one(field, previous, current):
+        return True
+    if not field.concrete:
+        return False
+    if field.attname in current_deferred:
+        # A save writes only the loaded fields of a deferred instance, so the row keeps the value `previous` holds.
+        return True
+    if isinstance(field, models.ForeignKey | models.OneToOneField):
+        # Both sides fetch the related row by this id, so the same id gives the same value.
+        return getattr(previous, field.attname) == getattr(current, field.attname)
+    return False
+
+
 def changes_between(
     model_type: AuditableScope,
     previous: Optional[models.Model],
@@ -1259,8 +1277,12 @@ def changes_between(
         masked_fields = field_with_masked_contents.get(model_type, [])
         filtered_fields = [f for f in fields if f.name not in excluded_fields]
         filtered_field_names = [f.name for f in filtered_fields]
+        current_deferred = current.get_deferred_fields() if current is not None else set()
 
         for field in filtered_fields:
+            if current is not None and _is_unchanged_without_a_query(field, previous, current, current_deferred):
+                continue
+
             field_name = field.name
             left = safely_get_field_value(previous, field_name)
             right = safely_get_field_value(current, field_name)

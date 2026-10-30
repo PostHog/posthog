@@ -20,11 +20,13 @@ from posthog.kafka_client.topics import KAFKA_PERSON
 from posthog.models.person import Person
 from posthog.models.person.sql import INSERT_PERSON_SQL
 from posthog.models.person.util import (
+    PersonRaiseRefused,
     _flush_person_producers,
     _person_row,
     create_person_distinct_id,
     get_person_by_distinct_id,
     get_persons_by_uuids,
+    raise_person_version,
 )
 from posthog.models.team import Team
 from posthog.personhog_client.client import personhog_call, require_personhog_client
@@ -34,8 +36,6 @@ from posthog.personhog_client.proto import (
     DISTINCT_ID_WRITE_OUTCOME_PERSON_NOT_LIVE,
     DistinctIdWrite,
     DistinctIdWriteResult,
-    PersonVersionFloor,
-    RaisePersonVersionFloorsRequest,
     SetPersonDistinctIdVersionFloorRequest,
     WriteDistinctIdsRequest,
     WriteDistinctIdsResponse,
@@ -75,18 +75,6 @@ _FLUSH_TIMEOUT_SECONDS = 5 * 60
 _DELIVERY_PRUNE_EVERY = 1_000
 
 _sleep = time.sleep
-
-
-def _raise_person_version_floor(team_id: int, person_uuid: str, min_version: int) -> None:
-    # Claims the person's lifecycle mark, so the raise waits out an in-flight merge or delete of the person.
-    personhog_call(
-        "person_divergence_raise_person_version_floors",
-        lambda: require_personhog_client().raise_person_version_floors(
-            RaisePersonVersionFloorsRequest(
-                team_id=team_id, floors=[PersonVersionFloor(person_uuid=person_uuid, min_version=min_version)]
-            )
-        ),
-    )
 
 
 def _write_distinct_ids(request: WriteDistinctIdsRequest) -> WriteDistinctIdsResponse:
@@ -308,9 +296,17 @@ def _execute_plan(
         ]
 
     pg_version = int(person.version or 0)
+    raised: Person | None = None
     if plan.kind is not None and plan.target_version is not None and plan.target_version > pg_version:
         before_write()
-        _raise_person_version_floor(plan.team_id, plan.person_uuid, plan.target_version)
+        try:
+            raised = raise_person_version(plan.team_id, person, plan.target_version)
+        except PersonRaiseRefused:
+            return [
+                _person_action(plan, "skipped_raise_refused"),
+                *mapping_actions,
+                *(_mapping_action(plan, m, "skipped_raise_refused") for m in divergent_mappings),
+            ]
 
     # The raise runs on the primary, so its reply is the owner check: the replica list that produced this
     # mapping can lag a merge that moved it to another person.
@@ -334,11 +330,11 @@ def _execute_plan(
             owned.append(mapping)
             stored_versions[mapping.distinct_id] = int(row.version)
 
-    # Re-read after the raise so the published properties are the ones Postgres holds at the
-    # published version, including any ingestion update that landed after the first read.
+    # Without the person as written, re-read after the raise so the published properties are the ones Postgres
+    # holds at the published version, including any ingestion update that landed after the first read.
     reread: Person | None = None
     if plan.kind is not None:
-        reread = _reread_person(plan.team_id, plan.person_uuid, plan.target_version)
+        reread = raised or _reread_person(plan.team_id, plan.person_uuid, plan.target_version)
 
     if (plan.kind is not None or owned) and lookups._tombstoned_uuids(plan.team_id, [plan.person_uuid]):
         person_outcome = "skipped_tombstoned" if plan.kind is not None else "skipped_not_divergent"

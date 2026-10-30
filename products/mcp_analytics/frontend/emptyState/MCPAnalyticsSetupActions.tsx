@@ -6,7 +6,7 @@ import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 import { CodeSnippet } from 'lib/components/CodeSnippet/CodeSnippet'
 import { productSetupStatusLogic } from 'lib/components/ProductEmptyState/productSetupStatusLogic'
 import type { ProductEmptyStateMode } from 'lib/components/ProductEmptyState/types'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 
