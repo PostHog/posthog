@@ -16,6 +16,7 @@ from posthog.tasks.update_survey_iteration import update_survey_iteration
 from products.approvals.backend.models import ApprovalPolicy, ChangeRequest
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.surveys.backend.models import Survey
+from products.surveys.backend.util import SurveyEventProperties
 
 
 class TestUpdateSurveyIteration(TestCase, ClickhouseTestMixin):
@@ -227,7 +228,7 @@ class TestUpdateSurveyIteration(TestCase, ClickhouseTestMixin):
                     "properties": [
                         *base_properties,
                         {
-                            "key": "$last_seen_survey_date",
+                            "key": SurveyEventProperties.SURVEY_LAST_SEEN_DATE,
                             "value": "is_not_set",
                             "operator": "is_not_set",
                             "type": "person",
@@ -241,7 +242,7 @@ class TestUpdateSurveyIteration(TestCase, ClickhouseTestMixin):
                     "properties": [
                         *base_properties,
                         {
-                            "key": "$last_seen_survey_date",
+                            "key": SurveyEventProperties.SURVEY_LAST_SEEN_DATE,
                             "value": f"{wait_period_days}d",
                             "operator": "is_date_before",
                             "type": "person",
