@@ -1855,6 +1855,18 @@ class TestFunnelStepRows:
                 [("Completed 1 step", "", 12), ("Completed 2 steps", "", 5)],
                 id="unordered",
             ),
+            pytest.param(
+                [{"kind": "EventsNode", "event": None}, {"kind": "ActionsNode", "id": 7, "name": "Paid"}],
+                {"funnelVizType": "steps"},
+                [
+                    {**_funnel_step(0, None, 10), "compare_label": "current"},
+                    {**_funnel_step(1, "Paid", 4), "compare_label": "current"},
+                    {**_funnel_step(0, None, 8), "compare_label": "previous"},
+                    {**_funnel_step(1, "Paid", 3), "compare_label": "previous"},
+                ],
+                [("All events", "", 10), ("Paid", 7, 4), ("All events", "", 8), ("Paid", 7, 3)],
+                id="compared periods",
+            ),
         ],
     )
     def test_exports_funnel_step_rows_from_query_series(

@@ -338,8 +338,11 @@ def _is_all_events_series(node: Optional[Mapping[str, Any]]) -> bool:
 def _funnel_step_rows(
     steps: list[Mapping[str, Any]], series_query: Optional[Mapping[str, Any]]
 ) -> Iterator[dict[str, Any]]:
-    for step_index, step in enumerate(steps):
-        node = _funnel_step_series(series_query, step_index)
+    for position, step in enumerate(steps):
+        # A comparison funnel without a breakdown lists the current steps and then the previous steps in one list, so
+        # the position runs past the series. The runner's `order` restarts at 0 for each period.
+        order = step.get("order")
+        node = _funnel_step_series(series_query, order if isinstance(order, int) else position)
         name = step.get("custom_name") or step.get("name")
         action_id = _funnel_step_action_id(node)
         yield {
