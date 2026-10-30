@@ -1584,6 +1584,10 @@ snapshots:
         hash: v1.k794b7964.cc8ac9ac87b0a9c42e694f6ef8eb17ee1cb2c808231334cddbc501b29bfd2803.DRyZznjL5omRxi2ORqWwouaqFGP6Y6mr8GIIDo7a1fM
     components-hogcharts-trendlineoverlay--stacked-with-trend-lines--light:
         hash: v1.k794b7964.a7704eb3ae307e277f6efad56c1cebb4720451058325008b35944b4445e0b509.Fv0tV1Fyt0AhP_ZeikwMXWDVawcb_ryO_JJ7QE0G3tU
+    components-hogcharts-valueband--threshold-zones--dark:
+        hash: v1.k794b7964.8d2e202f6aa5084dd9ce5e41b4cfcb1cc2f9f0873ce831f9526ea28dda1f4779.M3WlD9WwDlICRpOgnHZ8xKfRxMy_6mg52BAT6C9_tmY
+    components-hogcharts-valueband--threshold-zones--light:
+        hash: v1.k794b7964.ce3cd0206eba9701650983b663cbb62d31a49e878fe8c487e9ba1fcec5afafd2.wNCQtGU59v_Zms889JW0KUa1vFZ9yW6WzMzRtjHMvW0
     components-hogcharts-valuelabels--cross-series-overlap-removal--dark:
         hash: v1.k794b7964.6f30b790996d5f9a72f60627b5a525a631336e999f1568bb2a77bacf433de98c.WbutrtIUPzoQzA1G6VJmvp9w_HM3aI4yIrxgvPwB8do
     components-hogcharts-valuelabels--cross-series-overlap-removal--light:
