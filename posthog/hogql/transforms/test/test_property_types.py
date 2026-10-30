@@ -31,7 +31,7 @@ from hypothesis import (
 from hypothesis.extra.django import TestCase as HypothesisDjangoTestCase
 from parameterized import parameterized
 
-from posthog.schema import HogQLQueryModifiers, MaterializationMode
+from posthog.schema import HogQLQueryModifiers, MaterializationMode, PersonsOnEventsMode
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
@@ -112,9 +112,10 @@ class _NewEventsSchemaArraySubcolumnsHelpers:
         use_new_events_schema: bool | None = None,
         restricted_properties: set[RestrictedProperty] | None = None,
         property_groups_mode: PropertyGroupsMode | None = None,
+        event_properties: dict[str, dict[str, str | None]] | None = None,
     ) -> str:
         expr = parse_select(select)
-        context = self._context(use_new_events_schema)
+        context = self._context(use_new_events_schema, event_properties)
         if restricted_properties is not None:
             context.restricted_properties = restricted_properties
         if property_groups_mode is not None:
@@ -201,6 +202,42 @@ class TestNewEventsSchemaArraySubcolumns(_NewEventsSchemaArraySubcolumnsHelpers,
         assert expected not in restricted
         assert "events.properties" not in restricted
         assert "events.person_properties" not in restricted
+
+    @parameterized.expand(
+        [
+            ("aliased", "SELECT s.properties.amount = 'seven' FROM (SELECT properties FROM events) AS s"),
+            (
+                "nested",
+                "SELECT t.properties.amount = 'seven' FROM (SELECT * FROM (SELECT properties FROM events) AS s) AS t",
+            ),
+            ("unaliased", "SELECT properties.amount = 'seven' FROM (SELECT properties FROM events)"),
+            (
+                "union",
+                "SELECT s.properties.amount = 'seven' "
+                "FROM (SELECT properties FROM events UNION ALL SELECT properties FROM events) AS s",
+            ),
+            (
+                "cte",
+                "WITH docs AS (SELECT properties FROM events) SELECT docs.properties.amount = 'seven' FROM docs",
+            ),
+        ]
+    )
+    def test_property_read_from_a_user_document_subquery_stays_a_string(self, _name: str, select: str) -> None:
+        for use_new_events_schema in (False, True):
+            printed = self._print_select(
+                select, use_new_events_schema=use_new_events_schema, event_properties={"amount": {"type": "Numeric"}}
+            )
+            assert "accurateCastOrNull" not in printed, printed
+            assert "JSONExtractRaw(" in printed
+
+    def test_property_converted_inside_a_user_subquery_is_not_converted_again(self) -> None:
+        printed = self._print_select(
+            "SELECT s.amount = 7 FROM (SELECT properties.amount AS amount FROM events) AS s",
+            use_new_events_schema=False,
+            event_properties={"amount": {"type": "Numeric"}},
+        )
+        assert printed.count("accurateCastOrNull") == 1
+        assert "ifNull(equals(s.amount, 7), 0)" in printed
 
     def test_native_string_predicate_inside_an_unaliased_column(self) -> None:
         native = self._print_select("SELECT countIf(properties.value = '5') FROM events")
@@ -2675,7 +2712,9 @@ class TestTimezoneIndexPruning(ClickhouseTestMixin, BaseTest):
             f"Expected PK to use {expected_timestamp_key}, got Keys={pk_keys}"
         )
 
-    def _compile_hogql(self, hogql: str, timezone: str = "UTC") -> tuple[str, dict]:
+    def _compile_hogql(
+        self, hogql: str, timezone: str = "UTC", persons_on_events_mode: PersonsOnEventsMode | None = None
+    ) -> tuple[str, dict[str, object]]:
         self.team.timezone = timezone
         self.team.save()
         # This class asserts the structural shape of toTimeZone stripping (a PropertySwapper concern).
@@ -2685,7 +2724,7 @@ class TestTimezoneIndexPruning(ClickhouseTestMixin, BaseTest):
         context = HogQLContext(
             team_id=self.team.pk,
             enable_select_queries=True,
-            modifiers=HogQLQueryModifiers(pushDownPredicates=False),
+            modifiers=HogQLQueryModifiers(pushDownPredicates=False, personsOnEventsMode=persons_on_events_mode),
         )
         node = parse_select(hogql)
         clickhouse_sql, _ = prepare_and_print_ast(node, context=context, dialect="clickhouse")
@@ -2781,18 +2820,24 @@ class TestTimezoneIndexPruning(ClickhouseTestMixin, BaseTest):
         assert re.search(r"greaterOrEquals\([\w.]*scheduled_at, ", sql), sql
         assert not re.search(r"ifNull\(greaterOrEquals\([\w.]*scheduled_at", sql), sql
 
-    def test_toTimeZone_not_stripped_in_join_on(self):
-        """toTimeZone should NOT be stripped from JOIN ON comparisons — only WHERE benefits from pruning."""
+    @parameterized.expand(
+        [
+            ("identity_join", PersonsOnEventsMode.DISABLED),
+            ("person_overrides", PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS),
+        ]
+    )
+    def test_toTimeZone_not_stripped_in_join_on(self, _name: str, persons_on_events_mode: PersonsOnEventsMode) -> None:
         sql, _ = self._compile_hogql(
             "SELECT e.timestamp FROM events e LEFT JOIN events e2 "
             "ON e.person_id = e2.person_id AND e2.timestamp >= e.timestamp "
             "WHERE e.timestamp >= '2024-03-01' AND e.timestamp < '2024-04-01'",
             timezone="America/New_York",
+            persons_on_events_mode=persons_on_events_mode,
         )
-        # The JOIN ON greaterOrEquals should still have toTimeZone wrapping
-        assert re.search(r"greaterOrEquals\(toTimeZone\(", sql), (
-            f"Expected toTimeZone preserved in JOIN ON greaterOrEquals, got:\n{sql}"
-        )
+        # Both person-ID joins hang off e2 and are read by its own ON constraint, so e2 is wrapped in a subquery
+        # and the JOIN ON compares its exported, already converted timestamp with the toTimeZone of e.timestamp.
+        assert re.search(r"toTimeZone\(e2\.timestamp, %\(hogql_val_\d+\)s\) AS timestamp", sql), sql
+        assert re.search(r"greaterOrEquals\(e2\.timestamp, toTimeZone\(e\.timestamp,", sql), sql
         # The WHERE comparisons should have toTimeZone stripped (bare e.timestamp)
         assert re.search(r"greaterOrEquals\(e\.timestamp,", sql), (
             f"Expected bare e.timestamp in WHERE greaterOrEquals, got:\n{sql}"
