@@ -252,6 +252,7 @@ export enum AvailableFeature {
     DATA_COLOR_THEMES = 'data_color_themes',
     ORGANIZATION_INVITE_SETTINGS = 'organization_invite_settings',
     ORGANIZATION_SECURITY_SETTINGS = 'organization_security_settings',
+    IP_RESTRICTIONS = 'ip_restrictions',
     MEMBER_GOVERNANCE = 'member_governance',
     SSF = 'ssf',
     TOOLBAR_HEATMAPS = 'toolbar_heatmaps',
@@ -643,6 +644,9 @@ export interface OrganizationType extends OrganizationBasicType {
     read_only_mcp_access?: boolean
     member_notice?: OrganizationMemberNoticeApi | null
     allow_publicly_shared_resources: boolean
+    ip_restrictions?: string[]
+    ip_restrictions_enabled?: boolean
+    ip_restrictions_warning?: string | null
     metadata?: OrganizationMetadata
     member_count: number
     default_anonymize_ips?: boolean

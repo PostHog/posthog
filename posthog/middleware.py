@@ -50,6 +50,7 @@ from posthog.helpers.impersonation import get_original_user_from_session, get_or
 from posthog.helpers.sso import sso_failure_redirect_url
 from posthog.helpers.user_devices import set_known_device_cookie
 from posthog.ingress.verify.schemes import hmac_sha256_signature, signatures_match
+from posthog.ip_restrictions import get_ip_restriction_denial
 from posthog.models import Organization, Team, User
 from posthog.models.activity_logging.utils import (
     ACTIVITY_LOG_CLIENT_HEADER,
@@ -1565,6 +1566,44 @@ def organization_block_page(organization: Organization) -> Optional[str]:
     if organization.is_active is False:
         return "/organization-deactivated"
     return None
+
+
+class IPRestrictionsMiddleware:
+    """Block requests from an IP that the caller's organization does not allow.
+
+    Runs after `AuthenticationMiddleware` for session requests, checking every organization the user
+    belongs to. Bearer credentials authenticate inside DRF, so `IPRestrictionsPermission` applies the
+    same check after their principal is resolved. Both use the cached organization restrictions and
+    `get_trusted_client_ip`, which rejects a spoofed X-Forwarded-For and fails closed when no
+    verified IP is available.
+    """
+
+    def __init__(self, get_response: Callable[[HttpRequest], HttpResponse]) -> None:
+        self.get_response = get_response
+
+    def __call__(self, request: HttpRequest) -> HttpResponse:
+        if is_impersonated_session(request):
+            return self.get_response(request)
+
+        user = getattr(request, "user", None)
+        if user is None or not user.is_authenticated:
+            # Bearer-authenticated requests are checked after DRF resolves their principal.
+            return self.get_response(request)
+
+        client_ip = get_trusted_client_ip(request)
+        denial = get_ip_restriction_denial(user, client_ip)
+        if denial is None:
+            return self.get_response(request)
+
+        return JsonResponse(
+            {
+                "type": "authentication_error",
+                "code": "ip_not_allowed",
+                "detail": denial,
+                "ip": client_ip,
+            },
+            status=403,
+        )
 
 
 class ActiveOrganizationMiddleware:

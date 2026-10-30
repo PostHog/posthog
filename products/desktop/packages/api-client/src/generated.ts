@@ -18487,6 +18487,12 @@ export namespace Schemas {
          * When True, access controls resolve with the most specific matching rule. When False, the legacy resolution order applies.
          */
         uses_most_specific_access_resolution: boolean | null;
+        ip_restrictions?: Array<string> | undefined;
+        ip_restrictions_enabled?: boolean | undefined;
+        /**
+         * A warning when the current request's IP address is not in the saved allowlist.
+         */
+        ip_restrictions_warning: string | null;
     };
     /**
      * Serializer for `Organization` model with minimal attributes to speeed up loading and transfer times.

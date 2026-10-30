@@ -20,6 +20,7 @@ from django.test import (
     RequestFactory,
     SimpleTestCase,
 )
+from django.test.utils import CaptureQueriesContext
 from django.urls import path, reverse
 
 import structlog
@@ -47,6 +48,7 @@ from posthog.middleware import (
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_invite import InviteExpiredException, OrganizationInvite
+from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.run_mode import derive_run_mode
@@ -118,6 +120,87 @@ def _mcp_client_ip_headers(
         "HTTP_X_POSTHOG_MCP_CLIENT_IP_TIMESTAMP": str(timestamp),
         "HTTP_X_POSTHOG_MCP_CLIENT_IP_SIGNATURE": _managed_proxy_signature(key, ip, str(timestamp)),
     }
+
+
+class TestIPRestrictionsMiddleware(APIBaseTest):
+    def test_blocks_an_ip_outside_the_allowlist(self):
+        OrganizationIPRestrictions.objects.create(organization=self.organization, ip_restrictions=["203.0.113.0/24"])
+
+        response = self.client.get("/api/organizations/@current/", REMOTE_ADDR="198.51.100.7")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        data = response.json()
+        self.assertEqual(data["code"], "ip_not_allowed")
+        self.assertEqual(data["ip"], "198.51.100.7")
+        self.assertIn("198.51.100.7", data["detail"])
+
+    def test_impersonated_sessions_are_not_blocked(self):
+        OrganizationIPRestrictions.objects.create(organization=self.organization, ip_restrictions=["203.0.113.0/24"])
+        session = self.client.session
+        session[la_settings.USER_SESSION_FLAG] = "original-user"
+        session.save()
+
+        response = self.client.get("/api/organizations/@current/", REMOTE_ADDR="198.51.100.7")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_cached_restrictions_skip_the_database_on_later_requests(self):
+        OrganizationIPRestrictions.objects.create(
+            organization=self.organization, ip_restrictions=["203.0.113.0/24"], enabled=True
+        )
+        self.client.get("/api/ip-restrictions-cache-test/", REMOTE_ADDR="203.0.113.42")
+
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.get("/api/ip-restrictions-cache-test/", REMOTE_ADDR="203.0.113.42")
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertFalse(
+            any("posthog_organizationiprestrictions" in query["sql"] for query in queries.captured_queries)
+        )
+
+    def test_saving_restrictions_invalidates_the_cached_rules(self):
+        config = OrganizationIPRestrictions.objects.create(
+            organization=self.organization, ip_restrictions=["203.0.113.0/24"], enabled=True
+        )
+        self.client.get("/api/ip-restrictions-cache-test/", REMOTE_ADDR="203.0.113.42")
+
+        config.ip_restrictions = ["10.0.0.0/8"]
+        config.save()
+
+        response = self.client.get("/api/ip-restrictions-cache-test/", REMOTE_ADDR="203.0.113.42")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_enabled_with_no_rules_does_not_block(self):
+        OrganizationIPRestrictions.objects.create(
+            organization=self.organization,
+            ip_restrictions=[],
+            enabled=True,
+        )
+
+        response = self.client.get("/api/organizations/@current/", REMOTE_ADDR="198.51.100.7")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_disabled_restrictions_do_not_block(self):
+        OrganizationIPRestrictions.objects.create(
+            organization=self.organization,
+            ip_restrictions=["203.0.113.0/24"],
+            enabled=False,
+        )
+
+        response = self.client.get("/api/organizations/@current/", REMOTE_ADDR="198.51.100.7")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_allows_an_ip_inside_the_allowlist(self):
+        OrganizationIPRestrictions.objects.create(
+            organization=self.organization, ip_restrictions=["203.0.113.0/24", "2001:db8::/32"]
+        )
+
+        response = self.client.get("/api/organizations/@current/", REMOTE_ADDR="203.0.113.42")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
 
 class TestAccessMiddleware(APIBaseTest):

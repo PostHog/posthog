@@ -11,6 +11,7 @@ from django.shortcuts import get_object_or_404
 import nh3
 import posthoganalytics
 from drf_spectacular.utils import extend_schema, extend_schema_field
+from loginas.utils import is_impersonated_session
 from opentelemetry import trace
 from rest_framework import exceptions, permissions, serializers, viewsets
 from rest_framework.decorators import action
@@ -40,7 +41,8 @@ from posthog.event_usage import (
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import validate_display_name
 from posthog.helpers.verified_domain_enforcement import VERIFIED_DOMAIN_REQUIRED_ERROR, verified_domain_email_q
-from posthog.models import Organization, User
+from posthog.ip_restrictions import is_ip_allowed, validate_ip_restrictions
+from posthog.models import Organization, OrganizationIPRestrictions, User
 from posthog.models.activity_logging.model_activity import ImpersonatedContext
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
@@ -60,7 +62,7 @@ from posthog.rbac.migrations.rbac_feature_flag_migration import rbac_feature_fla
 from posthog.rbac.migrations.rbac_team_migration import rbac_team_access_control_migration
 from posthog.tasks.email import send_posthog_ai_access_request
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
-from posthog.utils import get_safe_cache, safe_cache_set
+from posthog.utils import get_safe_cache, get_trusted_client_ip, safe_cache_set
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl, visible_teams_for_user
 from products.access_control.backend.models.role import Role
@@ -265,6 +267,19 @@ class OrganizationSerializer(
     has_signed_baa = serializers.SerializerMethodField(
         help_text="Whether the organization has a countersigned Business Associate Agreement on file. When true, AI training stays opted out and cannot be changed."
     )
+    ip_restrictions = serializers.ListField(
+        child=serializers.CharField(max_length=64),
+        required=False,
+        allow_empty=True,
+        help_text="IP addresses and CIDR blocks allowed to access this organization. Empty means every IP is allowed.",
+    )
+    ip_restrictions_enabled = serializers.BooleanField(
+        required=False,
+        help_text="When False, the IP allowlist is kept but not enforced.",
+    )
+    ip_restrictions_warning = serializers.SerializerMethodField(
+        help_text="A warning when the current request's IP address is not in the saved allowlist.",
+    )
 
     class Meta:
         model = Organization
@@ -305,9 +320,13 @@ class OrganizationSerializer(
             "is_not_active_reason",
             "is_pending_deletion",
             "uses_most_specific_access_resolution",
+            "ip_restrictions",
+            "ip_restrictions_enabled",
+            "ip_restrictions_warning",
         ]
         read_only_fields = [
             "id",
+            "ip_restrictions_warning",
             "slug",
             "created_at",
             "updated_at",
@@ -350,9 +369,36 @@ class OrganizationSerializer(
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Organization:
         serializers.raise_errors_on_nested_writes("create", self, validated_data)
         user = self.context["request"].user
+        ip_restrictions = validated_data.pop("ip_restrictions", None)
+        ip_restrictions_enabled = validated_data.pop("ip_restrictions_enabled", None)
         organization, _, _ = Organization.objects.bootstrap(user, **validated_data)
+        if ip_restrictions is not None or ip_restrictions_enabled is not None:
+            organization._state.fields_cache["ip_restrictions_config"] = OrganizationIPRestrictions.objects.create(
+                organization=organization,
+                ip_restrictions=ip_restrictions or [],
+                enabled=True if ip_restrictions_enabled is None else ip_restrictions_enabled,
+            )
         exclude_internal_organization_from_crm(organization, user)
         return organization
+
+    def update(self, instance: Organization, validated_data: dict, *args: Any, **kwargs: Any) -> Organization:
+        ip_restrictions = validated_data.pop("ip_restrictions", None)
+        ip_restrictions_enabled = validated_data.pop("ip_restrictions_enabled", None)
+        with transaction.atomic():
+            instance = super().update(instance, validated_data, *args, **kwargs)
+            if ip_restrictions is not None or ip_restrictions_enabled is not None:
+                defaults: dict[str, Any] = {}
+                if ip_restrictions is not None:
+                    defaults["ip_restrictions"] = ip_restrictions
+                if ip_restrictions_enabled is not None:
+                    defaults["enabled"] = ip_restrictions_enabled
+                instance._state.fields_cache["ip_restrictions_config"] = (
+                    OrganizationIPRestrictions.objects.update_or_create(
+                        organization=instance,
+                        defaults=defaults,
+                    )[0]
+                )
+        return instance
 
     @tracer.start_as_current_span("organization_serializer.membership_level")
     def get_membership_level(self, organization: Organization) -> OrganizationMembership.Level | None:
@@ -524,6 +570,47 @@ class OrganizationSerializer(
     @tracer.start_as_current_span("organization_serializer.member_count")
     def get_member_count(self, organization: Organization) -> int:
         return _cached_per_org("member_count", str(organization.id), lambda: _fetch_member_count(organization))
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_ip_restrictions_warning(self, organization: Organization) -> str | None:
+        if not organization.ip_restrictions_enabled:
+            return None
+        restrictions = organization.ip_restrictions
+        if not restrictions:
+            return None
+        request = self.context.get("request")
+        if request is None:
+            return None
+        request = getattr(request, "_request", request)
+        if is_impersonated_session(request):
+            return None
+        ip = get_trusted_client_ip(request)
+        if ip is not None and is_ip_allowed(ip, restrictions):
+            return None
+        return (
+            f"Your current IP address ({ip or 'unknown'}) is not in this allowlist, "
+            "so this session can no longer access PostHog. Ask another organization admin to update the list."
+        )
+
+    def _validate_ip_restrictions_entitlement(self) -> None:
+        if self.instance and not self.instance.is_feature_available(AvailableFeature.IP_RESTRICTIONS):
+            raise serializers.ValidationError(
+                "You must upgrade your plan to configure IP restrictions.",
+                code="payment_required",
+            )
+
+    def validate_ip_restrictions(self, value: list[str]) -> list[str]:
+        if self.instance and self.instance.ip_restrictions != value:
+            self._validate_ip_restrictions_entitlement()
+        try:
+            return validate_ip_restrictions(value)
+        except ValueError as error:
+            raise serializers.ValidationError(str(error))
+
+    def validate_ip_restrictions_enabled(self, value: bool) -> bool:
+        if self.instance and self.instance.ip_restrictions_enabled != value:
+            self._validate_ip_restrictions_entitlement()
+        return value
 
     def validate_read_only_mcp_access(self, value: bool) -> bool:
         if self.instance and self.instance.read_only_mcp_access != value:

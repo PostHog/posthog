@@ -632,6 +632,8 @@ const OrganizationEnforce2faSchema = () => {
             is_ai_training_opted_in: true,
             default_anonymize_ips: true,
             default_role_id: true,
+            ip_restrictions: true,
+            ip_restrictions_enabled: true,
         }).shape
     ).extend({
         id: PartialUpdateParams.shape['id']

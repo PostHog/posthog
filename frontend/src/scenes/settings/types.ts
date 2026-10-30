@@ -251,6 +251,7 @@ export type SettingId =
     | 'organization-id'
     | 'organization-integrations-list'
     | 'organization-ip-anonymization-default'
+    | 'organization-ip-restrictions'
     | 'organization-member-notice'
     | 'organization-oauth-apps-list'
     | 'organization-proxy'

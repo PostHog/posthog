@@ -238,6 +238,8 @@ MIDDLEWARE = [
     # Must stay after AutoProjectMiddleware, which switches the user into the organization a
     # `/project/<id>` URL names. Ahead of it, the check judges the organization being left.
     "posthog.middleware.ActiveOrganizationMiddleware",
+    # Must run after authentication and AutoProjectMiddleware, which sets the user's current organization.
+    "posthog.middleware.IPRestrictionsMiddleware",
     "posthog.middleware.CHQueries",
     "django_prometheus.middleware.PrometheusAfterMiddleware",
     "posthog.middleware.PostHogTokenCookieMiddleware",
@@ -560,7 +562,10 @@ EMAIL_VERIFICATION_SKIP_FOR_DOMAINS = [
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": ["posthog.auth.SessionAuthentication"],
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.LimitOffsetPagination",
-    "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated"],
+    "DEFAULT_PERMISSION_CLASSES": [
+        "rest_framework.permissions.IsAuthenticated",
+        "posthog.ip_restrictions.IPRestrictionsPermission",
+    ],
     "DEFAULT_RENDERER_CLASSES": ["posthog.renderers.SafeJSONRenderer"],
     "PAGE_SIZE": 100,
     "EXCEPTION_HANDLER": "posthog.exceptions.exception_handler",

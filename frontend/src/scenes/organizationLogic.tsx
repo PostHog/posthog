@@ -70,6 +70,8 @@ export type OrganizationUpdatePayload = Partial<
         | 'allow_publicly_shared_resources'
         | 'default_role_id'
         | 'default_anonymize_ips'
+        | 'ip_restrictions'
+        | 'ip_restrictions_enabled'
     >
 >
 

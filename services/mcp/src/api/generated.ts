@@ -76321,6 +76321,18 @@ export namespace Schemas {
          * @nullable
          */
       readonly uses_most_specific_access_resolution: boolean | null;
+      /**
+         * IP addresses and CIDR blocks allowed to access this organization. Empty means every IP is allowed.
+         * @items.maxLength 64
+         */
+      ip_restrictions?: string[];
+      /** When False, the IP allowlist is kept but not enforced. */
+      ip_restrictions_enabled?: boolean;
+      /**
+         * A warning when the current request's IP address is not in the saved allowlist.
+         * @nullable
+         */
+      readonly ip_restrictions_warning: string | null;
     }
 
     export interface OrganizationAIAccessRequestResponse {
@@ -90604,6 +90616,18 @@ export namespace Schemas {
          * @nullable
          */
       readonly uses_most_specific_access_resolution?: boolean | null;
+      /**
+         * IP addresses and CIDR blocks allowed to access this organization. Empty means every IP is allowed.
+         * @items.maxLength 64
+         */
+      ip_restrictions?: string[];
+      /** When False, the IP allowlist is kept but not enforced. */
+      ip_restrictions_enabled?: boolean;
+      /**
+         * A warning when the current request's IP address is not in the saved allowlist.
+         * @nullable
+         */
+      readonly ip_restrictions_warning?: string | null;
     }
 
     export interface PatchedOrganizationDomain {

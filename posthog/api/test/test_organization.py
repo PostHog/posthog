@@ -25,6 +25,7 @@ from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization_domain import OrganizationDomain
+from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.uploaded_media import UploadedMedia
 from posthog.models.utils import generate_random_token_personal, hash_key_value
@@ -592,6 +593,141 @@ class TestOrganizationAPI(APIBaseTest):
         # Verify the value didn't change
         self.organization.refresh_from_db()
         self.assertEqual(self.organization.allow_publicly_shared_resources, current_value)
+
+    def test_can_update_ip_restrictions_with_feature(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.organization.available_product_features = [{"key": AvailableFeature.IP_RESTRICTIONS}]
+        self.organization.save()
+
+        response = self.client.patch(
+            f"/api/organizations/{self.organization.id}/",
+            {"ip_restrictions": ["203.0.113.4", "10.0.0.0/8"]},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["ip_restrictions"], ["203.0.113.4", "10.0.0.0/8"])
+        self.assertEqual(
+            OrganizationIPRestrictions.objects.get(organization=self.organization).ip_restrictions,
+            ["203.0.113.4", "10.0.0.0/8"],
+        )
+
+    def test_oauth_token_cannot_bypass_ip_restrictions(self):
+        self.organization.available_product_features = [{"key": AvailableFeature.IP_RESTRICTIONS}]
+        self.organization.save()
+        OrganizationIPRestrictions.objects.create(
+            organization=self.organization, ip_restrictions=["203.0.113.0/24"], enabled=True
+        )
+        oauth_app = OAuthApplication.objects.create(
+            name="IP Restriction Test App",
+            client_id="ip-restriction-test-client",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            user=self.user,
+            is_first_party=True,
+        )
+        token = OAuthAccessToken.objects.create(
+            application=oauth_app,
+            user=self.user,
+            token="pha_ip_restriction_test_token",
+            scope="organization:read",
+            expires=timezone.now() + timedelta(hours=1),
+            scoped_organizations=[str(self.organization.id)],
+        )
+        self.client.logout()
+
+        response = self.client.get(
+            "/api/organizations/@current/",
+            REMOTE_ADDR="198.51.100.7",
+            headers={"authorization": f"Bearer {token.token}"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json()["code"], "ip_not_allowed")
+
+    def test_ip_restrictions_apply_to_every_organization_the_user_belongs_to(self):
+        other_org, _, _ = Organization.objects.bootstrap(self.user, name="Other", slug="other")
+        self.user.current_organization = self.organization
+        self.user.save(update_fields=["current_organization"])
+        OrganizationIPRestrictions.objects.create(
+            organization=other_org, ip_restrictions=["203.0.113.0/24"], enabled=True
+        )
+
+        response = self.client.get(f"/api/organizations/{other_org.id}/", REMOTE_ADDR="198.51.100.7")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_warns_when_restrictions_would_lock_out_current_session(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.organization.available_product_features = [{"key": AvailableFeature.IP_RESTRICTIONS}]
+        self.organization.save()
+
+        response = self.client.patch(
+            f"/api/organizations/{self.organization.id}/",
+            {"ip_restrictions": ["203.0.113.4"]},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("127.0.0.1", response.json()["ip_restrictions_warning"])
+
+    def test_can_toggle_ip_restrictions_with_feature(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.organization.available_product_features = [{"key": AvailableFeature.IP_RESTRICTIONS}]
+        self.organization.save()
+
+        response = self.client.patch(
+            f"/api/organizations/{self.organization.id}/",
+            {"ip_restrictions_enabled": True},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.json()["ip_restrictions_enabled"])
+        self.assertTrue(OrganizationIPRestrictions.objects.get(organization=self.organization).enabled)
+
+        response = self.client.patch(
+            f"/api/organizations/{self.organization.id}/",
+            {"ip_restrictions_enabled": False},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(response.json()["ip_restrictions_enabled"])
+        self.assertFalse(OrganizationIPRestrictions.objects.get(organization=self.organization).enabled)
+
+    def test_rejects_invalid_ip_restrictions(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.organization.available_product_features = [{"key": AvailableFeature.IP_RESTRICTIONS}]
+        self.organization.save()
+
+        response = self.client.patch(
+            f"/api/organizations/{self.organization.id}/",
+            {"ip_restrictions": ["not-an-ip"]},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(OrganizationIPRestrictions.objects.filter(organization=self.organization).exists())
+
+    def test_cannot_update_ip_restrictions_without_feature(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.organization.available_product_features = []
+        self.organization.save()
+
+        response = self.client.patch(
+            f"/api/organizations/{self.organization.id}/",
+            {"ip_restrictions": ["203.0.113.4"]},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("payment_required", response.json().get("code", ""))
 
     def test_cannot_update_members_can_use_personal_api_keys_without_feature(self):
         """Test that members_can_use_personal_api_keys cannot be updated without ORGANIZATION_SECURITY_SETTINGS feature."""

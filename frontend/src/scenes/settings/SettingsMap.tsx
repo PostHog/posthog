@@ -181,6 +181,7 @@ import { OrganizationAI } from './organization/OrgAI'
 import { OrganizationAITrainingOptOut } from './organization/OrgAITraining'
 import { OrganizationDangerZone } from './organization/OrganizationDangerZone'
 import { OrganizationIntegrations } from './organization/OrganizationIntegrations'
+import { OrganizationIPRestrictions } from './organization/OrganizationIPRestrictions'
 import { OrganizationMemberNotice } from './organization/OrganizationMemberNotice'
 import { OrganizationPersonalAPIKeys } from './organization/OrganizationPersonalAPIKeys'
 import { OrganizationSecuritySettings } from './organization/OrganizationSecuritySettings'
@@ -2585,6 +2586,13 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description: 'Configure organization-wide security policies.',
                 component: <OrganizationSecuritySettings />,
                 keywords: ['compliance', 'sharing', 'public'],
+            },
+            {
+                id: 'organization-ip-restrictions',
+                title: 'IP restrictions',
+                description: 'Restrict access to PostHog to a list of IP addresses or CIDR blocks.',
+                component: <OrganizationIPRestrictions />,
+                keywords: ['ip', 'allowlist', 'whitelist', 'cidr', 'security', 'access'],
             },
             {
                 id: 'organization-mcp-access',
