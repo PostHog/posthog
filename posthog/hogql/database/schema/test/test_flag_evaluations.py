@@ -269,6 +269,7 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
         modifiers: HogQLQueryModifiers | None = None,
         mode: FlagEvaluationsMode = FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
     ) -> HogQLQueryResponse:
+        # The force-events switch does not move FLAG_EVALUATIONS_ONLY. The events-side baseline therefore runs on mode 1.
         OrganizationFeatureFlagsConfig.objects.update_or_create(
             organization=self.organization,
             defaults={"flag_evaluations_mode": mode if rewrite else FlagEvaluationsMode.READ_FLAG_EVALUATIONS},
@@ -992,7 +993,7 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
         mode = FlagEvaluationsMode.READ_FLAG_EVALUATIONS
         assert (
             self._query_events(query, modifiers=modifiers, mode=mode).clickhouse
-            == self._query_events(query, rewrite=False, modifiers=modifiers, mode=mode).clickhouse
+            == self._query_events(query, rewrite=False, modifiers=modifiers).clickhouse
         )
         with self.assertRaisesRegex(QueryError, error):
             self._query_events(query, modifiers=modifiers)
@@ -1513,7 +1514,7 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
             "AND properties.$feature_flag = 'TRUE' AND timestamp >= now() - INTERVAL 7 DAY"
         )
 
-        from_events = self._query_events(query, rewrite=False, mode=mode).results
+        from_events = self._query_events(query, rewrite=False).results
 
         swapped = self._query_events(query, mode=mode)
 
@@ -1548,7 +1549,7 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
                 event_uuid=str(row_uuid),
             )
             flush_persons_and_events()
-            from_events = self._query_events(query, rewrite=False, mode=FlagEvaluationsMode.READ_FLAG_EVALUATIONS)
+            from_events = self._query_events(query, rewrite=False)
             rewritten = self._query_events(query, mode=FlagEvaluationsMode.READ_FLAG_EVALUATIONS)
 
         assert from_events.results == [(expected_count,)]
@@ -1595,7 +1596,7 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
         modifiers = HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS)
         mode = FlagEvaluationsMode.READ_FLAG_EVALUATIONS
 
-        from_events = self._query_events(query, rewrite=False, modifiers=modifiers, mode=mode)
+        from_events = self._query_events(query, rewrite=False, modifiers=modifiers)
         rewritten = self._query_events(query, modifiers=modifiers, mode=mode)
 
         assert rewritten.results == from_events.results

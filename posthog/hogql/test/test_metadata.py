@@ -437,7 +437,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 _move_notices("command:editor.action.deleteLines"),
             ),
             ("malformed_announcement_url", _FLAG_CALLED_QUERY, True, 1, _move_notices("https://[broken")),
-            ("read_from_flag_evaluations_while_the_rewrite_is_off", _FLAG_CALLS_FROM_FLAG_EVALUATIONS_QUERY, True, 1),
+            ("read_from_flag_evaluations_in_events_mode", _FLAG_CALLS_FROM_FLAG_EVALUATIONS_QUERY, True, 1),
             param(
                 "read_from_flag_evaluations",
                 _FLAG_CALLS_FROM_FLAG_EVALUATIONS_QUERY,
