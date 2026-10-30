@@ -91,6 +91,7 @@ def _delete_misc_small_tables_for_teams(team_ids: list[int]) -> None:
     from products.early_access_features.backend.models import EarlyAccessFeature
     from products.growth.backend.facade import api as growth_facade
     from products.today.backend.facade import api as today_facade
+    from products.web_analytics.backend.facade import health_rollups as web_analytics_health_rollups
 
     error_tracking_fingerprint = apps.get_model("error_tracking", "ErrorTrackingIssueFingerprintV2")
 
@@ -107,6 +108,7 @@ def _delete_misc_small_tables_for_teams(team_ids: list[int]) -> None:
     # Highlights carry team_id as a plain integer, so nothing cascades to them.
     today_facade.delete_highlights_for_teams(team_ids)
     growth_facade.delete_sdk_version_rollups_for_teams(team_ids)
+    web_analytics_health_rollups.delete_health_rollups_for_teams(team_ids)
     # FeatureFlagHashKeyOverride references Person, so it must go before persons are deleted.
     _delete_hash_key_overrides_for_teams(team_ids)
     _delete_llm_evaluations_for_teams(team_ids)
