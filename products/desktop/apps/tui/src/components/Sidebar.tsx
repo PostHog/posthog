@@ -7,10 +7,22 @@ import { Spinner } from "./Spinner";
 // PostHog orange, which reads on light and dark terminals alike.
 const ORANGE = "#F54E00";
 
+const Label = ({
+  text,
+  selected = false,
+}: {
+  text: string;
+  selected?: boolean;
+}): ReactElement => (
+  <Text bold backgroundColor={selected ? selectionBackground() : undefined}>
+    {text}
+  </Text>
+);
+
 // The chat area draws the sidebar's right edge, so its lines can join it.
 export const SIDEBAR_WIDTH = 31;
-// Narrowed with Ctrl+B: the logo's four stripes and a cell either side.
-export const NARROW_SIDEBAR_WIDTH = 6;
+// Narrowed with Ctrl+B: the logo's coloured stripes and a cell either side.
+export const NARROW_SIDEBAR_WIDTH = 5;
 
 // Blank rows under the header; clicks on the sidebar skip them.
 export const HEADER_GAP = 1;
@@ -73,7 +85,7 @@ function Row({
         </Text>
       );
     case "section":
-      return <Text bold>{row.label}</Text>;
+      return <Label text={row.label} />;
     case "today":
       return (
         <Text wrap="truncate-end">
@@ -92,19 +104,14 @@ function Row({
     case "workspace":
       return (
         <Text wrap="truncate-end">
-          <Text
-            bold
-            backgroundColor={selected ? selectionBackground() : undefined}
-          >
-            {row.label}
-          </Text>
+          <Label text={row.label} selected={selected} />
           {!row.expanded && <Text dimColor> ({row.size})</Text>}
         </Text>
       );
     case "task":
       return (
         <Text wrap="truncate-end">
-          {row.nested && <Text dimColor>{row.last ? "└ " : "├ "}</Text>}
+          {row.nested && <Text dimColor>{row.last ? "╰ " : "├ "}</Text>}
           {row.taskId === null ? (
             // A new chat has no run to show a status for.
             <Text dimColor>• </Text>
@@ -165,7 +172,7 @@ function NarrowRow({
     case "heading":
       return (
         <Text>
-          {BRAND_STRIPES.map((color) => (
+          {BRAND_STRIPES.slice(0, -1).map((color) => (
             <Text key={color} backgroundColor={color}>
               {" "}
             </Text>
@@ -173,7 +180,7 @@ function NarrowRow({
         </Text>
       );
     case "section":
-      return <Text bold>≡</Text>;
+      return <Label text="All" />;
     case "today":
       return (
         <Text
@@ -197,7 +204,7 @@ function NarrowRow({
     case "task":
       return (
         <Text>
-          {row.nested && <Text dimColor>{row.last ? "└ " : "├ "}</Text>}
+          {row.nested && <Text dimColor>{row.last ? "╰ " : "├ "}</Text>}
           <Text backgroundColor={selected ? selectionBackground() : undefined}>
             {row.taskId === null ? (
               <Text dimColor>•</Text>
