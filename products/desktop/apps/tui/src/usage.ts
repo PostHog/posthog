@@ -53,9 +53,8 @@ export function usageStatus(
   fill: ContextFill | null,
   costUsd: number | null,
 ): string {
-  const parts = [
-    ...(fill ? [donut(fill)] : []),
-    ...(costUsd !== null && costUsd > 0 ? [formatCostUsd(costUsd)] : []),
-  ];
-  return parts.join(" • ");
+  const cost = costUsd !== null && costUsd > 0 ? formatCostUsd(costUsd) : null;
+  // The cost is faint like the rule it sits on; only the donut's colour should catch the eye.
+  const faint = cost ? `\u001b[2m${fill ? " • " : ""}${cost}\u001b[22m` : "";
+  return `${fill ? donut(fill) : ""}${faint}`;
 }
