@@ -3,11 +3,14 @@
 
 use std::collections::{HashMap, HashSet};
 use std::ops::Range;
+use std::sync::Arc;
+
+use url::Url;
 
 use crate::bytescan::{self as scan, Span};
 use crate::url_policy::{is_fetched_image_type, is_remote, MAX_URL_LEN};
 
-use super::css::{self, CssRewrite, CssUrl};
+use super::css::{self, CssRewrite, CssUrl, Resolver};
 use super::events::{field, fields, number, text};
 use super::rrweb::{
     ADOPTED_STYLE_SHEET, FULL_SNAPSHOT, INCREMENTAL_SNAPSHOT, MUTATION, STYLE_DECLARATION,
@@ -174,6 +177,8 @@ struct WindowDom {
     /// or the window was evicted and came back.
     unverifiable: bool,
     last_used: u64,
+    /// From the window's own page URL, because another window of the session can be on another page.
+    page_base: Option<Arc<Url>>,
 }
 
 /// Why the inspector stopped naming a block's remote image URLs. The writer replaces only the URLs it is given, so it
@@ -415,7 +420,7 @@ pub struct Observed {
 /// What one walk over serialized nodes found.
 #[derive(Default)]
 struct Walk<'p> {
-    page_url: Option<&'p str>,
+    resolver: Resolver<'p>,
     /// Each node and its parent. A root's parent is `None`.
     ids: Vec<(i64, Option<i64>)>,
     /// The walk met more nodes than the node cap, so `ids` stops short.
@@ -497,9 +502,8 @@ impl Walk<'_> {
 
     fn push_css(&mut self, bytes: &[u8], value: Option<Span>) {
         let Some(value) = value else { return };
-        let page_url = self.page_url;
         if let Some(text) = text(bytes, Some(value)) {
-            css::image_urls(&text, page_url, &mut |found| {
+            css::image_urls(&text, &mut self.resolver, &mut |found| {
                 self.image_urls.push_css(found)
             });
         } else if scan::is_object(bytes, value) {
@@ -510,9 +514,12 @@ impl Walk<'_> {
                 let property = std::str::from_utf8(&bytes[entry.key.0..entry.key.1]);
                 let declared = text(bytes, style_property_value(bytes, entry.value));
                 if let (Ok(property), Some(declared)) = (property, declared) {
-                    css::declaration_image_urls(property, &declared, page_url, &mut |found| {
-                        self.image_urls.push_css(found)
-                    });
+                    css::declaration_image_urls(
+                        property,
+                        &declared,
+                        &mut self.resolver,
+                        &mut |found| self.image_urls.push_css(found),
+                    );
                 }
             }
         }
@@ -1001,7 +1008,7 @@ fn walk_snapshot<'p>(
     inner: &[u8],
     data: Span,
     expansion: &Expansion,
-    page_url: Option<&'p str>,
+    page_base: Option<&'p Url>,
 ) -> Snapshot<'p> {
     let (bytes, root) = if scan::is_string(inner, data) {
         match expansion.json(data) {
@@ -1020,7 +1027,7 @@ fn walk_snapshot<'p>(
         return Snapshot::Dropped;
     };
     let mut walk = Walk {
-        page_url,
+        resolver: Resolver::new(page_base),
         ..Walk::default()
     };
     if walk_nodes(bytes, node, &mut walk) {
@@ -1195,6 +1202,10 @@ impl WindowDom {
             + table_bytes::<(i64, HiddenSources)>(self.hidden_sources.capacity())
             + self.hidden_source_bytes
             + table_bytes::<i64>(self.style_texts.capacity())
+            + self
+                .page_base
+                .as_ref()
+                .map_or(0, |base| base.as_str().len())
     }
 }
 
@@ -1238,7 +1249,7 @@ impl DomInspector {
         inner: &[u8],
         event: &Event,
         window: &str,
-        page_url: Option<&str>,
+        event_page_url: Option<&str>,
         stats: &mut BlockStats,
     ) -> Observed {
         self.clock += 1;
@@ -1249,13 +1260,17 @@ impl DomInspector {
             self.clock,
             window,
         );
+        if let Some(page_url) = event_page_url {
+            dom.page_base = css::page_base(page_url).map(Arc::new);
+        }
+        let page_base = dom.page_base.clone();
         let mut observed = Observed::default();
         match (event.kind, event.source) {
             (Some(FULL_SNAPSHOT), _) => {
                 let expansion = cv::expansion(inner, event);
                 let last_used = dom.last_used;
                 match event.data.map_or(Snapshot::Dropped, |data| {
-                    walk_snapshot(inner, data, &expansion, page_url)
+                    walk_snapshot(inner, data, &expansion, page_base.as_deref())
                 }) {
                     Snapshot::Walked(mut walk) => {
                         // A full snapshot replaces the window's DOM.
@@ -1263,6 +1278,7 @@ impl DomInspector {
                             has_snapshot: true,
                             unverifiable: walk.truncated,
                             last_used,
+                            page_base: page_base.clone(),
                             ..WindowDom::default()
                         };
                         for &(id, parent) in &walk.ids {
@@ -1289,6 +1305,7 @@ impl DomInspector {
                         *dom = WindowDom {
                             unverifiable: true,
                             last_used,
+                            page_base: page_base.clone(),
                             ..WindowDom::default()
                         }
                     }
@@ -1299,8 +1316,14 @@ impl DomInspector {
             (Some(INCREMENTAL_SNAPSHOT), Some(MUTATION)) => {
                 if let Some(data) = event.data {
                     let expansion = cv::expansion(inner, event);
-                    let (orphans, changed, undecoded) =
-                        observe_mutation(inner, data, &expansion, dom, page_url, &mut self.urls);
+                    let (orphans, changed, undecoded) = observe_mutation(
+                        inner,
+                        data,
+                        &expansion,
+                        dom,
+                        page_base.as_deref(),
+                        &mut self.urls,
+                    );
                     stats.orphan_mutations += orphans;
                     stats.decode_failures += u32::from(undecoded);
                     observed.changed = changed;
@@ -1320,7 +1343,7 @@ impl DomInspector {
                         data,
                         event.source,
                         &expansion,
-                        page_url,
+                        page_base.as_deref(),
                         &mut self.urls,
                     );
                 }
@@ -1450,7 +1473,7 @@ fn observe_mutation(
     data: Span,
     expansion: &Expansion,
     dom: &mut WindowDom,
-    page_url: Option<&str>,
+    page_base: Option<&Url>,
     urls: &mut Urls,
 ) -> (u32, u32, bool) {
     // The recorder did not decode this mutation, so the window's DOM is not known after it.
@@ -1464,7 +1487,7 @@ fn observe_mutation(
     }
     let mut undecoded = false;
     let mut walk = Walk {
-        page_url,
+        resolver: Resolver::new(page_base),
         ..Walk::default()
     };
     let mut adds = Vec::new();
@@ -1641,10 +1664,11 @@ fn style_sheet_urls(
     data: Span,
     source: Option<u8>,
     expansion: &Expansion,
-    page_url: Option<&str>,
+    page_base: Option<&Url>,
     urls: &mut Urls,
 ) {
     let mut push = |found: CssUrl<'_>| urls.push_css(found);
+    let resolver = &mut Resolver::new(page_base);
     match source {
         Some(STYLE_SHEET_RULE) => {
             let [adds, replace, replace_sync] =
@@ -1652,13 +1676,13 @@ fn style_sheet_urls(
             if let Some(adds) = adds.and_then(|adds| decoded_list(inner, adds, expansion)) {
                 for item in items(adds) {
                     if let Some(rule) = text(adds.bytes, field(adds.bytes, item, b"rule")) {
-                        css::image_urls(&rule, page_url, &mut push);
+                        css::image_urls(&rule, resolver, &mut push);
                     }
                 }
             }
             for sheet in [replace, replace_sync] {
                 if let Some(sheet) = text(inner, sheet) {
-                    css::image_urls(&sheet, page_url, &mut push);
+                    css::image_urls(&sheet, resolver, &mut push);
                 }
             }
         }
@@ -1667,7 +1691,7 @@ fn style_sheet_urls(
             let [property, value] =
                 set.map_or([None; 2], |set| fields(inner, set, [b"property", b"value"]));
             if let (Some(property), Some(value)) = (text(inner, property), text(inner, value)) {
-                css::declaration_image_urls(&property, &value, page_url, &mut push);
+                css::declaration_image_urls(&property, &value, resolver, &mut push);
             }
         }
         Some(ADOPTED_STYLE_SHEET) => {
@@ -1686,7 +1710,7 @@ fn style_sheet_urls(
                     span: rules,
                 }) {
                     if let Some(rule) = text(inner, field(inner, rule, b"rule")) {
-                        css::image_urls(&rule, page_url, &mut push);
+                        css::image_urls(&rule, resolver, &mut push);
                     }
                 }
             }
@@ -1990,7 +2014,6 @@ mod tests {
             mutation(json!([]), json!([]), json!([]), json!([{"id": 20, "attributes": {"alt": "x"}}])),
             mutation(json!([]), json!([]), json!([]), json!([{"id": 20, "attributes": {"hidden": null}}])),
             mutation(json!([]), json!([]), json!([]), json!([{"id": 6, "attributes": {"style": {"background-image": [format!("url({})", url("style-object")), "important"], "background": format!("url({})", url("style-object-plain")), "color": "red", "mask-image": false}}}])),
-            // rrweb sends a style change as the values the CSSOM gives, which keep a relative URL relative.
             mutation(json!([]), json!([]), json!([]), json!([{"id": 6, "attributes": {"style": {"background-image": "url(\"img/relative-style.png\")"}}}])),
             // A `source` added on its own under a `picture`, one the page has or one the same mutation adds.
             mutation(json!([{"parentId": 13, "node": element(40, "source", json!({"srcset": format!("{} 2x", url("lone-source"))}), json!([]))},

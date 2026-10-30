@@ -2,7 +2,10 @@
 
 use url::Url;
 
-use crate::url_policy::{is_fetched_image_type, is_remote};
+use crate::url_policy::{is_fetched_image_type, is_remote, MAX_URL_LEN};
+
+/// Each resolution copies the page URL, so one event resolves at most this many relative URLs.
+pub const MAX_RESOLVED_URLS: usize = 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CssUrl<'a> {
@@ -18,21 +21,60 @@ pub struct CssRewrite {
     pub dropped: Vec<String>,
 }
 
+/// The base that a relative URL on `page_url` resolves against, as `https` because the fetcher loads nothing else.
+pub fn page_base(page_url: &str) -> Option<Url> {
+    if page_url.len() > MAX_URL_LEN {
+        return None;
+    }
+    let mut base = Url::parse(page_url).ok()?;
+    if base.scheme() != "https" {
+        base.set_scheme("https").ok()?;
+    }
+    Some(base)
+}
+
+#[derive(Default)]
+pub struct Resolver<'p> {
+    base: Option<&'p Url>,
+    remaining: usize,
+}
+
+impl<'p> Resolver<'p> {
+    pub fn new(base: Option<&'p Url>) -> Self {
+        Self {
+            base,
+            remaining: MAX_RESOLVED_URLS,
+        }
+    }
+
+    fn resolve(&mut self, source: &str) -> Option<String> {
+        if self.remaining == 0
+            || is_remote(source)
+            || Url::parse(source).err() != Some(url::ParseError::RelativeUrlWithoutBase)
+        {
+            return None;
+        }
+        let absolute = self.base?.join(source).ok()?;
+        self.remaining -= 1;
+        Some(absolute.into())
+    }
+}
+
 /// Calls `found` with each image URL and rewrite in `css`: a `style` attribute, `<style>` text or `_cssText`.
-pub fn image_urls(css: &str, page_url: Option<&str>, found: &mut impl FnMut(CssUrl<'_>)) {
+pub fn image_urls(css: &str, resolver: &mut Resolver<'_>, found: &mut impl FnMut(CssUrl<'_>)) {
     for (start, end) in image_value_ranges(css) {
-        value_urls(&css[start..end], page_url, found);
+        value_urls(&css[start..end], resolver, found);
     }
 }
 
 pub fn declaration_image_urls(
     property: &str,
     value: &str,
-    page_url: Option<&str>,
+    resolver: &mut Resolver<'_>,
     found: &mut impl FnMut(CssUrl<'_>),
 ) {
     if can_hold_image(property.trim()) {
-        value_urls(value, page_url, found);
+        value_urls(value, resolver, found);
     }
 }
 
@@ -162,7 +204,7 @@ fn is_image_property(property: &str) -> bool {
         )
 }
 
-fn value_urls(value: &str, page_url: Option<&str>, found: &mut impl FnMut(CssUrl<'_>)) {
+fn value_urls(value: &str, resolver: &mut Resolver<'_>, found: &mut impl FnMut(CssUrl<'_>)) {
     let bytes = value.as_bytes();
     let mut position = 0;
     while position < bytes.len() {
@@ -189,14 +231,14 @@ fn value_urls(value: &str, page_url: Option<&str>, found: &mut impl FnMut(CssUrl
             let Some(end) = matching_paren(bytes, position + name_len) else {
                 return;
             };
-            image_set_urls(&value[position..end], name_len, page_url, found);
+            image_set_urls(&value[position..end], name_len, resolver, found);
             position = end;
             continue;
         }
         if function_at(bytes, position, b"url") {
             let (resume_at, source) = scan_url_function(value, position);
             if let Some(source) = source.as_deref().and_then(collectable) {
-                url_function_urls(&value[position..resume_at], source, page_url, found);
+                url_function_urls(&value[position..resume_at], source, resolver, found);
             }
             position = resume_at;
             continue;
@@ -214,10 +256,10 @@ fn collectable(source: &str) -> Option<&str> {
 fn url_function_urls(
     function: &str,
     source: &str,
-    page_url: Option<&str>,
+    resolver: &mut Resolver<'_>,
     found: &mut impl FnMut(CssUrl<'_>),
 ) {
-    match resolve(source, page_url) {
+    match resolver.resolve(source) {
         Some(absolute) => {
             found(CssUrl::Image(&absolute));
             found(CssUrl::Rewrite(CssRewrite {
@@ -230,21 +272,7 @@ fn url_function_urls(
     }
 }
 
-/// The absolute form of a relative `source`, as `https` because the fetcher loads nothing else.
-fn resolve(source: &str, page_url: Option<&str>) -> Option<String> {
-    if is_remote(source)
-        || Url::parse(source).err() != Some(url::ParseError::RelativeUrlWithoutBase)
-    {
-        return None;
-    }
-    let mut base = Url::parse(page_url?).ok()?;
-    if base.scheme() != "https" {
-        base.set_scheme("https").ok()?;
-    }
-    base.join(source).ok().map(String::from)
-}
-
-/// A serialized URL percent-encodes `"`, so the quotes hold any URL that [`resolve`] returns.
+/// A serialized URL percent-encodes `"`, so the quotes hold any URL that [`Resolver`] returns.
 fn url_function(url: &str) -> String {
     format!("url(\"{url}\")")
 }
@@ -254,7 +282,7 @@ fn url_function(url: &str) -> String {
 fn image_set_urls(
     function: &str,
     name_len: usize,
-    page_url: Option<&str>,
+    resolver: &mut Resolver<'_>,
     found: &mut impl FnMut(CssUrl<'_>),
 ) {
     let Some(candidates) = image_set_candidates(&function[name_len + 1..function.len() - 1]) else {
@@ -289,7 +317,7 @@ fn image_set_urls(
         return;
     };
     let kept = &candidates[index];
-    let resolved = resolve(source, page_url);
+    let resolved = resolver.resolve(source);
     found(CssUrl::Image(resolved.as_deref().unwrap_or(source)));
     // A candidate kept as the page wrote it holds its URL as the writer's URL pass looks for it.
     let candidate = match &resolved {
@@ -540,8 +568,9 @@ mod tests {
     use super::*;
 
     fn found(css: &str, page_url: Option<&str>) -> Vec<String> {
+        let base = page_url.and_then(page_base);
         let mut found = Vec::new();
-        image_urls(css, page_url, &mut |url| {
+        image_urls(css, &mut Resolver::new(base.as_ref()), &mut |url| {
             found.push(match url {
                 CssUrl::Image(url) => format!("image {url}"),
                 CssUrl::Unshown(url) => format!("unshown {url}"),

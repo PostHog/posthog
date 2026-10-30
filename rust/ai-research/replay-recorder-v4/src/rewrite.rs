@@ -129,9 +129,10 @@ fn json_string_contents(text: &str) -> Vec<u8> {
 }
 
 struct CssTarget {
+    /// With its URLs already replaced, so that a long page URL resolved for many short relative URLs never fills memory.
     replacement: Vec<u8>,
-    /// The indexes in `targets` of the URLs that the rewrite removes, which count as found when it applies.
-    dropped: Vec<usize>,
+    /// The indexes in `targets` of the URLs that the rewrite removes or replaces, which count as found when it applies.
+    covers: Vec<usize>,
     kind: &'static str,
     found: bool,
 }
@@ -278,19 +279,6 @@ impl UrlRewrite {
             .enumerate()
             .map(|(index, url)| (url.clone(), index))
             .collect();
-        let css_targets: Vec<CssTarget> = css_rewrites
-            .iter()
-            .map(|rewrite| CssTarget {
-                replacement: json_string_contents(&rewrite.replacement),
-                dropped: rewrite
-                    .dropped
-                    .iter()
-                    .filter_map(|url| url_targets.get(url).copied())
-                    .collect(),
-                kind: css_rewrite_kind(&rewrite.text),
-                found: false,
-            })
-            .collect();
         let css_matcher = (!css_rewrites.is_empty())
             .then(|| {
                 AhoCorasick::builder()
@@ -340,6 +328,32 @@ impl UrlRewrite {
                     .ok()
             })
             .flatten();
+        let css_targets: Vec<CssTarget> = css_rewrites
+            .iter()
+            .map(|rewrite| {
+                let replacement = json_string_contents(&rewrite.replacement);
+                let (replacement, mut covers) = match &matcher {
+                    Some(matcher) => {
+                        let (replaced, found) =
+                            replace_targets(matcher, &targets, false, &replacement);
+                        (replaced.into_owned(), found)
+                    }
+                    None => (replacement, Vec::new()),
+                };
+                covers.extend(
+                    rewrite
+                        .dropped
+                        .iter()
+                        .filter_map(|url| url_targets.get(url).copied()),
+                );
+                CssTarget {
+                    replacement,
+                    covers,
+                    kind: css_rewrite_kind(&rewrite.text),
+                    found: false,
+                }
+            })
+            .collect();
         let declined: Vec<&[u8]> = patterns
             .iter()
             .zip(&targets)
@@ -445,7 +459,7 @@ impl UrlRewrite {
             }
             let target = &mut self.css_targets[found.pattern().as_usize()];
             target.found = true;
-            for &url in &target.dropped {
+            for &url in &target.covers {
                 self.targets[url].found = true;
             }
             let out = out.get_or_insert_with(|| Vec::with_capacity(bytes.len()));
@@ -491,35 +505,15 @@ impl UrlRewrite {
         let Some(matcher) = &self.matcher else {
             return Cow::Borrowed(bytes);
         };
-        let mut out: Option<Vec<u8>> = None;
-        let mut copied_to = 0;
-        for found in matcher.find_iter(bytes) {
-            let (start, end) = (found.start(), found.end());
-            let index = found.pattern().as_usize();
-            // A declined URL inside a longer URL is replaced too when the fallback asks, so that it cannot stay.
-            let overwrite =
-                self.fallback.overwrite_declined && self.targets[index].declined.is_some();
-            if !overwrite
-                && (start.checked_sub(1).is_some_and(|before| {
-                    continues_url(bytes[before]) && !ends_with_escape(bytes, start)
-                }) || bytes.get(end).is_some_and(|&after| continues_url(after)))
-            {
-                continue;
-            }
-            let target = &mut self.targets[index];
-            target.found = true;
-            let out = out.get_or_insert_with(|| Vec::with_capacity(bytes.len()));
-            out.extend_from_slice(&bytes[copied_to..start]);
-            out.extend_from_slice(&target.replacement);
-            copied_to = end;
+        let (out, found) = replace_targets(
+            matcher,
+            &self.targets,
+            self.fallback.overwrite_declined,
+            bytes,
+        );
+        for index in found {
+            self.targets[index].found = true;
         }
-        let out = match out {
-            Some(mut out) => {
-                out.extend_from_slice(&bytes[copied_to..]);
-                Cow::Owned(out)
-            }
-            None => Cow::Borrowed(bytes),
-        };
         if let Some(declined) = &self.declined {
             if let Some(kept) = declined.find(out.as_ref()) {
                 self.declined_kept = true;
@@ -587,6 +581,43 @@ impl UrlRewrite {
             counters,
         }
     }
+}
+
+fn replace_targets<'b>(
+    matcher: &AhoCorasick,
+    targets: &[Target],
+    overwrite_declined: bool,
+    bytes: &'b [u8],
+) -> (Cow<'b, [u8]>, Vec<usize>) {
+    let mut out: Option<Vec<u8>> = None;
+    let mut replaced = Vec::new();
+    let mut copied_to = 0;
+    for found in matcher.find_iter(bytes) {
+        let (start, end) = (found.start(), found.end());
+        let index = found.pattern().as_usize();
+        // A declined URL inside a longer URL is replaced too when the fallback asks, so that it cannot stay.
+        let overwrite = overwrite_declined && targets[index].declined.is_some();
+        if !overwrite
+            && (start.checked_sub(1).is_some_and(|before| {
+                continues_url(bytes[before]) && !ends_with_escape(bytes, start)
+            }) || bytes.get(end).is_some_and(|&after| continues_url(after)))
+        {
+            continue;
+        }
+        replaced.push(index);
+        let out = out.get_or_insert_with(|| Vec::with_capacity(bytes.len()));
+        out.extend_from_slice(&bytes[copied_to..start]);
+        out.extend_from_slice(&targets[index].replacement);
+        copied_to = end;
+    }
+    let out = match out {
+        Some(mut out) => {
+            out.extend_from_slice(&bytes[copied_to..]);
+            Cow::Owned(out)
+        }
+        None => Cow::Borrowed(bytes),
+    };
+    (out, replaced)
 }
 
 /// The key of the JSON object entry whose string value holds `at`, when it is a plain short key.

@@ -942,9 +942,8 @@ mod tests {
 
     #[test]
     fn leaves_css_only_images_an_offline_render_can_load() {
-        // posthog-js compresses a rule list as gzip, one byte per latin-1 codepoint, and the block stores it expanded.
         let compressed: String = replay_core_v4::compression::gzip(
-            json!([{"rule": ".a{background:url(/img/a.png)} .b{background-image:image-set(url(https://cdn.example.com/1x.png) 1x, url(https://cdn.example.com/2x.png) 2x)}", "index": 0}])
+            json!([{"rule": ".a{background:url(/img/a.png)} .b{background-image:image-set(url(https://cdn.example.com/1x.png) 1x, url(https://cdn.example.com/2x.png) 2x)} .c{background:url(/c.png?X-Amz-Signature=abc123)}", "index": 0}])
                 .to_string()
                 .as_bytes(),
         )
@@ -976,10 +975,14 @@ mod tests {
                 r#"image-set(url({}) 2x)"#,
                 reference("https://cdn.example.com/2x.png")
             ),
+            format!(
+                r#"url(\"{}\")"#,
+                crate::rewrite::declined_marker("credential")
+            ),
         ] {
             assert!(lines.contains(&expected), "{expected} in {lines}");
         }
-        for gone in ["/img/a.png", "1x.png", "1x,"] {
+        for gone in ["/img/a.png", "1x.png", "1x,", "Signature"] {
             assert!(!lines.contains(gone), "{gone} in {lines}");
         }
     }

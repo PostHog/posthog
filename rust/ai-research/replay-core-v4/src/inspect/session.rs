@@ -5,7 +5,7 @@ use std::sync::Arc;
 use super::clicks::{ClickKind, ClickTracker};
 use super::css::CssRewrite;
 use super::dom::{DomInspector, RemoteUrls, Srcset, UrlLimit};
-use super::events::{number, Activity, DataFields, EventCounter};
+use super::events::{href_from, number, Activity, DataFields, EventCounter};
 use super::features::{BlockFeatures, FeatureRecorder, SurfacingFeatures};
 use super::rrweb::{
     is_click, CUSTOM, FULL_SNAPSHOT, INCREMENTAL_SNAPSHOT, META, MOUSE_INTERACTION, MUTATION,
@@ -151,6 +151,9 @@ impl SessionInspector {
         block.events += 1;
         let navigations = block.counter.stats.navigations;
         let data = DataFields::read(inner, event);
+        let page_url = matches!(event.kind, Some(META | CUSTOM))
+            .then(|| href_from(inner, event.kind, &data))
+            .flatten();
         let carried_href =
             block
                 .counter
@@ -169,7 +172,7 @@ impl SessionInspector {
             inner,
             event,
             window,
-            self.last_href.as_deref(),
+            page_url.as_deref(),
             &mut block.counter.stats,
         );
         block.image_urls.extend(self.dom.take_image_urls());
@@ -309,6 +312,26 @@ mod tests {
         let (stats, moments) = inspect(&mut session, &crowded);
         assert_eq!(moments.len(), MAX_MOMENTS_PER_BLOCK);
         assert!(stats.moments_truncated);
+    }
+
+    #[test]
+    fn resolves_relative_css_against_its_own_window() {
+        let mut session = SessionInspector::default();
+        let mut block = BlockInspection::default();
+        let meta = |host: &str| json!([{"type": 4, "timestamp": 1, "data": {"href": format!("https://{host}/shop/item")}}]);
+        session.observe_message(&mut block, &message_in(Some("a"), meta("a.example.com")));
+        session.observe_message(&mut block, &message_in(Some("b"), meta("b.example.com")));
+        session.observe_message(
+            &mut block,
+            &message_in(
+                Some("a"),
+                json!([{"type": 3, "timestamp": 2, "data": {"source": 8, "id": 3, "replaceSync": ".a{background:url(img/a.png)}"}}]),
+            ),
+        );
+        assert_eq!(
+            block.finish().image_urls,
+            ["https://a.example.com/shop/img/a.png"]
+        );
     }
 
     #[test]
