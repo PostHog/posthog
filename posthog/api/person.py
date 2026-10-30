@@ -835,6 +835,9 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             limit, offset = CSV_EXPORT_LIMIT, 0
         elif not limit:
             limit = DEFAULT_PAGE_LIMIT
+        else:
+            # The view reads `limit` itself, so it applies the cap that the paginator states in the schema.
+            limit = min(limit, PersonLimitOffsetPagination.max_limit)
 
         from posthog.hogql import ast  # noqa: PLC0415 — deferred to avoid a circular import at module load
         from posthog.hogql.query import execute_hogql_query  # noqa: PLC0415
