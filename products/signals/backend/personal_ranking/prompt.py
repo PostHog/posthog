@@ -12,7 +12,7 @@ from products.signals.backend.activity_summary.read import ActivitySummaryStatus
 from products.signals.backend.personal_ranking.candidates import Candidate, NeedsYouKind
 from products.signals.backend.personal_ranking.config import PersonalRankingConfig
 
-PROMPT_VERSION = 1
+PROMPT_VERSION = 2
 
 Tier = Literal["top", "worth_a_look", "later"]
 TIERS: tuple[Tier, ...] = get_args(Tier)
@@ -88,10 +88,16 @@ def system_prompt(config: PersonalRankingConfig, limit: int) -> str:
 
 You get the person (what they work on, from their activity summary), then one block per candidate report, labelled c1 to cN.
 
+The `model` line of a report holds the ranking model's predictions for three outcomes:
+- `open`: someone opens the report.
+- `action`: a person or their agent acts on it.
+- `fix`: someone fixes the problem it describes.
+Each outcome has a probability and a lift. Lift is the probability over the base rate of an average report: lift 2.0 is twice as likely as an average report, lift 1.0 is average and lift 0.5 is half as likely. The base rates differ a lot between outcomes, so compare outcomes by lift, not by probability. These are predictions, not the report's state. `stale` means the report changed after it was scored, and `unscored` means it has no score. Neither is evidence against the report.
+
 Rank every candidate:
 - Put first the reports that need this person: waiting on their input, claimed by them, or naming them as suggested reviewer.
 - Then the reports that match their themes, the objects they own or watch, and the products they work in.
-- Use priority and the ranking model's lift as evidence of value. A report with an open pull request is cheap to finish.
+- Use priority and the ranking model's lift as evidence of value. Prefer lift to the raw probability. A report with an open pull request is cheap to finish.
 - Old reports with no activity and reports far from their work go last.
 - When the person has a focus, it outranks their usual themes.
 
