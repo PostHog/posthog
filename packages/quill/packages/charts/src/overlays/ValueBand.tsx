@@ -2,19 +2,19 @@
 import React from 'react'
 
 import { useChartLayout } from '../core/chart-context'
-
-const DEFAULT_BAND_COLOR = '#8f8f8f'
+import { DEFAULT_HIGHLIGHT_COLOR } from './HighlightedRange'
 
 export interface ValueBandProps {
     /** Low end of the band on the value axis. Omit to run the band to the bottom of the plot. */
     from?: number
     /** High end of the band on the value axis. Omit to run the band to the top of the plot. */
     to?: number
-    /** CSS color for the fill. Supports `var(--my-color)`. */
+    /** CSS color for the fill. Supports `var(--my-color)`. Defaults to the theme's axis color. */
     color?: string
     /** Opacity 0-1 of the fill. Defaults to 0.1. */
     fillOpacity?: number
-    /** Which y-axis the values reference. Defaults to the primary axis. */
+    /** Which y-axis the values reference. Defaults to the primary axis, and falls back to it when
+     *  the id is unknown. */
     yAxisId?: string
 }
 
@@ -22,14 +22,8 @@ export interface ValueBandProps {
  *  ("warning between 80 and 95"). The part outside the axis range is clipped, and a band wholly
  *  outside it renders nothing. Draws over the series, like a {@link ReferenceLine} fill, so keep
  *  `fillOpacity` low. On a horizontal bar chart the band runs top to bottom across the value axis. */
-export function ValueBand({
-    from,
-    to,
-    color = DEFAULT_BAND_COLOR,
-    fillOpacity = 0.1,
-    yAxisId,
-}: ValueBandProps): React.ReactElement | null {
-    const { scales, dimensions, axis } = useChartLayout()
+export function ValueBand({ from, to, color, fillOpacity = 0.1, yAxisId }: ValueBandProps): React.ReactElement | null {
+    const { scales, dimensions, axis, theme } = useChartLayout()
     const { plotLeft, plotTop, plotWidth, plotHeight } = dimensions
     const scale = yAxisId && scales.yAxes?.[yAxisId] ? scales.yAxes[yAxisId].scale : scales.y
     const horizontal = axis.orientation === 'horizontal'
@@ -59,7 +53,11 @@ export function ValueBand({
         <div
             data-attr="hog-chart-value-band"
             className="absolute pointer-events-none"
-            style={{ ...rect, backgroundColor: color, opacity: fillOpacity }}
+            style={{
+                ...rect,
+                backgroundColor: color ?? theme.axisColor ?? DEFAULT_HIGHLIGHT_COLOR,
+                opacity: fillOpacity,
+            }}
         />
     )
 }

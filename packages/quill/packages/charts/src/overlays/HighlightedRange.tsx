@@ -4,7 +4,7 @@ import React from 'react'
 import { useChartLayout } from '../core/chart-context'
 
 /** Neutral gray matching the classic sparkline highlight, readable on light and dark surfaces. */
-const DEFAULT_HIGHLIGHT_COLOR = '#8f8f8f'
+export const DEFAULT_HIGHLIGHT_COLOR = '#8f8f8f'
 
 export interface HighlightedRangeProps {
     /** Start of the range — a data index (number) or an x-axis label (string). */
