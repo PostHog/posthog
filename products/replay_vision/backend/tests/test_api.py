@@ -4957,6 +4957,19 @@ class TestHighlightFeedAPI(_VisionAPITestCase):
         sessions = [item["observation"]["session_id"] for item in response["results"]]
         assert sessions and not any(session.startswith("leaving") for session in sessions)
 
+    def test_a_deleted_observation_leaves_the_stored_picks_before_the_feed_rebuilds(self) -> None:
+        scanner = self._create_scanner(name="m")
+        for index in range(10):
+            self._ranked_observation(scanner, f"s-{index}", 10 + index, "failure", 0.9 - index / 100)
+        built = self.client.get(self.feed_url, {"date_from": "-1d", "limit": "20"}).json()["results"]
+        deleted = built[0]["observation"]
+        ReplayObservation.objects.filter(id=deleted["id"]).delete()
+
+        # The first slot is where the deleted pick ranked, so a stored entry left in place empties the page.
+        response = self.client.get(self.feed_url, {"date_from": "-1d", "limit": "1"}).json()["results"]
+
+        assert [item["observation"]["id"] for item in response] == [built[1]["observation"]["id"]]
+
     def test_an_embedding_pick_counts_its_hidden_duplicates(self) -> None:
         scanner = self._create_scanner(name="m")
         oldest = self._ranked_observation(scanner, "oldest-failure", 500, "failure", 0.9)
