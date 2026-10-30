@@ -5129,7 +5129,7 @@ class TestExternalDataSchemaRetrieveSource(APIBaseTest):
                 },
             )
             schemas.append(schema)
-            expected[str(schema.pk)] = str(table.pk)
+            expected[str(schema.pk)] = table.pk
         view = ExternalDataSchemaViewset()
         view.team_id = self.team.pk
 
@@ -5602,11 +5602,11 @@ class TestSchemaDisplayStatus(SimpleTestCase):
 class TestExternalDataSchemaIntrospection(SimpleTestCase):
     def test_schema_generation_needs_no_team_context(self) -> None:
         view = ExternalDataSchemaViewset()
-        view.swagger_fake_view = True
         view.request = Request(APIRequestFactory().get("/"))
         view.format_kwarg = None
         view.kwargs = {}
 
-        serializer = view.get_serializer()
+        with mock.patch.object(view, "swagger_fake_view", True, create=True):
+            serializer = view.get_serializer()
         assert isinstance(serializer, ExternalDataSchemaSerializer)
         assert "table_id" in serializer.fields
