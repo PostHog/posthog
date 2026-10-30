@@ -943,7 +943,7 @@ mod tests {
     #[test]
     fn leaves_css_only_images_an_offline_render_can_load() {
         let compressed: String = replay_core_v4::compression::gzip(
-            json!([{"rule": ".a{background:url(/img/a.png)} .b{background-image:image-set(url(https://cdn.example.com/1x.png) 1x, url(https://cdn.example.com/2x.png) 2x)} .c{background:url(/c.png?X-Amz-Signature=abc123)} .bg-\\[url\\(https\\:\\/\\/cdn\\.example\\.com\\/t\\.png\\)\\]{background-image:url(https://cdn.example.com/t.png)} .s-\\[url\\(https\\:\\/\\/cdn\\.example\\.com\\/s\\.png\\?X-Amz-Signature\\=abc123\\)\\]{background-image:url(https://cdn.example.com/s.png?X-Amz-Signature=abc123)}", "index": 0}])
+            json!([{"rule": ".a{background:url(/img/a.png)} .q{content:\"url(/img/a.png)\"} .b{background-image:image-set(url(https://cdn.example.com/1x.png) 1x, url(https://cdn.example.com/2x.png) 2x)} .c{background:url(/c.png?X-Amz-Signature=abc123)} .bg-\\[url\\(https\\:\\/\\/cdn\\.example\\.com\\/t\\.png\\)\\]{background-image:url(https://cdn.example.com/t.png)} .s-\\[url\\(https\\:\\/\\/cdn\\.example\\.com\\/s\\.png\\?X-Amz-Signature\\=abc123\\)\\]{background-image:url(https://cdn.example.com/s.png?X-Amz-Signature=abc123)}", "index": 0}])
                 .to_string()
                 .as_bytes(),
         )
@@ -983,10 +983,12 @@ mod tests {
         ] {
             assert!(lines.contains(&expected), "{expected} in {lines}");
         }
-        assert!(
-            lines.contains(r#""class":"bg-[url(/img/a.png)]""#),
-            "{lines}"
-        );
+        for kept in [
+            r#""class":"bg-[url(/img/a.png)]""#,
+            r#".q{content:\"url(/img/a.png)\"}"#,
+        ] {
+            assert!(lines.contains(kept), "{kept} in {lines}");
+        }
         let class_url = reference("https://cdn.example.com/t.png");
         for expected in [
             format!(r#""class":"bg-[url({class_url})]""#),

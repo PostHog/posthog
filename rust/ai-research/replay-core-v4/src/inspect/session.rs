@@ -1,5 +1,6 @@
 //! Everything the recorder learns about one session, block by block.
 
+use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 
 use super::clicks::{ClickKind, ClickTracker};
@@ -53,6 +54,7 @@ pub struct BlockInspection {
     image_urls: Vec<String>,
     remote_urls: RemoteUrls,
     events: u32,
+    resolve_budget: Option<Arc<AtomicUsize>>,
 }
 
 /// What the inspector learned about one block.
@@ -73,6 +75,14 @@ pub struct Inspected {
 }
 
 impl BlockInspection {
+    /// A block whose relative CSS URLs draw their resolved bytes from `budget`, which other blocks can share.
+    pub fn with_resolve_budget(budget: Arc<AtomicUsize>) -> Self {
+        Self {
+            resolve_budget: Some(budget),
+            ..Self::default()
+        }
+    }
+
     pub fn finish(mut self) -> Inspected {
         let features = self.features.finish();
         let mut stats = self.counter.finish();
@@ -173,6 +183,7 @@ impl SessionInspector {
             event,
             window,
             page_url.as_deref(),
+            block.resolve_budget.as_deref(),
             &mut block.counter.stats,
         );
         block.image_urls.extend(self.dom.take_image_urls());

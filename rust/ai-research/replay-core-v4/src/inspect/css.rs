@@ -1,5 +1,7 @@
 //! Image URLs in CSS: the `url()`s of an image property, or of a custom property that reaches one through `var()`.
 
+use std::sync::atomic::{AtomicUsize, Ordering};
+
 use url::Url;
 
 use crate::url_policy::{is_fetched_image_type, is_remote, MAX_URL_LEN};
@@ -32,6 +34,9 @@ pub fn page_base(page_url: &str) -> Option<Url> {
     if base.scheme() != "https" {
         base.set_scheme("https").ok()?;
     }
+    // No relative URL that the inspector resolves keeps the base's query or fragment.
+    base.set_query(None);
+    base.set_fragment(None);
     Some(base)
 }
 
@@ -39,13 +44,15 @@ pub fn page_base(page_url: &str) -> Option<Url> {
 pub struct Resolver<'p> {
     base: Option<&'p Url>,
     remaining: usize,
+    budget: Option<&'p AtomicUsize>,
 }
 
 impl<'p> Resolver<'p> {
-    pub fn new(base: Option<&'p Url>) -> Self {
+    pub fn new(base: Option<&'p Url>, budget: Option<&'p AtomicUsize>) -> Self {
         Self {
             base,
             remaining: MAX_RESOLVED_URLS,
+            budget,
         }
     }
 
@@ -56,10 +63,70 @@ impl<'p> Resolver<'p> {
         {
             return None;
         }
-        let absolute = self.base?.join(source).ok()?;
+        let absolute = String::from(self.base?.join(source).ok()?);
+        let within_budget = self.budget.is_none_or(|budget| {
+            budget
+                .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |left| {
+                    left.checked_sub(absolute.len())
+                })
+                .is_ok()
+        });
+        if !within_budget {
+            self.remaining = 0;
+            return None;
+        }
         self.remaining -= 1;
-        Some(absolute.into())
+        Some(absolute)
     }
+}
+
+/// `css` with each `url()` and `image-set()` that `replacement` names replaced, found as the inspector finds them, so
+/// that a quoted string, a comment or an escaped selector never matches. `None` when nothing changed.
+pub fn rewrite_functions(
+    css: &str,
+    replacement: &mut impl FnMut(&str) -> Option<String>,
+) -> Option<String> {
+    let bytes = css.as_bytes();
+    let mut out: Option<String> = None;
+    let mut copied_to = 0;
+    let mut position = 0;
+    while position < bytes.len() {
+        if starts_with(bytes, position, b"/*") {
+            position = skip_comment(bytes, position).unwrap_or(bytes.len());
+            continue;
+        }
+        if bytes[position] == b'\\' {
+            position = skip_escape(bytes, position);
+            continue;
+        }
+        if matches!(bytes[position], b'\'' | b'"') {
+            position = skip_quoted(bytes, position).unwrap_or(bytes.len());
+            continue;
+        }
+        let end = if function_at(bytes, position, b"image-set") {
+            matching_paren(bytes, position + b"image-set".len())
+        } else if function_at(bytes, position, b"-webkit-image-set") {
+            matching_paren(bytes, position + b"-webkit-image-set".len())
+        } else if function_at(bytes, position, b"url") {
+            Some(scan_url_function(css, position).0)
+        } else {
+            None
+        };
+        let Some(end) = end else {
+            position += 1;
+            continue;
+        };
+        if let Some(replaced) = replacement(&css[position..end]) {
+            let out = out.get_or_insert_with(|| String::with_capacity(css.len()));
+            out.push_str(&css[copied_to..position]);
+            out.push_str(&replaced);
+            copied_to = end;
+        }
+        position = end;
+    }
+    let mut out = out?;
+    out.push_str(&css[copied_to..]);
+    Some(out)
 }
 
 /// Calls `found` with each image URL and rewrite in `css`: a `style` attribute, `<style>` text or `_cssText`.
@@ -614,7 +681,7 @@ mod tests {
     fn found(css: &str, page_url: Option<&str>) -> Vec<String> {
         let base = page_url.and_then(page_base);
         let mut found = Vec::new();
-        image_urls(css, &mut Resolver::new(base.as_ref()), &mut |url| {
+        image_urls(css, &mut Resolver::new(base.as_ref(), None), &mut |url| {
             found.push(match url {
                 CssUrl::Image(url) => format!("image {url}"),
                 CssUrl::Unshown(url) => format!("unshown {url}"),
@@ -684,6 +751,19 @@ mod tests {
             assert_eq!(found(css, page), expected, "{css}");
         }
         assert_eq!(found(".a{background:url(a.png)}", None), ["image a.png"]);
+        let base = page_base("https://app.example.com/shop/item");
+        let budget = AtomicUsize::new("https://app.example.com/img/a.png".len());
+        let mut named = Vec::new();
+        image_urls(
+            ".a{background:url(/img/a.png)} .b{background:url(/img/b.png)}",
+            &mut Resolver::new(base.as_ref(), Some(&budget)),
+            &mut |url| {
+                if let CssUrl::Image(url) = url {
+                    named.push(url.to_owned());
+                }
+            },
+        );
+        assert_eq!(named, ["https://app.example.com/img/a.png", "/img/b.png"]);
         let many: Vec<String> = (1..=MAX_IMAGE_SET_CANDIDATES + 1)
             .map(|i| format!("url(https://cdn.example.com/{i}.png) {i}x"))
             .collect();

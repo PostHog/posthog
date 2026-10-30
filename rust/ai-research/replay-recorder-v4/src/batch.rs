@@ -121,10 +121,15 @@ const SESSION_EXPAND_BUDGET: usize = 256 * 1024 * 1024;
 /// memory parsed than in its payload, so a message that does not fit is skipped.
 const FLUSH_EVENTS_BUDGET: usize = 1024 * 1024 * 1024;
 
+/// The bytes of resolved relative CSS URLs that one flush keeps in its blocks. A resolved URL carries the page's path,
+/// so many short relative URLs on a page with a long path outgrow the recording that holds them.
+const FLUSH_RESOLVED_BUDGET: usize = 64 * 1024 * 1024;
+
 struct DecodeBudget {
     kept: AtomicUsize,
     expanded: AtomicUsize,
     events: AtomicUsize,
+    resolved: Arc<AtomicUsize>,
 }
 
 impl DecodeBudget {
@@ -133,6 +138,7 @@ impl DecodeBudget {
             kept: AtomicUsize::new(kept),
             expanded: AtomicUsize::new(expanded),
             events: AtomicUsize::new(FLUSH_EVENTS_BUDGET),
+            resolved: Arc::new(AtomicUsize::new(FLUSH_RESOLVED_BUDGET)),
         }
     }
 }
@@ -486,8 +492,10 @@ fn inspect_session(
     }
     // A session can have messages on the main and the overflow topic in one flush. The inspector takes them in replay
     // order, so that a mutation never comes before the nodes it changes. Each still counts toward its partition's block.
-    let mut inspections: Vec<BlockInspection> =
-        decoded.iter().map(|_| BlockInspection::default()).collect();
+    let mut inspections: Vec<BlockInspection> = decoded
+        .iter()
+        .map(|_| BlockInspection::with_resolve_budget(budget.resolved.clone()))
+        .collect();
     let times: Vec<Vec<f64>> = decoded
         .iter()
         .map(|(_, messages, _)| messages.iter().map(replay_time).collect())

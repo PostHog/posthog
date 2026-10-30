@@ -3,6 +3,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::ops::Range;
+use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 
 use url::Url;
@@ -1008,7 +1009,7 @@ fn walk_snapshot<'p>(
     inner: &[u8],
     data: Span,
     expansion: &Expansion,
-    page_base: Option<&'p Url>,
+    resolver: Resolver<'p>,
 ) -> Snapshot<'p> {
     let (bytes, root) = if scan::is_string(inner, data) {
         match expansion.json(data) {
@@ -1027,7 +1028,7 @@ fn walk_snapshot<'p>(
         return Snapshot::Dropped;
     };
     let mut walk = Walk {
-        resolver: Resolver::new(page_base),
+        resolver,
         ..Walk::default()
     };
     if walk_nodes(bytes, node, &mut walk) {
@@ -1250,6 +1251,7 @@ impl DomInspector {
         event: &Event,
         window: &str,
         event_page_url: Option<&str>,
+        resolve_budget: Option<&AtomicUsize>,
         stats: &mut BlockStats,
     ) -> Observed {
         self.clock += 1;
@@ -1264,13 +1266,14 @@ impl DomInspector {
             dom.page_base = css::page_base(page_url).map(Arc::new);
         }
         let page_base = dom.page_base.clone();
+        let resolver = Resolver::new(page_base.as_deref(), resolve_budget);
         let mut observed = Observed::default();
         match (event.kind, event.source) {
             (Some(FULL_SNAPSHOT), _) => {
                 let expansion = cv::expansion(inner, event);
                 let last_used = dom.last_used;
                 match event.data.map_or(Snapshot::Dropped, |data| {
-                    walk_snapshot(inner, data, &expansion, page_base.as_deref())
+                    walk_snapshot(inner, data, &expansion, resolver)
                 }) {
                     Snapshot::Walked(mut walk) => {
                         // A full snapshot replaces the window's DOM.
@@ -1316,14 +1319,8 @@ impl DomInspector {
             (Some(INCREMENTAL_SNAPSHOT), Some(MUTATION)) => {
                 if let Some(data) = event.data {
                     let expansion = cv::expansion(inner, event);
-                    let (orphans, changed, undecoded) = observe_mutation(
-                        inner,
-                        data,
-                        &expansion,
-                        dom,
-                        page_base.as_deref(),
-                        &mut self.urls,
-                    );
+                    let (orphans, changed, undecoded) =
+                        observe_mutation(inner, data, &expansion, dom, resolver, &mut self.urls);
                     stats.orphan_mutations += orphans;
                     stats.decode_failures += u32::from(undecoded);
                     observed.changed = changed;
@@ -1343,7 +1340,7 @@ impl DomInspector {
                         data,
                         event.source,
                         &expansion,
-                        page_base.as_deref(),
+                        resolver,
                         &mut self.urls,
                     );
                 }
@@ -1473,7 +1470,7 @@ fn observe_mutation(
     data: Span,
     expansion: &Expansion,
     dom: &mut WindowDom,
-    page_base: Option<&Url>,
+    resolver: Resolver<'_>,
     urls: &mut Urls,
 ) -> (u32, u32, bool) {
     // The recorder did not decode this mutation, so the window's DOM is not known after it.
@@ -1487,7 +1484,7 @@ fn observe_mutation(
     }
     let mut undecoded = false;
     let mut walk = Walk {
-        resolver: Resolver::new(page_base),
+        resolver,
         ..Walk::default()
     };
     let mut adds = Vec::new();
@@ -1664,11 +1661,11 @@ fn style_sheet_urls(
     data: Span,
     source: Option<u8>,
     expansion: &Expansion,
-    page_base: Option<&Url>,
+    mut resolver: Resolver<'_>,
     urls: &mut Urls,
 ) {
     let mut push = |found: CssUrl<'_>| urls.push_css(found);
-    let resolver = &mut Resolver::new(page_base);
+    let resolver = &mut resolver;
     match source {
         Some(STYLE_SHEET_RULE) => {
             let [adds, replace, replace_sync] =
@@ -1797,7 +1794,14 @@ mod tests {
             let message = events(json!([event]));
             let mut stats = BlockStats::default();
             let mut dom = DomInspector::default();
-            dom.observe(&message.inner, &message.events[0], "w", None, &mut stats);
+            dom.observe(
+                &message.inner,
+                &message.events[0],
+                "w",
+                None,
+                None,
+                &mut stats,
+            );
             // Remote image URLs go to the fetcher. The inline image in the srcset is the image scan's to move.
             assert_eq!(
                 dom.take_image_urls(),
@@ -1846,7 +1850,7 @@ mod tests {
         let mut dom = DomInspector::default();
         let mut stats = BlockStats::default();
         for event in &message.events {
-            dom.observe(&message.inner, event, "w", None, &mut stats);
+            dom.observe(&message.inner, event, "w", None, None, &mut stats);
         }
         assert_eq!(stats.events_before_first_full_snapshot, 1);
         assert_eq!(stats.orphan_mutations, 2);
@@ -1866,7 +1870,14 @@ mod tests {
         let mut stats = BlockStats::default();
         dom.start_message();
         for event in &message.events {
-            dom.observe(&message.inner, event, window, Some(PAGE_URL), &mut stats);
+            dom.observe(
+                &message.inner,
+                event,
+                window,
+                Some(PAGE_URL),
+                None,
+                &mut stats,
+            );
         }
         (dom, stats)
     }
@@ -2245,19 +2256,41 @@ mod tests {
                 &message.events[0],
                 &window.to_string(),
                 None,
+                None,
                 &mut stats,
             );
         }
         assert!(!stats.node_cap_reached);
-        dom.observe(&message.inner, &message.events[1], "0", None, &mut stats);
+        dom.observe(
+            &message.inner,
+            &message.events[1],
+            "0",
+            None,
+            None,
+            &mut stats,
+        );
         assert!(stats.node_cap_reached);
 
         for window in 0..MAX_WINDOWS {
             let other = format!("other-{window}");
-            dom.observe(&message.inner, &message.events[1], &other, None, &mut stats);
+            dom.observe(
+                &message.inner,
+                &message.events[1],
+                &other,
+                None,
+                None,
+                &mut stats,
+            );
         }
         let mut stats = BlockStats::default();
-        dom.observe(&message.inner, &message.events[1], "0", None, &mut stats);
+        dom.observe(
+            &message.inner,
+            &message.events[1],
+            "0",
+            None,
+            None,
+            &mut stats,
+        );
         assert!(stats.node_cap_reached);
     }
 
