@@ -84,14 +84,16 @@ FLAG_CALL_CONJUNCTS = (
 FLAG_CALLS_ON_EVENTS = f"SELECT count() FROM events WHERE {FLAG_CALL_CONJUNCTS}"
 PAGEVIEW_CONJUNCTS = "event = '$pageview' AND timestamp >= now() - INTERVAL 7 DAY"
 PROBE_DISTINCT_IDS = "(SELECT 'probe-distinct-id' AS id) AS d"
-UNQUALIFIED_FLAG_CALLS_NEXT_TO_A_JOIN = (
-    f"SELECT count() FROM events AS e JOIN {PROBE_DISTINCT_IDS} ON e.distinct_id = d.id WHERE {FLAG_CALL_CONJUNCTS}"
+FLAG_CALLS_AFTER_A_JOIN = (
+    f"SELECT count() FROM {PROBE_DISTINCT_IDS} JOIN events AS e ON e.distinct_id = d.id "
+    "WHERE e.event = '$feature_flag_called' AND e.properties.$feature_flag = 'probe-flag' "
+    "AND e.timestamp >= now() - INTERVAL 7 DAY"
 )
 
 
 def _create_flag_calls_expression(team: Team) -> str:
     DataWarehouseExpression.objects.for_team(team.pk).create(
-        team=team, table_name="events", field_name="flag_calls", expression=f"({UNQUALIFIED_FLAG_CALLS_NEXT_TO_A_JOIN})"
+        team=team, table_name="events", field_name="flag_calls", expression=f"({FLAG_CALLS_AFTER_A_JOIN})"
     )
     # The transform runs only when the query text names $feature_flag_called. The expression body is not part of that
     # text. Without this filter, the transform skips the query. The test would then pass even if record_added stopped
@@ -831,37 +833,28 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            ("unqualified_filters_next_to_a_join", UNQUALIFIED_FLAG_CALLS_NEXT_TO_A_JOIN, [(1,)]),
             (
                 "query_built_without_source_positions",
-                clear_locations(parse_select(UNQUALIFIED_FLAG_CALLS_NEXT_TO_A_JOIN)),
+                clear_locations(parse_select(FLAG_CALLS_AFTER_A_JOIN)),
                 [(1,)],
             ),
             (
                 "union_of_one_select_object_twice",
-                ast.SelectSetQuery.create_from_queries(
-                    [parse_select(UNQUALIFIED_FLAG_CALLS_NEXT_TO_A_JOIN)] * 2, "UNION ALL"
-                ),
+                ast.SelectSetQuery.create_from_queries([parse_select(FLAG_CALLS_AFTER_A_JOIN)] * 2, "UNION ALL"),
                 [(1,), (1,)],
             ),
             (
                 "union_of_one_parsed_template_twice",
                 ast.SelectSetQuery.create_from_queries(
                     [
-                        parse_select(UNQUALIFIED_FLAG_CALLS_NEXT_TO_A_JOIN),
-                        parse_select(UNQUALIFIED_FLAG_CALLS_NEXT_TO_A_JOIN),
+                        parse_select(FLAG_CALLS_AFTER_A_JOIN),
+                        parse_select(FLAG_CALLS_AFTER_A_JOIN),
                     ],
                     "UNION ALL",
                 ),
                 [(1,), (1,)],
             ),
-            (
-                "events_after_another_table",
-                f"SELECT count() FROM {PROBE_DISTINCT_IDS} JOIN events AS e ON e.distinct_id = d.id "
-                "WHERE e.event = '$feature_flag_called' AND e.properties.$feature_flag = 'probe-flag' "
-                "AND e.timestamp >= now() - INTERVAL 7 DAY",
-                [(1,)],
-            ),
+            ("events_after_another_table", FLAG_CALLS_AFTER_A_JOIN, [(1,)]),
             (
                 "self_join_with_both_sides_pinned",
                 "SELECT count() FROM events AS a JOIN events AS b ON a.uuid = b.uuid "
@@ -877,17 +870,17 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
             ),
             (
                 "scan_in_a_subquery",
-                f"SELECT * FROM ({UNQUALIFIED_FLAG_CALLS_NEXT_TO_A_JOIN})",
+                f"SELECT * FROM ({FLAG_CALLS_AFTER_A_JOIN})",
                 [(1,)],
             ),
             (
                 "scan_in_a_type_cast",
-                f"SELECT ({UNQUALIFIED_FLAG_CALLS_NEXT_TO_A_JOIN})::String",
+                f"SELECT ({FLAG_CALLS_AFTER_A_JOIN})::String",
                 [("1",)],
             ),
             (
                 "scan_in_a_cte_body",
-                f"WITH calls AS ({UNQUALIFIED_FLAG_CALLS_NEXT_TO_A_JOIN}) SELECT * FROM calls",
+                f"WITH calls AS ({FLAG_CALLS_AFTER_A_JOIN}) SELECT * FROM calls",
                 [(1,)],
             ),
             (
@@ -984,8 +977,7 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
             ),
             (
                 "posthog_events_next_to_a_join",
-                f"SELECT count() FROM posthog.events AS e JOIN {PROBE_DISTINCT_IDS} ON e.distinct_id = d.id "
-                f"WHERE {FLAG_CALL_CONJUNCTS}",
+                FLAG_CALLS_AFTER_A_JOIN.replace("JOIN events AS e", "JOIN posthog.events AS e"),
                 "it reads events in a shape that can't be moved",
             ),
         ]
