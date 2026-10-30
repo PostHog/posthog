@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { registerBunOAuthFlows } from "@earendil-works/pi-ai/bun-oauth";
 import {
   type InlineExtension,
   SessionManager,
@@ -23,6 +24,10 @@ import { createPiRepositoryToolsExtension } from "./repository-tools-extension";
 import { resolveRequestedModel } from "./requested-model";
 import type { PiRpcBootstrap, PiRuntimeExtension } from "./rpc-client";
 import { sanitizePiHostEnvironment } from "./rpc-environment";
+
+// pi-ai loads its OAuth flows (a ChatGPT login's token refresh) through a variable import that no bundler can
+// follow. This host is one bundle, so the flows are registered statically as pi's own standalone binary does.
+registerBunOAuthFlows();
 
 interface PiHostRequest {
   type: "posthog_pi_host_request";
