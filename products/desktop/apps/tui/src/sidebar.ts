@@ -142,8 +142,9 @@ export function sidebarRows({
   return rows;
 }
 
+// Workspace rows only label their group; the keyboard moves between chats.
 const isSelectable = (row: SidebarRow): boolean =>
-  row.kind === "task" || row.kind === "workspace" || row.kind === "viewMore";
+  row.kind === "task" || row.kind === "viewMore";
 
 export function moveSelection(
   rows: SidebarRow[],
@@ -181,14 +182,6 @@ export function activateRow(
     default:
       return layout;
   }
-}
-
-// Moving through the sidebar shows each chat in place while focus stays on the list.
-export function previewRow(layout: LayoutState, row: SidebarRow): LayoutState {
-  const next = activateRow(layout, row);
-  return next === "viewMore" || next === layout
-    ? layout
-    : { ...next, focus: "sidebar" };
 }
 
 // Identifies a row across re-renders, so the cursor follows the task rather than its position.
