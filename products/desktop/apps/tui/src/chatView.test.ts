@@ -129,6 +129,14 @@ describe("ChatView", () => {
     expect(chat.isAtTop()).toBe(true);
     expect(plain(chat.render(40, 5))[0]).toContain("Loading earlier messages");
 
+    // At the very top, the place kept is the first message, not the loading row that stays at the top: a page that
+    // landed once left the reader at the top again, which asked for the next page, and so on until the log ran out.
+    chat.setTranscript(replies(30).slice(10), { hasOlder: true });
+    const paged = plain(chat.render(40, 5));
+    expect(chat.isAtTop()).toBe(false);
+    expect(paged.join("\n")).toContain("Reply 20");
+    expect(paged.join("\n")).not.toContain("Loading earlier messages");
+
     chat.scrollBy(2);
     const reading = plain(chat.render(40, 5));
     chat.setTranscript(replies(30), { hasOlder: false });
