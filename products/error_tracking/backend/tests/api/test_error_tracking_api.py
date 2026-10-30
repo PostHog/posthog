@@ -609,7 +609,7 @@ class TestErrorTracking(APIBaseTest):
         with CaptureQueriesContext(connection) as queries:
             response = self.client.get(
                 f"/api/environments/{self.team.id}/error_tracking/fingerprints",
-                data={"issue_id": str(issue.id), "limit": 1, "offset": 1},
+                data={"issue_id": str(issue.id), "limit": "1", "offset": "1"},
             )
 
         assert response.status_code == 200, response.json()
