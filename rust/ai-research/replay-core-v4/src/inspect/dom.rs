@@ -389,6 +389,7 @@ impl Urls {
             CssUrl::Image(url) => self.push(url),
             CssUrl::Unshown(url) => self.push_remote(url),
             CssUrl::Resolved(url) => self.push_fetch(url),
+            CssUrl::Unresolved(text) => self.remote.insert_css_rewrite(text.to_owned(), None),
             CssUrl::Rewrite(rewrite) => self
                 .remote
                 .insert_css_rewrite(rewrite.text.clone(), Some(rewrite)),
@@ -398,7 +399,7 @@ impl Urls {
     /// Takes the URLs one walk found.
     fn merge(&mut self, walk: Urls) {
         for url in &walk.urls {
-            self.push(url);
+            self.push_fetch(url);
         }
         self.remote.extend(walk.remote);
     }
@@ -2069,6 +2070,9 @@ mod tests {
         ] {
             assert!(remote.contains(&url(name)), "{name}");
         }
+        assert!(!remote
+            .iter()
+            .any(|url| url.ends_with("/img/relative-style.png")));
         rewrites.sort();
         assert_eq!(
             rewrites,

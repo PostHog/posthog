@@ -344,6 +344,12 @@ mod tests {
             ]
         );
         assert!(inspected.css_rewrites.is_empty());
+
+        let mut block = BlockInspection::default();
+        let rule = json!([{"type": 3, "timestamp": 3, "data": {"source": 8, "id": 3, "replaceSync": ".b{background:url(/img/b.png)}"}}]);
+        session.observe_message(&mut block, &message_in(Some("unseen"), rule.clone()));
+        session.observe_message(&mut block, &message_in(Some("a"), rule));
+        assert!(block.finish().css_rewrites.is_empty());
     }
 
     #[test]

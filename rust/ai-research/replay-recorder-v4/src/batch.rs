@@ -121,8 +121,7 @@ const SESSION_EXPAND_BUDGET: usize = 256 * 1024 * 1024;
 /// memory parsed than in its payload, so a message that does not fit is skipped.
 const FLUSH_EVENTS_BUDGET: usize = 1024 * 1024 * 1024;
 
-/// The bytes of resolved relative CSS URLs that one flush keeps in its blocks. A resolved URL carries the page's path,
-/// so many short relative URLs on a page with a long path outgrow the recording that holds them.
+/// The bytes of resolved CSS URLs one flush keeps. Each carries its page's origin, which many short URLs can outgrow.
 const FLUSH_RESOLVED_BUDGET: usize = 64 * 1024 * 1024;
 
 struct DecodeBudget {

@@ -8,7 +8,7 @@ use crate::url_policy::{
     is_fetched_image_type, is_protocol_relative, is_remote, try_canonicalize, MAX_URL_LEN,
 };
 
-/// Each resolution copies the page URL, so one event resolves at most this many relative URLs.
+/// Each resolution copies the page's origin, so one event resolves at most this many relative URLs.
 pub const MAX_RESOLVED_URLS: usize = 1024;
 /// Far more than a real `image-set()` lists. A longer set gets no rewrite, so the inspector never holds its candidates.
 const MAX_IMAGE_SET_CANDIDATES: usize = 32;
@@ -19,6 +19,8 @@ pub enum CssUrl<'a> {
     Unshown(&'a str),
     /// A resolved root-relative URL. The block holds only the relative text, which its rewrite replaces.
     Resolved(&'a str),
+    /// A root-relative `url()` that did not resolve. Its text keeps no rewrite, which another window would apply here.
+    Unresolved(&'a str),
     Rewrite(CssRewrite),
 }
 
@@ -65,10 +67,7 @@ impl<'p> Resolver<'p> {
     /// Only a root-relative URL, as `/a.png`, resolves. It needs the page's origin and nothing else, so no part of a page
     /// path, which can hold a token, reaches a fetch, and a `<base>` or a style sheet's own URL cannot change it.
     fn resolves(&self, source: &str) -> bool {
-        self.base.is_some()
-            && self.remaining > 0
-            && source.starts_with('/')
-            && !is_protocol_relative(source)
+        self.base.is_some() && self.remaining > 0 && is_root_relative(source)
     }
 
     fn resolve(&mut self, source: &str) -> Option<String> {
@@ -115,16 +114,22 @@ pub fn rewrite_functions(
             position = skip_quoted(bytes, position).unwrap_or(bytes.len());
             continue;
         }
-        let end = if function_at(bytes, position, b"image-set") {
-            matching_paren(bytes, position + b"image-set".len())
+        let image_set = if function_at(bytes, position, b"image-set") {
+            Some(b"image-set".len())
         } else if function_at(bytes, position, b"-webkit-image-set") {
-            matching_paren(bytes, position + b"-webkit-image-set".len())
-        } else if function_at(bytes, position, b"url") {
-            Some(scan_url_function(css, position).0)
+            Some(b"-webkit-image-set".len())
         } else {
             None
         };
-        let Some(end) = end else {
+        let end = if let Some(name_len) = image_set {
+            // The inspector stops at an unterminated set, and each later opener would scan to the end again.
+            let Some(end) = matching_paren(bytes, position + name_len) else {
+                break;
+            };
+            end
+        } else if function_at(bytes, position, b"url") {
+            scan_url_function(css, position).0
+        } else {
             position += 1;
             continue;
         };
@@ -370,8 +375,13 @@ fn url_function_urls(
                 resolved: Some(absolute),
             }));
         }
+        None if is_root_relative(source) => found(CssUrl::Unresolved(function)),
         None => found(CssUrl::Image(source)),
     }
+}
+
+fn is_root_relative(source: &str) -> bool {
+    source.starts_with('/') && !is_protocol_relative(source)
 }
 
 /// A serialized URL percent-encodes `"`, so the quotes hold any URL that [`Resolver`] returns.
@@ -715,6 +725,7 @@ mod tests {
                 CssUrl::Image(url) => format!("image {url}"),
                 CssUrl::Unshown(url) => format!("unshown {url}"),
                 CssUrl::Resolved(url) => format!("resolved {url}"),
+                CssUrl::Unresolved(text) => format!("unresolved {text}"),
                 CssUrl::Rewrite(rewrite) => format!(
                     "rewrite {} => {} dropping {:?}",
                     rewrite.text, rewrite.replacement, rewrite.dropped
@@ -730,7 +741,10 @@ mod tests {
         let css = r".bg-\[url\(\'\/hero\.png\'\)\]{background-image:url('/hero.png')}.a{background:url(https://cdn.example.com/a.png)}";
         assert_eq!(
             found(css, None),
-            ["image /hero.png", "image https://cdn.example.com/a.png"]
+            [
+                "unresolved url('/hero.png')",
+                "image https://cdn.example.com/a.png"
+            ]
         );
     }
 
@@ -792,12 +806,19 @@ mod tests {
             ".a{background:url(/img/a.png)} .b{background:url(/img/b.png)}",
             &mut Resolver::new(base.as_ref(), Some(&budget)),
             &mut |url| {
-                if let CssUrl::Image(url) | CssUrl::Resolved(url) = url {
+                if let CssUrl::Resolved(url) | CssUrl::Unresolved(url) = url {
                     named.push(url.to_owned());
                 }
             },
         );
-        assert_eq!(named, ["https://app.example.com/img/a.png", "/img/b.png"]);
+        assert_eq!(
+            named,
+            ["https://app.example.com/img/a.png", "url(/img/b.png)"]
+        );
+        let rewritten = rewrite_functions("url(/a.png) image-set( url(/a.png)", &mut |function| {
+            (function == "url(/a.png)").then(|| "url(x)".to_owned())
+        });
+        assert_eq!(rewritten.as_deref(), Some("url(x) image-set( url(/a.png)"));
         let many: Vec<String> = (1..=MAX_IMAGE_SET_CANDIDATES + 1)
             .map(|i| format!("url(https://cdn.example.com/{i}.png) {i}x"))
             .collect();
