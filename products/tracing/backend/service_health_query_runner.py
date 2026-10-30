@@ -307,14 +307,9 @@ class ServiceHealthQueryRunner:
         if self.params.environment or not unhealthy:
             return []
         names = [row["service"] for row in unhealthy[:NEXT_SERVICES_LIMIT]]
-        query: dict[str, Any] = {
-            "dateRange": _range(self.current),
-            "serviceNames": names,
-            "limit": 20,
-            "includeHealth": True,
-        }
+        query: dict[str, Any] = {"dateRange": _range(self.current), "serviceNames": names, "limit": 20}
         if compare_filter := aggregate_compare_filter(self.params.compare):
-            query["compareFilter"] = compare_filter
+            query = {**query, "compareFilter": compare_filter, "includeHealth": True}
         calls = [{"tool": "apm-spans-aggregate", "why": _clip(f"operations behind {', '.join(names)}"), "query": query}]
         worst = next((row for row in unhealthy if row["error_count"]), None)
         if worst:

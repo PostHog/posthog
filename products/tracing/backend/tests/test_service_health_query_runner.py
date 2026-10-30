@@ -409,6 +409,9 @@ class TestServiceHealthQueryRunner(_TraceSpansTestBase):
         for call in result["next"]:
             self.assertLessEqual(len(call["why"]), MAX_REASON_LENGTH)
         self.assertEqual(self._run()["next"], [])
+        no_baseline = self._run(environment=None, compare=ServiceHealthCompare.NONE)["next"][0]
+        self.assertEqual(no_baseline["tool"], "apm-spans-aggregate")
+        self.assertNotIn("includeHealth", no_baseline["query"])
 
     def test_a_truncated_scan_does_not_invent_silent_or_new_services(self):
         with patch("products.tracing.backend.service_health_query_runner.SERVICE_SCAN_LIMIT", 3):
