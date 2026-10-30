@@ -145,6 +145,7 @@ def test_all_models_register_at_app_population_not_via_router() -> None:
 # alerts, ee, and posthog core); this guards against new viewset-only receivers sneaking back in.
 _ROUTER_RECEIVER_DIFF = """
 import os
+import sys
 import weakref
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
@@ -154,7 +155,10 @@ django.setup()
 from django.contrib.auth import signals as auth_signals
 from django.db.models import signals
 from posthog.models.signals import model_activity_signal
-from products.experiments.backend.facade.change_signals import experiment_changed
+
+# Looked up instead of imported: an import here would connect the experiments save receivers before `before`, so the
+# diff would miss them if only the router imported their module.
+experiment_changed = sys.modules["products.experiments.backend.facade.change_signals"].experiment_changed
 
 _SIGNALS = ["pre_save", "post_save", "pre_delete", "post_delete", "m2m_changed", "pre_init", "post_init"]
 # model_activity_signal is PostHog's custom audit-log signal, not a django.db.models one. Its
