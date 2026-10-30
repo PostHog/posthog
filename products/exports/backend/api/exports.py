@@ -7,7 +7,6 @@ from typing import Any, Literal
 from django.conf import settings
 from django.http import HttpResponse, HttpResponseRedirect
 from django.shortcuts import get_object_or_404
-from django.urls import reverse
 from django.utils.timezone import now
 
 import structlog
@@ -43,6 +42,7 @@ from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
 )
+from products.exports.backend.facade.exporters import get_export_content_path, is_product_export
 from products.exports.backend.models.exported_asset import (
     ExportedAsset,
     get_content_response,
@@ -184,7 +184,7 @@ class ExportedAssetSerializer(UserAccessControlSerializerMixin, serializers.Mode
             raise ValidationError({"insight": ["This insight does not belong to your team."]})
 
         export_context = data.get("export_context") or {}
-        for internal_key in ("limit_context", "execution_mode"):
+        for internal_key in ("limit_context", "execution_mode", "kind"):
             if internal_key in export_context:
                 raise ValidationError({"export_context": [f"{internal_key} is not supported for exports."]})
         if export_context.get("path") and (
@@ -625,7 +625,12 @@ class ExportedAssetViewSet(
         instance = get_object_or_404(queryset, pk=self.kwargs["pk"])
         export_context = instance.export_context or {}
 
-        if instance.is_dataset_export and self.action != "content":
+        # The owning product authorizes these on its own endpoints, so this API only lists them and
+        # redirects their content.
+        if (
+            is_product_export(export_format=instance.export_format, kind=instance.export_kind)
+            and self.action != "content"
+        ):
             raise NotFound()
 
         if not instance.is_session_recording_export and instance.created_by_id != self.request.user.id:
@@ -677,20 +682,18 @@ class ExportedAssetViewSet(
     @action(methods=["GET"], detail=True, required_scopes=["export:read"])
     def content(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         instance = self.get_object()
-        if instance.is_dataset_export:
-            dataset_id = (instance.export_context or {}).get("dataset_id")
-            if not isinstance(dataset_id, str):
-                raise NotFound()
-            return HttpResponseRedirect(
-                reverse(
-                    "project_datasets-export-content",
-                    kwargs={
-                        "parent_lookup_team_id": instance.team_id,
-                        "pk": dataset_id,
-                        "export_id": instance.id,
-                    },
-                )
+        if is_product_export(export_format=instance.export_format, kind=instance.export_kind):
+            owner_path = get_export_content_path(
+                export_format=instance.export_format,
+                kind=instance.export_kind,
+                team_id=instance.team_id,
+                asset_id=instance.id,
+                export_context=instance.export_context or {},
             )
+            if owner_path is None:
+                raise NotFound()
+            query = request.META.get("QUERY_STRING")
+            return HttpResponseRedirect(f"{owner_path}?{query}" if query else owner_path)
         return get_content_response(
             instance,
             download=request.query_params.get("download") == "true",
