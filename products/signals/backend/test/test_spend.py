@@ -575,6 +575,7 @@ class TestSignalSpend(BaseTest):
             team=self.team,
             title="Example research",
             description="",
+            internal=True,
             origin_product=Task.OriginProduct.SIGNAL_REPORT,
             signal_report=report,
         )
@@ -759,7 +760,7 @@ class TestSignalSpend(BaseTest):
         driver = str(uuid4())
         report = SignalReport.objects.create(team=self.team, triggering_signal_id=driver)
         task = Task.objects.create(
-            team=self.team, title="Fails before launch", origin_product=origin, signal_report=report
+            team=self.team, title="Fails before launch", internal=True, origin_product=origin, signal_report=report
         )
         run = task.create_run(
             environment=TaskRun.Environment.CLOUD, extra_state={"ai_stage": stage}, spend_signal_id=driver
