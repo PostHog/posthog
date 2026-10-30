@@ -215,7 +215,7 @@ class FileUploadSource(SimpleSource[FileUploadInputs]):
             has_header=True,
             allow_double_quotes=csv_metadata.get("allow_double_quotes") is not False,
             column_types=csv_column_types_from_metadata(csv_metadata.get("column_types"))
-            if file_format == "csv"
+            if file_format in ("csv", "jsonl")
             else (),
         )
 

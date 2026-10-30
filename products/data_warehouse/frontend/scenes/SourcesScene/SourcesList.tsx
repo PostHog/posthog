@@ -4,6 +4,7 @@ import { IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { HogFunctionList } from 'scenes/hog-functions/list/HogFunctionsList'
 import { urls } from 'scenes/urls'
 
@@ -19,6 +20,8 @@ import { ManagedSourcesTable } from 'products/data_warehouse/frontend/shared/com
 import { SelfManagedSourcesTable } from 'products/data_warehouse/frontend/shared/components/SelfManagedSourcesTable'
 
 export function SourcesList(): JSX.Element {
+    const objectStorageSourcesEnabled = useFeatureFlag('DATA_WAREHOUSE_OBJECT_STORAGE_SOURCES')
+
     return (
         <div className="flex flex-col gap-4">
             <SceneSection
@@ -71,19 +74,21 @@ export function SourcesList(): JSX.Element {
                 title="Self-managed data warehouse sources"
                 description="Connect to your own data sources, making them queryable in PostHog"
                 actions={
-                    <LemonButton
-                        type="primary"
-                        size="small"
-                        icon={<IconPlusSmall />}
-                        to={
-                            combineUrl(urls.dataPipelinesNew('source'), {
-                                [CATEGORY_SEARCH_PARAM]: SELF_MANAGED_CATEGORY,
-                            }).url
-                        }
-                        data-attr="new-self-managed-source"
-                    >
-                        New self-managed source
-                    </LemonButton>
+                    objectStorageSourcesEnabled ? undefined : (
+                        <LemonButton
+                            type="primary"
+                            size="small"
+                            icon={<IconPlusSmall />}
+                            to={
+                                combineUrl(urls.dataPipelinesNew('source'), {
+                                    [CATEGORY_SEARCH_PARAM]: SELF_MANAGED_CATEGORY,
+                                }).url
+                            }
+                            data-attr="new-self-managed-source"
+                        >
+                            New self-managed source
+                        </LemonButton>
+                    )
                 }
             >
                 <SelfManagedSourcesTable />

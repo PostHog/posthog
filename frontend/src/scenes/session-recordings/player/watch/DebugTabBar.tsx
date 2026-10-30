@@ -1,6 +1,6 @@
 import { ReactNode } from 'react'
 
-import { IconPulse } from '@posthog/icons'
+import { IconBug, IconPulse } from '@posthog/icons'
 
 import { IconUnverifiedEvent } from 'lib/lemon-ui/icons'
 import { PaneTabBar } from 'scenes/session-recordings/components/PaneTabBar'
@@ -8,6 +8,10 @@ import { PaneTabBar } from 'scenes/session-recordings/components/PaneTabBar'
 import { SessionRecordingSidebarTab } from '~/types'
 
 export const DEBUG_TAB_KEYS = [SessionRecordingSidebarTab.INSPECTOR, SessionRecordingSidebarTab.NETWORK_WATERFALL]
+
+export function debugTabKeys(withLinkedIssues: boolean): SessionRecordingSidebarTab[] {
+    return withLinkedIssues ? [...DEBUG_TAB_KEYS, SessionRecordingSidebarTab.LINKED_ISSUES] : DEBUG_TAB_KEYS
+}
 
 const DEBUG_TABS: Partial<Record<SessionRecordingSidebarTab, { label: string; icon: ReactNode; dataAttr: string }>> = {
     [SessionRecordingSidebarTab.INSPECTOR]: {
@@ -19,6 +23,11 @@ const DEBUG_TABS: Partial<Record<SessionRecordingSidebarTab, { label: string; ic
         label: 'Network',
         icon: <IconPulse />,
         dataAttr: 'watch-panel-debug-network',
+    },
+    [SessionRecordingSidebarTab.LINKED_ISSUES]: {
+        label: 'Linked issues',
+        icon: <IconBug />,
+        dataAttr: 'watch-panel-debug-linked-issues',
     },
 }
 

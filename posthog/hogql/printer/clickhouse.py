@@ -1242,11 +1242,13 @@ class ClickHousePrinter(BasePrinter):
         node_type: ast.TableOrSelectType | None,
     ) -> ast.Expr | None:
         from posthog.hogql.database.schema.events import EventsTable
+        from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsTable
 
         months = self.context.events_retention_months
         if months is None or node_type is None or not isinstance(table_type, ast.TableType):
             return None
-        if not isinstance(table_type.table, EventsTable):
+        # flag_evaluations holds flag calls that are events too, and a query on events can read them from there.
+        if not isinstance(table_type.table, (EventsTable, FlagEvaluationsTable)):
             return None
         return retention_floor_for_table(node_type, months)
 

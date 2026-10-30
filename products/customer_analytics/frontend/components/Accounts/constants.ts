@@ -22,6 +22,12 @@ export const DEFAULT_TILES: AccountsOverviewTile[] = [
 const overviewTilesTeamId = window.POSTHOG_APP_CONTEXT?.current_team?.id
 export const ACCOUNTS_OVERVIEW_LEGACY_TILES_PREFIX = `${overviewTilesTeamId}_customer_analytics_accounts_overview__`
 
+export const ACCOUNT_RELATIONSHIP_ANALYTICS_ROLES: Record<string, string> = {
+    CSM: 'csm',
+    'Account executive': 'account_executive',
+    'Account owner': 'account_owner',
+}
+
 // Canonical analytics event names for the accounts list. Every `posthog.capture`
 // in this directory must reference these — a mistyped string silently forks a new
 // event in PostHog and breaks reporting without any error. Keep in sync with the

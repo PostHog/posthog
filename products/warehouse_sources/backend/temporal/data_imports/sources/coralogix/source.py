@@ -97,6 +97,7 @@ The **Frequent search** tier queries your indexed retention and works out of the
                             SourceFieldSelectConfigOption(
                                 label="US2 (cx498.coralogix.com)", value="cx498.coralogix.com"
                             ),
+                            SourceFieldSelectConfigOption(label="US3 (us3.coralogix.com)", value="us3.coralogix.com"),
                             SourceFieldSelectConfigOption(label="EU1 (coralogix.com)", value="coralogix.com"),
                             SourceFieldSelectConfigOption(label="EU2 (eu2.coralogix.com)", value="eu2.coralogix.com"),
                             SourceFieldSelectConfigOption(label="AP1 (coralogix.in)", value="coralogix.in"),

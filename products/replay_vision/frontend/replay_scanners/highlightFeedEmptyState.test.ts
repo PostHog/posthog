@@ -9,7 +9,17 @@ const quota = (exhausted: boolean): VisionQuotaApi => ({ exhausted }) as unknown
 describe('resolveHighlightFeedEmptyReason', () => {
     // The precedence between these is the behavior under test: a reader told to clear their filters
     // while every scanner is off would clear them and still face an empty feed.
-    it.each<[string, ReplayScannerApi[], VisionQuotaApi | null, boolean, HighlightFeedEmptyReason, (boolean | null)?]>([
+    it.each<
+        [
+            string,
+            ReplayScannerApi[],
+            VisionQuotaApi | null,
+            boolean,
+            HighlightFeedEmptyReason,
+            (boolean | null)?,
+            (boolean | null)?,
+        ]
+    >([
         ['no scanners at all', [], quota(false), false, 'no-scanners'],
         ['recording turned off, even with no scanners', [], quota(false), false, 'replay-off', false],
         ['recording turned off, even with an exhausted budget', [scanner()], quota(true), false, 'replay-off', false],
@@ -55,9 +65,38 @@ describe('resolveHighlightFeedEmptyReason', () => {
         ],
         // Falls through rather than claiming a block it cannot see.
         ['a quiet window when the quota snapshot never answered', [scanner()], null, false, 'quiet-window'],
-    ])('blames %s', (_name, scanners, quotaValue, hasFeedFilters, expected, sessionRecordingOptIn = null) => {
-        expect(
-            resolveHighlightFeedEmptyReason({ scanners, quota: quotaValue, sessionRecordingOptIn, hasFeedFilters })
-        ).toBe(expected)
-    })
+        ['no recordings before any scanner exists', [], quota(false), false, 'no-recordings', null, false],
+        ['no recordings over a quiet window', [scanner()], quota(false), false, 'no-recordings', null, false],
+        [
+            'a block before missing recordings',
+            [scanner({ enabled: false })],
+            quota(false),
+            false,
+            'all-disabled',
+            null,
+            false,
+        ],
+        [
+            'a quiet window while the recordings probe is unanswered',
+            [scanner()],
+            quota(false),
+            false,
+            'quiet-window',
+            null,
+            null,
+        ],
+    ])(
+        'blames %s',
+        (_name, scanners, quotaValue, hasFeedFilters, expected, sessionRecordingOptIn = null, hasRecordings = null) => {
+            expect(
+                resolveHighlightFeedEmptyReason({
+                    scanners,
+                    quota: quotaValue,
+                    sessionRecordingOptIn,
+                    hasFeedFilters,
+                    hasRecordings,
+                })
+            ).toBe(expected)
+        }
+    )
 })
