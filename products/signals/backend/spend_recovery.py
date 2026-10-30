@@ -1,5 +1,6 @@
 import time
 from bisect import bisect_right
+from typing import TYPE_CHECKING
 
 from django.core.cache import cache
 from django.db.models import Q
@@ -26,6 +27,9 @@ from products.signals.backend.spend import (
 from products.signals.backend.trial.tasks import release_abandoned_report_reservations
 from products.tasks.backend.facade.api import get_task_report_id, get_task_run
 from products.tasks.backend.facade.billing import process_pending_gateway_usage
+
+if TYPE_CHECKING:
+    from celery import Task
 
 logger = structlog.get_logger(__name__)
 RECOVERY_BUDGET_SECONDS = 30
@@ -99,32 +103,35 @@ def _recover_spend(*, team_id: int, spend_id: str) -> None:
 
 
 @shared_task(
+    bind=True,
     ignore_result=True,
     soft_time_limit=40,
     time_limit=45,
     queue=CeleryQueue.LONG_RUNNING.value,
-    autoretry_for=(Exception,),
-    retry_backoff=True,
-    retry_backoff_max=300,
     max_retries=None,
-    # Queue expiry must not discard publication retries after costs have settled.
-    retry_kwargs={"expires": None},
     acks_late=True,
     reject_on_worker_lost=True,
 )
-def recover_spend(team_id: int, spend_id: str) -> None:
+def recover_spend(self: "Task", team_id: int, spend_id: str) -> None:
     lock = redis.get_client().lock(
         f"signals:spend-recovery:{team_id}:{spend_id}", timeout=RECOVERY_LOCK_SECONDS, blocking=False
     )
-    if not lock.acquire():
-        raise RuntimeError("Spend recovery is already running")
+    acquired = lock.acquire()
     try:
+        if not acquired:
+            raise RuntimeError("Spend recovery is already running")
         _recover_spend(team_id=team_id, spend_id=spend_id)
+    except Exception as error:
+        # The sweep retries incomplete costs, but stops selecting rows once they settle.
+        if SignalSpend.objects.for_team(team_id).filter(id=spend_id, accounting_failed=False).exists():
+            raise self.retry(exc=error, countdown=300, expires=None)
+        raise
     finally:
-        try:
-            lock.release()
-        except LockNotOwnedError:
-            logger.warning("signals.spend.recovery_lock_expired", team_id=team_id, spend_id=spend_id)
+        if acquired:
+            try:
+                lock.release()
+            except LockNotOwnedError:
+                logger.warning("signals.spend.recovery_lock_expired", team_id=team_id, spend_id=spend_id)
 
 
 @shared_task(ignore_result=True)

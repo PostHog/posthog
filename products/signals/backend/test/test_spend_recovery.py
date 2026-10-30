@@ -19,6 +19,7 @@ from products.signals.backend.spend_recovery import RECOVERY_SOURCE_LIMIT, recov
 from products.signals.backend.trial.models import SignalTrialGrant, SignalTrialReportReservation
 from products.signals.backend.trial.policy import TrialPolicy
 from products.signals.backend.trial.tasks import REPORT_RESERVATION_RECOVERY_CURSOR_KEY
+from products.tasks.backend.facade.billing import TaskTokenUsageUnavailable
 from products.tasks.backend.models import Task, TaskRun
 
 
@@ -34,6 +35,37 @@ class TestTrialSpendRecovery(BaseTest):
 
     def claim(self) -> SignalTrialGrant:
         return self.policy.claim(user_id=self.user.pk)
+
+    def test_missing_task_costs_wait_for_the_next_sweep_without_retry_chains(self) -> None:
+        report = SignalReport.objects.create(team=self.team, triggering_signal_id=uuid4())
+        task = Task.objects.create(
+            team=self.team,
+            title="Pending research",
+            origin_product="signal_report",
+            signal_report=report,
+            internal=True,
+        )
+        run = task.create_run(extra_state={"ai_stage": "research", "unprocessed_request_ids": ["missing"]})
+        TaskRun.objects.filter(id=run.id, team_id=self.team.id).update(status=TaskRun.Status.COMPLETED)
+        spend = SignalSpend.objects.for_team(self.team.id).get(task_run_id=run.id)
+        with (
+            patch(
+                "products.tasks.backend.logic.services.gateway_usage._fetch_gateway_cost",
+                new_callable=AsyncMock,
+                return_value=None,
+            ) as fetch,
+            patch.object(
+                recover_spend, "retry", side_effect=AssertionError("Incomplete costs must wait for the sweep")
+            ),
+        ):
+            for _ in range(2):
+                result = recover_spend.apply(args=(self.team.id, str(spend.id)), throw=False)
+                assert result.failed()
+                assert isinstance(result.result, TaskTokenUsageUnavailable)
+        assert fetch.await_count == 2
+        spend.refresh_from_db()
+        assert spend.accounting_failed
+        assert spend.finalized_at is None
 
     @parameterized.expand([("research",), ("repo_selection",)])
     def test_task_recovery_applies_late_report_billing_exemption(self, stage: str) -> None:
