@@ -119,13 +119,30 @@ fn ends_with_escape(bytes: &[u8], at: usize) -> bool {
 }
 
 const SRCSET_KEY: &[u8] = br#""srcset":"#;
-/// A CSS-escaped `:/` or `//` as a JSON string holds it, as in a selector that names a URL.
-const ESCAPED_URL_STARTS: [&[u8]; 2] = [br"\\:\\/", br"\\/\\/"];
+
+/// Runs a stage of `apply` on bytes that an earlier stage may own, and keeps those bytes when the stage changes nothing.
+macro_rules! then_stage {
+    ($bytes:expr, $writer:ident . $stage:ident) => {
+        match $bytes {
+            Cow::Borrowed(bytes) => $writer.$stage(bytes),
+            Cow::Owned(owned) => {
+                let changed = match $writer.$stage(&owned) {
+                    Cow::Owned(changed) => Some(changed),
+                    Cow::Borrowed(_) => None,
+                };
+                Cow::Owned(changed.unwrap_or(owned))
+            }
+        }
+    };
+}
+/// A CSS-escaped `:/` or `(//` as a JSON string holds it, which starts a URL that a selector names but no PHP-style JSON.
+const ESCAPED_URL_STARTS: [&[u8]; 2] = [br"\\:\\/", br"\\(\\/\\/"];
 
 /// The block's URLs as a selector holds them. Most events hold none, so these are built when one first does.
 struct EscapedMatchers {
     urls: Option<AhoCorasick>,
     declined: Option<AhoCorasick>,
+    replacements: Vec<Vec<u8>>,
 }
 
 impl EscapedMatchers {
@@ -147,6 +164,14 @@ impl EscapedMatchers {
         Self {
             urls: build(&mut targets.iter()),
             declined: build(&mut targets.iter().filter(|target| target.declined.is_some())),
+            replacements: targets
+                .iter()
+                .map(|target| {
+                    json_string_contents(&escape_in_identifier(&String::from_utf8_lossy(
+                        &target.replacement,
+                    )))
+                })
+                .collect(),
         }
     }
 }
@@ -243,7 +268,6 @@ fn css_rewrite_kind(text: &str) -> &'static str {
 struct Target {
     url: String,
     replacement: Vec<u8>,
-    escaped_replacement: Vec<u8>,
     /// The policy's reason, for a declined URL.
     declined: Option<&'static str>,
     found: Cell<bool>,
@@ -364,7 +388,6 @@ impl UrlRewrite {
             };
             targets.push(Target {
                 url: url.clone(),
-                escaped_replacement: json_string_contents(&escape_in_identifier(&replacement)),
                 replacement: replacement.into_bytes(),
                 declined,
                 found: Cell::new(false),
@@ -428,26 +451,37 @@ impl UrlRewrite {
             .iter()
             .map(|rewrite| {
                 let mut covers = Vec::new();
+                let resolved = match &rewrite.resolved {
+                    Some(absolute) => {
+                        let reference = match url_reference(absolute, team_id, key_month, &url_key)
+                        {
+                            Ok((_, reference)) => reference,
+                            Err(decline) => declined_marker(decline.label()),
+                        };
+                        rewrite.replacement.replacen(
+                            &format!("\"{absolute}\""),
+                            &format!("\"{reference}\""),
+                            1,
+                        )
+                    }
+                    None => rewrite.replacement.clone(),
+                };
                 let replacement = match &matcher {
                     Some(matcher) => {
-                        let quoted = [
-                            b"\"".as_slice(),
-                            &json_string_contents(&rewrite.replacement),
-                            b"\"",
-                        ]
-                        .concat();
+                        let quoted =
+                            [b"\"".as_slice(), &json_string_contents(&resolved), b"\""].concat();
                         let replaced = replace_targets(
                             matcher,
                             &targets,
                             false,
-                            false,
+                            None,
                             &quoted,
                             &mut |index| covers.push(index),
                         );
                         unescape(&replaced, (0, replaced.len()))
-                            .map_or_else(|_| rewrite.replacement.clone(), Cow::into_owned)
+                            .map_or_else(|_| resolved.clone(), Cow::into_owned)
                     }
-                    None => rewrite.replacement.clone(),
+                    None => resolved,
                 };
                 covers.extend(
                     rewrite
@@ -568,9 +602,10 @@ impl UrlRewrite {
         let mut css_strings: Option<std::iter::Peekable<CssStrings<'_>>> = None;
         let mut out: Option<Vec<u8>> = None;
         let mut copied_to = 0;
+        let mut scanned_to = 0;
         for found in matcher.find_iter(bytes) {
             let start = found.start();
-            if start < copied_to {
+            if start < scanned_to {
                 continue;
             }
             let strings = css_strings.get_or_insert_with(|| CssStrings::new(bytes).peekable());
@@ -578,6 +613,7 @@ impl UrlRewrite {
             let Some(&string) = strings.peek().filter(|string| string.0 < start) else {
                 continue;
             };
+            scanned_to = string.1;
             let Ok(css) = unescape(bytes, string) else {
                 continue;
             };
@@ -615,21 +651,10 @@ impl UrlRewrite {
         } else {
             Cow::Borrowed(bytes)
         };
-        let rewritten = match rebuilt {
-            Cow::Borrowed(bytes) => self.rewrite_css(bytes),
-            Cow::Owned(rebuilt) => Cow::Owned(self.rewrite_css(&rebuilt).into_owned()),
-        };
-        let replaced = match rewritten {
-            Cow::Borrowed(bytes) => self.replace_urls(bytes),
-            Cow::Owned(rewritten) => Cow::Owned(self.replace_urls(&rewritten).into_owned()),
-        };
+        let rewritten = then_stage!(rebuilt, self.rewrite_css);
+        let replaced = then_stage!(rewritten, self.replace_urls);
         let replaced = if self.escaped_url_starts.is_match(replaced.as_ref()) {
-            match replaced {
-                Cow::Borrowed(bytes) => self.replace_escaped_urls(bytes),
-                Cow::Owned(replaced) => {
-                    Cow::Owned(self.replace_escaped_urls(&replaced).into_owned())
-                }
-            }
+            then_stage!(replaced, self.replace_escaped_urls)
         } else {
             replaced
         };
@@ -641,7 +666,6 @@ impl UrlRewrite {
         Cow::Owned(scrubbed.into_owned())
     }
 
-    /// Keeps a class that names a URL and the selector of its rule matching after the URL pass.
     fn replace_escaped_urls<'b>(&mut self, bytes: &'b [u8]) -> Cow<'b, [u8]> {
         let escaped = self
             .escaped
@@ -654,7 +678,7 @@ impl UrlRewrite {
             matcher,
             targets,
             self.fallback.overwrite_declined,
-            true,
+            Some(&escaped.replacements),
             bytes,
             &mut |index| targets[index].found.set(true),
         );
@@ -677,7 +701,7 @@ impl UrlRewrite {
             matcher,
             targets,
             self.fallback.overwrite_declined,
-            false,
+            None,
             bytes,
             &mut |index| targets[index].found.set(true),
         );
@@ -754,7 +778,7 @@ fn replace_targets<'b>(
     matcher: &AhoCorasick,
     targets: &[Target],
     overwrite_declined: bool,
-    escaped: bool,
+    escaped_replacements: Option<&[Vec<u8>]>,
     bytes: &'b [u8],
     replaced: &mut dyn FnMut(usize),
 ) -> Cow<'b, [u8]> {
@@ -765,7 +789,7 @@ fn replace_targets<'b>(
         let index = found.pattern().as_usize();
         // An escaped URL goes on with an escaped character, which a JSON string holds as `\\` and the character.
         let continues_after = bytes.get(end).is_some_and(|&after| continues_url(after))
-            || (escaped
+            || (escaped_replacements.is_some()
                 && bytes.get(end..end + 2) == Some(br"\\")
                 && bytes
                     .get(end + 2)
@@ -782,10 +806,9 @@ fn replace_targets<'b>(
         replaced(index);
         let out = out.get_or_insert_with(|| Vec::with_capacity(bytes.len()));
         out.extend_from_slice(&bytes[copied_to..start]);
-        out.extend_from_slice(if escaped {
-            &targets[index].escaped_replacement
-        } else {
-            &targets[index].replacement
+        out.extend_from_slice(match escaped_replacements {
+            Some(replacements) => &replacements[index],
+            None => &targets[index].replacement,
         });
         copied_to = end;
     }

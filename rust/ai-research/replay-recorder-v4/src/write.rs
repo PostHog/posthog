@@ -803,7 +803,10 @@ mod tests {
 
     /// The block's stored lines, after the inspector named its remote URLs.
     fn stored_lines(events: &str, extra: &[&str]) -> String {
-        let mut inspected = block_of("kept", events);
+        stored(block_of("kept", events), extra)
+    }
+
+    fn stored(mut inspected: Block, extra: &[&str]) -> String {
         let mut inspector = replay_core_v4::inspect::session::SessionInspector::default();
         let mut inspection = replay_core_v4::inspect::session::BlockInspection::default();
         for message in &inspected.messages {
@@ -999,6 +1002,38 @@ mod tests {
         for gone in [":url(/img/a.png)", "1x.png", "1x,", "Signature"] {
             assert!(!lines.contains(gone), "{gone} in {lines}");
         }
+    }
+
+    #[test]
+    fn leaves_a_relative_url_that_resolves_two_ways_as_the_page_wrote_it() {
+        let window = |id: &str, href: &str| {
+            let mut message = block_of(
+                "kept",
+                &json!([
+                    {"type": 4, "timestamp": 1, "data": {"href": href, "width": 800, "height": 600}},
+                    {"type": 3, "timestamp": 2, "data": {"source": 8, "id": 3, "replaceSync": ".a{background:url(/a.png)}"}},
+                ])
+                .to_string(),
+            )
+            .messages
+            .remove(0);
+            message.window_id = Some(Arc::from(id));
+            message
+        };
+        let mut block = block_of("kept", "[]");
+        block.messages = vec![
+            window("w1", "http://10.0.0.5/admin"),
+            window("w2", "https://app.example.com/shop"),
+        ];
+        let lines = stored(block, &[]);
+        // A private host declines its resolved URL, which must not send the block to the host scrub.
+        for kept in [
+            r#""href":"http://10.0.0.5/admin""#,
+            r#""href":"https://app.example.com/shop""#,
+        ] {
+            assert!(lines.contains(kept), "{kept} in {lines}");
+        }
+        assert_eq!(lines.matches("url(/a.png)").count(), 2, "{lines}");
     }
 
     #[test]

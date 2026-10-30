@@ -4,7 +4,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use url::Url;
 
-use crate::url_policy::{is_fetched_image_type, is_remote, MAX_URL_LEN};
+use crate::url_policy::{
+    is_fetched_image_type, is_protocol_relative, is_remote, try_canonicalize, MAX_URL_LEN,
+};
 
 /// Each resolution copies the page URL, so one event resolves at most this many relative URLs.
 pub const MAX_RESOLVED_URLS: usize = 1024;
@@ -15,6 +17,8 @@ const MAX_IMAGE_SET_CANDIDATES: usize = 32;
 pub enum CssUrl<'a> {
     Image(&'a str),
     Unshown(&'a str),
+    /// A resolved root-relative URL. The block holds only the relative text, which its rewrite replaces.
+    Resolved(&'a str),
     Rewrite(CssRewrite),
 }
 
@@ -23,9 +27,11 @@ pub struct CssRewrite {
     pub text: String,
     pub replacement: String,
     pub dropped: Vec<String>,
+    /// The URL that `replacement` holds in place of a relative one, for the writer to replace with its reference.
+    pub resolved: Option<String>,
 }
 
-/// The base that a relative URL on `page_url` resolves against, as `https` because the fetcher loads nothing else.
+/// The origin that a root-relative URL on `page_url` resolves against, as `https` because the fetcher loads nothing else.
 pub fn page_base(page_url: &str) -> Option<Url> {
     if page_url.len() > MAX_URL_LEN {
         return None;
@@ -34,7 +40,7 @@ pub fn page_base(page_url: &str) -> Option<Url> {
     if base.scheme() != "https" {
         base.set_scheme("https").ok()?;
     }
-    // No relative URL that the inspector resolves keeps the base's query or fragment.
+    base.set_path("/");
     base.set_query(None);
     base.set_fragment(None);
     Some(base)
@@ -56,11 +62,17 @@ impl<'p> Resolver<'p> {
         }
     }
 
+    /// Only a root-relative URL, as `/a.png`, resolves. It needs the page's origin and nothing else, so no part of a page
+    /// path, which can hold a token, reaches a fetch, and a `<base>` or a style sheet's own URL cannot change it.
+    fn resolves(&self, source: &str) -> bool {
+        self.base.is_some()
+            && self.remaining > 0
+            && source.starts_with('/')
+            && !is_protocol_relative(source)
+    }
+
     fn resolve(&mut self, source: &str) -> Option<String> {
-        if self.remaining == 0
-            || is_remote(source)
-            || Url::parse(source).err() != Some(url::ParseError::RelativeUrlWithoutBase)
-        {
+        if !self.resolves(source) {
             return None;
         }
         let absolute = String::from(self.base?.join(source).ok()?);
@@ -350,11 +362,12 @@ fn url_function_urls(
 ) {
     match resolver.resolve(source) {
         Some(absolute) => {
-            found(CssUrl::Image(&absolute));
+            found(CssUrl::Resolved(&absolute));
             found(CssUrl::Rewrite(CssRewrite {
                 text: function.to_owned(),
                 replacement: url_function(&absolute),
                 dropped: Vec::new(),
+                resolved: Some(absolute),
             }));
         }
         None => found(CssUrl::Image(source)),
@@ -400,15 +413,17 @@ fn image_set_urls(
         });
         return;
     }
+    let loads = |source: &str| {
+        is_data_url(source)
+            || (is_remote(source) && try_canonicalize(source).is_ok())
+            || resolver.resolves(source)
+    };
     let kept = candidates
         .iter()
         .enumerate()
         .filter_map(|(index, candidate)| {
-            Some((
-                index,
-                candidate.source.as_deref()?,
-                candidate.resolution_dppx?,
-            ))
+            let source = candidate.source.as_deref().filter(|source| loads(source))?;
+            Some((index, source, candidate.resolution_dppx?))
         })
         .fold(None, |best: Option<(usize, &str, f64)>, candidate| {
             if best.is_none_or(|best| candidate.2 > best.2) {
@@ -430,7 +445,10 @@ fn image_set_urls(
     };
     let kept = &candidates[index];
     let resolved = resolver.resolve(source);
-    found(CssUrl::Image(resolved.as_deref().unwrap_or(source)));
+    match &resolved {
+        Some(absolute) => found(CssUrl::Resolved(absolute)),
+        None => found(CssUrl::Image(source)),
+    }
     // A candidate kept as the page wrote it holds its URL as the writer's URL pass looks for it.
     let candidate = match &resolved {
         Some(absolute) => format!("{} {}", url_function(absolute), kept.descriptors.trim())
@@ -438,13 +456,24 @@ fn image_set_urls(
             .to_owned(),
         None => kept.text.to_owned(),
     };
-    if candidates.len() > 1 || resolved.is_some() {
+    // The writer moves an inline image out of the block before it rewrites CSS, so a set that holds one never matches.
+    let holds_data_url = candidates
+        .iter()
+        .any(|candidate| candidate.source.as_deref().is_some_and(is_data_url));
+    if !holds_data_url && (candidates.len() > 1 || resolved.is_some()) {
         found(CssUrl::Rewrite(CssRewrite {
             text: function.to_owned(),
             replacement: format!("{}({candidate})", &function[..name_len]),
             dropped,
+            resolved,
         }));
     }
+}
+
+fn is_data_url(source: &str) -> bool {
+    source
+        .get(..5)
+        .is_some_and(|scheme| scheme.eq_ignore_ascii_case("data:"))
 }
 
 struct ImageSetCandidate<'a> {
@@ -685,6 +714,7 @@ mod tests {
             found.push(match url {
                 CssUrl::Image(url) => format!("image {url}"),
                 CssUrl::Unshown(url) => format!("unshown {url}"),
+                CssUrl::Resolved(url) => format!("resolved {url}"),
                 CssUrl::Rewrite(rewrite) => format!(
                     "rewrite {} => {} dropping {:?}",
                     rewrite.text, rewrite.replacement, rewrite.dropped
@@ -722,11 +752,15 @@ mod tests {
                 vec!["image https://cdn.example.com/hero.png"],
             ),
             (
-                ".a{background:url(../img/a.png)}",
+                ".a{background:url(/img/a.png)}",
                 vec![
-                    "image https://app.example.com/img/a.png",
-                    r#"rewrite url(../img/a.png) => url("https://app.example.com/img/a.png") dropping []"#,
+                    "resolved https://app.example.com/img/a.png",
+                    r#"rewrite url(/img/a.png) => url("https://app.example.com/img/a.png") dropping []"#,
                 ],
+            ),
+            (
+                ".a{background:url(../img/a.png)}",
+                vec!["image ../img/a.png"],
             ),
             (
                 r#".a{background-image:image-set("https://cdn.example.com/1x.png" 1x, url(https://cdn.example.com/2x.png) 2x)}"#,
@@ -739,7 +773,7 @@ mod tests {
             (
                 r#".a{background:-webkit-image-set(url(/a.avif) type("image/avif") 2x, url(/a.jpg) type("image/jpeg") 1x, linear-gradient(red, blue) 3x)}"#,
                 vec![
-                    "image https://app.example.com/a.jpg",
+                    "resolved https://app.example.com/a.jpg",
                     r#"rewrite -webkit-image-set(url(/a.avif) type("image/avif") 2x, url(/a.jpg) type("image/jpeg") 1x, linear-gradient(red, blue) 3x) => -webkit-image-set(url("https://app.example.com/a.jpg") type("image/jpeg") 1x) dropping []"#,
                 ],
             ),
@@ -758,7 +792,7 @@ mod tests {
             ".a{background:url(/img/a.png)} .b{background:url(/img/b.png)}",
             &mut Resolver::new(base.as_ref(), Some(&budget)),
             &mut |url| {
-                if let CssUrl::Image(url) = url {
+                if let CssUrl::Image(url) | CssUrl::Resolved(url) = url {
                     named.push(url.to_owned());
                 }
             },

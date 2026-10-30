@@ -222,7 +222,7 @@ pub struct RemoteUrls {
 
 #[derive(Debug, Default)]
 struct CssRewrites {
-    values: HashMap<String, (String, Vec<String>)>,
+    values: HashMap<String, Option<CssRewrite>>,
     bytes: usize,
 }
 
@@ -276,20 +276,29 @@ impl RemoteUrls {
         }
     }
 
-    /// The first wins. Two differ only for a path-relative URL that the page sets again after a navigation.
-    fn insert_css_rewrite(&mut self, rewrite: CssRewrite) {
+    /// A text that resolves two ways, as a root-relative URL in windows on two origins, keeps no rewrite, so that no
+    /// window shows another's image. Its URL then stays relative, as the page wrote it.
+    fn insert_css_rewrite(&mut self, text: String, rewrite: Option<CssRewrite>) {
         let rewrites = self.css_rewrites.get_or_insert_with(Box::default);
-        let bytes = rewrite.text.len()
-            + rewrite.replacement.len()
-            + rewrite.dropped.iter().map(String::len).sum::<usize>();
-        if !rewrites.values.contains_key(&rewrite.text)
-            && rewrites.values.len() < MAX_BLOCK_REMOTE_URLS
+        if let Some(known) = rewrites.values.get_mut(&text) {
+            if known.as_ref().map(|known| &known.replacement)
+                != rewrite.as_ref().map(|rewrite| &rewrite.replacement)
+            {
+                *known = None;
+            }
+            return;
+        }
+        let bytes = text.len()
+            + rewrite.as_ref().map_or(0, |rewrite| {
+                rewrite.replacement.len()
+                    + rewrite.dropped.iter().map(String::len).sum::<usize>()
+                    + rewrite.resolved.as_ref().map_or(0, String::len)
+            });
+        if rewrites.values.len() < MAX_BLOCK_REMOTE_URLS
             && rewrites.bytes + bytes <= MAX_BLOCK_REMOTE_URL_BYTES
         {
             rewrites.bytes += bytes;
-            rewrites
-                .values
-                .insert(rewrite.text, (rewrite.replacement, rewrite.dropped));
+            rewrites.values.insert(text, rewrite);
         }
     }
 
@@ -302,13 +311,8 @@ impl RemoteUrls {
         for (raw, (text, unfetched_type)) in other.srcsets.iter().flat_map(|s| &s.values) {
             self.insert_srcset(raw, text, *unfetched_type);
         }
-        for (text, (replacement, dropped)) in other.css_rewrites.into_iter().flat_map(|r| r.values)
-        {
-            self.insert_css_rewrite(CssRewrite {
-                text,
-                replacement,
-                dropped,
-            });
+        for (text, rewrite) in other.css_rewrites.into_iter().flat_map(|r| r.values) {
+            self.insert_css_rewrite(text, rewrite);
         }
     }
 
@@ -317,12 +321,8 @@ impl RemoteUrls {
             .take()
             .map(|rewrites| rewrites.values)
             .unwrap_or_default()
-            .into_iter()
-            .map(|(text, (replacement, dropped))| CssRewrite {
-                text,
-                replacement,
-                dropped,
-            })
+            .into_values()
+            .flatten()
             .collect()
     }
 
@@ -365,6 +365,10 @@ fn fetchable(url: &str) -> Option<&str> {
 impl Urls {
     fn push(&mut self, url: &str) {
         self.push_remote(url);
+        self.push_fetch(url);
+    }
+
+    fn push_fetch(&mut self, url: &str) {
         let Some(url) = fetchable(url) else { return };
         if self.in_message.len() < MAX_IMAGE_URLS && !self.in_message.contains(url) {
             self.in_message.insert(url.to_owned());
@@ -384,7 +388,10 @@ impl Urls {
         match found {
             CssUrl::Image(url) => self.push(url),
             CssUrl::Unshown(url) => self.push_remote(url),
-            CssUrl::Rewrite(rewrite) => self.remote.insert_css_rewrite(rewrite),
+            CssUrl::Resolved(url) => self.push_fetch(url),
+            CssUrl::Rewrite(rewrite) => self
+                .remote
+                .insert_css_rewrite(rewrite.text.clone(), Some(rewrite)),
         }
     }
 
@@ -1206,7 +1213,7 @@ impl WindowDom {
             + self
                 .page_base
                 .as_ref()
-                .map_or(0, |base| base.as_str().len())
+                .map_or(0, |base| std::mem::size_of::<Url>() + base.as_str().len())
     }
 }
 
@@ -2025,7 +2032,7 @@ mod tests {
             mutation(json!([]), json!([]), json!([]), json!([{"id": 20, "attributes": {"alt": "x"}}])),
             mutation(json!([]), json!([]), json!([]), json!([{"id": 20, "attributes": {"hidden": null}}])),
             mutation(json!([]), json!([]), json!([]), json!([{"id": 6, "attributes": {"style": {"background-image": [format!("url({})", url("style-object")), "important"], "background": format!("url({})", url("style-object-plain")), "color": "red", "mask-image": false}}}])),
-            mutation(json!([]), json!([]), json!([]), json!([{"id": 6, "attributes": {"style": {"background-image": "url(\"img/relative-style.png\")"}}}])),
+            mutation(json!([]), json!([]), json!([]), json!([{"id": 6, "attributes": {"style": {"background-image": "url(\"/img/relative-style.png\")"}}}])),
             // A `source` added on its own under a `picture`, one the page has or one the same mutation adds.
             mutation(json!([{"parentId": 13, "node": element(40, "source", json!({"srcset": format!("{} 2x", url("lone-source"))}), json!([]))},
                 {"parentId": 41, "node": element(42, "source", json!({"srcset": url("same-mutation-source")}), json!([]))},
@@ -2071,7 +2078,7 @@ mod tests {
                     url("set-1x"),
                     url("set-2x")
                 ),
-                "url(\"img/relative-style.png\")".to_owned(),
+                "url(\"/img/relative-style.png\")".to_owned(),
                 "url(/img/relative-rule.png)".to_owned(),
             ]
         );
@@ -2111,7 +2118,7 @@ mod tests {
         .into_iter()
         .map(url)
         .chain([
-            "https://app.example.com/shop/img/relative-style.png".to_owned(),
+            "https://app.example.com/img/relative-style.png".to_owned(),
             "https://app.example.com/img/relative-rule.png".to_owned(),
         ])
         .collect();

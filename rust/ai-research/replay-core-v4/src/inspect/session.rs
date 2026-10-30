@@ -330,19 +330,20 @@ mod tests {
         let mut session = SessionInspector::default();
         let mut block = BlockInspection::default();
         let meta = |host: &str| json!([{"type": 4, "timestamp": 1, "data": {"href": format!("https://{host}/shop/item")}}]);
+        let rule = json!([{"type": 3, "timestamp": 2, "data": {"source": 8, "id": 3, "replaceSync": ".a{background:url(/img/a.png)}"}}]);
         session.observe_message(&mut block, &message_in(Some("a"), meta("a.example.com")));
         session.observe_message(&mut block, &message_in(Some("b"), meta("b.example.com")));
-        session.observe_message(
-            &mut block,
-            &message_in(
-                Some("a"),
-                json!([{"type": 3, "timestamp": 2, "data": {"source": 8, "id": 3, "replaceSync": ".a{background:url(img/a.png)}"}}]),
-            ),
-        );
+        session.observe_message(&mut block, &message_in(Some("a"), rule.clone()));
+        session.observe_message(&mut block, &message_in(Some("b"), rule));
+        let inspected = block.finish();
         assert_eq!(
-            block.finish().image_urls,
-            ["https://a.example.com/shop/img/a.png"]
+            inspected.image_urls,
+            [
+                "https://a.example.com/img/a.png",
+                "https://b.example.com/img/a.png"
+            ]
         );
+        assert!(inspected.css_rewrites.is_empty());
     }
 
     #[test]
