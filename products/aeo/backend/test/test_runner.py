@@ -275,13 +275,19 @@ def test_dropping_the_queue_leaves_only_running_checks_to_drain() -> None:
     assert (finished, still_pending) == ({running}, set())
 
 
-def test_a_prompt_recorded_by_another_run_is_not_recorded_twice(team: Team) -> None:
+@pytest.mark.parametrize("answered", [True, False], ids=["answered", "every_engine_failed"])
+def test_a_prompt_recorded_by_another_run_is_not_recorded_twice(team: Team, answered: bool) -> None:
     upsert_prompts(team, [PromptCandidate(text="q0?", source="imported")])
     prompt = AEOPrompt.objects.for_team(team.id).get()
     checked_before = timezone.now() - dt.timedelta(hours=1)
+    check = (
+        CitationCheck(engine="stub-engine", model="stub", cited_urls=["https://posthog.com/docs"])
+        if answered
+        else CitationCheck(engine="stub-engine", model="stub", error="engine down")
+    )
     fields = [
         build_check_fields(
-            check=CitationCheck(engine="stub-engine", model="stub", cited_urls=["https://posthog.com/docs"]),
+            check=check,
             run_id=str(uuid.uuid4()),
             prompt_id=str(prompt.id),
             prompt_text=prompt.prompt,

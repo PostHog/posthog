@@ -270,6 +270,17 @@ def _record_prompt_checks(
                         "aeo_citation_prompt_superseded", team_id=team.id, run_id=run_id, prompt_id=str(prompt.id)
                     )
                     return "superseded"
+            elif (
+                AEOCitationCheck.objects.for_team(team.id)
+                .filter(prompt_id=prompt.id, created_at__gte=checked_before)
+                .exists()
+            ):
+                # Failures leave the prompt unclaimed, so a run that lost its lease could otherwise add a
+                # second set of failure rows next to the replacement run's.
+                logger.warning(
+                    "aeo_citation_prompt_superseded", team_id=team.id, run_id=run_id, prompt_id=str(prompt.id)
+                )
+                return "superseded"
             AEOCitationCheck.objects.bulk_create(prompt_rows)
     except Exception as e:
         logger.exception("aeo_citation_write_failed", team_id=team.id, run_id=run_id, error=str(e)[:300])
