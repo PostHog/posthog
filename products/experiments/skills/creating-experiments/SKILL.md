@@ -26,7 +26,7 @@ Read that before configuring anything.
    An exact filter has to carry that shape: `/pricing` matches nothing where every pageview says `/pricing/`, and `example.com` matches nothing where the host is `www.example.com`.
 2. Before you write any SQL to find a metric, search what the project already has for the goal, for example "activation" or "signup".
    Pass the goal as `search` to `insights-list`, `actions-get-all`, `metric-list` (catalog metrics) and `experiment-saved-metrics-list` (shared metrics).
-   For shared metrics, also pass the candidate event as `event`. It finds the metrics that count that event under any name.
+   For shared metrics, also call `experiment-saved-metrics-list` a second time with the candidate event as `event` and no `search`. It finds the metrics that count that event under any name. With `search` as well, it returns only those whose name, description or tags also match.
    Reuse what fits, and say in the report what you reused. Match a shared metric by its definition, not its name, as Step 1 of `configuring-experiment-analytics` describes.
 3. If the `experiment-setup-context` tool is available, call it once with `target_event` and `metric_event`.
    For a web surface, add `target_properties` with an exact `$host`.
