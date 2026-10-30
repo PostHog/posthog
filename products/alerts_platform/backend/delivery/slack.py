@@ -161,19 +161,9 @@ def _without_image_content(content: SlackMessageContent) -> SlackMessageContent:
     )
 
 
-_MISCONFIGURED_ERRORS: Final = frozenset(
-    {
-        "account_inactive",
-        "channel_not_found",
-        "invalid_auth",
-        "is_archived",
-        "missing_scope",
-        "not_authed",
-        "not_in_channel",
-        "token_expired",
-        "token_revoked",
-    }
-)
+# Only codes a customer's own setup causes. A code a platform bug can also cause, such as
+# `missing_scope` or `channel_not_found`, stays a failure so the platform's alert still sees it.
+_MISCONFIGURED_ERRORS: Final = frozenset({"account_inactive", "not_in_channel"})
 
 
 def _refused_image(error: SlackApiError, content: SlackMessageContent) -> bool:
@@ -208,7 +198,7 @@ class SlackTransport:
         workspace_id = target.get("slack_workspace_id")
         channel = target.get("slack_channel_id")
         if workspace_id is None or channel is None:
-            raise DestinationMisconfigured("This Slack destination is missing its workspace or channel.")
+            raise DeliveryError("This Slack destination is missing its workspace or channel.")
 
         slack = SlackIntegration(self._integration(team_id=team_id, workspace_id=workspace_id), source=EGRESS_SOURCE)
         content = content_for(team_id=team_id, message=message)
@@ -311,5 +301,5 @@ class SlackTransport:
             id=workspace_id, team_id=team_id, kind__in=SLACK_INTEGRATION_KINDS
         ).first()
         if integration is None:
-            raise DestinationMisconfigured("The Slack workspace for this alert is not connected.")
+            raise DeliveryError("The Slack workspace for this alert is not connected.")
         return integration
