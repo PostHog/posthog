@@ -73,13 +73,7 @@ def _resolve_execution_mode(alert: AlertConfiguration, kind: NodeKind, query: ob
 
 
 def _query_interval(query: object) -> IntervalType | None:
-    """The insight's time bucket as an ``IntervalType``, or None when there is no such bucket.
-
-    None covers a kind with no time axis (SQL, a funnel steps snapshot) and a bucket size outside
-    the enum: a metrics insight types its interval as a plain string and buckets on its own scale,
-    such as ``minute_5`` or the ``$window`` dashboard variable. An unmapped bucket leaves the shared
-    staleness rule in place, which is what the alert used before it had a limit at all.
-    """
+    # Metrics insights use interval strings outside the enum (``minute_5``, ``$window``).
     try:
         raw_interval = get_from_dict_or_attr(query, "interval")
     except AttributeError:
@@ -93,11 +87,7 @@ def _query_interval(query: object) -> IntervalType | None:
 
 
 def _ends_in_the_past(query: object, *, now: datetime, team: Team) -> bool:
-    """True when the insight pins its range to an end date that has already passed.
-
-    The result cannot change, and the shared rule keeps it cached forever on that ground. The
-    override replaces that rule, so without this the alert rescans ClickHouse every bucket.
-    """
+    # The shared rule caches a closed range forever, and the override would replace that rule.
     try:
         date_range = get_from_dict_or_attr(query, "dateRange")
     except AttributeError:
@@ -115,15 +105,11 @@ def _ends_in_the_past(query: object, *, now: datetime, team: Team) -> bool:
 
 
 def _resolve_cache_age_seconds(alert: AlertConfiguration, query: object, execution_mode: ExecutionMode) -> int | None:
-    # Read for every kind, unlike _resolve_execution_mode: a bucketed insight the execution mode
-    # leaves on the cache (a funnel, a non-hourly trend) still has to reject a result computed in an
-    # earlier bucket. A mode that skips the cache has nothing to age, so it needs no limit.
+    # Read for every kind, unlike _resolve_execution_mode, because funnels also hit the cache.
     if execution_mode == ExecutionMode.CALCULATE_BLOCKING_ALWAYS:
         return None
     if get_from_dict_or_attr(query, "kind") == NodeKind.METRICS_QUERY:
-        # MetricsQueryRunner has no query_date_range, so the shared rule falls back to its minute
-        # threshold — already tighter than any bucket. The override replaces that rule rather than
-        # joining it, so passing a bucket limit here would loosen the alert to hours.
+        # Metrics already age on a minute threshold, so a bucket limit would loosen it.
         return None
     now = datetime.now(UTC)
     if _ends_in_the_past(query, now=now, team=alert.team):
@@ -179,10 +165,7 @@ def run_extractor(
     """
     try:
         with query_slot(), owner_sql_errors(query):
-            # Resolved inside the slot, not before it. The limit is a duration the query layer
-            # measures from its own clock, so a slot wait between resolving and running would be
-            # added to the window — long enough to cross a bucket boundary and readmit the value
-            # this limit exists to reject.
+            # Resolve inside the slot so a slot wait cannot push the window past a bucket boundary.
             cache_age_seconds = _resolve_cache_age_seconds(alert, query, execution_mode)
             return extractor.extract(alert, insight, query, execution_mode, cache_age_seconds)
     except DRFValidationError as err:

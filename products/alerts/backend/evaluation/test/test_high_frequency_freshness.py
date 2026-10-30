@@ -175,9 +175,7 @@ EXTRACTOR_FORWARDING_CASES = [
 ]
 
 
-# Every extractor forwards the freshness it's handed (the dispatcher decides both) straight to the
-# query layer. cache_age_seconds matters as much as the mode: a cache-consulting mode with no age
-# limit falls back to the shared staleness rule, which calls a result from the previous bucket fresh.
+# Every extractor forwards the mode and cache age it's handed straight to the query layer.
 @pytest.mark.parametrize("mode", [ALWAYS, IF_STALE])
 @pytest.mark.parametrize("calc_path,calc_result,forward", EXTRACTOR_FORWARDING_CASES)
 def test_extractor_forwards_execution_mode(calc_path, calc_result, forward, mode):
@@ -195,10 +193,6 @@ def _team(timezone: str) -> MagicMock:
     return team
 
 
-# A check scores the bucket that just closed, so a result computed in an earlier bucket answers the
-# wrong question however recently it was computed. These are the two ways consecutive checks land
-# less than a bucket apart: scheduler lag either side of the boundary, and a quiet window that snaps
-# a check to its end. Both reused the previous bucket's value under the shared one-interval rule.
 @pytest.mark.parametrize(
     "previous_check,current_check,reusable",
     [
@@ -232,14 +226,11 @@ def test_hourly_cache_age_tracks_the_bucket_not_the_gap(previous_check, current_
     "interval,timezone,now,expected",
     [
         (IntervalType.HOUR, "UTC", datetime(2026, 10, 28, 22, 1, 13, tzinfo=UTC), 73),
-        # Half-hour offset: these hour buckets open at :30 past the UTC hour, so aligning in UTC
-        # would report 73 seconds here and reject a result the bucket can still answer with.
+        # Half-hour offset: hour buckets open at :30 past the UTC hour.
         (IntervalType.HOUR, "Asia/Kolkata", datetime(2026, 10, 28, 22, 1, 13, tzinfo=UTC), 1873),
         (IntervalType.HOUR, "Asia/Kolkata", datetime(2026, 10, 28, 22, 31, 13, tzinfo=UTC), 73),
         (IntervalType.DAY, "Asia/Bangkok", datetime(2026, 10, 28, 22, 1, 13, tzinfo=UTC), 18073),
         (None, "UTC", datetime(2026, 10, 28, 22, 1, 13, tzinfo=UTC), None),
-        # second is the one interval the shared rule never calls stale, so it stays exempt rather
-        # than flipping to a recompute on every check.
         (IntervalType.SECOND, "UTC", datetime(2026, 10, 28, 22, 1, 13, tzinfo=UTC), None),
     ],
 )
@@ -247,11 +238,6 @@ def test_cache_age_seconds_for_alert(interval, timezone, now, expected):
     assert cache_age_seconds_for_alert(interval, now=now, team=_team(timezone)) == expected
 
 
-# The query layer takes this limit instead of its own staleness threshold, not alongside it, so a
-# limit above that threshold widens the window the alert used to get. Seconds-since-bucket-start
-# passes the threshold on every interval coarser than an hour — a day bucket reaches 24 hours
-# against a 6 hour threshold — which would let a daily alert score a value from when the bucket was
-# nearly empty.
 @pytest.mark.parametrize("interval", [i for i in IntervalType if interval_spec(i).staleness_default is not None])
 @pytest.mark.parametrize("hours_into_bucket", [0, 5, 23, 24 * 20])
 def test_cache_age_never_exceeds_the_shared_threshold(interval, hours_into_bucket):
@@ -263,24 +249,15 @@ def test_cache_age_never_exceeds_the_shared_threshold(interval, hours_into_bucke
     assert limit <= shared_threshold.total_seconds()
 
 
-# The dispatcher reads the interval for every kind here, unlike _resolve_execution_mode, which reads
-# it only for trends — that gate is why an hourly funnel alert kept answering with the previous hour.
 @pytest.mark.parametrize(
     "kind,interval,execution_mode,expects_limit,date_to",
     [
         (NodeKind.FUNNELS_QUERY, "hour", IF_STALE, True, None),
         (NodeKind.TRENDS_QUERY, "day", IF_STALE, True, None),
         (NodeKind.FUNNELS_QUERY, "hour", IF_STALE, True, "-1d"),
-        # A range that already ended cannot change, so the shared rule keeps it cached. The limit
-        # replaces that rule, and would rescan ClickHouse every bucket for the same answer.
         (NodeKind.FUNNELS_QUERY, "hour", IF_STALE, False, "2020-01-01"),
-        # A metrics query has no query_date_range, so its runner already ages a result on the minute
-        # threshold. A bucket limit would replace that rule with a looser one.
         (NodeKind.METRICS_QUERY, "hour", IF_STALE, False, None),
         (NodeKind.METRICS_QUERY, "day", IF_STALE, False, None),
-        # A metrics insight types its interval as a plain string and buckets on its own scale, so
-        # these reach the resolver as values no IntervalType member matches. Mapping them eagerly
-        # raised ValueError and failed the whole check for alerts that run today.
         (NodeKind.METRICS_QUERY, "minute_5", IF_STALE, False, None),
         (NodeKind.METRICS_QUERY, "$window", IF_STALE, False, None),
         (NodeKind.HOG_QL_QUERY, None, IF_STALE, False, None),

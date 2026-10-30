@@ -126,33 +126,21 @@ def execution_mode_for_alert(interval: IntervalType | None, *, high_frequency: b
 
 
 def cache_age_seconds_for_alert(interval: IntervalType | None, *, now: datetime, team: Team) -> int | None:
-    """How old a cached result may be and still answer this check, counted from the start of the
-    bucket ``now`` falls in. None leaves the shared staleness rule in place.
+    """Max cache age for this check, counted from the start of the bucket ``now`` falls in.
+    None leaves the shared staleness rule in place.
 
-    A check scores the bucket that just closed, but the cache key holds the date range as the
-    relative string the insight was saved with (``-1h``), so consecutive checks share one key while
-    asking about different buckets. The shared rule ages a result from its own last refresh, which
-    makes a result fresh for a full interval after it was computed — long enough to answer the next
-    check with the previous bucket's value. Ageing from the bucket boundary instead makes anything
-    computed before the current bucket opened stale, whatever the gap between checks, so a schedule
-    restriction or a snooze that moves checks closer together cannot reintroduce the reuse.
+    The cache key holds the relative date range (``-1h``), so consecutive checks share a key while
+    scoring different buckets. Ageing from the bucket start rejects a result from the previous bucket.
     """
     if interval is None:
         return None
     spec = interval_spec(interval)
     local_now = now.astimezone(ZoneInfo(team.timezone))
-    # A DST transition can leave the aligned bucket start after local_now, so floor at zero rather
-    # than hand the query layer a negative window.
+    # A DST transition can put the aligned bucket start after local_now.
     elapsed = max(int((local_now - spec.align(local_now, team.week_start_day)).total_seconds()), 0)
     if spec.staleness_default is None:
-        # The shared rule never calls this interval stale. Leave it exempt rather than flipping it
-        # to a recompute on every check.
         return None
-    # The limit tightens the shared rule and never loosens it. The query layer takes an override
-    # instead of the shared threshold, not alongside it, and seconds-since-bucket-start grows past
-    # that threshold on a long interval: a day bucket reaches 24 hours against a 6 hour threshold.
-    # An alert that scores the bucket still in progress would then read the value it held when the
-    # bucket was nearly empty.
+    # The override replaces the shared threshold, so cap it there to only ever tighten it.
     return min(elapsed, int(spec.staleness_default.total_seconds()))
 
 
@@ -172,11 +160,8 @@ class SimulationContext:
 
 
 class Extractor(Protocol):
-    # The dispatcher resolves execution_mode and cache_age_seconds once (via execution_mode_for_alert
-    # and cache_age_seconds_for_alert) and passes them in, so the cache/recompute decision lives at
-    # one site instead of being re-derived in each extractor. Both have to reach the query layer:
-    # execution_mode picks whether the cache is consulted, cache_age_seconds decides what counts as
-    # too old once it is.
+    # The dispatcher resolves execution_mode and cache_age_seconds once and passes them in, so the
+    # cache/recompute decision lives at one site instead of being re-derived in each extractor.
     def extract(
         self,
         alert: AlertConfiguration,

@@ -9,11 +9,6 @@ from products.product_analytics.backend.facade.models import Insight
 
 
 class TestHourlyAlertScoresItsOwnWindow(APIBaseTest, ClickhouseDestroyTablesMixin):
-    # The one test that runs an alert check against real data instead of a mocked query layer.
-    # The freshness limit travels alert -> extractor -> calculate_for_query_based_insight ->
-    # process_query_dict -> QueryRunner.run, and every hop is a pass-through, so a dropped keyword
-    # anywhere along it silently restores the reuse while every unit test still passes.
-
     def _hour_of_events(self, hour: str, starts: int, finishes: int) -> None:
         for i in range(starts):
             create_person(team_id=self.team.pk, distinct_ids=[f"{hour}_{i}"])
@@ -53,15 +48,10 @@ class TestHourlyAlertScoresItsOwnWindow(APIBaseTest, ClickhouseDestroyTablesMixi
             ),
         )
 
-        # The schedule fires on the hour and the check lands about 80 seconds later, so consecutive
-        # checks sit 3593 seconds apart — inside the hour the shared staleness rule calls fresh, and
-        # on a relative date range both checks hash to one cache key.
         with time_machine.travel("2026-10-28T21:01:20Z", tick=False):
             first = check_alert_for_insight(alert)
         with time_machine.travel("2026-10-28T22:01:13Z", tick=False):
             second = check_alert_for_insight(alert)
 
-        # The range spans the previous and the current hour, so it slides by one hour per check:
-        # 20 started and 15 finished across both hours, then 10 and 9 in the 21:00 hour alone.
         assert first.value == 75.0
         assert second.value == 90.0
