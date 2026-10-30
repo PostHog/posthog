@@ -9,12 +9,13 @@ from posthog.hogql.database.models import (
     Table,
 )
 
-from posthog.clickhouse.workload import Workload
+from posthog.clickhouse.workload import LogsClusterSignal, Workload
 
 
 class TraceSpansTable(Table):
     description: str = "OpenTelemetry trace spans, one row per span; join to `logs` on `trace_id`/`span_id`."
     workload: Workload | None = Workload.LOGS
+    logs_cluster_signal: LogsClusterSignal | None = LogsClusterSignal.TRACES
 
     fields: dict[str, FieldOrTable] = {
         "uuid": StringDatabaseField(name="uuid", nullable=False, description="Unique identifier of this span row."),
@@ -105,6 +106,7 @@ class TraceSpansTable(Table):
 class TraceAttributesTable(Table):
     description: str = "Distinct trace span attribute key/value pairs with occurrence counts, used to power span attribute autocomplete and faceting."
     workload: Workload | None = Workload.LOGS
+    logs_cluster_signal: LogsClusterSignal | None = LogsClusterSignal.TRACES
 
     fields: dict[str, FieldOrTable] = {
         "team_id": IntegerDatabaseField(name="team_id", nullable=False),

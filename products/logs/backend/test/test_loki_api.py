@@ -1,3 +1,8 @@
+import json
+import uuid
+import tempfile
+from pathlib import Path
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
@@ -8,6 +13,10 @@ from parameterized import parameterized
 from rest_framework import status
 
 import posthog.api.snuffle_proxy as snuffle_proxy
+from posthog.clickhouse.client import connection
+from posthog.clickhouse.client.connection import ClickHouseCredentials, ClickHouseUser
+from posthog.clickhouse.query_log_archive import _V3_LOG_COMMENT_FIELDS, _V3_LOG_COMMENT_TRAILING_FIELDS
+from posthog.clickhouse.query_tagging import AccessMethod, Feature, Product, reset_query_tags, tags_context
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
@@ -241,3 +250,109 @@ class TestSnuffleBudgetDebit(SimpleTestCase):
         (debit_task,) = pending
         debit_task()
         debit_mock.assert_called_once_with("1", 1234)
+
+
+@override_settings(**SNUFFLE_APM_SETTINGS)
+class TestSnuffleRequest(SimpleTestCase):
+    def setUp(self):
+        super().setUp()
+        patcher = patch("posthog.api.snuffle_proxy.internal_requests.request", return_value=_upstream())
+        self.request_mock = patcher.start()
+        self.addCleanup(patcher.stop)
+        tokens = tempfile.TemporaryDirectory()
+        self.addCleanup(tokens.cleanup)
+        self.tokens = Path(tokens.name)
+
+    def _register(self, *users: ClickHouseUser) -> None:
+        registered = {ClickHouseUser.DEFAULT: ClickHouseCredentials(user="default", password="main-cluster")}
+        for user in users:
+            token = self.tokens / user.value
+            token.write_text(f"{user.value}-token-1")
+            registered[user] = ClickHouseCredentials(user=user.value, password="", password_file=str(token))
+        user_dict = patch.object(connection, "__user_dict", registered)
+        user_dict.start()
+        self.addCleanup(user_dict.stop)
+
+    @parameterized.expand(
+        [
+            ("logql_signal_user", "/loki/api/v1/query_range", True, ("logs", "logs-token-1")),
+            ("logql_fallback", "/loki/api/v1/query_range", False, ("reader", "secret")),
+            ("promql_signal_user", "/api/v1/query_range", True, ("metrics", "metrics-token-1")),
+            ("promql_fallback", "/api/v1/query_range", False, ("reader", "secret")),
+        ]
+    )
+    def test_credential_follows_the_signal_of_the_route(
+        self, _name: str, path: str, registered: bool, expected_auth: tuple[str, str]
+    ):
+        self._register(*((ClickHouseUser.LOGS, ClickHouseUser.METRICS) if registered else ()))
+
+        snuffle_proxy.snuffle_request(1, "GET", path)
+
+        assert self.request_mock.call_args.kwargs["auth"] == expected_auth
+
+    def test_signal_user_token_is_read_on_each_request(self):
+        self._register(ClickHouseUser.METRICS)
+
+        snuffle_proxy.snuffle_request(1, "GET", "/api/v1/query")
+        (self.tokens / "metrics").write_text("metrics-token-2")
+        snuffle_proxy.snuffle_request(1, "GET", "/api/v1/query")
+
+        assert [call.kwargs["auth"] for call in self.request_mock.call_args_list] == [
+            ("metrics", "metrics-token-1"),
+            ("metrics", "metrics-token-2"),
+        ]
+
+    @parameterized.expand(
+        [
+            ("logql_route_product", "/loki/api/v1/query_range", None, "logs"),
+            ("promql_route_product", "/api/v1/query_range", None, "metrics"),
+            ("route_product_wins_over_the_tag", "/api/v1/query_range", Product.MAX_AI, "metrics"),
+        ]
+    )
+    def test_query_tags_header_carries_log_comment_tags_without_the_team(
+        self, _name: str, path: str, product: Product | None, expected_product: str
+    ):
+        org_id = uuid.uuid4()
+        reset_query_tags()
+        with tags_context(
+            team_id=99,
+            user_id=7,
+            org_id=org_id,
+            kind="request",
+            id="/api/projects/99/metrics/prometheus/api/v1/query_range",
+            route_id="api/projects/{parent_lookup_team_id}/metrics/prometheus/",
+            access_method=AccessMethod.PERSONAL_API_KEY,
+            feature=Feature.QUERY,
+            query_type="SnuffleQuery",
+            http_user_agent="grafana",
+            chargeable=1,
+            is_impersonated=False,
+            dashboard_id=12,
+            **({"product": product} if product else {}),
+        ):
+            snuffle_proxy.snuffle_request(99, "GET", path)
+
+        header = json.loads(self.request_mock.call_args.kwargs["headers"]["X-PostHog-Query-Tags"])
+        assert header == {
+            "access_method": "personal_api_key",
+            "dashboard_id": 12,
+            "feature": "query",
+            "id": "/api/projects/99/metrics/prometheus/api/v1/query_range",
+            "is_impersonated": False,
+            "kind": "request",
+            "org_id": str(org_id),
+            "product": expected_product,
+            "route_id": "api/projects/{parent_lookup_team_id}/metrics/prometheus/",
+            "user_id": 7,
+        }
+        forwarded_keys = (
+            snuffle_proxy.FORWARDED_STRING_TAGS | snuffle_proxy.FORWARDED_INT_TAGS | snuffle_proxy.FORWARDED_BOOL_TAGS
+        )
+        assert {*forwarded_keys, "product"} <= {*_V3_LOG_COMMENT_FIELDS, *_V3_LOG_COMMENT_TRAILING_FIELDS}
+
+    def test_oversized_query_tags_shrink_to_the_product(self):
+        reset_query_tags()
+        with tags_context(kind="request", name="x" * 5000):
+            snuffle_proxy.snuffle_request(99, "GET", "/loki/api/v1/query_range")
+
+        assert self.request_mock.call_args.kwargs["headers"]["X-PostHog-Query-Tags"] == '{"product":"logs"}'

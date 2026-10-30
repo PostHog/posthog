@@ -9,7 +9,7 @@ from posthog.hogql.constants import LimitContext
 from posthog.hogql.property_access_types import RestrictedProperty
 from posthog.hogql.timings import HogQLTimings
 
-from posthog.clickhouse.workload import Workload
+from posthog.clickhouse.workload import LogsClusterSignal, Workload
 from posthog.week_start_day import WeekStartDay
 
 if TYPE_CHECKING:
@@ -151,6 +151,8 @@ class HogQLContext:
     property_swapper: Optional["PropertySwapper"] = None
     # Workload detected during AST resolution (set by prepare_ast_for_printing)
     workload: Optional[Workload] = None
+    # Signal of the logs-cluster tables the query reads, when they all share one (set by prepare_ast_for_printing)
+    logs_cluster_signal: Optional[LogsClusterSignal] = None
     # Per-query cache of the `system.information_schema` introspection result (populated lazily in
     # posthog/hogql/database/schema/information_schema.py). A dict keyed by the pushed-down table
     # filter and holding lazy introspection objects, so tables resolving to the same bound walk the

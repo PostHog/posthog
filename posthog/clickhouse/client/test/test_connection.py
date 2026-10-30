@@ -10,6 +10,7 @@ from unittest.mock import patch
 from posthog.clickhouse.client import connection
 from posthog.clickhouse.client.connection import (
     _TOKEN_EXPIRY_LEEWAY_SECONDS,
+    LOGS_CLUSTER_USERS,
     ClickHouseChPool,
     ClickHouseCredentials,
     ClickHouseUser,
@@ -375,6 +376,12 @@ def reset_state():
     [
         (True, ClickHouseUser.ALERTS_PLATFORM_LOGS, "alerts_platform_logs", "logs-token"),
         (False, ClickHouseUser.ALERTS_PLATFORM_LOGS, "logs-user", "logs-static"),
+        (True, ClickHouseUser.LOGS, "logs", "logs-token"),
+        (False, ClickHouseUser.LOGS, "logs-user", "logs-static"),
+        (True, ClickHouseUser.METRICS, "metrics", "logs-token"),
+        (False, ClickHouseUser.METRICS, "logs-user", "logs-static"),
+        (True, ClickHouseUser.TRACES, "traces", "logs-token"),
+        (False, ClickHouseUser.TRACES, "logs-user", "logs-static"),
         (True, ClickHouseUser.DEFAULT, "logs-user", "logs-static"),
         (True, ClickHouseUser.APP, "logs-user", "logs-static"),
     ],
@@ -392,9 +399,10 @@ def test_logs_workload_uses_a_named_user_only_when_registered(
         ClickHouseUser.DEFAULT: ClickHouseCredentials(user="default", password="x", password_file=str(default_token))
     }
     if registered:
-        users[ClickHouseUser.ALERTS_PLATFORM_LOGS] = ClickHouseCredentials(
-            user="alerts_platform_logs", password="fallback", password_file=str(logs_token)
-        )
+        for logs_cluster_user in LOGS_CLUSTER_USERS:
+            users[logs_cluster_user] = ClickHouseCredentials(
+                user=logs_cluster_user.value, password="fallback", password_file=str(logs_token)
+            )
         users[ClickHouseUser.APP] = ClickHouseCredentials(user="app", password="app-static")
     monkeypatch.setattr(connection, "__user_dict", users)
 

@@ -68,6 +68,54 @@ def test_process_query_task_workload_routing(
 
 
 @pytest.mark.parametrize(
+    "tags,workload,requested_ch_user,expected_ch_user",
+    [
+        (
+            {"kind": "celery", "id": "posthog.tasks.tasks.process_query_task"},
+            Workload.LOGS,
+            ClickHouseUser.METRICS,
+            ClickHouseUser.METRICS,
+        ),
+        (
+            {
+                "kind": "celery",
+                "id": "posthog.tasks.tasks.process_query_task",
+                "access_method": AccessMethod.PERSONAL_API_KEY,
+            },
+            Workload.LOGS,
+            ClickHouseUser.TRACES,
+            ClickHouseUser.TRACES,
+        ),
+        (
+            {"kind": "request", "id": "api/max", "product": Product.MAX_AI},
+            Workload.LOGS,
+            ClickHouseUser.LOGS,
+            ClickHouseUser.LOGS,
+        ),
+        (
+            {"kind": "celery", "id": "usage_report", "product": Product.BILLING},
+            Workload.LOGS,
+            ClickHouseUser.LOGS,
+            ClickHouseUser.LOGS,
+        ),
+        (
+            {"kind": "request", "id": "api/max", "product": Product.MAX_AI},
+            Workload.ONLINE,
+            ClickHouseUser.LOGS,
+            ClickHouseUser.MAX_AI,
+        ),
+    ],
+)
+def test_logs_cluster_user_wins_over_tag_based_users_on_the_logs_cluster(
+    client_from_pool, tags, workload, requested_ch_user, expected_ch_user
+):
+    with tags_context(**tags):
+        sync_execute("SELECT 1", workload=workload, flush=False, ch_user=requested_ch_user)
+
+    assert client_from_pool.call_args[0][3] == expected_ch_user
+
+
+@pytest.mark.parametrize(
     "access_method,expected_workload",
     [
         (None, Workload.ONLINE),

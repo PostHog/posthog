@@ -2739,6 +2739,7 @@ def get_teams_with_logs_distinct_patterns_in_period(
             {"begin": begin, "end": end},
             workload=Workload.LOGS,
             settings=CH_BILLING_SETTINGS,
+            ch_user=ClickHouseUser.LOGS,
         )
 
 
@@ -2816,6 +2817,7 @@ def get_teams_with_sdk_logs_records_in_period(
             },
             workload=Workload.LOGS,
             settings=CH_BILLING_SETTINGS,
+            ch_user=ClickHouseUser.LOGS,
         )
 
     by_sdk: dict[str, list[tuple[int, int]]] = {suffix: [] for suffix in SDK_TELEMETRY_NAMES.values()}

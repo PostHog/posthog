@@ -83,7 +83,7 @@ from posthog.hogql.visitor import TraversingVisitor, clone_expr
 from posthog.hogql.warehouse_warnings import record_warnings
 
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.client.connection import ClickHouseUser, Workload
+from posthog.clickhouse.client.connection import LOGS_CLUSTER_SIGNAL_USERS, LOGS_CLUSTER_USERS, ClickHouseUser, Workload
 from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags, tag_queries
 from posthog.dataclasses import frozen
 from posthog.direct_query_cancellation import build_direct_query_cancellation_token
@@ -990,6 +990,15 @@ class HogQLQueryExecutor:
             table_workload = clickhouse_context.workload
             if table_workload is not None and table_workload != Workload.DEFAULT and workload in MAIN_CLUSTER_WORKLOADS:
                 workload = table_workload
+            # A logs-cluster user that the caller names wins. Other users do not exist on the logs cluster,
+            # so the signal of the tables that the query reads picks the user there.
+            ch_user = self.ch_user
+            if (
+                workload == Workload.LOGS
+                and ch_user not in LOGS_CLUSTER_USERS
+                and clickhouse_context.logs_cluster_signal is not None
+            ):
+                ch_user = LOGS_CLUSTER_SIGNAL_USERS[clickhouse_context.logs_cluster_signal]
 
             def run_clickhouse_query() -> Any:
                 return sync_execute(
@@ -999,7 +1008,7 @@ class HogQLQueryExecutor:
                     workload=workload,
                     team_id=self.team.pk,
                     readonly=True,
-                    ch_user=self.ch_user,
+                    ch_user=ch_user,
                     external_tables=list(clickhouse_context.external_tables.values()) or None,
                 )
 
@@ -1048,7 +1057,7 @@ class HogQLQueryExecutor:
                     workload=workload,
                     team_id=self.team.pk,
                     readonly=True,
-                    ch_user=self.ch_user,
+                    ch_user=ch_user,
                     external_tables=list(clickhouse_context.external_tables.values()) or None,
                 )
                 self.explain = [str(r[0]) for r in explain_results[0]]

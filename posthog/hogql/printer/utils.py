@@ -316,6 +316,7 @@ def prepare_ast_for_printing(
         collector = WorkloadCollector(default_workload=Workload.DEFAULT)
         collector.visit(node)
         context.workload = collector.get_workload()
+        context.logs_cluster_signal = collector.get_logs_cluster_signal()
 
     # LOGS-cluster tables (logs, spans, metrics) split attributes across typed `*_map_str/_float/_datetime` Map columns.
     # A type-suffixed attribute key (e.g. `host__str`) only resolves to its physical column via property groups, which

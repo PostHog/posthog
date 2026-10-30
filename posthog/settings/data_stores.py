@@ -403,7 +403,9 @@ CLICKHOUSE_LOGS_ENABLE_STORAGE_POLICY: bool = get_from_env(
 
 # Snuffle, the PromQL/LogQL bridge deployed next to the logs cluster, backs the Prometheus- and
 # Loki-compatible query endpoints. Leaving the URL empty turns those endpoints off. Snuffle passes
-# the Basic credential straight through to ClickHouse, so it defaults to the logs cluster user.
+# the Basic credential straight through to ClickHouse. LogQL requests send the logs user and PromQL
+# requests send the metrics user (CLICKHOUSE_LOGS_USER, CLICKHOUSE_METRICS_USER). SNUFFLE_APM_USER is
+# the fallback when that user is not configured, so it defaults to the logs cluster user.
 SNUFFLE_APM_URL: str = os.getenv("SNUFFLE_APM_URL", "")
 SNUFFLE_APM_USER: str = os.getenv("SNUFFLE_APM_USER", CLICKHOUSE_LOGS_CLUSTER_USER)
 SNUFFLE_APM_PASSWORD: str = os.getenv("SNUFFLE_APM_PASSWORD", CLICKHOUSE_LOGS_CLUSTER_PASSWORD)

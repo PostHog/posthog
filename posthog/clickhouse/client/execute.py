@@ -23,6 +23,7 @@ from posthog.hogql import query_stats
 
 from posthog.api_queries_budget import API_QUERIES_BUDGET_ERRORS_COUNTER, QueryCost, debit, record_request_query_cost
 from posthog.clickhouse.client.connection import (
+    LOGS_CLUSTER_USERS,
     MAX_QUERY_SIZE_BYTES,
     ClickHouseUser,
     QuerySummary,
@@ -443,6 +444,10 @@ def sync_execute(
         elif tags.kind == "celery":
             workload = Workload.OFFLINE
 
+    # A logs-cluster user keeps its place over the tag-based users below. Those users do not exist on
+    # the logs cluster, so they would move the query to the shared logs cluster user.
+    keeps_logs_cluster_user = workload == Workload.LOGS and ch_user in LOGS_CLUSTER_USERS
+
     # Make sure we always have app traffic through process_query_task on the online cluster.
     # API-key traffic stays offline here too, so an async query lands on the same cluster its
     # synchronous counterpart would.
@@ -453,7 +458,8 @@ def sync_execute(
     if tags_id == "posthog.tasks.tasks.process_query_task":
         if workload != Workload.LOGS:
             workload = Workload.OFFLINE if is_api_key_auth else Workload.ONLINE
-        ch_user = ClickHouseUser.API if is_api_key_auth else ClickHouseUser.APP
+        if not keeps_logs_cluster_user:
+            ch_user = ClickHouseUser.API if is_api_key_auth else ClickHouseUser.APP
 
     if tags.workload == Workload.ENDPOINTS and workload != Workload.LOGS:
         workload = Workload.ENDPOINTS
@@ -502,7 +508,9 @@ def sync_execute(
 
     add_fallback_query_tags(tags)
 
-    if tags.product == Product.MAX_AI or tags.service_name == "temporal-worker-max-ai":
+    if keeps_logs_cluster_user:
+        pass
+    elif tags.product == Product.MAX_AI or tags.service_name == "temporal-worker-max-ai":
         ch_user = ClickHouseUser.MAX_AI
     elif tags.product == Product.ENDPOINTS:
         ch_user = ClickHouseUser.ENDPOINTS

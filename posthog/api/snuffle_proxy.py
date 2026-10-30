@@ -5,7 +5,8 @@ logs ClickHouse cluster. It speaks the Prometheus and Loki HTTP APIs and transla
 ClickHouse SQL. PostHog owns authentication and tenant resolution: the viewset resolves the team
 from the URL and forwards the request with an ``X-Team-ID`` header, which Snuffle turns into a
 tenant filter on every ClickHouse query. Snuffle's own credential is the ClickHouse user, sent as
-HTTP Basic auth and never exposed to the API caller.
+HTTP Basic auth and never exposed to the API caller. LogQL requests authenticate as the logs user and
+PromQL requests as the metrics user, so each signal has its own ClickHouse concurrency budget.
 """
 
 import re
@@ -27,6 +28,8 @@ from rest_framework.request import Request
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api_queries_budget import debit
+from posthog.clickhouse.client.connection import ClickHouseUser, Workload, connection_creds
+from posthog.clickhouse.query_tagging import Product, get_query_tags
 from posthog.hogql_queries.query_runner import api_queries_budget_enforcement_enabled, get_api_queries_budget_status
 from posthog.permissions import PostHogFeatureFlagPermission
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
@@ -39,6 +42,32 @@ logger = structlog.get_logger(__name__)
 SNUFFLE_API_FEATURE_FLAG = "logs-metrics-snuffle-api"
 
 TEAM_ID_HEADER = "X-Team-ID"
+QUERY_TAGS_HEADER = "X-PostHog-Query-Tags"
+# Snuffle copies these tags into the log_comment of its ClickHouse queries, and query_log_archive reads
+# them from there. Snuffle accepts only these keys with these types, counts any other key as unknown,
+# and sets team_id, service_name and query_type itself. The route sets product.
+FORWARDED_STRING_TAGS = frozenset(
+    {
+        "access_method",
+        "api_key_label",
+        "api_key_mask",
+        "client_query_id",
+        "feature",
+        "id",
+        "kind",
+        "name",
+        "org_id",
+        "request_name",
+        "route_id",
+        "session_id",
+        "workload",
+    }
+)
+FORWARDED_INT_TAGS = frozenset({"user_id", "dashboard_id", "insight_id"})
+FORWARDED_BOOL_TAGS = frozenset({"is_impersonated"})
+# Snuffle rejects a larger header.
+QUERY_TAGS_HEADER_MAX_BYTES = 4096
+LOKI_PATH_PREFIX = "/loki/"
 SNUFFLE_READ_BYTES_HEADER = "X-Snuffle-ClickHouse-Read-Bytes"
 # Debit outside the response-critical path. The bound limits work retained in a web process if
 # Redis is slow or unavailable; a skipped debit is safe because the budget deliberately fails open.
@@ -118,6 +147,46 @@ class SnuffleNotConfiguredError(Exception):
     """Raised when no Snuffle URL is configured for this deployment."""
 
 
+def _signal_of(upstream_path: str) -> tuple[ClickHouseUser, Product]:
+    if upstream_path.startswith(LOKI_PATH_PREFIX):
+        return ClickHouseUser.LOGS, Product.LOGS
+    return ClickHouseUser.METRICS, Product.METRICS
+
+
+def _snuffle_auth(ch_user: ClickHouseUser) -> tuple[str, str] | None:
+    # Snuffle sends this credential to ClickHouse as is. A signal user that is not registered falls back
+    # to the shared Snuffle credential. The token is read on each request because the token file rotates.
+    creds = connection_creds(Workload.LOGS, ch_user)
+    if creds is not None:
+        return creds.user, creds.read_password()
+    if settings.SNUFFLE_APM_USER:
+        return settings.SNUFFLE_APM_USER, settings.SNUFFLE_APM_PASSWORD
+    return None
+
+
+def _is_forwarded(key: str, value: object) -> bool:
+    if key in FORWARDED_STRING_TAGS:
+        return isinstance(value, str)
+    if key in FORWARDED_INT_TAGS:
+        return isinstance(value, int) and not isinstance(value, bool)
+    if key in FORWARDED_BOOL_TAGS:
+        return isinstance(value, bool)
+    return False
+
+
+def _query_tags_header(product: Product) -> str:
+    keys = FORWARDED_STRING_TAGS | FORWARDED_INT_TAGS | FORWARDED_BOOL_TAGS
+    tags = get_query_tags().model_dump(mode="json", include=set(keys), exclude_none=True)
+    forwarded = {key: value for key, value in tags.items() if _is_forwarded(key, value)}
+    forwarded["product"] = product.value
+    header = json.dumps(forwarded, separators=(",", ":"), sort_keys=True)
+    if len(header) > QUERY_TAGS_HEADER_MAX_BYTES:
+        # A long request path or name can pass the limit. The product alone still attributes the query.
+        logger.warning("snuffle_proxy_query_tags_too_large", size=len(header))
+        header = json.dumps({"product": product.value}, separators=(",", ":"))
+    return header
+
+
 def snuffle_request(
     team_id: int,
     method: str,
@@ -135,8 +204,13 @@ def snuffle_request(
     base_url = settings.SNUFFLE_APM_URL
     if not base_url:
         raise SnuffleNotConfiguredError("PromQL/LogQL query API is not configured")
-    headers = {TEAM_ID_HEADER: str(team_id), "Accept": accept}
-    auth = (settings.SNUFFLE_APM_USER, settings.SNUFFLE_APM_PASSWORD) if settings.SNUFFLE_APM_USER else None
+    ch_user, product = _signal_of(upstream_path)
+    headers = {
+        TEAM_ID_HEADER: str(team_id),
+        QUERY_TAGS_HEADER: _query_tags_header(product),
+        "Accept": accept,
+    }
+    auth = _snuffle_auth(ch_user)
     upstream = internal_requests.request(
         method,
         f"{base_url.rstrip('/')}{upstream_path}",
