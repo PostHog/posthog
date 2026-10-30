@@ -4,7 +4,7 @@ from typing import Any, cast
 
 from google.genai.types import Blob, Content, ContentListUnion, FileData, FunctionCall, FunctionResponse, Part
 
-from products.ai_observability.backend.llm.images import AttachmentPart
+from products.ai_observability.backend.llm.attachments import AttachmentPart
 from products.ai_observability.backend.providers.formatters.anthropic_typeguards import (
     is_base64_image_param,
     is_image_block_param,

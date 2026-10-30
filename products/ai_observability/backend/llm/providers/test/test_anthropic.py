@@ -5,6 +5,7 @@ import httpx
 import anthropic
 from parameterized import parameterized
 
+from products.ai_observability.backend.llm.attachments import AttachmentPart
 from products.ai_observability.backend.llm.errors import (
     ContextWindowExceededError,
     ModelNotFoundError,
@@ -12,7 +13,6 @@ from products.ai_observability.backend.llm.errors import (
     OutputTokenLimitError,
     ProviderConfigurationError,
 )
-from products.ai_observability.backend.llm.images import AttachmentPart
 from products.ai_observability.backend.llm.providers.anthropic import (
     AnthropicAdapter,
     AnthropicConfig,

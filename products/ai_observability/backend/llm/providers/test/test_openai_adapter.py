@@ -12,6 +12,7 @@ from posthoganalytics.ai.openai import (
 )
 from pydantic import BaseModel, ValidationError, model_validator
 
+from products.ai_observability.backend.llm.attachments import AttachmentPart
 from products.ai_observability.backend.llm.errors import (
     ContentFilteredError,
     ContextWindowExceededError,
@@ -19,7 +20,6 @@ from products.ai_observability.backend.llm.errors import (
     QuotaExceededError,
     StructuredOutputParseError,
 )
-from products.ai_observability.backend.llm.images import AttachmentPart
 from products.ai_observability.backend.llm.providers.openai import OpenAIAdapter, OpenAIConfig
 from products.ai_observability.backend.llm.types import AnalyticsContext, CompletionRequest, OutputSchema
 

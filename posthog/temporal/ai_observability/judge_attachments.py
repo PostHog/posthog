@@ -15,7 +15,7 @@ from posthog.models.team import Team
 from posthog.storage.object_storage import ObjectStorageError
 
 from products.ai_observability.backend.facade.blobs import BlobPointer
-from products.ai_observability.backend.llm.images import (
+from products.ai_observability.backend.llm.attachments import (
     IMAGE_MIME_TYPES,
     MAX_IMAGE_BYTES,
     MAX_PDF_BYTES,
@@ -27,7 +27,7 @@ from products.ai_observability.backend.text_repr.formatters.media_blocks import 
 
 logger = structlog.get_logger(__name__)
 
-JUDGE_IMAGES_FLAG = "llm-analytics-judge-images"
+JUDGE_ATTACHMENTS_FLAG = "llm-analytics-judge-images"
 
 # Each attachment costs tokens on the customer's key, and above 20 images Anthropic tightens its per-image dimension limit.
 MAX_ATTACHMENTS = 20
@@ -49,11 +49,11 @@ _NUMBERED_MARKER_RE = re.compile(r"\[(image|file) \d+\]")
 
 
 @frozen
-class ImagePrompt:
+class AttachmentPrompt:
     """The judge transcript with `[image N]` and `[file N]` markers, and the attachments they refer to."""
 
     text: str
-    images: "JudgeImages"
+    attachments: "JudgeAttachments"
 
     def unnumbered_text(self) -> str:
         """The transcript for a judge call that sends no attachments, so no marker points at a missing one."""
@@ -85,13 +85,13 @@ class _Media:
         return f"{self.kind.capitalize()} {self.number}"
 
 
-class JudgeImages:
+class JudgeAttachments:
     """Numbers the images and PDFs found while formatting a transcript, then attaches them to the judge request."""
 
     def __init__(self, team_id: int) -> None:
         self._team_id = team_id
-        self._images: list[_Media] = []
-        self._images_by_key: dict[str, _Media] = {}
+        self._media: list[_Media] = []
+        self._media_by_key: dict[str, _Media] = {}
         self._counts: Counter[str] = Counter()
         # After one storage failure the rest would fail too, each after its own timeout and retry.
         self._storage_failed = False
@@ -104,22 +104,22 @@ class JudgeImages:
         kind = _kind(media.modality, mime_type)
         if kind is None or mime_type is None or key is None:
             return media.marker()
-        if (image := self._images_by_key.get(key)) is None:
+        if (image := self._media_by_key.get(key)) is None:
             self._counts[kind] += 1
-            image = self._images_by_key[key] = _Media(
+            image = self._media_by_key[key] = _Media(
                 kind=kind,
                 number=self._counts[kind],
                 mime_type=mime_type,
                 pointer=pointer,
                 base64_data=media.base64_data,
             )
-            self._images.append(image)
+            self._media.append(image)
         return image.marker
 
     def content(self, user_prompt: str, provider: str, model: str) -> str | list[Any]:
         """The user message content: each referenced attachment under its label, then the transcript."""
         # Line sampling can drop a marker from a long transcript, and then its attachment only costs tokens.
-        images = [image for image in self._images if image.marker in user_prompt]
+        images = [image for image in self._media if image.marker in user_prompt]
         if not images:
             return user_prompt
 
@@ -158,7 +158,7 @@ class JudgeImages:
                 {"type": "text", "text": f"Not attached, this judge can't read their file type: {unreadable}."}
             )
         parts.append({"type": "text", "text": user_prompt})
-        logger.info("judge_images_attached", provider=provider, model=model, inline_bytes=inline_bytes, **outcomes)
+        logger.info("judge_attachments_attached", provider=provider, model=model, inline_bytes=inline_bytes, **outcomes)
         return parts
 
     def _attach(self, image: _Media, provider: str, model: str, inline_budget: int) -> _Attachment:
@@ -234,7 +234,7 @@ def _project_uuid(team_id: int) -> str | None:
     return str(project_uuid) if project_uuid else None
 
 
-def judge_sees_images(evaluation: dict[str, Any]) -> bool:
+def judge_sees_attachments(evaluation: dict[str, Any]) -> bool:
     if evaluation["evaluation_config"].get("include_media") is False:
         return False
     # Local evaluation keeps the check off the network. An inconclusive result means off.
@@ -245,7 +245,7 @@ def judge_sees_images(evaluation: dict[str, Any]) -> bool:
             return False
         return bool(
             posthoganalytics.feature_enabled(
-                JUDGE_IMAGES_FLAG,
+                JUDGE_ATTACHMENTS_FLAG,
                 project_uuid,
                 groups={"project": project_uuid},
                 group_properties={"project": {"id": str(evaluation["team_id"]), "uuid": project_uuid}},
@@ -257,15 +257,19 @@ def judge_sees_images(evaluation: dict[str, Any]) -> bool:
         return False
 
 
-def build_image_prompt(
+def build_attachment_prompt(
     evaluation: dict[str, Any], plain_prompt: str | None, render: Callable[[MediaMarker], str | None]
-) -> ImagePrompt | None:
-    """The marked prompt and its images, or None when this judge run gets the plain prompt only.
+) -> AttachmentPrompt | None:
+    """The marked prompt and its attachments, or None when this judge run gets the plain prompt only.
 
     `render` builds the same transcript as the plain prompt, with media blocks rendered by the marker it gets.
     """
-    if not judge_sees_images(evaluation):
+    if not judge_sees_attachments(evaluation):
         return None
-    images = JudgeImages(evaluation["team_id"])
-    marked = render(images.marker)
-    return ImagePrompt(text=marked, images=images) if marked is not None and marked != plain_prompt else None
+    attachments = JudgeAttachments(evaluation["team_id"])
+    marked = render(attachments.marker)
+    return (
+        AttachmentPrompt(text=marked, attachments=attachments)
+        if marked is not None and marked != plain_prompt
+        else None
+    )

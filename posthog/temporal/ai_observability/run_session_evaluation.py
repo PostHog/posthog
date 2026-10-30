@@ -42,7 +42,7 @@ from posthog.temporal.ai_observability.evaluation_payload import (
     should_skip_for_payload,
 )
 from posthog.temporal.ai_observability.evaluation_types import EvaluationActivityResult, build_skipped_evaluation_result
-from posthog.temporal.ai_observability.judge_images import build_image_prompt
+from posthog.temporal.ai_observability.judge_attachments import build_attachment_prompt
 from posthog.temporal.ai_observability.message_utils import extract_text_from_messages
 from posthog.temporal.ai_observability.run_trace_evaluation import TRACE_EVENTS_LOOKBACK
 from posthog.temporal.common.utils import close_db_connections
@@ -493,12 +493,12 @@ def execute_session_llm_judge_activity(inputs: ExecuteSessionEvaluationInputs) -
 
     traces = outcome.traces
     transcript = format_session_for_judge(traces)
-    image_prompt = build_image_prompt(
+    attachment_prompt = build_attachment_prompt(
         evaluation, transcript, lambda media_marker: format_session_for_judge(traces, media_marker)
     )
-    if transcript is None and image_prompt is not None:
+    if transcript is None and attachment_prompt is not None:
         # Inline base64 can push the plain transcript over the limit when the marked one still fits.
-        transcript = image_prompt.unnumbered_text()
+        transcript = attachment_prompt.unnumbered_text()
     if transcript is None:
         return build_session_skip_result(allows_na, "session_too_long_to_judge", output_type=output_type)
 
@@ -510,7 +510,7 @@ def execute_session_llm_judge_activity(inputs: ExecuteSessionEvaluationInputs) -
         user_prompt=transcript,
         allows_na=allows_na,
         backfill=inputs.backfill_id is not None,
-        image_prompt=image_prompt,
+        attachment_prompt=attachment_prompt,
     )
 
 

@@ -17,6 +17,7 @@ from posthoganalytics.ai.anthropic.anthropic import WrappedMessages
 from posthoganalytics.client import Client as PostHogClient
 from pydantic import BaseModel
 
+from products.ai_observability.backend.llm.attachments import AttachmentPart, convert_attachment_parts
 from products.ai_observability.backend.llm.errors import (
     AuthenticationError,
     ContextWindowExceededError,
@@ -34,7 +35,6 @@ from products.ai_observability.backend.llm.errors import (
     is_output_limit_error_message,
     stream_error_chunk,
 )
-from products.ai_observability.backend.llm.images import AttachmentPart, convert_attachment_parts
 from products.ai_observability.backend.llm.providers.azure_openai import is_allowed_azure_endpoint
 from products.ai_observability.backend.llm.types import (
     AnalyticsContext,

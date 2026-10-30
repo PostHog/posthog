@@ -20,6 +20,7 @@ from posthoganalytics.ai.openai import (
 )
 from pydantic import BaseModel, ValidationError
 
+from products.ai_observability.backend.llm.attachments import AttachmentPart, convert_attachment_parts
 from products.ai_observability.backend.llm.errors import (
     AuthenticationError,
     ContentFilteredError,
@@ -36,7 +37,6 @@ from products.ai_observability.backend.llm.errors import (
     is_output_limit_error_message,
     stream_error_chunk,
 )
-from products.ai_observability.backend.llm.images import AttachmentPart, convert_attachment_parts
 from products.ai_observability.backend.llm.types import (
     AnalyticsContext,
     CompletionRequest,

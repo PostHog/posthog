@@ -4,9 +4,9 @@ import pytest
 from unittest.mock import patch
 
 from posthog.storage.object_storage import ObjectStorageError
-from posthog.temporal.ai_observability.judge_images import MAX_ATTACHMENTS, JudgeImages
+from posthog.temporal.ai_observability.judge_attachments import MAX_ATTACHMENTS, JudgeAttachments
 
-from products.ai_observability.backend.llm.images import MAX_IMAGE_BYTES, MAX_PDF_BYTES, AttachmentPart
+from products.ai_observability.backend.llm.attachments import MAX_IMAGE_BYTES, MAX_PDF_BYTES, AttachmentPart
 from products.ai_observability.backend.text_repr.formatters.media_blocks import MediaBlock, parse_media_block
 
 OBJECT_STORAGE = "products.ai_observability.backend.ai_blobs.object_storage"
@@ -20,9 +20,9 @@ def _inline(digit: str, length: int = 4) -> MediaBlock:
     return MediaBlock(modality="image", mime_type="image/png", base64_data=digit * length)
 
 
-class TestJudgeImagesMarkers:
+class TestJudgeAttachmentsMarkers:
     def test_numbers_each_kind_and_reuses_the_number_for_a_repeat(self):
-        images = JudgeImages(team_id=7)
+        images = JudgeAttachments(team_id=7)
         inline = MediaBlock(modality="image", mime_type="image/png", base64_data="aGk=")
 
         pdf = _pointer("b", mime="application%2Fpdf")
@@ -49,12 +49,12 @@ class TestJudgeImagesMarkers:
         ],
     )
     def test_images_it_cannot_attach_keep_an_unnumbered_marker(self, media: MediaBlock, marker: str):
-        assert JudgeImages(team_id=7).marker(media) == marker
+        assert JudgeAttachments(team_id=7).marker(media) == marker
 
 
-class TestJudgeImagesContent:
+class TestJudgeAttachmentsContent:
     def test_an_image_referenced_again_at_the_end_stays_attached(self):
-        images = JudgeImages(team_id=7)
+        images = JudgeAttachments(team_id=7)
         markers = [images.marker(_inline(f"{i:02}")) for i in range(MAX_ATTACHMENTS + 1)]
         # The output repeats the first input image after every newer one.
         content = images.content(" ".join([*markers, markers[0]]), "openai", "gpt-5.5")
@@ -64,7 +64,7 @@ class TestJudgeImagesContent:
         assert {"type": "text", "text": "Not attached, over the judge's attachment limit: 1."} in content
 
     def test_attaches_the_newest_images_when_over_the_limit(self):
-        images = JudgeImages(team_id=7)
+        images = JudgeAttachments(team_id=7)
         prompt = " ".join(images.marker(_inline(f"{i:02}")) for i in range(MAX_ATTACHMENTS + 1))
 
         content = images.content(prompt, "openai", "gpt-5.5")
@@ -140,7 +140,7 @@ class TestJudgeImagesContent:
     def test_attaches_each_attachment_under_its_label(
         self, provider: str, model: str, mime: str, expected_label: str, expected_part: AttachmentPart | None
     ):
-        images = JudgeImages(team_id=7)
+        images = JudgeAttachments(team_id=7)
         prompt = f"Input: user: {images.marker(_pointer('a', mime=mime))} What does this chart show?"
 
         with (
@@ -187,7 +187,7 @@ class TestJudgeImagesContent:
     def test_reports_an_image_it_could_not_attach(
         self, provider: str, model: str, media: MediaBlock, storage_error: Exception | None
     ):
-        images = JudgeImages(team_id=7)
+        images = JudgeAttachments(team_id=7)
         prompt = f"user: {images.marker(media)}"
 
         with (
@@ -199,7 +199,7 @@ class TestJudgeImagesContent:
         assert content[1] == {"type": "text", "text": "Image 1: could not be attached."}
 
     def test_stops_calling_storage_after_a_storage_error(self):
-        images = JudgeImages(team_id=7)
+        images = JudgeAttachments(team_id=7)
         prompt = f"user: {images.marker(_pointer('a'))} {images.marker(_pointer('b'))}"
 
         with patch(f"{OBJECT_STORAGE}.head_object_strict", side_effect=ObjectStorageError("timed out")) as head:
@@ -222,7 +222,7 @@ class TestJudgeImagesContent:
         ],
     )
     def test_caps_image_bytes(self, provider: str, media, too_large: set[int], reads: int):
-        images = JudgeImages(team_id=7)
+        images = JudgeAttachments(team_id=7)
         prompt = f"user: {images.marker(media('a'))} {images.marker(media('b'))}"
 
         with (
@@ -241,7 +241,7 @@ class TestJudgeImagesContent:
         assert read.call_count == reads
 
     def test_caps_pdf_bytes_on_links(self):
-        images = JudgeImages(team_id=7)
+        images = JudgeAttachments(team_id=7)
         prompt = f"user: {images.marker(_pointer('a', mime='application%2Fpdf'))}"
 
         with (
@@ -255,7 +255,7 @@ class TestJudgeImagesContent:
         presign.assert_not_called()
 
     def test_attachments_the_judge_cannot_read_take_no_slot(self):
-        images = JudgeImages(team_id=7)
+        images = JudgeAttachments(team_id=7)
         image = images.marker(_inline("aa"))
         pdfs = " ".join(
             images.marker(MediaBlock(modality="file", url=f"phaiblob://v1/sha256/{i:064x}?mime=application%2Fpdf"))
@@ -271,7 +271,7 @@ class TestJudgeImagesContent:
         ]
 
     def test_an_inline_image_exactly_at_the_provider_limit_is_attached(self):
-        images = JudgeImages(team_id=7)
+        images = JudgeAttachments(team_id=7)
         encoded = base64.b64encode(b"x" * MAX_IMAGE_BYTES["anthropic"]).decode()
         prompt = f"user: {images.marker(MediaBlock(modality='image', mime_type='image/png', base64_data=encoded))}"
 
@@ -280,7 +280,7 @@ class TestJudgeImagesContent:
         assert content[1] == {"type": "text", "text": "Image 1:"}
 
     def test_skips_images_whose_marker_was_sampled_out_of_the_prompt(self):
-        images = JudgeImages(team_id=7)
+        images = JudgeAttachments(team_id=7)
         images.marker(_pointer("a"))
 
         assert images.content("user: hello", "openai", "gpt-5.5") == "user: hello"

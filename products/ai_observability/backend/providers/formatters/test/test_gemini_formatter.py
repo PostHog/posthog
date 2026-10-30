@@ -5,7 +5,7 @@ import pytest
 from google.genai.types import Blob, Content, FileData, FunctionCall, FunctionResponse, Part
 from parameterized import parameterized
 
-from products.ai_observability.backend.llm.images import AttachmentPart
+from products.ai_observability.backend.llm.attachments import AttachmentPart
 from products.ai_observability.backend.providers.formatters.gemini_formatter import (
     MessageConversionError,
     convert_anthropic_messages_to_gemini,

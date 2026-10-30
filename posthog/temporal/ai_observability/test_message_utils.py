@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from posthog.temporal.ai_observability.judge_images import JudgeImages
+from posthog.temporal.ai_observability.judge_attachments import JudgeAttachments
 from posthog.temporal.ai_observability.message_utils import (
     extract_text_from_messages,
     format_tool_definitions,
@@ -174,15 +174,15 @@ class TestExtractTextFromMessages:
             ),
         ],
     )
-    def test_judge_images_replace_media_blocks_with_markers(self, block, marker):
+    def test_judge_attachments_replace_media_blocks_with_markers(self, block, marker):
         messages = [{"role": "user", "content": [block, {"type": "text", "text": "What does this chart show?"}]}]
 
         assert (
-            extract_text_from_messages(messages, JudgeImages(team_id=7).marker)
+            extract_text_from_messages(messages, JudgeAttachments(team_id=7).marker)
             == f"user: {marker} What does this chart show?"
         )
 
-    def test_judge_images_number_otel_parts_and_tool_result_images(self):
+    def test_judge_attachments_number_otel_parts_and_tool_result_images(self):
         pointer = f"phaiblob://v1/sha256/{'a' * 64}?mime=image%2Fpng&size=1"
         image = {"type": "image_url", "image_url": {"url": pointer}}
         messages = [
@@ -199,12 +199,12 @@ class TestExtractTextFromMessages:
         ]
 
         assert (
-            extract_text_from_messages(messages, JudgeImages(team_id=7).marker)
+            extract_text_from_messages(messages, JudgeAttachments(team_id=7).marker)
             == "user: [image 1]\nuser: [image 1]\ntool[c1]: [image 1]"
         )
         assert extract_text_from_messages(messages).startswith("user: [image]\n")
 
-    def test_media_blocks_keep_their_text_without_judge_images(self):
+    def test_media_blocks_keep_their_text_without_judge_attachments(self):
         block = {"type": "file", "file": {"filename": "report.pdf"}}
 
         assert "report.pdf" in extract_text_from_messages([{"role": "user", "content": [block]}])
