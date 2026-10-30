@@ -6,6 +6,7 @@ import { AiTaskInstructionsCompare } from './components/AiTaskInstructionsCompar
 import { HogFlowFunctionConfiguration } from './components/HogFlowFunctionConfiguration'
 import { OptOutOfMessagesConfiguration } from './components/OptOutOfMessagesConfiguration'
 import { StepSchemaErrors } from './components/StepSchemaErrors'
+import { T3CodeTaskSetup } from './components/T3CodeTaskSetup'
 import { StepFunctionNode } from './hogFunctionStepLogic'
 
 export function StepFunctionConfiguration({ node }: { node: StepFunctionNode }): JSX.Element {
@@ -26,6 +27,13 @@ export function StepFunctionConfiguration({ node }: { node: StepFunctionNode }):
                     inputs={inputs}
                     setInputs={(inputs) => partialSetWorkflowActionConfig(node.id, { inputs })}
                     error={validationResult?.errors?.category_id}
+                />
+            )}
+            {templateId === 'template-t3-code' && (
+                <T3CodeTaskSetup
+                    actionId={node.id}
+                    inputs={inputs}
+                    setInputs={(inputs) => partialSetWorkflowActionConfig(node.id, { inputs })}
                 />
             )}
             {templateId === 'template-posthog-add-to-static-cohort' ? (

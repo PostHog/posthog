@@ -1183,6 +1183,9 @@ depends_on = [
     "products.replay_vision",
     # Facade-only: workflows declares its Today highlight sources against the Today facade contract.
     "products.today",
+    # Facade-only: the T3 Code step's endpoints call the member's T3 Code connection through
+    # products.mcp_store.backend.facade.api.
+    "products.mcp_store",
 ]
 layer = "modules"
 

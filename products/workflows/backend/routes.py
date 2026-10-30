@@ -19,6 +19,7 @@ from products.workflows.backend.presentation.views import (
     workflow_sending_rules,
     workflow_setup,
     workflow_static_cohort_members,
+    workflow_t3_code,
     workflow_tasks,
     workflow_vision_requests,
 )
@@ -58,6 +59,9 @@ def register_routes(routers: RouterRegistry) -> None:
     )
     routers.projects.register(
         r"workflow_setup", workflow_setup.WorkflowSetupViewSet, "project_workflow_setup", ["team_id"]
+    )
+    routers.projects.register(
+        r"workflow_t3_code", workflow_t3_code.WorkflowT3CodeViewSet, "project_workflow_t3_code", ["team_id"]
     )
     routers.projects.register(
         r"workflow_scout_runs",

@@ -3624,3 +3624,46 @@ export const WorkflowSendingRulesPartialUpdateBody = /* @__PURE__ */ zod.object(
             "Capture email sends, opens, clicks and bounces as PostHog events, so they can be used in insights and funnels. These events count toward the project's event usage."
         ),
 })
+
+/**
+ * Set up a workflow's T3 Code step with the member's own T3 Code connection from MCP servers settings.
+ * @summary List the projects on a T3 Code machine
+ */
+export const workflowT3CodeProjectsCreateBodyMachineMax = 253
+
+export const WorkflowT3CodeProjectsCreateBody = /* @__PURE__ */ zod.object({
+    machine: zod
+        .string()
+        .max(workflowT3CodeProjectsCreateBodyMachineMax)
+        .describe("The host of one of the member's T3 Code machines."),
+    approval_token: zod
+        .string()
+        .optional()
+        .describe('The token from a `needs_approval` answer. Send it once the member allowed the call.'),
+})
+
+/**
+ * Set up a workflow's T3 Code step with the member's own T3 Code connection from MCP servers settings.
+ * @summary Create a T3 Code task that starts a new thread for each run of the step
+ */
+export const workflowT3CodeWebhookTasksCreateBodyMachineMax = 253
+
+export const workflowT3CodeWebhookTasksCreateBodyProjectIdMax = 200
+
+export const workflowT3CodeWebhookTasksCreateBodyTitleMax = 512
+
+export const WorkflowT3CodeWebhookTasksCreateBody = /* @__PURE__ */ zod.object({
+    machine: zod
+        .string()
+        .max(workflowT3CodeWebhookTasksCreateBodyMachineMax)
+        .describe("The host of one of the member's T3 Code machines."),
+    approval_token: zod
+        .string()
+        .optional()
+        .describe('The token from a `needs_approval` answer. Send it once the member allowed the call.'),
+    project_id: zod
+        .string()
+        .max(workflowT3CodeWebhookTasksCreateBodyProjectIdMax)
+        .describe('The T3 Code project the task starts threads in.'),
+    title: zod.string().max(workflowT3CodeWebhookTasksCreateBodyTitleMax).describe("The task's name in T3 Code."),
+})

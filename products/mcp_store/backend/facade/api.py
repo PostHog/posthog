@@ -31,6 +31,7 @@ from products.mcp_store.backend.facade.contracts import (
     ActiveInstallation,
     ConnectorCallOutcome,
     ConnectorTool,
+    MemberServer,
     SandboxInstallations,
     UnmountedInstallation,
     UnmountedInstallationReason,
@@ -886,3 +887,17 @@ def member_server_hosts(team_id: int, user_id: int) -> list[str]:
         .values_list("url", flat=True)
     )
     return sorted({host for url in urls if (host := _installation_host(url))})
+
+
+def member_servers_with_tools(team_id: int, user_id: int, tool_names: Iterable[str]) -> list[MemberServer]:
+    """The servers the member can call that expose every tool in ``tool_names``."""
+    required = set(tool_names)
+    servers: list[MemberServer] = []
+    for host in member_server_hosts(team_id, user_id):
+        installation = member_installation_for_host(team_id, user_id, host)
+        if installation is None:
+            continue
+        exposed = set(installation.tools.filter(removed_at__isnull=True).values_list("tool_name", flat=True))
+        if required <= exposed:
+            servers.append(MemberServer(host=host, name=_resolve_name(installation)))
+    return servers

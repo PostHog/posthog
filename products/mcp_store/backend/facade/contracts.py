@@ -20,6 +20,14 @@ class ConnectorTool:
     read_only: bool
 
 
+@dataclass(frozen=True)
+class MemberServer:
+    """A server a member can call, addressed by its host."""
+
+    host: str
+    name: str
+
+
 ConnectorCallStatus = Literal[
     "ok",
     "not_connected",

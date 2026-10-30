@@ -81,6 +81,11 @@ import type {
     PeopleImportApi,
     PeopleImportCreateApi,
     SendCalendarFlowApi,
+    T3CodeCallApi,
+    T3CodeMachinesApi,
+    T3CodeProjectsApi,
+    T3CodeWebhookTaskApi,
+    T3CodeWebhookTaskRequestApi,
     TeamEmailReputationResponseApi,
     WorkflowEmailPauseStatusApi,
     WorkflowImportRecordApi,
@@ -1740,6 +1745,65 @@ export const workflowSetupStatus = async (
     return apiMutator<WorkflowSetupStatusApi>(getWorkflowSetupStatusUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getWorkflowT3CodeMachinesRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/workflow_t3_code/machines/`
+}
+
+/**
+ * Set up a workflow's T3 Code step with the member's own T3 Code connection from MCP servers settings.
+ */
+export const workflowT3CodeMachinesRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<T3CodeMachinesApi> => {
+    return apiMutator<T3CodeMachinesApi>(getWorkflowT3CodeMachinesRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getWorkflowT3CodeProjectsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/workflow_t3_code/projects/`
+}
+
+/**
+ * Set up a workflow's T3 Code step with the member's own T3 Code connection from MCP servers settings.
+ * @summary List the projects on a T3 Code machine
+ */
+export const workflowT3CodeProjectsCreate = async (
+    projectId: string,
+    t3CodeCallApi: T3CodeCallApi,
+    options?: RequestInit
+): Promise<T3CodeProjectsApi> => {
+    return apiMutator<T3CodeProjectsApi>(getWorkflowT3CodeProjectsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(t3CodeCallApi),
+    })
+}
+
+export const getWorkflowT3CodeWebhookTasksCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/workflow_t3_code/webhook_tasks/`
+}
+
+/**
+ * Set up a workflow's T3 Code step with the member's own T3 Code connection from MCP servers settings.
+ * @summary Create a T3 Code task that starts a new thread for each run of the step
+ */
+export const workflowT3CodeWebhookTasksCreate = async (
+    projectId: string,
+    t3CodeWebhookTaskRequestApi: T3CodeWebhookTaskRequestApi,
+    options?: RequestInit
+): Promise<T3CodeWebhookTaskApi> => {
+    return apiMutator<T3CodeWebhookTaskApi>(getWorkflowT3CodeWebhookTasksCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(t3CodeWebhookTaskRequestApi),
     })
 }
 
