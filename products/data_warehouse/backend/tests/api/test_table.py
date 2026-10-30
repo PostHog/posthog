@@ -1527,3 +1527,85 @@ class TestTable(APIBaseTest):
 
         assert response.status_code == 400
         assert "Invalid format" in response.json()["message"]
+
+
+OBJECT_STORAGE_FLAG = "dwh-object-storage-sources"
+PROVIDER_COLUMNS = {"id": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": True}}
+
+
+class TestSelfManagedTableCreationWithManagedSources(APIBaseTest):
+    def _set_flag(self, enabled: bool) -> None:
+        patcher = patch(
+            "posthoganalytics.feature_enabled",
+            side_effect=lambda key, *args, **kwargs: enabled and key == OBJECT_STORAGE_FLAG,
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def _create(self, url_pattern: str) -> Any:
+        return self.client.post(
+            f"/api/projects/{self.team.id}/warehouse_tables/",
+            {
+                "name": "bucket_table",
+                "url_pattern": url_pattern,
+                "credential": {"access_key": "_accesskey", "access_secret": "_accesssecret"},
+                "format": "Parquet",
+            },
+        )
+
+    @parameterized.expand(
+        [
+            ("s3", "https://your-org.s3.amazonaws.com/bucket/*.pqt", "Amazon S3"),
+            ("s3_regional", "https://s3.eu-west-1.amazonaws.com/bucket/*.pqt", "Amazon S3"),
+            ("gcs", "https://storage.googleapis.com/bucket/*.pqt", "Google Cloud Storage"),
+            ("azure", "https://account.blob.core.windows.net/container/*.pqt", "Azure Blob Storage"),
+            ("r2", "https://account.r2.cloudflarestorage.com/bucket/*.pqt", "Cloudflare R2"),
+            ("other", "https://objects.example.com/bucket/*.pqt", "Amazon S3, Google Cloud Storage"),
+        ]
+    )
+    @patch(
+        "products.warehouse_sources.backend.models.table.DataWarehouseTable.get_columns", return_value=PROVIDER_COLUMNS
+    )
+    @patch("products.warehouse_sources.backend.tasks.tasks.get_client")
+    def test_create_is_blocked_when_flag_is_on(self, _name: str, url_pattern: str, provider: str, *_mocks: Any):
+        self._set_flag(True)
+
+        response = self._create(url_pattern)
+
+        assert response.status_code == 400
+        assert provider in response.json()["detail"]
+        assert DataWarehouseTable.objects.filter(team=self.team, name="bucket_table").count() == 0
+        assert DataWarehouseCredential.objects.filter(team=self.team).count() == 0
+
+    @patch(
+        "products.warehouse_sources.backend.models.table.DataWarehouseTable.get_columns", return_value=PROVIDER_COLUMNS
+    )
+    @patch("products.warehouse_sources.backend.tasks.tasks.get_client")
+    def test_create_still_works_when_flag_is_off(self, *_mocks: Any):
+        self._set_flag(False)
+
+        response = self._create("https://your-org.s3.amazonaws.com/bucket/*.pqt")
+
+        assert response.status_code == 201
+
+    def test_update_and_delete_still_work_when_flag_is_on(self):
+        credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
+        table = DataWarehouseTable.objects.create(
+            name="existing_table",
+            format="Parquet",
+            team=self.team,
+            credential=credential,
+            url_pattern="https://your-org.s3.amazonaws.com/bucket/*.pqt",
+            columns={},
+        )
+        self._set_flag(True)
+
+        update_response = self.client.patch(
+            f"/api/projects/{self.team.id}/warehouse_tables/{table.id}/", {"name": "renamed_table"}
+        )
+        assert update_response.status_code == 200, update_response.json()
+        table.refresh_from_db()
+        assert table.name == "renamed_table"
+
+        delete_response = self.client.delete(f"/api/projects/{self.team.id}/warehouse_tables/{table.id}/")
+        assert delete_response.status_code == 204
