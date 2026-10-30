@@ -9,6 +9,8 @@ on:
             - services/**
             # WF013 reads its staticDirs, so a new entry has to run the lint.
             - common/storybook/.storybook/main.ts
+            # WF017 reads this snapshot, so a change to the required set alone needs the lint.
+            - .github/required-status-checks.txt
             - tools/hogli-commands/hogli_commands/workflow_lint/**
             - tools/workflow-plan/**
             - hogli.yaml

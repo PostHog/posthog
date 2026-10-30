@@ -304,6 +304,8 @@ jobs:
                   } >> "$GITHUB_OUTPUT"
 
     lint:
+        permissions:
+            contents: read
         # Not on master push — master coverage comes from the hourly run (see `schedule`).
         if: needs.changes.outputs.nodejs == 'true' && github.event_name != 'push'
         name: Node.js Code quality (depot-ubuntu-24.04)
@@ -370,6 +372,8 @@ jobs:
                         fi
 
     build:
+        permissions:
+            contents: read
         # Not on master push — master coverage comes from the hourly run (see `schedule`).
         if: needs.changes.outputs.nodejs == 'true' && github.event_name != 'push'
         name: Node.js Build (depot-ubuntu-24.04)
@@ -433,6 +437,8 @@ jobs:
                   fi
 
     tests:
+        permissions:
+            contents: read
         # Not on master push — master coverage comes from the hourly run (see `schedule`).
         if: needs.changes.outputs.nodejs == 'true' && github.event_name != 'push'
         name: Node.js ${{ matrix.lane }} Tests ${{ matrix.shard }}/${{ matrix.shard_count }} (depot-ubuntu-24.04-4)
@@ -769,6 +775,8 @@ jobs:
                   docker compose -f docker-compose.dev.yml exec clickhouse cat /var/log/clickhouse-server/clickhouse-server.err.log
 
     rust_ingestion_e2e:
+        permissions:
+            contents: read
         # Not on master push — master coverage comes from the hourly run (see `schedule`).
         if: (needs.changes.outputs.nodejs == 'true' || needs.changes.outputs.personhog_e2e == 'true') && github.event_name != 'push'
         name: Rust ingestion consumer Node API e2e (depot-ubuntu-24.04-4)
@@ -1097,6 +1105,7 @@ jobs:
     # Telemetry never reds CI (continue-on-error).
     # hogli-lint: not-a-required-gate — reads results to describe the run, gates nothing
     capture-nodejs-selection:
+        permissions: {}
         name: Capture Node.js jest selection
         needs: [changes, tests]
         runs-on: ubuntu-24.04
@@ -1132,6 +1141,8 @@ jobs:
                       }
 
     node_tests:
+        permissions:
+            contents: read
         # report-test-speed is deliberately not in needs: it is visible but non-gating.
         needs: [changes, tests, rust_ingestion_e2e, build, lint]
         name: Node.js Tests Pass

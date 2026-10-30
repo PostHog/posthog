@@ -66,7 +66,11 @@ jobs:
         permissions:
             contents: read
             pull-requests: read
-        runs-on: ubuntu-24.04
+        # Depot: every later job waits on this one, and a GitHub-hosted runner queued a
+        # median 78-104s (p90 up to 190s) for it. Forks get GitHub-hosted because this job
+        # runs the paths-filter action out of the checkout. See "Runners" in
+        # /authoring-ci-workflows.
+        runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && 'depot-ubuntu-24.04' || 'ubuntu-24.04' }}
         timeout-minutes: 5
         # A draft PR labeled `no-ci` skips this workflow entirely (prototypes):
         # every other job needs this one, and the gates treat skipped as success.
@@ -449,6 +453,9 @@ jobs:
 
     vr-setup:
         name: Create Visual Review run
+        # GitHub-hosted, not Depot: this job restores the VR CLI build from cache and runs it
+        # with VR_API_TOKEN. Depot Cache has no branch isolation, so a fork PR could plant
+        # that entry. GitHub's cache only lets a master run restore what master saved.
         runs-on: ubuntu-24.04
         # The VR CLI build dominates this job whenever the cache misses, and it then
         # downloads the whole dependency tree. vr-complete allows the same budget for the
@@ -1056,7 +1063,8 @@ jobs:
                 check-baseline-removals,
             ]
         name: Visual regression tests pass
-        runs-on: ubuntu-24.04
+        # Depot: the required gate ends the run. See "Runners" in /authoring-ci-workflows.
+        runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
         if: ${{ !cancelled() }}
         steps:
@@ -1115,6 +1123,8 @@ jobs:
 
     vr-complete:
         name: Complete Visual Review run
+        # GitHub-hosted for the same reason as vr-setup: it runs the cached VR CLI build
+        # with VR_API_TOKEN.
         runs-on: ubuntu-24.04
         timeout-minutes: 15
         needs: [changes, visual-regression, vr-setup]
@@ -1224,7 +1234,8 @@ jobs:
     calculate-running-time:
         name: Calculate running time
         needs: [visual-regression, visual_regression_tests, changes]
-        runs-on: ubuntu-24.04
+        # Depot: chained behind the gate. See "Runners" in /authoring-ci-workflows.
+        runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
         if: # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks or Dependabot (no secrets access)
             ${{ !cancelled() && github.actor != 'dependabot[bot]' &&
@@ -1254,6 +1265,7 @@ jobs:
                   capture-job-durations: true
                   github-token: ${{ steps.telemetry-app-token.outputs.token || github.token }}
                   status-job: 'Visual regression tests pass'
+                  runner: 'depot'
             - name: Capture running time to DevEx PostHog
               if: github.run_attempt == '1'
               continue-on-error: true
@@ -1265,6 +1277,7 @@ jobs:
                   capture-job-durations: true
                   github-token: ${{ steps.telemetry-app-token.outputs.token || github.token }}
                   status-job: 'Visual regression tests pass'
+                  runner: 'depot'
 
     capture-story-selection:
         name: Capture story selection
@@ -1308,7 +1321,9 @@ jobs:
     # uncertainty also falls back to the full matrix.
     select-stories:
         name: Story selection
-        runs-on: ubuntu-24.04
+        # Depot: every VR job waits on this selector. Forks get GitHub-hosted, because this
+        # job checks out the fork head and Depot runners inject shared cache credentials.
+        runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && 'depot-ubuntu-24.04' || 'ubuntu-24.04' }}
         timeout-minutes: 5
         needs: [changes, build-storybook]
         if: |

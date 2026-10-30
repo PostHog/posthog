@@ -74,7 +74,11 @@ jobs:
     # we skip each step individually, so   they are still reported as success
     # because many of them are required for CI checks to be green
     changes:
-        runs-on: ubuntu-24.04
+        # Depot: every later job waits on this one, and a GitHub-hosted runner queued a
+        # median 78-104s (p90 up to 190s) for it. Forks get GitHub-hosted because this job
+        # runs the paths-filter action out of the checkout. See "Runners" in
+        # /authoring-ci-workflows.
+        runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && 'depot-ubuntu-24.04' || 'ubuntu-24.04' }}
         timeout-minutes: 5
         # A draft PR labeled `no-ci` skips this workflow entirely (prototypes):
         # every other job needs this one, and the gates treat skipped as success.
@@ -1111,7 +1115,8 @@ jobs:
                 frontend_tests,
                 changes,
             ]
-        runs-on: ubuntu-24.04
+        # Depot: chained behind the gate. See "Runners" in /authoring-ci-workflows.
+        runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
         if: # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks or Dependabot (no secrets access)
             ${{ !cancelled() && github.actor != 'dependabot[bot]' &&
@@ -1141,7 +1146,7 @@ jobs:
                   capture-job-durations: true
                   github-token: ${{ steps.telemetry-app-token.outputs.token || github.token }}
                   status-job: 'Frontend Tests Pass'
-                  runner: 'github'
+                  runner: 'depot'
             - name: Capture running time to DevEx PostHog
               if: github.run_attempt == '1'
               continue-on-error: true
@@ -1153,7 +1158,7 @@ jobs:
                   capture-job-durations: true
                   github-token: ${{ steps.telemetry-app-token.outputs.token || github.token }}
                   status-job: 'Frontend Tests Pass'
-                  runner: 'github'
+                  runner: 'depot'
 
     # Jest-selection telemetry -> DevEx project (347861), alongside the equivalent
     # events for the backend (posthog-ci-test-selection) and Playwright
@@ -1168,7 +1173,8 @@ jobs:
     capture-jest-selection:
         name: Capture jest selection
         needs: [select-jest-tests, jest]
-        runs-on: ubuntu-24.04
+        # Depot: runs at the end of the run, beside the gate. See "Runners" in /authoring-ci-workflows.
+        runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
         # Either the selector reached a decision, or jest ran without it (the full-run
         # baseline). Neither holds on a frontend-untouched PR, and there is nothing to
@@ -1211,7 +1217,8 @@ jobs:
     frontend_tests:
         needs: [changes, jest, jest-replay-shared, frontend-format, frontend-bundle-size, frontend-typescript-checks]
         name: Frontend Tests Pass
-        runs-on: ubuntu-24.04
+        # Depot: the required gate ends the run. See "Runners" in /authoring-ci-workflows.
+        runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
         if: ${{ !cancelled() }}
         steps:

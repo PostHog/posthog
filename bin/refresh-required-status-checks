@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# Rewrite .github/required-status-checks.txt from the `master` branch ruleset.
+#
+# The file mirrors the ruleset so a change to the required checks is a diff, and
+# so `hogli lint:workflows` can check the names against real job names offline.
+# Run this after changing the ruleset, then commit the result.
+set -euo pipefail
+
+repo="${1:-PostHog/posthog}"
+root="$(git -C "$(dirname "$0")" rev-parse --show-toplevel)"
+out="$root/.github/required-status-checks.txt"
+
+ruleset_id=$(gh api "repos/$repo/rulesets" --jq '.[] | select(.target=="branch") | .id' | while read -r id; do
+    if gh api "repos/$repo/rulesets/$id" --jq '.rules[] | select(.type=="required_status_checks")' | grep -q .; then
+        echo "$id"
+        break
+    fi
+done)
+
+if [ -z "$ruleset_id" ]; then
+    echo "no branch ruleset with required status checks found on $repo" >&2
+    exit 1
+fi
+
+{
+    sed -n '/^#/p' "$out"
+    gh api "repos/$repo/rulesets/$ruleset_id" \
+        --jq '.rules[] | select(.type=="required_status_checks") | .parameters.required_status_checks[].context'
+} > "$out.new"
+mv "$out.new" "$out"
+echo "wrote $(grep -cve '^#' -e '^$' "$out") required checks from ruleset $ruleset_id"
