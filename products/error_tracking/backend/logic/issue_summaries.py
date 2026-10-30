@@ -121,8 +121,23 @@ PRIVACY_MODE_HEADER = "X-PostHog-Privacy-Mode"
 UNKNOWN = "unknown"
 IN_APP_FRAME_MARKER = "[in-app]"
 WAIT_POLL_INTERVAL_SECONDS = 0.25
-# Event values must not open or close the <issue> block that fences them in the prompt.
-ISSUE_FENCE_TAG = re.compile(r"</?\s*issue\s*>", re.IGNORECASE)
+# Event values must not open or close the <issue> block that fences them in the prompt. Every angle bracket
+# becomes a look-alike, so no "<" from event text reaches the prompt and no nesting can rebuild a fence tag.
+FENCE_ESCAPES = str.maketrans({"<": "\u2039", ">": "\u203a"})
+SUMMARY_URL = re.compile(r"\b(?:[a-z][a-z0-9+.-]*://|www\.)[^\s\"'<>]+", re.IGNORECASE)
+URL_SCHEME = re.compile(r"^[a-z][a-z0-9+.-]*://", re.IGNORECASE)
+# A shell command never passes, even when the prompt holds it, because the event text is attacker-controlled.
+SUMMARY_SHELL_COMMAND = re.compile(
+    r"\|\s*(?:sudo\s+)?(?:(?:ba|z|da|k)?sh|iex)\b"
+    r"|\b(?:curl|wget)\s+(?:-|\S+://|\S+\.\S)"
+    r"|\b(?:ba|z)?sh\s+-c\b"
+    r"|\bsudo\s+\S"
+    r"|\brm\s+-[a-z]*[rf]"
+    r"|\bchmod\s+\+?[0-7x]"
+    r"|\b(?:powershell|pwsh)(?:\.exe)?\s+-"
+    r"|\bInvoke-Expression\b",
+    re.IGNORECASE,
+)
 # A worker claims with this prefix and its own token, so only that worker can settle the claim.
 LOCK_CLAIM_PREFIX = "claim:"
 # Workers deployed before claim tokens claim with this value.
@@ -663,6 +678,14 @@ def _generate_claimed(
     if response is None:
         logger.warning("error_tracking_issue_summary_invalid_output", team_id=team_id, issue_id=str(issue_id))
         return IssueSummaryResult(outcome=IssueSummaryOutcome.INVALID_OUTPUT, summary=stored)
+    if unsafe_fields := unsafe_summary_fields(response, inputs.prompt):
+        logger.warning(
+            "error_tracking_issue_summary_unsafe_output",
+            team_id=team_id,
+            issue_id=str(issue_id),
+            fields=unsafe_fields,
+        )
+        return IssueSummaryResult(outcome=IssueSummaryOutcome.INVALID_OUTPUT, summary=stored)
 
     with timings.stage("category"):
         category = infer_issue_category(team_id, inputs.prompt)
@@ -882,7 +905,7 @@ def _summary_inputs(
         "impact": _impact_line(impact),
     }
     prompt = ISSUE_SUMMARY_INPUT_TEMPLATE.format(
-        **{name: ISSUE_FENCE_TAG.sub("", value) for name, value in fields.items()}
+        **{name: value.translate(FENCE_ESCAPES) for name, value in fields.items()}
     )
     fingerprints = list(
         ErrorTrackingIssueFingerprintV2.objects.filter(team_id=team.id, issue_id=issue_id).values_list(
@@ -1053,6 +1076,25 @@ def parse_summary_response(raw: str) -> IssueSummaryResponse | None:
         return IssueSummaryResponse.model_validate(parsed)
     except ValidationError:
         return None
+
+
+def unsafe_summary_fields(response: IssueSummaryResponse, prompt: str) -> list[str]:
+    """Return the fields that hold a shell command, or a URL that the prompt does not hold.
+
+    The whole summary is dropped when any field fails: a model that copied one injected instruction may have
+    followed others, such as one that calls a real error benign.
+    """
+    return [name for name, value in response.model_dump().items() if not _summary_field_safe(value, prompt)]
+
+
+def _summary_field_safe(value: str, prompt: str) -> bool:
+    if SUMMARY_SHELL_COMMAND.search(value):
+        return False
+    for match in SUMMARY_URL.finditer(value):
+        url = match.group().rstrip(".,;:!?)]}")
+        if url not in prompt and URL_SCHEME.sub("", url) not in prompt:
+            return False
+    return True
 
 
 def infer_issue_category(team_id: int, prompt: str) -> IssueSummaryCategory | None:
