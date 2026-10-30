@@ -254,6 +254,17 @@ class TestOrganizationOffboarding(APIBaseTest):
         assert recipient.enabled and recipient.target_value == "DEPARTING@example.com,other@example.com"
         assert only_recipient.enabled and only_recipient.target_value == self.departing.email
 
+    def test_untitled_subscriptions_use_the_resource_name(self) -> None:
+        subscription = self.subscription(creator=self.departing, recipients="reports@example.com")
+        subscription.title = ""
+        subscription.save(update_fields=["title"])
+        assert subscription.dashboard is not None
+        subscription.dashboard.name = "Weekly product usage"
+        subscription.dashboard.save(update_fields=["name"])
+        response = self.client.get(self.url + "offboarding_preview/")
+        assert response.status_code == 200
+        assert response.json()[0]["name"] == "Weekly product usage"
+
     @parameterized.expand(
         [
             ("email", "first@example.com,second@example.com", "first@example.com,second@example.com"),

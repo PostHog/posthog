@@ -19,7 +19,7 @@ class SubscriptionOffboarding:
                 id=f"subscription:{subscription.pk}",
                 resource_id=str(subscription.pk),
                 kind="subscription",
-                name=subscription.title or "Untitled subscription",
+                name=subscription.title or subscription.display_name,
                 team_id=subscription.team_id,
                 project_name=subscription.team.name,
                 created_at=subscription.created_at,
@@ -29,5 +29,5 @@ class SubscriptionOffboarding:
             )
             for subscription in self._subscriptions()
             .filter(created_by_id=self.user_id, enabled=True)
-            .select_related("team")
+            .select_related("team", "dashboard", "insight")
         ]
