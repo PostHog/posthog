@@ -3,10 +3,11 @@ import { useEffect } from 'react'
 
 import { LemonLabel } from '@posthog/lemon-ui'
 
-import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
+import { SeriesActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 
-import { FilterType } from '~/types'
+import { ChartDisplayCategory } from '~/types'
 
+import { seriesToTemplateVariableStep, templateVariableStepToSeries } from './dashboardTemplateEntities'
 import { dashboardTemplateVariablesLogic } from './dashboardTemplateVariablesLogic'
 import { newDashboardLogic } from './newDashboardLogic'
 
@@ -34,13 +35,10 @@ export function DashboardTemplateVariables(): JSX.Element {
                         <p className="text-sm text-secondary">{variable.description}</p>
                     </div>
                     <div>
-                        <ActionFilter
-                            filters={{
-                                events: [variable.default],
-                            }}
-                            setFilters={(filters: FilterType) => {
-                                setVariable(variable.name, filters)
-                            }}
+                        <SeriesActionFilter
+                            series={templateVariableStepToSeries(variable.default)}
+                            onChange={(series) => setVariable(variable.name, seriesToTemplateVariableStep(series))}
+                            trendsDisplayCategory={ChartDisplayCategory.TimeSeries}
                             typeKey={'variable_' + variable.name}
                             hideDeleteBtn={true}
                             hideRename={true}
