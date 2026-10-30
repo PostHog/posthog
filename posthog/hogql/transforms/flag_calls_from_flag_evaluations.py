@@ -1016,7 +1016,7 @@ def _reads_scan(current: ast.Type | None) -> bool:
     return isinstance(current, ast.TableType) and isinstance(current.table, (EventsTable, FlagEvaluationsTable))
 
 
-class _SwappedPosthogEventsScopeFinder(_SyntaxVisitor):
+class _SwappedPosthogEventsScopeFinder(SyntaxVisitor):
     def __init__(self) -> None:
         super().__init__()
         self.fields: list[ast.Field] = []
@@ -1035,7 +1035,7 @@ class _SwappedPosthogEventsScopeFinder(_SyntaxVisitor):
         super().visit_select_query(node)
 
 
-class _PosthogEventsQualifiedFieldCollector(_SyntaxVisitor):
+class _PosthogEventsQualifiedFieldCollector(SyntaxVisitor):
     def __init__(self, root: ast.SelectQuery) -> None:
         super().__init__()
         self.root = root
