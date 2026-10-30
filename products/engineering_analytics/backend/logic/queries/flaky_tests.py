@@ -47,12 +47,14 @@ _SELECT = """
         countIf(quarantined_in_run) AS quarantined_failed_run_count,
         max(run_signal_at) AS last_signal_at
     FROM (__RUN_EVIDENCE__)
-    __RUNNER_FILTER__
+    WHERE __TEST_FILTERS__
     GROUP BY runner, nodeid
-    HAVING same_commit_recovery_run_count > 0
+    HAVING (
+        same_commit_recovery_run_count > 0
         OR quarantined_failed_run_count > 0
         OR master_failed_run_count > 0
         OR failed_pr_count >= {min_failed_prs}
+    ) AND __SCOPE_FILTERS__
     ORDER BY
         master_failed_run_count DESC,
         failed_pr_count DESC,
@@ -72,6 +74,9 @@ def query_flaky_tests(
     min_failed_prs: int,
     limit: int,
     runner: CITestRunner | None,
+    test: str | None = None,
+    branch: str | None = None,
+    pr_number: int | None = None,
 ) -> FlakyTestList:
     repository = curated.repository
     # Fail closed: the spans are scoped to the source's repository. Without a repository identity we
@@ -87,15 +92,29 @@ def query_flaky_tests(
         setup_breaks=query_setup_breaks(curated=curated, date_from=date_from, date_to=date_to),
     )
     placeholders["min_failed_prs"] = ast.Constant(value=min_failed_prs)
-    runner_filter = ""
+    test_filters = ["1"]
     if runner is not None:
-        runner_filter = "WHERE runner = {runner}"
+        test_filters.append("runner = {runner}")
         placeholders["runner"] = ast.Constant(value=runner.value)
+    if test:
+        test_filters.append("positionCaseInsensitive(nodeid, {test}) > 0")
+        placeholders["test"] = ast.Constant(value=test)
+    # A branch or PR scope keeps a test that has evidence there, but counts all of its evidence, so
+    # the row still shows whether the test also fails elsewhere.
+    scope_filters = ["1"]
+    if branch:
+        scope_filters.append("countIf(branch = {branch}) > 0")
+        placeholders["branch"] = ast.Constant(value=branch)
+    if pr_number is not None:
+        scope_filters.append("countIf(pr_number = {pr_number}) > 0")
+        placeholders["pr_number"] = ast.Constant(value=str(pr_number))
     # +1 so a full page tells us more tests qualified than returned.
     placeholders["limit_plus_one"] = ast.Constant(value=limit + 1)
 
-    query = _SELECT.replace("__RUN_EVIDENCE__", run_evidence(bounded=date_to is not None)).replace(
-        "__RUNNER_FILTER__", runner_filter
+    query = (
+        _SELECT.replace("__RUN_EVIDENCE__", run_evidence(bounded=date_to is not None))
+        .replace("__TEST_FILTERS__", " AND ".join(test_filters))
+        .replace("__SCOPE_FILTERS__", " AND ".join(scope_filters))
     )
 
     response = curated.run(

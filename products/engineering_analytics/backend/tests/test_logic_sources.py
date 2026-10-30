@@ -203,6 +203,28 @@ class TestResolveGitHubTables(BaseTest):
         tables = resolve_github_tables(team=self.team)
         assert tables.pull_requests == "oldergithub_pull_requests"
 
+    @parameterized.expand(
+        [
+            ("listed_source_connected", True, "livegithub_pull_requests"),
+            ("fallback", False, "stalegithub_pull_requests"),
+        ]
+    )
+    def test_default_prefers_the_source_the_list_reports_as_synced(
+        self, _name: str, connect_live: bool, expected_table: str
+    ) -> None:
+        # The older source lists the repo but holds its tables as unattributed bare rows, so the list
+        # reports it as not synced. Its tables still resolve, so only the listed state can rank it.
+        stale = self._connect(prefix="stale", schemas=self._BOTH_SYNCED)
+        ExternalDataSource.objects.filter(pk=stale.pk).update(job_inputs={"repositories": ["PostHog/posthog"]})
+        if connect_live:
+            self._connect(prefix="live", schemas=self._BOTH_SYNCED, repository="PostHog/posthog")
+
+        listed = {entry.prefix: entry.synced for entry in list_github_sources(team=self.team)}
+        tables = resolve_github_tables(team=self.team)
+
+        assert listed["stale"] is False
+        assert tables.pull_requests == expected_table
+
     def test_skips_incomplete_source_for_a_complete_one(self) -> None:
         # The oldest source is missing an endpoint; resolution falls through to the complete one.
         self._connect(prefix="incomplete", schemas=[(PULL_REQUESTS_SCHEMA, True, True)])

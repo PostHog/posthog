@@ -82,6 +82,7 @@ class FetchDepotJobLogInputs:
     native_run_id: str = ""
     native_workflow_run_id: str = ""
     native_job_id: str = ""
+    branch: str = ""
 
 
 @frozen
@@ -207,8 +208,8 @@ async def fetch_and_emit_depot_job_log_activity(inputs: FetchDepotJobLogInputs) 
         "job_id": inputs.job_id,
         "run_id": inputs.run_id,
         "repo": inputs.repo,
-        # Depot reports no branch, and discovery only takes failed attempts.
-        "branch": "",
+        "branch": inputs.branch,
+        # Discovery only takes failed attempts.
         "conclusion": "failure",
         "job_name": inputs.job_name,
         "workflow_name": inputs.workflow_name,

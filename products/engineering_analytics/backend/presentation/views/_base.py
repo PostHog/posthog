@@ -86,7 +86,7 @@ _SOURCE_ID = OpenApiParameter(
     location=OpenApiParameter.QUERY,
     required=False,
     description="Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub "
-    "source when the team has more than one.",
+    "source that the `sources` list reports as synced, when the team has more than one.",
 )
 
 _REPO = OpenApiParameter(

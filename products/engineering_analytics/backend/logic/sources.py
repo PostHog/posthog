@@ -150,9 +150,12 @@ def resolve_github_tables(
     With ``source_id``, reads that specific connected GitHub source; otherwise picks the oldest
     source's first usable repo with both endpoints synced (oldest = the team's first/established
     connection) — deterministic when a team has more than one source or a source syncs more than
-    one repo. Raises ``GitHubSourceNotConnectedError`` when no matching usable repo exists (the
-    presentation layer maps it to a 400, so the UI prompts to connect a source and an agent gets
-    an actionable error), or ``ValueError`` when ``source_id`` is not a UUID.
+    one repo. Without ``source_id``, a repo that ``list_github_sources`` reports as synced wins over
+    one it does not, so the default matches the first synced entry of the list; the oldest usable
+    repo is the fallback when no listed repo is synced. Raises ``GitHubSourceNotConnectedError``
+    when no matching usable repo exists (the presentation layer maps it to a 400, so the UI prompts
+    to connect a source and an agent gets an actionable error), or ``ValueError`` when ``source_id``
+    is not a UUID.
 
     ``repo`` ('owner/name') scopes a repo-specific call — a team with several repos otherwise always
     resolves the oldest, so a repo-scoped read (e.g. ``resolve_branch``, or the picker selecting a
@@ -170,8 +173,11 @@ def resolve_github_tables(
     queryset = _github_sources(team, user_access_control)
     if source_id is not None:
         queryset = queryset.filter(id=_as_source_uuid(source_id))
-    # Lazy by default so the common path (no `repo`) stops querying sources on the first usable repo.
     candidates: Iterable[_RepoCandidate] = _repo_candidates(team=team, sources=queryset)
+    if source_id is None:
+        # Read what the sources list calls synced first. An old source can still hold tables for a repo
+        # it no longer lists, and taking it by age alone reads stale data instead of the live source.
+        candidates = sorted(candidates, key=lambda candidate: not candidate.listed)
     if repo:
         # An explicit repo must never silently resolve a *different* named repo: the picker lists a
         # source's repos before they finish syncing, so a not-yet-complete pick should surface the
@@ -450,6 +456,8 @@ class _RepoCandidate(NamedTuple):
     repository: str
     tables: _RepoTables
     source_id: str
+    # True when the source lists this repo, so ``list_github_sources`` reports it as synced.
+    listed: bool
 
 
 def _repo_candidates(*, team: Team, sources: QuerySet[ExternalDataSource]) -> Iterator[_RepoCandidate]:
@@ -460,7 +468,7 @@ def _repo_candidates(*, team: Team, sources: QuerySet[ExternalDataSource]) -> It
     inherent priority, so whichever repo the multi-select lists first is the default; unknown
     leftovers trail, sorted. A multi-repo source contributes one entry
     per repo, so a repo-scoped read can reach a repo that isn't the source's legacy one. Lazy (one
-    ``ExternalDataSchema`` query per source, on demand) so the default resolve path stops at the
+    ``ExternalDataSchema`` query per source, on demand) so a ``source_id`` resolve stops at the
     first usable repo instead of querying every source up front.
     """
     for source in sources:
@@ -479,7 +487,11 @@ def _repo_candidates(*, team: Team, sources: QuerySet[ExternalDataSource]) -> It
         by_repo = _synced_tables_by_repo(team=team, source=source)
         for repo_key in sorted(by_repo, key=order_key):
             repository = display if repo_key == legacy_key else repo_key
-            yield _RepoCandidate(repository=repository, tables=by_repo[repo_key], source_id=str(source.id))
+            # Mirrors list_github_sources: a source with no configured repo lists one blank entry.
+            listed = repo_key in configured if configured else repo_key == ""
+            yield _RepoCandidate(
+                repository=repository, tables=by_repo[repo_key], source_id=str(source.id), listed=listed
+            )
 
 
 def _github_sources(team: Team, user_access_control: "UserAccessControl | None" = None) -> QuerySet[ExternalDataSource]:
@@ -637,6 +649,13 @@ def depot_source_api_token(team: Team, source_id: str) -> str | None:
 def depot_source_job_attempts_table(team: Team, source: ExternalDataSource) -> str | None:
     """The synced ``job_attempts`` table of one Depot source, or None."""
     return _synced_table_name(team, source, DEPOT_JOB_ATTEMPTS_SCHEMA)
+
+
+def depot_source_job_attempts(team: Team, source: ExternalDataSource) -> depot_ci.DepotJobAttempts | None:
+    """The synced job attempts of one Depot source, scoped to the repository it syncs, or None."""
+    table = depot_source_job_attempts_table(team, source)
+    repository = _source_repository(source).casefold()
+    return depot_ci.DepotJobAttempts.for_repository(table, repository) if table and repository else None
 
 
 def _synced_table_name(team: Team, source: ExternalDataSource, schema_name: str) -> str | None:

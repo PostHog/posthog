@@ -595,6 +595,24 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
+            ("test_substring", {"test": "TESTTHREE::test_fails"}, T_THREE_PRS, 3),
+            # A PR or branch scope still counts the test's failures on every other PR.
+            ("pr_number", {"pr_number": "502"}, T_THREE_PRS, 3),
+            ("branch", {"branch": "f2"}, T_THREE_PRS, 3),
+            # A test that failed on too few PRs needs the lower bar to show up for its PR.
+            ("pr_number_below_the_bar", {"pr_number": "601", "min_failed_prs": "1"}, T_TWO_PRS, 2),
+        ]
+    )
+    def test_test_and_scope_filters_apply_before_limit(
+        self, _name: str, params: dict, expected: str, expected_failed_prs: int
+    ) -> None:
+        items = self._get(limit="1", **params)["items"]
+
+        assert [item["nodeid"] for item in items] == [expected]
+        assert items[0]["failed_pr_count"] == expected_failed_prs
+
+    @parameterized.expand(
+        [
             ("window_over_30_days", {"date_from": "-45d"}),
             ("reversed_window", {"date_from": "-1d", "date_to": "-5d"}),
             ("zero_min_failed_prs", {"min_failed_prs": "0"}),
@@ -602,6 +620,7 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
             ("oversized_limit", {"limit": "201"}),
             ("non_integer_threshold", {"min_failed_prs": "lots"}),
             ("unknown_runner", {"runner": "playwright"}),
+            ("non_integer_pr_number", {"pr_number": "abc"}),
         ]
     )
     def test_invalid_params_return_400(self, _name: str, params: dict) -> None:

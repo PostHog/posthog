@@ -166,6 +166,11 @@ def _attempts(depot: DepotJobAttempts, pull_requests_table: str | None) -> str:
     )"""
 
 
+def attempt_head_branches(depot: DepotJobAttempts, pull_requests_table: str | None) -> str:
+    """Each attempt's head branch by Depot attempt id, the branch its runs row carries."""
+    return f"SELECT native_attempt_id AS attempt_id, head_branch FROM {_attempts(depot, pull_requests_table)}"
+
+
 def _runs(attempts: str) -> str:
     return f"""
         SELECT
