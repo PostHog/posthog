@@ -4,7 +4,7 @@ import asyncio
 from datetime import UTC, datetime
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, Mock, patch
 
 from django.db import OperationalError
 
@@ -55,6 +55,28 @@ from products.signals.backend.temporal.types import SignalData, SignalReportSumm
 
 SUMMARY_MODULE_PATH = "products.signals.backend.temporal.summary"
 TASK_QUEUE = "test-summary-workflow-queue"
+
+
+@pytest.mark.asyncio
+async def test_admission_refusal_preserves_failure_before_signals_are_fetched() -> None:
+    inputs = SignalReportSummaryWorkflowInputs(team_id=1, report_id=str(uuid.uuid4()), signal_id=str(uuid.uuid4()))
+    with (
+        patch(
+            f"{SUMMARY_MODULE_PATH}.workflow.patched", side_effect=lambda name: name == "signals-spend-explicit-owner"
+        ),
+        patch(
+            f"{SUMMARY_MODULE_PATH}.workflow.execute_activity",
+            new_callable=AsyncMock,
+            side_effect=[ApplicationError("report_limit", non_retryable=True), None],
+        ) as execute_activity,
+        pytest.raises(ApplicationError, match="report_limit"),
+    ):
+        await SignalReportSummaryWorkflow()._run_once(inputs, Mock())
+    failure = execute_activity.call_args.args[1]
+    assert isinstance(failure, MarkReportFailedInput)
+    assert failure.report_id == inputs.report_id
+    assert failure.signal_count == 0
+    assert failure.source_products == []
 
 
 @pytest_asyncio.fixture

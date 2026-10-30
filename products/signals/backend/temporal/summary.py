@@ -510,6 +510,8 @@ class SignalReportSummaryWorkflow:
             log.info("Report run paused: org over self-driving credits quota", stage="summary_entry")
             return False
         claim_before_fetch = workflow.patched("signals-spend-explicit-owner")
+        signal_count = 0
+        source_products: list[str] = []
         try:
             if claim_before_fetch:
                 # Grouping must reserve arrivals for the next pass before we take the ClickHouse snapshot.
