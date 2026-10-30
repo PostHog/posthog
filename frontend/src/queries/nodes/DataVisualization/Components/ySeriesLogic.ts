@@ -381,13 +381,18 @@ export const ySeriesLogic = kea<ySeriesLogicType>([
                 displayType: props.series?.settings?.display?.displayType ?? 'auto',
             },
             submit: async (display) => {
+                const savedDisplay = props.series.settings?.display
                 actions.updateSeriesIndex(props.seriesIndex, props.series.column.name, {
                     display: {
                         color: display.color,
                         label: display.label,
                         trendLine: display.trendLine,
-                        excludeFromTotal: display.excludeFromTotal,
-                        valueLabels: display.valueLabels,
+                        ...(display.excludeFromTotal || savedDisplay?.excludeFromTotal !== undefined
+                            ? { excludeFromTotal: display.excludeFromTotal }
+                            : {}),
+                        ...(display.valueLabels !== 'auto' || savedDisplay?.valueLabels !== undefined
+                            ? { valueLabels: display.valueLabels }
+                            : {}),
                         yAxisPosition: display.yAxisPosition,
                         displayType: display.displayType,
                     },
