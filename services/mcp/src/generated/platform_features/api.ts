@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 23 enabled ops
+ * PostHog API - MCP 24 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -495,6 +495,30 @@ export const CommentsRetrieveParams = () => zod.object({
         .string()
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * Mirror this discussion thread to a Slack channel. Posts the comment (and its existing replies) as a new Slack thread; later replies on either side sync across. A discussion mirrors to exactly one Slack thread: re-calling with the same channel returns the existing mirror; a different channel is a 400 naming the existing one. 409 while a concurrent send is in flight. 404 when the feature is not enabled for the team. Ticket discussions need editor access to the ticket (403) and cannot go to a channel shared with another Slack workspace (400). 429 when the Slack integration has made too many channel lookups in the last minute.
+ */
+export const CommentsSendToSlackCreateParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this comment.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const commentsSendToSlackCreateBodyChannelIdMax = 255
+
+export const CommentsSendToSlackCreateBody = () => zod.object({
+    integration_id: zod.number().describe("ID of the Slack integration (kind='slack') whose bot posts the thread."),
+    channel_id: zod
+        .string()
+        .max(commentsSendToSlackCreateBodyChannelIdMax)
+        .describe(
+            "Slack channel ID to create the mirrored thread in. The bot must be a member of the channel. The channel's display name is resolved server-side."
         ),
 })
 
