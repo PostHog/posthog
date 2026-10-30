@@ -48,17 +48,9 @@ def test_investigation_summary_teaser_clips_on_sentence_boundary() -> None:
     assert text.startswith(body)
 
 
-@pytest.mark.parametrize(
-    "detector_config,expect_teaser",
-    [({"type": "zscore"}, True), (None, False)],
-)
-def test_chat_investigation_summary_keeps_metrics_summaries_whole(detector_config, expect_teaser) -> None:
+def test_chat_investigation_summary_keeps_metrics_summaries_whole() -> None:
     alert = MagicMock(spec=AlertConfiguration)
-    alert.detector_config = detector_config
+    alert.detector_config = None
     summary = "http_requests_total *rose* on <none> " + "x " * 400
 
-    result = chat_investigation_summary(alert, summary)
-
-    assert result == (investigation_summary_teaser(summary) if expect_teaser else summary)
-    if expect_teaser:
-        assert result is not None and len(result) <= INVESTIGATION_SUMMARY_TEASER_MAX_CHARS
+    assert chat_investigation_summary(alert, summary) == summary

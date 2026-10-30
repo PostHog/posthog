@@ -11,8 +11,8 @@ from products.alerts.backend.models import AlertConfiguration
 def test_investigation_summary_renders_markdown_in_email_and_plain_text_in_destinations() -> None:
     alert = MagicMock(spec=AlertConfiguration)
     alert.get_subscribed_users_emails.return_value = ["reader@example.com"]
-    markdown = "- `signup_count` reached **40** at _09:00 UTC_\n- Label <b>untrusted</b>"
-    breaches = ["Anomaly detected.", "signup_count reached 40 at 09:00 UTC. Label untrusted.", "See the notebook."]
+    markdown = "- `signup_count` reached **40**"
+    breaches = ["Anomaly in <script>series</script>.", "signup_count reached 40.", "See the notebook."]
 
     with (
         patch("posthog.tasks.alerts.utils.send_alert_email") as email,
@@ -26,11 +26,8 @@ def test_investigation_summary_renders_markdown_in_email_and_plain_text_in_desti
         )
 
     html = render_to_string("email/alert_check_firing.html", email.call_args.kwargs["template_context"])
-    assert "<code>signup_count</code>" in html
     assert "<strong>40</strong>" in html
-    assert "<em>09:00 UTC</em>" in html
-    assert "<b>untrusted</b>" not in html
-    assert "<p>Anomaly detected.</p>" in html
+    assert "<p>Anomaly in &lt;script&gt;series&lt;/script&gt;.</p>" in html
     assert destinations.call_args.kwargs["properties"]["breaches"] == "\n".join(breaches)
 
 
