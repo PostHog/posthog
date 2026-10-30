@@ -50,6 +50,7 @@ from products.feature_flags.backend.models.organization_feature_flags_config imp
 from ee.clickhouse.materialized_columns.columns import materialize
 
 MIXED = "event IN ('$pageview', '$feature_flag_called')"
+SESSION_ID = "0190a8d1-3f7a-7b00-8000-000000000001"
 E_MIXED = "e.event IN ('$pageview', '$feature_flag_called')"
 UNION = "posthog.events_with_flag_calls"
 READ = FlagEvaluationsMode.READ_FLAG_EVALUATIONS
@@ -530,6 +531,16 @@ class TestReadFlagCallsWithUnion(BaseTest):
 
         sessions = sql[sql.index("FROM raw_sessions") : sql.index("AS events__session")]
         assert "toDateTime('2026-10-01', 'UTC')" in sessions and "toDateTime('2026-10-08', 'UTC')" in sessions
+
+    def test_sessions_join_keeps_a_literal_session_id_filter(self):
+        sql = self._sql(
+            f"SELECT session.$session_duration FROM events WHERE {MIXED} AND $session_id IN ('{SESSION_ID}')"
+        )
+
+        sessions = sql[sql.index("FROM raw_sessions") : sql.index("AS events__session")]
+        assert (
+            f"in(raw_sessions.session_id_v7, tuple(toUInt128(accurateCastOrNull('{SESSION_ID}', 'UUID'))))" in sessions
+        )
 
     def test_persons_join_runs_one_override_join(self):
         sql = self._sql(
