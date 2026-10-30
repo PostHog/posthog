@@ -59629,9 +59629,6 @@
         "WebVitalsItem": {
             "additionalProperties": false,
             "properties": {
-                "action": {
-                    "$ref": "#/definitions/WebVitalsItemAction"
-                },
                 "data": {
                     "items": {
                         "type": "number"
@@ -59649,20 +59646,7 @@
                     "description": "The index of the row's series in the query."
                 }
             },
-            "required": ["data", "days", "order", "action"],
-            "type": "object"
-        },
-        "WebVitalsItemAction": {
-            "additionalProperties": false,
-            "properties": {
-                "custom_name": {
-                    "$ref": "#/definitions/WebVitalsMetric"
-                },
-                "math": {
-                    "$ref": "#/definitions/WebVitalsPercentile"
-                }
-            },
-            "required": ["custom_name", "math"],
+            "required": ["data", "days", "order"],
             "type": "object"
         },
         "WebVitalsMetric": {

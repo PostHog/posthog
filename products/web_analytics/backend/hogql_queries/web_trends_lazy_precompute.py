@@ -26,7 +26,6 @@ from posthog.clickhouse.preaggregation.web_overview_preaggregated_sql import (
     DISTRIBUTED_WEB_OVERVIEW_PREAGGREGATED_TABLE,
 )
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
-from posthog.hogql_queries.query_runner import resolve_series_custom_name
 from posthog.hogql_queries.utils.timestamp_utils import format_label_date
 from posthog.models.team import Team
 from posthog.week_start_day import WeekStartDay
@@ -301,28 +300,14 @@ def _series_dict(
 
     series_object: dict[str, Any] = {
         "data": data,
-        # Labels are formatted in the CURRENT range's context and action.days is
-        # always the current range, even for the previous compare series — the
-        # live runner does both (build_series_response passes
-        # self.query_date_range regardless of series period).
+        # Labels are formatted in the CURRENT range's context, even for the
+        # previous compare series, because the live runner does the same
+        # (build_series_response passes self.query_date_range regardless of
+        # series period).
         "labels": [format_label_date(item, runner.query_date_range, runner.team.week_start_day) for item in buckets],
         "days": [item.strftime(day_fmt) for item in buckets],
         "count": float(sum(data)),
         "label": "All events" if series_label is None else series_label,
-        "filter": runner._query_to_filter(),
-        "action": {
-            "days": runner.query_date_range.all_values(),
-            "id": series_label,
-            "type": "events",
-            "order": 0,
-            "name": series_label or "All events",
-            "custom_name": resolve_series_custom_name(series, series_label),
-            "math": series.math,
-            "math_property": series.math_property,
-            "math_hogql": series.math_hogql,
-            "math_group_type_index": series.math_group_type_index,
-            "properties": {},
-        },
         "order": 0,
     }
     if query.compareFilter is not None and query.compareFilter.compare:

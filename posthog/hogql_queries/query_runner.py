@@ -1885,19 +1885,6 @@ SourceT = TypeVar("SourceT", bound=BaseModel)
 _RunMethod = TypeVar("_RunMethod", bound=Callable[..., Any])
 
 
-def resolve_series_custom_name(series: Any, raw_label: str | None) -> str | None:
-    # A series' display override for legends and tooltips. `custom_name` is set by the in-app
-    # "Rename graph series" modal; a `name` that differs from the raw event/action label is a rename
-    # applied via the query editor or API. Either should win over the raw event name.
-    custom_name = getattr(series, "custom_name", None)
-    if custom_name:
-        return custom_name
-    name = getattr(series, "name", None)
-    if name and name != raw_label:
-        return name
-    return None
-
-
 def query_node_modifiers(query: BaseModel) -> Optional[HogQLQueryModifiers]:
     # A wrapper query (actors, correlation, actor options) runs its source insight, so it reads the same
     # events table and person data as that insight. Modifiers set on the wrapper itself take precedence.
@@ -2134,10 +2121,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         )
 
     def _query_has_series_custom_names(self) -> bool:
-        series = getattr(self.query, "series", None)
-        if not series:
+        # apply_series_custom_names patches only funnel steps, so another query kind has nothing to patch
+        if not isinstance(self.query, FunnelsQuery):
             return False
-        return any(getattr(s, "custom_name", None) is not None for s in series)
+        return any(s.custom_name is not None for s in self.query.series)
 
     @property
     def _limit_context_aliased_for_cache(self) -> LimitContext:
@@ -2302,7 +2289,6 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             )
 
         if isinstance(cached_response, CachedResponse):
-            self._fill_cached_result_order(cached_response)
             self._fill_action_names(cached_response)
             # Apply current query's custom_name values to cached response
             # (custom_name is excluded from cache key, so cached values may be stale)
@@ -3322,29 +3308,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             Tuple of (patched_response, was_modified) - was_modified is True if any
             custom_name values were actually changed.
         """
-        if isinstance(self.query, TrendsQuery | StickinessQuery | LifecycleQuery):
-            return self._apply_trends_custom_names(cached_response)
-        elif isinstance(self.query, FunnelsQuery):
+        if isinstance(self.query, FunnelsQuery):
             return self._apply_funnels_custom_names(cached_response)
         return cached_response, False
-
-    def _fill_cached_result_order(self, cached_response: CR) -> None:
-        """Copy `action.order` to the top level of cached trends, stickiness and lifecycle rows that lack it.
-
-        Stickiness, lifecycle and calendar heatmap rows cached before those runners emitted a top-level `order`
-        carry it only on `action`, and readers take a row's series from the top-level `order`.
-        """
-        if not isinstance(self.query, TrendsQuery | StickinessQuery | LifecycleQuery):
-            return
-        results = getattr(cached_response, "results", None)
-        if not isinstance(results, list):
-            return
-        for result in results:
-            if not isinstance(result, dict) or "order" in result:
-                continue
-            action = result.get("action")
-            if isinstance(action, dict) and isinstance(action.get("order"), int):
-                result["order"] = action["order"]
 
     def _fill_action_names(self, response: object) -> None:
         """Set `action_names` on a trends, stickiness or lifecycle response that lacks it.
@@ -3364,44 +3330,6 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             return
         if response.action_names is None:
             response.action_names = get_response_action_names(self.team, self.query.model_dump(mode="json"))
-
-    def _apply_trends_custom_names(self, cached_response: CR) -> tuple[CR, bool]:
-        """Apply custom_name values to TrendsQuery results (nested under action)."""
-        series = getattr(self.query, "series", None)
-        if not series:
-            return cached_response, False
-
-        results = getattr(cached_response, "results", None)
-        if not results or not isinstance(results, list):
-            return cached_response, False
-
-        series_by_order = dict(enumerate(series))
-        # Only TrendsQuery surfaces a `name`-based rename into custom_name on the fresh path (see
-        # TrendsQueryRunner's use of resolve_series_custom_name). Stickiness/lifecycle use custom_name
-        # only, so honoring `name` here would desync their cached responses from a fresh computation.
-        honor_name = isinstance(self.query, TrendsQuery)
-
-        was_modified = False
-        for result in results:
-            if not isinstance(result, dict):
-                continue
-            action = result.get("action")
-            if not isinstance(action, dict):
-                continue
-            order = action.get("order")
-            if order is None or order not in series_by_order:
-                continue
-            s = series_by_order[order]
-            if honor_name:
-                # The cached action's `name` holds the raw event/action label (`series_label or "All events"`).
-                new_name = resolve_series_custom_name(s, action.get("name"))
-            else:
-                new_name = getattr(s, "custom_name", None)
-            if action.get("custom_name") != new_name:
-                action["custom_name"] = new_name
-                was_modified = True
-
-        return cached_response, was_modified
 
     def _apply_funnels_custom_names(self, cached_response: CR) -> tuple[CR, bool]:
         """

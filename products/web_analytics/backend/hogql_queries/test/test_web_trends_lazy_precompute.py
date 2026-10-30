@@ -218,7 +218,7 @@ class TestWebTrendsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         assert pre_series["labels"] == live_series["labels"]
         assert pre_series["count"] == live_series["count"]
         assert pre_series["label"] == live_series["label"]
-        assert pre_series["action"]["custom_name"] == "My metric"
+        assert pre_series["order"] == live_series["order"]
 
     @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_compare_period_matches_live_trends(self) -> None:
@@ -235,11 +235,10 @@ class TestWebTrendsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             assert pre_series["compare_label"] == live_series["compare_label"]
             assert pre_series["data"] == live_series["data"]
             assert pre_series["days"] == live_series["days"]
-            # The previous series' labels and action.days must use the CURRENT
-            # range's context like the live runner does — the compare tooltip
-            # pairs points across series by these.
+            # The previous series' labels must use the CURRENT range's context
+            # like the live runner does, because the compare tooltip pairs
+            # points across series by these.
             assert pre_series["labels"] == live_series["labels"]
-            assert pre_series["action"]["days"] == live_series["action"]["days"]
         assert precomputed.resolved_compare_date_range is not None
 
     @time_machine.travel("2024-01-15T12:00:00Z", tick=False)

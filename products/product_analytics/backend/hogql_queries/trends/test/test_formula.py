@@ -9,7 +9,6 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
-from unittest import mock
 
 from django.test import override_settings
 
@@ -563,8 +562,6 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
                     ],
                     "label": "Formula (B / A)",
                     "breakdown_value": "Paris",
-                    "action": None,
-                    "filter": mock.ANY,
                     "order": 0,
                 },
                 {
@@ -592,8 +589,6 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
                     ],
                     "label": "Formula (B / A)",
                     "breakdown_value": "London",
-                    "action": None,
-                    "filter": mock.ANY,
                     "order": 0,
                 },
             ],

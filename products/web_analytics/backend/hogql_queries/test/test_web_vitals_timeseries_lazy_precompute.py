@@ -247,8 +247,8 @@ class TestWebVitalsTimeseriesLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         assert len(precomputed.results) == len(live.results) == 4
         for live_series, pre_series in zip(live.results, precomputed.results):
             assert pre_series["days"] == live_series["days"]
-            assert pre_series["data"] == live_series["data"], live_series["action"]["custom_name"]
-            assert pre_series["action"]["custom_name"] == live_series["action"]["custom_name"]
+            assert pre_series["data"] == live_series["data"], live_series["order"]
+            assert pre_series["order"] == live_series["order"]
 
     @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_dispatch_routes_only_when_flag_enabled(self) -> None:

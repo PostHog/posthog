@@ -816,13 +816,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
                     "days": [1, 2, 3],
                     "labels": ["1 day", "2 days", "3 days"],
                     "label": "$pageview",
-                    "action": {
-                        "order": 0,
-                        "type": "events",
-                        "name": "$pageview",
-                        "id": "$pageview",
-                        "custom_name": None,
-                    },
+                    "order": 0,
                 }
             ]
         }
@@ -840,7 +834,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
                     "labels": ["20-Jan", "21-Jan"],
                     "label": "$pageview - new",
                     "status": "new",
-                    "action": {},
+                    "order": 0,
                 },
                 {
                     "data": [120.0, 105.0],
@@ -848,7 +842,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
                     "labels": ["20-Jan", "21-Jan"],
                     "label": "$pageview - returning",
                     "status": "returning",
-                    "action": {},
+                    "order": 0,
                 },
                 {
                     "data": [15.0, 22.0],
@@ -856,7 +850,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
                     "labels": ["20-Jan", "21-Jan"],
                     "label": "$pageview - resurrecting",
                     "status": "resurrecting",
-                    "action": {},
+                    "order": 0,
                 },
                 {
                     "data": [-30.0, -45.0],
@@ -864,7 +858,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
                     "labels": ["20-Jan", "21-Jan"],
                     "label": "$pageview - dormant",
                     "status": "dormant",
-                    "action": {},
+                    "order": 0,
                 },
             ]
         }

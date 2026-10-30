@@ -499,29 +499,6 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert len(response.results) == 2
         assert mock_create_for.call_count == 1
 
-    @parameterized.expand(
-        [
-            ("custom_name set via rename modal", EventsNode(event="$pageview", custom_name="Renamed"), "Renamed"),
-            ("name set via query editor / API", EventsNode(event="$pageview", name="Renamed"), "Renamed"),
-            ("custom_name wins over name", EventsNode(event="$pageview", name="A", custom_name="B"), "B"),
-            ("name echoing the event is not a rename", EventsNode(event="$pageview", name="$pageview"), None),
-            ("no override", EventsNode(event="$pageview"), None),
-        ]
-    )
-    def test_trends_series_custom_name(self, _name, series, expected_custom_name):
-        self._create_test_events()
-
-        response = self._run_trends_query(
-            self.default_date_from,
-            self.default_date_to,
-            IntervalType.DAY,
-            [series],
-            None,
-            None,
-        )
-
-        self.assertEqual(expected_custom_name, response.results[0]["action"]["custom_name"])
-
     def test_trends_count(self):
         self._create_test_events()
 
@@ -746,7 +723,6 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # Formula queries return only the formula result
         assert len(response.results) == 1
         formula_result = response.results[0]
-        assert formula_result["action"] is None
         # 11 days Thu-Sun, weekend buckets removed leaves 7 weekdays
         assert formula_result["days"] == [
             "2020-01-09",  # Thu
@@ -1224,7 +1200,6 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         # response shape
         assert response.results[0]["label"] == "Formula (A+2*B)"
-        assert response.results[0]["action"] is None  # action needs to be unset to display custom label
 
     def test_formula_with_breakdown_and_compare(self):
         self._create_test_events()
@@ -1439,9 +1414,6 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert response.results[1]["label"] == "Formula (A+B)"
         assert response.results[1]["breakdown_value"] == cohort2.pk
         assert response.results[1]["count"] == 3
-
-        # action needs to be unset to display custom label
-        assert response.results[0]["action"] is None
 
     def test_cohort_breakdown_does_not_leak_series_filter_cohort(self):
         # Regression: when a trends series has a `person is in cohort` property filter AND the
@@ -1707,9 +1679,6 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert response.results[1]["count"] == 16
         assert response.results[1]["data"] == [1, 0, 2, 4, 4, 0, 2, 1, 1, 0, 1, 0]
 
-        # action needs to be unset to display custom label
-        assert response.results[0]["action"] is None
-
     def test_multiple_formula_with_multi_cohort_all_breakdown(self):
         self._create_test_events()
         cohort1 = Cohort.objects.create(
@@ -1768,9 +1737,6 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert response.results[3]["breakdown_value"] == "all"
         assert response.results[3]["count"] == 16
         assert response.results[3]["data"] == [1, 0, 2, 4, 4, 0, 2, 1, 1, 0, 1, 0]
-
-        # action needs to be unset to display custom label
-        assert response.results[0]["action"] is None
 
     def test_formula_with_multi_cohort_all_breakdown_with_compare(self):
         self._create_test_events()
@@ -1834,9 +1800,6 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert response.results[3]["breakdown_value"] == "all"
         assert response.results[3]["count"] == 11
         assert response.results[3]["data"] == [1.0, 0.0, 2.0, 4.0, 4.0, 0.0]
-
-        # action needs to be unset to display custom label
-        assert response.results[0]["action"] is None
 
     def test_formula_with_breakdown_and_no_data(self):
         self._create_test_events()
@@ -8147,17 +8110,17 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(16, response.results[0]["count"])
         self.assertIn("$pageleave", response.results[0]["label"])
         self.assertIn("Page Action", response.results[0]["label"])
-        self.assertEqual(0, response.results[0]["action"]["order"])
+        self.assertEqual(0, response.results[0]["order"])
 
         # Second result: EventsNode (pageview only)
         self.assertEqual(10, response.results[1]["count"])
         self.assertEqual("$pageview", response.results[1]["label"])
-        self.assertEqual(1, response.results[1]["action"]["order"])
+        self.assertEqual(1, response.results[1]["order"])
 
         # Third result: ActionsNode (Pageview Action - matches only $pageview)
         self.assertEqual(10, response.results[2]["count"])
         self.assertEqual("Pageview Action", response.results[2]["label"])
-        self.assertEqual(2, response.results[2]["action"]["order"])
+        self.assertEqual(2, response.results[2]["order"])
 
         # Verify all series have proper data arrays
         for result in response.results:
