@@ -15,6 +15,7 @@ from posthog.hogql.transforms.property_types import build_property_swapper
 from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.exceptions_capture import capture_exception
+from posthog.schema_enums import MaterializationMode
 
 from products.experiments.backend.health.context import (
     ExposureFilterPropertyType,
@@ -137,7 +138,11 @@ def _reads_all_properties(plan: PropertyAccessPlan, context: HogQLContext) -> bo
     # Before the lazy persons table expands, the planner can't match the columns of the `person` table.
     if plan.scope == PropertyScope.PERSON and plan.source.table_name is None:
         metadata = context.property_metadata
-        return metadata is None or metadata.materialized_column("person", "properties", plan.property_name) is None
+        return (
+            metadata is None
+            or context.modifiers.materializationMode == MaterializationMode.DISABLED
+            or metadata.materialized_column("person", "properties", plan.property_name) is None
+        )
     # The planner calls a read of the native events table JSON, but each property there is a subcolumn of its own.
     if plan.source.table_name == "events" and context.uses_new_events_schema():
         return False

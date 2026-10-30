@@ -12,7 +12,9 @@ from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode, PropertyGro
 
 from posthog.models.event.new_events_schema import events_route_scope
 from posthog.models.property import TableColumn
+from posthog.schema_enums import MaterializationMode
 
+from products.experiments.backend.health.context import ExposureReads
 from products.experiments.backend.health.exposure_columns import load_exposure_reads
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
@@ -132,6 +134,23 @@ class TestLoadExposureReads(BaseTest):
                 False,
                 ["event:$plan_source", "event:campaign", "person:$initial_os", "group:industry"],
             ),
+            (
+                "persons_joined_materialization_disabled",
+                JOINED,
+                None,
+                False,
+                True,
+                [
+                    "event:plan",
+                    "event:$plan_source",
+                    "event:campaign",
+                    "person:tier",
+                    "person:$initial_os",
+                    "group:industry",
+                    "person:email (test account)",
+                ],
+                MaterializationMode.DISABLED,
+            ),
         ]
     )
     def test_names_the_filters_that_read_all_the_properties(
@@ -142,10 +161,12 @@ class TestLoadExposureReads(BaseTest):
         new_events_schema: bool,
         filter_test_accounts: bool,
         expected: list[str],
+        materialization_mode: MaterializationMode | None = None,
     ) -> None:
         self.team.modifiers = {
             "personsOnEventsMode": persons_on_events_mode,
             "propertyGroupsMode": property_groups_mode,
+            "materializationMode": materialization_mode,
         }
         self.team.test_account_filters = [_filter("email", "person"), _filter("tier", "person")]
         self.team.save()
@@ -187,3 +208,32 @@ class TestLoadExposureReads(BaseTest):
 
         assert reads is not None
         self.assertEqual(reads.precomputed, expected)
+
+    @parameterized.expand(
+        [
+            ("criteria_do_not_parse", {"exposure_config": {"kind": "Unknown"}}, None),
+            (
+                "criteria_have_no_exposure_query",
+                {
+                    "exposure_config": {
+                        "kind": "ExperimentWarehouseNativeExposureConfig",
+                        "connection_id": "source",
+                        "query": "SELECT 1",
+                    }
+                },
+                None,
+            ),
+            (
+                "criteria_have_no_filters",
+                {"filterTestAccounts": False},
+                ExposureReads(precomputed=False, filters_without_column=()),
+            ),
+        ]
+    )
+    def test_reads_of_criteria_without_a_filter_to_name(
+        self, _name: str, exposure_criteria: dict[str, Any], expected: ExposureReads | None
+    ) -> None:
+        experiment = self._experiment()
+        experiment.exposure_criteria = exposure_criteria
+
+        self.assertEqual(load_exposure_reads(experiment), expected)
