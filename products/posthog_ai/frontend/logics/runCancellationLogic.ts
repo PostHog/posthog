@@ -68,7 +68,7 @@ export interface runCancellationLogicActions {
     cancelPermissionDelivery: () => {
         value: true
     } // runStreamLogic
-    markTurnComplete: (isReplay?: boolean) => {
+    markTurnComplete: (isReplay?: boolean | undefined) => {
         isReplay: boolean
     } // runStreamLogic
     cancelWhenReady: () => {
