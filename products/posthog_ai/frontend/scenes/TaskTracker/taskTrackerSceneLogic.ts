@@ -1417,9 +1417,11 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 actions.clearActiveCreation()
             }
         }
-        // A `/tasks` link opened without PostHog AI 2.0 or the Tasks beta lands on classic PostHog AI.
-        const redirectedWithoutAccess = (): boolean => {
-            if (props.panelId || hasTasksFlag(values.featureFlags)) {
+        // The task list and composer opened without PostHog AI 2.0 or the Tasks beta land on classic PostHog AI.
+        // A task detail link stays open, because Inbox runs are entitled without either, and the server decides
+        // whether a run may continue.
+        const redirectedWithoutAccess = (taskId?: string): boolean => {
+            if (props.panelId || hasTasksFlag(values.featureFlags) || (taskId && taskId !== 'new')) {
                 return false
             }
             router.actions.replace(urls.ai())
@@ -1430,7 +1432,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             // An embedded instance never navigates the main app on its own creation (see `submitNewTask`), so
             // main-app URL changes are unrelated to its run — never release the side panel's active creation.
             '/tasks/:taskId': ({ taskId }) =>
-                props.panelId || redirectedWithoutAccess() ? undefined : clearIfLeftCreatedTask(taskId),
+                props.panelId || redirectedWithoutAccess(taskId) ? undefined : clearIfLeftCreatedTask(taskId),
             [urls.ai()]: (_, search) =>
                 props.panelId
                     ? undefined

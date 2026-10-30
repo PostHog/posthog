@@ -194,6 +194,21 @@ describe('taskTrackerSceneLogic', () => {
         expect(runBody).not.toHaveProperty('pending_user_artifact_ids')
     })
 
+    // Without Tasks access the list and composer fall back to classic PostHog AI, but an Inbox task link must
+    // still open its transcript.
+    it.each([
+        ['/tasks', '/ai'],
+        ['/tasks/new', '/ai'],
+        ['/tasks/a1b2c3d4-0000-4000-8000-000000000001', '/tasks/a1b2c3d4-0000-4000-8000-000000000001'],
+    ])('without Tasks access, %s lands on %s', async (start, expected) => {
+        featureFlagLogic.actions.setFeatureFlags([], {})
+        logic.mount()
+        router.actions.push(start)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(router.values.location.pathname).toBe(`/project/997${expected}`)
+    })
+
     it.each([
         ['/ai', '/ai', { task: 'new-task' }],
         ['/tasks/new', '/tasks/new-task', {}],
