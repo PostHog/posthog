@@ -12,7 +12,6 @@ const meta: Meta<typeof HomeDashboardStarterModal> = {
         onClose: noop,
         onCopyPostHogHome: noop,
         onTalkToAI: noop,
-        onStartFromTemplate: noop,
         onChooseExisting: noop,
         onRestorePostHogHome: noop,
         hasCustomDashboard: false,
