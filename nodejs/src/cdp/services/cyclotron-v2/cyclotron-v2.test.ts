@@ -875,6 +875,21 @@ describe('Cyclotron V2', () => {
                     () => ({ actionStepCount: 5, currentAction: { id: 'task_node' } }),
                 ],
                 [
+                    'stale_key',
+                    'an earlier reply for the step has not run yet',
+                    (jobId: string) => ({
+                        actionStepCount: 3,
+                        currentAction: {
+                            id: 'task_node',
+                            awaitingResume: {
+                                key: `${jobId}:task_node:3`,
+                                deadlineAt: new Date(Date.now() + 3600 * 1000).toISOString(),
+                            },
+                            resumeResult: { key: `${jobId}:task_node:3`, status: 'completed', result: { first: true } },
+                        },
+                    }),
+                ],
+                [
                     'expired',
                     'the wait ran out before the timeout ran',
                     (jobId: string) => ({
