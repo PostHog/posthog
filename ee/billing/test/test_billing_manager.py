@@ -1032,6 +1032,46 @@ class TestBillingManager(BaseTest):
         assert self.organization.usage is not None
         assert self.organization.usage["events"]["todays_usage"] == 25
 
+    @patch("ee.billing.billing_manager.http_session.get")
+    @patch("ee.billing.billing_manager.http_session.post")
+    def test_activate_trial_skips_a_status_queued_before_the_trial(self, mock_post: MagicMock, mock_get: MagicMock):
+        license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123",
+            plan="enterprise",
+            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
+        )
+
+        def status(computed_at: str, projects_limit: int | None) -> BillingStatus:
+            billing_status = cast(dict[str, Any], self._billing_status(computed_at, events_usage=500))
+            billing_status["customer"]["available_product_features"] = [
+                {"key": "organizations_projects", "name": "Projects", "limit": projects_limit}
+            ]
+            return cast(BillingStatus, billing_status)
+
+        organization = self.organization
+        organization.usage = {
+            "events": {"usage": 500, "limit": None, "todays_usage": 0},
+            "recordings": {"usage": 0, "limit": None, "todays_usage": 0},
+            "period": ["2026-08-01T00:00:00Z", "2026-09-01T00:00:00Z"],
+        }
+        organization.available_product_features = [{"key": "organizations_projects", "name": "Projects", "limit": 6}]
+        organization.save()
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {}
+        mock_get.return_value.status_code = 200
+        mock_get.return_value.json.return_value = status("2026-08-03T00:00:00Z", projects_limit=None)
+
+        manager = BillingManager(license)
+        manager.activate_trial(organization, {"type": "autosubscribe", "target": "boost"})
+        manager.update_org_details(organization, status("2026-08-02T00:00:00Z", projects_limit=6))
+
+        organization.refresh_from_db()
+        assert organization.available_product_features == [
+            {"key": "organizations_projects", "name": "Projects", "limit": None}
+        ]
+        assert organization.usage is not None
+        assert organization.usage["billing_status_computed_at"] == "2026-08-03T00:00:00+00:00"
+
 
 class TestBillingSession(SimpleTestCase):
     def test_the_session_keeps_no_cookies(self):

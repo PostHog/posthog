@@ -1102,7 +1102,8 @@ class BillingManager:
 
         handle_billing_service_error(res)
 
-        self.update_available_product_features(organization)
+        # A full status carries `computed_at`, so a status queued before the trial change can't roll it back.
+        self.get_billing(organization)
 
         return res.json()
 
@@ -1115,7 +1116,8 @@ class BillingManager:
 
         handle_billing_service_error(res)
 
-        self.update_available_product_features(organization)
+        # A full status carries `computed_at`, so a status queued before the trial change can't roll it back.
+        self.get_billing(organization)
 
     def authorize(self, organization: Organization, billing_provider: BillingProvider | None = None):
         """
