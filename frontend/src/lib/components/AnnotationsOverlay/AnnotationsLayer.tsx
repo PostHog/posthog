@@ -34,6 +34,16 @@ const stopPointerPropagation = (e: React.MouseEvent<HTMLDivElement>): void => {
     e.stopPropagation()
 }
 
+function nearestIndex(xs: number[], x: number): number {
+    let best = 0
+    for (let i = 1; i < xs.length; i++) {
+        if (Math.abs(xs[i] - x) < Math.abs(xs[best] - x)) {
+            best = i
+        }
+    }
+    return best
+}
+
 export function AnnotationsLayer({
     insightNumericId,
     dates,
@@ -42,26 +52,36 @@ export function AnnotationsLayer({
     previousSeriesKey,
 }: AnnotationsLayerProps): React.ReactElement | null {
     const { scales, dimensions, labels, axis } = useChartLayout()
-    const xTickFormatter = axis.xTickFormatter
+    const { xTickFormatter, xTickLabels } = axis
+
+    // Tick values index into `dates`. A time-scaled chart places its ticks on their own grid, so each
+    // one maps to the data point nearest it.
+    const xTicks = useMemo(() => {
+        const visibleXLabels = computeVisibleXLabels(xTickLabels, scales.x, xTickFormatter)
+        if (xTickLabels === labels) {
+            return visibleXLabels.map((v) => ({ value: v.index }))
+        }
+        const dataX = labels.map((label) => scales.x(label) ?? NaN)
+        return visibleXLabels.map((v) => ({ value: nearestIndex(dataX, v.x) }))
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- only `scales.x` is read; `scales` itself is unused.
+    }, [labels, xTickLabels, scales.x, xTickFormatter])
 
     const currentGeometry = useMemo<AnnotationsChartGeometry>(() => {
-        const visibleXLabels = computeVisibleXLabels(labels, scales.x, xTickFormatter)
         return {
-            xTicks: visibleXLabels.map((v) => ({ value: v.index })),
+            xTicks,
             pointsX: labels.map((label) => scales.x(label, seriesKey) ?? 0),
             plotLeft: dimensions.plotLeft,
             plotBottom: dimensions.plotTop + dimensions.plotHeight,
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps -- only `scales.x` is read; `scales` itself is unused.
-    }, [labels, scales.x, seriesKey, dimensions.plotLeft, dimensions.plotTop, dimensions.plotHeight, xTickFormatter])
+    }, [labels, xTicks, scales.x, seriesKey, dimensions.plotLeft, dimensions.plotTop, dimensions.plotHeight])
 
     const previousGeometry = useMemo<AnnotationsChartGeometry | null>(() => {
         if (!previousDates || !previousSeriesKey) {
             return null
         }
-        const visibleXLabels = computeVisibleXLabels(labels, scales.x, xTickFormatter)
         return {
-            xTicks: visibleXLabels.map((v) => ({ value: v.index })),
+            xTicks,
             // Anchor on the previous-period bar (left bar in each band) but reuse the current
             // labels — only the x positions matter, not the labels themselves.
             pointsX: labels.map((label) => scales.x(label, previousSeriesKey) ?? 0),
@@ -71,13 +91,13 @@ export function AnnotationsLayer({
         // eslint-disable-next-line react-hooks/exhaustive-deps -- only `scales.x` is read; `scales` itself is unused.
     }, [
         labels,
+        xTicks,
         scales.x,
         previousSeriesKey,
         previousDates,
         dimensions.plotLeft,
         dimensions.plotTop,
         dimensions.plotHeight,
-        xTickFormatter,
     ])
 
     if (currentGeometry.xTicks.length < 2) {

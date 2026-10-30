@@ -254,10 +254,6 @@ function planLineStrokes(series: ResolvedSeries, length: number): Stroke[] {
  *  separate subpaths. Caller owns beginPath/stroke. */
 function tracePath(drawCtx: DrawContext, data: number[], start: number, end: number): void {
     const { ctx, xScale, yScale, labels, smooth, yFloor } = drawCtx
-    if (smooth) {
-        traceSmoothPath(drawCtx, data, start, end)
-        return
-    }
     const connects = drawCtx.connects ?? connectsNeighbors
     const drawable = (i: number): boolean => xScale(labels[i]) != null && isFinite(yScale(data[i]))
     // A stroke range that starts on a missing value picks up the line from the last drawn point,
@@ -267,6 +263,10 @@ function tracePath(drawCtx: DrawContext, data: number[], start: number, end: num
         while (from > 0 && !drawable(from)) {
             from--
         }
+    }
+    if (smooth) {
+        traceSmoothPath(drawCtx, data, from, end)
+        return
     }
     let last = -1
     for (let i = from; i <= end; i++) {

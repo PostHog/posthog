@@ -1,6 +1,7 @@
 import { cleanup } from '@testing-library/react'
 
 import { buildDimensions } from '../core/canvas-size'
+import { type ChartWrapperElement, X_FOR_INDEX } from '../core/chart-shell'
 import { DEFAULT_MARGINS } from '../core/hooks/useChartMargins'
 import type { ChartDimensions, ResolvedSeries, Series } from '../core/types'
 import { TOOLTIP_SELECTOR } from './tooltip'
@@ -23,11 +24,17 @@ export function makeSeries(overrides: Partial<Series> & { key: string; data: num
     return { label: overrides.key, color: '#000', ...overrides }
 }
 
-/** Pixel position (client coords) of a given label index, vertically centered in the plot. */
-export function clientForIndex(index: number, totalLabels: number): { clientX: number; clientY: number } {
+/** Pixel position (client coords) of a given label index, vertically centered in the plot. Reads
+ *  the chart's own x for the label when `wrapper` is given, else assumes evenly spaced labels. */
+export function clientForIndex(
+    index: number,
+    totalLabels: number,
+    wrapper?: HTMLElement
+): { clientX: number; clientY: number } {
     const step = dimensions.plotWidth / Math.max(1, totalLabels - 1)
     return {
-        clientX: dimensions.plotLeft + step * index,
+        clientX:
+            (wrapper as ChartWrapperElement | undefined)?.[X_FOR_INDEX]?.(index) ?? dimensions.plotLeft + step * index,
         clientY: dimensions.plotTop + dimensions.plotHeight / 2,
     }
 }

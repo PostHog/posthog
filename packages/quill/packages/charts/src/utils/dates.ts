@@ -299,11 +299,31 @@ const APPROX_INTERVAL_MS: Record<TimeInterval, number> = {
     year: 365 * DAY_MS,
 }
 
+/** Earliest and latest finite time among `labels`, or NaN for both when none parses. */
+export function labelTimeExtent(labels: readonly string[], parse: (label: string) => number): [number, number] {
+    let from = Infinity
+    let to = -Infinity
+    for (const label of labels) {
+        const t = parse(label)
+        if (isFinite(t)) {
+            from = Math.min(from, t)
+            to = Math.max(to, t)
+        }
+    }
+    return from <= to ? [from, to] : [NaN, NaN]
+}
+
 /** A regular grid of ISO labels from `from` to `to` (epoch ms), one per `interval` starting at
  *  the first interval boundary in `timezone`. Feeds the ticks of a time-scaled axis that spans
  *  beyond its data. */
 export function buildTimeTickLabels(from: number, to: number, interval: TimeInterval, timezone: string): string[] {
     if (!isFinite(from) || !isFinite(to) || to < from) {
+        return []
+    }
+    try {
+        // An unknown timezone throws in `.tz()`, and this runs outside the chart's error boundary.
+        dayjs().tz(timezone)
+    } catch {
         return []
     }
     // dayjs has no quarter unit without a plugin, so a quarter steps three months.

@@ -36,7 +36,10 @@ The x-axis spaces points evenly by index by default, so a stretch of time with n
 `TimeSeriesLineChart` with `xScale: 'time'` places each point at its time instead: labels parse in `xAxis.timezone` (UTC when unset), uneven spacing stays uneven, and a missing stretch keeps its width.
 `xDomain: [from, to]` in epoch milliseconds spans the axis beyond the data, for example to a dashboard's time range; points outside it are not drawn.
 The ticks fall on a regular grid at `xAxis.interval` across the domain, inferred from the labels when unset, so they cover stretches without data.
+The labels must be in ascending time order; a label that does not parse is not drawn, and the default domain spans the labels that do.
 On the base `LineChart` the same option is `timeScale: { parse, domain }`, and `xTickLabels` places the ticks on labels of your own.
+An overlay that aligns with the ticks reads `axis.xTickLabels` from `useChartLayout()`: `axis.xTickFormatter`'s index refers to it, not to the data labels.
+Memoize the `timeScale` object, or every render rebuilds the scales.
 
 A missing (non-finite) value breaks the line and the area.
 `connectNulls: true` bridges every gap instead.

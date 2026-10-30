@@ -15,7 +15,7 @@ import type {
 } from '../../core/types'
 import { ReferenceLines } from '../../overlays/ReferenceLine'
 import { ValueLabels } from '../../overlays/ValueLabels'
-import { buildTimeTickLabels, inferTimeInterval } from '../../utils/dates'
+import { buildTimeTickLabels, inferTimeInterval, labelTimeExtent } from '../../utils/dates'
 import { parseDateInTimezone } from '../../utils/dayjs'
 import { mergeValueDomains, type GoalLineConfig } from '../../utils/goal-lines'
 import { useTimeSeriesTooltipConfig, type XAxisConfig, type YAxisConfig } from '../../utils/use-axis-formatters'
@@ -68,7 +68,8 @@ export interface TimeSeriesLineChartConfig {
     curve?: 'linear' | 'monotone'
     /** `time` places each point at its time instead of evenly by index, so uneven spacing and gaps
      *  in time show. Labels parse in `xAxis.timezone` (UTC when unset), and the ticks fall on a
-     *  regular grid at `xAxis.interval`, inferred from the labels when unset. Defaults to `index`. */
+     *  regular grid at `xAxis.interval`, inferred from the labels when unset. The labels must be in
+     *  ascending time order. Defaults to `index`. */
     xScale?: 'index' | 'time'
     /** Time scale only: the x-axis span as `[from, to]` epoch milliseconds, for example a dashboard
      *  time range wider than the data. Defaults to the first and last label. */
@@ -257,7 +258,8 @@ function useTimeScale(
             return t
         }
     }, [timezone, labels])
-    const [from, to] = xDomain ?? [parse(labels[0] ?? ''), parse(labels[labels.length - 1] ?? '')]
+    const extent = useMemo(() => labelTimeExtent(labels, parse), [labels, parse])
+    const [from, to] = xDomain ?? extent
     const configInterval = xAxis?.interval
     const interval = useMemo(
         () => (enabled ? (configInterval ?? inferTimeInterval(labels, timezone) ?? 'day') : 'day'),
@@ -267,14 +269,11 @@ function useTimeScale(
         () => (enabled ? buildTimeTickLabels(from, to, interval, timezone) : []),
         [enabled, from, to, interval, timezone]
     )
-    return useMemo(
-        () =>
-            enabled
-                ? {
-                      timeScale: { parse, domain: [from, to] as const },
-                      xAxis: { ...xAxis, timezone, interval, allDays: tickLabels },
-                  }
-                : null,
-        [enabled, parse, from, to, xAxis, timezone, interval, tickLabels]
+    // Memoized on their own inputs, so an inline `xAxis` config doesn't rebuild the scales.
+    const timeScale = useMemo(() => ({ parse, domain: [from, to] as const }), [parse, from, to])
+    const timeXAxis = useMemo(
+        () => ({ ...xAxis, timezone, interval, allDays: tickLabels }),
+        [xAxis, timezone, interval, tickLabels]
     )
+    return useMemo(() => (enabled ? { timeScale, xAxis: timeXAxis } : null), [enabled, timeScale, timeXAxis])
 }
