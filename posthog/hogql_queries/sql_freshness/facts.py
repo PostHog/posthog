@@ -45,7 +45,6 @@ _TRUNCATE_FUNCTIONS = {spec.trunc_func: unit for unit, spec in INTERVAL_SPECS.it
 _SHIFT_FUNCTIONS = {
     f"{verb}{unit.capitalize()}s": (sign, unit) for verb, sign in (("subtract", -1), ("add", 1)) for unit in PERIOD_MAP
 }
-_DATE_SHIFT_FUNCTIONS = {"dateSub": -1, "date_sub": -1, "dateAdd": 1, "date_add": 1}
 _CLOCK_FUNCTIONS = {id(meta): meta.clickhouse_name for meta in DATE_GENERATOR_FUNCTIONS.values()}
 _LOWER_BOUND_OPS = frozenset({ast.CompareOperationOp.Gt, ast.CompareOperationOp.GtEq})
 _FLIPPED_OPS = {
@@ -352,21 +351,11 @@ class _Evaluator:
             return None
         return dataclasses.replace(inner, at=inner.at + _period(unit, sign * amount))
 
-    def _date_shift(self, call: ast.Call) -> Optional[_Value]:
-        if len(call.args) != 3:
-            return None
-        unit = (_string_constant(call.args[0]) or "").lower().rstrip("s")
-        inner, amount = self.evaluate(call.args[2]), _int_constant(call.args[1])
-        if unit not in PERIOD_MAP or inner is None or amount is None or (inner.utc_day and unit in _SUB_DAY_UNITS):
-            return None
-        return dataclasses.replace(inner, at=inner.at + _period(unit, _DATE_SHIFT_FUNCTIONS[call.name] * amount))
-
 
 _CALL_HANDLERS: dict[str, Callable[[_Evaluator, ast.Call], Optional[_Value]]] = {
     **dict.fromkeys(_TIMESTAMP_WRAPPERS, _Evaluator._wrapper),
     **dict.fromkeys(_TRUNCATE_FUNCTIONS, _Evaluator._truncate),
     **dict.fromkeys(_SHIFT_FUNCTIONS, _Evaluator._shift),
-    **dict.fromkeys(_DATE_SHIFT_FUNCTIONS, _Evaluator._date_shift),
 }
 
 
@@ -419,11 +408,6 @@ def _bounds_from_conjunct(evaluator: _Evaluator, conjunct: ast.Expr) -> _Bound:
             bound = _bound(evaluator, conjunct.right, _FLIPPED_OPS[conjunct.op], conjunct.left)
         if bound is not None:
             return bound
-    if isinstance(conjunct, ast.BetweenExpr) and not conjunct.negated:
-        low = _bound(evaluator, conjunct.expr, ast.CompareOperationOp.GtEq, conjunct.low)
-        high = _bound(evaluator, conjunct.expr, ast.CompareOperationOp.LtEq, conjunct.high)
-        if low is not None and high is not None:
-            return _Bound(start=low.start, end=high.end)
     raise _UnsupportedBound()
 
 

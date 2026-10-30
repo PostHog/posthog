@@ -39,11 +39,6 @@ GRANT_CASES: list[tuple[Any, ...]] = [
         "select count() as c from events where timestamp >= now() - interval 6 hour order by c",
         SqlWindowClass.UP_TO_NOW_SHORT,
     ),
-    (
-        "date_sub",
-        "select count() from events where timestamp >= dateSub('hour', 2, now())",
-        SqlWindowClass.UP_TO_NOW_SHORT,
-    ),
     ("today", "select count() from events where toDate(timestamp) = today()", SqlWindowClass.UP_TO_NOW_SHORT),
     (
         "last_7_days",
@@ -127,7 +122,7 @@ GRANT_CASES: list[tuple[Any, ...]] = [
     ),
     (
         "absolute_past_range",
-        "select count() from events where timestamp between '2026-10-01' and '2026-10-15'",
+        "select count() from events where timestamp >= '2026-10-01' and timestamp <= '2026-10-15'",
         SqlWindowClass.FIXED_PAST,
     ),
     (
