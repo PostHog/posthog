@@ -1043,9 +1043,7 @@ describe("App", () => {
       let mark = output().length;
       press("\x1d");
       await vi.waitFor(() => expect(setMode).toHaveBeenCalledWith("plan"));
-      await vi.waitFor(() =>
-        expect(drawnSince(mark)).toContain("⏵⏵ Plan Mode"),
-      );
+      await vi.waitFor(() => expect(drawnSince(mark)).toContain("◯ Plan Mode"));
       mark = output().length;
       press("\x1b[93;6u");
       await vi.waitFor(() => expect(setMode).toHaveBeenLastCalledWith("auto"));

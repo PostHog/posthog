@@ -300,8 +300,20 @@ export function nextMode(
   return available[(at + step + available.length) % available.length];
 }
 
-// How the mode reads on the composer's rule, as Claude Code shows its own.
-export const modeStatus = (mode: Mode): string => `⏵⏵ ${mode.name}`;
+// Each mode's glyph on the composer's rule: how far the agent runs before it asks. Auto and accept-edits borrow
+// Claude Code's chevrons, plan waits in a circle, default stops at every call, and bypass skips the asking.
+const MODE_GLYPHS: Record<string, string> = {
+  auto: "⏵⏵",
+  acceptEdits: "⏵",
+  plan: "◯",
+  default: "■",
+  bypassPermissions: "⏭",
+  "read-only": "◌",
+  "full-access": "⏭",
+};
+
+export const modeStatus = (mode: Mode): string =>
+  `${MODE_GLYPHS[mode.id] ?? "⏵"} ${mode.name}`;
 
 export function modeSheet(available: Mode[], current: string): Sheet {
   return {
