@@ -358,3 +358,29 @@ export const SettingsEnvironmentAgentInstructions: Story = {
         }),
     ],
 }
+
+export const SettingsMcpAnalyticsCustomHarnesses: Story = {
+    args: { sectionId: 'mcp-analytics' },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:id/mcp_analytics/custom_harnesses/': [
+                    {
+                        id: '0193f2a1-0000-7000-8000-000000000001',
+                        name: 'Acme agent',
+                        match_pattern: 'acme-agent',
+                        created_at: '2023-05-20T10:00:00Z',
+                        updated_at: '2023-05-20T10:00:00Z',
+                    },
+                    {
+                        id: '0193f2a1-0000-7000-8000-000000000002',
+                        name: 'Support bot',
+                        match_pattern: 'support-bot',
+                        created_at: '2023-05-21T10:00:00Z',
+                        updated_at: '2023-05-21T10:00:00Z',
+                    },
+                ],
+            },
+        }),
+    ],
+}

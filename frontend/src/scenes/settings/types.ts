@@ -112,6 +112,7 @@ export type SettingSectionId =
     | 'user-reminders'
     | 'user-danger-zone'
     // Standalone
+    | 'mcp-analytics'
     | 'mcp-servers'
     | 'posthog-mcp'
 
@@ -233,6 +234,7 @@ export type SettingId =
     | 'logs-retention'
     | 'logs-session-id-attribute-keys'
     | 'marketing-settings'
+    | 'mcp-analytics-custom-harnesses'
     | 'mcp-servers-manage'
     | 'members'
     | 'member-notifications'
