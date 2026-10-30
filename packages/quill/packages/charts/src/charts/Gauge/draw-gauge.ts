@@ -1,5 +1,5 @@
-import { roundCapInset, targetTickSize } from '../../core/gauge-layout'
-import type { GaugeLayout } from '../../core/gauge-layout'
+import { roundCapInset, targetTickSize } from './gauge-layout'
+import type { GaugeLayout } from './gauge-layout'
 
 export interface GaugePaintBand {
     startAngle: number
