@@ -219,4 +219,33 @@ describe('feature flag PATCH tools', () => {
             body: { deleted: false },
         })
     })
+
+    it('feature-flag-restore returns the key and archived state the agent must check', async () => {
+        const requestMock = vi.fn().mockResolvedValue({
+            id: 42,
+            key: 'checkout-2',
+            active: true,
+            archived: true,
+            deleted: false,
+            status: 'ACTIVE',
+            version: 4,
+            filters: { groups: [] },
+        })
+        const tool = GENERATED_TOOL_MAP['feature-flag-restore']!()
+
+        const result = await tool.handler(createMockContext(requestMock), tool.schema.parse({ id: 42 }))
+
+        // pickResponseFields drops an unmatched path with no error, so a typo in the yaml include
+        // list would hide a renamed key or a flag that is still archived from the agent.
+        expect(result).toMatchObject({
+            id: 42,
+            key: 'checkout-2',
+            active: true,
+            archived: true,
+            deleted: false,
+            status: 'ACTIVE',
+            version: 4,
+        })
+        expect(result).not.toHaveProperty('filters')
+    })
 })
