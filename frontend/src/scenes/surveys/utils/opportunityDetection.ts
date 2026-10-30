@@ -66,8 +66,7 @@ export function isSurveyableFunnelInsight(
     if (!query || !isValidFunnelQuery(query)) {
         return false
     }
-    // Steps and flow funnels return one row per step. The other visualizations return conversion over time or
-    // conversion time bins, which have no first and last step to compare.
+    // Only steps and flow funnels return one row per step.
     const vizType = query.source.funnelsFilter?.funnelVizType ?? FunnelVizType.Steps
 
     return (

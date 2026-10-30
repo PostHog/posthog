@@ -11,14 +11,8 @@ import {
 import type { FunnelsQuery } from '~/queries/schema/schema-general'
 import { type FunnelStep, StepOrderValue } from '~/types'
 
-/**
- * The query series of the funnel step at `stepIndex`, carrying the name the step displays under. A step's index is
- * its series index on ordered and strict funnels. Pass the index of the step, not the `order` of a nested breakdown
- * row, because a nested row's `order` holds a breakdown rank.
- *
- * Null on an unordered funnel, whose step N counts the people who completed any N of the series, and on a step whose
- * series the query no longer holds, which happens while results for an edited query load.
- */
+// Takes the step index because a nested breakdown row's `order` holds a breakdown rank. An unordered funnel's step N
+// counts people who completed any N series, so it has no series.
 export function getFunnelStepSeries(
     querySource: FunnelsQuery | null | undefined,
     stepIndex: number,
@@ -58,11 +52,7 @@ export function isRepeatedFunnelStep(series: SeriesNode | null, previousSeries: 
     return seriesNodeKey(series) === seriesNodeKey(previousSeries)
 }
 
-/**
- * A series saved without a `name` displays the key it queries, as the runner names the step. The query does not hold
- * the name of an action, so an action or a group takes the step's name, which the runner builds with action names
- * from the database.
- */
+// The query does not hold an action's name, so a nameless action or group takes the name the runner gave the step.
 function withDisplayName(node: SeriesNode, step: Pick<FunnelStep, 'name'>): SeriesNode {
     if (ensureStringIsNotBlank(node.name)) {
         return node

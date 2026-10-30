@@ -57,7 +57,6 @@ export interface FunnelFlowNodeData extends Record<string, unknown> {
     step: FunnelStepWithConversionMetrics
     stepIndex: number
     isOptional: boolean
-    /** What the step's label displays. */
     entity: DisplayableEntity
 }
 

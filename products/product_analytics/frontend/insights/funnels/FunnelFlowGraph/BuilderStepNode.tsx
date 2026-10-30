@@ -169,8 +169,8 @@ export const BuilderStepNode = React.memo(function BuilderStepNode({
     const pickerValue = getStepPickerValue(stepSeries)
     const hasEvent = pickerValue != null
     const hasConversionData = step.count != null && step.count > 0
-    // The node comes from the journey's query, so its identity stays stable between renders. A fresh filter each
-    // render would defeat the picker's rename memo and re-render every visible list row while it is open.
+    // Stable identity — a fresh filter each render would defeat the picker's
+    // rename memo and re-render every visible list row while it is open.
     const stepFilter = hasEvent ? stepSeries : undefined
 
     return (
