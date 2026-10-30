@@ -52,7 +52,8 @@ export function feedRowSource(row: TodayForYouRow): string {
 export function feedCardEvent(row: TodayForYouRow, position: number): TodayFeedCardEvent {
     return {
         kind: row.kind,
-        key: row.key,
+        report_id: row.kind === 'report' ? row.report.id : null,
+        highlight_source: row.kind === 'highlight' ? row.item.source : null,
         source: feedRowSource(row),
         position,
         priority: (row.kind === 'report' ? row.report.priority : row.item.priority) ?? null,

@@ -30,7 +30,7 @@ export function TodayFeedReportChips({
                 <Button
                     variant="outline"
                     size="sm"
-                    className="min-w-0"
+                    className="min-w-0 shrink"
                     onClick={() => onAsk(prompt)}
                     data-attr="today-feed-report-ask"
                 >

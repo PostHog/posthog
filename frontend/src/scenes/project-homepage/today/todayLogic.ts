@@ -90,7 +90,8 @@ export type TodayForYouView = 'list' | 'feed'
 
 export interface TodayFeedCardEvent {
     kind: TodayForYouRow['kind']
-    key: string
+    report_id: string | null
+    highlight_source: string | null
     source: string
     position: number
     priority: string | null
