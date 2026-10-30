@@ -95,3 +95,21 @@ class TestSpanCountErrorHandling(APIBaseTest):
             format="json",
         )
         self.assertEqual(response.status_code, 400, response.content)
+
+    @parameterized.expand(
+        [
+            ("query_string_limit", "post", "query/", {"query": {"limit": "abc"}}),
+            ("query_string_prefetch_spans", "post", "query/", {"query": {"prefetchSpans": "abc"}}),
+            ("trace_string_offset", "post", "trace/abcdef/", {"offset": "abc"}),
+            ("attributes_string_limit", "get", "attributes/", {"limit": "abc"}),
+            ("attributes_negative_offset", "get", "attributes/", {"offset": "-1"}),
+            ("values_string_offset", "get", "values/", {"key": "http.method", "offset": "abc"}),
+        ]
+    )
+    def test_rejects_bad_paging_params(self, _name: str, method: str, path: str, data: dict) -> None:
+        url = f"/api/projects/{self.team.id}/tracing/spans/{path}"
+        if method == "post":
+            response = self.client.post(url, data, format="json")
+        else:
+            response = self.client.get(url, data)
+        self.assertEqual(response.status_code, 400, response.content)
