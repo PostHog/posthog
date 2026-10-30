@@ -38,6 +38,11 @@ function draftExperiment(featureFlag: Record<string, unknown> = deletedFlag): Ex
     } as unknown as Experiment
 }
 
+// LemonBanner renders its action twice, once per layout.
+function restoreButtons(): NodeListOf<HTMLButtonElement> {
+    return document.querySelectorAll<HTMLButtonElement>('[data-attr="experiment-restore-deleted-flag"]')
+}
+
 const deletion = {
     id: '1',
     activity: 'deleted',
@@ -106,7 +111,7 @@ describe('DeletedFlagBanner', () => {
 
         expect(await screen.findByText(/Tue deleted/)).toBeInTheDocument()
         expect(screen.getByText(/via MCP/)).toBeInTheDocument()
-        expect(screen.getByRole('link', { name: 'checkout-flag' })).toHaveAttribute(
+        expect(screen.getByText('checkout-flag').closest('a')).toHaveAttribute(
             'href',
             expect.stringContaining(`/feature-flags/${FLAG_ID}`)
         )
@@ -116,8 +121,7 @@ describe('DeletedFlagBanner', () => {
     it('restores the flag and reloads the experiment', async () => {
         renderBanner(draftExperiment())
 
-        // LemonBanner renders its action twice, once per layout.
-        await userEvent.click(screen.getAllByRole('button', { name: 'Restore flag' })[0])
+        await userEvent.click(restoreButtons()[0])
 
         await waitFor(() => expect(restoreBodies).toEqual([{ deleted: false }]))
         await waitFor(() => expect(screen.queryByText(/feature flag is deleted/)).not.toBeInTheDocument())
@@ -129,14 +133,14 @@ describe('DeletedFlagBanner', () => {
 
         expect(await screen.findByText(/The feature flag/)).toBeInTheDocument()
         expect(screen.getByText(/was deleted/)).toBeInTheDocument()
-        expect(screen.getAllByRole('button', { name: 'Restore flag' }).length).toBeGreaterThan(0)
+        expect(restoreButtons().length).toBeGreaterThan(0)
     })
 
     it('offers no restore for a flag on the new config format', async () => {
         renderBanner(draftExperiment({ ...deletedFlag, filters: { version: 2, rules: [] } }))
 
         expect(await screen.findByText(/Restoring is not available for this flag yet/)).toBeInTheDocument()
-        expect(screen.queryByRole('button', { name: 'Restore flag' })).not.toBeInTheDocument()
+        expect(restoreButtons()).toHaveLength(0)
     })
 
     it.each([
