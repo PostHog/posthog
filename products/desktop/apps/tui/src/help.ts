@@ -19,7 +19,12 @@ export const HELP: HelpGroup[] = [
         keys: "Ctrl+N",
         does: "New chat: in the focused pane of a split, else the main view",
       },
+      {
+        keys: "Ctrl+Shift+N",
+        does: "New chat in the main view, outside the split",
+      },
       { keys: "Ctrl+K", does: "Search your chats (Cmd+K too)" },
+      { keys: "Ctrl+Shift+K", does: "Search full screen, even from a split" },
       {
         keys: "Ctrl+C Ctrl+C",
         does: "Close the chat; on the last pane, quit (Ctrl+D too)",

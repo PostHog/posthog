@@ -442,6 +442,41 @@ describe("App flows", () => {
     }
   });
 
+  it("opens a new chat outside the split on Ctrl+Shift+N, and the full-screen search on Ctrl+Shift+K", async () => {
+    const split = splitFocused(openTask(initialLayout(), "c1"), "row");
+    const app = cloudApp({ layout: split });
+    const saved = (): ReturnType<typeof loadLayout> =>
+      loadLayout(layoutPath(ACCOUNT));
+    try {
+      await vi.waitFor(() => expect(app.plain()).toContain("Fix the build"));
+      // The empty right pane is focused, yet the search takes the whole screen: no pane divider beside it.
+      const before = app.output().length;
+      app.press("\x1b[107;6u");
+      await vi.waitFor(() => {
+        const drawn = stripTerminalSequences(app.output().slice(before));
+        expect(drawn).toContain("Search tasks");
+        expect(drawn).not.toContain("│");
+      });
+      const closed = app.output().length;
+      app.press("\x1b");
+      await vi.waitFor(() =>
+        expect(stripTerminalSequences(app.output().slice(closed))).toContain(
+          "│",
+        ),
+      );
+      app.press("\x1b[110;6u");
+      await vi.waitFor(() => {
+        const layout = saved();
+        expect(activeWorkspace(layout).root.kind).toBe("pane");
+        expect(layout.workspaces.map((w) => paneIds(w.root).length)).toEqual([
+          2, 1,
+        ]);
+      });
+    } finally {
+      app.close();
+    }
+  });
+
   it("switches the model from the /model sheet by number, and leaves it on Esc", async () => {
     const setModel = vi.fn(async () => {});
     const sol = { provider: "posthog", id: "gpt-6.1-sol", name: "Sol 6.1" };

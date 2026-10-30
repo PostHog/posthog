@@ -46,7 +46,9 @@ Picking a plan that lacks its login runs the sign-in on a sheet. Settings (Ctrl+
 | Keys | Does |
 | --- | --- |
 | Ctrl+N | New chat: in the focused pane of a split, else the main view |
+| Ctrl+Shift+N | New chat in the main view, outside the split |
 | Ctrl+K | Search chats |
+| Ctrl+Shift+K | Search full screen, even from a split |
 | Ctrl+C Ctrl+C | Close the chat; on the last pane, quit (Ctrl+D too) |
 | Esc | Stop the agent; twice clears, or brings back the chat an empty new chat replaced |
 | Ctrl+V | Paste an image |
