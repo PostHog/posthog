@@ -123,6 +123,21 @@ class TestClassify(BaseTest):
                 SqlWindowClass.UP_TO_NOW_LONG,
             ),
             (
+                "truncated_bound_before_a_period_start_is_closed",
+                "select count() from events where toStartOfMonth(timestamp) < '2026-10-01' and timestamp >= '2026-09-01'",
+                SqlWindowClass.FIXED_PAST,
+            ),
+            (
+                "truncated_lower_bound_starts_at_the_next_period",
+                "select count() from events where toStartOfDay(timestamp) >= '2026-10-28 10:00:00'",
+                SqlWindowClass.UP_TO_NOW_SHORT,
+            ),
+            (
+                "truncated_strict_lower_bound_skips_its_period",
+                "select count() from events where toStartOfDay(timestamp) > '2026-10-28'",
+                SqlWindowClass.UP_TO_NOW_SHORT,
+            ),
+            (
                 "absolute_past_range",
                 "select count() from events where timestamp between '2026-10-01' and '2026-10-15'",
                 SqlWindowClass.FIXED_PAST,
