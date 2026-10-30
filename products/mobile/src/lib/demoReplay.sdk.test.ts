@@ -3,12 +3,16 @@ import { NativeModules } from 'react-native'
 import { DEMO_REPLAY_CONFIG } from './demoReplay'
 
 describe('demo replay native SDK boundary', () => {
-    it('keeps native automatic recording disabled through manual starts and stops', async () => {
+    it('keeps native automatic recording disabled and cancels pending starts after a stop', async () => {
+        jest.useFakeTimers()
+        const network = jest
+            .spyOn(globalThis, 'fetch')
+            .mockResolvedValue(new Response(JSON.stringify({ featureFlags: {} }), { status: 200 }))
         const native = {
             setup: jest.fn().mockResolvedValue(undefined),
             startRecording: jest.fn().mockResolvedValue(undefined),
             stopRecording: jest.fn().mockResolvedValue(undefined),
-            isEnabled: jest.fn().mockResolvedValueOnce(false).mockResolvedValue(true),
+            isEnabled: jest.fn().mockResolvedValue(false),
             setOptOut: jest.fn().mockResolvedValue(undefined),
             getSessionReplayDebugProperties: jest.fn().mockResolvedValue({}),
         }
@@ -23,6 +27,7 @@ describe('demo replay native SDK boundary', () => {
             sessionReplayConfig: DEMO_REPLAY_CONFIG,
             preloadFeatureFlags: false,
             disableRemoteConfig: true,
+            flushInterval: 0,
         })
 
         try {
@@ -47,12 +52,18 @@ describe('demo replay native SDK boundary', () => {
             expect(native.startRecording).toHaveBeenCalledWith(true)
             await sdk.stopSessionRecording()
             expect(native.stopRecording).toHaveBeenCalledTimes(1)
+            native.isEnabled.mockResolvedValue(true)
+            await sdk.reloadFeatureFlagsAsync()
+            await jest.advanceTimersByTimeAsync(30_000)
+            expect(native.startRecording).toHaveBeenCalledTimes(1)
             await sdk.startSessionRecording()
             expect(native.setup).toHaveBeenCalledTimes(1)
             expect(native.startRecording).toHaveBeenCalledTimes(2)
         } finally {
             await sdk.shutdown()
             delete NativeModules.PosthogReactNativePlugin
+            network.mockRestore()
+            jest.useRealTimers()
         }
     })
 })

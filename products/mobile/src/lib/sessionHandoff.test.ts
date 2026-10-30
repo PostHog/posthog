@@ -1,9 +1,8 @@
 import { Linking } from 'react-native'
 import { useAuthStore } from '@/auth/authStore'
 import { redirectSystemPath } from '../../app/+native-intent'
-
+import { HANDOFF_PARAM, handoffId, handoffMarker, takeHandoff } from '../../frontend/handoffProtocol'
 import { setAnalyticsClient } from './analytics'
-import { HANDOFF_PARAM, handoffId, handoffMarker, takeHandoff } from './handoffProtocol'
 import { openPostHogUrl, receiveSessionHandoff } from './sessionHandoff'
 
 jest.mock('@/auth/authStore', () => ({ useAuthStore: { getState: jest.fn() } }))

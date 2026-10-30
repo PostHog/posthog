@@ -2,10 +2,9 @@ import * as Crypto from 'expo-crypto'
 import { Linking } from 'react-native'
 
 import { useAuthStore } from '@/auth/authStore'
-
+import { HANDOFF_PARAM, handoffMarker, isMobileHandoffUrl, takeHandoff } from '../../frontend/handoffProtocol'
 import { track, trackWhenReady } from './analytics'
 import { isInternalBuild } from './environment'
-import { HANDOFF_PARAM, handoffMarker, isMobileHandoffUrl, takeHandoff } from './handoffProtocol'
 
 function enabled(): boolean {
     return isInternalBuild && process.env.EXPO_PUBLIC_POSTHOG_HANDOFF === '1'

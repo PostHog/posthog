@@ -1,7 +1,7 @@
 /** @jest-environment jsdom */
 import { URL as NodeURL, URLSearchParams as NodeURLSearchParams } from 'node:url'
 
-import { HANDOFF_PARAM, handoffMarker, takeHandoff } from '../src/lib/handoffProtocol'
+import { HANDOFF_PARAM, handoffMarker, takeHandoff } from './handoffProtocol'
 import { consumeMobileHandoff, installMobileHandoff } from './webHandoff'
 
 const ID = '00000000-0000-4000-8000-000000000001'

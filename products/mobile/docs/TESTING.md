@@ -280,7 +280,7 @@ is active: the SDK can retry while waiting for remote configuration. Check the r
 The workspace patch for `@posthog/react-native-plugin@2.12.6` keeps native automatic recording disabled, including when the React Native SDK initializes replay for a manual start.
 Explicit starts still record, but an explicit stop prevents delayed remote configuration, session changes or event triggers from restarting capture.
 The patch covers the plugin's JavaScript entry points and leaves its native code unchanged.
-Keep this patch until the React Native SDK preserves manual-only recording through native initialization; `src/lib/demoReplay.sdk.test.ts` checks that boundary with the real SDK.
+Keep this patch until the React Native SDK preserves manual-only recording through native initialization; `src/lib/demoReplay.sdk.test.ts` checks that boundary with the real SDK and verifies that stopping cancels pending retries when configuration arrives later.
 
 On both iOS and Android, before allowing live-data capture:
 
@@ -301,6 +301,8 @@ See [React Native replay installation](https://posthog.com/docs/session-replay/i
 and [privacy controls](https://posthog.com/docs/session-replay/privacy).
 
 ## Web/mobile handoff prototype
+
+The shared handoff protocol lives in `frontend/handoffProtocol.ts`. Browser modules in this directory use the web TypeScript configuration in `frontend/tsconfig.json`, so the web app and Storybook can build without installing the native Expo workspace.
 
 This prototype correlates separate sessions. It does not produce one recording spanning web and
 native. Identity (`distinct_id`), authentication, analytics sessions (`$session_id`) and the
