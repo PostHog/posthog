@@ -26,6 +26,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from posthog.dataclasses import frozen
+
 from products.signals.dags.inbox_ranking.dataset.queries import LABELS_TEAM_ID
 from products.signals.dags.inbox_ranking.multihead.prototype import ExampleTable
 from products.signals.dags.inbox_ranking.nn.pairs import HISTORY_BUCKETS
@@ -197,21 +199,33 @@ def _team_groups(frame: pd.DataFrame) -> np.ndarray:
     return frame.groupby("report_team_id", sort=False).ngroup().to_numpy()
 
 
+@frozen
+class _ReportRows:
+    """One row per report of a broadcast head's holdout pairs."""
+
+    # The report's first pair row, for its `report_team_id`.
+    frame: pd.DataFrame
+    # The report's broadcast outcome.
+    outcomes: np.ndarray
+    # Per arm and seed, the mean score over the report's pairs; None for an arm without scores.
+    scores: dict[str, list[np.ndarray] | None]
+
+
 def _per_report(
     frame: pd.DataFrame, outcomes: np.ndarray, arm_scores: Mapping[str, Sequence[np.ndarray] | None]
-) -> tuple[pd.DataFrame, np.ndarray, dict[str, list[np.ndarray] | None]]:
-    """One row per report of `frame`: its team, its broadcast outcome, and each arm's mean score
-    over the report's pairs."""
+) -> _ReportRows:
     report = frame.groupby(_REPORT_KEY, sort=False).ngroup().to_numpy()
     first = pd.Series(np.arange(len(report))).groupby(report).first().to_numpy()
 
     def mean(scores: np.ndarray) -> np.ndarray:
         return pd.Series(scores).groupby(report).mean().to_numpy()
 
-    return (
-        frame.iloc[first].reset_index(drop=True),
-        outcomes[first],
-        {arm: [mean(s) for s in per_seed] if per_seed is not None else None for arm, per_seed in arm_scores.items()},
+    return _ReportRows(
+        frame=frame.iloc[first].reset_index(drop=True),
+        outcomes=outcomes[first],
+        scores={
+            arm: [mean(s) for s in per_seed] if per_seed is not None else None for arm, per_seed in arm_scores.items()
+        },
     )
 
 
@@ -257,16 +271,16 @@ def pair_vs_baseline_block(
             "holdout_positives": int(outcomes.sum()),
         }
         if name in PAIR_BROADCAST_HEAD_NAMES:
-            reports, report_outcomes, report_scores = _per_report(frame, outcomes, arm_scores)
+            reports = _per_report(frame, outcomes, arm_scores)
             head |= {
                 "group": TEAM_GROUP,
-                "holdout_reports": len(reports),
+                "holdout_reports": len(reports.frame),
                 "scopes": _scoped_grades(
-                    reports,
-                    report_outcomes,
-                    _team_groups(reports),
-                    report_scores,
-                    {ALL: np.ones(len(reports), dtype=bool)},
+                    reports.frame,
+                    reports.outcomes,
+                    _team_groups(reports.frame),
+                    reports.scores,
+                    {ALL: np.ones(len(reports.frame), dtype=bool)},
                     draws,
                 ),
             }
