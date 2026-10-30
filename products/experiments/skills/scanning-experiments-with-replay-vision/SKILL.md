@@ -26,7 +26,7 @@ On a draft there is nothing to preview yet, so you create the scanner to start w
 
 Guards before doing anything else:
 
-- **Flag aggregates by group** (`feature_flag.filters.aggregation_group_type_index` is set): a scanner matches exposures to people's recordings, and this flag exposes groups, so the API refuses it. Tell the user Replay Vision can only watch experiments that aggregate by person, and stop.
+- **Flag aggregates by group** (`feature_flag.filters.aggregation_group_type_index` is a number, not null): a scanner matches exposures to people's recordings, and this flag exposes groups, so the API refuses it. Tell the user Replay Vision can only watch experiments that aggregate by person, and stop.
 - **Draft** (no `start_date`): there are no exposures yet, so there is nothing to estimate or preview. The scanner can still wait for the launch. Price it per session (Step 3), then create it switched off with `start_on_launch` (Step 4), and the launch turns it on.
 - **Ended**: a new scanner sweeps only from creation onward, and it stops at the end date, so it scans nothing new. Cover the run with a backfill (see Limits).
 - **Running or exposure-frozen**: proceed. A frozen experiment stops enrolling, but already-exposed users keep producing sessions, so scanning stays useful.
