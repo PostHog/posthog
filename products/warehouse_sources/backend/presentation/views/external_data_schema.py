@@ -2302,12 +2302,13 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         raise MethodNotAllowed("POST")
 
     def get_serializer(self, *args: Any, **kwargs: Any) -> serializers.BaseSerializer:
+        if "context" not in kwargs:
+            kwargs["context"] = self.get_serializer_context()
         if kwargs.get("many") and args:
-            if "context" not in kwargs:
-                kwargs["context"] = self.get_serializer_context()
             context = kwargs["context"]
             context[PINNED_TABLE_IDS_CONTEXT_KEY] = pinned_table_ids(args[0], self.team_id)
-        return super().get_serializer(*args, **kwargs)
+        serializer_class = self.get_serializer_class()
+        return serializer_class(*args, **kwargs)
 
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()

@@ -47,6 +47,7 @@ from products.warehouse_sources.backend.facade.models import (
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 from products.warehouse_sources.backend.presentation.views.external_data_schema import (
     UNREADABLE_SOURCE_CONFIG_ERROR,
+    ExternalDataSchemaSerializer,
     ExternalDataSchemaViewset,
     schema_display_status,
 )
@@ -5606,4 +5607,6 @@ class TestExternalDataSchemaIntrospection(SimpleTestCase):
         view.format_kwarg = None
         view.kwargs = {}
 
-        assert "table_id" in view.get_serializer().fields
+        serializer = view.get_serializer()
+        assert isinstance(serializer, ExternalDataSchemaSerializer)
+        assert "table_id" in serializer.fields
