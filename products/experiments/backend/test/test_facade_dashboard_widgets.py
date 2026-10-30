@@ -89,18 +89,11 @@ class TestDashboardWidgetsFacade(BaseTest):
         )
         return UserAccessControl(user=member, team=self.team)
 
-    def _list_names(self, access: UserAccessControl | None = None, **filters: Any) -> list[str]:
+    def _list_names(
+        self, access: UserAccessControl | None = None, *, status: str = "all", limit: int = 10
+    ) -> list[str]:
         page = experiments_list_widget_page(
-            self.team,
-            access,
-            **{
-                "status": "all",
-                "order_by": "name",
-                "descending": False,
-                "created_by_id": None,
-                "limit": 10,
-                **filters,
-            },
+            self.team, access, status=status, order_by="name", descending=False, created_by_id=None, limit=limit
         )
         return [row.name for row in page.rows]
 

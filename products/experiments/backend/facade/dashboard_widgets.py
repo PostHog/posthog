@@ -52,11 +52,7 @@ def experiments_list_widget_page(
     `status` and `order_by` take the values of the experiments list API.
     """
     queryset = dashboard_widgets.list_widget_queryset(
-        team,
-        access,
-        status=status,
-        order=f"{'-' if descending else ''}{order_by}",
-        created_by_id=created_by_id,
+        team, access, status=status, order_by=order_by, descending=descending, created_by_id=created_by_id
     )
     experiments = list(queryset[: limit + 1])
     return ExperimentListWidgetPage(

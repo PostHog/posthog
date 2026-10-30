@@ -22,43 +22,44 @@ from products.experiments.backend.models.experiment import Experiment, metric_di
 logger = logging.getLogger(__name__)
 
 
+def _visible_to(access: UserAccessControl | None, queryset: QuerySet[Experiment]) -> QuerySet[Experiment]:
+    return queryset if access is None else access.filter_queryset_by_access_level(queryset)
+
+
 def list_widget_queryset(
-    team: Team, access: UserAccessControl | None, *, status: str, order: str, created_by_id: int | None
+    team: Team,
+    access: UserAccessControl | None,
+    *,
+    status: str,
+    order_by: str,
+    descending: bool,
+    created_by_id: int | None,
 ) -> QuerySet[Experiment]:
     # ExperimentService transitively imports the dashboard API, which loads the widget registry, which imports the
     # dashboard widgets that import this module. Deferring the import breaks that cycle.
     from products.experiments.backend.experiment_service import ExperimentService  # noqa: PLC0415
 
-    query_params: dict[str, Any] = {"status": status, "order": order}
+    order_prefix = "-" if descending else ""
+    query_params: dict[str, Any] = {"status": status, "order": f"{order_prefix}{order_by}"}
     if created_by_id is not None:
         query_params["created_by_id"] = created_by_id
 
     base_queryset = Experiment.objects.filter(team=team).select_related("created_by", "feature_flag")
     service = ExperimentService(team=team, user=access.user if access is not None else None)
     queryset = service.filter_experiments_queryset(base_queryset, action="list", query_params=query_params)
-
-    if access is not None:
-        # Honor object-level experiment access controls, matching the REST list endpoint.
-        queryset = access.filter_queryset_by_access_level(queryset)
-    return queryset
+    # Honor object-level experiment access controls, matching the REST list endpoint.
+    return _visible_to(access, queryset)
 
 
 def has_accessible_experiments(team: Team, access: UserAccessControl | None) -> bool:
-    accessible = Experiment.objects.filter(team=team, deleted=False)
-    if access is not None:
-        accessible = access.filter_queryset_by_access_level(accessible)
-    return accessible.exists()
+    return _visible_to(access, Experiment.objects.filter(team=team, deleted=False)).exists()
 
 
 def accessible_experiment(team: Team, access: UserAccessControl | None, experiment_id: int) -> Experiment | None:
     # Honor object-level experiment access controls, matching the REST endpoint. A user denied
     # access to a specific experiment must not see it (or its results) through the widget.
-    experiment_queryset = Experiment.objects.filter(id=experiment_id, team=team, deleted=False).select_related(
-        "feature_flag"
-    )
-    if access is not None:
-        experiment_queryset = access.filter_queryset_by_access_level(experiment_queryset)
-    return experiment_queryset.first()
+    queryset = Experiment.objects.filter(id=experiment_id, team=team, deleted=False).select_related("feature_flag")
+    return _visible_to(access, queryset).first()
 
 
 def _sort_by_ordered_uuids(metric_dicts: list[dict[str, Any]], ordered_uuids: list[str] | None) -> None:

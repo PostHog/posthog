@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import asdict
 from typing import Any
 
 from posthog.models.team import Team
@@ -8,23 +9,12 @@ from posthog.models.user import User
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.dashboards.backend.widget_specs.configs import EXPERIMENT_RESULTS_WIDGET_TYPE
 from products.dashboards.backend.widget_specs.registry import validate_widget_config
-from products.experiments.backend.facade.contracts import ExperimentResultsWidgetMetric
 from products.experiments.backend.facade.dashboard_widgets import experiment_results_widget, has_accessible_experiments
 
 # Cap on metrics computed per section (primary, secondary) so one widget can't fan out into many
 # ClickHouse queries. Applied independently to each section, so a fully-loaded widget runs at most
 # 2x this many queries.
 MAX_EXPERIMENT_RESULTS_WIDGET_METRICS = 3
-
-
-def _serialize_metric(metric: ExperimentResultsWidgetMetric) -> dict[str, Any]:
-    return {
-        "uuid": metric.uuid,
-        "name": metric.name,
-        "metric": metric.metric,
-        "result": metric.result,
-        "error": metric.error,
-    }
 
 
 def run_experiment_results_widget(
@@ -74,7 +64,7 @@ def run_experiment_results_widget(
     if include_total_count:
         payload["totalMetricsCount"] = experiment.metrics.primary_total
         payload["totalSecondaryMetricsCount"] = experiment.metrics.secondary_total
-    payload["metrics"] = [_serialize_metric(metric) for metric in experiment.metrics.primary]
-    payload["secondaryMetrics"] = [_serialize_metric(metric) for metric in experiment.metrics.secondary]
+    payload["metrics"] = [asdict(metric) for metric in experiment.metrics.primary]
+    payload["secondaryMetrics"] = [asdict(metric) for metric in experiment.metrics.secondary]
 
     return payload
