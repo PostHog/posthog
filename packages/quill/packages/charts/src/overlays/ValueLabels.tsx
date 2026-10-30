@@ -92,6 +92,7 @@ interface BuildCandidatesArgs {
     mode: ValueLabelsMode
     position: 'end' | 'center'
     isPercent: boolean
+    stackedSeriesKeys: ReadonlySet<string> | undefined
 }
 
 function pushCandidate(
@@ -133,8 +134,10 @@ function buildCandidates(args: BuildCandidatesArgs): Candidate[] {
     return args.mode === 'stack-total' ? buildStackTotal(args, ctx) : buildPerSegment(args, ctx)
 }
 
-function stackContributors(series: ResolvedSeries[]): ResolvedSeries[] {
-    return series.filter((s) => !s.visibility?.excluded && !s.fill?.lowerData && !s.overlay && s.stacked !== false)
+function stackContributors(series: ResolvedSeries[], stackedKeys: ReadonlySet<string> | undefined): ResolvedSeries[] {
+    return series.filter(
+        (s) => !s.visibility?.excluded && !s.fill?.lowerData && !s.overlay && (!stackedKeys || stackedKeys.has(s.key))
+    )
 }
 
 function bandValuesAt(contributors: ResolvedSeries[], dIdx: number): number[] {
@@ -177,10 +180,7 @@ function buildStackTotal(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2
     if (isPercent) {
         return out
     }
-    // A series kept out of the stack draws at its own value, so it is not part of the total.
-    const visible = series.filter(
-        (s) => !s.visibility?.excluded && s.visibility?.valueLabel !== false && s.stacked !== false
-    )
+    const visible = stackContributors(series, args.stackedSeriesKeys).filter((s) => s.visibility?.valueLabel !== false)
     if (visible.length === 0) {
         return out
     }
@@ -232,7 +232,7 @@ function buildPerSegment(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2
     // Stack denominator — for percent-layout fraction placement and for the `bandValues` handed to
     // the formatter. Includes `valueLabel: false` series, which still contribute to stack height.
     // The band depends only on `dIdx`, so compute it once per index instead of per segment.
-    const contributors = stackContributors(series)
+    const contributors = stackContributors(series, args.stackedSeriesKeys)
     const bandValuesByIndex = labels.map((_, dIdx) => bandValuesAt(contributors, dIdx))
     const bandTotalByIndex = isPercent ? labels.map((_, dIdx) => bandTotal(contributors, dIdx)) : []
 
@@ -477,7 +477,8 @@ export function ValueLabels({
     fontSize = 12,
     rotation = 0,
 }: ValueLabelsProps): React.ReactElement | null {
-    const { series, scales, labels, theme, resolvePositionValue, axis, dimensions } = useChartLayout()
+    const { series, scales, labels, theme, resolvePositionValue, axis, dimensions, stackedSeriesKeys } =
+        useChartLayout()
     const { hoverIndex } = useChartHover()
     const isHorizontal = axis.orientation === 'horizontal'
     const isPercent = axis.isPercent
@@ -501,6 +502,7 @@ export function ValueLabels({
                         mode,
                         position,
                         isPercent,
+                        stackedSeriesKeys,
                     })
                         .map((candidate) => {
                             const width =
@@ -531,6 +533,7 @@ export function ValueLabels({
             mode,
             position,
             isPercent,
+            stackedSeriesKeys,
             dimensions,
             resolvedFontSize,
             resolvedRotation,

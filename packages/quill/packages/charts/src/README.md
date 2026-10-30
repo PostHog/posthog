@@ -68,6 +68,7 @@ build (vars gated behind `[data-quill]`) and quill isn't mounted on `<body>`, pa
 ## Series
 
 - `series.overlay` (default `false`): marks an auxiliary series derived from primary data — trend lines and moving averages. Excluded from stack computation and from the y-axis baseline calculation, so a trendline projection won't drag the axis below 0 when the underlying data is non-negative. (CI bands are not overlays — they represent real data uncertainty whose range should still influence the axis.)
+- `series.stacked` (default `true`, line charts only): `false` keeps the series out of the stack, so it draws at its own value. See [docs/chart-types.md](./docs/chart-types.md).
 
 `series.visibility` controls where a series appears:
 

@@ -294,6 +294,7 @@ export const Stacking: Story = {
                         label: 'Total',
                         data: SERIES[0].data.map((_, i) => SERIES.reduce((sum, s) => sum + s.data[i], 0)),
                         stacked: false,
+                        visibility: { total: false },
                         stroke: { pattern: [6, 4] },
                     },
                 ]}

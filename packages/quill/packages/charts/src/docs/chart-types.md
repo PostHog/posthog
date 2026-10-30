@@ -10,6 +10,8 @@ Prop-level docs live on each chart's props and config interfaces.
 `comparisonOf` maps comparison series keys to their primary so they render dimmed.
 `percentStackView` renders area series as a 100% stack with a 0..100% axis.
 Two or more `fill` series stack by default. `stacked: false` draws every series at its own value, so filled areas overlap, and `stacked: true` stacks unfilled lines too. `Series.stacked: false` keeps one series out of the stack, such as a total line drawn over a stacked breakdown.
+Give that total line `visibility: { total: false }` too, or the tooltip total counts it twice.
+`percentStackView` stacks every series and ignores `Series.stacked`, and bar and combo charts ignore it.
 
 Derived series: trend lines and moving averages are `overlay: true`, so they are excluded from stacking and from the baseline calculation and a projection cannot drag the axis below zero.
 Confidence bands are not overlays; they represent real uncertainty whose range should still influence the axis.

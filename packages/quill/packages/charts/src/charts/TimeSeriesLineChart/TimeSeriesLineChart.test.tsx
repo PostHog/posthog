@@ -273,6 +273,16 @@ describe('TimeSeriesLineChart', () => {
             expect(pick(...ticks)).toBe(expected)
         })
 
+        it.each([
+            ['draws unfilled lines at their own values by default', undefined, 3],
+            ['stacks unfilled lines with config.stacked', true, 4],
+        ])('%s', (_name, stacked, expectedMax) => {
+            const { chart } = renderChart(
+                <TimeSeriesLineChart series={MULTI_SERIES} labels={LABELS} theme={THEME} config={{ stacked }} />
+            )
+            expect(Math.max(...chart.yTicks().map(Number))).toBe(expectedMax)
+        })
+
         // Same rule as the goal line below. The bound truncates the drawn line, but a label is
         // DOM-positioned, so without a guard a clipped point still prints its number over the
         // title and legend. A point exactly on the bound keeps its label.

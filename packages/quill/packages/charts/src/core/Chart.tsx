@@ -105,6 +105,8 @@ export interface ChartProps<Meta = unknown> {
      *  visual top of each segment, while each tooltip row still shows that series's own value
      *  via `resolveValue`. */
     resolvePositionValue?: ResolveValueFn
+    /** See {@link ChartLayoutContextValue.stackedSeriesKeys}. */
+    stackedSeriesKeys?: ReadonlySet<string>
     /** Resolves the stacked bottom value per series — used to compute segment midpoints for
      *  tooltip closest-series detection. Only bar charts provide this. */
     resolveBottomValue?: ResolveValueFn
@@ -149,6 +151,7 @@ export function Chart<Meta = unknown>({
     children,
     resolveValue,
     resolvePositionValue,
+    stackedSeriesKeys,
     resolveBottomValue,
     labelToCoord,
     valueRangeSeries,
@@ -477,8 +480,20 @@ export function Chart<Meta = unknown>({
             canvasBounds,
             axis: axisValue,
             yGutters,
+            stackedSeriesKeys,
         }
-    }, [scales, dimensions, labels, coloredSeries, theme, stablePositionValue, canvasBounds, axisValue, yGutters])
+    }, [
+        scales,
+        dimensions,
+        labels,
+        coloredSeries,
+        theme,
+        stablePositionValue,
+        canvasBounds,
+        axisValue,
+        yGutters,
+        stackedSeriesKeys,
+    ])
 
     const hoverValue = useMemo<ChartHoverContextValue>(() => ({ hoverIndex }), [hoverIndex])
 
