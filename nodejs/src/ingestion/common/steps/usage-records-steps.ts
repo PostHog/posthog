@@ -111,8 +111,10 @@ export interface EventUsageRecordContext {
  * date for event identity and comparison with legacy reports.
  *
  * Historical analytics migrations are free once the event is at least 48 hours old at capture.
- * Preprocessing can retain the migration flag when its timestamp header is missing, so billing
- * checks the normalized event timestamp too. Separate usage keys retain free import counts.
+ * Preprocessing keeps the migration flag whenever it cannot parse the timestamp header. Capture
+ * sends that header as epoch milliseconds, which preprocessing cannot parse. Billing therefore
+ * checks the age itself, from the normalized event timestamp. Separate usage keys retain free
+ * import counts.
  * Ordinary late events remain billable.
  */
 export function createRecordEventUsageStep<T extends RecordEventUsageInput>(
