@@ -121,6 +121,7 @@ from products.signals.backend.tasks import (
     pause_inactive_signal_scouts,
     prune_expired_scratchpad_entries_task,
     reconcile_report_inbox_state_cache,
+    recover_incomplete_spend,
     refresh_signal_repository_activity,
     refresh_signal_scout_background_bands,
     sweep_first_report_notifications,
@@ -470,6 +471,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="4", minute="40"),
         reconcile_report_inbox_state_cache.s(),
         name="reconcile signals report inbox state",
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/10"),
+        recover_incomplete_spend.s(),
+        name="recover signals spend",
+        expires_seconds=10 * 60,
     )
 
     # Warn, then pause signals scouts that produce nothing anyone uses - daily at 6:15 AM
