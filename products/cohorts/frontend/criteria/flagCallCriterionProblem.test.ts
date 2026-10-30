@@ -14,6 +14,7 @@ import {
 import {
     FlagCallCriterionProblem,
     flagCallCriterionProblem,
+    moveNoticeProblem,
 } from 'products/cohorts/frontend/criteria/flagCallCriterionProblem'
 
 const FLAG_KEY_FILTER: EventPropertyFilter = {
@@ -72,5 +73,26 @@ describe('flagCallCriterionProblem', () => {
         ],
     ])('%s', (_, overrides, expected) => {
         expect(flagCallCriterionProblem(flagCallCriterion(overrides))).toBe(expected)
+    })
+})
+
+describe('moveNoticeProblem', () => {
+    it.each<[string, Partial<CohortCriteriaType>, string[], FlagCallCriterionProblem | null]>([
+        ['a criterion that keeps counting every call', {}, ['$feature_flag_called'], null],
+        ['a range past the limit', { time_value: 180 }, ['$feature_flag_called'], 'window'],
+        ['a range past the limit once nothing is moving', { time_value: 180 }, [], null],
+        [
+            'a sequence step on the moving event',
+            {
+                key: '$pageview',
+                value: BehavioralEventType.PerformSequenceEvents,
+                seq_event: '$feature_flag_called',
+                seq_event_type: TaxonomicFilterGroupType.Events,
+            },
+            ['$feature_flag_called'],
+            'type',
+        ],
+    ])('%s', (_, overrides, movingEvents, expected) => {
+        expect(moveNoticeProblem(flagCallCriterion(overrides), movingEvents)).toBe(expected)
     })
 })
