@@ -72,7 +72,7 @@ class TestStrictFetch(SimpleTestCase):
     )
     def test_fetch_mode(self, _name: str, test: bool, debug: bool, expected: FetchMode) -> None:
         with override_settings(TEST=test, DEBUG=debug):
-            assert strict_fetch(User.objects.all())._fetch_mode is expected
+            assert strict_fetch(User.objects.all())._fetch_mode is expected  # type: ignore[attr-defined]
 
 
 def test_mask_key_value():
