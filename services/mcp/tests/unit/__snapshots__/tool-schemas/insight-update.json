@@ -433,10 +433,6 @@
                                                                 "description": "Series label in legends and tooltips; replaces the column name.",
                                                                 "type": "string"
                                                             },
-                                                            "suffix": {
-                                                                "description": "Value suffix (e.g. ` ms`). Omit for `percent`, which adds `%`.",
-                                                                "type": "string"
-                                                            },
                                                             "trendLine": {
                                                                 "description": "Draw a linear trend line for this series. Only meaningful for line, bar, and area charts.",
                                                                 "type": "boolean"
