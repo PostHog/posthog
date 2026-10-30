@@ -1100,6 +1100,7 @@ export interface CommentApi {
 }
 
 export interface PaginatedCommentListApi {
+    count: number
     /** @nullable */
     next?: string | null
     /** @nullable */

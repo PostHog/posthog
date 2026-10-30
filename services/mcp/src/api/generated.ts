@@ -57715,7 +57715,20 @@ export namespace Schemas {
       personal_github_connected: boolean;
     }
 
+    /**
+     * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+     */
     export interface GitHubBranchesResponse {
+      /**
+         * URL of the next page, or null on the last page.
+         * @nullable
+         */
+      readonly next: string | null;
+      /**
+         * URL of the previous page, or null on the first page and on lists that page forward only.
+         * @nullable
+         */
+      readonly previous: string | null;
       /** List of branch names */
       branches: string[];
       /**
@@ -57870,7 +57883,20 @@ export namespace Schemas {
       installation_status: InstallationStatusEnum;
     }
 
+    /**
+     * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+     */
     export interface GitHubReposResponse {
+      /**
+         * URL of the next page, or null on the last page.
+         * @nullable
+         */
+      readonly next: string | null;
+      /**
+         * URL of the previous page, or null on the first page and on lists that page forward only.
+         * @nullable
+         */
+      readonly previous: string | null;
       repositories: GitHubRepo[];
       /** Whether more repositories are available beyond this page. */
       has_more: boolean;
@@ -57908,7 +57934,20 @@ export namespace Schemas {
       name: string;
     }
 
+    /**
+     * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+     */
     export interface GitHubTeamsResponse {
+      /**
+         * URL of the next page, or null on the last page.
+         * @nullable
+         */
+      readonly next: string | null;
+      /**
+         * URL of the previous page, or null on the first page and on lists that page forward only.
+         * @nullable
+         */
+      readonly previous: string | null;
       /** List of GitHub teams available to the installation organization. */
       teams: GitHubTeam[];
       /** Whether more teams are available beyond this page. */
@@ -75395,7 +75434,20 @@ export namespace Schemas {
       prompt_version: string | null;
     }
 
+    /**
+     * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+     */
     export interface OfflineExperimentPage {
+      /**
+         * URL of the next page, or null on the last page.
+         * @nullable
+         */
+      readonly next: string | null;
+      /**
+         * URL of the previous page, or null on the first page and on lists that page forward only.
+         * @nullable
+         */
+      readonly previous: string | null;
       /** Total authorized rows matching the filters, independent of this page. */
       count: number;
       /**
@@ -75531,7 +75583,20 @@ export namespace Schemas {
       summary: OfflineScorerSummary;
     }
 
+    /**
+     * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+     */
     export interface OfflineHistoryPage {
+      /**
+         * URL of the next page, or null on the last page.
+         * @nullable
+         */
+      readonly next: string | null;
+      /**
+         * URL of the previous page, or null on the first page and on lists that page forward only.
+         * @nullable
+         */
+      readonly previous: string | null;
       /** Total authorized rows matching the filters, independent of this page. */
       count: number;
       /**
@@ -75660,7 +75725,20 @@ export namespace Schemas {
       results: OfflineResultCell[];
     }
 
+    /**
+     * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+     */
     export interface OfflineItemPage {
+      /**
+         * URL of the next page, or null on the last page.
+         * @nullable
+         */
+      readonly next: string | null;
+      /**
+         * URL of the previous page, or null on the first page and on lists that page forward only.
+         * @nullable
+         */
+      readonly previous: string | null;
       /** Total authorized rows matching the filters, independent of this page. */
       count: number;
       /**
@@ -75747,7 +75825,20 @@ export namespace Schemas {
       scorer: OfflineScorerVersionRead;
     }
 
+    /**
+     * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+     */
     export interface OfflineResultPage {
+      /**
+         * URL of the next page, or null on the last page.
+         * @nullable
+         */
+      readonly next: string | null;
+      /**
+         * URL of the previous page, or null on the first page and on lists that page forward only.
+         * @nullable
+         */
+      readonly previous: string | null;
       /** Total authorized rows matching the filters, independent of this page. */
       count: number;
       /**
@@ -75779,7 +75870,20 @@ export namespace Schemas {
       data: OfflineEvaluationResultPayloadInput | null;
     }
 
+    /**
+     * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+     */
     export interface OfflineSummaryPage {
+      /**
+         * URL of the next page, or null on the last page.
+         * @nullable
+         */
+      readonly next: string | null;
+      /**
+         * URL of the previous page, or null on the first page and on lists that page forward only.
+         * @nullable
+         */
+      readonly previous: string | null;
       /** Total authorized rows matching the filters, independent of this page. */
       count: number;
       /**
@@ -77409,6 +77513,7 @@ export namespace Schemas {
     }
 
     export interface PaginatedCommentList {
+      count: number;
       /** @nullable */
       next?: string | null;
       /** @nullable */
@@ -78364,12 +78469,32 @@ export namespace Schemas {
     }
 
     export interface PaginatedMCPSessionList {
+      /**
+         * URL of the next page, or null on the last page.
+         * @nullable
+         */
+      next: string | null;
+      /**
+         * URL of the previous page, or null on the first page.
+         * @nullable
+         */
+      previous: string | null;
       results: MCPSession[];
       /** Whether more results exist beyond this page; the client fetches the next page with a larger offset. */
       has_next: boolean;
     }
 
     export interface PaginatedMCPToolCallList {
+      /**
+         * URL of the next page, or null on the last page.
+         * @nullable
+         */
+      next: string | null;
+      /**
+         * URL of the previous page, or null on the first page.
+         * @nullable
+         */
+      previous: string | null;
       results: MCPToolCall[];
       /** Whether more results exist beyond this page; the client fetches the next page with a larger offset. */
       has_next: boolean;
@@ -105944,7 +106069,20 @@ export namespace Schemas {
       updated_at: string;
     }
 
+    /**
+     * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+     */
     export interface ReusableWidgetPage {
+      /**
+         * URL of the next page, or null on the last page.
+         * @nullable
+         */
+      readonly next: string | null;
+      /**
+         * URL of the previous page, or null on the first page and on lists that page forward only.
+         * @nullable
+         */
+      readonly previous: string | null;
       /** Reusable widgets in this page. */
       results: ReusableWidgetSummary[];
       /** Total reusable widgets matching the search. */
@@ -105989,7 +106127,20 @@ export namespace Schemas {
       expected_current_version_id: string;
     }
 
+    /**
+     * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+     */
     export interface ReusableWidgetVersionPage {
+      /**
+         * URL of the next page, or null on the last page.
+         * @nullable
+         */
+      readonly next: string | null;
+      /**
+         * URL of the previous page, or null on the first page and on lists that page forward only.
+         * @nullable
+         */
+      readonly previous: string | null;
       /** Published versions, newest first. */
       results: ReusableWidgetVersionDetail[];
       /** Total number of published versions. */
@@ -107122,7 +107273,20 @@ export namespace Schemas {
       body: string;
     }
 
+    /**
+     * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+     */
     export interface ReviewReviewsTablePage {
+      /**
+         * URL of the next page, or null on the last page.
+         * @nullable
+         */
+      readonly next: string | null;
+      /**
+         * URL of the previous page, or null on the first page and on lists that page forward only.
+         * @nullable
+         */
+      readonly previous: string | null;
       /** How many reviews match the scope and every filter, across all pages. */
       count: number;
       /** How many reviews have a run in flight under the scope and filters, ignoring `status`. Labels the running quick filter without a second request. */
@@ -108617,7 +108781,20 @@ export namespace Schemas {
       readonly created_by: UserBasic | null;
     }
 
+    /**
+     * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+     */
     export interface ScoreDefinitionVersionPage {
+      /**
+         * URL of the next page, or null on the last page.
+         * @nullable
+         */
+      readonly next: string | null;
+      /**
+         * URL of the previous page, or null on the first page and on lists that page forward only.
+         * @nullable
+         */
+      readonly previous: string | null;
       /** Total immutable versions for this scorer. */
       count: number;
       /**
@@ -112557,7 +112734,20 @@ export namespace Schemas {
       is_private_without_access: boolean;
     }
 
+    /**
+     * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+     */
     export interface SlackChannelsResponse {
+      /**
+         * URL of the next page, or null on the last page.
+         * @nullable
+         */
+      readonly next: string | null;
+      /**
+         * URL of the previous page, or null on the first page and on lists that page forward only.
+         * @nullable
+         */
+      readonly previous: string | null;
       /** Slack channels visible to the PostHog Slack app. */
       channels: SlackChannel[];
       /**
@@ -112750,7 +112940,20 @@ export namespace Schemas {
       display_name: string;
     }
 
+    /**
+     * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+     */
     export interface SlackUsersResponse {
+      /**
+         * URL of the next page, or null on the last page.
+         * @nullable
+         */
+      readonly next: string | null;
+      /**
+         * URL of the previous page, or null on the first page and on lists that page forward only.
+         * @nullable
+         */
+      readonly previous: string | null;
       /** Human Slack workspace members the PostHog Slack app can DM. */
       users: SlackUser[];
       /**
@@ -118526,7 +118729,20 @@ export namespace Schemas {
       extra: SurveyResponseExtra;
     }
 
+    /**
+     * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+     */
     export interface SurveyResponsesList {
+      /**
+         * URL of the next page, or null on the last page.
+         * @nullable
+         */
+      readonly next: string | null;
+      /**
+         * URL of the previous page, or null on the first page and on lists that page forward only.
+         * @nullable
+         */
+      readonly previous: string | null;
       /** Survey response rows for the requested page. */
       results: SurveyResponseRow[];
       /** True if more rows exist beyond the current page — fetch the next page with offset + limit. */
@@ -119154,6 +119370,16 @@ export namespace Schemas {
          * @nullable
          */
       next_before_id?: string | null;
+      /**
+         * URL of the next page, with before and before_id set, or null on the final page.
+         * @nullable
+         */
+      readonly next: string | null;
+      /**
+         * Always null: the feed pages forward only.
+         * @nullable
+         */
+      readonly previous: string | null;
     }
 
     /**
@@ -124887,7 +125113,20 @@ export namespace Schemas {
       build_hash: string | null;
     }
 
+    /**
+     * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+     */
     export interface WidgetVersionPage {
+      /**
+         * URL of the next page, or null on the last page.
+         * @nullable
+         */
+      readonly next: string | null;
+      /**
+         * URL of the previous page, or null on the first page and on lists that page forward only.
+         * @nullable
+         */
+      readonly previous: string | null;
       /** Versions ordered newest first. */
       results: WidgetVersion[];
       /**

@@ -18577,6 +18577,7 @@ export namespace Schemas {
         locked_value: boolean;
     };
     export type PaginatedCommentList = {
+        count: number;
         next?: (string | null) | undefined;
         previous?: (string | null) | undefined;
         results: Array<Comment>;
