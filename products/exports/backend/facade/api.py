@@ -33,6 +33,7 @@ from products.exports.backend.models.exported_asset import (
     save_content_from_file as _save_content_from_file,
 )
 from products.exports.backend.tasks.failure_handler import (
+    USER_QUERY_ERROR_NAMES,
     InvalidExportContext as InvalidExportContext,
     RetryableExportError as RetryableExportError,
 )
@@ -100,6 +101,16 @@ def create_export_asset_async(
 
 def get_export_asset(*, team_id: int, asset_id: int) -> ExportedAsset | None:
     return ExportedAsset.objects.filter(team_id=team_id, id=asset_id).first()
+
+
+def is_export_failure_final(*, exception_type: str | None, failure_type: str | None) -> bool:
+    """Whether a recorded export failure is final, rather than one the export workflow retries."""
+    # Every failure the workflow records carries a failure type, so one without it comes from a workflow that never
+    # started, and nothing will retry it.
+    if failure_type is None:
+        return True
+    # Mirrors the non-retryable error types of EXPORT_RETRY_POLICY.
+    return exception_type in USER_QUERY_ERROR_NAMES
 
 
 def get_export_asset_content_response(*, asset: ExportedAsset, download: bool) -> HttpResponseBase:
