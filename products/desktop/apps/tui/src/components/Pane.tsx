@@ -12,13 +12,13 @@ import { faint } from "../faint";
 import type { LocalAgent } from "../local";
 import { type Picker, renderPicker } from "../picker";
 import {
+  agentUp,
   type CloudRuns,
   deliveryFailure,
   emptyRunView,
   type RunSubscription,
   type RunView,
   runNotice,
-  runStarted,
   setupProgress,
   withListedRun,
 } from "../runs";
@@ -343,7 +343,7 @@ export function Pane({
   // A local agent is live once started; a cloud run once its sandbox reports in.
   const live =
     (view.status === "queued" || view.status === "in_progress") &&
-    (local ? view.loaded : view.entries.some(runStarted));
+    (local ? view.loaded : agentUp(view));
   // A stopped sandbox took its shells with it, whatever its last status said.
   const shells =
     live && view.sandboxAlive !== false
