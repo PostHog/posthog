@@ -188,6 +188,34 @@ describe("agentUp", () => {
 });
 
 describe("applyUpdate", () => {
+  it("stamps a streamed entry that arrived without a timestamp, once, and keeps the stamps it has", () => {
+    const now = Date.UTC(2026, 0, 1, 0, 0, 0);
+    vi.spyOn(Date, "now").mockReturnValue(now);
+    const stampedAt = new Date(now - 60_000).toISOString();
+    const view = updates(
+      { kind: "snapshot", newEntries: [entry("a")], totalEntryCount: 1 },
+      {
+        kind: "logs",
+        newEntries: [{ ...entry("b"), timestamp: stampedAt }],
+        totalEntryCount: 2,
+      },
+    );
+    vi.spyOn(Date, "now").mockReturnValue(now + 60_000);
+    const later = updates({
+      kind: "snapshot",
+      newEntries: view.entries,
+      totalEntryCount: 2,
+    });
+    expect(view.entries.map((e) => e.timestamp)).toEqual([
+      new Date(now).toISOString(),
+      stampedAt,
+    ]);
+    expect(later.entries.map((e) => e.timestamp)).toEqual(
+      view.entries.map((e) => e.timestamp),
+    );
+    vi.restoreAllMocks();
+  });
+
   it("starts from the snapshot window and appends later log entries", () => {
     const view = updates(
       {
