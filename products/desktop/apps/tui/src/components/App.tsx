@@ -189,7 +189,12 @@ export function App({
     logout,
   });
 
-  const turns = useTurns(layout);
+  const turns = useTurns({
+    layout,
+    runs: runs ?? null,
+    taskOf,
+    localSessions,
+  });
   const sidebar = useSidebar({
     layout,
     setLayout,
@@ -261,10 +266,7 @@ export function App({
       modal={modalFor(node.id) ?? null}
       model={modelLabel(node.id, node.taskId)}
       onRunLive={(taskId, runId) => onRunLive(node.id, taskId, runId)}
-      onTurn={(turn) => {
-        setTurn(node.id, turn);
-        turns.report(node.id, node.taskId, turn !== null);
-      }}
+      onTurn={(turn) => setTurn(node.id, turn)}
       chips={
         isLocal(node.taskId) || !node.taskId
           ? statusChips(

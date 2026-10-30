@@ -34,7 +34,7 @@ Logic sits in plain modules with unit tests. Components under `src/components/` 
 | `layout.ts` | Workspaces (splits only), the one main view, focus, persistence to `~/.config/posthog-tui/layout.json` |
 | `prefs.ts` | Saved preferences in `~/.config/posthog-tui/prefs.json`: where new chats run by default |
 | `sidebar.ts` | Sidebar rows, cursor movement, status dots |
-| `turns.ts` | Which open chats are mid-turn (the sidebar's spinner) and which finished while the reader was on another pane (the orange dot) |
+| `turns.ts` | Which chats are mid-turn (the sidebar's spinner) and which finished while the reader was on another chat (the orange dot); a chat is watched from when it is on screen until its turn ends |
 | `work.ts` | The Work list (`getTasksPage`), one request at a time |
 | `runs.ts` | Cloud run views over `CloudTaskEngine`: tail windows, older pages, preloads, run notices |
 | `chats.ts` | Starting and replying to pi cloud runs |

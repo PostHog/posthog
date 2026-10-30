@@ -1,79 +1,69 @@
 import { describe, expect, it } from "vitest";
-import { noTurns, reportTurn, type TurnState, visit } from "./turns";
+import { noTurns, settle, type TurnState, visit } from "./turns";
 
-const sets = (state: TurnState): { working: string[]; waiting: string[] } => ({
-  working: [...state.working.values()],
-  waiting: [...state.waiting],
-});
-
-// One pane's reports in order: the chat it shows, whether that chat is mid-turn, and whether the pane has focus.
-const after = (
-  reports: [taskId: string | null, working: boolean, focused: boolean][],
-): TurnState =>
+// One chat's reports in order: whether it is mid-turn, and whether the reader is on it.
+const after = (reports: [working: boolean, seen: boolean][]): TurnState =>
   reports.reduce(
-    (state, [taskId, working, focused]) =>
-      reportTurn(state, "p1", taskId, working, focused),
+    (state, [working, seen]) => settle(state, "a", working, seen),
     noTurns,
   );
 
-describe("reportTurn", () => {
+describe("settle", () => {
   it.each([
-    ["a chat mid-turn works", [["a", true, false]], ["a"], []],
+    ["a chat mid-turn works", [[true, false]], true, false],
     [
       "a turn that ends away from the reader waits for them",
       [
-        ["a", true, false],
-        ["a", false, false],
+        [true, false],
+        [false, false],
       ],
-      [],
-      ["a"],
+      false,
+      true,
     ],
     [
       "a turn that ends in front of the reader does not",
       [
-        ["a", true, true],
-        ["a", false, true],
+        [true, true],
+        [false, true],
       ],
-      [],
-      [],
+      false,
+      false,
     ],
     [
       "a new turn stops the wait",
       [
-        ["a", true, false],
-        ["a", false, false],
-        ["a", true, false],
+        [true, false],
+        [false, false],
+        [true, false],
       ],
-      ["a"],
-      [],
+      true,
+      false,
     ],
     [
-      "a pane that moves to another chat leaves nothing waiting",
-      [
-        ["a", true, false],
-        ["b", false, false],
-      ],
-      [],
-      [],
+      "a chat that was never mid-turn does not wait",
+      [[false, false]],
+      false,
+      false,
     ],
   ] as const)("%s", (_, reports, working, waiting) => {
-    expect(sets(after(reports.map((report) => [...report])))).toEqual({
+    const state = after(reports.map((report) => [...report]));
+    expect([state.working.has("a"), state.waiting.has("a")]).toEqual([
       working,
       waiting,
-    });
+    ]);
   });
 
-  it("keeps the same state when nothing changed, so a report on every render settles", () => {
-    const state = after([["a", true, false]]);
-    expect(reportTurn(state, "p1", "a", true, false)).toBe(state);
+  it("keeps the same state when nothing changed, so repeated reports settle", () => {
+    const state = after([[true, false]]);
+    expect(settle(state, "a", true, false)).toBe(state);
   });
 
   it("stops waiting once the reader visits the chat", () => {
     const state = after([
-      ["a", true, false],
-      ["a", false, false],
+      [true, false],
+      [false, false],
     ]);
-    expect(sets(visit(state, "a")).waiting).toEqual([]);
+    expect(visit(state, "a").waiting.has("a")).toBe(false);
     expect(visit(noTurns, "a")).toBe(noTurns);
   });
 });
