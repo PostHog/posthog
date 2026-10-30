@@ -42,12 +42,14 @@ def _creator_q(user_id: int | None) -> Q:
     return Q(pk__in=[]) if user_id is None else Q(created_by_id=user_id)
 
 
-def _visible_channel_q(user_id: int | OuterRef | None, channel_ref: str, team_id: int | None) -> Q:
+def _visible_channel_q(user_id: int | OuterRef | None, team_id: int | None, *, through_task: bool = False) -> Q:
     channel_user_id = cast(int, OuterRef(user_id)) if isinstance(user_id, OuterRef) else user_id
     channels = Channel.objects.unscoped().filter(Channel.visible_to_q(channel_user_id))
     if team_id is not None:
-        return Q(**{f"{channel_ref}__in": channels.filter(team_id=team_id).values("id")})
-    visible_channel = channels.filter(pk=OuterRef(channel_ref)).annotate(visible=Value(True)).values("visible")[:1]
+        channel_ids = channels.filter(team_id=team_id).values("id")
+        return Q(task__channel_id__in=channel_ids) if through_task else Q(channel_id__in=channel_ids)
+    channel_ref = OuterRef("task__channel_id") if through_task else OuterRef("channel_id")
+    visible_channel = channels.filter(pk=channel_ref).annotate(visible=Value(True)).values("visible")[:1]
     return Q(Coalesce(Subquery(visible_channel), Value(False), output_field=BooleanField()))
 
 
@@ -61,7 +63,7 @@ def task_control_q(user_id: int | None, team_id: int | None = None) -> Q:
     A task with a channel must be visible through that channel and owned by the user.
     Null-channel tasks keep the product-origin control rules used before channels.
     """
-    channeled_q = Q(channel_id__isnull=False) & _visible_channel_q(user_id, "channel_id", team_id) & _creator_q(user_id)
+    channeled_q = Q(channel_id__isnull=False) & _visible_channel_q(user_id, team_id) & _creator_q(user_id)
     legacy_q = Q(channel_id__isnull=True) & (
         _creator_q(user_id) | Q(created_by__isnull=True) | Q(origin_product__in=TEAM_VISIBLE_ORIGIN_PRODUCTS)
     )
@@ -78,7 +80,7 @@ def task_visibility_q(user_id: int | None, team_id: int | None = None) -> Q:
     Channel visibility is authoritative when a task has a channel. The creator and
     product-origin fallback applies only to null-channel compatibility rows.
     """
-    channeled_q = Q(channel_id__isnull=False) & _visible_channel_q(user_id, "channel_id", team_id)
+    channeled_q = Q(channel_id__isnull=False) & _visible_channel_q(user_id, team_id)
     legacy_q = Q(channel_id__isnull=True) & (
         _creator_q(user_id) | Q(created_by__isnull=True) | Q(origin_product__in=TEAM_READABLE_ORIGIN_PRODUCTS)
     )
@@ -91,7 +93,7 @@ def task_visibility_q(user_id: int | None, team_id: int | None = None) -> Q:
 
 def task_run_visibility_q(user_id: int | None, team_id: int | None = None) -> Q:
     """``task_visibility_q`` traversed through the parent task relation."""
-    channeled_q = Q(task__channel_id__isnull=False) & _visible_channel_q(user_id, "task__channel_id", team_id)
+    channeled_q = Q(task__channel_id__isnull=False) & _visible_channel_q(user_id, team_id, through_task=True)
     legacy_q = Q(task__channel_id__isnull=True) & (
         (Q(task__pk__in=[]) if user_id is None else Q(task__created_by_id=user_id))
         | Q(task__created_by__isnull=True)
