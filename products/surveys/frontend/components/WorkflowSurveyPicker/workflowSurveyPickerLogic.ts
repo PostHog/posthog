@@ -1,11 +1,12 @@
-import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers } from 'kea'
+import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, props, propsChanged, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { ApiError } from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { surveysList, surveysPartialUpdate } from 'products/surveys/frontend/generated/api'
+import { surveysList, surveysPartialUpdate, surveysRetrieve } from 'products/surveys/frontend/generated/api'
 import type { SurveyApi } from 'products/surveys/frontend/generated/api.schemas'
 
 import { targetingFiltersLimitedToWorkflowRecipients } from './workflowSurveyTargeting'
@@ -14,6 +15,9 @@ import { targetingFiltersLimitedToWorkflowRecipients } from './workflowSurveyTar
 export interface workflowSurveyPickerLogicValues {
     currentProjectId: number | string // teamLogic
     limitingSurveyId: string | null
+    search: string
+    selectedSurvey: SurveyApi | null
+    selectedSurveyLoading: boolean
     surveys: SurveyApi[]
     surveysLoading: boolean
 }
@@ -23,7 +27,22 @@ export interface workflowSurveyPickerLogicActions {
     limitToWorkflowRecipients: (survey: SurveyApi) => {
         survey: SurveyApi
     }
-    loadSurveys: () => any
+    loadSelectedSurvey: (surveyId: string | null) => string | null
+    loadSelectedSurveyFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadSelectedSurveySuccess: (
+        selectedSurvey: SurveyApi | null,
+        payload?: string | null
+    ) => {
+        selectedSurvey: SurveyApi | null
+        payload?: string | null
+    }
+    loadSurveys: (_: any) => any
     loadSurveysFailure: (
         error: string,
         errorObject?: any
@@ -41,49 +60,82 @@ export interface workflowSurveyPickerLogicActions {
     setLimitingSurveyId: (surveyId: string | null) => {
         surveyId: string | null
     }
+    setSearch: (search: string) => {
+        search: string
+    }
 }
 
 export type workflowSurveyPickerLogicType = MakeLogicType<
     workflowSurveyPickerLogicValues,
-    workflowSurveyPickerLogicActions
+    workflowSurveyPickerLogicActions,
+    WorkflowSurveyPickerLogicProps
 >
 
+export interface WorkflowSurveyPickerLogicProps {
+    surveyId: string | null
+}
+
+const SURVEY_SEARCH_PAGE_SIZE = 100
+
 export const workflowSurveyPickerLogic = kea<workflowSurveyPickerLogicType>([
+    props({} as WorkflowSurveyPickerLogicProps),
     path(['products', 'surveys', 'frontend', 'components', 'WorkflowSurveyPicker', 'workflowSurveyPickerLogic']),
     connect(() => ({
         values: [teamLogic, ['currentProjectId']],
     })),
     actions({
+        setSearch: (search: string) => ({ search }),
         limitToWorkflowRecipients: (survey: SurveyApi) => ({ survey }),
         setLimitingSurveyId: (surveyId: string | null) => ({ surveyId }),
     }),
     reducers({
+        search: ['', { setSearch: (_, { search }) => search }],
         limitingSurveyId: [null as string | null, { setLimitingSurveyId: (_, { surveyId }) => surveyId }],
     }),
     loaders(({ values }) => ({
         surveys: [
             [] as SurveyApi[],
             {
-                loadSurveys: async (): Promise<SurveyApi[]> => {
+                loadSurveys: async (_, breakpoint): Promise<SurveyApi[]> => {
                     if (!values.currentProjectId) {
                         return []
                     }
-                    const surveys: SurveyApi[] = []
-                    let response
-                    do {
-                        response = await surveysList(String(values.currentProjectId), {
-                            archived: false,
-                            limit: 500,
-                            offset: surveys.length,
-                        })
-                        surveys.push(...response.results)
-                    } while (response.next && response.results.length > 0)
-                    return surveys
+                    if (values.search) {
+                        await breakpoint(300)
+                    }
+                    const response = await surveysList(String(values.currentProjectId), {
+                        archived: false,
+                        limit: SURVEY_SEARCH_PAGE_SIZE,
+                        search: values.search || undefined,
+                    })
+                    breakpoint()
+                    return response.results
+                },
+            },
+        ],
+        selectedSurvey: [
+            null as SurveyApi | null,
+            {
+                loadSelectedSurvey: async (surveyId: string | null): Promise<SurveyApi | null> => {
+                    if (!surveyId || !values.currentProjectId) {
+                        return null
+                    }
+                    try {
+                        return await surveysRetrieve(String(values.currentProjectId), surveyId)
+                    } catch (error) {
+                        if (error instanceof ApiError && error.status === 404) {
+                            return null
+                        }
+                        throw error
+                    }
                 },
             },
         ],
     })),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, props }) => ({
+        setSearch: () => {
+            actions.loadSurveys()
+        },
         limitToWorkflowRecipients: async ({ survey }) => {
             if (!values.currentProjectId) {
                 return
@@ -94,7 +146,7 @@ export const workflowSurveyPickerLogic = kea<workflowSurveyPickerLogicType>([
                     targeting_flag_filters: targetingFiltersLimitedToWorkflowRecipients(survey),
                 })
                 lemonToast.success('Survey now only shows to people a workflow sends it to')
-                actions.loadSurveys()
+                actions.loadSelectedSurvey(props.surveyId)
             } catch (error: any) {
                 lemonToast.error(`Couldn't update the survey targeting: ${error?.detail ?? error?.message ?? error}`)
             } finally {
@@ -102,7 +154,13 @@ export const workflowSurveyPickerLogic = kea<workflowSurveyPickerLogicType>([
             }
         },
     })),
-    afterMount(({ actions }) => {
+    propsChanged(({ actions, props }, oldProps) => {
+        if (props.surveyId !== oldProps.surveyId) {
+            actions.loadSelectedSurvey(props.surveyId)
+        }
+    }),
+    afterMount(({ actions, props }) => {
         actions.loadSurveys()
+        actions.loadSelectedSurvey(props.surveyId)
     }),
 ])
