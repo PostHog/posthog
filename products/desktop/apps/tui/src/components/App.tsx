@@ -22,6 +22,7 @@ import { useModels } from "../hooks/useModels";
 import { useNotice } from "../hooks/useNotice";
 import { usePaneViews } from "../hooks/usePaneViews";
 import { useSheets } from "../hooks/useSheets";
+import { useShell } from "../hooks/useShell";
 import { useWorkList } from "../hooks/useWorkList";
 import {
   activeWorkspace,
@@ -66,13 +67,9 @@ import {
   sidebarRows,
 } from "../sidebar";
 import { statusChips } from "../status";
-import { type PendingShell, type ShellLine, shellRuns } from "../transcript";
 import type { WorkList } from "../work";
 import { Pane } from "./Pane";
 import { HEADER_GAP, Sidebar } from "./Sidebar";
-
-// One shared empty list, so panes with no pending commands keep a stable prop.
-const NO_SHELLS: PendingShell[] = [];
 
 const CLOSE_CONFIRM_MS = 1_000;
 
@@ -160,8 +157,6 @@ export function App({
   const [pending, setPending] = useState<Map<string, string>>(new Map());
   // Each pane reports the agent's open action offer; the picker's cursor and dismissals live here.
   const offers = useRef(new Map<string, ActionsLine | null>());
-  // The ! commands a cloud run has not logged yet, by task.
-  const [shells, setShells] = useState<Map<string, PendingShell[]>>(new Map());
   const [pickerIndex, setPickerIndex] = useState<Map<string, number>>(
     new Map(),
   );
@@ -271,70 +266,15 @@ export function App({
     flashNotice("Signed out");
   };
 
-  // A ! command runs where the chat's agent runs; a cloud run shows it here until its log has it.
-  const runShell = (
-    paneId: string,
-    taskId: string | null,
-    command: string,
-    text: string,
-  ): void => {
-    // When there is nowhere to run it, the command stays in the composer with the reason.
-    const run = taskId ? taskOf(taskId)?.latest_run : undefined;
-    const blocked = !taskId
-      ? "Start a chat first, then run commands with !"
-      : isLocal(taskId)
-        ? null
-        : !run || !control
-          ? "This chat has no run to run commands in yet"
-          : run.status !== "queued" && run.status !== "in_progress"
-            ? "This run has ended. Send a message to start it again, then run commands."
-            : null;
-    if (blocked || !taskId) {
-      composerFor(paneId).setText(text);
-      if (blocked) flashNotice(blocked);
-      return;
-    }
-    if (isLocal(taskId)) {
-      localFor(taskId)
-        .then((local) => local.control.bash(command))
-        .catch((error: unknown) =>
-          flashNotice(`Couldn't run it: ${messageOf(error)}`),
-        );
-      return;
-    }
-    if (!run || !control) return;
-    const id = `shell-${globalThis.crypto.randomUUID()}`;
-    const seen = shellRuns(linesOf(paneId), command);
-    const update = (line: ShellLine | null): void =>
-      setShells((current) => {
-        const next = new Map(current);
-        const others = (current.get(taskId) ?? []).filter(
-          (shell) => shell.line.id !== id,
-        );
-        next.set(taskId, line ? [...others, { line, seen }] : others);
-        return next;
-      });
-    update({ kind: "shell", id, command, status: "in_progress", output: "" });
-    control(taskId, run.id)
-      .bash(command)
-      .then(
-        (result) =>
-          update({
-            kind: "shell",
-            id,
-            command,
-            status:
-              result.cancelled || (result.exitCode ?? 0) !== 0
-                ? "failed"
-                : "completed",
-            output: result.output,
-          }),
-        (error: unknown) => {
-          update(null);
-          flashNotice(`Couldn't run it: ${messageOf(error)}`);
-        },
-      );
-  };
+  const { runShell, shellsFor } = useShell({
+    taskOf,
+    isLocal,
+    localFor,
+    control,
+    composerFor,
+    linesOf,
+    flashNotice,
+  });
 
   const onSubmit = (paneId: string, text: string): void => {
     const pane = findPane(layout, paneId);
@@ -851,9 +791,7 @@ export function App({
             chat={chatFor(node.id, node.taskId)}
             composer={composerFor(node.id)}
             pending={pending.get(node.id) ?? null}
-            pendingShells={
-              (node.taskId ? shells.get(node.taskId) : undefined) ?? NO_SHELLS
-            }
+            pendingShells={shellsFor(node.taskId)}
             onLines={(lines) => setLines(node.id, lines)}
             onOffer={(offer) => offers.current.set(node.id, offer)}
             picker={{
