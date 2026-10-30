@@ -190,22 +190,6 @@ CREATE TABLE posthog.logs34 (
 GROUP BY
   team_id, time_bucket, toStartOfMinute(timestamp), service_name, severity_text, resource_fingerprint)
 ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/noshard/posthog.logs34', '{replica}-{shard}') ORDER BY (team_id, time_bucket, service_name, resource_fingerprint, severity_text, timestamp) PARTITION BY toDate(original_expiry_timestamp) TTL original_expiry_timestamp SETTINGS add_minmax_index_for_numeric_columns = 1, allow_experimental_reverse_key = 1, index_granularity = 8192, index_granularity_bytes = 104857600, map_serialization_version = 'with_buckets', ttl_only_drop_parts = 1;
-CREATE TABLE posthog.logs_billing_metrics (
-  team_id Int32,
-  time_bucket DateTime64(0),
-  service_name LowCardinality(String),
-  bytes_uncompressed SimpleAggregateFunction(sum, UInt64),
-  bytes_compressed SimpleAggregateFunction(sum, UInt64),
-  record_count SimpleAggregateFunction(sum, UInt64)
-) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/noshard/posthog.logs_billing_metrics', '{replica}-{shard}') ORDER BY (team_id, time_bucket, service_name) PARTITION BY toYYYYMM(time_bucket) SETTINGS deduplicate_merge_projection_mode = 'rebuild', index_granularity = 8192;
-CREATE TABLE posthog.logs_billing_metrics_distributed (
-  team_id Int32,
-  time_bucket DateTime64(0),
-  service_name LowCardinality(String),
-  bytes_uncompressed SimpleAggregateFunction(sum, UInt64),
-  bytes_compressed SimpleAggregateFunction(sum, UInt64),
-  record_count SimpleAggregateFunction(sum, UInt64)
-) ENGINE = Distributed('posthog_single_shard', 'posthog', 'logs_billing_metrics');
 CREATE TABLE posthog.logs_distributed (
   time_bucket DateTime MATERIALIZED toStartOfDay(timestamp),
   original_expiry_timestamp DateTime64(6),
@@ -960,25 +944,6 @@ CREATE TABLE posthog.trace_spans_kafka_metrics (
   max_created_at SimpleAggregateFunction(max, DateTime64(9)),
   max_lag SimpleAggregateFunction(max, UInt64)
 ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/noshard/posthog.trace_spans_kafka_metrics', '{replica}-{shard}') ORDER BY (_topic, _partition) SETTINGS index_granularity = 8192;
-CREATE MATERIALIZED VIEW posthog.kafka_logs_avro_billing_metrics_mv TO posthog.logs_billing_metrics (team_id Int32, time_bucket DateTime, service_name LowCardinality(String), bytes_uncompressed SimpleAggregateFunction(sum, Float64), bytes_compressed SimpleAggregateFunction(sum, Float64), record_count SimpleAggregateFunction(sum, UInt64)) AS SELECT
-  team_id,
-  time_bucket,
-  service_name,
-  sumSimpleState(_bytes_uncompressed) AS bytes_uncompressed,
-  sumSimpleState(_bytes_compressed) AS bytes_compressed,
-  sumSimpleState(1) AS record_count
-FROM
-  (
-    SELECT
-      team_id,
-      toStartOfInterval(timestamp, toIntervalMinute(1)) AS time_bucket,
-      service_name AS service_name,
-      _bytes_uncompressed,
-      _bytes_compressed
-    FROM posthog.logs34
-  )
-GROUP BY
-  team_id, time_bucket, service_name;
 CREATE MATERIALIZED VIEW posthog.kafka_logs_avro_kafka_metrics_mv TO posthog.logs_kafka_metrics (_partition UInt32, _topic String, max_offset SimpleAggregateFunction(max, UInt64), max_observed_timestamp SimpleAggregateFunction(max, DateTime64(6)), max_timestamp SimpleAggregateFunction(max, DateTime64(6)), max_created_at SimpleAggregateFunction(max, DateTime), max_lag SimpleAggregateFunction(max, Decimal(18, 6))) AS SELECT
   _partition,
   _topic,
