@@ -6,6 +6,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import Table
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsTable
+from posthog.hogql.database.schema.util.where_clause_extractor import event_field_type, unwrap_table_alias_type
 from posthog.hogql.resolver import resolve_types
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
@@ -56,19 +57,10 @@ class _FlagCalledLiteralFinder(TraversingVisitor):
 
 
 def _is_event_field_of(expr: ast.Expr, table_class: type[Table]) -> bool:
-    while isinstance(expr, ast.Alias):
-        expr = expr.expr
-    if not isinstance(expr, ast.Field):
+    field_type = event_field_type(expr)
+    if field_type is None:
         return False
-    # A select alias used in WHERE wraps the column in one FieldAliasType per alias.
-    field_type = expr.type
-    while isinstance(field_type, ast.FieldAliasType):
-        field_type = field_type.type
-    if not isinstance(field_type, ast.FieldType) or field_type.name != "event":
-        return False
-    table_type = field_type.table_type
-    while isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
-        table_type = table_type.table_type
+    table_type = unwrap_table_alias_type(field_type.table_type)
     return isinstance(table_type, ast.TableType) and isinstance(table_type.table, table_class)
 
 

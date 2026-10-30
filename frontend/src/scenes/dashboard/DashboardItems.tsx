@@ -543,7 +543,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         if (dashboard?.id) {
             reportDashboardTileRepositioned(dashboard.id, 'resized', effectiveZoom)
         }
-    }, [dashboard?.id, reportDashboardTileRepositioned, effectiveZoom, flushPendingLayouts])
+    }, [dashboard?.id, effectiveZoom, flushPendingLayouts])
 
     const handleDragStart = useCallback(
         (
@@ -598,14 +598,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                 reportDashboardTileRepositioned(dashboard.id, 'moved', effectiveZoom)
             }
         },
-        [
-            dashboard?.id,
-            reportDashboardTileRepositioned,
-            effectiveZoom,
-            flushPendingLayouts,
-            finishTileDrag,
-            stopAutoScroll,
-        ]
+        [dashboard?.id, effectiveZoom, flushPendingLayouts, finishTileDrag, stopAutoScroll]
     )
 
     const renderTile = (tile: DashboardTile): JSX.Element | undefined => {
