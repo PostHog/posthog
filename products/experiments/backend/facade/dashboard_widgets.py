@@ -4,7 +4,6 @@ Each function takes the viewer's access control, or None outside request context
 that the viewer cannot see, the same as the experiments API.
 """
 
-from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models.team import Team
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -14,7 +13,6 @@ from products.experiments.backend.facade.contracts import (
     ExperimentListWidgetPage,
     ExperimentListWidgetRow,
     ExperimentResultsWidget,
-    ExperimentResultsWidgetMetrics,
 )
 from products.experiments.backend.models.experiment import Experiment
 
@@ -84,25 +82,6 @@ def experiment_results_widget(
     if experiment is None:
         return None
 
-    metrics = None
-    if experiment.start_date is not None:
-        primary_metric_dicts, secondary_metric_dicts = dashboard_widgets.collect_metric_dicts(experiment)
-        with tags_context(product=Product.EXPERIMENTS, feature=Feature.QUERY, team_id=team.pk):
-            primary = tuple(
-                dashboard_widgets.compute_metric(team, experiment, metric_dict, index)
-                for index, metric_dict in enumerate(primary_metric_dicts[:max_metrics_per_section])
-            )
-            secondary = tuple(
-                dashboard_widgets.compute_metric(team, experiment, metric_dict, index)
-                for index, metric_dict in enumerate(secondary_metric_dicts[:max_metrics_per_section])
-            )
-        metrics = ExperimentResultsWidgetMetrics(
-            primary=primary,
-            secondary=secondary,
-            primary_total=len(primary_metric_dicts),
-            secondary_total=len(secondary_metric_dicts),
-        )
-
     return ExperimentResultsWidget(
         id=experiment.id,
         name=experiment.name,
@@ -110,5 +89,9 @@ def experiment_results_widget(
         start_date=experiment.start_date,
         end_date=experiment.end_date,
         feature_flag_key=experiment.feature_flag.key,
-        metrics=metrics,
+        metrics=(
+            None
+            if experiment.start_date is None
+            else dashboard_widgets.compute_metrics(team, experiment, max_metrics_per_section=max_metrics_per_section)
+        ),
     )

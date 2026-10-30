@@ -8,11 +8,13 @@ from django.db.models import QuerySet
 
 from posthog.schema import ExperimentQuery
 
+from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.dataclasses import frozen
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.team import Team
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.experiments.backend.facade.contracts import ExperimentResultsWidgetMetric
+from products.experiments.backend.facade.contracts import ExperimentResultsWidgetMetric, ExperimentResultsWidgetMetrics
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.metric_resolution import METRIC_BUILDERS, apply_saved_metric_overrides
 from products.experiments.backend.models.experiment import Experiment, metric_display_rank
@@ -66,8 +68,14 @@ def _sort_by_ordered_uuids(metric_dicts: list[dict[str, Any]], ordered_uuids: li
     metric_dicts.sort(key=lambda metric: rank(metric.get("uuid", "")))
 
 
-def collect_metric_dicts(experiment: Experiment) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Inline metrics plus saved metrics, partitioned into (primary, secondary) in display order when known.
+@frozen
+class _MetricDicts:
+    primary: list[dict[str, Any]]
+    secondary: list[dict[str, Any]]
+
+
+def _collect_metric_dicts(experiment: Experiment) -> _MetricDicts:
+    """Inline metrics plus saved metrics, partitioned into primary and secondary in display order when known.
 
     The saved-metric link set is read once and split here so a widget render issues a single query for it.
     """
@@ -92,10 +100,10 @@ def collect_metric_dicts(experiment: Experiment) -> tuple[list[dict[str, Any]], 
     _sort_by_ordered_uuids(primary, experiment.primary_metrics_ordered_uuids)
     _sort_by_ordered_uuids(secondary, experiment.secondary_metrics_ordered_uuids)
 
-    return primary, secondary
+    return _MetricDicts(primary=primary, secondary=secondary)
 
 
-def compute_metric(
+def _compute_metric(
     team: Team, experiment: Experiment, metric_dict: dict[str, Any], index: int
 ) -> ExperimentResultsWidgetMetric:
     uuid = metric_dict.get("uuid")
@@ -129,3 +137,24 @@ def compute_metric(
         return ExperimentResultsWidgetMetric(
             uuid=uuid, name=name, metric=None, result=None, error="Could not compute results for this metric."
         )
+
+
+def compute_metrics(
+    team: Team, experiment: Experiment, *, max_metrics_per_section: int
+) -> ExperimentResultsWidgetMetrics:
+    metric_dicts = _collect_metric_dicts(experiment)
+    with tags_context(product=Product.EXPERIMENTS, feature=Feature.QUERY, team_id=team.pk):
+        primary = tuple(
+            _compute_metric(team, experiment, metric_dict, index)
+            for index, metric_dict in enumerate(metric_dicts.primary[:max_metrics_per_section])
+        )
+        secondary = tuple(
+            _compute_metric(team, experiment, metric_dict, index)
+            for index, metric_dict in enumerate(metric_dicts.secondary[:max_metrics_per_section])
+        )
+    return ExperimentResultsWidgetMetrics(
+        primary=primary,
+        secondary=secondary,
+        primary_total=len(metric_dicts.primary),
+        secondary_total=len(metric_dicts.secondary),
+    )
