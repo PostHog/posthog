@@ -27,7 +27,7 @@ import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { LiveRecordingsCount } from 'scenes/session-recordings/components/LiveRecordingsCount'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
-import { NEW_REPLAY_LAYOUTS, ReplayLayout } from 'scenes/session-recordings/playlist/replayLayout'
+import { NEW_REPLAY_LAYOUTS, ReplayLayout, isNewReplayLayout } from 'scenes/session-recordings/playlist/replayLayout'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -342,15 +342,22 @@ const ReplayPageTabs: ReplayTab[] = [
     },
 ]
 
-export function SessionRecordingsPageTabs(): JSX.Element {
+export function SessionRecordingsPageTabs(): JSX.Element | null {
     const { tab } = useValues(sessionReplaySceneLogic)
+    const { replayLayout } = useValues(playerSettingsLogic)
+    const tabs = isNewReplayLayout(replayLayout)
+        ? ReplayPageTabs.filter((replayTab) => replayTab.key !== ReplayTabs.Playlists)
+        : ReplayPageTabs
+    if (tabs.length < 2) {
+        return null
+    }
     return (
         <LemonTabs
             activeKey={tab}
             onChange={(t) => router.actions.push(urls.replay(t as ReplayTabs))}
             sceneInset
             className="-mt-4"
-            tabs={ReplayPageTabs.map((replayTab): LemonTab<string> => {
+            tabs={tabs.map((replayTab): LemonTab<string> => {
                 return {
                     label: replayTab.label,
                     key: replayTab.key,

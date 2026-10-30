@@ -3,6 +3,7 @@ import { ReactNode, useEffect } from 'react'
 
 import { LemonBadge, LemonSegmentedButton } from '@posthog/lemon-ui'
 
+import { ReplayCollectionsSegment } from './ReplayCollectionsSegment'
 import { ReplayListPicksMode, ReplayListSegment, replayListColumnLogic } from './replayListColumnLogic'
 
 export interface ReplayListColumnProps {
@@ -54,6 +55,7 @@ export function ReplayListColumn({
             label: 'All recordings',
             'data-attr': 'list-segment-recordings',
         },
+        { value: 'collections' as const, label: 'Collections', 'data-attr': 'list-segment-collections' },
     ]
 
     return (
@@ -73,7 +75,15 @@ export function ReplayListColumn({
                     options={options}
                 />
             )}
-            <div className="flex flex-col flex-1 min-h-0">{segment === 'picks' ? picksList : recordingsList}</div>
+            <div className="flex flex-col flex-1 min-h-0">
+                {segment === 'picks' ? (
+                    picksList
+                ) : segment === 'collections' ? (
+                    <ReplayCollectionsSegment logicKey={logicKey} />
+                ) : (
+                    recordingsList
+                )}
+            </div>
         </div>
     )
 }
