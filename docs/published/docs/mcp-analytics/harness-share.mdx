@@ -35,6 +35,8 @@ To name an in-house harness, go to **Settings > Environment > MCP analytics > Cu
 The custom name shows wherever harness names show, including the harness share card, the activity views, and `properties.$virt_mcp_harness` in SQL. Harness names are cached, so a change can take a few minutes to appear.
 A SQL query or insight that already has cached results keeps the old name until those results refresh.
 
+You can also give a custom harness an icon. Paste a PNG, GIF or WebP image with a transparent background as a data URI, up to 16 KB and 256 by 256 pixels. The icon shows in one color, like the built-in harness logos, so it stays visible in light and dark themes. An image without a transparent background can't be saved, because it would show as a solid square.
+
 ## Harness labels in SQL
 
 `properties.$virt_mcp_harness` returns the resolved harness label as a string on MCP events, and `NULL` on other events.

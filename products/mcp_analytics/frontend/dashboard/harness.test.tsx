@@ -54,7 +54,9 @@ describe('harness icons', () => {
                 <HarnessLabel category={harness} />
             </Provider>
         )
-        const icons = Array.from(container.querySelectorAll('img')).map((img) => img.getAttribute('src'))
-        expect(icons).toEqual(expectedSrc ? [expectedSrc, expectedSrc] : [])
+        const masks = Array.from(container.querySelectorAll<HTMLElement>('[style]')).map((el) =>
+            el.style.getPropertyValue('--harness-icon')
+        )
+        expect(masks).toEqual(expectedSrc ? [`url("${expectedSrc}")`, `url("${expectedSrc}")`] : [])
     })
 })

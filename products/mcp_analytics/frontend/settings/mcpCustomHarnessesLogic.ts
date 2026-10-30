@@ -27,15 +27,16 @@ export interface CustomHarnessFormValues {
 const EMPTY_FORM: CustomHarnessFormValues = { name: '', match_pattern: '', icon: '' }
 
 // Mirrors the server check in custom_harness_icons.py, so most mistakes show before a save.
+// Matching the whole value keeps the preview mask to one data URI.
 const MAX_ICON_BYTES = 16 * 1024
-const ICON_DATA_URI = /^data:image\/(png|jpeg|gif|webp);base64,/
+const ICON_DATA_URI = /^data:image\/(png|gif|webp);base64,[A-Za-z0-9+/]+={0,2}$/
 
 function iconError(icon: string): string | undefined {
     if (!icon) {
         return undefined
     }
     if (!ICON_DATA_URI.test(icon)) {
-        return 'Paste a PNG, JPEG, GIF or WebP image as a data URI.'
+        return 'Paste a PNG, GIF or WebP image as a data URI.'
     }
     const base64Length = icon.length - icon.indexOf(',') - 1
     return (base64Length * 3) / 4 > MAX_ICON_BYTES ? 'The icon must be 16 KB or smaller.' : undefined

@@ -5,7 +5,14 @@ import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
+import { HarnessIconMask } from '../components/HarnessIconMask'
 import { mcpCustomHarnessesLogic } from './mcpCustomHarnessesLogic'
+
+// Fixed colors rather than theme tokens, so the preview shows both themes whichever one is active.
+const PREVIEW_BACKGROUNDS = [
+    { name: 'light', className: 'bg-white text-black' },
+    { name: 'dark', className: 'bg-black text-white' },
+] as const
 
 export function McpCustomHarnessForm(): JSX.Element {
     const {
@@ -15,7 +22,7 @@ export function McpCustomHarnessForm(): JSX.Element {
         customHarnessFormValidationErrors,
     } = useValues(mcpCustomHarnessesLogic)
     const iconPreview =
-        customHarnessForm.icon && !customHarnessFormValidationErrors.icon ? customHarnessForm.icon : null
+        customHarnessForm.icon && !customHarnessFormValidationErrors.icon ? customHarnessForm.icon.trim() : null
     const { cancelEditingHarness } = useActions(mcpCustomHarnessesLogic)
 
     return (
@@ -42,13 +49,19 @@ export function McpCustomHarnessForm(): JSX.Element {
                 <LemonField
                     name="icon"
                     label="Icon (optional)"
-                    help="Paste a PNG, JPEG, GIF or WebP image as a data URI. It can be 16 KB and 256 by 256 pixels at most."
+                    help="Paste a PNG, GIF or WebP image with a transparent background as a data URI. It can be 16 KB and 256 by 256 pixels at most. It shows in one color, like the other harness logos."
                     className="flex-1 min-w-60"
                 >
                     <LemonInput placeholder="data:image/png;base64,..." />
                 </LemonField>
                 {iconPreview && (
-                    <img src={iconPreview} alt="Icon preview" className="size-8 mt-7 shrink-0 object-contain" />
+                    <div className="flex gap-1 mt-7 shrink-0">
+                        {PREVIEW_BACKGROUNDS.map(({ name, className }) => (
+                            <div key={name} className={`flex rounded border p-2 ${className}`}>
+                                <HarnessIconMask src={iconPreview} label={`Icon preview on a ${name} background`} />
+                            </div>
+                        ))}
+                    </div>
                 )}
             </div>
             <div className="flex justify-end gap-2">

@@ -895,8 +895,9 @@ class MCPCustomHarnessSerializer(serializers.ModelSerializer):
             "name": {"help_text": "Name to show for calls from this harness."},
             "icon": {
                 "help_text": (
-                    "Optional icon shown next to the harness name. A base64 data URI of a PNG, JPEG, GIF or WebP "
-                    "image, 16 KB or smaller and at most 256 by 256 pixels. An empty string means no icon."
+                    "Optional icon shown next to the harness name. A base64 data URI of a PNG, GIF or WebP image "
+                    "with a transparent background, 16 KB or smaller and at most 256 by 256 pixels. The icon shows "
+                    "in one color, like the built-in harness logos. An empty string means no icon."
                 )
             },
         }
