@@ -132,10 +132,6 @@ A table can be part of a source, so rules can exist at both levels.
 So denying one source denies every table it syncs, but a rule on a specific table still beats it.
 Tables with no source (self-managed, S3, manually linked) skip tiers 2 and 4, and views never resolve through a source.
 
-For organizations using most-specific resolution, a default grant on a table or source applies only when the resolved resource-level access is not `none`.
-An explicit member or role grant on the object can still override resource-level `none`.
-Other resource levels do not cap the object default: resource-level `viewer` can become object-level `editor` or `manager`.
-
 The creator always keeps access: the object's `created_by` user resolves to the highest level regardless of explicit denies.
 "Creator" here is the `created_by` on the object — for a view, whoever authored it; for a warehouse table, whoever created the row (for an externally synced source, the user who connected the source).
 
