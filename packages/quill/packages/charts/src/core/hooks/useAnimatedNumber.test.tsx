@@ -118,20 +118,23 @@ describe('useAnimatedNumber', () => {
         expect(raf.pendingCount()).toBe(0)
     })
 
-    it('animates from the previous value toward the new target across frames', () => {
+    it.each([
+        ['an integer range', 0, 100],
+        ['a range where from + (to - from) misses the target in floating point', 0.2, 0.9],
+    ])('animates from the previous value and lands exactly on the target, for %s', (_label, from, to) => {
         const { result, rerender } = renderHook(({ target }) => useAnimatedNumber(target, 100), {
-            initialProps: { target: 0 },
+            initialProps: { target: from },
         })
-        rerender({ target: 100 })
+        rerender({ target: to })
         expect(raf.pendingCount()).toBe(1)
-        expect(result.current).toBe(0)
+        expect(result.current).toBe(from)
 
         raf.step(50)
-        expect(result.current).toBeGreaterThan(0)
-        expect(result.current).toBeLessThan(100)
+        expect(result.current).toBeGreaterThan(from)
+        expect(result.current).toBeLessThan(to)
 
         raf.step(100)
-        expect(result.current).toBe(100)
+        expect(result.current).toBe(to)
         expect(raf.pendingCount()).toBe(0)
     })
 

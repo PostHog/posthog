@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 
-import { prefersReducedMotion } from '../../core/motion'
-import { monotonicNow } from '../../core/time'
+import { prefersReducedMotion } from '../motion'
+import { monotonicNow } from '../time'
 
 /** When `target` changes mid-animation, animation restarts from the currently-displayed value (no snap). */
 export function useAnimatedNumber(target: number, duration = 120): number {
@@ -27,7 +27,9 @@ export function useAnimatedNumber(target: number, duration = 120): number {
         const tick = (): void => {
             const t = Math.min(1, (monotonicNow() - start) / duration)
             const eased = 1 - Math.pow(1 - t, 3)
-            setValue(from + (target - from) * eased)
+            // The last frame sets the target itself, because `from + (target - from) * 1` can miss it by
+            // one ulp and leave a caller that compares against the target waiting for good.
+            setValue(t >= 1 ? target : from + (target - from) * eased)
             if (t < 1) {
                 raf = requestAnimationFrame(tick)
             }

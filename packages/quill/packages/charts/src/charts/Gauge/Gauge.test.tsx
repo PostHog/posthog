@@ -1,5 +1,6 @@
 import { fireEvent } from '@testing-library/react'
 
+import { ChartThemeProvider } from '../../core/theme'
 import type { ChartTheme } from '../../core/types'
 import { renderChart, waitForChartTooltip } from '../../testing'
 import { Gauge } from './Gauge'
@@ -23,7 +24,7 @@ describe('Gauge', () => {
             <Gauge value={null} min={0} max={100} thresholds={THRESHOLDS} theme={THEME} label="CPU" />
         )
 
-        expect(chart.gauge()).toEqual({ value: '–', label: 'CPU', min: '0', max: '100' })
+        expect(chart.gauge.text()).toEqual({ value: '–', label: 'CPU', min: '0', max: '100' })
         const tooltip = await hoverGauge(chart.element)
         expect(tooltip.textContent).not.toContain('Threshold')
         expect(tooltip.querySelector('[data-attr="hog-chart-tooltip-swatch"]')).toBeNull()
@@ -41,14 +42,28 @@ describe('Gauge', () => {
             />
         )
 
-        expect(chart.gauge()).toMatchObject({ value: '78%', min: '0%', max: '100%' })
-        expect(chart.element.querySelector<HTMLElement>('[data-attr="hog-chart-gauge-value"]')?.style.color).toBe(
-            'rgb(255, 170, 0)'
-        )
+        expect(chart.gauge.text()).toMatchObject({ value: '78%', min: '0%', max: '100%' })
+        expect(chart.gauge.valueColor()).toBe('rgb(255, 170, 0)')
         const tooltip = await hoverGauge(chart.element)
         expect(tooltip.textContent).toContain('Busy · 70% – 90%')
         const swatch = tooltip.querySelector<HTMLElement>('[data-attr="hog-chart-tooltip-swatch"]')
         expect(swatch?.style.backgroundColor).toBe('rgb(255, 170, 0)')
+        expect(await chart.waitForTooltip()).toMatchObject({
+            value: 78,
+            min: 0,
+            max: 100,
+            threshold: { threshold: { label: 'Busy' } },
+        })
+    })
+
+    it('takes its theme from the nearest ChartThemeProvider when no theme prop is set', () => {
+        const { chart } = renderChart(
+            <ChartThemeProvider value={THEME}>
+                <Gauge value={50} min={0} max={100} />
+            </ChartThemeProvider>
+        )
+
+        expect(chart.gauge.valueColor()).toBe('rgb(17, 17, 17)')
     })
 
     it('resolves var() threshold colors again when the theme changes', async () => {

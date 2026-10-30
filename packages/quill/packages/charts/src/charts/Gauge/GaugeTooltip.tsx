@@ -1,5 +1,6 @@
 import React from 'react'
 
+import type { TooltipContext } from '../../core/types'
 import { TooltipSurface, TooltipSwatch } from '../../overlays/TooltipSurface'
 import type { GaugeThreshold } from './gauge-layout'
 
@@ -13,12 +14,11 @@ export interface GaugeTooltipThreshold {
     to: number | undefined
 }
 
-export interface GaugeTooltipContext {
+/** {@link TooltipContext} with the gauge's reading. `label` is the gauge `label`, or `''` without one. */
+export interface GaugeTooltipContext extends TooltipContext {
     value: number | null
     min: number
     max: number
-    /** The gauge `label`, when set. */
-    label: string | undefined
     /** The band the value falls in, or null without thresholds or a value. */
     threshold: GaugeTooltipThreshold | null
     /** Number of thresholds, so a tooltip can skip the band row when one color covers the range. */
@@ -55,7 +55,11 @@ function Row({ name, children }: { name: string; children: React.ReactNode }): R
     )
 }
 
-export function GaugeTooltip({ ctx }: { ctx: GaugeTooltipContext }): React.ReactElement {
+export interface GaugeTooltipProps {
+    ctx: GaugeTooltipContext
+}
+
+export function GaugeTooltip({ ctx }: GaugeTooltipProps): React.ReactElement {
     const { formatValue, threshold, target } = ctx
     return (
         <TooltipSurface data-attr="hog-chart-gauge-tooltip">

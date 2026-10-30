@@ -119,9 +119,13 @@ export interface ChartAccessor<Meta = unknown> {
         /** On-slice labels, in slice order. */
         sliceLabels(): PieSliceLabelSummary[]
     }
-    /** The text a `Gauge` shows, or null for other charts. `label`, `min` and `max` are null when
-     *  hidden, for example when the min and max labels would overlap. */
-    gauge(): GaugeSummary | null
+    gauge: {
+        /** The text a `Gauge` shows, or null for other charts. `label`, `min` and `max` are null when
+         *  hidden, for example when the min and max labels would overlap. */
+        text(): GaugeSummary | null
+        /** The CSS color of the value text, or null for other charts. */
+        valueColor(): string | null
+    }
     /** The legend container in this chart's render scope, or null when the legend is hidden. */
     legend(): HTMLElement | null
     /** Legend rows in this chart's render scope — label plus the row's secondary text (a slope
@@ -305,11 +309,15 @@ export function getChart<Meta = unknown>(
                     })
                 ),
         },
-        gauge: () => {
-            const text = (attr: string): string | null =>
-                wrapper.querySelector<HTMLElement>(`[data-attr="hog-chart-gauge-${attr}"]`)?.textContent ?? null
-            const value = text('value')
-            return value === null ? null : { value, label: text('label'), min: text('min'), max: text('max') }
+        gauge: {
+            text: () => {
+                const text = (attr: string): string | null =>
+                    wrapper.querySelector<HTMLElement>(`[data-attr="hog-chart-gauge-${attr}"]`)?.textContent ?? null
+                const value = text('value')
+                return value === null ? null : { value, label: text('label'), min: text('min'), max: text('max') }
+            },
+            valueColor: () =>
+                wrapper.querySelector<HTMLElement>('[data-attr="hog-chart-gauge-value"]')?.style.color ?? null,
         },
         legend: () => scope.querySelector<HTMLElement>('[data-hog-charts-legend]'),
         legendItems: () => readLegendItems(scope),

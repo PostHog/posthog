@@ -49,7 +49,7 @@ export type { MetricCardProps, ChangeColor, MetricChange } from './components/Me
 export { resolveDelta } from './components/MetricCard/resolveDelta'
 export type { ResolvedDelta } from './components/MetricCard/resolveDelta'
 export { computeFallbackChangePercent } from './components/MetricCard/internals'
-export { useAnimatedNumber } from './components/MetricCard/useAnimatedNumber'
+export { useAnimatedNumber } from './core/hooks/useAnimatedNumber'
 export { useHoverIntent } from './components/MetricCard/useHoverIntent'
 
 // Base chart (for building new chart types)
@@ -118,8 +118,8 @@ export type { RadialSlicePayload } from './core/hooks/useRadialInteraction'
 // Gauge
 export { Gauge } from './charts/Gauge/Gauge'
 export type { GaugeConfig, GaugeProps, GaugeTarget } from './charts/Gauge/Gauge'
-export { GaugeTooltip } from './charts/Gauge/GaugeTooltip'
-export type { GaugeTooltipContext, GaugeTooltipThreshold } from './charts/Gauge/GaugeTooltip'
+export { formatGaugeBand, GaugeTooltip } from './charts/Gauge/GaugeTooltip'
+export type { GaugeTooltipContext, GaugeTooltipProps, GaugeTooltipThreshold } from './charts/Gauge/GaugeTooltip'
 export { resolveGaugeBounds } from './charts/Gauge/gauge-layout'
 export type { GaugeBounds, GaugeThreshold, ResolveGaugeBoundsInput } from './charts/Gauge/gauge-layout'
 

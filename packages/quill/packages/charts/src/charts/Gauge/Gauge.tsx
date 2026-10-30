@@ -1,12 +1,13 @@
 import React, { useCallback, useLayoutEffect, useMemo, useState } from 'react'
 
-import { useAnimatedNumber } from '../../components/MetricCard/useAnimatedNumber'
 import { ChartHoverContext, ChartLayoutContext } from '../../core/chart-context'
 import type { ChartHoverContextValue, ChartLayoutContextValue } from '../../core/chart-context'
 import { ChartShell, useCanvasBounds } from '../../core/chart-shell'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
+import { useAnimatedNumber } from '../../core/hooks/useAnimatedNumber'
 import { useChartCanvas } from '../../core/hooks/useChartCanvas'
 import { useChartDraw } from '../../core/hooks/useChartDraw'
+import { useResolvedChartTheme } from '../../core/theme'
 import type { ChartDrawArgs, ChartMargins, ChartScales, ChartTheme, TooltipContext } from '../../core/types'
 import { defaultResolveValue } from '../../core/types'
 import { Tooltip } from '../../overlays/Tooltip'
@@ -81,9 +82,9 @@ export interface GaugeProps {
     thresholds?: readonly GaugeThreshold[]
     /** Arc color without thresholds: hex, rgb, or `var(--…)`. Defaults to `theme.colors[0]`. */
     color?: string
-    /** Palette and chrome colors, usually from `useChartTheme()`. A new theme object, as on a light or
-     *  dark switch, resolves every `var(--…)` color again. */
-    theme: ChartTheme
+    /** Palette and chrome colors. Defaults to the nearest `ChartThemeProvider`, then the quill CSS vars.
+     *  A new theme object, as on a light or dark switch, resolves every `var(--…)` color again. */
+    theme?: ChartTheme
     /** Short caption under the value, such as the metric name. Truncates to fit the arc. */
     label?: string
     /** Marks a value on the track with a tick, such as an SLO target. Hidden when outside the range. */
@@ -187,7 +188,7 @@ function GaugeInner({
     max,
     thresholds,
     color,
-    theme,
+    theme: themeProp,
     label,
     target: rawTarget,
     config,
@@ -195,6 +196,7 @@ function GaugeInner({
     className,
     dataAttr,
 }: Omit<GaugeProps, 'onError'>): React.ReactElement {
+    const theme = useResolvedChartTheme(themeProp)
     const {
         sweepAngle,
         thickness = DEFAULT_GAUGE_THICKNESS,
@@ -256,6 +258,7 @@ function GaugeInner({
     const valueIndex = thresholdIndexAt(value, resolvedThresholds)
     const arcIndex = thresholdIndexAt(colorValue, resolvedThresholds)
     const arcColor = arcIndex >= 0 ? resolvedThresholds[arcIndex].color : baseColor
+    const valueColor = valueIndex >= 0 ? resolvedThresholds[valueIndex].color : baseColor
 
     const bandsVisible = showThresholdBands ?? resolvedThresholds.length > 1
     const showEnds = showMinMax && sweep <= MAX_MINMAX_SWEEP
@@ -376,28 +379,14 @@ function GaugeInner({
         }
     }, [valueIndex, resolvedThresholds])
 
-    const gaugeTooltipCtx = useMemo<GaugeTooltipContext>(
-        () => ({
-            value,
-            min: bounds.min,
-            max: bounds.max,
-            label,
-            threshold: tooltipThreshold,
-            thresholdCount: resolvedThresholds.length,
-            target,
-            color: valueIndex >= 0 ? resolvedThresholds[valueIndex].color : baseColor,
-            formatValue,
-        }),
-        [value, bounds, label, tooltipThreshold, resolvedThresholds, target, valueIndex, baseColor, formatValue]
-    )
-
     const canvasBounds = useCanvasBounds(canvasRef)
-    // The wrapper's rect at the moment the cursor entered the ring, or null when it is outside.
+    // The wrapper's rect while the cursor is over the ring, or null when it is outside.
     const [hoverRect, setHoverRect] = useState<DOMRect | null>(null)
     const showTooltip = tooltipConfig?.enabled !== false
 
-    // The tooltip anchors to the gauge, not the cursor. While the cursor stays over the ring the state
-    // update returns the previous rect, so React bails out and nothing re-renders or redraws.
+    // The tooltip anchors to the gauge, not the cursor. While the cursor stays over the ring and the
+    // gauge does not move, the state update returns the previous rect, so React bails out and nothing
+    // re-renders or redraws. A scroll moves the rect, so the tooltip follows.
     const onMouseMove = useCallback(
         (e: React.MouseEvent<HTMLDivElement>) => {
             if (!layout || !showTooltip) {
@@ -405,14 +394,18 @@ function GaugeInner({
             }
             const rect = e.currentTarget.getBoundingClientRect()
             const hit = isOverGauge(layout, e.clientX - rect.left, e.clientY - rect.top)
-            setHoverRect((previous) => (hit ? (previous ?? rect) : null))
+            setHoverRect((previous) =>
+                !hit ? null : previous && previous.left === rect.left && previous.top === rect.top ? previous : rect
+            )
         },
         [layout, showTooltip]
     )
     const onMouseLeave = useCallback(() => setHoverRect(null), [])
     const handlers = useMemo(() => ({ onMouseMove, onMouseLeave, onClick: () => {} }), [onMouseMove, onMouseLeave])
 
-    const tooltipCtx = useMemo<TooltipContext | null>(() => {
+    // One object goes to `<Tooltip>` and to the render prop, so `renderChart` captures what a custom
+    // tooltip receives.
+    const tooltipCtx = useMemo<GaugeTooltipContext | null>(() => {
         if (!hoverRect || !layout) {
             return null
         }
@@ -427,12 +420,23 @@ function GaugeInner({
             hoverPosition: null,
             canvasBounds: hoverRect,
             isPinned: false,
+            value,
+            min: bounds.min,
+            max: bounds.max,
+            threshold: tooltipThreshold,
+            thresholdCount: resolvedThresholds.length,
+            target,
+            color: valueColor,
+            formatValue,
         }
-    }, [hoverRect, layout, label])
+    }, [hoverRect, layout, label, value, bounds, tooltipThreshold, resolvedThresholds, target, valueColor, formatValue])
 
     const renderTooltip = useCallback(
-        (): React.ReactNode => (tooltip ? tooltip(gaugeTooltipCtx) : <GaugeTooltip ctx={gaugeTooltipCtx} />),
-        [tooltip, gaugeTooltipCtx]
+        (ctx: TooltipContext): React.ReactNode => {
+            const gaugeCtx = ctx as GaugeTooltipContext
+            return tooltip ? tooltip(gaugeCtx) : <GaugeTooltip ctx={gaugeCtx} />
+        },
+        [tooltip]
     )
 
     const layoutValue = useMemo<ChartLayoutContextValue | null>(() => {
@@ -497,7 +501,7 @@ function GaugeInner({
                                         ? labelColor
                                             ? { color: labelColor }
                                             : MUTED_STYLE
-                                        : { color: arcColor }),
+                                        : { color: valueColor }),
                                 }}
                             >
                                 {text.value.text}
