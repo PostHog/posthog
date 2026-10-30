@@ -13,6 +13,7 @@ import type {
     CustomPropertyDefinitionApi,
 } from 'products/customer_analytics/frontend/generated/api.schemas'
 
+import { relationshipAlias } from './accountsColumnConfigLogic'
 import type { AccountPropertyFilter, AccountRelationshipFilter } from './accountsPropertyFilters'
 import {
     AccountsTableQueryPlan,
@@ -67,9 +68,9 @@ function queryInput(overrides: Partial<BuildAccountsTableQueryPlanInput> = {}): 
             'name',
             'accounts.tags.names AS tag_names',
             'accounts.notebooks.count AS notebook_count',
-            `accounts.relationships.values.\`${RELATIONSHIP_ID}\` AS csm`,
+            `accounts.relationships.values.\`${RELATIONSHIP_ID}\` AS ${relationshipAlias(RELATIONSHIP_ID)}`,
         ],
-        visibleColumnNames: ['name', 'tag_names', 'notebook_count', 'csm'],
+        visibleColumnNames: ['name', 'tag_names', 'notebook_count', relationshipAlias(RELATIONSHIP_ID)],
         searchQuery: '',
         tagsFilter: [],
         assignmentStatus: 'all',
@@ -97,7 +98,7 @@ describe('accountsTableQuery', () => {
                 assignmentStatus: 'assigned',
                 assignedToFilter: [7, 9],
                 accountFilters: [relationshipFilter(), customFilter()],
-                serverSortOrder: { column: 'csm', direction: 'desc' },
+                serverSortOrder: { column: relationshipAlias(RELATIONSHIP_ID), direction: 'desc' },
             })
         )
 
@@ -154,7 +155,7 @@ describe('accountsTableQuery', () => {
         )
     })
 
-    it('keeps valid conditions when a restored group contains deleted properties', () => {
+    it('sends restored definition IDs to the backend for validation', () => {
         const validName = accountFieldFilter({
             key: AccountsTableAccountField.Name,
             operator: PropertyOperator.Exact,
@@ -169,9 +170,20 @@ describe('accountsTableQuery', () => {
         )
 
         expect(plan.query.filters).toEqual([])
+        const missing = { kind: 'custom_property', definitionId: missingProperty.key, operator: 'gt', values: [10] }
+        expect(plan.query.ignoreMissingDefinitions).toBe(true)
         expect(plan.query.filterGroups).toEqual([
-            [{ kind: 'account_field', field: AccountsTableAccountField.Name, operator: 'exact', values: ['Example'] }],
-            [{ kind: 'relationship', definitionId: RELATIONSHIP_ID, operator: 'exact', userIds: [7] }],
+            [
+                {
+                    kind: 'account_field',
+                    field: AccountsTableAccountField.Name,
+                    operator: 'exact',
+                    values: ['Example'],
+                },
+                missing,
+            ],
+            [{ kind: 'relationship', definitionId: RELATIONSHIP_ID, operator: 'exact', userIds: [7] }, missing],
+            [missing],
         ])
     })
 
@@ -351,19 +363,36 @@ describe('accountsTableQuery', () => {
     })
 
     it.each([
+        [PropertyOperator.IContains, 'text', 'standard'],
+        [PropertyOperator.GreaterThan, 'currency', 10],
+        [PropertyOperator.IsDateBefore, 'datetime', '2026-01-01'],
+    ] as const)('keeps filter transport independent of definition metadata for %s', (operator, displayType, value) => {
+        const input = queryInput({
+            accountFilters: [customFilter({ operator, value }), relationshipFilter()],
+            customPropertyDefinitionsById: { [CUSTOM_PROPERTY_ID]: { ...definition, display_type: displayType } },
+        })
+        const known = buildAccountsTableQueryPlan(input)
+        const unknown = buildAccountsTableQueryPlan({
+            ...input,
+            customPropertyDefinitionsById: {},
+            relationshipDefinitionsById: {},
+        })
+        expect(unknown.query).toEqual(known.query)
+        expect(unknown.query.filters).toHaveLength(2)
+    })
+
+    it.each([
         ['regex', 'currency', PropertyOperator.Regex],
-        ['contains on a number', 'currency', PropertyOperator.IContains],
         ['comparison on text', 'text', PropertyOperator.GreaterThan],
-        ['date comparison on boolean', 'boolean', PropertyOperator.IsDateBefore],
-    ])('omits unsupported %s custom property filters', (_, displayType, operator) => {
-        const incompatibleDefinition = { ...definition, display_type: displayType } as CustomPropertyDefinitionApi
+        ['contains on number', 'number', PropertyOperator.IContains],
+        ['date on text', 'text', PropertyOperator.IsDateAfter],
+    ] as const)('omits unsupported %s filters', (_, displayType, operator) => {
         const plan = buildAccountsTableQueryPlan(
             queryInput({
-                customPropertyDefinitionsById: { [CUSTOM_PROPERTY_ID]: incompatibleDefinition },
+                customPropertyDefinitionsById: { [CUSTOM_PROPERTY_ID]: { ...definition, display_type: displayType } },
                 accountFilters: [customFilter({ operator })],
             })
         )
-
         expect(plan.query.filters).toEqual([])
     })
 

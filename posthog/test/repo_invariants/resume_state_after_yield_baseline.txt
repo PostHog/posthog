@@ -308,7 +308,6 @@ pendo/pendo.py::_iter_list_endpoint
 persona/persona.py::get_rows
 pinterest_ads/pinterest_ads.py::_iter_entity_rows
 pinterest_ads/pinterest_ads.py::_iter_fanned_out_analytics
-plaid/plaid.py::get_rows
 platform_sh/platform_sh.py::get_rows
 polar/polar.py::get_rows
 postgres/postgres.py::postgres_source.get_rows.offset_chunking

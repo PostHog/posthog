@@ -238,6 +238,7 @@ def mock_github_integration(team, mocker):
     This patches the Integration lookup to return a fake integration
     with valid credentials structure.
     """
+    from posthog.integrations import IntegrationManager
     from posthog.models.integration import GitHubIntegration, Integration
 
     # Create a mock integration object
@@ -253,17 +254,15 @@ def mock_github_integration(team, mocker):
         "access_token": "ghs_fake_token_for_testing",
     }
 
-    # Patch the Integration.objects.filter to return our mock
-    original_filter = Integration.objects.filter
+    # Patch the SDK lookup to return our mock
+    original_find = IntegrationManager.github.oauth.find
 
-    def patched_filter(*args, **kwargs):
-        if kwargs.get("kind") == "github" and kwargs.get("team_id") == team.id:
-            mock_qs = MagicMock()
-            mock_qs.first.return_value = mock_integration
-            return mock_qs
-        return original_filter(*args, **kwargs)
+    def patched_find(team_id, *args, **kwargs):
+        if team_id == team.id:
+            return mock_integration
+        return original_find(team_id, *args, **kwargs)
 
-    mocker.patch.object(Integration.objects, "filter", side_effect=patched_filter)
+    mocker.patch.object(IntegrationManager.github.oauth, "find", side_effect=patched_find)
 
     # Also patch GitHubIntegration methods we need
     def mock_access_token_expired(self):
