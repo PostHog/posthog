@@ -268,6 +268,7 @@ def _stored_window_entries(
     team_id: int,
     generation: int,
     window_days: int,
+    start: datetime,
     scanner_ids: Sequence[Any],
     categories: Sequence[str],
     experiment_ids: Collection[int],
@@ -279,6 +280,8 @@ def _stored_window_entries(
         .filter(
             generation=generation,
             window_days=window_days,
+            # A build ranked before this load's window moved on can hold rows that have since left it.
+            created_at__gte=start,
             scanner_id__in=list(scanner_ids),
             category__in=[CATEGORY_CODES[category] for category in categories],
             experiment_id__in=[0, *experiment_ids],
@@ -413,6 +416,7 @@ def select_embedding_picks(
             team_id,
             window.generation,
             window.window_days,
+            window.start,
             scanner_ids,
             categories,
             experiment_ids,
