@@ -1249,7 +1249,6 @@ expose = [
     "backend\\.scout_harness\\.tools\\.structured_output(\\..*)?",
     "backend\\.scout_harness\\.trial_launch(\\..*)?",
     "backend\\.scout_harness\\.views(\\..*)?",
-    "backend\\.serializers(\\..*)?",
     "backend\\.slack_report_threads(\\..*)?",
     "backend\\.spend(\\..*)?",
     "backend\\.task_run_artefacts(\\..*)?",
