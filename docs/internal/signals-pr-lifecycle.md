@@ -211,7 +211,7 @@ New metric checks validate numeric goals and baselines against their metric kind
 
 ## Pending research refreshes
 
-When a source refresh arrives during research, finishing the current pass schedules another pass even if the next signal-count bucket has not been reached. A pending marker already included in the fetched snapshot does not force redundant research. A later source refresh replaces the marker so it cannot be hidden by an earlier bucket crossing. Ordinary new signals continue to follow the existing bucket thresholds.
+When a source refresh arrives during research, finishing the current pass schedules another pass even if the next signal-count bucket has not been reached. A pending marker already included in the fetched snapshot does not force redundant research. A later source refresh replaces the marker so it cannot be hidden by an earlier bucket crossing. Replacing a pending signal settles its handed-off spend unless it still owns the active research pass. Ordinary new signals continue to follow the existing bucket thresholds.
 
 ## Research without code
 

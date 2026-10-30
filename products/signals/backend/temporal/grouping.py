@@ -1072,8 +1072,15 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                     and report.signal_count >= pending_bucket
                 )
             ):
+                displaced_signal_id = report.pending_triggering_signal_id
                 report.pending_triggering_signal_id = input.signal_id
                 report.save(update_fields=["pending_triggering_signal_id"])
+                if displaced_signal_id is not None and str(displaced_signal_id) != input.signal_id:
+                    complete_signal_pipeline(
+                        team_id=input.team_id,
+                        signal_id=str(displaced_signal_id),
+                        report_id=str(report.id),
+                    )
 
             report_id = str(report.id)
             if input.sync_with_source:
