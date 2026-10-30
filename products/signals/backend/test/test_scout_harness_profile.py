@@ -21,6 +21,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.integrations import SOURCE_MARKER_CONFIG_KEY
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.integration import Integration
 from posthog.models.product_intent.product_intent import ProductIntent
@@ -170,6 +171,12 @@ class TestIntegrations(BaseTest):
         Integration.objects.create(team=self.team, kind="slack", config={})
         result = _integrations(self.team)
         assert sorted(r["kind"] for r in result) == ["github", "slack"]
+
+    def test_skips_warehouse_source_rows(self) -> None:
+        Integration.objects.create(team=self.team, kind="slack", config={})
+        Integration.objects.create(team=self.team, kind="github", config={SOURCE_MARKER_CONFIG_KEY: "Github"})
+        result = _integrations(self.team)
+        assert [r["kind"] for r in result] == ["slack"]
 
     def test_does_not_leak_config_or_sensitive_config(self) -> None:
         # Defensive: integration config/sensitive_config can hold tokens; only kind + created_at

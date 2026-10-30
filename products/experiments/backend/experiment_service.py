@@ -3,7 +3,7 @@
 import json
 import time
 from collections import defaultdict
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from copy import deepcopy
 from datetime import date, datetime, timedelta
 from enum import Enum
@@ -75,6 +75,7 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     EXPERIMENT_EXPOSURE_EVENT,
     apply_exposure_criteria_defaults,
     build_exposure_event_conditions,
+    exposure_event_names,
     get_exposure_event_and_property,
     resolve_default_exposure_event,
 )
@@ -371,10 +372,7 @@ def _apply_holdout(filters: dict, holdout: ExperimentHoldout | None) -> dict:
 def _tracked_health_finding(finding: ExperimentHealthFinding) -> str:
     # pinned: `code:subcode:severity:reason`, as on the page's `experiment health checked`. Insights split each
     # string on `:`, so every field is present, empty when the finding has none.
-    reason = finding.evidence.get("reason")
-    return ":".join(
-        [finding.code.value, finding.subcode or "", finding.severity.value, reason if isinstance(reason, str) else ""]
-    )
+    return ":".join([finding.code.value, finding.subcode or "", finding.severity.value, finding.reason or ""])
 
 
 class ExperimentVersionConflict(APIException):
@@ -4267,7 +4265,7 @@ class ExperimentService:
         if exposure_filter_data:
             exposure_entities = parse_entities(exposure_filter_data)
 
-        target_entity: int | str = "$feature_flag_called"
+        target_entities: Sequence[int | str]
         target_entity_type = "events"
         target_filters = [
             {
@@ -4278,22 +4276,24 @@ class ExperimentService:
             }
         ]
 
-        if exposure_entities:
-            entity = exposure_entities[0]
-            if entity.id:
-                target_entity_type = entity.type if entity.type in ["events", "actions"] else "events"
-                target_entity = entity.id
-                if entity.type == "actions":
-                    try:
-                        target_entity = int(target_entity)
-                    except ValueError:
-                        raise ValidationError("Invalid action ID")
+        entity = exposure_entities[0] if exposure_entities else None
+        if entity is not None and entity.id:
+            if entity.type == "actions":
+                target_entity_type = "actions"
+                try:
+                    target_entities = [int(entity.id)]
+                except ValueError:
+                    raise ValidationError("Invalid action ID")
+            else:
+                target_entities = exposure_event_names(str(entity.id))
 
-                target_filters = [
-                    prop.to_dict()
-                    for prop in entity.property_groups.flat
-                    if prop.type in ("event", "feature", "element", "hogql")
-                ]
+            target_filters = [
+                prop.to_dict()
+                for prop in entity.property_groups.flat
+                if prop.type in ("event", "feature", "element", "hogql")
+            ]
+        else:
+            target_entities = exposure_event_names(resolve_default_exposure_event(self.team, experiment.start_date))
 
         context = serializer_context or self._build_serializer_context()
         # CohortSerializer expects "team" directly in context
@@ -4320,6 +4320,7 @@ class ExperimentService:
                                         "event_filters": target_filters,
                                         "explicit_datetime": experiment.start_date.isoformat(),
                                     }
+                                    for target_entity in target_entities
                                 ],
                             }
                         ],

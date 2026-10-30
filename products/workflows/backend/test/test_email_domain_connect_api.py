@@ -2,6 +2,7 @@ from collections.abc import Callable
 from typing import Any
 
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from django.core.cache import cache
 from django.test import override_settings
@@ -11,6 +12,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models.integration import EmailIntegration, Integration
+from posthog.models.team import Team
 
 from products.workflows.backend.test.email_domain_api_test_case import (
     ALL_KINDS,
@@ -103,6 +105,41 @@ class TestOneClickEmailDomainSetup(EmailDomainConnectTestCase):
         self.verify_from_browser(sender)
         assert self.config(sender)["setup_method"] == "auto"
         assert self.verified_event_methods() == ["auto"]
+
+    @parameterized.expand(
+        [
+            ("unknown_id", lambda test: 999_999_999),
+            (
+                "sender_of_another_team",
+                lambda test: (
+                    Integration.objects.create(
+                        team=Team.objects.create(organization=test.organization, name="Other project"),
+                        kind="email",
+                        config={"email": f"hello@{DOMAIN}", "domain": DOMAIN, "provider": "ses"},
+                    ).id
+                ),
+            ),
+            (
+                "integration_of_another_kind",
+                lambda test: Integration.objects.create(team=test.team, kind="slack", config={}).id,
+            ),
+        ]
+    )
+    def test_apply_url_for_an_unknown_sender_answers_404_without_calling_ses(
+        self, _name: str, arrange: Callable[[EmailDomainConnectTestCase], int]
+    ) -> None:
+        integration_id = arrange(self)
+        writes_before = list(self.world.ses.writes)
+
+        with patch("posthog.api.integration.capture_exception") as capture_exception:
+            response = self.apply_url(integration_id)
+
+        assert (response.status_code, response.json()["detail"]) == (
+            status.HTTP_404_NOT_FOUND,
+            "Email integration not found.",
+        )
+        assert self.world.ses.writes == writes_before
+        capture_exception.assert_not_called()
 
     def test_approved_setup_keeps_an_existing_dmarc_record(self) -> None:
         existing_dmarc = "v=DMARC1; p=reject; rua=mailto:dmarc@example.com"

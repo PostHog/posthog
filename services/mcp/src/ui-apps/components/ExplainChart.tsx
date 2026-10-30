@@ -10,6 +10,7 @@ import { ExplainChartView } from 'products/product_analytics/mcp/apps/explainCha
 
 import { capture } from '../analytics/posthog'
 import { useEvidenceCharts } from '../hooks/useEvidenceCharts'
+import { ExplainChartFeedback } from './ExplainChartFeedback'
 import { TrendsVisualizer } from './TrendsVisualizer'
 import type { TrendsQuery, TrendsResult } from './types'
 
@@ -21,7 +22,7 @@ const CHART_CLASS_NAME = 'h-[260px] @3xl/story:h-[400px]'
 export interface ExplainChartProps {
     data: ExplainChartData
     openLink: (url: string) => void
-    /** The host app, which runs each piece of evidence's query so the walkthrough can draw it. */
+    /** The host app, which runs each piece of evidence's query so the explanation can draw it. */
     app?: App | null
 }
 
@@ -79,6 +80,7 @@ export function ExplainChart({ data, openLink, app = null }: ExplainChartProps):
                         })
                     }
                 />
+                <ExplainChartFeedback />
             </CardContent>
         </Card>
     )

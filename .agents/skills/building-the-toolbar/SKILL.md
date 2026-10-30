@@ -1,6 +1,6 @@
 ---
 name: building-the-toolbar
-description: Builds, watches, checks and verifies the PostHog toolbar in both of its forms, the floating toolbar that posthog-js loads on customer pages and the browser extension that shows the toolbar in a Chrome side panel or Firefox sidebar. Use when changing anything under frontend/src/toolbar/ (floating toolbar or extension), frontend/toolbar-config.mjs, or the toolbar build and guard scripts, or when asked to build, watch, load unpacked, or test the toolbar or the toolbar extension in a browser. Covers `pnpm build:toolbars` and `pnpm watch:toolbars`, the check-toolbar-size, check-toolbar-graph and check-toolbar-csp-eval guards, why both forms must be built and kept in sync, and how to check each one in a real browser.
+description: Builds, watches, checks and verifies the PostHog toolbar in both of its forms, the floating toolbar that posthog-js loads on customer pages and the browser extension that shows the toolbar in a Chrome side panel or Firefox sidebar. Use when changing anything under frontend/src/toolbar/ (floating toolbar or extension), frontend/toolbar-config.mjs, or the toolbar build and guard scripts, or when asked to build, watch, load unpacked, or test the toolbar or the toolbar extension in a browser. Covers `pnpm build:toolbar-all` and `pnpm watch:toolbar-all`, the check-toolbar-size, check-toolbar-graph and check-toolbar-csp-eval guards, why both forms must be built and kept in sync, and how to check each one in a real browser.
 ---
 
 # Building the toolbar
@@ -10,14 +10,36 @@ Both builds live in `frontend/toolbar-config.mjs` and share its toolbar module p
 
 | Form              | Entry                                            | Output (under `frontend/dist/`)                     | Runs in                                          |
 | ----------------- | ------------------------------------------------ | --------------------------------------------------- | ------------------------------------------------ |
-| Floating toolbar  | `src/toolbar/index.tsx`                          | `toolbar.js` loader, `toolbar/` app chunks          | Customer pages, loaded by posthog-js             |
+| Floating toolbar  | `src/toolbar/floating/index.tsx`                 | `toolbar.js` loader, `toolbar/` app chunks          | Customer pages, loaded by posthog-js             |
 | Browser extension | `src/toolbar/extension/panel.tsx`, `content.tsx` | `toolbar-extension/<browser>/`, one zip per browser | Chrome side panel, Firefox sidebar (Manifest V3) |
+
+## Where code goes
+
+| Folder               | Holds                                                                                               |
+| -------------------- | --------------------------------------------------------------------------------------------------- |
+| `toolbar/shared/`    | The kea logics, the API and auth helpers, the shims, utils, and every component both forms render   |
+| `toolbar/floating/`  | The floating toolbar: its entry and loader, the bar, and the menus that bind shared logic to its UI |
+| `toolbar/extension/` | The extension: the panel, the content script, the page agent, and the panel's own tool components   |
+
+Inside `floating/` and `extension/`, only the entry points the build names sit at the top. Everything else goes in a folder:
+
+| Folder                  | Holds                                                                                                                       |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `components/<feature>/` | React components, their stories and tests. The feature folders use the names `shared/` uses, such as `flags`                |
+| `logics/`               | The form's kea logics and the pure helpers they test. The extension splits them into `panel/` and `page/` by where they run |
+| `messaging/`            | Extension only: the port, page agent and form sync protocol between the panel, the content script and the page              |
+| `browser/`              | Extension only: the wrappers around the extension APIs                                                                      |
+
+- Put logic in `shared/`. A form folder configures shared code for its form: it mounts logics, binds them to its UI, and renders shared components with its own data.
+- When a component is the same in both forms, it lives in `shared/` and takes its data and callbacks as props. `WebExperimentVariant` is the pattern: `floating/components/experiments/ExperimentsTabEditorProvider.tsx` and `extension/components/experiments/ExtensionExperimentEditorProvider.tsx` each bind it to their own state.
+- `shared/` never imports from `floating/` or `extension/`, and the two forms never import each other. `toolbar/toolbarLayout.test.ts` fails on such an import.
+- Keep each kea logic's `path([...])` as it is when you move its file. The path is the logic's identity and storage key, not its location.
 
 ## Build both, every time
 
-The extension's content script, `extension/content.tsx`, runs the floating toolbar's own kea logics and components on the page, such as `toolbarConfigLogic`, `elementsLogic` and `ElementOverlays`.
-The panel imports toolbar modules too, and both go through the same module plugin.
-So any change under `frontend/src/toolbar/`, or in `toolbar-config.mjs`, can break either form, even when you only meant to touch one.
+The extension's content script, `extension/content.tsx`, runs the shared kea logics and components on the page, such as `toolbarConfigLogic`, `elementsLogic` and `ElementOverlays`.
+The panel imports shared modules too, and both go through the same module plugin.
+So any change under `toolbar/shared/`, or in `toolbar-config.mjs`, can break either form, even when you only meant to touch one.
 
 - Build and check both forms for every toolbar change.
 - Fix shared toolbar code in the general way.
@@ -27,24 +49,24 @@ So any change under `frontend/src/toolbar/`, or in `toolbar-config.mjs`, can bre
 From `frontend/`:
 
 ```sh
-pnpm build:toolbars    # production floating toolbar, then the extension
-pnpm watch:toolbars    # rebuild both on change
+pnpm build:toolbar-all    # production floating toolbar, then the extension
+pnpm watch:toolbar-all    # rebuild both on change
 ```
 
 To build one form only:
 
 | Form              | Build                          | Watch                          |
 | ----------------- | ------------------------------ | ------------------------------ |
-| Floating toolbar  | `node ./bin/build-toolbar.mjs` | `pnpm watch:toolbar`           |
+| Floating toolbar  | `pnpm build:toolbar-floating`  | `pnpm watch:toolbar-floating`  |
 | Browser extension | `pnpm build:toolbar-extension` | `pnpm watch:toolbar-extension` |
 
-The dev stack (`hogli start`) already runs `pnpm watch:toolbar` through `start-vite`.
+The dev stack (`hogli start`) already runs `pnpm watch:toolbar-floating` through `start-vite`.
 While it runs, start `pnpm watch:toolbar-extension` alone, so two watchers don't write the same files.
 
 ## Run the guards
 
 The guards read `toolbar-esbuild-meta.json` and `dist/toolbar*`, which the floating toolbar build writes.
-CI runs them on a production build, so run them after `pnpm build:toolbars`, not after a watch build:
+CI runs them on a production build, so run them after `pnpm build:toolbar-all`, not after a watch build:
 
 ```sh
 pnpm check-toolbar-size      # loader size, eager-set budget, every file under the CloudFront gzip limit

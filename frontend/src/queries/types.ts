@@ -1,6 +1,7 @@
-import { CSSProperties, ComponentType, HTMLProps } from 'react'
+import { CSSProperties, ComponentType, HTMLProps, ReactNode } from 'react'
 
 import { ExpandableConfig } from 'lib/lemon-ui/LemonTable'
+import type { TaskQueue } from 'scenes/dashboard/dashboardUtils'
 
 import { QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
 import {
@@ -19,7 +20,11 @@ import { BIVisualizationNode } from './schema/schema-business-intelligence'
 
 /** Pass custom metadata to queries. Used for e.g. custom columns in the DataTable. */
 export interface QueryContext<Q extends QuerySchema = QuerySchema> {
+    onSelectBIMark?: (record: Record<string, unknown>) => void
+    isBIMarkActiveFilter?: (record: Record<string, unknown>) => boolean
+    getBIMarkDashboardUrl?: (record: Record<string, unknown>) => string
     dashboardResultMenu?: boolean
+    loadQueue?: TaskQueue
 
     /** Column templates for the DataTable */
     columns?: Record<string, QueryContextColumn>
@@ -98,6 +103,10 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     customActions?: JSX.Element | JSX.Element[]
     /** Callback for drag-to-zoom on time series charts. Enables x-axis drag selection when set. */
     onDateRangeZoom?: (dateFrom: string, dateTo: string) => void
+    /** Drawn on top of a trends line or bar chart, as a child of the chart, so it can read the chart's scales. */
+    chartOverlay?: ReactNode
+    /** When a series matches, a trends line or bar chart fades every series that does not. */
+    isSeriesHighlighted?: (result: TrendResult) => boolean
     /** Wired by the web analytics scene so a pre-computed tile's badge can offer "always query live data". */
     onDisableWebAnalyticsPrecompute?: () => void
     /**

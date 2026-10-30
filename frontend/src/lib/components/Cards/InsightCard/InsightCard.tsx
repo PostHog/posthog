@@ -47,6 +47,9 @@ import {
 } from '~/types'
 
 import type { AlertType } from 'products/alerts/frontend/types'
+import { isCrossFilterWorksheet } from 'products/business_intelligence/frontend/biDashboardCrossFilters'
+import { BIDashboardFilterStatus } from 'products/business_intelligence/frontend/BIDashboardFilterStatus'
+import { BIDashboardTile } from 'products/business_intelligence/frontend/BIDashboardTile'
 import { DashboardInsightResultMenu } from 'products/dashboards/frontend/components/DashboardInsightResultMenu'
 import type { TileGroupMoveOptions } from 'products/dashboards/frontend/dashboardTileSections'
 
@@ -92,6 +95,7 @@ type AlertModalState = {
 }
 
 export interface InsightCardProps extends Resizeable {
+    biDashboardTileId?: number
     resultMenuEnabled?: boolean
     /** Insight to display. */
     insight: InsightModel
@@ -213,6 +217,7 @@ function InsightCardInternal(
         filtersOverride,
         variablesOverride,
         resultMenuEnabled,
+        biDashboardTileId,
         children,
         projectId,
         projectTimezone,
@@ -293,7 +298,9 @@ function InsightCardInternal(
     )
 
     const { insightLoading } = useValues(insightLogic(insightLogicProps))
-    const { insightDataLoading, insightDataError } = useValues(insightDataLogic(insightLogicProps))
+    const { insightDataLoading, insightDataError, savingDisplayOptions } = useValues(
+        insightDataLogic(insightLogicProps)
+    )
 
     const [, setCooldownTick] = useState(0)
     // The embedded query stores its own failure in insightDataLogic and does not set the apiError prop.
@@ -314,8 +321,11 @@ function InsightCardInternal(
     const [compactInfoVisible, setCompactInfoVisible] = useState(false)
     const [alertModal, setAlertModal] = useState<AlertModalState | null>(null)
     useEffect(() => {
-        onOverlayVisibilityChange?.(areDetailsShown || compactInfoVisible || alertModal !== null)
-    }, [areDetailsShown, compactInfoVisible, alertModal, onOverlayVisibilityChange])
+        // A pending display-option save also keeps the card mounted, because unmounting its logic cancels the save.
+        onOverlayVisibilityChange?.(
+            areDetailsShown || compactInfoVisible || alertModal !== null || savingDisplayOptions
+        )
+    }, [areDetailsShown, compactInfoVisible, alertModal, savingDisplayOptions, onOverlayVisibilityChange])
     const openCreateAlertModal = useCallback(() => setAlertModal({}), [])
     const openEditAlertModal = useCallback((alertId: AlertType['id']) => setAlertModal({ alertId }), [])
     const openCreateAnomalyAlertModal = useCallback(() => setAlertModal({ defaultToAnomalyDetection: true }), [])
@@ -402,6 +412,17 @@ function InsightCardInternal(
         if (BlockingEmptyState) {
             return BlockingEmptyState
         }
+        if (biDashboardTileId !== undefined && dashboardId && isCrossFilterWorksheet(insight.query)) {
+            return (
+                <BIDashboardTile
+                    dashboardId={dashboardId}
+                    tileId={biDashboardTileId}
+                    insight={insight}
+                    query={insight.query}
+                    loadPriority={loadPriority}
+                />
+            )
+        }
         return (
             <Query
                 query={insight.query}
@@ -429,6 +450,9 @@ function InsightCardInternal(
         placement,
         renderVizWhenMounted,
         resultMenuEnabled,
+        biDashboardTileId,
+        dashboardId,
+        loadPriority,
     ])
 
     const vizContent = shouldRenderViz ? (
@@ -463,6 +487,11 @@ function InsightCardInternal(
             <ErrorBoundary exceptionProps={{ feature: 'insight' }}>
                 <BindLogic logic={insightLogic} props={insightLogicProps}>
                     <InsightMeta
+                        headerStatus={
+                            biDashboardTileId !== undefined && dashboardId ? (
+                                <BIDashboardFilterStatus dashboardId={dashboardId} tileId={biDashboardTileId} />
+                            ) : undefined
+                        }
                         tile={tile}
                         insight={insight}
                         projectId={projectId}

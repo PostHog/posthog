@@ -196,12 +196,18 @@ class TestTaskRunMetrics(TestCase):
         ):
             self.task.create_run(
                 environment=TaskRun.Environment.CLOUD,
-                extra_state={"run_source": "manual", "runtime_adapter": "codex"},
+                extra_state={"run_source": "manual", "runtime_adapter": "codex", "model": "gpt-5.5"},
             )
 
         assert _sample_value("posthog_tasks_task_run_created_total", labels) == before + 1
         created_event = next(call for call in capture.call_args_list if call.kwargs.get("event") == "task_run_created")
         assert created_event.kwargs["send_feature_flags"] is False
+        properties = created_event.kwargs["properties"]
+        assert (properties["model"], properties["runtime_adapter"], properties["reasoning_effort"]) == (
+            "gpt-5.5",
+            "codex",
+            None,
+        )
 
     def test_create_run_bounds_unexpected_state_labels(self) -> None:
         labels = {

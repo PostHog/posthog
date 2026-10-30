@@ -1813,6 +1813,25 @@ class TestPosthogCodeSandboxMint:
         )
 
     @pytest.mark.django_db
+    def test_retry_after_credit_top_up_rechecks_credit_availability(self, mint_settings):
+        team = self._team(paid=True)
+        mint_settings.SANDBOX_AI_GATEWAY_PRODUCTS = "posthog_code"
+        with (
+            patch(_CREDIT_LOOKUP, side_effect=["posthog_code_credits_exhausted", None]) as credit,
+            patch(
+                "products.tasks.backend.temporal.process_task.utils.mint_scoped_token", return_value="synthetic-token"
+            ) as mint,
+        ):
+            with pytest.raises(GatewayTokenUnavailableError) as refused:
+                ai_gateway_env_vars(team_id=team.id, origin_product="user_created", model="claude-opus-5")
+            assert refused.value.non_retryable is True
+            mint.assert_not_called()
+            env = ai_gateway_env_vars(team_id=team.id, origin_product="user_created", model="claude-opus-5")
+            assert env["AI_GATEWAY_TOKEN"] == "synthetic-token"
+            assert credit.call_count == 2
+            mint.assert_called_once()
+
+    @pytest.mark.django_db
     @pytest.mark.parametrize("setting", ["SANDBOX_AI_GATEWAY_URL", "SANDBOX_AI_GATEWAY_MINT_KEY"])
     def test_a_posthog_code_run_with_the_gateway_unconfigured_fails_and_logs(self, mint_settings, setting):
         team = self._team(paid=True)
