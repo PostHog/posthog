@@ -97,6 +97,16 @@ def no_such_list_entry_response() -> Response:
     return Response({"error": "No such list entry.", "conflicting_project": None}, status=status.HTTP_404_NOT_FOUND)
 
 
+def uuid_path_parameter(object_name: str) -> OpenApiParameter:
+    # path_parameters types the id, but only this declaration gives it a description in the API docs.
+    return OpenApiParameter(
+        "id",
+        OpenApiTypes.UUID,
+        OpenApiParameter.PATH,
+        description=f"A UUID string identifying this {object_name}.",
+    )
+
+
 def decision_data(decision: AutomaticReviewDecision) -> dict[str, Any]:
     return {"flash": decision.flash, "reason": decision.reason.value}
 
@@ -382,6 +392,7 @@ class EffectiveTeamStrictManagementPermission(EffectiveTeamMemberPermission):
         summary="Remove a repository's settings",
         description="Remove the repository from this project and clear its exception and lists. With an 'all "
         "repositories' claim the repository stays in the project and follows the project rule.",
+        parameters=[uuid_path_parameter("review repository")],
     ),
 )
 class ReviewRepositoryViewSet(ReviewHogProjectViewSetMixin, viewsets.GenericViewSet):
@@ -459,6 +470,7 @@ class ReviewRepositoryViewSet(ReviewHogProjectViewSetMixin, viewsets.GenericView
         return Response(response.data)
 
     @extend_schema(
+        parameters=[uuid_path_parameter("review repository")],
         request=ReviewRepositoryPersonRequestSerializer,
         responses={
             200: OpenApiResponse(response=ReviewRepositorySerializer, description="The person was already on it."),
@@ -489,6 +501,7 @@ class ReviewRepositoryViewSet(ReviewHogProjectViewSetMixin, viewsets.GenericView
 
     @extend_schema(
         parameters=[
+            uuid_path_parameter("review repository"),
             OpenApiParameter(
                 "person_id", OpenApiTypes.UUID, OpenApiParameter.PATH, description="Id of the list entry."
             ),
@@ -568,6 +581,7 @@ class ReviewInstallationClaimViewSet(ReviewHogProjectViewSetMixin, viewsets.Gene
         return Response(ReviewInstallationClaimSerializer(claim).data, status=status.HTTP_201_CREATED)
 
     @extend_schema(
+        parameters=[uuid_path_parameter("review installation claim")],
         request=ReviewInstallationClaimUpdateSerializer,
         responses={
             200: OpenApiResponse(response=ReviewInstallationClaimSerializer, description="The claim was changed."),
@@ -598,6 +612,7 @@ class ReviewInstallationClaimViewSet(ReviewHogProjectViewSetMixin, viewsets.Gene
         return Response(ReviewInstallationClaimSerializer(claim).data)
 
     @extend_schema(
+        parameters=[uuid_path_parameter("review installation claim")],
         responses={
             204: OpenApiResponse(description="The claim and this project's repository settings there are gone.")
         },
@@ -615,6 +630,7 @@ class ReviewInstallationClaimViewSet(ReviewHogProjectViewSetMixin, viewsets.Gene
     destroy=extend_schema(
         summary="Clear my choice for a repository",
         description="Clear the requesting user's own choice for one repository, so their default applies again.",
+        parameters=[uuid_path_parameter("review user repository choice")],
     ),
 )
 class ReviewRepositoryChoiceViewSet(ReviewHogProjectViewSetMixin, viewsets.GenericViewSet):
