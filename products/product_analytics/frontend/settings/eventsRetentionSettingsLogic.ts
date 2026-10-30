@@ -59,7 +59,7 @@ export interface eventsRetentionSettingsLogicActions {
         projectRetention: EventsRetentionApi | null
         payload?: any
     }
-    updateOrganizationRetention: (update: EventsRetentionUpdate) => EventsRetentionUpdate
+    updateOrganizationRetention: ({ retentionMonths, deleteMonthly }: EventsRetentionUpdate) => EventsRetentionUpdate
     updateOrganizationRetentionFailure: (
         error: string,
         errorObject?: any
@@ -74,7 +74,7 @@ export interface eventsRetentionSettingsLogicActions {
         organizationRetention: OrganizationEventsRetentionApi | null
         payload?: EventsRetentionUpdate
     }
-    updateProjectRetention: (update: EventsRetentionUpdate) => EventsRetentionUpdate
+    updateProjectRetention: ({ retentionMonths, deleteMonthly }: EventsRetentionUpdate) => EventsRetentionUpdate
     updateProjectRetentionFailure: (
         error: string,
         errorObject?: any
