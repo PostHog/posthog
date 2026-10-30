@@ -64,6 +64,7 @@ import {
   estimateTokens,
 } from "../claude/context-breakdown";
 import {
+  agentErrorRetryAfterMs,
   classifyAgentError,
   isRetryableUpstreamErrorClassification,
   sanitizeAgentErrorCause,
@@ -2256,6 +2257,9 @@ export class CodexAppServerAgent extends BaseAcpAgent {
       error: new RequestError(-32603, describeFatalError(message), {
         classification,
         result: sanitizeAgentErrorCause(message, classification),
+        ...(classification === "upstream_rate_limited"
+          ? { retryAfterMs: agentErrorRetryAfterMs(message) }
+          : {}),
         madeProgress: this.turnMadeProgress,
         ...(usage ? { usage } : {}),
       }),

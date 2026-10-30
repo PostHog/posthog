@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  agentErrorRetryAfterMs,
   classifyAgentError,
   isPromptTooLongError,
   isRetryableUpstreamErrorClassification,
@@ -29,7 +30,14 @@ describe("classifyAgentError", () => {
       "API Error: 429 Rate limit exceeded: This agent run reached its spend limit. Try again in about 24 hours.",
       "task_spend_limit",
     ],
-    ["API Error: 429 rate limited", "upstream_provider_failure"],
+    ["API Error: 429 rate limited", "upstream_rate_limited"],
+    [
+      "rate limit exceeded: Rate limit reached for test-model",
+      "upstream_rate_limited",
+    ],
+    ["Rate limit reached for test-model", "upstream_rate_limited"],
+    ['{"error":{"code":"rate_limit_exceeded"}}', "upstream_rate_limited"],
+    ["The model is at capacity. Try again later.", "upstream_rate_limited"],
     ["API Error: 529 overloaded", "upstream_provider_failure"],
     ["API Error: Content block not found", "content_block_rejection"],
     [
@@ -39,15 +47,15 @@ describe("classifyAgentError", () => {
     // The codex app-server reports provider HTTP failures with its own wording.
     [
       "unexpected status 429 Too Many Requests: slow down",
-      "upstream_provider_failure",
+      "upstream_rate_limited",
     ],
     [
       "unexpected status 502 Bad Gateway: upstream unavailable",
       "upstream_provider_failure",
     ],
     ["unexpected status 403 Forbidden: needs a paid plan", "agent_error"],
-    ["Flex capacity unavailable.", "upstream_provider_failure"],
-    ["Internal error: Flex capacity unavailable.", "upstream_provider_failure"],
+    ["Flex capacity unavailable.", "upstream_rate_limited"],
+    ["Internal error: Flex capacity unavailable.", "upstream_rate_limited"],
     [
       "Selected model is at capacity. Please try a different model.",
       "upstream_provider_failure",
@@ -92,6 +100,8 @@ describe("isRetryableUpstreamErrorClassification", () => {
     ["upstream_connection_error", true],
     ["upstream_timeout", true],
     ["upstream_provider_failure", true],
+    ["upstream_rate_limited", true],
+    ["task_spend_limit", false],
     ["content_block_rejection", false],
     ["turn_ended_without_response", false],
     ["subscription_usage_limit", false],
@@ -106,6 +116,21 @@ describe("isRetryableUpstreamErrorClassification", () => {
 
 describe("sanitizeAgentErrorCause", () => {
   it.each([
+    [
+      "Rate limit reached for a private model",
+      "upstream_rate_limited",
+      "upstream_rate_limited",
+    ],
+    [
+      "API Error: 429 private provider body",
+      "upstream_rate_limited",
+      "upstream_rate_limited",
+    ],
+    [
+      "unexpected status 429 private provider body",
+      "upstream_rate_limited",
+      "upstream_rate_limited",
+    ],
     [
       "unexpected status 503 Service Unavailable: private provider body",
       "upstream_provider_failure",
@@ -181,6 +206,22 @@ describe("sanitizeAgentErrorCause", () => {
     const cause = "private response content ".repeat(100);
 
     expect(sanitizeAgentErrorCause(cause, "agent_error")).toHaveLength(400);
+  });
+});
+
+describe("agentErrorRetryAfterMs", () => {
+  it.each([
+    ["Please try again in 12.3s.", 12_300],
+    ["Try again in 1.5 seconds.", 1_500],
+    ["Please TRY AGAIN IN 28ms.", 28],
+    ["try again in 1.5 milliseconds", 2],
+    ["try again in 0s", 0],
+    ["try again in -2s", undefined],
+    ["try again in 12 bananas", undefined],
+    ["try again in 999999999999999999s", undefined],
+    ["Rate limit exceeded", undefined],
+  ])("parses %j as %j milliseconds", (message, expected) => {
+    expect(agentErrorRetryAfterMs(message as string)).toBe(expected);
   });
 });
 

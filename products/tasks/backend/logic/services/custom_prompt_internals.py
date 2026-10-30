@@ -22,6 +22,7 @@ from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageError
 from posthog.temporal.oauth import PosthogMcpScopes
 
+from products.tasks.backend.constants import UPSTREAM_RETRYABLE_ERROR_CATEGORIES
 from products.tasks.backend.facade.api import upload_task_run_artifacts
 from products.tasks.backend.facade.contracts import AgentStartupFailure, AgentTaskRunDTO, SessionFile
 from products.tasks.backend.logic.services.startup_failure import (
@@ -241,19 +242,6 @@ class EmptyAgentTurnError(RuntimeError):
         super().__init__(message)
         self.total_lines = total_lines
         self.printed_lines = printed_lines
-
-
-# Mirrored from RETRYABLE_UPSTREAM_ERROR_CLASSIFICATIONS in
-# packages/agent/packages/agent/src/adapters/error-classification.ts, which is the source of
-# truth. A category added there must be added here too, or a retryable failure reads as permanent.
-UPSTREAM_RETRYABLE_ERROR_CATEGORIES = frozenset(
-    {
-        "upstream_stream_terminated",
-        "upstream_connection_error",
-        "upstream_timeout",
-        "upstream_provider_failure",
-    }
-)
 
 
 class AgentTurnFailed(RuntimeError):

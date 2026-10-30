@@ -8299,6 +8299,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
     @parameterized.expand(
         [
             ("with_error_type", {"error_type": "agent_declined"}, "agent_declined"),
+            ("rate_limited", {"error_type": "upstream_rate_limited"}, "upstream_rate_limited"),
             ("without_error_type", {}, None),
         ]
     )

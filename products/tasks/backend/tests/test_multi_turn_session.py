@@ -1078,6 +1078,7 @@ class TestExtractAgentError:
     @parameterized.expand(
         [
             ("upstream_provider_failure", "API Error: 429 rate_limit_error"),
+            ("upstream_rate_limited", "Rate limit reached"),
             ("upstream_connection_error", "API Error: Connection error"),
             ("upstream_stream_terminated", "API Error: terminated"),
             ("agent_error", "Something broke inside the agent"),
@@ -1198,6 +1199,7 @@ class TestPollForTurnSurfacesAgentError:
     @parameterized.expand(
         [
             ("upstream_provider_failure", "API Error: 429 rate_limit_error", True),
+            ("upstream_rate_limited", "Rate limit reached", True),
             ("upstream_connection_error", "API Error: Connection error", True),
             ("upstream_stream_terminated", "API Error: terminated", True),
             ("upstream_timeout", "API Error: Request timed out", True),

@@ -153,7 +153,7 @@ describe("Question relay", () => {
     ["API Error: Connection error", "upstream_connection_error"],
     ["API Error: The operation timed out.", "upstream_timeout"],
     ["API Error: Request timed out.", "upstream_timeout"],
-    ["API Error: 429 rate_limit_error", "upstream_provider_failure"],
+    ["API Error: 429 rate_limit_error", "upstream_rate_limited"],
     ["API Error: 529 overloaded_error", "upstream_provider_failure"],
     ["API Error: 503 internal_error", "upstream_provider_failure"],
     ["something else", "agent_error"],
@@ -966,7 +966,22 @@ describe("Question relay", () => {
       expect(continuation.prompt[0].text).toContain(
         "interrupted by a transient connection error",
       );
-      expect(updateTaskRunSpy).not.toHaveBeenCalled();
+      expect(updateTaskRunSpy.mock.calls).toEqual([
+        [
+          "test-task-id",
+          "test-run-id",
+          {
+            state: {
+              upstream_turn_retry: {
+                classification: "upstream_stream_terminated",
+                attempt: 1,
+                delay_ms: 5_000,
+              },
+            },
+          },
+          expect.any(AbortSignal),
+        ],
+      ]);
     });
 
     it("re-sends the original prompt after an upstream provider failure", async () => {
@@ -1018,63 +1033,130 @@ describe("Question relay", () => {
         prompt: Array<{ type: string; text: string }>;
       };
       expect(retryRequest.prompt[0].text).toBe("original task description");
-      expect(updateTaskRunSpy).not.toHaveBeenCalled();
+      expect(updateTaskRunSpy.mock.calls).toEqual([
+        [
+          "test-task-id",
+          "test-run-id",
+          {
+            state: {
+              upstream_turn_retry: {
+                classification: "upstream_provider_failure",
+                attempt: 1,
+                delay_ms: 5_000,
+              },
+            },
+          },
+          expect.any(AbortSignal),
+        ],
+      ]);
     });
 
-    it("stores the classified cause once upstream retries are exhausted", async () => {
-      vi.spyOn(server.posthogAPI, "getTask").mockResolvedValue({
-        id: "test-task-id",
-        title: "t",
-        description: "original task description",
-      } as unknown as Task);
-      vi.spyOn(server.posthogAPI, "getTaskRun").mockResolvedValue({
-        id: "test-run-id",
-        task: "test-task-id",
-        state: {},
-      } as unknown as TaskRun);
+    it.each([
+      {
+        classification: "upstream_connection_error",
+        error: createTransientConnectionError(),
+        delayMs: 10_000,
+        attempts: 3,
+        slowReport: false,
+      },
+      {
+        classification: "upstream_rate_limited",
+        error: new Error("Rate limit reached"),
+        delayMs: 112_500,
+        attempts: 5,
+        slowReport: false,
+      },
+      {
+        classification: "upstream_connection_error",
+        error: createTransientConnectionError(),
+        delayMs: 10_000,
+        attempts: 3,
+        slowReport: true,
+      },
+    ])(
+      "stores $classification after retries finish (slow report: $slowReport)",
+      async ({ classification, error, delayMs, attempts, slowReport }) => {
+        vi.spyOn(server.posthogAPI, "getTask").mockResolvedValue({
+          id: "test-task-id",
+          title: "t",
+          description: "original task description",
+        } as unknown as Task);
+        vi.spyOn(server.posthogAPI, "getTaskRun").mockResolvedValue({
+          id: "test-run-id",
+          task: "test-task-id",
+          state: {},
+        } as unknown as TaskRun);
 
-      const promptSpy = vi.fn().mockImplementation(async () => {
-        throw createTransientConnectionError();
-      });
-      const updateTaskRunSpy = vi
-        .spyOn(server.posthogAPI, "updateTaskRun")
-        .mockResolvedValue({} as TaskRun);
-      server.session = {
-        contextSelection: server.createContextSelection(TEST_PAYLOAD.run_id),
-        cancellationVersion: 0,
-        payload: TEST_PAYLOAD,
-        acpSessionId: "acp-session",
-        clientConnection: { prompt: promptSpy },
-        logWriter: {
-          flushAll: vi.fn().mockResolvedValue(undefined),
-          getFullAgentResponse: vi.fn().mockReturnValue(null),
-          resetTurnMessages: vi.fn(),
-          appendRawLine: vi.fn(),
-          flush: vi.fn().mockResolvedValue(undefined),
-          isRegistered: vi.fn().mockReturnValue(true),
-        },
-      };
+        const promptSpy = vi.fn().mockImplementation(async () => {
+          throw error;
+        });
+        const updateTaskRunSpy = vi
+          .spyOn(server.posthogAPI, "updateTaskRun")
+          .mockResolvedValue({} as TaskRun);
+        let finishReport: (() => void) | undefined;
+        if (slowReport) {
+          updateTaskRunSpy.mockImplementationOnce(
+            () =>
+              new Promise<TaskRun>((resolve) => {
+                finishReport = () => resolve({} as TaskRun);
+              }),
+          );
+        }
+        server.session = {
+          contextSelection: server.createContextSelection(TEST_PAYLOAD.run_id),
+          cancellationVersion: 0,
+          payload: TEST_PAYLOAD,
+          acpSessionId: "acp-session",
+          clientConnection: { prompt: promptSpy },
+          logWriter: {
+            flushAll: vi.fn().mockResolvedValue(undefined),
+            getFullAgentResponse: vi.fn().mockReturnValue(null),
+            resetTurnMessages: vi.fn(),
+            appendRawLine: vi.fn(),
+            flush: vi.fn().mockResolvedValue(undefined),
+            isRegistered: vi.fn().mockReturnValue(true),
+          },
+        };
 
-      vi.useFakeTimers();
-      try {
-        const sendPromise = startInitialTaskMessage(server, TEST_PAYLOAD);
-        await vi.advanceTimersByTimeAsync(15_000);
-        await sendPromise;
-      } finally {
-        vi.useRealTimers();
-      }
+        vi.useFakeTimers();
+        const random = vi.spyOn(Math, "random").mockReturnValue(0.5);
+        try {
+          const sendPromise = startInitialTaskMessage(server, TEST_PAYLOAD);
+          await vi.advanceTimersByTimeAsync(delayMs);
+          if (slowReport) {
+            expect(promptSpy).toHaveBeenCalledTimes(attempts);
+            expect(updateTaskRunSpy).toHaveBeenCalledOnce();
+            finishReport?.();
+          }
+          await sendPromise;
+        } finally {
+          random.mockRestore();
+          vi.useRealTimers();
+        }
 
-      expect(promptSpy).toHaveBeenCalledTimes(3);
-      expect(updateTaskRunSpy).toHaveBeenCalledWith(
-        "test-task-id",
-        "test-run-id",
-        {
-          status: "failed",
-          error_message: `upstream_connection_error: ${UPSTREAM_PROVIDER_FAILURE_MESSAGE}`,
-          error_type: "upstream_connection_error",
-          state: { agent_version: expect.any(String) },
-        },
-      );
-    });
+        expect(promptSpy).toHaveBeenCalledTimes(attempts);
+        expect(
+          updateTaskRunSpy.mock.calls.map(([, , update]) =>
+            update.status === "failed"
+              ? update.status
+              : (update.state?.upstream_turn_retry as { attempt: number })
+                  .attempt,
+          ),
+        ).toEqual([
+          ...Array.from({ length: attempts - 1 }, (_, index) => index + 1),
+          "failed",
+        ]);
+        expect(updateTaskRunSpy).toHaveBeenCalledWith(
+          "test-task-id",
+          "test-run-id",
+          {
+            status: "failed",
+            error_message: `${classification}: ${UPSTREAM_PROVIDER_FAILURE_MESSAGE}`,
+            error_type: classification,
+            state: { agent_version: expect.any(String) },
+          },
+        );
+      },
+    );
   });
 });

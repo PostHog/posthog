@@ -8,6 +8,7 @@ export type AgentErrorClassification =
   | "upstream_connection_error"
   | "upstream_timeout"
   | "upstream_provider_failure"
+  | "upstream_rate_limited"
   | "content_block_rejection"
   | "turn_ended_without_response"
   | "subscription_usage_limit"
@@ -21,6 +22,7 @@ const RETRYABLE_UPSTREAM_ERROR_CLASSIFICATIONS =
     "upstream_connection_error",
     "upstream_timeout",
     "upstream_provider_failure",
+    "upstream_rate_limited",
   ]);
 
 export function isRetryableUpstreamErrorClassification(
@@ -29,14 +31,15 @@ export function isRetryableUpstreamErrorClassification(
   return RETRYABLE_UPSTREAM_ERROR_CLASSIFICATIONS.has(classification);
 }
 
-const UPSTREAM_PROVIDER_ERROR_STATUS_PATTERN = /API Error:\s*(?:429|5\d\d)\b/i;
+const UPSTREAM_PROVIDER_ERROR_STATUS_PATTERN = /API Error:\s*5\d\d\b/i;
 // The codex app-server reports a provider HTTP failure as
 // "unexpected status <code> <reason>: <body>" instead of the "API Error:" wording.
-const CODEX_PROVIDER_ERROR_STATUS_PATTERN =
-  /unexpected status\s*(?:429|5\d\d)\b/i;
+const CODEX_PROVIDER_ERROR_STATUS_PATTERN = /unexpected status\s*5\d\d\b/i;
 // OpenAI refuses a flex-tier request when it has no flex capacity. The
 // refusal carries no HTTP status in the text, but it is transient.
 const UPSTREAM_CAPACITY_UNAVAILABLE_PATTERN = /\bcapacity unavailable\b/i;
+const UPSTREAM_RATE_LIMIT_PATTERN =
+  /\brate limit (?:exceeded|reached)\b|\brate_limit_exceeded\b|\bmodel is at capacity\b|\b(?:API Error:|unexpected status)\s*429\b/i;
 const CODEX_SERVER_OVERLOADED_PATTERN = /\bSelected model is at capacity\b/i;
 const SANDBOX_TASK_SPEND_LIMIT_PATTERN =
   /This agent run reached its spend limit/i;
@@ -90,10 +93,17 @@ export function classifyAgentError(
     return "task_spend_limit";
   }
   if (
+    UPSTREAM_RATE_LIMIT_PATTERN.test(text) ||
     UPSTREAM_PROVIDER_ERROR_STATUS_PATTERN.test(text) ||
     CODEX_PROVIDER_ERROR_STATUS_PATTERN.test(text) ||
     CODEX_SERVER_OVERLOADED_PATTERN.test(text) ||
     UPSTREAM_CAPACITY_UNAVAILABLE_PATTERN.test(text)
+  ) {
+    return "upstream_rate_limited";
+  }
+  if (
+    UPSTREAM_PROVIDER_ERROR_STATUS_PATTERN.test(text) ||
+    CODEX_PROVIDER_ERROR_STATUS_PATTERN.test(text)
   ) {
     return "upstream_provider_failure";
   }
@@ -116,6 +126,7 @@ export function sanitizeAgentErrorCause(
   result: string,
   classification: AgentErrorClassification,
 ): string {
+  if (classification === "upstream_rate_limited") return classification;
   const text = result.trim();
   const codexStatus = text.match(/\bunexpected status\s+(\d{3})\b/i);
   if (codexStatus) {
@@ -140,6 +151,18 @@ export function sanitizeAgentErrorCause(
     return (rejectedRequestMessage(text) ?? classification).slice(0, 200);
   }
   return text.slice(0, 400);
+}
+
+export function agentErrorRetryAfterMs(result: string): number | undefined {
+  const match = result.match(
+    /\btry again in\s+(\d+(?:\.\d+)?)\s*(milliseconds?|ms|seconds?|s)\b/i,
+  );
+  if (!match) return undefined;
+  const delayMs = Number(match[1]) * (/^m/i.test(match[2]) ? 1 : 1_000);
+  // Node timers overflow to a one-millisecond delay above this limit.
+  return Number.isFinite(delayMs) && delayMs <= 2_147_483_647
+    ? Math.ceil(delayMs)
+    : undefined;
 }
 
 function rejectedRequestMessage(body: string): string | undefined {

@@ -2353,24 +2353,30 @@ describe("AgentServer HTTP Mode", () => {
       );
     });
 
-    it("sanitizes an unstructured provider cause before persistence", async () => {
-      const testServer = createFailureTestServer();
+    it.each([
+      ["API Error: 503 private provider body", "upstream_provider_failure"],
+      ["Rate limit reached for a private model", "upstream_rate_limited"],
+    ])(
+      "sanitizes %s before persisting a terminal failure",
+      async (message, classification) => {
+        const testServer = createFailureTestServer();
 
-      await testServer.handleTurnFailure(
-        interactivePayload,
-        "initial",
-        new Error("API Error: 503 private provider body"),
-      );
+        await testServer.handleTurnFailure(
+          interactivePayload,
+          "initial",
+          new Error(message),
+        );
 
-      expect(testServer.posthogAPI.updateTaskRun).toHaveBeenCalledWith(
-        "task-1",
-        "run-1",
-        expect.objectContaining({
-          status: "failed",
-          error_message: `upstream_provider_failure: ${UPSTREAM_PROVIDER_FAILURE_MESSAGE}`,
-        }),
-      );
-    });
+        expect(testServer.posthogAPI.updateTaskRun).toHaveBeenCalledWith(
+          "task-1",
+          "run-1",
+          expect.objectContaining({
+            status: "failed",
+            error_message: `${classification}: ${UPSTREAM_PROVIDER_FAILURE_MESSAGE}`,
+          }),
+        );
+      },
+    );
 
     it("quietly ends an interactive follow-up when its idle ACP transport closed", async () => {
       const testServer = createFailureTestServer();
@@ -2411,7 +2417,10 @@ describe("AgentServer HTTP Mode", () => {
       expect(testServer.posthogAPI.updateTaskRun).not.toHaveBeenCalled();
     });
 
-    function createRetryTestServer(prompt: ReturnType<typeof vi.fn>) {
+    function createRetryTestServer(
+      prompt: ReturnType<typeof vi.fn>,
+      mode: "interactive" | "background" = "background",
+    ) {
       const testServer = createFailureTestServer();
       const session = {
         cancellationVersion: 0,
@@ -2422,7 +2431,7 @@ describe("AgentServer HTTP Mode", () => {
           "run-1",
         ),
         acpSessionId: "acp-1",
-        payload: { run_id: "run-1", task_id: "task-1" },
+        payload: { run_id: "run-1", task_id: "task-1", mode },
         logWriter: {
           appendRawLine: vi.fn(),
           flush: vi.fn(async () => {}),
@@ -2606,7 +2615,11 @@ describe("AgentServer HTTP Mode", () => {
         testServer.session = {
           ...testServer.session,
           acpSessionId: "acp-2",
-          payload: { run_id: "run-2", task_id: "task-2" },
+          payload: {
+            ...testServer.session.payload,
+            run_id: "run-2",
+            task_id: "task-2",
+          },
           clientConnection: {
             ...testServer.session.clientConnection,
             prompt: vi.fn(),
@@ -2653,27 +2666,144 @@ describe("AgentServer HTTP Mode", () => {
       }
     });
 
-    it("stops retrying when the user cancels during the retry delay", async () => {
+    it.each([
+      ["a connection error", "API Error: Connection error."],
+      [
+        "a rate limit",
+        "Rate limit reached for test-model. Please try again in 120s.",
+      ],
+      [
+        "a rate limit with an oversized hint",
+        "Rate limit reached for test-model. Please try again in 2147483s.",
+      ],
+    ])(
+      "interrupts the retry wait for %s when the user cancels",
+      async (_name, message) => {
+        vi.useFakeTimers();
+        try {
+          const initialTimerCount = vi.getTimerCount();
+          const prompt = vi.fn().mockRejectedValueOnce(new Error(message));
+          const testServer = createRetryTestServer(prompt);
+          const resultPromise = testServer.runRetryWrappedTurn(() =>
+            testServer.promptWithUpstreamRetry({
+              sessionId: "acp-1",
+              prompt: [{ type: "text", text: "do the task" }],
+            }),
+          );
+          await vi.advanceTimersByTimeAsync(0);
+          await testServer.executeCommand("cancel", {});
+
+          await expect(resultPromise).resolves.toEqual({
+            stopReason: "cancelled",
+          });
+          expect(prompt).toHaveBeenCalledOnce();
+          expect(vi.getTimerCount()).toBe(initialTimerCount);
+        } finally {
+          vi.useRealTimers();
+        }
+      },
+    );
+
+    it.each(["interactive", "background"] as const)(
+      "cancels a retry with an in-flight state update in %s mode",
+      async (mode) => {
+        vi.useFakeTimers();
+        try {
+          const prompt = vi
+            .fn()
+            .mockRejectedValue(new Error("Rate limit reached"));
+          const testServer = createRetryTestServer(prompt, mode);
+          let reportSignal: AbortSignal | undefined;
+          testServer.posthogAPI.updateTaskRun.mockImplementation(
+            (_taskId, _runId, _update, signal: AbortSignal) => {
+              reportSignal = signal;
+              return new Promise((_resolve, reject) => {
+                signal.addEventListener("abort", () => reject(signal.reason), {
+                  once: true,
+                });
+              });
+            },
+          );
+          const result = testServer.runRetryWrappedTurn(() =>
+            testServer.promptWithUpstreamRetry({
+              sessionId: "acp-1",
+              prompt: [{ type: "text", text: "do the task" }],
+            }),
+          );
+          await vi.advanceTimersByTimeAsync(0);
+          expect(reportSignal?.aborted).toBe(false);
+
+          await testServer.executeCommand("cancel", {});
+
+          await expect(result).resolves.toEqual({ stopReason: "cancelled" });
+          expect(reportSignal?.aborted).toBe(true);
+          await vi.runAllTimersAsync();
+          expect(prompt).toHaveBeenCalledOnce();
+          expect(testServer.posthogAPI.updateTaskRun).toHaveBeenCalledOnce();
+        } finally {
+          vi.useRealTimers();
+        }
+      },
+    );
+
+    it("keeps a canceled turn canceled when the provider rejects afterward", async () => {
+      let rejectPrompt!: (error: Error) => void;
+      const prompt = vi.fn(
+        () =>
+          new Promise((_resolve, reject) => {
+            rejectPrompt = reject;
+          }),
+      );
+      const testServer = createRetryTestServer(prompt);
+      const result = testServer.runRetryWrappedTurn(() =>
+        testServer.promptWithUpstreamRetry({
+          sessionId: "acp-1",
+          prompt: [{ type: "text", text: "do the task" }],
+        }),
+      );
+
+      await testServer.executeCommand("cancel", {});
+      rejectPrompt(new Error("Invalid request"));
+
+      await expect(result).resolves.toEqual({ stopReason: "cancelled" });
+      expect(testServer.posthogAPI.updateTaskRun).not.toHaveBeenCalled();
+    });
+
+    it("allows a later turn to retry after canceling a retry wait", async () => {
       vi.useFakeTimers();
       try {
         const prompt = vi
           .fn()
-          .mockRejectedValueOnce(new Error("API Error: Connection error."));
+          .mockRejectedValueOnce(
+            new RequestError(-32603, "Rate limit reached", {
+              classification: "upstream_rate_limited",
+              retryAfterMs: 120_000,
+              usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+            }),
+          )
+          .mockRejectedValueOnce(new Error("API Error: Connection error."))
+          .mockResolvedValueOnce({ stopReason: "end_turn" });
         const testServer = createRetryTestServer(prompt);
-        const resultPromise = testServer.runRetryWrappedTurn(() =>
-          testServer.promptWithUpstreamRetry({
-            sessionId: "acp-1",
-            prompt: [{ type: "text", text: "do the task" }],
-          }),
+        const request = {
+          sessionId: "acp-1",
+          prompt: [{ type: "text" as const, text: "do the task" }],
+        };
+        const cancelled = testServer.runRetryWrappedTurn(() =>
+          testServer.promptWithUpstreamRetry(request),
         );
-        await Promise.resolve();
+        await vi.advanceTimersByTimeAsync(0);
         await testServer.executeCommand("cancel", {});
-        await vi.advanceTimersByTimeAsync(5_000);
-
-        await expect(resultPromise).resolves.toEqual({
+        await expect(cancelled).resolves.toMatchObject({
           stopReason: "cancelled",
+          usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
         });
-        expect(prompt).toHaveBeenCalledOnce();
+
+        const resumed = testServer.runRetryWrappedTurn(() =>
+          testServer.promptWithUpstreamRetry(request),
+        );
+        await vi.advanceTimersByTimeAsync(5_000);
+        await expect(resumed).resolves.toEqual({ stopReason: "end_turn" });
+        expect(prompt).toHaveBeenCalledTimes(3);
       } finally {
         vi.useRealTimers();
       }
@@ -2724,18 +2854,22 @@ describe("AgentServer HTTP Mode", () => {
         const assertion = expect(resultPromise).rejects.toThrow(
           "Agent session changed before the turn could be retried",
         );
-        await Promise.resolve();
-        await testServer.executeCommand("cancel", {});
+        await vi.advanceTimersByTimeAsync(0);
+        const cancellation = testServer.executeCommand("cancel", {});
         testServer.session = {
           ...testServer.session,
           acpSessionId: "acp-2",
-          payload: { run_id: "run-2", task_id: "task-2" },
+          payload: {
+            ...testServer.session.payload,
+            run_id: "run-2",
+            task_id: "task-2",
+          },
           clientConnection: {
             ...testServer.session.clientConnection,
             prompt: vi.fn(),
           },
         };
-        await vi.advanceTimersByTimeAsync(5_000);
+        await cancellation;
 
         await assertion;
         expect(prompt).toHaveBeenCalledOnce();
@@ -2813,7 +2947,13 @@ describe("AgentServer HTTP Mode", () => {
 
         await vi.advanceTimersByTimeAsync(15_000);
         await assertion;
-        expect(testServer.posthogAPI.updateTaskRun).not.toHaveBeenCalled();
+        expect(testServer.posthogAPI.updateTaskRun).not.toHaveBeenCalledWith(
+          "task-1",
+          "run-1",
+          expect.objectContaining({
+            state: expect.objectContaining({ token_usage: expect.anything() }),
+          }),
+        );
       } finally {
         vi.useRealTimers();
       }
@@ -2866,41 +3006,47 @@ describe("AgentServer HTTP Mode", () => {
       }
     });
 
-    it("re-sends the original prompt when the failure happened before the stream started", async () => {
-      vi.useFakeTimers();
-      try {
-        const prompt = vi
-          .fn()
-          .mockRejectedValueOnce(new Error("API Error: Connection error."))
-          .mockResolvedValueOnce({ stopReason: "end_turn" });
-        const testServer = createRetryTestServer(prompt);
+    it.each([
+      ["API Error: Connection error.", 5_000],
+      ["Flex capacity unavailable.", 15_000],
+    ])(
+      "re-sends the original prompt after %s before the stream started",
+      async (message, delay) => {
+        vi.useFakeTimers();
+        try {
+          const prompt = vi
+            .fn()
+            .mockRejectedValueOnce(new Error(message))
+            .mockResolvedValueOnce({ stopReason: "end_turn" });
+          const testServer = createRetryTestServer(prompt);
 
-        const resultPromise = testServer.promptWithUpstreamRetry({
-          sessionId: "acp-1",
-          prompt: [{ type: "text", text: "do the task" }],
-        });
-        await vi.advanceTimersByTimeAsync(5_000);
+          const resultPromise = testServer.promptWithUpstreamRetry({
+            sessionId: "acp-1",
+            prompt: [{ type: "text", text: "do the task" }],
+          });
+          await vi.advanceTimersByTimeAsync(delay);
 
-        await expect(resultPromise).resolves.toEqual({
-          stopReason: "end_turn",
-        });
-        expect(prompt).toHaveBeenCalledTimes(2);
-        const retryRequest = prompt.mock.calls[1][0] as {
-          sessionId: string;
-          prompt: Array<{ type: string; text: string }>;
-        };
-        expect(retryRequest.sessionId).toBe("acp-1");
-        expect(retryRequest.prompt).toEqual([
-          {
-            type: "text",
-            text: "do the task",
-            _meta: { ui: { hidden: true } },
-          },
-        ]);
-      } finally {
-        vi.useRealTimers();
-      }
-    });
+          await expect(resultPromise).resolves.toEqual({
+            stopReason: "end_turn",
+          });
+          expect(prompt).toHaveBeenCalledTimes(2);
+          const retryRequest = prompt.mock.calls[1][0] as {
+            sessionId: string;
+            prompt: Array<{ type: string; text: string }>;
+          };
+          expect(retryRequest.sessionId).toBe("acp-1");
+          expect(retryRequest.prompt).toEqual([
+            {
+              type: "text",
+              text: "do the task",
+              _meta: { ui: { hidden: true } },
+            },
+          ]);
+        } finally {
+          vi.useRealTimers();
+        }
+      },
+    );
 
     it("does not retry a genuine agent error", async () => {
       const prompt = vi.fn().mockRejectedValue(new Error("boom"));
@@ -2945,29 +3091,87 @@ describe("AgentServer HTTP Mode", () => {
       );
     });
 
-    it("stops continuing once the bounded retry budget is exhausted", async () => {
-      vi.useFakeTimers();
-      try {
-        const prompt = vi
-          .fn()
-          .mockRejectedValue(new Error("API Error: terminated"));
-        const testServer = createRetryTestServer(prompt);
+    it.each([
+      {
+        name: "a terminated stream",
+        error: new Error("API Error: terminated"),
+        classification: "upstream_stream_terminated",
+        delays: [5_000, 5_000],
+      },
+      {
+        name: "a rate limit without a status",
+        error: new Error(
+          "rate limit exceeded: Rate limit reached for test-model",
+        ),
+        classification: "upstream_rate_limited",
+        delays: [7_500, 15_000, 30_000, 60_000],
+      },
+      {
+        name: "a sanitized rate limit with retry advice",
+        error: new RequestError(-32603, "Rate limit exceeded", {
+          classification: "upstream_rate_limited",
+          result: "upstream_rate_limited",
+          retryAfterMs: 12_300,
+        }),
+        classification: "upstream_rate_limited",
+        delays: [19_800, 27_300, 42_300, 66_150],
+      },
+      {
+        name: "a rate limit when retry telemetry fails",
+        error: new Error("Rate limit reached for test-model"),
+        classification: "upstream_rate_limited",
+        delays: [7_500, 15_000, 30_000, 60_000],
+        reportingFails: true,
+      },
+    ])(
+      "stops retrying $name once its budget is exhausted",
+      async ({ error, classification, delays, reportingFails }) => {
+        vi.useFakeTimers();
+        const random = vi.spyOn(Math, "random").mockReturnValue(0.5);
+        try {
+          const prompt = vi.fn().mockRejectedValue(error);
+          const testServer = createRetryTestServer(prompt);
+          if (reportingFails) {
+            testServer.posthogAPI.updateTaskRun.mockRejectedValue(
+              new Error("Reporting unavailable"),
+            );
+          }
 
-        const resultPromise = testServer.promptWithUpstreamRetry({
-          sessionId: "acp-1",
-          prompt: [{ type: "text", text: "do the task" }],
-        });
-        const assertion = expect(resultPromise).rejects.toThrow(
-          "API Error: terminated",
-        );
-        await vi.advanceTimersByTimeAsync(15_000);
+          const resultPromise = testServer.promptWithUpstreamRetry({
+            sessionId: "acp-1",
+            prompt: [{ type: "text", text: "do the task" }],
+          });
+          const assertion = expect(resultPromise).rejects.toThrow(
+            error.message,
+          );
+          for (const [index, delay] of delays.entries()) {
+            await vi.advanceTimersByTimeAsync(delay - 1);
+            expect(prompt).toHaveBeenCalledTimes(index + 1);
+            expect(testServer.posthogAPI.updateTaskRun).toHaveBeenCalledWith(
+              "task-1",
+              "run-1",
+              {
+                state: {
+                  upstream_turn_retry: {
+                    classification,
+                    attempt: index + 1,
+                    delay_ms: delay,
+                  },
+                },
+              },
+              expect.any(AbortSignal),
+            );
+            await vi.advanceTimersByTimeAsync(1);
+          }
 
-        await assertion;
-        expect(prompt).toHaveBeenCalledTimes(3);
-      } finally {
-        vi.useRealTimers();
-      }
-    });
+          await assertion;
+          expect(prompt).toHaveBeenCalledTimes(delays.length + 1);
+        } finally {
+          random.mockRestore();
+          vi.useRealTimers();
+        }
+      },
+    );
 
     it("persists structured turn completion notifications", () => {
       const appendRawLine = vi.fn();
