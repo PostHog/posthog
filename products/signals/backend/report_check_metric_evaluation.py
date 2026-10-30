@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import ast
 import json
 import hashlib
+from copy import deepcopy
 from dataclasses import replace
 from datetime import datetime
 from uuid import UUID
@@ -13,6 +15,7 @@ from posthog.clickhouse.workload import Workload
 
 from products.signals.backend.report_check_evaluation import evaluate_check_value
 from products.signals.backend.report_check_evidence import (
+    EvidenceCount,
     EvidenceScope,
     EvidenceSource,
     MetricEvidence,
@@ -32,11 +35,51 @@ from products.signals.backend.report_monitoring_results import MonitoringEvaluat
 logger = structlog.get_logger(__name__)
 
 
+def _rate_denominator_index(config: MetricThresholdConfig) -> int | None:
+    assert config.query is not None
+    source = config.query["source"]
+    series = source["series"]
+    if len(series) != 2 or any(
+        entity.get("math") not in (None, "total")
+        or entity.get("math_property") == "$session_duration"
+        or entity.get("math_property_type") == "session_properties"
+        for entity in series
+    ):
+        return None
+    trends_filter = source.get("trendsFilter") or {}
+    if nodes := trends_filter.get("formulaNodes"):
+        formula = nodes[0]["formula"] if len(nodes) == 1 else None
+    elif formulas := trends_filter.get("formulas"):
+        formula = formulas[0] if len(formulas) == 1 else None
+    else:
+        formula = trends_filter.get("formula")
+    if not isinstance(formula, str):
+        return None
+    expression = ast.parse(formula.strip().lower(), mode="eval").body
+    match expression:
+        case (
+            ast.BinOp(left=ratio, op=ast.Mult(), right=ast.Constant(value=100))
+            | ast.BinOp(left=ast.Constant(value=100), op=ast.Mult(), right=ratio)
+        ):
+            expression = ratio
+    match expression:
+        case ast.BinOp(left=ast.Name(id=numerator), op=ast.Div(), right=ast.Name(id=denominator)) if {
+            numerator,
+            denominator,
+        } == {"a", "b"}:
+            return ord(denominator) - ord("a")
+    return None
+
+
 def metric_evidence_source(config: MetricThresholdConfig) -> EvidenceSource:
     assert config.query is not None
     source = config.query["source"]
     series = source["series"]
-    if len(series) != 1 or source.get("samplingFactor") not in (None, 1):
+    if source.get("samplingFactor") not in (None, 1):
+        return "unsupported"
+    if _rate_denominator_index(config) is not None:
+        return "rate"
+    if len(series) != 1:
         return "unsupported"
     if any((source.get("trendsFilter") or {}).get(key) for key in ("formula", "formulas", "formulaNodes")):
         return "unsupported"
@@ -120,19 +163,36 @@ def evaluate_final_metric(
         )
     assert config.query is not None
     query = monitoring_metric_query(config.query, start=member.window_start, cutoff=member.window_end)
-    query_hash = hashlib.sha256(json.dumps(query, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
-    references = (f"signal-report-check:{check.id}:{member.definition_version}", f"trends-query:sha256:{query_hash}")
+    queries = [query]
+    if source == "rate":
+        denominator_index = _rate_denominator_index(config)
+        assert denominator_index is not None
+        denominator_query = deepcopy(query)
+        denominator_query["source"]["series"] = [denominator_query["source"]["series"][denominator_index]]
+        for key in ("formula", "formulas", "formulaNodes"):
+            denominator_query["source"]["trendsFilter"].pop(key, None)
+        queries.append(denominator_query)
+    query_references = (
+        "trends-query:sha256:"
+        + hashlib.sha256(json.dumps(item, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+        for item in queries
+    )
+    references = (f"signal-report-check:{check.id}:{member.definition_version}", *query_references)
     try:
-        measurement = measure_metric(
-            query,
-            check.report.team,
-            deadline=deadline,
-            include_series=False,
-            require_full_timeout=True,
-            ch_user=ClickHouseUser.SIGNALS,
-            workload=Workload.OFFLINE,
-        )
-        if measurement.measured_at < member.window_end:
+        measurements = [
+            measure_metric(
+                item,
+                check.report.team,
+                deadline=deadline,
+                include_series=False,
+                require_full_timeout=True,
+                ch_user=ClickHouseUser.SIGNALS,
+                workload=Workload.OFFLINE,
+            )
+            for item in queries
+        ]
+        measurement = measurements[0]
+        if any(item.measured_at < member.window_end for item in measurements):
             return replace(
                 evaluation,
                 evidence_status="insufficient",
@@ -141,7 +201,16 @@ def evaluate_final_metric(
                 explanation="The query result predates the end of the observation window. A fresh result is needed.",
                 evidence_refs=references,
             )
-        qualification = qualify_metric_evidence(MetricEvidence(scope=scope, source=source, value=measurement.value))
+        denominator = None
+        if source == "rate":
+            count = measurements[1].value
+            if count < 0 or count % 1 != 0:
+                raise ValueError("A rate denominator must be a non-negative integer.")
+            denominator = EvidenceCount(scope=scope, value=int(count))
+        qualification = qualify_metric_evidence(
+            MetricEvidence(scope=scope, source=source, value=measurement.value, denominator=denominator),
+            minimum_denominator=1 if source == "rate" else None,
+        )
         comparison = monitoring_comparison(config, member.window_end - member.window_start)
         verdict = evaluate_check_value(comparison=comparison, observed_value=measurement.value, subject=check.title)
     except MetricQueryBudgetExhausted:
@@ -157,10 +226,14 @@ def evaluate_final_metric(
             evidence_refs=references,
         )
     explanation = f"{verdict.explanation}. Query measured at {measurement.measured_at.isoformat()}."
-    if qualification.status == "insufficient":
+    if qualification.reason == "empty_denominator":
+        explanation = f"The final value was {measurement.value}, measured at {measurement.measured_at.isoformat()}. The rate's denominator was zero in the observation window; the value cannot establish success or failure."
+    elif qualification.status == "insufficient":
         explanation = f"The final value was {measurement.value}, measured at {measurement.measured_at.isoformat()}. Relevant activity for this metric's population has not been established; the value cannot establish success or failure."
     elif qualification.status == "unsupported":
         explanation = f"The final value was {measurement.value}, measured at {measurement.measured_at.isoformat()}. This value cannot establish success or failure under the metric's evidence policy."
+    if denominator is not None:
+        explanation += f" Denominator: {denominator.value}, measured at {measurements[1].measured_at.isoformat()}."
     return replace(
         evaluation,
         evidence_status=qualification.status,
