@@ -10,6 +10,8 @@ from typing import cast
 from django.db.models import BooleanField, OuterRef, Q, Subquery, Value
 from django.db.models.functions import Coalesce
 
+from posthog.models.team import Team
+
 from products.tasks.backend.models import Channel, Task
 
 # These origins predate channels and remain team-scoped while their tasks have no channel.
@@ -46,7 +48,8 @@ def _visible_channel_q(user_id: int | OuterRef | None, team_id: int | None, *, t
     channel_user_id = cast(int, OuterRef(user_id)) if isinstance(user_id, OuterRef) else user_id
     channels = Channel.objects.unscoped().filter(Channel.visible_to_q(channel_user_id))
     if team_id is not None:
-        channel_ids = channels.filter(team_id=team_id).values("id")
+        root_team_id = Subquery(Team.objects.filter(id=team_id).values("parent_team_id")[:1])
+        channel_ids = channels.filter(Q(team_id=team_id) | Q(team_id=root_team_id)).values("id")
         return Q(task__channel_id__in=channel_ids) if through_task else Q(channel_id__in=channel_ids)
     channel_ref = OuterRef("task__channel_id") if through_task else OuterRef("channel_id")
     visible_channel = channels.filter(pk=channel_ref).annotate(visible=Value(True)).values("visible")[:1]
