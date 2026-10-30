@@ -25,3 +25,20 @@ export function layerOf(file) {
 export function isUpward(fromFile, toFile) {
     return LAYERS.indexOf(layerOf(toFile)) > LAYERS.indexOf(layerOf(fromFile))
 }
+
+export const shortName = (file) => file.replace(/^frontend\/src\//, '')
+
+// Folder a report shows a file under: a product, a lib component, or a top-level folder.
+export function groupOf(file) {
+    const parts = shortName(file).split('/')
+    if (parts[0] === 'products') {
+        return parts.slice(0, 2).join('/') + (parts.includes('generated') ? '/generated' : '')
+    }
+    if (parts[0] === 'lib' && parts.length > 3) {
+        return parts.slice(0, 3).join('/')
+    }
+    if (parts.length > 2) {
+        return parts.slice(0, 2).join('/')
+    }
+    return parts.length === 2 ? `${parts[0]}/*` : 'src/*'
+}
