@@ -16,6 +16,7 @@ Pick the search by the topic of the request:
 
 - The user's own company, product, internal terms, policies, or decisions: call `business-knowledge-documents-search` with a short, broad query. If `business-knowledge-document-window-retrieve` is also available, use it when a result needs more context.
 - PostHog features, SDKs, setup, or pricing: call the `docs-search` tool.
+
 - A request to query, compute, or build something from project data: call neither search, except to look up in business knowledge a company term that you cannot map to an event or property.
 - A general coding question or a conversational aside: call neither search.
 
