@@ -38,15 +38,27 @@ function omitKeys(source: Record<string, any>, keys: string[]): Record<string, a
     return Object.fromEntries(Object.entries(source).filter(([key]) => !keys.includes(key)))
 }
 
+// The picker replaces its rows with every new series array it receives. A parent can render again before it
+// receives the filters that hold a new row, so the same filters object must give back the same array.
+const seriesByFilters = new WeakMap<Partial<CdpFilterEntities>, SeriesNode[]>()
+
 export function cdpFiltersToSeries(filters: Partial<CdpFilterEntities> | null | undefined): SeriesNode[] {
-    return [
-        ...(filters?.actions ?? []),
-        ...(filters?.events ?? []),
-        ...(filters?.data_warehouse ?? []),
-        ...(filters?.groups ?? []),
-    ]
-        .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
-        .map(cdpFilterEntityToSeriesNode)
+    if (!filters) {
+        return []
+    }
+    let series = seriesByFilters.get(filters)
+    if (!series) {
+        series = [
+            ...(filters.actions ?? []),
+            ...(filters.events ?? []),
+            ...(filters.data_warehouse ?? []),
+            ...(filters.groups ?? []),
+        ]
+            .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+            .map(cdpFilterEntityToSeriesNode)
+        seriesByFilters.set(filters, series)
+    }
+    return series
 }
 
 function cdpFilterEntityToSeriesNode(entity: CdpFilterEntity): SeriesNode {
