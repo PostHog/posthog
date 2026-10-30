@@ -96073,12 +96073,14 @@ export namespace Schemas {
       status: PersonalRankingStatusEnum;
       /** True when the language model ranked the list with your activity summary. False when you have no summary yet or the build fell back to the inbox order. */
       personalized: boolean;
-      /** True when the list comes from storage, false when this request built it. */
+      /** True when the list is a stored one. False when it is the inbox order fallback or the new list that `wait_seconds` waited for. */
       cached: boolean;
-      /** True when the list does not match your current inbox, because you reached the build limit. Try `refresh` again later. */
+      /** True when the list does not match your current inbox or focus. When `building` is true, a newer list is on the way. Otherwise you reached the build limit, so try again later. */
       stale: boolean;
+      /** True when a new list is being built in the background. Call again in a few seconds, or pass `wait_seconds`, to get it. */
+      building: boolean;
       /**
-         * Why the list is in inbox order and not ranked by the language model: llm_error, timeout, malformed_output, truncated_output, no_candidates or ai_not_approved. Null when the model ranked it.
+         * Why the list is in inbox order and not ranked by the language model. building: no list is stored yet and one is being built. rate_limited: no list is stored yet and you reached the build limit. build_failed: no list is stored yet and the build could not start. llm_error, timeout, malformed_output, truncated_output, no_candidates or ai_not_approved: the stored build fell back. Null when the model ranked it.
          * @nullable
          */
       fallback_reason: string | null;
@@ -141728,7 +141730,7 @@ export namespace Schemas {
 
     export type SdkHealthReportRetrieveParams = {
     /**
-     * When true, bypasses the Redis cache and re-queries ClickHouse for SDK usage. A background job refreshes this data once a day, so the cached answer is usually current. Use sparingly.
+     * When true, bypasses the cache and re-reads SDK usage. The cached answer is at most an hour old, so use this sparingly.
      */
     force_refresh?: boolean;
     };
@@ -142201,7 +142203,7 @@ export namespace Schemas {
 
     export type SignalsReportsForMeRetrieveParams = {
     /**
-     * Free text about what to put first, such as `error tracking` or `billing reports`. A request with focus always builds a new list, and an unfocused request never reuses it.
+     * Free text about what to put first, such as `error tracking` or `billing reports`. A request with focus always starts a new build, and an unfocused request never reuses it. Pass `wait_seconds` to wait for it.
      * @maxLength 2000
      */
     focus?: string;
@@ -142212,9 +142214,15 @@ export namespace Schemas {
      */
     limit?: number;
     /**
-     * Build a new list even when the stored one is current. A build calls a model and can take 30 seconds or more.
+     * Start a new build even when the stored one is current. The build runs in the background, so the response has `building: true`. Pass `wait_seconds` to wait for it.
      */
     refresh?: boolean;
+    /**
+     * When the request starts a build or one is running, wait up to this many seconds for its list. Defaults to 0, which returns at once. A build usually takes 10 to 60 seconds.
+     * @minimum 0
+     * @maximum 30
+     */
+    wait_seconds?: number;
     };
 
     export type SignalsReportsPrCiStatusesParams = {
