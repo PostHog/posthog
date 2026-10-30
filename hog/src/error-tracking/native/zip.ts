@@ -7,6 +7,9 @@ import { deflateRaw } from 'pako'
 const LOCAL_HEADER = 0x04034b50
 const CENTRAL_HEADER = 0x02014b50
 const END_OF_CENTRAL_DIRECTORY = 0x06054b50
+const ZIP64_END_OF_CENTRAL_DIRECTORY = 0x06064b50
+const ZIP64_END_LOCATOR = 0x07064b50
+const MAX_ENTRIES = 0xffff
 const VERSION_NEEDED = 20
 const VERSION_MADE_BY = 0x0314
 const DEFLATED = 8
@@ -86,8 +89,10 @@ export class ZipWriter {
     }
 
     finish(): Buffer {
-        if (this.entries.length > 0xffff || this.length > 0xffffffff) {
-            throw new ZipError('Zip64 archives are not supported')
+        // More than 65,535 entries is the only ZIP64 case hog writes. Offsets past 4 GiB would also
+        // need ZIP64 fields in each entry.
+        if (this.length > 0xffffffff) {
+            throw new ZipError('Zip64 archives over 4 GiB are not supported')
         }
         const directoryOffset = this.length
         for (const entry of this.entries) {
@@ -108,10 +113,27 @@ export class ZipWriter {
             this.push(header, entry.name)
         }
         const directorySize = this.length - directoryOffset
+        if (this.entries.length > MAX_ENTRIES) {
+            const record = Buffer.alloc(56)
+            record.writeUInt32LE(ZIP64_END_OF_CENTRAL_DIRECTORY, 0)
+            record.writeBigUInt64LE(44n, 4)
+            record.writeUInt16LE(VERSION_NEEDED, 12)
+            record.writeUInt16LE(VERSION_NEEDED, 14)
+            record.writeBigUInt64LE(BigInt(this.entries.length), 24)
+            record.writeBigUInt64LE(BigInt(this.entries.length), 32)
+            record.writeBigUInt64LE(BigInt(directorySize), 40)
+            record.writeBigUInt64LE(BigInt(directoryOffset), 48)
+            const locator = Buffer.alloc(20)
+            locator.writeUInt32LE(ZIP64_END_LOCATOR, 0)
+            locator.writeBigUInt64LE(BigInt(directoryOffset + directorySize), 8)
+            locator.writeUInt32LE(1, 16)
+            this.push(record, locator)
+        }
+        const count = Math.min(this.entries.length, MAX_ENTRIES)
         const end = Buffer.alloc(22)
         end.writeUInt32LE(END_OF_CENTRAL_DIRECTORY, 0)
-        end.writeUInt16LE(this.entries.length, 8)
-        end.writeUInt16LE(this.entries.length, 10)
+        end.writeUInt16LE(count, 8)
+        end.writeUInt16LE(count, 10)
         end.writeUInt32LE(directorySize, 12)
         end.writeUInt32LE(directoryOffset, 16)
         this.push(end)
