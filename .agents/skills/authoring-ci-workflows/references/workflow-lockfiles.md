@@ -10,12 +10,14 @@ Action bumps are manual, and Renovate does not bump actions.
 
 Use the `gh-actions-lock` version pinned in `.github/workflows/ci-lint-workflows.yml`.
 
-After adding a workflow or changing a `uses:`, regenerate and verify:
+After adding a workflow or changing a `uses:`, regenerate only the workflows you changed, then verify all of them:
 
 ```sh
-gh actions-lock --migrate-local-actions
+gh actions-lock --migrate-local-actions .github/workflows/<workflow>.yml
 gh actions-lock --verify
 ```
+
+After deleting a workflow, run `gh actions-lock` with no path, because only a full run prunes its entries.
 
 Commit the workflows and the generated lockfile together.
 
@@ -25,12 +27,12 @@ Depot CI workflows and actions under `.depot/` keep `./`, because the lockfile d
 
 The lockfile check replaces semgrep's mutable-action-tag rule under `.github/`, so `ci-security.yaml` excludes that rule.
 `.semgrep/rules/security/github-actions-mutable-action-tag-depot.yaml` keeps SHA pins required under `.depot/`.
-Depot mirrors under `.depot/actions/` keep SHA pins, so a mirror whose canonical action has a third-party `uses:` is listed in `DELTA_MIRRORS` in `depot_mirrors.py`.
+Depot mirrors under `.depot/actions/` keep SHA pins with the tag in a comment, and `depot_mirrors.py` ignores that difference when it compares a mirror to its canonical action.
 
 Review the generated diff:
 
 - Confirm that changed commits match the intended dependency update, and investigate changed repository or owner IDs.
-- Confirm that the run rewrote no workflow you did not change.
+- Confirm that the run changed no other workflow's entries.
 
 Never delete the lockfile to resolve an error.
 Restore a valid copy and regenerate.

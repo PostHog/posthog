@@ -3,11 +3,11 @@ from __future__ import annotations
 import re
 
 from ..check import CheckResult, Issue, WorkflowCheck
-from ..model import Job, Step, Workflow
+from ..model import ACTIONS_DIR, Job, Step, Workflow
 
 PAUSE_VARIABLE = "PUBLIC_IMAGE_PUSH_PAUSED"
 PUBLIC_PUSH_INPUTS = ("push-to-ghcr", "push-to-dockerhub")
-DOCKER_META_ACTION = "$/.github/actions/docker-meta"
+DOCKER_META_ACTION = f"{ACTIONS_DIR}/docker-meta"
 PUBLIC_IMAGE_RE = re.compile(r"\b(?:ghcr\.io|docker\.io)/[\w.-]+/[\w.-]+|(?<![\w./-])posthog/[\w.-]+[:@]")
 IMAGE_READ_RE = re.compile(
     r"\bdocker\s+(?:image\s+)?(?:pull|run|create)\b|\bimagetools\s+(?:inspect|create)\b|\b(?:crane|skopeo)\s"
@@ -15,7 +15,7 @@ IMAGE_READ_RE = re.compile(
 
 
 def _pauses_public_push(step: Step) -> bool:
-    if step.uses != DOCKER_META_ACTION or step.with_ is None:
+    if step.repo_action != DOCKER_META_ACTION or step.with_ is None:
         return False
     return any(PAUSE_VARIABLE in str(step.with_.get(name, "")) for name in PUBLIC_PUSH_INPUTS)
 
@@ -55,7 +55,7 @@ class PausedPublicImagePullsCheck(WorkflowCheck):
                 if not _job_pauses_public_push(job):
                     continue
                 for step in job.steps:
-                    if step.uses == DOCKER_META_ACTION:
+                    if step.repo_action == DOCKER_META_ACTION:
                         continue
                     for ref in _public_image_refs(step):
                         result.issues.append(

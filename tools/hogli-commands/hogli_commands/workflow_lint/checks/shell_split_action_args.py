@@ -39,11 +39,9 @@ import yaml
 from hogli.manifest import REPO_ROOT
 
 from ..check import CheckResult, Issue, WorkflowCheck
-from ..model import Workflow
+from ..model import ACTIONS_DIR, Workflow
 
 # Source of truth. Enforcement reads only this table; see `_drift_issues`.
-REPO_PREFIX = "PostHog/posthog/"
-
 # Actions that splice a caller's input into a command string an inner shell
 # re-parses. EMPTY IS THE HEALTHY STATE: semgrep-ci used to be here, and the fix
 # was to stop splicing (it splits the value and passes `"$@"`), not to police the
@@ -51,8 +49,6 @@ REPO_PREFIX = "PostHog/posthog/"
 # checking until it does the same. `derive_shell_split_inputs` alarms in both
 # directions, so neither adding nor removing an entry can go unnoticed.
 SHELL_SPLIT_INPUTS: dict[str, frozenset[str]] = {}
-
-ACTIONS_DIR = ".github/actions"
 
 # Scoped to the `-c` operand: a var elsewhere in the run body (`"$SEMGREP_IMAGE"`)
 # is its own quoted argument, never re-parsed, so it carries no hazard.
@@ -105,27 +101,6 @@ def _expression_inputs(text: str) -> Iterator[str]:
 
 def _input_name(match: re.Match[str]) -> str:
     return match.group("dot") or match.group("bracket")
-
-
-def _action_key(uses: str | None) -> str | None:
-    """Normalize a step's ``uses:`` to a repo-relative action path, or None.
-
-    Covers the local forms (``./.github/actions/semgrep-ci``, ``$/.github/actions/semgrep-ci``) and the
-    repo-qualified one (``PostHog/posthog/.github/actions/semgrep-ci@sha``).
-    """
-    if not uses:
-        return None
-    path = uses.split("@", 1)[0].strip()
-    # Anchored, never a substring search: `OtherOrg/repo/.github/actions/semgrep-ci`
-    # is a different action that happens to share our layout, and matching it would
-    # fail a workflow over semantics that action does not have.
-    if path.startswith(("./", "$/")):
-        path = path[2:]
-    elif path.startswith(REPO_PREFIX):
-        path = path[len(REPO_PREFIX) :]
-    if not path.startswith(ACTIONS_DIR):
-        return None
-    return path.rstrip("/")
 
 
 def _load_action(action_dir: Path) -> dict[str, object] | None:
@@ -382,7 +357,7 @@ class ShellSplitActionArgsCheck(WorkflowCheck):
         for wf in workflows:
             for job in wf.jobs:
                 for step in job.steps:
-                    action = _action_key(step.uses)
+                    action = step.repo_action
                     if action is None:
                         continue
                     for name in sorted(SHELL_SPLIT_INPUTS.get(action, frozenset())):

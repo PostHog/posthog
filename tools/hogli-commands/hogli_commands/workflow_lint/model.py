@@ -24,6 +24,8 @@ from pathlib import Path
 
 import yaml
 
+ACTIONS_DIR = ".github/actions"
+
 PR_TRIGGERS = frozenset({"pull_request", "pull_request_target"})
 PUSH_TRIGGERS = frozenset({"push"})
 
@@ -50,6 +52,25 @@ class Step:
     def ref(self) -> str:
         """Human-readable step reference, e.g. ``step id 'install'`` or ``step[3]``."""
         return f"step id '{self.id_}'" if self.id_ else f"step[{self.idx}]"
+
+    @property
+    def repo_action(self) -> str | None:
+        """Path of the action from this repo the step runs, e.g. ``.github/actions/semgrep-ci``, or None.
+
+        Covers the ``./`` and ``$/`` forms and the repo-qualified ``PostHog/posthog/...@sha`` one.
+        """
+        if not self.uses:
+            return None
+        path = self.uses.split("@", 1)[0].strip()
+        # Anchored, never a substring search: `OtherOrg/repo/.github/actions/semgrep-ci`
+        # is a different action that happens to share our layout.
+        for prefix in ("./", "$/", "PostHog/posthog/"):
+            if path.startswith(prefix):
+                path = path.removeprefix(prefix)
+                break
+        if not path.startswith(ACTIONS_DIR):
+            return None
+        return path.rstrip("/")
 
 
 @dataclass(frozen=True, slots=True)
