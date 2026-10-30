@@ -154,7 +154,8 @@ Key details:
 
    Say the replays are on the experiment's Recordings tab.
 
-   Later in the session, call `experiment-get` before you quote a running time again, and quote its `running_time_calculation`: `recommended_running_time` is the days, and `recommended_sample_size` divided by it is the daily traffic.
+   Later in the session, call `experiment-get` before you quote a running time again, and quote its `running_time_calculation`: `recommended_running_time` is the days, and `exposure_estimate_config.manualExposureRate` is the daily traffic.
+   Don't work the traffic out from the sample size and the days. The calculator rounds the days up, so a run under a day reads as one day.
    Recalculate only when the metric or the rollout changes, and store the new plan with `experiment-update`.
 
 3. **Always show the experiment URL.** The `experiment-create` response includes `_posthogUrl` — always display this link so the user can view and configure the experiment in the UI.

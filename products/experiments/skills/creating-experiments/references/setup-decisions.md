@@ -114,6 +114,7 @@ When `candidate_metric.status` is `ok` and it has baseline stats:
    - `minimum_detectable_effect`: the value you sent (the calculator does not return it)
    - `recommended_sample_size`: the calculator's `recommended_sample_size`
    - `recommended_running_time`: the calculator's `recommended_running_time_days`
+   - `exposure_estimate_config`: `conversionRateInputType: "manual"`, `manualExposureRate` set to the `exposure_rate_per_day` you sent, `manualMetricType` set to the `metric_type` you sent, and `manualBaselineValue` set to the calculator's `baseline_value`, as a percentage for a funnel (0.05 is 5). This is what the app stores when someone sizes a draft by hand, and it keeps the traffic you sized with.
 3. If the running time is over about 8 weeks, still create the experiment, and add the low-traffic note when you report it ("After creation" in SKILL.md). Propose a more frequent event earlier in the journey as primary and keep the rare event as secondary.
 
 The estimate assumes people are exposed on the target surface. If the flag is evaluated more widely (across the whole app, or on a page before the one that changes), the exposed population is larger and converts less. The baseline and the running time are then too optimistic. Say so, and consider a custom exposure on the surface event. This is the one case where a custom exposure is right in a project that has never used one, and "Precedent" says so too.
