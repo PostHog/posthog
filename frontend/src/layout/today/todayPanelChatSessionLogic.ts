@@ -1,6 +1,6 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers } from 'kea'
 
-import { MAX_SIDE_PANEL_ID } from 'scenes/max/components/PhaiSidePanelChat'
+import { MAX_SIDE_PANEL_ID } from '~/layout/ai/aiPanelIds'
 
 import { type ActiveCreation, runnerPanelLogic } from 'products/posthog_ai/frontend/api/logics'
 

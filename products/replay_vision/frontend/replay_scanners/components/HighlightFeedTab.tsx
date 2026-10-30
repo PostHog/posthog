@@ -17,11 +17,26 @@ const FEED_GRID = 'grid grid-cols-1 items-start gap-4 @[72rem]:grid-cols-2 @[120
 /** A single column stays card-sized rather than stretching one poster across the whole scene. */
 const FEED_WIDTH = 'mx-auto w-full max-w-3xl @[72rem]:max-w-none'
 
+function CardSkeleton(): JSX.Element {
+    return (
+        <div className="flex flex-col gap-3 rounded-lg border bg-surface-primary p-4">
+            <LemonSkeleton className="h-5 w-1/2" />
+            <div className="flex flex-col gap-1.5">
+                <LemonSkeleton className="h-4 w-full" />
+                <LemonSkeleton className="h-4 w-3/4" />
+            </div>
+            <LemonSkeleton className="h-3 w-2/3" />
+            <LemonSkeleton className="aspect-video w-full rounded-md" />
+            <LemonSkeleton className="h-4 w-1/3" />
+        </div>
+    )
+}
+
 function FeedSkeleton(): JSX.Element {
     return (
         <div className={clsx(FEED_WIDTH, FEED_GRID)} aria-busy>
             {[0, 1, 2, 3].map((i) => (
-                <LemonSkeleton key={i} className="h-80 rounded-lg" />
+                <CardSkeleton key={i} />
             ))}
         </div>
     )
@@ -53,7 +68,7 @@ function FeedEnd({ itemCount }: { itemCount: number }): JSX.Element | null {
     if (feedHasMore) {
         return (
             <div ref={ref} aria-busy>
-                <LemonSkeleton className="h-80 rounded-lg" />
+                <CardSkeleton />
             </div>
         )
     }
@@ -65,7 +80,7 @@ function FeedEnd({ itemCount }: { itemCount: number }): JSX.Element | null {
 }
 
 export function HighlightFeedTab(): JSX.Element {
-    const { feedItems, feedItemsLoading, feedReloading, feedLoad, feedFailed, dateFrom, emptyReason } =
+    const { feedItems, feedItemsLoading, feedReloading, feedFailed, dateFrom, emptyReason } =
         useValues(highlightFeedLogic)
     const { loadFeed } = useActions(highlightFeedLogic)
 
@@ -127,11 +142,8 @@ export function HighlightFeedTab(): JSX.Element {
                                 </p>
                             )}
                             {items.map((item, index) => (
-                                <HighlightFeedRow
-                                    key={`${feedLoad?.feedLoadId}-${item.observation.id}`}
-                                    item={item}
-                                    position={index}
-                                />
+                                // Keyed by the observation alone, so a card that stays across a reload keeps its loaded poster.
+                                <HighlightFeedRow key={item.observation.id} item={item} position={index} />
                             ))}
                             <FeedEnd itemCount={items.length} />
                         </div>

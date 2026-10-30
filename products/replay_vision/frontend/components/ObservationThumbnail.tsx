@@ -1,7 +1,9 @@
+import clsx from 'clsx'
 import { useValues } from 'kea'
 import { useEffect, useRef, useState } from 'react'
 
 import { IconVideoCamera } from '@posthog/icons'
+import { LemonSkeleton } from '@posthog/lemon-ui'
 
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -16,6 +18,8 @@ interface ObservationThumbnailProps {
     className?: string
     /** `small` (up to 480px wide) for posters at most 240px wide, so it stays sharp at 2x. Defaults to `large`. */
     size?: VisionObservationsThumbnailRetrieveSize
+    /** A new value clears a failed load, so a caller that keeps the poster mounted across data reloads can retry it. */
+    retryKey?: unknown
     children?: React.ReactNode
 }
 
@@ -27,18 +31,20 @@ export function ObservationThumbnail({
     chapter,
     className,
     size = VisionObservationsThumbnailRetrieveSize.Large,
+    retryKey,
     children,
 }: ObservationThumbnailProps): JSX.Element {
     const { currentTeamId } = useValues(teamLogic)
     const [attempt, setAttempt] = useState(0)
     const [failedId, setFailedId] = useState<string | null>(null)
+    const [loadedSrc, setLoadedSrc] = useState<string | null>(null)
     const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
     // A row's instance is reused as the table pages, so a failure can outlive the observation it was for.
     useEffect(() => {
         setAttempt(0)
         setFailedId(null)
-    }, [observation.id, chapter])
+    }, [observation.id, chapter, retryKey])
 
     useEffect(() => {
         return () => {
@@ -62,6 +68,7 @@ export function ObservationThumbnail({
             ? getVisionObservationsThumbnailRetrieveUrl(String(currentTeamId), observation.id, { chapter, size })
             : undefined
     const src = baseSrc !== undefined && attempt > 0 ? `${baseSrc}&retry=${attempt}` : baseSrc
+    const loaded = loadedSrc === src
 
     const onError = (): void => {
         // One retry: the redirect target can blink, and the poster would stay blank for the whole mount.
@@ -73,16 +80,23 @@ export function ObservationThumbnail({
     }
 
     return (
-        <div className={`relative aspect-video overflow-hidden rounded border bg-surface-secondary ${className ?? ''}`}>
+        <div className={clsx('relative aspect-video overflow-hidden rounded border bg-surface-secondary', className)}>
             {src && (
-                <img
-                    src={src}
-                    alt=""
-                    className="absolute inset-0 size-full object-cover"
-                    loading="lazy"
-                    decoding="async"
-                    onError={onError}
-                />
+                <>
+                    {!loaded && <LemonSkeleton className="absolute inset-0 size-full rounded-none" />}
+                    <img
+                        src={src}
+                        alt=""
+                        className={clsx(
+                            'absolute inset-0 size-full object-cover transition-opacity duration-300 motion-reduce:transition-none',
+                            loaded ? 'opacity-100' : 'opacity-0'
+                        )}
+                        loading="lazy"
+                        decoding="async"
+                        onLoad={() => setLoadedSrc(src)}
+                        onError={onError}
+                    />
+                </>
             )}
             <div className="absolute inset-0 flex items-center justify-center">
                 {children ?? (!src && <IconVideoCamera className="text-xl text-tertiary" aria-hidden />)}

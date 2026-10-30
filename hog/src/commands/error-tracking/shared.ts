@@ -1,8 +1,8 @@
 import type { OptionSpec } from '@/core/command'
 import { ARTIFACT_KINDS, type ArtifactKind } from '@/core/config'
+import type { Context } from '@/core/context'
 import { EXIT_USAGE, HogError } from '@/core/errors'
 import type { Output } from '@/core/output'
-import type { Env } from '@/core/runtime'
 import { plural } from '@/core/text'
 import type { ErrorTrackingOptions, InjectedReport, UploadReport } from '@/error-tracking/run'
 
@@ -45,10 +45,16 @@ export const RELEASE_OPTIONS = {
         placeholder: 'build',
         description: 'A build number, added to the version as version+build',
     },
+    infoPlist: {
+        type: 'string',
+        placeholder: 'path',
+        description: 'iOS: read the name, version and build the flags leave unset from this Info.plist',
+    },
     releaseMode: {
         type: 'string',
         choices: ['event', 'symbol-set'],
-        description: 'JavaScript only: put the release in the bundle (event, the default) or in the symbol set',
+        description:
+            'JavaScript only: put the release in the bundle (event, the default) or in the symbol set. Defaults to HOG_RELEASE_MODE, then errorTracking.releaseMode in posthog.json',
     },
 } as const satisfies Record<string, OptionSpec>
 
@@ -74,7 +80,11 @@ export const UPLOAD_OPTIONS = {
         placeholder: 'count',
         description: 'Symbol sets per upload request (default 50, 10 for native symbols)',
     },
-    concurrency: { type: 'string', placeholder: 'count', description: 'Parallel file uploads (default 10)' },
+    concurrency: {
+        type: 'string',
+        placeholder: 'count',
+        description: 'Parallel file uploads (default HOG_UPLOAD_CONCURRENCY, then 10)',
+    },
 } as const satisfies Record<string, OptionSpec>
 
 export const DRY_RUN_OPTION = {
@@ -90,6 +100,7 @@ interface RawOptions {
     releaseName?: string
     releaseVersion?: string
     build?: string
+    infoPlist?: string
     releaseMode?: 'event' | 'symbol-set'
     mapId?: string
     force?: boolean
@@ -117,8 +128,9 @@ function count(flag: string, value: string | undefined, fallback: number): numbe
     return parsed
 }
 
-// posthog-cli reads the release mode and the upload concurrency from these variables too.
-export function readOptions(options: RawOptions, env: Env): ErrorTrackingOptions {
+// The release mode comes from the flag, then HOG_RELEASE_MODE, then errorTracking.releaseMode in posthog.json.
+export async function readOptions(options: RawOptions, ctx: Context): Promise<ErrorTrackingOptions> {
+    const env = ctx.runtime.env
     if (options.force && options.skipOnConflict) {
         throw new HogError(
             'usage_error',
@@ -127,11 +139,15 @@ export function readOptions(options: RawOptions, env: Env): ErrorTrackingOptions
             EXIT_USAGE
         )
     }
-    const releaseMode = options.releaseMode ?? env.POSTHOG_RELEASE_MODE ?? 'event'
+    const releaseMode =
+        options.releaseMode ??
+        (env.HOG_RELEASE_MODE || undefined) ??
+        (await ctx.config())?.config.errorTracking?.releaseMode ??
+        'event'
     if (releaseMode !== 'event' && releaseMode !== 'symbol-set') {
         throw new HogError(
             'usage_error',
-            'POSTHOG_RELEASE_MODE must be event or symbol-set.',
+            'HOG_RELEASE_MODE must be event or symbol-set.',
             'Unset it, or pass --release-mode.',
             EXIT_USAGE
         )
@@ -140,12 +156,13 @@ export function readOptions(options: RawOptions, env: Env): ErrorTrackingOptions
         kind: options.kind,
         mapId: options.mapId,
         release: { name: options.releaseName, version: options.releaseVersion, build: options.build },
+        infoPlist: options.infoPlist,
         releaseMode,
         publicPathPrefix: options.publicPathPrefix,
         force: options.force === true,
         skipOnConflict: options.skipOnConflict === true,
         batchSize: options.batchSize === undefined ? undefined : count('--batch-size', options.batchSize, 50),
-        concurrency: count('--concurrency', options.concurrency ?? env.POSTHOG_CLI_SOURCEMAP_UPLOAD_CONCURRENCY, 10),
+        concurrency: count('--concurrency', options.concurrency ?? env.HOG_UPLOAD_CONCURRENCY, 10),
         deleteAfter: options.deleteAfter === true,
         includeSource: options.includeSource === true,
         dryRun: options.dryRun === true,

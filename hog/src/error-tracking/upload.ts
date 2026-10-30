@@ -166,7 +166,7 @@ export class SymbolSetClient {
                     'User-Agent': USER_AGENT,
                 },
                 body: body === undefined ? undefined : JSON.stringify(body),
-                signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+                timeoutMs: REQUEST_TIMEOUT_MS,
             })
         } catch (error) {
             throw new ApiFailure(undefined, error instanceof Error ? error.message : String(error), url.toString())
@@ -405,7 +405,8 @@ export class SymbolSetClient {
             return this.runtime.fetch(target.url, {
                 method: 'PUT',
                 body: data as BodyInit,
-                signal: AbortSignal.timeout(transferTimeout(data.length)),
+                timeoutMs: transferTimeout(data.length),
+                skipRateLimit: true,
             })
         }
         const form = new FormData()
@@ -417,7 +418,8 @@ export class SymbolSetClient {
         return this.runtime.fetch(target.form.url, {
             method: 'POST',
             body: form,
-            signal: AbortSignal.timeout(transferTimeout(data.length)),
+            timeoutMs: transferTimeout(data.length),
+            skipRateLimit: true,
         })
     }
 }
@@ -440,14 +442,24 @@ function startFailure(error: unknown): Error {
     return new HogError('upload_failed', `PostHog didn't start the upload: ${describe(error)}`)
 }
 
+// Like posthog-cli's thread pool: after the first failure no new item starts, and the call returns
+// that failure once the items in flight are done.
 async function runWithConcurrency<T>(items: T[], limit: number, work: (item: T) => Promise<void>): Promise<void> {
     let next = 0
+    let failure: { error: unknown } | undefined
     const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
-        while (next < items.length) {
-            await work(items[next++]!)
+        while (failure === undefined && next < items.length) {
+            try {
+                await work(items[next++]!)
+            } catch (error) {
+                failure ??= { error }
+            }
         }
     })
     await Promise.all(workers)
+    if (failure !== undefined) {
+        throw failure.error
+    }
 }
 
 export { ApiFailure }
