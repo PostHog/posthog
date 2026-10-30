@@ -1152,6 +1152,20 @@ return result`,
                 expect(logic.values.isReportableEvaluation).toBe(false)
             })
 
+            it('charts the negative rate for a sentiment evaluation', () => {
+                logic = llmEvaluationLogic({ evaluationId: 'eval-123' })
+                logic.mount()
+                logic.actions.loadEvaluationSuccess({
+                    ...mockEvaluation,
+                    evaluation_type: 'sentiment',
+                    evaluation_config: { source: 'user_messages' },
+                    output_type: 'sentiment',
+                    output_config: {},
+                    model_configuration: null,
+                })
+                expect(logic.values.trendInsightUrl).toContain('Negative%20rate')
+            })
+
             it.each([
                 { trueCount: 999, expected: 99.9 },
                 { trueCount: 1000, expected: 100 },
