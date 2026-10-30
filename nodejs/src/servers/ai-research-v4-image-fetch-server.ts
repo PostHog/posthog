@@ -427,7 +427,9 @@ export class AiResearchV4ImageFetchServer extends AiResearchV4ConsumerServer {
                 return new HealthCheckResultOk()
             },
         })
-        const watermark = new CaptureWatermark('ai_research_v4_image_fetch')
+        const watermark = new CaptureWatermark('ai_research_v4_image_fetch').reportOnly(() =>
+            consumers.flatMap((consumer) => consumer.assignments())
+        )
         await Promise.all(
             consumers.map((consumer, index) =>
                 consumer.connect(
@@ -517,7 +519,9 @@ export class AiResearchV4ImageFetchRetryServer extends AiResearchV4ConsumerServe
         // The shutdown handler sets this before it disconnects the consumer, so a stopping pod
         // abandons the wait it holds rather than making the rolling deploy wait out a tier period.
         let stopping = false
-        const watermark = new CaptureWatermark(`ai_research_v4_image_fetch_retry_${delayMs}`)
+        const watermark = new CaptureWatermark(`ai_research_v4_image_fetch_retry_${delayMs}`).reportOnly(() =>
+            consumer.assignments()
+        )
         const delayConsumer = new RetryDelayConsumer(producer, {
             isStopping: () => stopping,
             storeOffsets: (messages) => {

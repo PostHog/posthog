@@ -68,6 +68,23 @@ describe('CaptureWatermark', () => {
         ])
     })
 
+    it('stops reporting a partition that a batch held again after its revocation', () => {
+        let assignments = [
+            { topic: TOPIC, partition: 0 },
+            { topic: TOPIC, partition: 1 },
+        ]
+        const watermark = new CaptureWatermark('reassigned', 0).reportOnly(() => assignments)
+        watermark.hold([record(0, 9_000), record(1, 5_000, { partition: 1 })])
+
+        assignments = [{ topic: TOPIC, partition: 0 }]
+        watermark.forget([{ topic: TOPIC, partition: 1 }])
+        watermark.hold([record(2, 4_000, { partition: 1 })])
+
+        expect(watermark.snapshot(0)).toEqual([
+            { topic: TOPIC, partition: 0, data: 'inline_images', capturedAtMs: 9_000 },
+        ])
+    })
+
     it('does not release offsets that Kafka refused to store', () => {
         const watermark = new CaptureWatermark('refused', 0)
         const store = releasingOffsetStore(
