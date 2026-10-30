@@ -22,6 +22,7 @@ import type {
     ExperimentResultConfigurationStatusEnumApi,
 } from 'products/experiments/frontend/generated/api.schemas'
 
+import type { ExperimentTimeseriesResultsApi } from '../../../../products/experiments/frontend/generated/api.schemas'
 import type { ExperimentMetricUnion } from '../../queries/schema/schema-general'
 import { getVariantInterval } from './MetricsView/shared/utils'
 import { getExperimentVariants } from './utils'
@@ -84,12 +85,12 @@ export interface experimentTimeseriesLogicActions {
         errorObject?: any
     }
     loadTimeseriesSuccess: (
-        timeseries: ExperimentMetricTimeseries | null,
+        timeseries: ExperimentTimeseriesResultsApi,
         payload?: {
             metric: ExperimentMetric
         }
     ) => {
-        timeseries: ExperimentMetricTimeseries | null
+        timeseries: ExperimentTimeseriesResultsApi
         payload?: {
             metric: ExperimentMetric
         }
