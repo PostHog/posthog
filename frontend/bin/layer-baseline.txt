@@ -295,6 +295,7 @@ frontend/src/lib/components/CyclotronJob/integrations/integrationSetups.tsx -> p
 frontend/src/lib/components/DateFilter/openJumpToTimestampModal.tsx -> frontend/src/scenes/activity/explore/defaults.ts
 frontend/src/lib/components/DefinitionPopover/CohortPopoverInfo.tsx -> frontend/src/scenes/cohorts/CohortFilters/constants.tsx
 frontend/src/lib/components/DefinitionPopover/CohortPopoverInfo.tsx -> frontend/src/scenes/cohorts/cohortUtils.tsx
+frontend/src/lib/components/DefinitionPopover/FeatureFlagPopoverInfo.tsx -> products/feature_flags/frontend/featureFlagSummaryLogic.ts
 frontend/src/lib/components/EntityFilterInfo.tsx -> frontend/src/scenes/data-management/events/DefinitionHeader.tsx
 frontend/src/lib/components/EntityFilterInfo.tsx -> frontend/src/scenes/feature-flags/flagEvaluationsTable.ts
 frontend/src/lib/components/EntityFilterInfo.tsx -> frontend/src/scenes/insights/filters/ActionFilter/flagCallsSeries.ts
