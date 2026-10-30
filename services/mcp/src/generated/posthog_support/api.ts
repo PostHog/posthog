@@ -3,10 +3,48 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 1 enabled ops
+ * PostHog API - MCP 3 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
+
+/**
+ * List the signed-in user's tickets with the PostHog support team, newest first, from every channel the user verified: in-app, API, email and Slack. Use it to check whether support has replied.
+ * @summary List your PostHog support tickets
+ */
+export const PosthogSupportTicketsListParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const posthogSupportTicketsListQueryLimitDefault = 20
+export const posthogSupportTicketsListQueryLimitMax = 100
+
+export const posthogSupportTicketsListQueryOffsetDefault = 0
+export const posthogSupportTicketsListQueryOffsetMin = 0
+
+export const PosthogSupportTicketsListQueryParams = () => zod.object({
+    limit: zod
+        .number()
+        .min(1)
+        .max(posthogSupportTicketsListQueryLimitMax)
+        .default(posthogSupportTicketsListQueryLimitDefault)
+        .describe('Number of tickets to return.'),
+    offset: zod
+        .number()
+        .min(posthogSupportTicketsListQueryOffsetMin)
+        .default(posthogSupportTicketsListQueryOffsetDefault)
+        .describe('Number of tickets to skip.'),
+    status: zod
+        .enum(['new', 'open', 'pending', 'on_hold', 'resolved'])
+        .optional()
+        .describe(
+            'Only return tickets with this status.\n\n\* `new` - New\n\* `open` - Open\n\* `pending` - Pending\n\* `on_hold` - On hold\n\* `resolved` - Resolved'
+        ),
+})
 
 /**
  * Open a support ticket with the PostHog support team as the signed-in user. The ticket is verified as sent by this user and is about the project in the URL. Search the docs first: only open a ticket when the docs and the project's own data do not answer the question.
@@ -87,5 +125,20 @@ export const PosthogSupportTicketsCreateBody = () => zod.object({
         .default(posthogSupportTicketsCreateBodyDeletionConsentDefault)
         .describe(
             'For `data_deletion` only: true confirms that the user wants these events permanently deleted. Ask the user before you set it. Deleted events cannot be restored.'
+        ),
+})
+
+/**
+ * Read the status and the messages of one of the signed-in user's tickets with PostHog support. Internal notes of the support team are not included.
+ * @summary Read a PostHog support ticket
+ */
+export const posthogSupportTicketsRetrievePathIdRegExp = new RegExp('^[0-9a-f-]{36}$')
+
+export const PosthogSupportTicketsRetrieveParams = () => zod.object({
+    id: zod.string().regex(posthogSupportTicketsRetrievePathIdRegExp),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })

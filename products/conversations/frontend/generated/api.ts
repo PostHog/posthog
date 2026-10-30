@@ -30,6 +30,9 @@ import type {
     PatchedTicketUpdateRequestApi,
     PatchedTicketViewApi,
     PostHogSupportTicketCreatedApi,
+    PostHogSupportTicketDetailApi,
+    PostHogSupportTicketListApi,
+    PosthogSupportTicketsListParams,
     SigningSecretApi,
     TicketApi,
     TicketFullEmailApi,
@@ -686,6 +689,37 @@ export const conversationsZendeskImportsStatusRetrieve = async (
     })
 }
 
+export const getPosthogSupportTicketsListUrl = (projectId: string, params?: PosthogSupportTicketsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/posthog_support/tickets/?${stringifiedParams}`
+        : `/api/projects/${projectId}/posthog_support/tickets/`
+}
+
+/**
+ * List the signed-in user's tickets with the PostHog support team, newest first, from every channel the user verified: in-app, API, email and Slack. Use it to check whether support has replied.
+ * @summary List your PostHog support tickets
+ */
+export const posthogSupportTicketsList = async (
+    projectId: string,
+    params?: PosthogSupportTicketsListParams,
+    options?: RequestInit
+): Promise<PostHogSupportTicketListApi[]> => {
+    return apiMutator<PostHogSupportTicketListApi[]>(getPosthogSupportTicketsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getPosthogSupportTicketsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/posthog_support/tickets/`
 }
@@ -704,5 +738,24 @@ export const posthogSupportTicketsCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(createPostHogSupportTicketApi),
+    })
+}
+
+export const getPosthogSupportTicketsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/posthog_support/tickets/${id}/`
+}
+
+/**
+ * Read the status and the messages of one of the signed-in user's tickets with PostHog support. Internal notes of the support team are not included.
+ * @summary Read a PostHog support ticket
+ */
+export const posthogSupportTicketsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<PostHogSupportTicketDetailApi> => {
+    return apiMutator<PostHogSupportTicketDetailApi>(getPosthogSupportTicketsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
     })
 }
