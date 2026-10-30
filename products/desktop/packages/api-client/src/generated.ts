@@ -7123,6 +7123,7 @@ export namespace Schemas {
         error?: (string | null) | undefined;
         hasMore?: (boolean | null) | undefined;
         hogql?: (string | null) | undefined;
+        latestDayComputedAt?: (string | null) | undefined;
         limit?: (number | null) | undefined;
         modifiers?: (HogQLQueryModifiers | null) | undefined;
         offset?: (number | null) | undefined;
@@ -7149,6 +7150,7 @@ export namespace Schemas {
         dataComputedAt?: (string | null) | undefined;
         error?: (string | null) | undefined;
         hogql?: (string | null) | undefined;
+        latestDayComputedAt?: (string | null) | undefined;
         modifiers?: (HogQLQueryModifiers | null) | undefined;
         precomputeNotReady?: (boolean | null) | undefined;
         query_status?: (QueryStatus | null) | undefined;
@@ -8348,6 +8350,7 @@ export namespace Schemas {
         error?: (string | null) | undefined;
         hasMore?: (boolean | null) | undefined;
         hogql?: (string | null) | undefined;
+        latestDayComputedAt?: (string | null) | undefined;
         limit?: (number | null) | undefined;
         modifiers?: (HogQLQueryModifiers | null) | undefined;
         offset?: (number | null) | undefined;
@@ -8417,6 +8420,7 @@ export namespace Schemas {
         dataComputedAt?: (string | null) | undefined;
         error?: (string | null) | undefined;
         hogql?: (string | null) | undefined;
+        latestDayComputedAt?: (string | null) | undefined;
         modifiers?: (HogQLQueryModifiers | null) | undefined;
         precomputeNotReady?: (boolean | null) | undefined;
         query_status?: (QueryStatus | null) | undefined;
