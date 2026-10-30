@@ -9,6 +9,8 @@ _AUDIO_TYPES = frozenset({"audio", "input_audio"})
 _FILE_TYPES = frozenset({"document", "file", "input_file"})
 _GEMINI_DATA_KEYS = ("inline_data", "inlineData", "file_data", "fileData")
 _OTEL_TYPES = frozenset({"blob", "uri"})
+_MIME_KEYS = ("mediaType", "mimeType", "mime_type", "media_type")
+_FILE_SOURCE_KEYS = ("file_data", "file_url", "data", "uri", "url")
 _LINK_SCHEMES = ("https://", "http://", "phaiblob://")
 # Without full capture the SDKs replace the bytes with a placeholder such as `[base64 image redacted]`.
 # Same pattern as the frontend's `isRedactedMediaSentinel`.
@@ -98,7 +100,9 @@ def _image_block(block: dict) -> MediaBlock:
         )
     # The Gemini Interactions API puts `data` and `mime_type` on the block itself.
     mime_type = block.get("mime_type") or block.get("mimeType")
-    return _with_source("image", mime_type if isinstance(mime_type, str) else None, image_url or block.get("data"))
+    return _with_source(
+        "image", mime_type if isinstance(mime_type, str) else None, image_url or block.get("data") or block.get("uri")
+    )
 
 
 def _file_block(block: dict) -> MediaBlock:
@@ -108,11 +112,11 @@ def _file_block(block: dict) -> MediaBlock:
         mime_type, value = source.get("media_type"), source.get("data") or source.get("url")
     else:
         file = block.get("file")
-        # OpenAI chat nests the file, the Responses API puts it on the block, and the Vercel AI SDK
-        # records `{"type": "file", "mediaType": ..., "file": <data>}`.
+        # OpenAI chat nests the file, and the Responses API, Gemini and the Vercel AI SDK put it on the block.
+        # Vercel records `{"type": "file", "mediaType": ..., "file": <data>}`.
         fields = file if isinstance(file, dict) else block
-        mime_type = block.get("mediaType")
-        value = fields.get("file_data") or fields.get("file_url") or fields.get("data")
+        mime_type = next((block[key] for key in _MIME_KEYS if isinstance(block.get(key), str)), None)
+        value = next((fields[key] for key in _FILE_SOURCE_KEYS if fields.get(key)), None)
         if value is None and isinstance(file, str):
             value = file
     media = _with_source("file", mime_type if isinstance(mime_type, str) else None, value)

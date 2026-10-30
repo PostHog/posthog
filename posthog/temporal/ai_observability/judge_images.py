@@ -18,6 +18,7 @@ from products.ai_observability.backend.facade.blobs import BlobPointer
 from products.ai_observability.backend.llm.images import (
     IMAGE_MIME_TYPES,
     MAX_IMAGE_BYTES,
+    MAX_PDF_BYTES,
     PDF_MIME_TYPE,
     AttachmentPart,
     attachment_transport,
@@ -67,7 +68,7 @@ class _Attachment:
 
 
 @frozen
-class _Image:
+class _Media:
     kind: Literal["image", "file"]
     number: int
     mime_type: str
@@ -89,8 +90,9 @@ class JudgeImages:
 
     def __init__(self, team_id: int) -> None:
         self._team_id = team_id
-        self._images: list[_Image] = []
-        self._images_by_key: dict[str, _Image] = {}
+        self._images: list[_Media] = []
+        self._images_by_key: dict[str, _Media] = {}
+        self._counts: Counter[str] = Counter()
         # After one storage failure the rest would fail too, each after its own timeout and retry.
         self._storage_failed = False
 
@@ -103,9 +105,13 @@ class JudgeImages:
         if kind is None or mime_type is None or key is None:
             return media.marker()
         if (image := self._images_by_key.get(key)) is None:
-            number = sum(1 for other in self._images if other.kind == kind) + 1
-            image = self._images_by_key[key] = _Image(
-                kind=kind, number=number, mime_type=mime_type, pointer=pointer, base64_data=media.base64_data
+            self._counts[kind] += 1
+            image = self._images_by_key[key] = _Media(
+                kind=kind,
+                number=self._counts[kind],
+                mime_type=mime_type,
+                pointer=pointer,
+                base64_data=media.base64_data,
             )
             self._images.append(image)
         return image.marker
@@ -148,11 +154,11 @@ class JudgeImages:
         logger.info("judge_images_attached", provider=provider, model=model, inline_bytes=inline_bytes, **outcomes)
         return parts
 
-    def _attach(self, image: _Image, provider: str, model: str, inline_budget: int) -> _Attachment:
+    def _attach(self, image: _Media, provider: str, model: str, inline_budget: int) -> _Attachment:
         transport = attachment_transport(provider, model, image.mime_type)
         if transport is None:
             return _Attachment(outcome="unavailable")
-        provider_limit = None if image.kind == "file" else MAX_IMAGE_BYTES.get(provider)
+        provider_limit = MAX_PDF_BYTES if image.kind == "file" else MAX_IMAGE_BYTES.get(provider)
         if image.pointer is None:
             if len(image.base64_data or "") * 3 // 4 > min(inline_budget, provider_limit or inline_budget):
                 return _Attachment(outcome="too_large")
@@ -175,7 +181,7 @@ class JudgeImages:
             return _Attachment(outcome="unavailable")
 
     def _attach_blob(
-        self, image: _Image, pointer: BlobPointer, transport: Literal["url", "inline"], max_bytes: int | None
+        self, image: _Media, pointer: BlobPointer, transport: Literal["url", "inline"], max_bytes: int | None
     ) -> _Attachment:
         stored_size = 0
         if max_bytes is not None:

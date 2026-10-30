@@ -9,11 +9,12 @@ IMAGE_MIME_TYPES = frozenset({"image/png", "image/jpeg", "image/webp", "image/gi
 PDF_MIME_TYPE = "application/pdf"
 # Providers whose image blocks take a link that they download themselves.
 _URL_PROVIDERS = frozenset({"openai", "azure_openai", "anthropic", "openrouter", "gemini"})
-# Providers known to read PDFs. OpenAI's chat API and OpenRouter take a PDF as inline file data only.
-_PDF_PROVIDERS = frozenset({"openai", "anthropic", "openrouter", "gemini"})
-_INLINE_PDF_PROVIDERS = frozenset({"openai", "openrouter"})
+# Providers that read PDFs natively. OpenRouter is left out: it parses PDFs for other models with a paid OCR engine.
+_PDF_PROVIDERS = frozenset({"openai", "anthropic", "gemini"})
 # Raw bytes per image. Anthropic allows 10 MB base64-encoded, about 7.5 MB raw, so keep a margin under it.
 MAX_IMAGE_BYTES = {"anthropic": 7_000_000}
+# Raw bytes per PDF for every provider. Each page costs about as many tokens as an image, and links have no other cap.
+MAX_PDF_BYTES = 10_000_000
 
 
 @frozen
@@ -50,7 +51,8 @@ def attachment_transport(provider: str, model: str, mime_type: str) -> Literal["
             return None
         # The Gemini 2.0 family can't fetch external links.
         return "inline" if model.startswith("gemini-2.0") else "url"
-    if is_pdf and provider in _INLINE_PDF_PROVIDERS:
+    if is_pdf and provider == "openai":
+        # The chat API takes a PDF only as inline file data.
         return "inline"
     return "url" if provider in _URL_PROVIDERS else "inline"
 

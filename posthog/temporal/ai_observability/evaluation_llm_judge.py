@@ -860,7 +860,7 @@ def call_llm_judge(
             )
         else:
             content = image_prompt.images.content(image_prompt.text, provider, model) if image_prompt else user_prompt
-            sent_images = isinstance(content, list) and any(isinstance(part, AttachmentPart) for part in content)
+            sent_attachments = isinstance(content, list) and any(isinstance(part, AttachmentPart) for part in content)
             request = CompletionRequest(
                 model=model,
                 system=system_prompt,
@@ -873,7 +873,7 @@ def call_llm_judge(
             try:
                 response = client.complete(request)
             except Exception as e:
-                status = _image_rejection_status(e) if sent_images else None
+                status = _image_rejection_status(e) if sent_attachments else None
                 if status is None:
                     raise
             # Handle the rejection outside the except: the provider's error can quote a presigned link, and

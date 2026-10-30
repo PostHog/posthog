@@ -6,7 +6,7 @@ from unittest.mock import patch
 from posthog.storage.object_storage import ObjectStorageError
 from posthog.temporal.ai_observability.judge_images import MAX_ATTACHMENTS, JudgeImages
 
-from products.ai_observability.backend.llm.images import AttachmentPart
+from products.ai_observability.backend.llm.images import MAX_PDF_BYTES, AttachmentPart
 from products.ai_observability.backend.text_repr.formatters.media_blocks import MediaBlock, parse_media_block
 
 OBJECT_STORAGE = "products.ai_observability.backend.ai_blobs.object_storage"
@@ -120,7 +120,7 @@ class TestJudgeImagesContent:
                 id="pdf_inline_on_openai",
             ),
             pytest.param(
-                "together_ai",
+                "openrouter",
                 "any",
                 "application%2Fpdf",
                 "File 1: could not be attached.",
@@ -234,6 +234,19 @@ class TestJudgeImagesContent:
         } == too_large
         # An image over the budget is never downloaded.
         assert read.call_count == reads
+
+    def test_caps_pdf_bytes_on_links(self):
+        images = JudgeImages(team_id=7)
+        prompt = f"user: {images.marker(_pointer('a', mime='application%2Fpdf'))}"
+
+        with (
+            patch(f"{OBJECT_STORAGE}.get_presigned_url", return_value="https://signed") as presign,
+            patch(f"{OBJECT_STORAGE}.head_object_strict", return_value={"ContentLength": MAX_PDF_BYTES + 1}),
+        ):
+            content = images.content(prompt, "anthropic", "claude-haiku-4-5")
+
+        assert {"type": "text", "text": "File 1: not attached, too large."} in content
+        presign.assert_not_called()
 
     def test_skips_images_whose_marker_was_sampled_out_of_the_prompt(self):
         images = JudgeImages(team_id=7)

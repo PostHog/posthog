@@ -145,6 +145,14 @@ class TestExtractTextFromMessages:
                 id="vercel_pdf",
             ),
             pytest.param(
+                {"type": "document", "mime_type": "application/pdf", "data": "aGk="}, "[file 1]", id="gemini_pdf"
+            ),
+            pytest.param(
+                {"type": "image", "uri": f"phaiblob://v1/sha256/{'a' * 64}?mime=image%2Fpng"},
+                "[image 1]",
+                id="otel_style_image_uri",
+            ),
+            pytest.param(
                 {"type": "file", "mediaType": "image/png", "file": "raw files not supported"},
                 "[image]",
                 id="vercel_sdk_placeholder",
