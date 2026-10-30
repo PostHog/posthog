@@ -539,6 +539,7 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                                     { key: 'overview', label: 'Overview' },
                                     { key: 'history', label: 'History' },
                                 ]}
+                                sceneInset
                             />
                         )}
 
