@@ -21,6 +21,7 @@ from posthog.schema import ExperimentEventExposureConfig
 
 from posthog.models.team import Team
 from posthog.models.team.extensions import get_or_create_team_extension
+from posthog.models.team.team import DEPRECATED_ATTRS
 from posthog.models.user import User
 
 from products.experiments.backend.experiment_service import ExperimentService
@@ -384,7 +385,18 @@ def list_precomputation_enabled_team_ids(team_ids: Collection[int] | None = None
 
 
 def _team_experiments_config(team_id: int) -> TeamExperimentsConfig:
-    return get_or_create_team_extension(Team.objects.get(id=team_id), TeamExperimentsConfig)
+    try:
+        # Join the team because the activity log on every save and the repository check read `config.team`.
+        # `select_related` builds the team columns from the model rather than through `TeamManager`, so re-apply
+        # its defer. Without it every settings read and update loads the deprecated taxonomy columns, which TOAST
+        # out to megabytes per team.
+        return (
+            TeamExperimentsConfig.objects.select_related("team")
+            .defer(*(f"team__{attr}" for attr in DEPRECATED_ATTRS))
+            .get(team_id=team_id)
+        )
+    except TeamExperimentsConfig.DoesNotExist:
+        return get_or_create_team_extension(Team.objects.get(id=team_id), TeamExperimentsConfig)
 
 
 def set_precomputation_enabled(*, team_id: int, enabled: bool) -> None:
