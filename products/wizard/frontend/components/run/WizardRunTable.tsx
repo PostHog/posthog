@@ -32,6 +32,7 @@ import { WizardRunsEmptyState } from './WizardRunsEmptyState'
 export function WizardRunTable({
     runs,
     totalRuns,
+    highlightedRunId,
     currentUserId,
     loading,
     failed,
@@ -50,6 +51,7 @@ export function WizardRunTable({
 }: {
     runs: WizardRunApi[]
     totalRuns: number
+    highlightedRunId?: string | null
     currentUserId: number | null
     loading: boolean
     failed: boolean
@@ -252,6 +254,11 @@ export function WizardRunTable({
                         pageSize={25}
                         fullWidth
                         onRowClick={onSelect}
+                        rowClassName={(run) =>
+                            run.id === highlightedRunId
+                                ? 'bg-fill-highlight-100 hover:bg-fill-highlight-100'
+                                : undefined
+                        }
                         onPageChange={onPaginate}
                     />
                 </Card>
