@@ -17,6 +17,7 @@ from products.experiments.backend.health.checks.conditions_changed import releas
 from products.experiments.backend.health.checks.early_significance import early_significance
 from products.experiments.backend.health.checks.exposure_criteria import exposure_criteria_cannot_match
 from products.experiments.backend.health.checks.exposure_filters import exposure_filters
+from products.experiments.backend.health.checks.filtered_exposures import exposures_removed_by_test_account_filter
 from products.experiments.backend.health.checks.flag_change_findings import flag_history_not_readable
 from products.experiments.backend.health.checks.flag_state import flag_state
 from products.experiments.backend.health.checks.flag_variants import flag_variants_mismatch
@@ -127,6 +128,11 @@ EXPOSURE_HEALTH_CHECKS: tuple[HealthCheck, ...] = (
         key=ExperimentHealthCheckKey.ZERO_EXPOSURES,
         name="Exposures not received since launch",
         run=zero_exposures,
+    ),
+    HealthCheck(
+        key=ExperimentHealthCheckKey.TEST_ACCOUNT_FILTER_REMOVES_EXPOSURES,
+        name="Test account filters that leave out most users",
+        run=exposures_removed_by_test_account_filter,
     ),
     HealthCheck(
         key=ExperimentHealthCheckKey.SRM,

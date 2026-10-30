@@ -1979,50 +1979,128 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
 
     @parameterized.expand(
         [
-            ("test_accounts_exposed", 2, True, "No users exposed: the test account filter removes all of them", 2),
-            ("nobody_exposed", 0, True, "No users exposed, although the feature flag is called", 0),
+            (
+                "test_accounts_exposed",
+                0,
+                2,
+                True,
+                "2024-01-07T12:00:00Z",
+                [
+                    (
+                        ExperimentExposureHealthFindingCode.ZERO_EXPOSURES,
+                        "calls_not_counted",
+                        "No users exposed: the test account filter removes all of them",
+                        2,
+                    )
+                ],
+            ),
+            (
+                "nobody_exposed",
+                0,
+                0,
+                True,
+                "2024-01-07T12:00:00Z",
+                [
+                    (
+                        ExperimentExposureHealthFindingCode.ZERO_EXPOSURES,
+                        "calls_not_counted",
+                        "No users exposed, although the feature flag is called",
+                        0,
+                    )
+                ],
+            ),
             (
                 "reader_who_does_not_see_the_findings",
+                0,
                 2,
                 False,
-                "No users exposed, although the feature flag is called",
-                None,
+                "2024-01-07T12:00:00Z",
+                [
+                    (
+                        ExperimentExposureHealthFindingCode.ZERO_EXPOSURES,
+                        "calls_not_counted",
+                        "No users exposed, although the feature flag is called",
+                        None,
+                    )
+                ],
             ),
+            (
+                "few_users_counted",
+                3,
+                100,
+                True,
+                "2024-01-07T12:00:00Z",
+                [
+                    (
+                        ExperimentExposureHealthFindingCode.TEST_ACCOUNT_FILTER_REMOVES_EXPOSURES,
+                        None,
+                        "The test account filter removes most exposed users",
+                        103,
+                    )
+                ],
+            ),
+            ("few_users_counted_in_the_first_day", 3, 100, True, "2024-01-01T23:00:00Z", []),
         ]
     )
-    @time_machine.travel("2024-01-07T12:00:00Z", tick=False)
-    def test_zero_exposures_counts_the_users_that_the_test_account_filter_removes(
-        self, _name: str, test_accounts: int, findings_shown: bool, title: str, counted: int | None
+    def test_counts_the_users_that_the_test_account_filter_removes(
+        self,
+        _name: str,
+        users: int,
+        test_accounts: int,
+        findings_shown: bool,
+        now: str,
+        expected: list[tuple[ExperimentExposureHealthFindingCode, str | None, str, int | None]],
     ) -> None:
-        self.feature_flag.last_called_at = datetime(2024, 1, 2, tzinfo=UTC)
+        self.feature_flag.last_called_at = datetime(2024, 1, 1, 12, tzinfo=UTC)
         self.feature_flag.save()
         self.team.test_account_filters = [
             {"key": "email", "value": "@example.com", "operator": "not_icontains", "type": "person"}
         ]
         self.team.save()
         self.experiment.exposure_criteria = {"filterTestAccounts": True}
-        for i in range(test_accounts):
-            _create_person(distinct_ids=[f"tester_{i}"], properties={"email": f"tester{i}@example.com"}, team=self.team)
+        for i in range(users + test_accounts):
+            domain = "example.com" if i >= users else "example.org"
+            _create_person(distinct_ids=[f"person_{i}"], properties={"email": f"person{i}@{domain}"}, team=self.team)
             _create_event(
-                distinct_id=f"tester_{i}",
+                distinct_id=f"person_{i}",
                 event="$feature_flag_called",
-                timestamp="2024-01-02",
+                timestamp="2024-01-01T10:00:00Z",
                 properties={"$feature_flag_response": "test", "$feature_flag": self.feature_flag.key},
                 team=self.team,
             )
         flush_persons_and_events()
 
-        with patch(f"{ExperimentExposuresQueryRunner.__module__}.shows_health_findings", return_value=findings_shown):
+        query_types: list[str] = []
+
+        def execute(**kwargs: Any) -> Any:
+            query_types.append(kwargs["query_type"])
+            return execute_hogql_query(**kwargs)
+
+        runner_module = ExperimentExposuresQueryRunner.__module__
+        with (
+            time_machine.travel(now, tick=False),
+            patch(f"{runner_module}.execute_hogql_query", side_effect=execute),
+            patch(f"{runner_module}.shows_health_findings", return_value=findings_shown),
+        ):
             response = ExperimentExposuresQueryRunner(
                 team=self.team, query=self._running_exposure_query(), user=self.user
             ).calculate()
 
         self.assertEqual(
             [
-                (finding.subcode, finding.title, finding.evidence.get("exposed_without_test_account_filter"))
+                (
+                    finding.code,
+                    finding.subcode,
+                    finding.title,
+                    finding.evidence.get("exposed_without_test_account_filter"),
+                )
                 for finding in response.health_findings or []
             ],
-            [("calls_not_counted", title, counted)],
+            expected,
+        )
+        self.assertEqual(
+            "ExperimentExposuresWithoutTestAccountFilterQuery" in query_types,
+            any(count is not None for *_, count in expected),
         )
 
     @parameterized.expand([("direct", False), ("precomputed", True)])

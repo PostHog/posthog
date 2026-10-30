@@ -363,6 +363,11 @@ function exposureChecks(input: HealthDebugInput): HealthDebugCheck[] {
             ['exposures'],
             'The finding needs more than 5% and at least 5 users or groups in multiple variants, under Exclude only.'
         ),
+        exposureCheck(
+            'test_account_filter_removes_exposures',
+            ['experiment', 'exposures', 'project'],
+            'The finding needs 100 or more users or groups exposed without the test account filter, and 10% or less of them kept. It runs from 24 hours after launch while fewer than 1,000 are counted.'
+        ),
     ]
 }
 

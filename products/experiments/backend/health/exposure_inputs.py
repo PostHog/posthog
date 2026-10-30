@@ -73,6 +73,10 @@ def load_exposure_inputs(experiment: Experiment, *, user: User | None, can_query
     recalculating = response.query_status is not None and not response.query_status.complete
     srm = response.sample_ratio_mismatch
     computed_at = response.last_refresh
+    # The runner resolves the parameters the same way when it computes the answer.
+    exposure_params = get_exposure_config_params_for_builder(
+        query.exposure_criteria, experiment.team, experiment.start_date
+    )
     return ExposureInputs(
         status=(
             HealthExposureInputsStatus.STALE
@@ -83,16 +87,14 @@ def load_exposure_inputs(experiment: Experiment, *, user: User | None, can_query
         totals=ExposureTotals(
             # The schema types the counts as floats, but the runner computes whole people.
             total_exposures={variant: int(count) for variant, count in response.total_exposures.items()},
-            # The runner resolves the handling the same way when it computes the answer.
-            multiple_variant_handling=get_exposure_config_params_for_builder(
-                query.exposure_criteria, experiment.team, experiment.start_date
-            ).multiple_variant_handling,
+            multiple_variant_handling=exposure_params.multiple_variant_handling,
             sample_ratio_mismatch_p_value=srm.p_value if srm else None,
             sample_ratio_expected={},
             daily_exposures={},
             # The checks read the hours at computation, not now.
             hours_since_launch=(computed_at - experiment.start_date).total_seconds() / 3600 if computed_at else None,
             counts_groups=aggregates_by_group(runner.group_type_index),
+            filters_test_accounts=bool(exposure_params.filter_test_accounts and experiment.team.test_account_filters),
         ),
         findings=tuple(response.health_findings or ()),
         error=calculation_error,

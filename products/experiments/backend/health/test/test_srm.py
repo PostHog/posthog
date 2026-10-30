@@ -40,6 +40,7 @@ def _exposures(segments: tuple[ExposureSegment, ...] | None) -> ExposureTotals:
         daily_exposures={},
         hours_since_launch=72,
         counts_groups=False,
+        filters_test_accounts=False,
         segments=segments,
     )
 

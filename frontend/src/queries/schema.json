@@ -26314,7 +26314,13 @@
             "type": "object"
         },
         "ExperimentExposureHealthCheckKey": {
-            "enum": ["zero_exposures", "srm", "bias_risk_multiple_excluded", "multiple_variants_share"],
+            "enum": [
+                "zero_exposures",
+                "srm",
+                "bias_risk_multiple_excluded",
+                "multiple_variants_share",
+                "test_account_filter_removes_exposures"
+            ],
             "type": "string"
         },
         "ExperimentExposureHealthCheckStatus": {
@@ -26386,7 +26392,13 @@
             "type": "string"
         },
         "ExperimentExposureHealthFindingCode": {
-            "enum": ["zero_exposures", "srm", "bias_risk_multiple_excluded", "multiple_variants_share"],
+            "enum": [
+                "zero_exposures",
+                "srm",
+                "bias_risk_multiple_excluded",
+                "multiple_variants_share",
+                "test_account_filter_removes_exposures"
+            ],
             "type": "string"
         },
         "ExperimentExposureHealthFindingSeverity": {

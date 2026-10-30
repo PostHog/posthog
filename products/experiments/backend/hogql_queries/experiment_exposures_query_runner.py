@@ -45,6 +45,7 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationResult
 from products.experiments.backend.facade.contracts import ExperimentHealth, ExperimentHealthReaderAccess
 from products.experiments.backend.health.checks.bias_risk import evaluate_bias_risk
+from products.experiments.backend.health.checks.filtered_exposures import counts_few_exposures_with_test_account_filter
 from products.experiments.backend.health.checks.srm import (
     TOP_SEGMENT_VALUES,
     reads_flag_history,
@@ -360,11 +361,8 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             segments = self._segments(exposure_params, segments_first_exposed_after(context))
             exposures = replace(exposures, segments=segments)
             context = replace(context, exposures=exposures)
-        # Without test account filters on the project, the count without the filter is the same zero.
-        if (
-            exposure_params.filter_test_accounts
-            and self.team.test_account_filters
-            and reads_exposed_without_test_account_filter(context)
+        if exposures.filters_test_accounts and (
+            reads_exposed_without_test_account_filter(context) or counts_few_exposures_with_test_account_filter(context)
         ):
             exposed = self._exposed_without_test_account_filter(exposure_params)
             context = replace(context, exposures=replace(exposures, exposed_without_test_account_filter=exposed))
@@ -537,6 +535,7 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
                 daily_exposures=daily_exposures,
                 hours_since_launch=self.experiment.hours_since_launch,
                 counts_groups=aggregates_by_group(self.group_type_index),
+                filters_test_accounts=bool(exposure_params.filter_test_accounts and self.team.test_account_filters),
             ),
             exposure_params,
         )

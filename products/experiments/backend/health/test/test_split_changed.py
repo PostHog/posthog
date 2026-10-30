@@ -509,6 +509,7 @@ def _totals(after_change: dict[str, int], *, counts_groups: bool = False) -> Exp
         },
         hours_since_launch=72,
         counts_groups=counts_groups,
+        filters_test_accounts=False,
     )
 
 

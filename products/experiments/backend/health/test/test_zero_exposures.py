@@ -57,6 +57,7 @@ NO_EXPOSURES = ExposureTotals(
     daily_exposures={},
     hours_since_launch=48,
     counts_groups=False,
+    filters_test_accounts=True,
 )
 TEST_ACCOUNTS_ONLY = replace(NO_EXPOSURES, exposed_without_test_account_filter=12)
 FLAG_CALLS = ExposureEvents(

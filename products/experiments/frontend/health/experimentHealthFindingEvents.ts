@@ -3,7 +3,11 @@ import posthog from 'lib/posthog-typed'
 import type { ExperimentWarning, ExperimentWarningKey } from 'scenes/experiments/experimentLogic'
 import { isLegacyExperiment } from 'scenes/experiments/utils'
 
-import type { ExperimentExposureCriteria, ExperimentExposureQueryResponse } from '~/queries/schema/schema-general'
+import type {
+    ExperimentExposureCriteria,
+    ExperimentExposureHealthFinding,
+    ExperimentExposureQueryResponse,
+} from '~/queries/schema/schema-general'
 import type { Experiment } from '~/types'
 
 import { EXPERIMENT_VARIANT_MULTIPLE } from '../constants'
@@ -22,6 +26,7 @@ export type ExperimentHealthFindingCode =
     | 'multiple_variants_share'
     | 'srm'
     | 'zero_exposures'
+    | 'test_account_filter_removes_exposures'
     | 'no_metric'
     | 'metric_event_not_ingested'
     | 'metric_cannot_compile'
@@ -133,7 +138,12 @@ function healthFindingEventProperties(
     }
 }
 
-function trackedHealthFinding({ code, subcode, severity, reason }: ExperimentHealthFindingApi): string {
+function trackedHealthFinding({
+    code,
+    subcode,
+    severity,
+    reason,
+}: ExperimentHealthFindingApi | ExperimentExposureHealthFinding): string {
     // pinned: `code:subcode:severity:reason`, as on the server's `experiment launched`. Insights split each string
     // on `:`, so every field is present, empty when the finding has none.
     return [code, subcode ?? '', severity, reason ?? ''].join(':')
@@ -245,6 +255,8 @@ export function captureExperimentHealthChecked(
  * the server's checks on the same answer, null when the answer holds no server findings (a cached answer
  * from before the server ran them). `srm_subcode` and `zero_exposures_subcode` are the `subcode` of those findings, and
  * `srm_reason` and `zero_exposures_reason` their `reason`, each null without the finding or when it names none.
+ * `exposure_health_findings` lists every server finding on the answer, in the format of `health_findings` on
+ * `experiment health checked`.
  */
 export function exposureHealthEventProperties(
     exposures: ExperimentExposureQueryResponse | null | undefined,
@@ -261,6 +273,7 @@ export function exposureHealthEventProperties(
     zero_exposures_subcode: string | null
     zero_exposures_reason: string | null
     bias_risk_server: boolean | null
+    exposure_health_findings: string[] | null
 } {
     if (!exposures) {
         return {
@@ -275,6 +288,7 @@ export function exposureHealthEventProperties(
             zero_exposures_subcode: null,
             zero_exposures_reason: null,
             bias_risk_server: null,
+            exposure_health_findings: null,
         }
     }
     const serverCodes = exposures.health_findings ? new Set(exposures.health_findings.map(({ code }) => code)) : null
@@ -301,5 +315,7 @@ export function exposureHealthEventProperties(
         // pinned: analytics property, so renaming it breaks insights. Its values are the server's pinned reasons.
         zero_exposures_reason: zeroExposuresFinding?.reason ?? null,
         bias_risk_server: serverCodes ? serverCodes.has('bias_risk_multiple_excluded') : null,
+        // pinned: analytics property, so renaming it breaks insights. Its values are `code:subcode:severity:reason`.
+        exposure_health_findings: exposures.health_findings?.map(trackedHealthFinding) ?? null,
     }
 }

@@ -6545,6 +6545,7 @@ export type ExperimentExposureHealthFindingCode =
     | 'srm'
     | 'bias_risk_multiple_excluded'
     | 'multiple_variants_share'
+    | 'test_account_filter_removes_exposures'
 
 export type ExperimentExposureHealthFindingSeverity = 'critical' | 'warning' | 'info'
 
@@ -6581,6 +6582,7 @@ export type ExperimentExposureHealthCheckKey =
     | 'srm'
     | 'bias_risk_multiple_excluded'
     | 'multiple_variants_share'
+    | 'test_account_filter_removes_exposures'
 
 export type ExperimentExposureHealthCheckStatus = 'passed' | 'finding' | 'not_applicable' | 'not_checked'
 

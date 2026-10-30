@@ -15,6 +15,7 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFindingCode,
 )
 from products.experiments.backend.health import registry
+from products.experiments.backend.health.checks.filtered_exposures import counts_few_exposures_with_test_account_filter
 from products.experiments.backend.health.context import (
     ExposureEvents,
     ExposureTotals,
@@ -41,6 +42,7 @@ UNEVEN_SPLIT_TOTALS = ExposureTotals(
     daily_exposures={},
     hours_since_launch=72,
     counts_groups=False,
+    filters_test_accounts=False,
 )
 
 UNEVEN_FLAG = FlagState(
@@ -91,6 +93,15 @@ def _totals_with_multiple(multiple: int, total: int) -> ExposureTotals:
     return replace(
         UNEVEN_SPLIT_TOTALS,
         total_exposures={"control": single - single // 2, "test": single // 2, "$multiple": multiple},
+    )
+
+
+def _filtered_totals(counted: int, exposed_without_filter: int | None) -> ExposureTotals:
+    return replace(
+        UNEVEN_SPLIT_TOTALS,
+        total_exposures={"control": counted - counted // 2, "test": counted // 2},
+        filters_test_accounts=True,
+        exposed_without_test_account_filter=exposed_without_filter,
     )
 
 
@@ -153,6 +164,23 @@ class TestEvaluate(TestCase):
                 "multiple_variants_share_under_100_exposures",
                 {**ENDED, "exposures": _totals_with_multiple(5, 60)},
                 [ExperimentHealthFindingCode.MULTIPLE_VARIANTS_SHARE],
+            ),
+            (
+                "test_account_filter_keeps_4_percent",
+                {"exposures": _filtered_totals(40, 1000)},
+                [ExperimentHealthFindingCode.TEST_ACCOUNT_FILTER_REMOVES_EXPOSURES],
+            ),
+            (
+                "test_account_filter_keeps_10_percent_after_the_end",
+                {**ENDED, "exposures": _filtered_totals(100, 1000)},
+                [ExperimentHealthFindingCode.TEST_ACCOUNT_FILTER_REMOVES_EXPOSURES],
+            ),
+            ("test_account_filter_keeps_95_percent", {"exposures": _filtered_totals(950, 1000)}, []),
+            ("test_account_filter_under_100_users_without_it", {"exposures": _filtered_totals(4, 99)}, []),
+            (
+                "test_account_filter_keeps_nobody",
+                {"exposures": _filtered_totals(0, 1000)},
+                [ExperimentHealthFindingCode.ZERO_EXPOSURES],
             ),
         ]
     )
@@ -268,6 +296,28 @@ class TestEvaluate(TestCase):
 
         srm = next(check for check in health.checks if check.key == Key.SRM)
         self.assertEqual((srm.status, srm.reason), (Status.NOT_APPLICABLE, reason))
+
+    @parameterized.expand(
+        [
+            ("few_counted_a_day_after_launch", {}, True),
+            ("1000_counted", {"total_exposures": {"control": 500, "test": 500}}, False),
+            ("in_the_first_day", {"hours_since_launch": 23.9}, False),
+            ("none_counted", {"total_exposures": {"control": 0, "test": 0}}, False),
+            ("filter_off", {"filters_test_accounts": False}, False),
+        ]
+    )
+    def test_the_count_without_the_test_account_filter_runs_only_on_few_exposures(
+        self, _name: str, changes: dict[str, Any], counts: bool
+    ) -> None:
+        ctx = replace(RUNNING_UNEVEN_SPLIT, exposures=replace(_filtered_totals(40, None), **changes))
+
+        health = evaluate(ctx, EXPOSURE_HEALTH_CHECKS)
+
+        status = next(check.status for check in health.checks if check.key == Key.TEST_ACCOUNT_FILTER_REMOVES_EXPOSURES)
+        self.assertEqual(
+            (counts_few_exposures_with_test_account_filter(ctx), status),
+            (counts, Status.NOT_CHECKED if counts else Status.NOT_APPLICABLE),
+        )
 
     @parameterized.expand(
         [
