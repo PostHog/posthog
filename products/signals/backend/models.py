@@ -4275,6 +4275,58 @@ class UserActivitySummaryQueueCursor(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
 
+class PersonalInboxRanking(TeamScopedRootMixin, UUIDModel):
+    """One build of one person's ranked inbox list, from `personal_ranking/logic.py`.
+
+    Append-only: every build writes one row, so later readers can reuse the latest row while its
+    `input_hash` still matches the current inputs.
+    """
+
+    class Status(models.TextChoices):
+        # The model ranked the candidates.
+        OK = "ok"
+        # The model call failed, timed out or answered outside the schema. The list is in model order.
+        FALLBACK = "fallback"
+        # No candidates, so no model call.
+        EMPTY = "empty"
+
+    # See SignalReportRefund.all_teams for rationale.
+    all_teams = models.Manager()  # noqa: DJ012
+
+    # FKs to the hot posthog_team / posthog_user tables use db_constraint=False so creating this
+    # table takes no lock on those parents. Django still cascades a delete of either parent.
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    # Covers the candidates with their status, PR state and score, the summary version, the prompt version and the focus.
+    input_hash = models.CharField(max_length=64)
+    # Report ids in candidate order.
+    candidate_ids = models.JSONField(default=list)
+    # Every candidate with its rank, tier and reason, and the folded reports. See `PersonalRankingResult.as_json`.
+    result = models.JSONField(default=dict)
+    personalized = models.BooleanField(default=False)
+    # Null when the person had no ready activity summary.
+    activity_summary_version = models.PositiveIntegerField(null=True, blank=True)
+    model = models.CharField(max_length=100)
+    prompt_version = models.PositiveSmallIntegerField()
+    # Null when the response had no usage, or there was no model call.
+    tokens_in = models.IntegerField(null=True, blank=True)
+    tokens_out = models.IntegerField(null=True, blank=True)
+    # Null when the usage or the model price is unknown.
+    cost_usd = models.FloatField(null=True, blank=True)
+    latency_ms = models.IntegerField(null=True, blank=True)
+    status = models.CharField(max_length=20, choices=Status)
+    # One of the fixed strings of `personal_ranking/logic.py`, never model output.
+    fallback_reason = models.CharField(max_length=100, null=True, blank=True)
+
+    class Meta:
+        default_manager_name = "all_teams"
+        indexes = [
+            models.Index(fields=["team", "user", "-created_at"], name="signals_personal_rank_latest"),
+        ]
+
+
 class AnomalyScoringState(TeamScopedRootMixin, UUIDModel):
     """The trained detector artifacts of one insight and scoring profile of the anomaly scoring tick.
 

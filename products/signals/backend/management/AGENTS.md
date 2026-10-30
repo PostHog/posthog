@@ -265,6 +265,22 @@ uv run manage.py reactivate_pause_errored_report_checks --apply --team-id 1
 
 Idempotent. A reactivated check no longer matches.
 
+## Building a personal inbox ranking
+
+`run_personal_inbox_ranking` builds one person's ranked inbox list with one LLM call (`../personal_ranking/`) and prints it, with each report's rank, tier and reason.
+It reads its limits from the `personal-inbox-ranking` flag payload, and `"enabled": false` there stops every build.
+
+```bash
+# Call the model, but store no PersonalInboxRanking row and capture no event
+uv run manage.py run_personal_inbox_ranking --team-id 1 --user-id 1 --dry-run
+
+# Store the row and capture `personal inbox ranking built`, with optional focus text
+uv run manage.py run_personal_inbox_ranking --team-id 1 --user-id 1 --focus "checkout errors"
+```
+
+A person with no ready activity summary still gets a list, marked `personalized: False`.
+When the model call fails or answers outside the schema, the list is in model order and `fallback_reason` says why.
+
 ## Tips
 
 - Compare runs by saving output: `list_signal_reports --json > run_baseline.json`
