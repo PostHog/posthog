@@ -229,6 +229,7 @@ def _get_usage_rows(
 
         def window_checkpoint(
             state: Optional[dict[str, Any]],
+            _has_next_page: bool,
             window_start_iso: str = window_start_iso,
             window_end_iso: str = window_end_iso,
         ) -> None:
@@ -247,7 +248,8 @@ def _get_usage_rows(
             paginator=JSONResponseCursorPaginator(
                 cursor_path="meta.next_page_token", cursor_param="page_token", raise_on_repeated_cursor=True
             ),
-            resume_hook=window_checkpoint,
+            # Staged before the page is yielded, so a hand-off after the write resumes past it.
+            page_state_hook=window_checkpoint,
             initial_paginator_state={"cursor": resumed_token} if resumed_token else None,
         ):
             rows: list[dict[str, Any]] = []
