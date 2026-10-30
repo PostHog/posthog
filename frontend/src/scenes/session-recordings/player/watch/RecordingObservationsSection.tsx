@@ -14,24 +14,20 @@ import { recordingScanBlock } from 'products/replay_vision/frontend/utils/scanEl
 
 export function RecordingObservationsSection({ sessionId }: { sessionId: string }): JSX.Element {
     const { logicProps, sessionPlayerMetaData } = useValues(sessionRecordingPlayerLogic)
-    const { observations, observationsLoading, timeline } = useValues(observationsDockLogic({ sessionId }))
+    const { observations, hasLoadedObservations, timeline } = useValues(observationsDockLogic({ sessionId }))
     const { watchPanelOpenSections } = useValues(playerSettingsLogic)
     const { toggleWatchPanelSection } = useActions(playerSettingsLogic)
     const count = momentCount(timeline)
 
-    const content =
-        observationsLoading && observations.length === 0 ? (
-            <LemonSkeleton className="h-24 m-2" />
-        ) : observations.length === 0 ? (
-            <RecordingObservationsEmptyState
-                sessionId={sessionId}
-                scanBlock={recordingScanBlock(sessionPlayerMetaData)}
-            />
-        ) : (
-            <div className="flex flex-col max-h-[60vh]">
-                <RecordingMoments key={sessionId} sessionId={sessionId} playerLogicProps={logicProps} />
-            </div>
-        )
+    const content = !hasLoadedObservations ? (
+        <LemonSkeleton className="h-24 m-2" />
+    ) : observations.length === 0 ? (
+        <RecordingObservationsEmptyState sessionId={sessionId} scanBlock={recordingScanBlock(sessionPlayerMetaData)} />
+    ) : (
+        <div className="flex flex-col max-h-[60vh]">
+            <RecordingMoments key={sessionId} sessionId={sessionId} playerLogicProps={logicProps} />
+        </div>
+    )
 
     return (
         <LemonCollapse
