@@ -1019,6 +1019,7 @@ class TaskWriteSerializer(serializers.Serializer):
             tasks_facade.TaskOriginProduct.BUSINESS_KNOWLEDGE,
             # Maps to the billed `posthog_ai` gateway product. Only the metrics dashboard import sets it.
             tasks_facade.TaskOriginProduct.METRICS_IMPORT,
+            tasks_facade.TaskOriginProduct.CONTEXT_LAYER,
         }
         if value in reserved_origins:
             raise serializers.ValidationError(f"origin_product '{value}' is reserved for server-created tasks")

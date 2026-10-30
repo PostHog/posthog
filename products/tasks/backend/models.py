@@ -453,6 +453,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         # Metrics dashboard imports from a Grafana export or a screenshot. Reserved: only the
         # metrics import endpoint creates these, and they stay internal so the task APIs never list them.
         METRICS_IMPORT = "metrics_import", "Metrics Import"
+        CONTEXT_LAYER = "context_layer", "Context Layer"
 
     # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 or clarify intent
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)

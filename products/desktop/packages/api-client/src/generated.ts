@@ -19927,6 +19927,7 @@ export namespace Schemas {
      * * `space_setup` - Space Setup
      * * `business_knowledge` - Business Knowledge
      * * `metrics_import` - Metrics Import
+     * * `context_layer` - Context Layer
      */
     export type TaskOriginProductEnum =
         | "onboarding"
@@ -19954,7 +19955,8 @@ export namespace Schemas {
         | "workflow"
         | "space_setup"
         | "business_knowledge"
-        | "metrics_import";
+        | "metrics_import"
+        | "context_layer";
     /**
      * * `default` - default
      * * `acceptEdits` - acceptEdits
@@ -23187,7 +23189,8 @@ export namespace Endpoints {
                     | "workflow"
                     | "space_setup"
                     | "business_knowledge"
-                    | "metrics_import";
+                    | "metrics_import"
+                    | "context_layer";
                 hog_flow_id: string;
                 internal: "true" | "false" | "all";
                 limit: number;
@@ -23202,6 +23205,7 @@ export namespace Endpoints {
                 search: string;
                 sources: Array<
                     | "autoresearch"
+                    | "context_layer"
                     | "error_tracking"
                     | "eval_clusters"
                     | "experiments"

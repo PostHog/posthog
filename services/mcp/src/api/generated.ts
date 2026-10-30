@@ -93844,6 +93844,7 @@ export namespace Schemas {
      * * `space_setup` - Space Setup
      * * `business_knowledge` - Business Knowledge
      * * `metrics_import` - Metrics Import
+     * * `context_layer` - Context Layer
      */
     export type TaskOriginProductEnum = typeof TaskOriginProductEnum[keyof typeof TaskOriginProductEnum];
 
@@ -93875,6 +93876,7 @@ export namespace Schemas {
       SpaceSetup: 'space_setup',
       BusinessKnowledge: 'business_knowledge',
       MetricsImport: 'metrics_import',
+      ContextLayer: 'context_layer',
     } as const;
 
     /**
@@ -93936,7 +93938,8 @@ export namespace Schemas {
        * * `workflow` - Workflow
        * * `space_setup` - Space Setup
        * * `business_knowledge` - Business Knowledge
-       * * `metrics_import` - Metrics Import */
+       * * `metrics_import` - Metrics Import
+       * * `context_layer` - Context Layer */
       origin_product?: TaskOriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -118740,7 +118743,8 @@ export namespace Schemas {
        * * `workflow` - Workflow
        * * `space_setup` - Space Setup
        * * `business_knowledge` - Business Knowledge
-       * * `metrics_import` - Metrics Import */
+       * * `metrics_import` - Metrics Import
+       * * `context_layer` - Context Layer */
       origin_product?: TaskOriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -118964,6 +118968,7 @@ export namespace Schemas {
 
     /**
      * * `autoresearch` - autoresearch
+     * * `context_layer` - context_layer
      * * `error_tracking` - error_tracking
      * * `eval_clusters` - eval_clusters
      * * `experiments` - experiments
@@ -118994,6 +118999,7 @@ export namespace Schemas {
 
     export const TaskListSourceEnum = {
       Autoresearch: 'autoresearch',
+      ContextLayer: 'context_layer',
       ErrorTracking: 'error_tracking',
       EvalClusters: 'eval_clusters',
       Experiments: 'experiments',
@@ -120434,7 +120440,8 @@ export namespace Schemas {
        * * `workflow` - Workflow
        * * `space_setup` - Space Setup
        * * `business_knowledge` - Business Knowledge
-       * * `metrics_import` - Metrics Import */
+       * * `metrics_import` - Metrics Import
+       * * `context_layer` - Context Layer */
       origin_product?: TaskOriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -140295,6 +140302,7 @@ export namespace Schemas {
      * * `space_setup` - Space Setup
      * * `business_knowledge` - Business Knowledge
      * * `metrics_import` - Metrics Import
+     * * `context_layer` - Context Layer
      * @minLength 1
      */
     origin_product?: SandboxCustomImagesListOriginProduct;
@@ -140330,6 +140338,7 @@ export namespace Schemas {
       SpaceSetup: 'space_setup',
       BusinessKnowledge: 'business_knowledge',
       MetricsImport: 'metrics_import',
+      ContextLayer: 'context_layer',
     } as const;
 
     export type SandboxListParams = {
@@ -141895,6 +141904,7 @@ export namespace Schemas {
      * * `space_setup` - Space Setup
      * * `business_knowledge` - Business Knowledge
      * * `metrics_import` - Metrics Import
+     * * `context_layer` - Context Layer
      * @minLength 1
      */
     exclude_origin_product?: TasksListExcludeOriginProduct;
@@ -142048,6 +142058,7 @@ export namespace Schemas {
       SpaceSetup: 'space_setup',
       BusinessKnowledge: 'business_knowledge',
       MetricsImport: 'metrics_import',
+      ContextLayer: 'context_layer',
     } as const;
 
     export type TasksListInternal = typeof TasksListInternal[keyof typeof TasksListInternal];
@@ -142079,6 +142090,7 @@ export namespace Schemas {
 
     /**
      * * `autoresearch` - autoresearch
+     * * `context_layer` - context_layer
      * * `error_tracking` - error_tracking
      * * `eval_clusters` - eval_clusters
      * * `experiments` - experiments
@@ -142109,6 +142121,7 @@ export namespace Schemas {
 
     export const TasksListSourcesItem = {
       Autoresearch: 'autoresearch',
+      ContextLayer: 'context_layer',
       ErrorTracking: 'error_tracking',
       EvalClusters: 'eval_clusters',
       Experiments: 'experiments',
