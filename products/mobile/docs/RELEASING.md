@@ -101,6 +101,9 @@ Completed releases attach the full machine-readable receipt as `mobile-release-r
 Draft releases retain their claimed/staged JSON description for recovery, even if an interruption leaves a completed attachment on the draft.
 Receipt lookup reads the attachment for completed releases and still accepts older JSON descriptions. An unreadable attachment stops publication rather than falling back to stale data.
 The Actions run also retains a receipt artifact, including a claimed receipt if publishing fails.
+Receipt lookup includes draft releases across every page of the release list. GitHub's release-by-tag endpoint only returns published releases and cannot find an interrupted draft claim.
+Repeated entries across pages are deduplicated by numeric release ID, so only distinct releases can cause a duplicate-receipt error.
+Receipt writes use the numeric release ID returned when the claim is created and explicitly retain its request tag. If multiple releases share a request tag, publication stops before any EAS operation; reconcile every named release ID before retrying.
 A completed request rerun does not repeat EAS publication. If only the production pointer update failed, rerunning repairs it without resubmitting.
 
 GitHub keeps at most one pending job in a concurrency group. When several requests merge quickly, a newer pending job can replace an older one.

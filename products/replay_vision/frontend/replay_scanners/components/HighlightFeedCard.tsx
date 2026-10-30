@@ -265,9 +265,15 @@ export function highlightFeedRowTitle(observation: ReplayObservationApi): string
  */
 export function HighlightFeedRow({ item, position }: HighlightFeedRowProps): JSX.Element {
     const { observation, reason } = item
-    const { feedLoad, dateFrom, categories } = useValues(highlightFeedLogic)
+    const { feedLoad, feedReloading, dateFrom, categories } = useValues(highlightFeedLogic)
     const { cardSeen, dismissItem } = useActions(highlightFeedLogic)
-    const rowRef = useAutoMarkRead(true, () => cardSeen(item, position), CARD_SEEN_DWELL_MS)
+    // Re-armed per feed load, so a card kept across a reload counts toward the new load.
+    const rowRef = useAutoMarkRead(
+        !feedReloading,
+        () => cardSeen(item, position),
+        CARD_SEEN_DWELL_MS,
+        feedLoad?.feedLoadId
+    )
     const result = readResult(observation)
     // Fall back to the result's own scanner_type when the snapshot is absent, like highlightCardHeadline.
     const scannerType =
@@ -358,7 +364,11 @@ export function HighlightFeedRow({ item, position }: HighlightFeedRowProps): JSX
             {/* Clicks pass through the poster to the card's link, which sits beneath it. */}
             <div className="pointer-events-none relative overflow-hidden rounded-md border">
                 {!observation.viewed && <span className="absolute inset-x-0 top-0 z-20 h-1 bg-accent" aria-hidden />}
-                <ObservationThumbnail observation={observation} className="rounded-none border-0" />
+                <ObservationThumbnail
+                    observation={observation}
+                    className="rounded-none border-0"
+                    retryKey={feedLoad?.feedLoadId}
+                />
                 {!observation.viewed && <UnviewedObservationTag className="absolute top-2 left-2 z-10" />}
             </div>
             <footer className="flex items-center gap-2">
