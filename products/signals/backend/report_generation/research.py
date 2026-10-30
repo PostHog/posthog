@@ -1970,6 +1970,7 @@ async def run_multi_turn_research(
                     verification_prompt,
                     FixVerificationOutput,
                     label="fix_verification",
+                    max_json_retries=4,
                     json_retry_prompt=(
                         "Correct only the verification plan from your previous reply using the validation errors below. "
                         "Preserve the completed research. Do not do more research or change other report sections. "

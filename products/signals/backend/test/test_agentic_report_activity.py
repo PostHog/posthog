@@ -1865,10 +1865,11 @@ async def test_research_returns_reviewer_decision_only_when_enabled(enabled: boo
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-@pytest.mark.parametrize("corrected,existing_check", [(True, False), (False, False), (False, True)])
+@pytest.mark.parametrize("correction_attempt,existing_check", [(1, False), (4, False), (None, False), (None, True)])
 async def test_verification_correction_persists_before_pr_merge(
-    ateam: Team, corrected: bool, existing_check: bool
+    ateam: Team, correction_attempt: int | None, existing_check: bool
 ) -> None:
+    corrected = correction_attempt is not None
     report = await SignalReport.objects.acreate(
         team=ateam, status=SignalReport.Status.IN_PROGRESS, signal_count=1, total_weight=1
     )
@@ -1919,9 +1920,10 @@ async def test_verification_correction_persists_before_pr_merge(
         ),
         json.dumps({"explanation": "The issue affects users.", "priority": "P2", "dollar_value": 1000}),
         json.dumps({"title": "fix: restore recovery", "summary": "Users need the recovery fix."}),
-        json.dumps(proposal),
-        json.dumps(correction),
     ]
+    replies.extend([json.dumps(proposal)] * (correction_attempt if correction_attempt is not None else 5))
+    if corrected:
+        replies.append(json.dumps(correction))
     session = MultiTurnSession(task=task, task_run=Mock(id=uuid4()))
     with (
         patch.object(MultiTurnSession, "start", AsyncMock(return_value=(session, finding))),
@@ -1932,7 +1934,7 @@ async def test_verification_correction_persists_before_pr_merge(
         result = await run_multi_turn_research(
             _build_signals()[:1], Mock(team_id=ateam.id), signal_report_id=str(report.id), agent_checks_enabled=True
         )
-    assert raw.await_count == 5
+    assert raw.await_count == 3 + (correction_attempt + 1 if correction_attempt is not None else 5)
     correction_prompt = raw.await_args_list[-1].args[0]
     assert "probe_hints" in correction_prompt
     assert "at most 5 items" in correction_prompt
@@ -2215,7 +2217,9 @@ async def test_run_multi_turn_research_survives_a_failed_supersede_turn(supersed
         "supersede": supersede_outcome,
     }
 
-    async def fake_send_followup(message, model, *, label="", validation_context=None, json_retry_prompt=None):
+    async def fake_send_followup(
+        message, model, *, label="", validation_context=None, json_retry_prompt=None, max_json_retries=1
+    ):
         outcome = by_label[label]
         if isinstance(outcome, Exception):
             raise outcome
@@ -2309,7 +2313,9 @@ async def test_run_multi_turn_research_only_asks_about_the_pr_when_actionable(ac
     }
     asked_labels: list[str] = []
 
-    async def fake_send_followup(message, model, *, label="", validation_context=None, json_retry_prompt=None):
+    async def fake_send_followup(
+        message, model, *, label="", validation_context=None, json_retry_prompt=None, max_json_retries=1
+    ):
         asked_labels.append(label)
         return by_label[label]
 
