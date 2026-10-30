@@ -5,9 +5,7 @@ import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils/objects'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -1532,12 +1530,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 }
 
                 // The new creation page lands on the evaluation itself, which says when its first result arrives.
-                const opensEvaluation =
-                    isNew &&
-                    !!response?.id &&
-                    !!featureFlagLogic.findMounted()?.values.featureFlags[
-                        FEATURE_FLAGS.AI_OBSERVABILITY_EVALUATIONS_OVERVIEW
-                    ]
+                const opensEvaluation = isNew && !!response?.id
                 router.actions.push(
                     opensEvaluation
                         ? urls.aiObservabilityEvaluation(response.id)
