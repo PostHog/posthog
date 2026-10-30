@@ -3,7 +3,7 @@ import json
 import uuid as uuid_mod
 import hashlib
 import dataclasses
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Mapping
 from copy import deepcopy
 from datetime import datetime, timedelta
 from time import monotonic
@@ -206,7 +206,6 @@ from products.workflows.backend.facade.contracts import (
     WorkflowProposalResolved,
     WorkflowRef,
     WorkflowRevisionNotFound,
-    WorkflowRevisionSummary,
     WorkflowSchedule,
     WorkflowScheduleNotFound,
     WorkflowStale,
@@ -245,7 +244,6 @@ from products.workflows.backend.facade.proposals import (
     absolute_window,
     approve_proposal,
     as_the_serializer_stores_it,
-    count_proposals,
     create_proposal,
     get_proposal,
     get_proposal_by_source_id,
@@ -261,7 +259,7 @@ from products.workflows.backend.facade.proposals import (
     target_metric_in,
     version_outcome,
 )
-from products.workflows.backend.facade.revisions import count_revisions, get_revision, list_revisions, restore_revision
+from products.workflows.backend.facade.revisions import get_revision, list_revisions, restore_revision
 from products.workflows.backend.facade.schedules import (
     compute_next_occurrences,
     create_schedule,
@@ -4805,32 +4803,6 @@ def _validate_merge_keys(field: str, items: Any) -> None:
         seen.add(key)
 
 
-class _RevisionPages:
-    """Lets LimitOffsetPagination page revisions in the database, as it did over a queryset."""
-
-    def __init__(self, hog_flow_id: uuid_mod.UUID) -> None:
-        self.hog_flow_id = hog_flow_id
-
-    def count(self) -> int:
-        return count_revisions(self.hog_flow_id)
-
-    def __getitem__(self, page: slice) -> list[WorkflowRevisionSummary]:
-        return list_revisions(self.hog_flow_id, offset=page.start or 0, limit=page.stop - (page.start or 0))
-
-
-class _ProposalPages:
-    def __init__(self, hog_flow_id: uuid_mod.UUID, status: str | None) -> None:
-        self.hog_flow_id = hog_flow_id
-        self.status = status
-
-    def count(self) -> int:
-        return count_proposals(hog_flow_id=self.hog_flow_id, status=self.status)
-
-    def __getitem__(self, page: slice) -> list[WorkflowProposalRecord]:
-        offset = page.start or 0
-        return list_proposals(hog_flow_id=self.hog_flow_id, status=self.status, offset=offset, limit=page.stop - offset)
-
-
 class HogFlowPagination(FacadeLimitOffsetPagination):
     default_limit = 100
     max_limit = 500
@@ -5063,6 +5035,8 @@ class HogFlowViewSet(
     app_source = "hog_flow"
     function_kind = "hog_flow"
     _workflow_last_runs: dict[uuid_mod.UUID, WorkflowLastRunDTO] | None = None
+    # WorkflowProposalSerializer reads the workflow to tell whether each proposal is stale.
+    _proposals_hog_flow: WorkflowEditState | None = None
 
     @extend_schema(parameters=[HogFlowVersionMetricsRequestSerializer], responses=AppMetricResponseSerializer)
     @action(detail=True, methods=["GET"], url_path="metrics/version")
@@ -5205,6 +5179,8 @@ class HogFlowViewSet(
         context["event_source"] = get_event_source(self.request)
         if self._workflow_last_runs is not None:
             context["workflow_last_runs"] = self._workflow_last_runs
+        if self._proposals_hog_flow is not None:
+            context["hog_flow"] = self._proposals_hog_flow
         return context
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
@@ -6047,8 +6023,13 @@ class HogFlowViewSet(
         # Version history: one snapshot per live-content change, newest first. Content is fetched
         # per-version via the detail endpoint — the list stays light.
         instance = self._workflow_ref()
-        page = self.paginate_queryset(cast(Sequence[Any], _RevisionPages(instance.id)))
-        return self.get_paginated_response(HogFlowRevisionBasicSerializer(page, many=True).data)
+        paginator = cast(HogFlowPagination, self.paginator)
+        return paginator.get_paginated_facade_response(
+            request,
+            self,
+            lambda page: list_revisions(instance.id, page),
+            serializer_class=HogFlowRevisionBasicSerializer,
+        )
 
     @extend_schema(
         parameters=[OpenApiParameter("version", int, OpenApiParameter.PATH, description="Workflow version to fetch.")],
@@ -6133,9 +6114,13 @@ class HogFlowViewSet(
                 raise exceptions.ValidationError(
                     {"status": f"Must be one of: {', '.join(WorkflowProposalStatus.values)}."}
                 )
-            page = self.paginate_queryset(cast(Sequence[Any], _ProposalPages(instance.id, requested_status or None)))
-            return self.get_paginated_response(
-                WorkflowProposalSerializer(page, many=True, context={"hog_flow": instance}).data
+            self._proposals_hog_flow = instance
+            paginator = cast(HogFlowPagination, self.paginator)
+            return paginator.get_paginated_facade_response(
+                request,
+                self,
+                lambda page: list_proposals(hog_flow_id=instance.id, status=requested_status or None, page=page),
+                serializer_class=WorkflowProposalSerializer,
             )
 
         param_serializer = WorkflowProposalCreateSerializer(data=request.data)
