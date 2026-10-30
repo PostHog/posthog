@@ -407,9 +407,12 @@ def send_transactional_email(
     with transactional_email_stage("workflow_lookup"):
         # A template passed in must be one of the team's templates that is not deleted, as this lookup returns.
         if isinstance(template, UUID):
-            template = MessageTemplate.objects.get(team_id=team.id, id=template, deleted=False)
-        hog_flow_id = _transactional_workflow_id(team.id, template)
-    template_id = template.id
+            template_id = template
+            model = MessageTemplate.objects.get(team_id=team.id, id=template_id, deleted=False)
+            hog_flow_id = _transactional_workflow_id(team.id, model)
+        else:
+            template_id = template.id
+            hog_flow_id = _transactional_workflow_id(team.id, template)
     payload = {
         "to": to,
         # The recipient is the person the send is tracked against. Without a distinct_id, the address is one.
