@@ -10730,6 +10730,15 @@ export namespace Schemas {
       Area: 'area',
     } as const;
 
+    export type ValueLabels = typeof ValueLabels[keyof typeof ValueLabels];
+
+
+    export const ValueLabels = {
+      Auto: 'auto',
+      Show: 'show',
+      Hide: 'hide',
+    } as const;
+
     export type YAxisPosition = typeof YAxisPosition[keyof typeof YAxisPosition];
 
 
@@ -10741,8 +10750,12 @@ export namespace Schemas {
     export interface ChartSettingsDisplay {
       color?: string | null;
       displayType?: DisplayType | null;
+      /** Keep this series out of the tooltip's total row, e.g. a target line over stacked bars. */
+      excludeFromTotal?: boolean | null;
       label?: string | null;
       trendLine?: boolean | null;
+      /** Overrides the chart's "Show values on series" for this series. Unset or 'auto' follows the chart setting. */
+      valueLabels?: ValueLabels | null;
       yAxisPosition?: YAxisPosition | null;
     }
 
@@ -111978,6 +111991,11 @@ export namespace Schemas {
          * @nullable
          */
       default_slack_notification_channel?: string | null;
+      /**
+         * Connected Slack integration that owns `default_slack_notification_channel`. Send it together with the channel. A channel saved without it is routed through the team's oldest Slack integration, and clearing the channel clears this too.
+         * @nullable
+         */
+      default_slack_notification_integration?: number | null;
       /** Per-repository base branch overrides for auto-started inbox PRs, keyed by 'organization/repository'. The branch is what the auto-PR targets; omit a repo (or send {}) to keep targeting the repo default branch. */
       autostart_base_branches?: SignalTeamConfigAutostartBaseBranches;
       /**

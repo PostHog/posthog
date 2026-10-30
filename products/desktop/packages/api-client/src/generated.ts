@@ -4758,12 +4758,15 @@ export namespace Schemas {
         subtotals: boolean | null;
     }>;
     export type DisplayType = "auto" | "line" | "bar" | "area";
+    export type ValueLabels = "auto" | "show" | "hide";
     export type YAxisPosition = "left" | "right";
     export type ChartSettingsDisplay = Partial<{
         color: string | null;
         displayType: DisplayType | null;
+        excludeFromTotal: boolean | null;
         label: string | null;
         trendLine: boolean | null;
+        valueLabels: ValueLabels | null;
         yAxisPosition: YAxisPosition | null;
     }>;
     export type Style = "none" | "number" | "short" | "percent";
