@@ -11,7 +11,6 @@ from posthog.temporal.health_checks.framework import (
     build_signal_extra,
 )
 from posthog.temporal.health_checks.models import HealthCheckResult
-from posthog.temporal.health_checks.query import execute_clickhouse_health_team_query
 from posthog.temporal.health_checks.rollups.checks import RollupHealthCheck
 from posthog.temporal.health_checks.rollups.freshness import RollupWindow
 
@@ -32,33 +31,6 @@ MISSING_SESSION_ID_RECENT_DAYS = 7
 MISSING_SESSION_ID_THRESHOLD = 0.05
 MISSING_SESSION_ID_MIN_UNUSABLE = 100
 
-# Web analytics reads sessions through the `$session_id_uuid` materialized column, which is NULL when
-# `$session_id` is absent or is not a UUID. The raw_sessions materialized views then admit UUIDv7
-# alone, and hold the version in the nibble at bit 76 (see posthog/models/raw_sessions/sessions_v2.py).
-# A pageview that fails either test never reaches a session, so web analytics drops it from every
-# visitor and session aggregate.
-UNUSABLE_SESSION_ID = "(`$session_id_uuid` IS NULL OR bitAnd(bitShiftRight(`$session_id_uuid`, 76), 0xF) != 7)"
-
-MISSING_SESSION_ID_SQL = f"""
-SELECT
-    team_id,
-    count() AS total_pageviews,
-    countIf({UNUSABLE_SESSION_ID}) AS unusable_pageviews,
-    countIf(`$session_id_uuid` IS NULL) AS absent_or_not_uuid,
-    countIf(timestamp >= now() - INTERVAL %(recent_days)s DAY) AS recent_pageviews,
-    countIf(timestamp >= now() - INTERVAL %(recent_days)s DAY AND {UNUSABLE_SESSION_ID}) AS recent_unusable_pageviews
-FROM events
-WHERE team_id IN %(team_ids)s
-  AND event = '$pageview'
-  AND timestamp >= now() - INTERVAL %(lookback_days)s DAY
-GROUP BY team_id
-HAVING unusable_pageviews >= %(min_unusable)s
-   AND unusable_pageviews >= total_pageviews * %(threshold)s
-   -- A team with no pageviews in the recent window stays flagged, because 0 >= 0 holds.
-   -- The no_live_events check owns that case.
-   AND recent_unusable_pageviews >= recent_pageviews * %(threshold)s
-"""
-
 
 class MissingSessionIdCheck(RollupHealthCheck):
     name = "missing_session_id"
@@ -67,7 +39,6 @@ class MissingSessionIdCheck(RollupHealthCheck):
     product = Product.WEB_ANALYTICS
     schedule = "0 6 * * *"
     active_since_days = 30
-    reads_rollup = False
     rollup_model = EventsHealthDaily
     window_days = MISSING_SESSION_ID_LOOKBACK_DAYS
     remediation = Remediation(
@@ -141,28 +112,6 @@ class MissingSessionIdCheck(RollupHealthCheck):
             ]
             for team_id, totals in candidates.items()
             if _over_threshold(recent[team_id].pageviews_unusable_session_id, recent[team_id].pageviews)
-        }
-
-    def detect_from_events(self, team_ids: list[int]) -> dict[int, list[HealthCheckResult]]:
-        rows = execute_clickhouse_health_team_query(
-            MISSING_SESSION_ID_SQL,
-            team_ids=team_ids,
-            lookback_days=MISSING_SESSION_ID_LOOKBACK_DAYS,
-            params={
-                "threshold": MISSING_SESSION_ID_THRESHOLD,
-                "min_unusable": MISSING_SESSION_ID_MIN_UNUSABLE,
-                "recent_days": MISSING_SESSION_ID_RECENT_DAYS,
-            },
-        )
-        return {
-            team_id: [
-                _missing_session_id_result(
-                    total_pageviews=total_pageviews,
-                    unusable_pageviews=unusable_pageviews,
-                    absent_or_not_uuid=absent_or_not_uuid,
-                )
-            ]
-            for team_id, total_pageviews, unusable_pageviews, absent_or_not_uuid, _recent, _recent_unusable in rows
         }
 
 

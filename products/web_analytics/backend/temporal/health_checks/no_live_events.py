@@ -17,14 +17,6 @@ from products.web_analytics.backend.models.health_rollups import EventsHealthDai
 from products.web_analytics.backend.temporal.health_checks.rollup_reads import events_health_totals
 
 NO_LIVE_EVENTS_LOOKBACK_DAYS = 30
-NO_LIVE_EVENTS_SQL = """
-SELECT team_id
-FROM events
-WHERE team_id IN %(team_ids)s
-  AND event IN ('$pageview', '$screen')
-  AND timestamp >= now() - INTERVAL %(lookback_days)s DAY
-GROUP BY team_id
-"""
 
 LIVE_EVENTS_SINCE_SQL = """
 SELECT DISTINCT team_id
@@ -42,7 +34,6 @@ class NoLiveEventsCheck(RollupHealthCheck):
     product = Product.WEB_ANALYTICS
     schedule = "30 4 * * *"
     active_since_days = 30
-    reads_rollup = False
     rollup_model = EventsHealthDaily
     window_days = NO_LIVE_EVENTS_LOOKBACK_DAYS
     remediation = Remediation(
@@ -101,15 +92,6 @@ class NoLiveEventsCheck(RollupHealthCheck):
         )
         live_team_ids = {team_id for (team_id,) in rows}
         return {team_id: [_no_live_events_result()] for team_id in silent_team_ids if team_id not in live_team_ids}
-
-    def detect_from_events(self, team_ids: list[int]) -> dict[int, list[HealthCheckResult]]:
-        rows = execute_clickhouse_health_team_query(
-            NO_LIVE_EVENTS_SQL,
-            team_ids=team_ids,
-            lookback_days=NO_LIVE_EVENTS_LOOKBACK_DAYS,
-        )
-        teams_with_recent_events = {team_id for team_id, *_ in rows}
-        return {team_id: [_no_live_events_result()] for team_id in set(team_ids) - teams_with_recent_events}
 
 
 def _no_live_events_result() -> HealthCheckResult:
