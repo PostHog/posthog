@@ -233,14 +233,15 @@ function repairDegenerateExtent(min: number, max: number): [number, number] {
 }
 
 /** A value scale over a pinned `[min, max]`. A log domain can't hold zero, so a log pin with a
- *  non-positive end falls back to linear. */
+ *  non-positive end falls back to linear. Unclamped, like the linear pin, so a value past the pin
+ *  maps off the plot and overlays such as goal lines can tell it is out of range. */
 function fixedValueScale(
     fixed: readonly [number, number],
     range: [number, number],
     scaleType: 'linear' | 'log'
 ): D3YScale {
     if (scaleType === 'log' && fixed[0] > 0) {
-        return scaleLog().domain(fixed).range(range).clamp(true)
+        return scaleLog().domain(fixed).range(range)
     }
     return scaleLinear().domain(sanitizeFixedDomain(fixed)).range(range)
 }
