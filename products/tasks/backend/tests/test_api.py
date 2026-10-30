@@ -3764,6 +3764,45 @@ class TestTaskAPI(BaseTaskAPITest):
         task.refresh_from_db()
         self.assertIsNone(task.signal_report_id)
 
+    @parameterized.expand(
+        [
+            ("refused_origin_without_repository", Task.OriginProduct.WORKFLOW, [], None, False),
+            ("refused_origin_removing_its_repository", Task.OriginProduct.WORKFLOW, ["posthog/posthog"], [], False),
+            ("refused_origin_adding_a_repository", Task.OriginProduct.WORKFLOW, [], ["posthog/posthog"], True),
+            ("opted_in_origin_without_repository", Task.OriginProduct.USER_CREATED, [], None, True),
+        ]
+    )
+    @patch("products.tasks.backend.facade.api.inaccessible_repositories_via_integration", return_value=[])
+    def test_patch_attaches_github_only_where_create_would(
+        self,
+        _name: str,
+        origin_product: Task.OriginProduct,
+        repositories: list[str],
+        patched_repositories: list[str] | None,
+        attaches_github: bool,
+        _mock_repository_access: MagicMock,
+    ):
+        integration = Integration.objects.create(team=self.team, kind="github", config={})
+        task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="Task",
+            description="Task",
+            origin_product=origin_product,
+            repository=repositories[0] if repositories else None,
+            repositories=repositories,
+            github_integration=integration if repositories else None,
+        )
+        body: dict = {"github_integration": integration.id}
+        if patched_repositories is not None:
+            body["repositories"] = patched_repositories
+
+        response = self.client.patch(f"/api/projects/@current/tasks/{task.id}/", body, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        task.refresh_from_db()
+        self.assertEqual(task.github_integration, integration if attaches_github else None)
+
     def test_update_task(self):
         task = self.create_task("Original Task")
 

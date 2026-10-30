@@ -8362,6 +8362,11 @@ def update_task(
         logger.info("perform_update called for task %s with validated_data: %s", task.id, validated_data)
         for key, value in validated_data.items():
             setattr(task, key, value)
+        if repo_fields_touched and not Task._github_resolution_allowed(
+            task.origin_product, has_repository=bool(task.repositories or task.repository)
+        ):
+            task.github_integration = None
+            task.github_user_integration = None
         task.save()
         logger.info("Task %s updated successfully", task.id)
 
