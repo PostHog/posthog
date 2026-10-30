@@ -15393,6 +15393,11 @@ export namespace Schemas {
          */
       readonly next_research_at: string | null;
       /**
+         * Why the best model of the newest completed training run did not go live, for example a failed fit or a failed scorability check. Set only while the pipeline is bootstrapping with no champion.
+         * @nullable
+         */
+      readonly not_promoted_reason: string | null;
+      /**
          * Target AUC threshold. Training stops early if this score is reached.
          * @nullable
          */

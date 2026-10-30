@@ -62,6 +62,8 @@ Kickoff then follows the research schedule in `../training/schedule.py`, which i
 In explore, it starts a run (`explore`) until a completed run does not promote its best model, or until `EXPLORE_RUN_LIMIT` research runs have run. Rescue runs do not count.
 In maintain, it starts a run (`scheduled`) once `research_interval_days` calendar days have passed since the latest training run of any kind, and reports `not_due` before that. A null interval reports `manual_only`.
 Each run takes the pipeline's `iterations_per_run`. Kickoff does not read or spend `iteration_budget_remaining`.
+Kickoff accepts a `running` pipeline, and a `bootstrapping` pipeline whose first champion rolled back (`awaiting_first_champion()` in `../training/schedule.py`: no champion, no pending or running training run, and at least one completed run). Otherwise it reports `not_eligible`.
+The daily sweep lists such a pipeline last, with `ActivePipeline.kickoff_only`. The coordinator then only kicks off its training, because it has no champion to score or validate. This is behind `workflow.patched("autoresearch-kickoff-only-2026-10")`. A history without the marker also starts scoring and validation for it, and those activities skip a pipeline that is not live. The catch-up sweep does not list it.
 When no run is due and `find_unscorable_champion()` finds that the champion cannot score, kickoff launches a rescue run of `RESCUE_ITERATION_BUDGET` iterations, at most once in each window of `UNSCORABLE_AFTER_FAILED_DAYS` UTC days, and reports `rescue_unscorable`.
 Each run records why it started in `kickoff_reason`. The coordinator body never branches on the kickoff result, because that would break replay.
 

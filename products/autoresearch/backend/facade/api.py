@@ -199,6 +199,7 @@ class _PipelineActivity:
     experiment_count: int
     live_training_run: LiveTrainingRun | None
     schedule_runs: list[ScheduleRun]
+    not_promoted_reason: str | None
 
 
 def _best_so_far_trend(scores: Iterable[tuple[int, float | None]]) -> list[TrainingTrendPoint]:
@@ -306,6 +307,29 @@ def _first_checks_expected(team_id: int, champions: dict[UUID, AutoresearchModel
     return first_checks
 
 
+def _not_promoted_reasons(team_id: int, pipeline_ids: list[UUID]) -> dict[UUID, str]:
+    """Why the best model of each pipeline's newest completed training run did not go live, when it did not."""
+    if not pipeline_ids:
+        return {}
+    newest_completed_runs = (
+        AutoresearchTrainingRun.objects.for_team(team_id)
+        .filter(pipeline_id__in=pipeline_ids, status=AutoresearchTrainingRun.Status.COMPLETED)
+        .order_by("pipeline_id", "-created_at")
+        .distinct("pipeline_id")
+        .values_list("id", flat=True)
+    )
+    reasons: dict[UUID, str] = {}
+    for pipeline_id, reason in (
+        AutoresearchModel.objects.for_team(team_id)
+        .filter(source_training_run_id__in=list(newest_completed_runs), metrics__has_key="not_promoted_reason")
+        .order_by("created_at")
+        .values_list("pipeline_id", "metrics__not_promoted_reason")
+    ):
+        if isinstance(reason, str) and reason:
+            reasons[pipeline_id] = reason
+    return reasons
+
+
 def _pipeline_activity(
     team_id: int, pipeline_ids: list[UUID], champions: dict[UUID, AutoresearchModel]
 ) -> dict[UUID, _PipelineActivity]:
@@ -355,6 +379,7 @@ def _pipeline_activity(
     likely_counts = _champion_likely_counts(team_id, champions)
     first_checks = _first_checks_expected(team_id, champions)
     schedule_runs = schedule_runs_for(pipeline_ids, team_id)
+    not_promoted_reasons = _not_promoted_reasons(team_id, [pid for pid in pipeline_ids if pid not in champions])
     return {
         pipeline_id: _PipelineActivity(
             champion_realized_auc_trend=[
@@ -374,6 +399,7 @@ def _pipeline_activity(
                 else None
             ),
             schedule_runs=schedule_runs.get(pipeline_id, []),
+            not_promoted_reason=not_promoted_reasons.get(pipeline_id),
         )
         for pipeline_id in pipeline_ids
     }
@@ -416,6 +442,11 @@ def _pipeline_to_contract(
         effective_agent_reasoning_effort=agent_config.reasoning_effort,
         training_phase=schedule.phase,
         next_research_at=schedule.next_research_at,
+        not_promoted_reason=(
+            activity.not_promoted_reason
+            if row.status == AutoresearchPipeline.Status.BOOTSTRAPPING and champion is None
+            else None
+        ),
         success_auc=row.success_auc,
         plateau_iterations=row.plateau_iterations,
         output_person_property=row.output_person_property,
