@@ -1,5 +1,7 @@
 from .platform_alert import (
     AlertDestination,
+    AlertReceiver,
+    AlertRoute,
     PlatformAlert,
     PlatformAlertConfiguration,
     PlatformAlertDeliveryHold,
@@ -9,6 +11,8 @@ from .platform_alert import (
 
 __all__ = [
     "AlertDestination",
+    "AlertReceiver",
+    "AlertRoute",
     "PlatformAlert",
     "PlatformAlertConfiguration",
     "PlatformAlertDeliveryHold",
