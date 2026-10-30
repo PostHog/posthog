@@ -282,6 +282,9 @@ export class PiChats {
     prompt: string,
     images: SentImage[] = [],
     onReopen?: (resumed?: Task) => void,
+    // The run's sandbox stopped answering (its log says a delivery got a 502) while the server still counts the run
+    // as live: a send would land in the same hole, so the run is brought back first.
+    { sandboxGone = false }: { sandboxGone?: boolean } = {},
   ): Promise<Task> {
     const harness = continuation(task);
     if (!harness) {
@@ -296,7 +299,7 @@ export class PiChats {
           : [];
       await this.sendMessage(task.id, run.id, prompt, artifactIds);
     };
-    if (!FINISHED.includes(run.status)) {
+    if (!FINISHED.includes(run.status) && !sandboxGone) {
       try {
         await send();
         return task;

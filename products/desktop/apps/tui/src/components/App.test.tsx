@@ -782,11 +782,30 @@ describe("App", () => {
   );
 
   it.each([
-    ["after it was sent puts it back in the composer", 5_000, true],
-    ["from before it was sent leaves it waiting", -60_000, false],
+    [
+      "after it was sent puts it back in the composer",
+      5_000,
+      true,
+      "RuntimeError: send_followup failed: Could not rebind credentials",
+      false,
+    ],
+    [
+      "from before it was sent leaves it waiting",
+      -60_000,
+      false,
+      "RuntimeError: send_followup failed: Could not rebind credentials",
+      false,
+    ],
+    [
+      "from a sandbox that answers 502 brings the run back on the next reply",
+      5_000,
+      true,
+      "send_followup failed: Sandbox returned 502",
+      true,
+    ],
   ])(
     "takes a cloud message the backend could not deliver: a failure %s",
-    async (_, failedAfterMs, putBack) => {
+    async (_, failedAfterMs, putBack, detail, sandboxGone) => {
       saveLayout(openTask(initialLayout(), "cloud-chat"));
       const cloudTask = {
         id: "cloud-chat",
@@ -841,7 +860,7 @@ describe("App", () => {
         status: "in_progress" as const,
         entries: [...entries, ...more] as typeof emptyRunView.entries,
       });
-      const reply = vi.fn(async () => cloudTask);
+      const reply = vi.fn<PiChats["reply"]>(async () => cloudTask);
       const mouse: MouseEvents = new EventEmitter();
       const { instance, output } = renderInTerminal(
         <App
@@ -894,8 +913,7 @@ describe("App", () => {
                   status: "failed",
                   label: "Couldn't deliver your message",
                   group: "followup-delivery:x:r1",
-                  detail:
-                    "RuntimeError: send_followup failed: Could not rebind credentials",
+                  detail,
                 },
               },
             },
@@ -905,11 +923,13 @@ describe("App", () => {
           stripTerminalSequences(output().slice(sent));
         if (putBack) {
           await vi.waitFor(() =>
-            expect(drawn()).toContain(
-              "Couldn't deliver your message: Could not rebind credentials",
-            ),
+            expect(drawn()).toContain("Couldn't deliver your message:"),
           );
           expect(drawn()).toContain("Your message is back in the composer");
+          // The message is back in the composer; sending it again goes through reply, which knows about the sandbox.
+          mouse.emit("keys", "\r");
+          await vi.waitFor(() => expect(reply).toHaveBeenCalledTimes(2));
+          expect(reply.mock.calls[1][4]).toEqual({ sandboxGone });
         } else {
           await new Promise((resolve) => setTimeout(resolve, 200));
           expect(drawn()).not.toContain("back in the composer");

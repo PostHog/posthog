@@ -75,7 +75,12 @@ export interface Send {
   // Chats whose stopped run a reply is bringing back.
   reopening: Set<string>;
   // The backend could not deliver a chat's message: it goes back into the pane's composer if it was sent before `at`.
-  undelivered: (paneId: string, taskId: string, at: number) => void;
+  undelivered: (
+    paneId: string,
+    taskId: string,
+    at: number,
+    sandboxGone: boolean,
+  ) => void;
   // The chat shows its pending message now, so it is no longer on its way.
   delivered: (taskId: string) => void;
   // A first run's sign-in sheet, which goes on to ask who pays once signed in.
@@ -180,6 +185,9 @@ export function useSend({
   const [reopening, setReopening] = useState<Set<string>>(new Set());
   // When each chat's pending reply went out, so an older delivery failure cannot take back a newer message.
   const sentAt = useRef(new Map<string, number>());
+  // Chats whose sandbox answered a delivery with 502 while the server still counts the run as live: the next reply
+  // brings the run back instead of sending into the same hole.
+  const deadSandboxes = useRef(new Set<string>());
   const reopened = (taskId: string, on: boolean): void =>
     setReopening((current) => {
       const next = new Set(current);
@@ -814,13 +822,19 @@ export function useSend({
       runtime: current?.runtime ?? null,
     });
     (current
-      ? chats.reply(current, text, images, (resumed) => {
-          track("run reopened", { task_id: current.id, resumed: !!resumed });
-          reopened(current.id, true);
-          // The run is queued again, so its status shows before the work list refreshes.
-          if (resumed)
-            setFresh((tasks) => new Map(tasks).set(resumed.id, resumed));
-        })
+      ? chats.reply(
+          current,
+          text,
+          images,
+          (resumed) => {
+            track("run reopened", { task_id: current.id, resumed: !!resumed });
+            reopened(current.id, true);
+            // The run is queued again, so its status shows before the work list refreshes.
+            if (resumed)
+              setFresh((tasks) => new Map(tasks).set(resumed.id, resumed));
+          },
+          { sandboxGone: deadSandboxes.current.delete(current.id) },
+        )
       : chats.start(
           text,
           images,
@@ -851,13 +865,23 @@ export function useSend({
     );
   };
 
-  const undelivered = (paneId: string, taskId: string, at: number): void => {
+  const undelivered = (
+    paneId: string,
+    taskId: string,
+    at: number,
+    sandboxGone: boolean,
+  ): void => {
     const text = pending.get(taskId);
     const sent = sentAt.current.get(taskId);
     if (text === undefined || sent === undefined || at < sent - CLOCK_SKEW_MS)
       return;
     sentAt.current.delete(taskId);
-    track("message undelivered", { pane_id: paneId, task_id: taskId });
+    if (sandboxGone) deadSandboxes.current.add(taskId);
+    track("message undelivered", {
+      pane_id: paneId,
+      task_id: taskId,
+      sandbox_gone: sandboxGone,
+    });
     setPending((messages) => {
       const next = new Map(messages);
       next.delete(taskId);

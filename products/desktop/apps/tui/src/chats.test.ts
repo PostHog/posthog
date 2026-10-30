@@ -295,6 +295,24 @@ describe("PiChats", () => {
       },
     );
 
+    it("brings back a run the server still counts as live once its sandbox stopped answering, without sending into it first", async () => {
+      // The send itself is accepted; only later does the run's log say the sandbox returned 502.
+      const { api, sendMessage, chats, agentRestarted } = setup({
+        canReopen: true,
+      });
+
+      await chats.reply(task("in_progress"), "Keep going", [], undefined, {
+        sandboxGone: true,
+      });
+
+      expect(api.resumeRunInCloud).toHaveBeenCalledWith("t1", "r1");
+      expect(agentRestarted).toHaveBeenCalled();
+      expect(sendMessage).toHaveBeenCalledTimes(1);
+      expect(agentRestarted.mock.invocationCallOrder[0]).toBeLessThan(
+        sendMessage.mock.invocationCallOrder[0],
+      );
+    });
+
     it("starts a new run that continues it when the server still counts it as running", async () => {
       const { api, chats } = setup({ canReopen: true });
       api.resumeRunInCloud.mockRejectedValueOnce(

@@ -273,6 +273,8 @@ export interface DeliveryFailure {
   // When the backend gave up on the message (epoch ms).
   at: number;
   text: string;
+  // The sandbox answered 502: nothing runs in it any more, though the server still counts the run as live.
+  sandboxGone: boolean;
 }
 
 // The backend hands a cloud chat's message to its agent as a follow-up, and logs one it could not deliver as a failed
@@ -307,6 +309,7 @@ export function deliveryFailure(
     return {
       at: Date.parse(entry.timestamp ?? "") || 0,
       text: detail ? `${label}: ${detail}` : label,
+      sandboxGone: /Sandbox returned 502/.test(detail ?? ""),
     };
   }
   return null;

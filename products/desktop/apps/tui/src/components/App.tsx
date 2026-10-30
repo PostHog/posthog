@@ -542,8 +542,8 @@ export function App({
       extraOffer={node.id === todayPaneId ? todayOffer : null}
       repoPicker={repoPicker.pickerFor(node.id) ?? null}
       search={search.open && search.paneId === node.id ? search : null}
-      onUndelivered={(at) =>
-        node.taskId && undelivered(node.id, node.taskId, at)
+      onUndelivered={(at, sandboxGone) =>
+        node.taskId && undelivered(node.id, node.taskId, at, sandboxGone)
       }
       onDelivered={() => node.taskId && delivered(node.taskId)}
       pendingShells={shellsFor(node.taskId)}
