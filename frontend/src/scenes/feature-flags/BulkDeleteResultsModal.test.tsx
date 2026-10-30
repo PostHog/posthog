@@ -3,6 +3,7 @@ import '@testing-library/jest-dom'
 import { cleanup, render, screen } from '@testing-library/react'
 import { Provider } from 'kea'
 
+import { getByDataAttr, queryByDataAttr } from '~/test/byDataAttr'
 import { initKeaTests } from '~/test/init'
 
 import { BulkDeleteResultsModal } from './BulkDeleteResultsModal'
@@ -41,7 +42,7 @@ describe('BulkDeleteResultsModal', () => {
         logic.actions.showResultsModal({ deleted: [deletedFlag(1), deletedFlag(2)], errors: [] })
         renderModal()
 
-        expect(screen.getByRole('button', { name: /Restore 2/ })).toBeInTheDocument()
+        expect(getByDataAttr(document.body, 'bulk-restore-deleted-flags')).toHaveTextContent('Restore 2 flags')
     })
 
     it('lists only the flags still deleted after a restore that partly failed', () => {
@@ -56,6 +57,6 @@ describe('BulkDeleteResultsModal', () => {
         expect(screen.getByText('Failed to restore 1 flag')).toBeInTheDocument()
         expect(screen.getByText('Deleted 1 flag')).toBeInTheDocument()
         expect(screen.queryByText('flag-1')).not.toBeInTheDocument()
-        expect(screen.queryByRole('button', { name: /Restore \d/ })).not.toBeInTheDocument()
+        expect(queryByDataAttr(document.body, 'bulk-restore-deleted-flags')).not.toBeInTheDocument()
     })
 })
