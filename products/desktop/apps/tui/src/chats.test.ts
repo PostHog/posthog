@@ -108,7 +108,8 @@ describe("PiChats", () => {
           "r1",
           expect.any(Number),
         );
-        expect(agentRestarted.mock.calls[0][2]).toBeLessThanOrEqual(before);
+        // `since` is taken once the run has started, so the agent's earlier life never counts as its start.
+        expect(agentRestarted.mock.calls[0][2]).toBeGreaterThanOrEqual(before);
       } else {
         expect(agentRestarted).not.toHaveBeenCalled();
       }
@@ -314,16 +315,18 @@ describe("PiChats", () => {
     const uploaded = (call: unknown[] | undefined) =>
       (call?.at(-1) as string[]).map((path) => readFileSync(path, "utf8"));
 
-    it("uploads them to the task and starts the run carrying them", async () => {
+    it("uploads them to the new run and starts it carrying them", async () => {
       const { api, uploads, chats } = setup();
 
       await chats.start("look", [image]);
 
-      expect(uploads.toTask.mock.calls[0]?.[0]).toBe("t1");
-      expect(uploaded(uploads.toTask.mock.calls[0])).toEqual(["png"]);
+      // The server resolves a pending message's artifacts on the run, so one staged on the task is "invalid for this run".
+      expect(uploads.toTask).not.toHaveBeenCalled();
+      expect(uploads.toRun.mock.calls[0]?.slice(0, 2)).toEqual(["t1", "r1"]);
+      expect(uploaded(uploads.toRun.mock.calls[0])).toEqual(["png"]);
       expect(api.startTaskRun).toHaveBeenCalledWith("t1", "r1", {
         pendingUserMessage: "look",
-        pendingUserArtifactIds: ["staged-1"],
+        pendingUserArtifactIds: ["run-1"],
       });
     });
 
