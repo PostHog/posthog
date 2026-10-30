@@ -687,7 +687,13 @@ export function App({
       );
     }
     const across = node.direction === "row";
-    const sizes = splitSizes(across ? width : height, node.children.length);
+    // This split's own divider takes a row or column before its children share the rest.
+    const innerWidth = width - (divider === "left" ? 1 : 0);
+    const innerHeight = height - (divider === "top" ? 1 : 0);
+    const sizes = splitSizes(
+      across ? innerWidth : innerHeight,
+      node.children.length,
+    );
     return (
       <Box
         key={paneIds(node).join()}
@@ -700,8 +706,8 @@ export function App({
           renderNode(
             child,
             index === 0 ? null : across ? "left" : "top",
-            across ? sizes[index] : width,
-            across ? height : sizes[index],
+            across ? sizes[index] : innerWidth,
+            across ? innerHeight : sizes[index],
           ),
         )}
       </Box>
