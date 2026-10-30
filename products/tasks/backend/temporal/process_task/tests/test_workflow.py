@@ -1525,6 +1525,43 @@ async def test_boot_milestone_contains_only_timing_and_runtime_dimensions(
     )
 
 
+@pytest.mark.timeout(5)
+@pytest.mark.parametrize("scheduled_during_flush", [False, True])
+async def test_flush_boot_telemetry_drains_finished_and_late_milestones(monkeypatch, scheduled_during_flush):
+    workflow_instance = ProcessTaskWorkflow()
+    workflow_instance._context = _build_context(github_integration_id=123)
+    workflow_instance._sandbox_id_for_cleanup = "sandbox-123"
+    workflow_instance._chain_started_at = datetime(2026, 8, 28, 10, 0, tzinfo=UTC)
+    workflow_instance._agent_ready_at = datetime(2026, 8, 28, 10, 0, 20, tzinfo=UTC)
+    tracked: list[str] = []
+
+    async def track(event_name: str, properties: dict[str, Any]) -> None:
+        tracked.append(event_name)
+        if scheduled_during_flush and event_name == "agent_first_command_dispatched":
+            workflow_instance._schedule_boot_milestone("agent_first_activity_observed")
+
+    monkeypatch.setattr(workflow_instance, "_track_boot_milestone", track)
+    monkeypatch.setattr(process_task_workflow_module, "record_agent_boot_milestone_ms", Mock())
+    monkeypatch.setattr(
+        process_task_workflow_module.workflow,
+        "now",
+        Mock(return_value=datetime(2026, 8, 28, 10, 0, 21, tzinfo=UTC)),
+    )
+
+    workflow_instance._schedule_boot_milestone("agent_first_command_dispatched")
+    if not scheduled_during_flush:
+        (task,) = workflow_instance._boot_telemetry_tasks
+        while not task.done():
+            await asyncio.sleep(0)
+    await workflow_instance._flush_boot_telemetry_tasks()
+
+    assert workflow_instance._boot_telemetry_tasks == []
+    expected = ["agent_first_command_dispatched"]
+    if scheduled_during_flush:
+        expected.append("agent_first_activity_observed")
+    assert tracked == expected
+
+
 @pytest.mark.parametrize("timing_enabled", [False, True])
 @pytest.mark.parametrize(
     ("same_run_resume", "requested_at"),
