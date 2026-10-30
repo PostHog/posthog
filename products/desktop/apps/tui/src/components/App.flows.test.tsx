@@ -309,13 +309,11 @@ describe("App flows", () => {
       expect(app.plain().slice(-3000)).not.toContain("╰");
       app.press("\x1b[C");
       await vi.waitFor(() => expect(app.plain().slice(-3000)).toContain("╰"));
-      // Folded again, Shift+Tab back to the sidebar lands on the title, and Enter opens the workspace, unfolding it.
+      // Folded again, the cursor rests on the title while the chat keeps focus, and Enter opens the workspace.
       app.press("\x1b[D");
       await vi.waitFor(() =>
         expect(app.plain().slice(-3000)).toContain("Workspace #1 (2)"),
       );
-      app.press("\x1b[Z");
-      await new Promise((resolve) => setTimeout(resolve, 50));
       app.press("\r");
       await vi.waitFor(() => expect(app.plain().slice(-3000)).toContain("╰"));
       // A click on the title folds it, and a later click (past a double-click's window) opens it again.
