@@ -43,9 +43,13 @@ function entry(overrides: Partial<InternalLogEntry> = {}): InternalLogEntry {
     }
 }
 
+// Fake timers leave setImmediate real, and it runs after every resolved mock promise in the delivery chain.
+const settle = (): Promise<void> => new Promise((resolve) => setImmediate(resolve))
+
 function send(producer: InternalLogsProducer, entries: InternalLogEntry[], source = 'hog_flow'): Promise<void> {
     producer.enqueue(source, entries)
-    return producer.flush()
+    producer.flush()
+    return settle()
 }
 
 const ok = { status: 200, dump: () => Promise.resolve() } as any
@@ -162,7 +166,7 @@ describe('InternalLogsProducer', () => {
         expect(fetchMock).toHaveBeenCalledTimes(1)
 
         held.release()
-        await Promise.all([first, ...waiting])
+        await Promise.all([first, ...waiting, settle()])
         expect(fetchMock).toHaveBeenCalledTimes(expectedCalls)
     })
 
@@ -230,7 +234,7 @@ describe('InternalLogsProducer', () => {
         )
         await jest.advanceTimersByTimeAsync(5_000)
 
-        await expect(sent).resolves.toBeUndefined()
+        await sent
         const attempts = fetchMock.mock.calls.length
         await jest.advanceTimersByTimeAsync(60_000)
         expect(fetchMock).toHaveBeenCalledTimes(attempts)
@@ -375,7 +379,7 @@ describe('InternalLogsProducer', () => {
                     producer.enqueue('hog_flow', entries)
                     enqueued += entries.length
                 } else if (op < 0.5) {
-                    void producer.flush()
+                    producer.flush()
                 } else if (op < 0.75 && open.length > 0) {
                     const { resolve, reject } = open.splice(Math.floor(rand() * open.length), 1)[0]
                     const status = [200, 200, 400, 503, 0][Math.floor(rand() * 5)]
@@ -391,17 +395,13 @@ describe('InternalLogsProducer', () => {
                 }
                 await jest.advanceTimersByTimeAsync(0)
 
-                const queued = [...internals.queued.values()]
-                const live = [...internals.pending, ...[...internals.inFlight].flat()]
-                const bytes = (batches: { bytes: number }[]): number => batches.reduce((sum, b) => sum + b.bytes, 0)
-                expect(internals.bufferedBytes).toBe(bytes(queued) + bytes(live))
+                const live = [...internals.waiting.values(), ...internals.inFlight]
+                const recordBytes = live.flatMap((b) => b.records).reduce((sum, r) => sum + Buffer.byteLength(r), 0)
+                expect(internals.bufferedBytes).toBe(recordBytes)
                 expect(internals.bufferedBytes).toBeLessThanOrEqual(cfg.LOGS_INTERNAL_PRODUCER_MAX_BUFFERED_BYTES)
                 expect(internals.inFlight.size).toBeLessThanOrEqual(cfg.LOGS_INTERNAL_PRODUCER_MAX_IN_FLIGHT)
-                for (const request of internals.inFlight) {
-                    expect(new Set(request.map((b: { teamId: number }) => b.teamId)).size).toBe(1)
-                }
                 // A stopped producer already counted its in-flight records as abandoned.
-                const held = internals.stopped ? 0 : [...queued, ...live].reduce((sum, b) => sum + b.records.length, 0)
+                const held = internals.stopped ? 0 : live.reduce((sum, b) => sum + b.records.length, 0)
                 expect((await counted()) + held).toBe(enqueued)
             }
 
