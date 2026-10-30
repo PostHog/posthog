@@ -30,7 +30,7 @@ import {
     managedMigrationsTrialRecordsRetrieve,
 } from './generated/api'
 import type { BatchImportAWSIAMSetupApi, TrialRecordsResponseApi } from './generated/api.schemas'
-import { ManagedMigration } from './types'
+import { ManagedMigration, TrialDistinctIdWarning, TrialSummary } from './types'
 
 export const S3_ROLE_ARN_REGEX = /^arn:aws:iam::\d{12}:role\/.+$/
 
@@ -68,6 +68,31 @@ export interface ManagedMigrationForm {
 
 export const TRIAL_RECORD_LIMIT_DEFAULT = 1000
 export const TRIAL_RECORD_LIMIT_MAX = 50000
+// Below this many events, one id can hold a large share by chance
+const DISTINCT_ID_WARNING_MIN_EVENTS = 100
+const DISTINCT_ID_WARNING_SHARE = 0.1
+
+export function trialDistinctIdWarning(summary: TrialSummary | null | undefined): TrialDistinctIdWarning | null {
+    if (!summary) {
+        return null
+    }
+    const placeholderEvents = summary.placeholder_distinct_id_events ?? 0
+    let topDistinctId: string | null = null
+    let topCount = 0
+    for (const [distinctId, count] of Object.entries(summary.distinct_id_counts ?? {})) {
+        if (count > topCount) {
+            topDistinctId = distinctId
+            topCount = count
+        }
+    }
+    const topDistinctIdShare = summary.output_events > 0 ? topCount / summary.output_events : 0
+    const concentrated =
+        summary.output_events >= DISTINCT_ID_WARNING_MIN_EVENTS && topDistinctIdShare >= DISTINCT_ID_WARNING_SHARE
+    if (!concentrated && placeholderEvents === 0) {
+        return null
+    }
+    return { topDistinctId: concentrated ? topDistinctId : null, topDistinctIdShare, placeholderEvents }
+}
 
 // The API takes the Mixpanel credentials in its generic access_key / secret_key fields
 function mixpanelCredentials(
@@ -134,6 +159,7 @@ export interface managedMigrationLogicValues {
     projectTreeRef: ProjectTreeRef
     promotingMigrationId: string | null
     showManagedMigrationErrors: boolean
+    trialDistinctIdWarning: TrialDistinctIdWarning | null
     trialRecords: TrialRecordsResponseApi | null
     trialRecordsLoading: boolean
     trialResultsId: string | null
@@ -287,6 +313,7 @@ export interface managedMigrationLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         breadcrumbs: (managedMigrationId: null) => Breadcrumb[]
         projectTreeRef: (managedMigrationId: null) => ProjectTreeRef
+        trialDistinctIdWarning: (trialRecords: TrialRecordsResponseApi | null) => TrialDistinctIdWarning | null
     }
 }
 
@@ -664,6 +691,11 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
                 type: 'managed-migration',
                 ref: managedMigrationId,
             }),
+        ],
+        trialDistinctIdWarning: [
+            (s) => [s.trialRecords],
+            (trialRecords: TrialRecordsResponseApi | null): TrialDistinctIdWarning | null =>
+                trialDistinctIdWarning(trialRecords?.summary as TrialSummary | null | undefined),
         ],
     }),
     urlToAction(({ actions }) => ({
