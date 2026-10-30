@@ -62,10 +62,15 @@ function Row({
       return (
         <Text wrap="truncate-end">
           {row.nested && <Text dimColor>{row.last ? "└ " : "├ "}</Text>}
-          {(row.indicator || !row.nested) && (
-            <>
-              <IndicatorGlyph indicator={row.indicator} />{" "}
-            </>
+          {row.taskId === null ? (
+            // A new chat has no run to show a status for.
+            <Text dimColor>• </Text>
+          ) : (
+            (row.indicator || !row.nested) && (
+              <>
+                <IndicatorGlyph indicator={row.indicator} />{" "}
+              </>
+            )
           )}
           <Text inverse={selected}>{row.title}</Text>
         </Text>
