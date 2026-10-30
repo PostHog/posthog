@@ -39,6 +39,7 @@ from posthog.schema import ActorsQuery, HogQLQuery, ProductKey
 from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.constants import CSV_EXPORT_LIMIT, LimitContext
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
 from posthog.hogql.errors import BaseHogQLError, TableAccessDeniedError
 from posthog.hogql.printer import prepare_ast_for_printing
 from posthog.hogql.property import PERSON_METADATA_FIELDS, property_to_expr
@@ -1091,22 +1092,8 @@ def _flag_call_reads_or_none(criteria: Sequence[Property], team: Team) -> FlagCa
 
 
 def _flag_call_rewrite_enabled(team: Team) -> bool:
-    """Whether the batch query swaps flag calls to flag_evaluations for this team. True when the probe can't tell."""
-    probe = {
-        "key": FLAG_EVALUATIONS_SOURCE_EVENT,
-        "type": "behavioral",
-        "value": "performed_event",
-        "event_type": "events",
-        "time_value": 1,
-        "time_interval": "day",
-        "negation": False,
-    }
-    try:
-        return batch_flag_call_reads(
-            Cohort(team=team, filters={"properties": {"type": "OR", "values": [probe]}}), team
-        ).rewrite_enabled
-    except Exception:
-        return True
+    """Whether the batch query swaps flag calls to flag_evaluations for this team."""
+    return Database.create_for(team=team, bypass_warehouse_access_control=True).read_flag_calls_from_flag_evaluations
 
 
 def _is_flag_call_criterion(prop: Property) -> bool:

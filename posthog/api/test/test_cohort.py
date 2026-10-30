@@ -5162,7 +5162,7 @@ email@example.org,
             param(
                 "adds_flag_call_without_rewrite",
                 [_PAGEVIEW_CRITERION],
-                [_PAGEVIEW_CRITERION, _FLAG_CALLED_CRITERION],
+                [_PAGEVIEW_CRITERION, _FLAG_CALLED_PAST_RETENTION_CRITERION],
                 _HIDDEN_EVENT_REFUSAL,
                 rewrite_enabled=False,
             ),
