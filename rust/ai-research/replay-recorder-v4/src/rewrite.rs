@@ -15,7 +15,10 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 use aho_corasick::{AhoCorasick, AhoCorasickKind, MatchKind};
 use metrics::counter;
-use replay_core_v4::bytescan::{unescape, write_json_string};
+use replay_core_v4::bytescan::{
+    array_items, locate_value, object_entries, unescape, write_json_string, ArrayItems,
+    ObjectEntries, Span,
+};
 use replay_core_v4::inspect::css::CssRewrite;
 use replay_core_v4::inspect::dom::{for_each_srcset_candidate, Srcset};
 use replay_core_v4::scan::images::{extract_images, ImageLimits, ImageSink, AVIF_MARKER};
@@ -135,6 +138,64 @@ struct CssTarget {
     covers: Vec<usize>,
     kind: &'static str,
     found: bool,
+}
+
+/// The keys whose string value is CSS text. Every string under one counts too, such as a declaration in a style diff.
+const CSS_KEYS: [&[u8]; 7] = [
+    b"_cssText",
+    b"style",
+    b"textContent",
+    b"rule",
+    b"replace",
+    b"replaceSync",
+    b"value",
+];
+
+enum Level<'b> {
+    Object(ObjectEntries<'b>),
+    Array(ArrayItems<'b>),
+}
+
+/// The spans of the JSON strings in `bytes` that hold CSS, in order. A stack of iterators keeps the memory to the depth.
+fn css_string_spans(bytes: &[u8]) -> Vec<Span> {
+    let mut spans = Vec::new();
+    let mut levels: Vec<(Level<'_>, bool)> = Vec::new();
+    let mut value = locate_value(bytes, 0).ok().map(|span| (span, false));
+    loop {
+        if let Some((span, css)) = value.take() {
+            match bytes.get(span.0) {
+                Some(b'"') if css => spans.push(span),
+                Some(b'{') => levels.extend(
+                    object_entries(bytes, span)
+                        .ok()
+                        .map(|entries| (Level::Object(entries), css)),
+                ),
+                Some(b'[') => levels.extend(
+                    array_items(bytes, span)
+                        .ok()
+                        .map(|items| (Level::Array(items), css)),
+                ),
+                _ => {}
+            }
+        }
+        let Some((level, css)) = levels.last_mut() else {
+            break;
+        };
+        let child = match level {
+            Level::Object(entries) => entries.next().and_then(Result::ok).map(|entry| {
+                let key = &bytes[entry.key.0..entry.key.1];
+                (entry.value, *css || CSS_KEYS.contains(&key))
+            }),
+            Level::Array(items) => items.next().and_then(Result::ok).map(|item| (item, *css)),
+        };
+        match child {
+            Some(child) => value = Some(child),
+            None => {
+                levels.pop();
+            }
+        }
+    }
+    spans
 }
 
 /// The metric label of a rewrite: the inspector rewrites a whole `url()` only to resolve a relative URL.
@@ -442,22 +503,38 @@ impl UrlRewrite {
         }
     }
 
-    /// Skips a match that continues a longer name, such as `image-set(` inside `-webkit-image-set(`.
+    /// Rewrites only inside JSON strings that hold CSS, so a class such as `bg-[url(/a.png)]` keeps its text and its rule
+    /// still matches. Skips a match that continues a longer name, such as `image-set(` in `-webkit-image-set(`.
     fn rewrite_css<'b>(&mut self, bytes: &'b [u8]) -> Cow<'b, [u8]> {
         let Some(matcher) = &self.css_matcher else {
             return Cow::Borrowed(bytes);
         };
+        let matches: Vec<(usize, usize, usize)> = matcher
+            .find_iter(bytes)
+            .filter(|found| {
+                found.start().checked_sub(1).is_none_or(|before| {
+                    !(bytes[before].is_ascii_alphanumeric() || matches!(bytes[before], b'-' | b'_'))
+                        || ends_with_escape(bytes, found.start())
+                })
+            })
+            .map(|found| (found.start(), found.end(), found.pattern().as_usize()))
+            .collect();
+        if matches.is_empty() {
+            return Cow::Borrowed(bytes);
+        }
+        let css_strings = css_string_spans(bytes);
+        let mut css_strings = css_strings.iter().peekable();
         let mut out: Option<Vec<u8>> = None;
         let mut copied_to = 0;
-        for found in matcher.find_iter(bytes) {
-            let start = found.start();
-            if start.checked_sub(1).is_some_and(|before| {
-                (bytes[before].is_ascii_alphanumeric() || matches!(bytes[before], b'-' | b'_'))
-                    && !ends_with_escape(bytes, start)
-            }) {
+        for (start, end, index) in matches {
+            while css_strings.next_if(|string| string.1 <= start).is_some() {}
+            if !css_strings
+                .peek()
+                .is_some_and(|string| string.0 < start && end < string.1)
+            {
                 continue;
             }
-            let target = &mut self.css_targets[found.pattern().as_usize()];
+            let target = &mut self.css_targets[index];
             target.found = true;
             for &url in &target.covers {
                 self.targets[url].found = true;
@@ -465,7 +542,7 @@ impl UrlRewrite {
             let out = out.get_or_insert_with(|| Vec::with_capacity(bytes.len()));
             out.extend_from_slice(&bytes[copied_to..start]);
             out.extend_from_slice(&target.replacement);
-            copied_to = found.end();
+            copied_to = end;
         }
         match out {
             Some(mut out) => {

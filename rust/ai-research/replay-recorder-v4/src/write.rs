@@ -954,6 +954,7 @@ mod tests {
         let events = json!([
             {"type": 4, "timestamp": 1, "data": {"href": "http://app.example.com/shop/item", "width": 800, "height": 600}},
             {"type": 3, "timestamp": 2, "cv": "2024-10", "data": {"source": 8, "id": 3, "adds": compressed}},
+            {"type": 3, "timestamp": 3, "data": {"source": 0, "adds": [], "removes": [], "texts": [], "attributes": [{"id": 9, "attributes": {"class": "bg-[url(/img/a.png)]"}}]}},
         ]);
         let lines = stored_lines(&events.to_string(), &[]);
         let reference = |url: &str| {
@@ -982,7 +983,11 @@ mod tests {
         ] {
             assert!(lines.contains(&expected), "{expected} in {lines}");
         }
-        for gone in ["/img/a.png", "1x.png", "1x,", "Signature"] {
+        assert!(
+            lines.contains(r#""class":"bg-[url(/img/a.png)]""#),
+            "{lines}"
+        );
+        for gone in [":url(/img/a.png)", "1x.png", "1x,", "Signature"] {
             assert!(!lines.contains(gone), "{gone} in {lines}");
         }
     }
