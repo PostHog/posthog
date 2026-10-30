@@ -19,7 +19,7 @@ from django.utils import timezone
 import structlog
 import temporalio
 from temporalio import workflow
-from temporalio.common import RetryPolicy
+from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_random_exponential
 
 from posthog.clickhouse.client.connection import ClickHouseUser
@@ -28,6 +28,7 @@ from posthog.dataclasses import frozen
 from posthog.errors import CH_TRANSIENT_ERRORS
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
+from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.scoped import scoped_temporal
 
 from products.signals.backend.github_writeback import post_report_link_to_github_issues
@@ -55,6 +56,21 @@ class InboxNotificationState:
     # decodes to the old behavior and replays through the same commands (see
     # .claude/rules/temporal-workflow-versioning.md, the activity-output gating pattern).
     already_notified: bool = False
+
+
+async def start_report_inbox_notification_workflow(*, team_id: int, report_id: str) -> None:
+    client = await async_connect()
+    try:
+        await client.start_workflow(
+            SignalReportInboxNotificationWorkflow.run,
+            InboxNotificationInput(team_id=team_id, report_id=report_id),
+            id=SignalReportInboxNotificationWorkflow.workflow_id_for(team_id, report_id),
+            task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+            id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+            execution_timeout=timedelta(seconds=settings.SIGNALS_INBOX_PR_NOTIFICATION_TIMEOUT_SECONDS + 600),
+        )
+    except temporalio.exceptions.WorkflowAlreadyStartedError:
+        pass
 
 
 def _compute_inbox_notification_state(team_id: int, report_id: str) -> InboxNotificationState:
