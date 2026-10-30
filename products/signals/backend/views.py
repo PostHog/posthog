@@ -193,6 +193,7 @@ from products.signals.backend.report_content_gates import (
 from products.signals.backend.report_generation.research import ActionabilityChoice
 from products.signals.backend.report_generation.resolve_reviewers import (
     ReviewerPayloadIndex,
+    _normalized_reviewer_user_uuid,
     bounded_reviewer_reason,
     get_org_member_github_logins_by_user_uuid,
     normalized_github_logins_from_suggested_reviewer_artefacts,
@@ -5667,6 +5668,7 @@ def append_suggested_reviewers(
                     "reason": effective_reason or None,
                     "source_skill": prior_source_skill if isinstance(prior_source_skill, str) else None,
                     "is_skill_owner": bool(prior.get("is_skill_owner")) if prior else False,
+                    "is_default_owner": bool(prior.get("is_default_owner")) if prior else False,
                 }
             )
 
@@ -5715,6 +5717,8 @@ def append_suggested_reviewers(
             if (requested.get(user_uuid=prior.get("user_uuid"), github_login=prior.get("github_login")) is not None)
             == (edit.action == "remove")
         ]
+        default_owner_labels = _default_owner_labels(prior_payloads)
+        evidence_removals = [label for label in chosen_removals if label not in default_owner_labels]
         correction: ReviewerCorrection | None = None
         if attribution.kind == "user" and (removed_payloads or added_entries):
             # Read impersonation once: the activity row records it, and a support-staff edit made
@@ -5726,7 +5730,7 @@ def append_suggested_reviewers(
                 team=team,
                 user=cast(User, request.user),
                 scoped_team_ids=scoped_team_id_tuple,
-                note=removal_note if chosen_removals else None,
+                note=removal_note if evidence_removals else None,
             )
             log_activity(
                 organization_id=None,
@@ -5746,7 +5750,8 @@ def append_suggested_reviewers(
                             before=prior_identities,
                             after=new_identities,
                         ),
-                        *_removal_reason_changes(removal_reason if chosen_removals else None, chosen_removals),
+                        *_removal_reason_changes(removal_reason if evidence_removals else None, evidence_removals),
+                        *_default_owner_changes(default_owner_labels),
                     ],
                 ),
             )
@@ -5787,10 +5792,10 @@ def append_suggested_reviewers(
                 correction = ReviewerCorrection(
                     report_id=str(report_id),
                     added_reviewers=tuple(_reviewer_identity_label(entry) for entry in added_entries),
-                    removed_reviewers=tuple(chosen_removals),
+                    removed_reviewers=tuple(evidence_removals),
                     actor_user_id=user_id,
                     scoped_team_ids=scoped_team_id_tuple,
-                    removal_reason=removal_reason if chosen_removals else None,
+                    removal_reason=removal_reason if evidence_removals else None,
                     removal_note=shared_note,
                 )
 
@@ -5841,7 +5846,66 @@ def _stored_reviewer_entry(entry: dict) -> dict:
         "reason": bounded_reviewer_reason(entry.get("reason")) or None,
         "source_skill": entry.get("source_skill"),
         "is_skill_owner": bool(entry.get("is_skill_owner")),
+        "is_default_owner": bool(entry.get("is_default_owner")),
     }
+
+
+def _with_carried_default_owner(
+    content: SuggestedReviewers, prior: Sequence[SuggestedReviewerEntry], *, team_id: int
+) -> SuggestedReviewers:
+    """`is_default_owner` taken from the stored entry rather than from the request.
+
+    Only the fallback writes the flag, and it tells the removal paths that the entry is routing and
+    not an ownership verdict. A caller that could set it on someone else's entry could suppress the
+    correction their removal should record, so the write API carries the stored value the same way
+    the add/remove endpoints do.
+
+    Both identity fields are resolved to the org member they name first, the way the reviewer merge
+    resolves them a step later. A login this organization cannot place, or one that places a
+    different member, carries nothing: this endpoint stores the pair as given on an unprotected
+    report, and a later edit matching that login would hand the mark to whoever ends up behind it.
+    """
+    stored_owners = {
+        normalized
+        for entry in prior
+        if entry.is_default_owner and (normalized := _normalized_reviewer_user_uuid(entry.user_uuid))
+    }
+    logins_to_resolve = {entry.github_login for entry in content.root if entry.github_login} if stored_owners else set()
+    login_to_org_user = resolve_org_github_login_to_users(team_id, logins_to_resolve) if logins_to_resolve else {}
+
+    def carried(entry: SuggestedReviewerEntry) -> bool:
+        user_uuid = _normalized_reviewer_user_uuid(entry.user_uuid)
+        if not entry.github_login:
+            return user_uuid in stored_owners
+        member = login_to_org_user.get(entry.github_login.strip().lower())
+        if member is None or (user_uuid and user_uuid != str(member.uuid)):
+            return False
+        return str(member.uuid) in stored_owners
+
+    return SuggestedReviewers(
+        root=[entry.model_copy(update={"is_default_owner": carried(entry)}) for entry in content.root]
+    )
+
+
+def _default_owner_labels(payloads: list[dict]) -> list[str]:
+    return [
+        label
+        for payload in payloads
+        if isinstance(payload, dict)
+        and payload.get("is_default_owner")
+        and (label := _reviewer_identity_label(payload))
+    ]
+
+
+def _default_owner_changes(labels: list[str]) -> list[Change]:
+    """The activity-row change that marks which reviewers were only the default owner.
+
+    The reviewer-corrections profile drops these labels, so a person who takes the default owner off
+    a report does not read to the scouts as an ownership verdict.
+    """
+    if not labels:
+        return []
+    return [Change(type="SignalReport", action="changed", field="default_owner_reviewers", after=labels)]
 
 
 def _removal_reason_changes(reason: str | None, reviewers: list[str]) -> list[Change]:
@@ -5955,6 +6019,8 @@ def remove_suggested_reviewer(
         if len(kept) == len(prior):
             return False
         new_content = SuggestedReviewers.model_validate_json(new_artefact.content).model_dump(mode="json")
+        default_owner_labels = _default_owner_labels(prior)
+        removed_default_owner = any(entry.get("is_default_owner") for entry in prior if entry not in kept)
 
         log_activity(
             organization_id=None,
@@ -5974,13 +6040,17 @@ def remove_suggested_reviewer(
                         before=list(dict.fromkeys(_reviewer_identity_label(entry) for entry in prior)),
                         after=list(dict.fromkeys(_reviewer_identity_label(entry) for entry in new_content)),
                     ),
-                    *_removal_reason_changes(removal_reason, [github_login or str(user.uuid)]),
+                    *_removal_reason_changes(
+                        None if removed_default_owner else removal_reason,
+                        [] if removed_default_owner else [github_login or str(user.uuid)],
+                    ),
+                    *_default_owner_changes(default_owner_labels),
                 ],
             ),
         )
         correction = (
             None
-            if was_impersonated
+            if was_impersonated or removed_default_owner
             else ReviewerCorrection(
                 report_id=str(report_id),
                 added_reviewers=(),
@@ -6519,9 +6589,11 @@ class SignalReportArtefactViewSet(
                 reviewer_outcome = request.validated_data.get("reviewer_outcome", "selected")
                 with transaction.atomic():
                     SignalReport.objects.select_for_update().get(team_id=self.team.id, id=report_id)
-                    previous = ReviewerRules.read_for_report(
-                        team_id=self.team.id, report_id=report_id
-                    ).state.reviewers_id
+                    snapshot = ReviewerRules.read_for_report(team_id=self.team.id, report_id=report_id)
+                    previous = snapshot.state.reviewers_id
+                    parsed_content = _with_carried_default_owner(
+                        parsed_content, snapshot.reviewers, team_id=self.team.id
+                    )
                     artefact = SignalReportArtefact.append_status(
                         team_id=self.team.id,
                         report_id=report_id,

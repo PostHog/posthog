@@ -14,6 +14,7 @@ use common::{
     test_recovery, unique_team_id, NUM_PARTITIONS,
 };
 use personhog_common::partitioning::partition_for_person;
+use personhog_common::properties::jsonb_column_size;
 use personhog_leader::cache::{
     CacheLookup, CachedPerson, DirtyIndex, PartitionedCache, PersonCacheKey,
 };
@@ -30,8 +31,8 @@ use personhog_proto::personhog::leader::v1::person_hog_leader_client::PersonHogL
 use personhog_proto::personhog::leader::v1::person_hog_leader_server::PersonHogLeaderServer;
 use personhog_proto::personhog::types::v1::{
     FencePersonRequest, FencePersonsRequest, FoldPersonDocumentRequest, GetPersonRequest,
-    LifecycleOpType, Person, ReleaseFenceItem, ReleaseFenceRequest, ReleaseFencesRequest,
-    ReleaseOutcome, SealedSourceSnapshot, UpdatePersonPropertiesRequest,
+    LifecycleOpType, Person, RaisePersonVersionRequest, ReleaseFenceItem, ReleaseFenceRequest,
+    ReleaseFencesRequest, ReleaseOutcome, SealedSourceSnapshot, UpdatePersonPropertiesRequest,
 };
 use prost::Message;
 use rdkafka::consumer::{BaseConsumer, Consumer};
@@ -3617,4 +3618,159 @@ async fn a_release_trusts_the_snapshot_only_under_a_fence_sealed_before_it() {
         .execute(&pool)
         .await
         .expect("cleanup op");
+}
+
+fn raise_request(team_id: i64, person_id: i64, min_version: i64) -> RaisePersonVersionRequest {
+    RaisePersonVersionRequest {
+        team_id,
+        person_id,
+        min_version,
+    }
+}
+
+#[tokio::test]
+async fn a_raise_writes_the_current_state_at_the_minimum_once() {
+    let mut harness = start_fence_harness(test_cached_person(), None).await;
+    let request = raise_request(harness.team_id, harness.person_id, 10);
+
+    let first = harness
+        .client
+        .raise_person_version(with_partition(request, harness.partition))
+        .await
+        .expect("raise succeeds")
+        .into_inner();
+    assert!(first.raised);
+    assert_eq!(first.person.unwrap().version, 10);
+
+    let repeat = harness
+        .client
+        .raise_person_version(with_partition(request, harness.partition))
+        .await
+        .expect("repeat succeeds")
+        .into_inner();
+    assert!(!repeat.raised);
+
+    let records = changelog_records(&harness);
+    assert_eq!(records.len(), 1, "the repeat must not write");
+    assert_eq!(records[0].version, 10);
+    assert_eq!(
+        person_properties(&records[0]),
+        serde_json::json!({"email": "test@example.com"})
+    );
+}
+
+#[tokio::test]
+async fn a_raise_clears_a_spent_version_above_the_minimum() {
+    let mut harness = start_fence_harness(test_cached_person(), None).await;
+    harness.emitted_versions.raise_for_test(
+        harness.partition,
+        PersonCacheKey {
+            team_id: harness.team_id,
+            person_id: harness.person_id,
+        },
+        12,
+    );
+
+    let raised = harness
+        .client
+        .raise_person_version(with_partition(
+            raise_request(harness.team_id, harness.person_id, 10),
+            harness.partition,
+        ))
+        .await
+        .expect("raise succeeds")
+        .into_inner();
+    assert_eq!(raised.person.unwrap().version, 13);
+}
+
+#[tokio::test]
+async fn a_fenced_person_refuses_a_raise() {
+    let mut harness = start_fence_harness(test_cached_person(), None).await;
+    harness
+        .client
+        .fence_person(with_partition(
+            fence_request(harness.team_id, harness.person_id, &Uuid::now_v7()),
+            harness.partition,
+        ))
+        .await
+        .expect("fence succeeds");
+
+    let status = harness
+        .client
+        .raise_person_version(with_partition(
+            raise_request(harness.team_id, harness.person_id, 10),
+            harness.partition,
+        ))
+        .await
+        .expect_err("a fenced person rejects the raise");
+    assert_eq!(status.code(), Code::FailedPrecondition);
+    assert_eq!(
+        status.metadata().get(FENCED_METADATA_KEY).unwrap(),
+        "delete"
+    );
+    assert!(changelog_records(&harness).is_empty());
+}
+
+#[tokio::test]
+async fn a_raise_trims_a_stored_person_over_the_size_limit() {
+    let big = "x".repeat(400_000);
+    let mut harness = start_fence_harness(
+        CachedPerson {
+            properties: serde_json::to_vec(&serde_json::json!({
+                "email": "test@example.com", "custom_a": big, "custom_b": big,
+            }))
+            .unwrap(),
+            ..test_cached_person()
+        },
+        None,
+    )
+    .await;
+
+    harness
+        .client
+        .raise_person_version(with_partition(
+            raise_request(harness.team_id, harness.person_id, 10),
+            harness.partition,
+        ))
+        .await
+        .expect("raise succeeds");
+
+    let records = changelog_records(&harness);
+    assert_eq!(records.len(), 1);
+    let properties = person_properties(&records[0]);
+    assert!(jsonb_column_size(&properties) <= 524_288);
+    assert_eq!(properties["email"], "test@example.com");
+}
+
+#[tokio::test]
+async fn a_raise_refuses_a_person_whose_protected_properties_exceed_the_limit() {
+    let big = "x".repeat(400_000);
+    let mut harness = start_fence_harness(
+        CachedPerson {
+            properties: serde_json::to_vec(&serde_json::json!({"email": big, "name": big}))
+                .unwrap(),
+            ..test_cached_person()
+        },
+        None,
+    )
+    .await;
+
+    let status = harness
+        .client
+        .raise_person_version(with_partition(
+            raise_request(harness.team_id, harness.person_id, 10),
+            harness.partition,
+        ))
+        .await
+        .expect_err("an untrimmable person is refused");
+
+    assert_eq!(status.code(), Code::FailedPrecondition);
+    assert_eq!(
+        status
+            .metadata()
+            .get(personhog_common::grpc::SEMANTIC_REFUSAL_METADATA_KEY)
+            .unwrap(),
+        "person-too-large"
+    );
+    assert!(changelog_records(&harness).is_empty());
 }

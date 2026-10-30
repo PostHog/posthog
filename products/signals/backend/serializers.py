@@ -3215,6 +3215,12 @@ class SuggestedReviewerEntryReadSerializer(serializers.Serializer):
     is_skill_owner = serializers.BooleanField(
         help_text="True when the scout owner guardrail added the entry rather than commit authorship."
     )
+    is_default_owner = serializers.BooleanField(
+        help_text=(
+            "True when no evidence selected anyone and the report fell back to the project's default owner. "
+            "The entry routes the report, but it is not ownership evidence."
+        )
+    )
     source_skill = serializers.CharField(
         allow_null=True, help_text="Scout skill whose run wrote the entry. Null when no scout did."
     )
