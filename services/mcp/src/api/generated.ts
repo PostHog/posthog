@@ -57952,6 +57952,11 @@ export namespace Schemas {
       created_at: string | null;
     }
 
+    export interface GithubIssueDependencyRef {
+      repository: string;
+      number: number;
+    }
+
     export interface GithubIssueSignalExtra {
       html_url: string;
       number: number;
@@ -57962,6 +57967,7 @@ export namespace Schemas {
       state: string;
       author_login?: string | null;
       author_association?: string | null;
+      depends_on_issues?: GithubIssueDependencyRef[];
     }
 
     export interface GitlabIssueSignalExtra {
@@ -111769,6 +111775,8 @@ export namespace Schemas {
       reason: string | null;
       /** True when the scout owner guardrail added the entry rather than commit authorship. */
       is_skill_owner: boolean;
+      /** True when no evidence selected anyone and the report fell back to the project's default owner. The entry routes the report, but it is not ownership evidence. */
+      is_default_owner: boolean;
       /**
          * Scout skill whose run wrote the entry. Null when no scout did.
          * @nullable
