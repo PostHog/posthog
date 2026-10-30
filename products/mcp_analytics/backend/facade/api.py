@@ -9,8 +9,11 @@ from posthog.hogql import ast
 from posthog.hogql.parser import CacheOrigin, parse_expr
 
 from posthog.api.capture import capture_internal
+from posthog.models.scoping import team_scope
+from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.sync import database_sync_to_async
 
 from products.mcp_analytics.backend import logic
 from products.mcp_analytics.backend.hogql_queries.base import (
@@ -384,3 +387,27 @@ def measured_query_placeholders(date_from: datetime) -> dict[str, ast.Expr]:
 def measured_source() -> str:
     """The source marker new-SDK $mcp_tool_call events carry."""
     return NEW_SDK_SOURCE
+
+
+async def cluster_texts(team: Team, texts: list[str], distance_threshold: float | None = None) -> list[int | None]:
+    """Group texts by meaning with this product's intent embeddings and clustering.
+
+    Returns one cluster label per text, in the order of ``texts``. A text whose embedding failed
+    gets None. Embeddings are cached per team, so a rerun over the same texts embeds nothing new.
+    """
+    from products.mcp_analytics.backend import (
+        intent_clustering,  # noqa: PLC0415 (keeps sklearn off the facade import path)
+    )
+
+    # The embedding cache is team scoped, and a caller outside a request, such as a Temporal
+    # activity, has no team scope. The scope lookup reads the database, so it runs in a thread.
+    team_id = await database_sync_to_async(resolve_effective_team_id)(team.id)
+    with team_scope(team_id, canonical=True):
+        embeddings, embedded = await intent_clustering.embed_texts_async(team, texts)
+    labels: list[int | None] = [None] * len(texts)
+    if not embedded:
+        return labels
+    threshold = intent_clustering.DEFAULT_DISTANCE_THRESHOLD if distance_threshold is None else distance_threshold
+    for index, label in zip(embedded, intent_clustering.cluster_embeddings(embeddings, threshold), strict=True):
+        labels[index] = int(label)
+    return labels
