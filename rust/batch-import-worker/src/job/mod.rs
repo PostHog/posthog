@@ -917,7 +917,6 @@ impl Job {
         model_state.events_emitted = model_state.events_emitted.saturating_add(events as u64);
 
         let from_offset = new_offset.saturating_sub(consumed as u64);
-        // A re-send of the chunk recovered at claim keeps its interruption count.
         let interrupted = model
             .recovered_commit
             .take()
@@ -928,6 +927,7 @@ impl Job {
             from_offset,
             to_offset: new_offset,
             interrupted,
+            events: events as u64,
         });
 
         let written = model.save_progress(&self.context.db, true, true).await?;
@@ -1675,6 +1675,29 @@ mod tests {
             }))
         }
 
+        fn one_event_per_chunk() -> Arc<ParserFn> {
+            Arc::new(Box::new(|bytes: Vec<u8>| {
+                let inner = common_types::CapturedEvent {
+                    uuid: Uuid::now_v7(),
+                    distinct_id: "user".to_string(),
+                    session_id: None,
+                    ip: "127.0.0.1".to_string(),
+                    data: "{}".to_string(),
+                    now: chrono::Utc::now().to_rfc3339(),
+                    sent_at: None,
+                    token: "token".to_string(),
+                    event: "event".to_string(),
+                    timestamp: chrono::Utc::now(),
+                    is_cookieless_mode: false,
+                    historical_migration: true,
+                };
+                Ok(Parsed {
+                    consumed: bytes.len(),
+                    data: vec![InternallyCapturedEvent { team_id: 1, inner }],
+                })
+            }))
+        }
+
         fn make_handle() -> lifecycle::Handle {
             let mut manager = lifecycle::Manager::builder("test")
                 .with_trap_signals(false)
@@ -1700,12 +1723,12 @@ mod tests {
             B: Fn(usize, Uuid, Arc<AppContext>) -> BF,
             BF: Future<Output = ()>,
         {
-            run_job_after_claim(None, on_send, before_process, fail_sends).await
+            run_job_after_claim(None, consume_all(), on_send, before_process, fail_sends).await
         }
 
-        /// Like `run_job`, for a claim that recovered `recovered` as the row's pending commit.
         async fn run_job_after_claim<H, B, BF>(
             recovered: Option<serde_json::Value>,
+            transform: Arc<ParserFn>,
             on_send: H,
             before_process: B,
             fail_sends: bool,
@@ -1737,8 +1760,8 @@ mod tests {
                 pending_commit: None,
             };
             if recovered.is_some() {
-                // A worker crashed after it saved part-1 as sent and before the sink confirmed it.
                 row.state.parts[0].current_offset = PART_BYTES as u64;
+                row.state.events_emitted = 1;
                 row.pending_commit = recovered;
             }
             let id = test_db::insert_job(&context.db, &row).await;
@@ -1757,7 +1780,7 @@ mod tests {
                 state: Mutex::new(state),
                 model: Mutex::new(model),
                 source: Box::new(MemorySource { parts }),
-                transform: consume_all(),
+                transform,
                 sink: Mutex::new(Box::new(RecordingEmitter {
                     send_rate: SEND_RATE,
                     sends: sends.clone(),
@@ -1828,17 +1851,18 @@ mod tests {
             let recorded = markers.clone();
             let run = run_job_after_claim(
                 Some(serde_json::json!(
-                    {"key": "part-1", "from_offset": 0, "to_offset": PART_BYTES, "interrupted": 1}
+                    {"key": "part-1", "from_offset": 0, "to_offset": PART_BYTES, "interrupted": 1, "events": 1}
                 )),
+                one_event_per_chunk(),
                 move |id, pool| {
                     let hook: SendHook = Arc::new(move |_index| {
                         let (pool, recorded) = (pool.clone(), recorded.clone());
                         Box::pin(async move {
-                            let stored = test_db::read_job(&pool, id).await;
+                            let marker = test_db::read_job(&pool, id).await.pending_commit.unwrap();
                             recorded
                                 .lock()
                                 .unwrap()
-                                .push(stored.pending_commit.unwrap()["interrupted"].clone());
+                                .push((marker["interrupted"].clone(), marker["events"].clone()));
                         })
                     });
                     Some(hook)
@@ -1852,14 +1876,18 @@ mod tests {
             assert_eq!(
                 *markers.lock().unwrap(),
                 vec![
-                    serde_json::json!(2),
-                    serde_json::json!(0),
-                    serde_json::json!(0)
+                    (serde_json::json!(2), serde_json::json!(1)),
+                    (serde_json::json!(0), serde_json::json!(1)),
+                    (serde_json::json!(0), serde_json::json!(1))
                 ],
                 "only the re-sent chunk carries the count, so a crash loop on it reaches the cap"
             );
             let stored = test_db::read_job(&run.context.db, run.id).await;
             assert_eq!(stored.status, "completed");
+            assert_eq!(
+                stored.state.events_emitted, 3,
+                "the re-sent chunk's events count once"
+            );
             assert_eq!(stored.pending_commit, None);
             test_db::delete_job(&run.context.db, run.id).await;
         }

@@ -41,9 +41,8 @@ pub struct JobModel {
     // we're resuming an interrupted job
     pub was_leased: bool,
 
-    /// The chunk a claim rewound for this worker to send again. Kept in memory only, so that a
-    /// claim that stops before the re-send starts (backoff, shutdown) leaves no marker and does
-    /// not count as another interrupted send.
+    /// The chunk a claim rewound for this worker to send again, kept out of the row so that a stop
+    /// before the re-send starts (backoff, shutdown) does not count as another interrupted send.
     pub recovered_commit: Option<PendingCommit>,
 }
 
@@ -69,6 +68,9 @@ pub struct PendingCommit {
     /// Earlier sends of this chunk that a worker stopped in the middle of.
     #[serde(default)]
     pub interrupted: u32,
+    /// Events the chunk added to `events_emitted`, so a rewind can take them back out.
+    #[serde(default)]
+    pub events: u64,
 }
 
 /// The result of a worker write to its job row.
@@ -144,8 +146,9 @@ impl JobState {
         Some(part.current_offset)
     }
 
-    /// Move the part that `pending` names back to the start of its chunk. Returns false and
-    /// changes nothing when the part's offset is at neither end of the chunk.
+    /// Move the part that `pending` names back to the start of its chunk, and take the chunk's
+    /// events out of `events_emitted` when the part moves. Returns false and changes nothing when
+    /// the part's offset is at neither end of the chunk.
     pub fn rewind_to_commit_start(&mut self, pending: &PendingCommit) -> bool {
         let Some(part) = self.parts.iter_mut().find(|p| p.key == pending.key) else {
             return false;
@@ -153,7 +156,10 @@ impl JobState {
         if part.current_offset != pending.to_offset && part.current_offset != pending.from_offset {
             return false;
         }
-        part.current_offset = pending.from_offset;
+        if part.current_offset != pending.from_offset {
+            part.current_offset = pending.from_offset;
+            self.events_emitted = self.events_emitted.saturating_sub(pending.events);
+        }
         true
     }
 
@@ -390,9 +396,8 @@ impl JobModel {
         Ok(())
     }
 
-    /// Rewind a part that a worker left mid-commit so this worker sends the chunk again, or pause
-    /// for review after `MAX_INTERRUPTED_SENDS` interruptions or an offset mismatch. Returns true
-    /// when this worker must not run the job.
+    /// Rewind a part a worker left mid-commit so this worker sends the chunk again, or pause for
+    /// review at the cap or on an offset mismatch. Returns true when this worker must skip the job.
     pub async fn recover_interrupted_commit(
         &mut self,
         context: Arc<AppContext>,
@@ -1155,6 +1160,7 @@ mod tests {
         offset: u64,
         stored_pending: Option<serde_json::Value>,
         recovered_interrupted: Option<u32>,
+        events_emitted: u64,
         message: Option<&'static str>,
     }
 
@@ -1163,7 +1169,7 @@ mod tests {
         let context = test_db::context().await;
         let marker = |key: &str, interrupted: u32| {
             Some(serde_json::json!(
-                {"key": key, "from_offset": 100, "to_offset": 250, "interrupted": interrupted}
+                {"key": key, "from_offset": 100, "to_offset": 250, "interrupted": interrupted, "events": 40}
             ))
         };
         let resent = |name, part_offset, interrupted| RecoveryCase {
@@ -1176,6 +1182,7 @@ mod tests {
             offset: 100,
             stored_pending: None,
             recovered_interrupted: Some(interrupted + 1),
+            events_emitted: if part_offset == 250 { 60 } else { 100 },
             message: None,
         };
         let paused =
@@ -1189,6 +1196,7 @@ mod tests {
                 offset: part_offset,
                 stored_pending: pending,
                 recovered_interrupted: None,
+                events_emitted: 100,
                 message: Some(message),
             };
         let cases = [
@@ -1196,6 +1204,7 @@ mod tests {
                 pending: None,
                 offset: 250,
                 recovered_interrupted: None,
+                events_emitted: 100,
                 ..resent("no marker", 250, 0)
             },
             resent("first crash re-sends", 250, 0),
@@ -1226,7 +1235,10 @@ mod tests {
         for case in cases {
             let name = case.name;
             let row = test_db::JobRowFixture {
-                state: make_job_state(&[("part-1", case.part_offset)]),
+                state: JobState {
+                    events_emitted: 100,
+                    ..make_job_state(&[("part-1", case.part_offset)])
+                },
                 ..fixture(JobStatus::Running, case.pending)
             };
             let id = test_db::insert_job(&context.db, &row).await;
@@ -1247,6 +1259,10 @@ mod tests {
             assert_eq!(
                 stored.state.parts[0].current_offset, case.offset,
                 "case '{name}'"
+            );
+            assert_eq!(
+                stored.state.events_emitted, case.events_emitted,
+                "case '{name}': only a part that moves back gives up its chunk's events"
             );
             assert_eq!(
                 stored.pending_commit, case.stored_pending,
@@ -1332,6 +1348,7 @@ mod tests {
                 from_offset: 1,
                 to_offset: 2,
                 interrupted: 0,
+                events: 0,
             })
         );
     }
