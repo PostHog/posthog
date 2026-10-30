@@ -28,6 +28,7 @@ import { SignalReport, SignalReportStatus } from '../../types'
 import { buildReportNoteContent } from '../../utils/reportNotes'
 import { AgentRunDetail } from './AgentRunDetail'
 import { ReportDetail } from './ReportDetail'
+import { ReportNotesSection } from './ReportNotesSection'
 import { ReportStatusSection } from './ReportStatusSection'
 
 const mixedPrChecks = {
@@ -375,11 +376,14 @@ const reportNotesMocks = mswDecorator({
     },
 })
 
-export const ReportWithNotes: Story = {
+// Renders the section alone at rail width: in the full detail it sits below the snapshot's fold.
+export const ScoutNotesSection: Story = {
     decorators: [reportNotesMocks],
     render: () => (
         <Frame>
-            <ReportDetail report={NOTES_REPORT} />
+            <div className="w-[26rem] border border-primary bg-surface-primary p-5">
+                <ReportNotesSection report={NOTES_REPORT} />
+            </div>
         </Frame>
     ),
 }

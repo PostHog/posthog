@@ -54,13 +54,13 @@ describe('reportNotesLogic', () => {
     it.each([
         { target: REPORT_SCOUT, expectedSkillName: REPORT_SCOUT },
         { target: EVERY_SCOUT, expectedSkillName: undefined },
-    ])('leaves a note for $target that quotes the report id', async ({ target, expectedSkillName }) => {
+    ])('leaves a note for $target tied to the report', async ({ target, expectedSkillName }) => {
         await logic.asyncActions.createNote('Focus on the new checkout flow', target)
 
-        expect(createdBodies).toHaveLength(1)
-        expect(createdBodies[0].skill_name).toEqual(expectedSkillName)
-        expect(createdBodies[0].content).toContain(REPORT_ID)
-        expect(createdBodies[0].content).toContain('Focus on the new checkout flow')
+        // Without `report_id` the note would not name the report, and the report's activity log would miss it.
+        expect(createdBodies).toEqual([
+            { content: 'Focus on the new checkout flow', report_id: REPORT_ID, skill_name: expectedSkillName },
+        ])
         expect(logic.values.lastSaveFailed).toBe(false)
     })
 })

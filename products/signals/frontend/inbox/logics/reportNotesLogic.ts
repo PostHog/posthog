@@ -15,8 +15,8 @@ import type { ScoutNoteApi, SignalScoutConfigApi } from 'products/signals/fronte
 
 import { captureScoutAction } from '../inboxAnalytics'
 import { withPanelLoadTimeout } from '../utils/panelLoadTimeout'
-import { buildReportNoteContent } from '../utils/reportNotes'
 import { prettifyScoutSkillName, scoutDisplayName } from '../utils/scoutRunsWindow'
+import { inboxReportDetailLogic } from './inboxReportDetailLogic'
 import { NOTES_FETCH_LIMIT } from './scoutNotesLogic'
 
 export interface ReportNotesLogicProps {
@@ -128,7 +128,7 @@ export function reportNoteAudience(skillName: string, scoutNamesBySkill: Record<
 /**
  * The scout notes about one report: the ones people left from it, plus the ones the inbox forwarded
  * when it was dismissed, discussed, or rated. Notes have no report column, so both kinds are found by
- * the report id they quote (see `buildReportNoteContent`).
+ * the report id they quote. A note left here also lands on the report's activity log.
  */
 export const reportNotesLogic = kea<reportNotesLogicType>([
     path((key) => ['products', 'signals', 'inbox', 'logics', 'reportNotesLogic', key]),
@@ -263,7 +263,8 @@ export const reportNotesLogic = kea<reportNotesLogicType>([
             }
             try {
                 await signalsScoutNotesCreate(String(teamId), {
-                    content: buildReportNoteContent(props.reportId, content),
+                    content,
+                    report_id: props.reportId,
                     ...(skillName !== EVERY_SCOUT ? { skill_name: skillName } : {}),
                 })
                 captureScoutAction({
@@ -287,6 +288,8 @@ export const reportNotesLogic = kea<reportNotesLogicType>([
                         : 'The scout picks this up on its next run'
                 )
                 actions.loadNotes()
+                // The note also adds an entry to the report's activity log, so refresh it alongside.
+                inboxReportDetailLogic.findMounted({ reportId: props.reportId })?.actions.loadReportArtefacts()
             } catch (error: any) {
                 lemonToast.error(error?.detail || error?.message || 'Failed to leave the note')
                 actions.createNoteFailed()
