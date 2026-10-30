@@ -3755,22 +3755,24 @@ const api = {
                 insightId,
                 recordingId,
                 notebookShortId,
+                teamId,
             }: {
                 dashboardId?: DashboardType['id']
                 insightId?: InsightModel['id']
                 recordingId?: SessionRecordingType['id']
                 notebookShortId?: NotebookType['short_id']
+                teamId?: TeamType['id']
             },
             data: Partial<SharingConfigurationType>
         ): Promise<SharingConfigurationType | null> {
             return dashboardId
-                ? new ApiRequest().dashboardSharing(dashboardId).update({ data })
+                ? new ApiRequest().dashboardSharing(dashboardId, teamId).update({ data })
                 : insightId
-                  ? new ApiRequest().insightSharing(insightId).update({ data })
+                  ? new ApiRequest().insightSharing(insightId, teamId).update({ data })
                   : recordingId
-                    ? new ApiRequest().recordingSharing(recordingId).update({ data })
+                    ? new ApiRequest().recordingSharing(recordingId, teamId).update({ data })
                     : notebookShortId
-                      ? new ApiRequest().notebookSharing(notebookShortId).update({ data })
+                      ? new ApiRequest().notebookSharing(notebookShortId, teamId).update({ data })
                       : null
         },
 

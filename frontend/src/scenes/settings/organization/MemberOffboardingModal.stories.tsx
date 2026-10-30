@@ -85,9 +85,21 @@ const resources = [
     },
 ]
 
+async function openMemberOffboarding(): Promise<void> {
+    await waitFor(() => {
+        if (!memberOffboardingLogic.isMounted()) {
+            throw new Error('Waiting for member offboarding to mount')
+        }
+    })
+    memberOffboardingLogic.actions.open(MOCK_SECOND_ORGANIZATION_MEMBER)
+}
+
 const meta: Meta<typeof MemberOffboardingModal> = {
     title: 'Scenes-App/Settings/Organization/Member offboarding',
     component: MemberOffboardingModal,
+    parameters: {
+        testOptions: { snapshotTargetSelector: '.LemonModal' },
+    },
     decorators: [
         mswDecorator({
             patch: {
@@ -102,8 +114,8 @@ const meta: Meta<typeof MemberOffboardingModal> = {
         }),
     ],
     play: async () => {
-        const logic = memberOffboardingLogic.build()
-        logic.actions.open(MOCK_SECOND_ORGANIZATION_MEMBER)
+        await openMemberOffboarding()
+        const logic = memberOffboardingLogic
         await waitFor(() => {
             if (!logic.values.resources?.length) {
                 throw new Error(logic.values.loadError || 'Waiting for resource review')
@@ -120,8 +132,8 @@ export const NoResources: Story = {
         mswDecorator({ get: { '/api/organizations/:organizationId/members/:userUuid/offboarding_preview/': [] } }),
     ],
     play: async () => {
-        const logic = memberOffboardingLogic.build()
-        logic.actions.open(MOCK_SECOND_ORGANIZATION_MEMBER)
+        await openMemberOffboarding()
+        const logic = memberOffboardingLogic
         await waitFor(() => {
             if (logic.values.resourcesLoading || logic.values.resources === null) {
                 throw new Error(logic.values.loadError || 'Waiting for resource review')
