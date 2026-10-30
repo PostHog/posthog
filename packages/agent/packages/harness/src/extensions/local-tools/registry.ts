@@ -32,6 +32,11 @@ export interface LocalToolCtx {
     message?: string,
     report?: string,
   ) => Promise<void>;
+  /**
+   * A later workflow step reads this run's final message, so `finish` refuses to
+   * end the run without a report. Set from `isFinishReportRequired(meta)`.
+   */
+  finishReportRequired?: boolean;
 }
 
 /** Minimal session-meta shape needed to gate tools (e.g. cloud-only). */

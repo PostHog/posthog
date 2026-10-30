@@ -55,6 +55,7 @@ import {
 import {
   buildFinishRunUpdate,
   isCloudRun,
+  isFinishReportRequired,
   LOCAL_TOOLS_MCP_NAME,
   type LocalToolCtx,
   resolveGithubToken,
@@ -3198,6 +3199,10 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
           taskRunId: meta?.taskRunId,
           baseBranch,
           requestFinish,
+          finishReportRequired: isFinishReportRequired({
+            taskOriginProduct,
+            endRunWhenDone,
+          }),
         },
         {
           environment,

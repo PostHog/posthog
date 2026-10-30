@@ -213,6 +213,49 @@ describe("finish tool", () => {
     expect(result.isError).toBeUndefined();
   });
 
+  it.each(["", "   "])(
+    "keeps a report-required run open when the report is %j",
+    async (report) => {
+      const spy = vi.fn(async () => {});
+      const result = await finishTool.handler(
+        { cwd: "/repo", requestFinish: spy, finishReportRequired: true },
+        { status: "completed", report },
+      );
+      expect(spy).not.toHaveBeenCalled();
+      expect(result.isError).toBe(true);
+    },
+  );
+
+  const rejectOnce = (status: number) =>
+    vi
+      .fn<NonNullable<LocalToolCtx["requestFinish"]>>()
+      .mockRejectedValueOnce(Object.assign(new Error("rejected"), { status }))
+      .mockResolvedValue(undefined);
+
+  it.each([400, 403])(
+    "ends the run without the report when the backend rejects it (%i)",
+    async (status) => {
+      const spy = rejectOnce(status);
+      const result = await finishTool.handler(
+        { cwd: "/repo", requestFinish: spy },
+        { status: "completed", report: "Full report" },
+      );
+      expect(result.isError).toBeUndefined();
+      expect(spy).toHaveBeenLastCalledWith("completed", undefined);
+    },
+  );
+
+  it("keeps the report when the finish fails for another reason", async () => {
+    const spy = rejectOnce(500);
+    await expect(
+      finishTool.handler(
+        { cwd: "/repo", requestFinish: spy },
+        { status: "completed", report: "Full report" },
+      ),
+    ).rejects.toThrow("rejected");
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+
   it("cuts a long report without splitting a surrogate pair", () => {
     const report = `${"a".repeat(FINISH_REPORT_MAX_CHARS - 1)}😀😀`;
     const finalMessage = buildFinishRunUpdate("completed", undefined, report)

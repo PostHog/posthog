@@ -2,6 +2,7 @@ import { z } from "zod";
 import {
   defineLocalTool,
   type LocalToolCtx,
+  type LocalToolGateMeta,
   type LocalToolResult,
 } from "../registry";
 import {
@@ -65,6 +66,22 @@ export function buildFinishRunUpdate(
         }
       : {}),
   };
+}
+
+/** A workflow run that opts into `finish` hands its report to the next step. */
+export function isFinishReportRequired(
+  meta: LocalToolGateMeta | undefined,
+): boolean {
+  return (
+    meta?.taskOriginProduct === "workflow" && meta?.endRunWhenDone === true
+  );
+}
+
+// A backend without finish-report support rejects the `output` field: 400 from
+// the run serializer, 403 for a scout trial token.
+function isReportRejected(error: unknown): boolean {
+  const status = (error as { status?: unknown } | null)?.status;
+  return status === 400 || status === 403;
 }
 
 const FINISH_TOOL_DESCRIPTION =
@@ -152,7 +169,34 @@ export const finishTool = defineLocalTool({
         isError: true,
       };
     }
-    await requestFinish(args.status, args.reason, args.report);
+    if (ctx.finishReportRequired && !args.report?.trim()) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: "The run is still open. A workflow step reads this run's report, so call `finish` again with your full final report in `report`.",
+          },
+        ],
+        isError: true,
+      };
+    }
+    try {
+      await requestFinish(args.status, args.reason, args.report);
+    } catch (error) {
+      if (!args.report || !isReportRejected(error)) {
+        throw error;
+      }
+      // Ending the run without its report beats leaving it active until the idle timeout.
+      await requestFinish(args.status, args.reason);
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Run marked ${args.status}, but the backend did not accept the report. Stop here.`,
+          },
+        ],
+      };
+    }
     return {
       content: [
         {
