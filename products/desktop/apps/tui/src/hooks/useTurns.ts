@@ -127,27 +127,27 @@ export function useTurns({
     runs,
   });
   listedNow.current = { tasks: listed, runs };
-  const readListed = (): void => {
-    const { tasks, runs } = listedNow.current;
-    for (const task of tasks) {
-      const run = task.latest_run;
-      if (
-        !runs ||
-        !run ||
-        run.environment === "local" ||
-        subscriptions.current.has(`${task.id}:${run.id}`) ||
-        subscriptions.current.has(`${task.id}:local`)
-      )
-        continue;
-      const view = runs.preview?.(task.id, run.id);
-      if (!view) continue;
-      const runtime = task.runtime ?? "pi";
-      latest.current.set(task.id, { view, runtime });
-      unread.current.set(task.id, { view, runtime });
-    }
-  };
   useEffect(() => {
     const open = subscriptions.current;
+    const readListed = (): void => {
+      const { tasks, runs } = listedNow.current;
+      for (const task of tasks) {
+        const run = task.latest_run;
+        if (
+          !runs ||
+          !run ||
+          run.environment === "local" ||
+          subscriptions.current.has(`${task.id}:${run.id}`) ||
+          subscriptions.current.has(`${task.id}:local`)
+        )
+          continue;
+        const view = runs.preview?.(task.id, run.id);
+        if (!view) continue;
+        const runtime = task.runtime ?? "pi";
+        latest.current.set(task.id, { view, runtime });
+        unread.current.set(task.id, { view, runtime });
+      }
+    };
     const timer = setInterval(() => {
       readListed();
       for (const [taskId, { view, runtime }] of unread.current) {
