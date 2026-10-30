@@ -31,6 +31,7 @@ from hogli_commands.workflow_lint.checks.cache_writes import (
 )
 from hogli_commands.workflow_lint.checks.checkout_full_depth import CheckoutFullDepthCheck
 from hogli_commands.workflow_lint.checks.dorny_negation import DornyNegationCheck
+from hogli_commands.workflow_lint.checks.explicit_permissions import ExplicitPermissionsCheck
 from hogli_commands.workflow_lint.checks.job_timeouts import JobTimeoutsCheck
 from hogli_commands.workflow_lint.checks.mcp_filter_coverage import McpFilterCoverageCheck, _resolve
 from hogli_commands.workflow_lint.checks.paused_public_image_pulls import PausedPublicImagePullsCheck
@@ -38,6 +39,7 @@ from hogli_commands.workflow_lint.checks.pinned_runner_images import PinnedRunne
 from hogli_commands.workflow_lint.checks.pr_concurrency import PrConcurrencyCheck
 from hogli_commands.workflow_lint.checks.pr_event_fanout import PrEventFanoutCheck
 from hogli_commands.workflow_lint.checks.required_gates import RequiredGateCheck
+from hogli_commands.workflow_lint.checks.required_status_checks import RequiredStatusChecksCheck
 from hogli_commands.workflow_lint.checks.reusable_secret_passthrough import ReusableSecretPassthroughCheck
 from hogli_commands.workflow_lint.checks.semgrep_services_coverage import SemgrepServicesCoverageCheck
 from hogli_commands.workflow_lint.checks.shell_split_action_args import (
@@ -47,6 +49,7 @@ from hogli_commands.workflow_lint.checks.shell_split_action_args import (
     unparseable_actions,
 )
 from hogli_commands.workflow_lint.checks.storybook_static_dirs_coverage import StorybookStaticDirsCoverageCheck
+from hogli_commands.workflow_lint.checks.untrusted_trigger_checkout import UntrustedTriggerCheckoutCheck
 from hogli_commands.workflow_lint.cli import cmd_lint_workflows
 from hogli_commands.workflow_lint.model import PR_TRIGGERS, Workflow, WorkflowParseError, read_workflows
 
@@ -2876,3 +2879,150 @@ class TestPausedPublicImagePullsCheck:
     def test_passes(self, tmp_path: Path, push_to_ghcr: str, verify_step: str) -> None:
         _write(tmp_path, "wf.yml", _image_job(push_to_ghcr, verify_step))
         assert PausedPublicImagePullsCheck().run(_read_all(tmp_path)).issues == []
+
+
+# ---------------------------------------------------------------------------
+# WF015 explicit permissions
+# ---------------------------------------------------------------------------
+
+_PERM_JOB = """
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+{perms}    steps:
+      - run: echo hi
+"""
+
+
+def _perm_workflow(on: str, job_perms: str, top_level: str = "") -> str:
+    return f"""
+name: T
+on: {on}
+{top_level}{_PERM_JOB.format(perms=job_perms)}"""
+
+
+class TestExplicitPermissionsCheck:
+    @pytest.mark.parametrize("trigger", ["pull_request", "pull_request_target", "issue_comment", "workflow_run"])
+    def test_fails_without_any_permissions(self, tmp_path: Path, trigger: str) -> None:
+        _write(tmp_path, "wf.yml", _perm_workflow(trigger, ""))
+        assert len(ExplicitPermissionsCheck().run(_read_all(tmp_path)).issues) == 1
+
+    def test_passes_with_top_level_block(self, tmp_path: Path) -> None:
+        _write(tmp_path, "wf.yml", _perm_workflow("pull_request", "", "permissions:\n  contents: read\n"))
+        assert ExplicitPermissionsCheck().run(_read_all(tmp_path)).issues == []
+
+    def test_passes_with_per_job_block(self, tmp_path: Path) -> None:
+        _write(tmp_path, "wf.yml", _perm_workflow("pull_request", "    permissions:\n      contents: read\n"))
+        assert ExplicitPermissionsCheck().run(_read_all(tmp_path)).issues == []
+
+    def test_skips_trusted_trigger(self, tmp_path: Path) -> None:
+        _write(tmp_path, "wf.yml", _perm_workflow("push", ""))
+        assert ExplicitPermissionsCheck().run(_read_all(tmp_path)).issues == []
+
+
+# ---------------------------------------------------------------------------
+# WF016 untrusted trigger checkout
+# ---------------------------------------------------------------------------
+
+
+def _checkout_workflow(on: str, ref: str) -> str:
+    return f"""
+name: T
+on: {on}
+permissions:
+  contents: read
+jobs:
+  act:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: {ref}
+"""
+
+
+class TestUntrustedTriggerCheckoutCheck:
+    @pytest.mark.parametrize(
+        "ref",
+        [
+            "${{ github.event.pull_request.head.sha }}",
+            "${{ github.head_ref }}",
+            "refs/pull/${{ github.event.number }}/head",
+        ],
+    )
+    def test_fails_on_head_ref_under_pull_request_target(self, tmp_path: Path, ref: str) -> None:
+        _write(tmp_path, "wf.yml", _checkout_workflow("pull_request_target", f"'{ref}'"))
+        issues = UntrustedTriggerCheckoutCheck().run(_read_all(tmp_path)).issues
+        assert len(issues) == 1, [i.render() for i in issues]
+
+    def test_passes_on_base_ref(self, tmp_path: Path) -> None:
+        _write(
+            tmp_path, "wf.yml", _checkout_workflow("pull_request_target", "${{ github.event.pull_request.base.sha }}")
+        )
+        assert UntrustedTriggerCheckoutCheck().run(_read_all(tmp_path)).issues == []
+
+    def test_ignores_head_ref_on_plain_pull_request(self, tmp_path: Path) -> None:
+        _write(tmp_path, "wf.yml", _checkout_workflow("pull_request", "${{ github.event.pull_request.head.sha }}"))
+        assert UntrustedTriggerCheckoutCheck().run(_read_all(tmp_path)).issues == []
+
+
+# ---------------------------------------------------------------------------
+# WF017 required status checks
+# ---------------------------------------------------------------------------
+
+
+def _repo_with_snapshot(tmp_path: Path, snapshot: str, workflow: str) -> list[Workflow]:
+    wf_dir = tmp_path / ".github" / "workflows"
+    wf_dir.mkdir(parents=True, exist_ok=True)
+    (wf_dir / "wf.yml").write_text(textwrap.dedent(workflow).lstrip())
+    (tmp_path / ".github" / "required-status-checks.txt").write_text(snapshot)
+    return _read_all(wf_dir)
+
+
+_REQUIRED_WF = """
+name: T
+on: pull_request
+permissions:
+  contents: read
+jobs:
+  gate:
+    name: Gate Checks Pass
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - run: echo hi
+"""
+
+
+class TestRequiredStatusChecksCheck:
+    def test_passes_when_the_named_job_exists(self, tmp_path: Path) -> None:
+        wfs = _repo_with_snapshot(tmp_path, "Gate Checks Pass\n", _REQUIRED_WF)
+        assert RequiredStatusChecksCheck().run(wfs).issues == []
+
+    def test_fails_when_the_required_job_is_renamed(self, tmp_path: Path) -> None:
+        wfs = _repo_with_snapshot(tmp_path, "Gate Checks Pass\nOld Name\n", _REQUIRED_WF)
+        issues = [i for i in RequiredStatusChecksCheck().run(wfs).issues if "Old Name" in i.message]
+        assert len(issues) == 1, [i.render() for i in issues]
+
+    def test_fails_when_the_required_job_cannot_fail(self, tmp_path: Path) -> None:
+        workflow = _REQUIRED_WF.replace(
+            "    timeout-minutes: 5\n", "    timeout-minutes: 5\n    continue-on-error: true\n"
+        )
+        wfs = _repo_with_snapshot(tmp_path, "Gate Checks Pass\n", workflow)
+        issues = RequiredStatusChecksCheck().run(wfs).issues
+        assert len(issues) == 1, [i.render() for i in issues]
+        assert "cannot fail" in issues[0].message
+
+    def test_accepts_a_check_posted_from_a_step(self, tmp_path: Path) -> None:
+        # `.depot/workflows/ci-backend.yml` posts its `Test results` check through the API.
+        workflow = _REQUIRED_WF.replace("      - run: echo hi", "      - run: echo Posting Some Posted Check")
+        wfs = _repo_with_snapshot(tmp_path, "Some Posted Check\n", workflow)
+        assert RequiredStatusChecksCheck().run(wfs).issues == []
+
+    def test_skips_when_no_snapshot_exists(self, tmp_path: Path) -> None:
+        wf_dir = tmp_path / ".github" / "workflows"
+        wf_dir.mkdir(parents=True)
+        (wf_dir / "wf.yml").write_text(textwrap.dedent(_REQUIRED_WF).lstrip())
+        assert RequiredStatusChecksCheck().run(_read_all(wf_dir)).issues == []
