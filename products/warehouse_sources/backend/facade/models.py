@@ -113,6 +113,7 @@ __all__ = [
     "asave_datawarehousetable",
     "auto_enable_new_schemas",
     "discovered_schema_finder",
+    "self_managed_table_ref",
     "create_datawarehousetable",
     "get_all_schemas_for_source_id",
     "get_schemas_for_direct_reconciliation",
