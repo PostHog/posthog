@@ -958,6 +958,8 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             # Later runs keep the image the task was first provisioned with.
             if carry_sandbox_template and previous_state.get("sandbox_template"):
                 state["sandbox_template"] = previous_state["sandbox_template"]
+            elif carry_sandbox_template and (stored_profile := task.stored_profile) is not None:
+                state["sandbox_template"] = stored_profile.sandbox_templates[0]
             if task._resolves_pr_authorship_per_run() and "pr_authorship_mode" not in state:
                 from products.tasks.backend.temporal.process_task.utils import (
                     PrAuthorshipMode,
@@ -1629,7 +1631,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                 profile=profile,
                 source=source_from_columns(signal_report_id=columns.signal_report_id, hog_flow_id=columns.hog_flow_id),
             )
-        runtime = Task.Runtime.ACP.value
+        runtime = profile.runtimes[0] if profile is not None else Task.Runtime.ACP.value
         if options is not None:
             settings = apply_run_options(
                 options,
@@ -1708,7 +1710,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         client_provenance: TaskClientProvenance | None = None,
         output_schema: type[BaseModel] | dict | None = None,
         interaction_origin: str | None = None,
-        runtime: str = "acp",
+        runtime: str | None = None,
         runtime_adapter: str | None = None,
         model: str | None = None,
         reasoning_effort: str | None = None,
@@ -1758,6 +1760,8 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         origin = resolve_task_origin(profile=profile, origin_product=origin_product, internal=internal)
         origin_product = cast("Task.OriginProduct", origin.origin_product)
         internal = origin.internal
+        if runtime is None:
+            runtime = profile.runtimes[0] if profile is not None else Task.Runtime.ACP.value
         columns = apply_task_source(source, signal_report_id=signal_report_id, hog_flow_id=hog_flow_id)
         signal_report_id = columns.signal_report_id
         hog_flow_id = columns.hog_flow_id
