@@ -1235,6 +1235,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       }
       session.turnQueue = session.turnQueue.filter((t) => t !== turn);
       session.activeTurn = null;
+      session.compacting = false;
       this.dispatchQueuedInput(session);
       // Attach the turn's gateway trace id (from the traceparent hook) so the
       // server can stamp it on `_posthog/turn_complete`. Cleared here so a
