@@ -19,8 +19,9 @@ function detail(option: BetsMeasureOptionApi): string {
 
 export function BetMeasureOptions({ id, onRefine }: { id: string; onRefine?: () => void }): JSX.Element | null {
     const logic = betFormLogic({ id })
-    const { measureOptions, measureSearchLoading, measuredGoal, form, describing, fromBelief } = useValues(logic)
-    const { selectPrimaryInsight, setDescribing, setPicking } = useActions(logic)
+    const { measureOptions, measureSearchLoading, measuredGoal, form, describing, fromBelief, staleBelief } =
+        useValues(logic)
+    const { selectPrimaryInsight, setDescribing, setPicking, searchBelief } = useActions(logic)
     const [open, setOpen] = useState(false)
 
     if (!measureSearchLoading && !measuredGoal) {
@@ -180,6 +181,23 @@ export function BetMeasureOptions({ id, onRefine }: { id: string; onRefine?: () 
                         data-attr="bets-form-measure-mode"
                     >
                         Use an insight I have
+                    </Button>
+                </div>
+            )}
+            {chosen && staleBelief && (
+                <div className="Bets__measuresFoot">
+                    <span>You changed the belief</span>
+                    <span aria-hidden>·</span>
+                    <Button
+                        variant="link-muted"
+                        size="inline"
+                        onClick={() => {
+                            setOpen(true)
+                            searchBelief(form.statement)
+                        }}
+                        data-attr="bets-form-measure-research"
+                    >
+                        Find measures again
                     </Button>
                 </div>
             )}

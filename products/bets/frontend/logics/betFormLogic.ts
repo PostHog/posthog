@@ -91,6 +91,9 @@ export interface betFormLogicValues {
     guardrailSuggestions: BetsGuardrailOptionApi[]
     guardrailSuggestionsLoading: boolean
     guardrailChips: BetsGuardrailOptionApi[]
+    guardedGoal: string
+    beliefGoal: string
+    staleBelief: boolean
     measuredGoal: string
     fromBelief: boolean
     picking: boolean
@@ -297,6 +300,9 @@ export interface betFormLogicActions {
     measureFromBelief: () => {
         value: true
     }
+    searchBelief: (belief: string) => {
+        belief: string
+    }
     setPicking: (picking: boolean) => {
         picking: boolean
     }
@@ -326,6 +332,7 @@ export interface betFormLogicProps {
 export interface betFormLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
+        staleBelief: (beliefGoal: string, form: BetsWriteApi) => boolean
         fromBelief: (measuredGoal: string, form: BetsWriteApi) => boolean
         budgetLimitCents: (overview: BetsOverviewApi | null, existing: BetsDetailApi | null) => number | null
         breadcrumbs: (existing: BetsDetailApi | null) => Breadcrumb[]
@@ -436,6 +443,8 @@ export type betFormLogicType = MakeLogicType<
 >
 
 const MIN_BELIEF_FOR_MEASURES = 20
+const BELIEF_PAUSE_MS = 1500
+const SENTENCE_END = /[.!?]$/
 
 export const betFormLogic = kea<betFormLogicType>([
     props({ id: 'new' } as { id: string }),
@@ -455,6 +464,7 @@ export const betFormLogic = kea<betFormLogicType>([
         setPicking: (picking: boolean) => ({ picking }),
         adoptGuardrail: (option: BetsGuardrailOptionApi) => ({ option }),
         measureFromBelief: true,
+        searchBelief: (belief: string) => ({ belief }),
         addGuardrail: (insight: string) => ({ insight }),
         changeGuardrail: (insight: string, patch: Partial<Omit<BetsSecondaryMetricApi, 'insight'>>) => ({
             insight,
@@ -619,6 +629,8 @@ export const betFormLogic = kea<betFormLogicType>([
             },
         ],
         measuredGoal: ['', { findMeasures: (_, { goal }) => goal.trim() }],
+        guardedGoal: ['', { findGuardrails: (_, { goal }) => goal.trim() }],
+        beliefGoal: ['', { searchBelief: (_, { belief }) => belief.trim() }],
         insightSearch: [
             '',
             {
@@ -670,6 +682,11 @@ export const betFormLogic = kea<betFormLogicType>([
         ],
     }),
     selectors(({ props }) => ({
+        staleBelief: [
+            (s) => [s.beliefGoal, s.form],
+            (beliefGoal: string, form: BetsWriteApi): boolean =>
+                !!beliefGoal && !!form.goal_insight && beliefGoal !== form.statement.trim(),
+        ],
         measureOptions: [
             (s) => [s.measureSearch],
             (measureSearch: BetsMeasureSearchApi | null): BetsMeasureOptionApi[] => measureSearch?.options ?? [],
@@ -1031,84 +1048,104 @@ export const betFormLogic = kea<betFormLogicType>([
                           : null,
         ],
     })),
-    listeners(({ values, actions, props, cache }) => ({
-        measureFromBelief: () => {
-            const belief = values.form.statement.trim()
-            const untouched =
-                !values.picking &&
-                !values.describing &&
-                !values.form.goal_insight &&
-                !(values.form.goal_description ?? '').trim()
-            if (untouched && belief.length >= MIN_BELIEF_FOR_MEASURES && belief !== values.measuredGoal) {
+    listeners(({ values, actions, props, cache }) => {
+        const guard = (goal: string): void => {
+            if (goal.trim() && goal.trim() !== values.guardedGoal && !values.guardrailSuggestionsLoading) {
+                actions.findGuardrails({ goal, measure: '' })
+            }
+        }
+        return {
+            searchBelief: ({ belief }) => {
                 actions.findMeasures({ goal: belief })
-            }
-        },
-        setDescribing: ({ describing }) => {
-            if (!describing) {
-                return
-            }
-            const draft = values.measureDraft || values.measuredGoal
-            if (draft && (!(values.form.goal_description ?? '').trim() || values.fromBelief)) {
-                actions.change({ goal_description: draft })
-            }
-            actions.findGuardrails({ goal: values.measuredGoal || draft, measure: '' })
-        },
-        adoptGuardrail: ({ option }) => {
-            actions.addGuardrail(option.insight)
-            actions.changeGuardrail(option.insight, { name: option.name, direction: option.direction })
-        },
-        selectPrimaryInsight: ({ insight }) => {
-            const goal =
-                values.measuredGoal || (values.form.goal_description ?? '').trim() || values.form.statement.trim()
-            if (goal) {
-                actions.findGuardrails({ goal, measure: insight })
-            }
-            actions.change({
-                goal_insight: insight,
-                goal_metric: values.insightNames[insight] ?? values.form.goal_metric,
-                secondary_metrics: values.form.secondary_metrics?.filter((metric) => metric.insight !== insight),
-            })
-            actions.touch('goal_insight')
-            actions.loadPreview({ insight })
-        },
-        loadExistingSuccess: ({ existing }) => {
-            actions.loadPreviewSuccess(existing.metric)
-        },
-        submit: async () => {
-            if (values.busy || values.submitDisabledReason) {
-                return
-            }
-            actions.setBusy(true)
-            actions.setError(null)
-            cache.operationId ??= crypto.randomUUID()
-            try {
-                const bet =
-                    props.id === 'new'
-                        ? await betsCreate(String(values.currentProjectId), {
-                              ...values.payload,
-                              ideas: values.ownerIdeas.map((idea) => idea.trim()).filter(Boolean),
-                              operation_id: cache.operationId,
-                          })
-                        : await betsPartialUpdate(String(values.currentProjectId), props.id, values.changes)
-                betsLogic.actions.loadOverview()
-                router.actions.replace(urls.bet(bet.id))
-            } catch (error) {
-                const failure = (typeof error === 'object' && error ? error : {}) as {
-                    attr?: unknown
-                    status?: unknown
+            },
+            findMeasuresSuccess: ({ measureSearch }) => {
+                if (measureSearch) {
+                    guard(values.measuredGoal)
                 }
-                const field = SERVER_FIELDS[String(failure.attr ?? '').split('__')[0]] ?? null
-                actions.setError(
-                    Number(failure.status) >= 500
-                        ? `Bets could not ${props.id === 'new' ? 'create' : 'save'} this bet. Try again in a moment.`
-                        : errorMessage(error),
-                    field
+            },
+            change: async ({ patch }, breakpoint) => {
+                if (!('statement' in patch) || !SENTENCE_END.test((patch.statement ?? '').trim())) {
+                    return
+                }
+                await breakpoint(BELIEF_PAUSE_MS)
+                actions.measureFromBelief()
+            },
+            measureFromBelief: () => {
+                const belief = values.form.statement.trim()
+                const untouched =
+                    !values.picking &&
+                    !values.describing &&
+                    !values.form.goal_insight &&
+                    !(values.form.goal_description ?? '').trim()
+                if (untouched && belief.length >= MIN_BELIEF_FOR_MEASURES && belief !== values.measuredGoal) {
+                    actions.searchBelief(belief)
+                }
+            },
+            setDescribing: ({ describing }) => {
+                if (!describing) {
+                    return
+                }
+                const draft = values.measureDraft || values.measuredGoal
+                if (draft && (!(values.form.goal_description ?? '').trim() || values.fromBelief)) {
+                    actions.change({ goal_description: draft })
+                }
+                guard(values.measuredGoal || draft)
+            },
+            adoptGuardrail: ({ option }) => {
+                actions.addGuardrail(option.insight)
+                actions.changeGuardrail(option.insight, { name: option.name, direction: option.direction })
+            },
+            selectPrimaryInsight: ({ insight }) => {
+                guard(
+                    values.measuredGoal || (values.form.goal_description ?? '').trim() || values.form.statement.trim()
                 )
-            } finally {
-                actions.setBusy(false)
-            }
-        },
-    })),
+                actions.change({
+                    goal_insight: insight,
+                    goal_metric: values.insightNames[insight] ?? values.form.goal_metric,
+                    secondary_metrics: values.form.secondary_metrics?.filter((metric) => metric.insight !== insight),
+                })
+                actions.touch('goal_insight')
+                actions.loadPreview({ insight })
+            },
+            loadExistingSuccess: ({ existing }) => {
+                actions.loadPreviewSuccess(existing.metric)
+            },
+            submit: async () => {
+                if (values.busy || values.submitDisabledReason) {
+                    return
+                }
+                actions.setBusy(true)
+                actions.setError(null)
+                cache.operationId ??= crypto.randomUUID()
+                try {
+                    const bet =
+                        props.id === 'new'
+                            ? await betsCreate(String(values.currentProjectId), {
+                                  ...values.payload,
+                                  ideas: values.ownerIdeas.map((idea) => idea.trim()).filter(Boolean),
+                                  operation_id: cache.operationId,
+                              })
+                            : await betsPartialUpdate(String(values.currentProjectId), props.id, values.changes)
+                    betsLogic.actions.loadOverview()
+                    router.actions.replace(urls.bet(bet.id))
+                } catch (error) {
+                    const failure = (typeof error === 'object' && error ? error : {}) as {
+                        attr?: unknown
+                        status?: unknown
+                    }
+                    const field = SERVER_FIELDS[String(failure.attr ?? '').split('__')[0]] ?? null
+                    actions.setError(
+                        Number(failure.status) >= 500
+                            ? `Bets could not ${props.id === 'new' ? 'create' : 'save'} this bet. Try again in a moment.`
+                            : errorMessage(error),
+                        field
+                    )
+                } finally {
+                    actions.setBusy(false)
+                }
+            },
+        }
+    }),
     afterMount(({ actions, props }) => {
         actions.loadInsights()
         actions.loadGithub()

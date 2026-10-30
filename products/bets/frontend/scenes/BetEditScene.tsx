@@ -61,6 +61,7 @@ export function BetEditScene({ id = 'new' }: { id?: string }): JSX.Element {
         measuredGoal,
         measureSearchLoading,
         fromBelief,
+        beliefGoal,
     } = useValues(logic)
     const {
         change,
@@ -75,7 +76,7 @@ export function BetEditScene({ id = 'new' }: { id?: string }): JSX.Element {
     } = useActions(logic)
     const goalText = (form.goal_description ?? '').trim()
     const [refining, setRefining] = useState(false)
-    const beliefFirst = !picking && fromBelief && !goalText
+    const beliefFirst = !picking && (fromBelief || !!beliefGoal) && !goalText
     const insightNote = !form.goal_insight
         ? 'A saved trends insight with one series.'
         : previewLoading
@@ -225,7 +226,7 @@ export function BetEditScene({ id = 'new' }: { id?: string }): JSX.Element {
                                                 placeholder={
                                                     beliefFirst
                                                         ? 'For example: more uploaders share within a day'
-                                                        : 'More new uploaders share a file on their first day'
+                                                        : 'For example: more new teams finish setup in their first week'
                                                 }
                                             />
                                             {!describing &&
