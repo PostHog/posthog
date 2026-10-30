@@ -657,6 +657,7 @@ jobs:
         outputs:
             run_legacy: ${{ steps.discover.outputs.run_legacy }}
             run_legacy_reason: ${{ steps.discover.outputs.run_legacy_reason }}
+            products_complete: ${{ steps.discover.outputs.products_complete }}
             matrix: ${{ steps.discover.outputs.matrix }}
             schema_cache_key: ${{ steps.schema-key.outputs.key }}
             schema_migrations_key: ${{ steps.schema-key.outputs.migrations_key }}
@@ -927,6 +928,7 @@ jobs:
                   echo "matrix=$(echo "$RESULT" | jq -c '.matrix')" >> $GITHUB_OUTPUT
                   echo "run_legacy=$(echo "$RESULT" | jq -r '.run_legacy')" >> $GITHUB_OUTPUT
                   echo "run_legacy_reason=$(echo "$RESULT" | jq -r '.run_legacy_reason // empty')" >> "$GITHUB_OUTPUT"
+                  echo "products_complete=$(echo "$RESULT" | jq -r '.products_complete')" >> "$GITHUB_OUTPUT"
                   echo "django_shards=$(echo "$RESULT" | jq -c '.django_shards // empty')" >> $GITHUB_OUTPUT
                   echo "$RESULT" | jq -r '"mode=\(.selection.mode)", "selection=\(.selection | tojson)", "telemetry=\(.telemetry | tojson)"' >> "$GITHUB_OUTPUT"
 
@@ -4126,8 +4128,9 @@ jobs:
             - name: Check peer lazy loads against the baseline
               env:
                   # Only a run that skipped no tests can show that a baseline entry is gone. An empty
-                  # mode means this run did not select: the merge queue, the hourly run, or run-ci-backend.
-                  FULL_RUN: ${{ needs.turbo-discover.result == 'success' && needs.turbo-discover.outputs.mode == '' && needs.django.result == 'success' && needs.turbo-tests.result == 'success' }}
+                  # mode means Django did not select: the merge queue, the hourly run, or run-ci-backend.
+                  # The product matrix can still leave products out, for example on a contract cascade.
+                  FULL_RUN: ${{ needs.turbo-discover.result == 'success' && needs.turbo-discover.outputs.mode == '' && needs.turbo-discover.outputs.products_complete == 'true' && needs.django.result == 'success' && needs.turbo-tests.result == 'success' }}
               run: |
                   mkdir -p /tmp/peer-lazy-loads
                   if [[ ! -f posthog/models/scoping/peer_lazy_loads.py ]]; then

@@ -1828,6 +1828,9 @@ const result = {
     matrix: buildMatrix(products, durations, productsScaled),
     run_legacy: runLegacy,
     run_legacy_reason: runLegacyReason,
+    // Whether the product matrix holds every product with tests. A cascade, a narrowed
+    // selection, SKIP_PRODUCT_TESTS or a quarantine leaves some out.
+    products_complete: allProducts.every((product) => products.includes(product)),
     django_shards: djangoShards,
     // What the Django matrix jobs read, as one job output; segment_shards stays a JSON
     // string because build_django_matrix parses it itself.

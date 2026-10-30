@@ -184,6 +184,7 @@ const EXPECTATIONS: Expectation[] = [
                 'build-product-test-matrix',
                 'build_django_matrix',
                 'test-selection-verdict',
+                'peer-lazy-loads',
             ],
         }
     ),
@@ -231,6 +232,7 @@ const EXPECTATIONS: Expectation[] = [
                 'prime-schema-cache',
                 'test-selection-verdict',
                 'capture-test-selection',
+                'peer-lazy-loads',
             ],
             skipped: ['handle-snapshots', 'cancel-backend-on-openapi-check-failure'],
         }
@@ -238,7 +240,7 @@ const EXPECTATIONS: Expectation[] = [
     depotBackend(
         { name: 'merge queue', github: mergeQueue() },
         {
-            runs: ['turbo-tests', 'django', 'django_tests'],
+            runs: ['turbo-tests', 'django', 'django_tests', 'peer-lazy-loads'],
             skipped: ['backend-coverage-report'],
         }
     ),
