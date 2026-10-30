@@ -68,6 +68,14 @@ def _ensure_user_managed_source(source: KnowledgeSource) -> None:
         raise exceptions.PermissionDenied(detail="Generated sources are read-only.")
 
 
+def _can_read_parent_knowledge(view: TeamAndOrgViewSetMixin, request: Request) -> bool:
+    # Sources live on the parent project, so a child environment's own token scope and grant are not enough.
+    return not view.team.parent_team_id or (
+        CanonicalTeamTokenPermission().has_permission(request, view)
+        and canonical_user_access_control(view).check_access_level_for_resource("business_knowledge", "viewer")
+    )
+
+
 def _requested_library_ids(team_id: int, request: Request) -> list[UUID] | None:
     if "library_ids" not in request.data:
         return None
@@ -470,10 +478,10 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     def availability(self, request: Request, **kwargs) -> Response:
         # A grant on one source passes this viewset's permissions, but these flags describe the whole resource.
-        access_controls = [self.user_access_control]
-        if self.team.parent_team_id:
-            access_controls.append(canonical_user_access_control(self))
-        if not all(ac.check_access_level_for_resource("business_knowledge", "viewer") for ac in access_controls):
+        if not (
+            self.user_access_control.check_access_level_for_resource("business_knowledge", "viewer")
+            and _can_read_parent_knowledge(self, request)
+        ):
             raise exceptions.PermissionDenied(detail="You need access to business knowledge in this project.")
         return Response(
             KnowledgeAvailabilitySerializer(
@@ -711,11 +719,7 @@ class KnowledgeDocumentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         limit = self._parse_int_param(request, "limit", required=False, default=BK_SEARCH_DEFAULT_LIMIT)
         limit = max(1, min(limit, BK_SEARCH_MAX_LIMIT))
         rerank = self._parse_bool_param(request, "rerank", default=False)
-        # Search reads the parent project's rows, so a child environment's own token scope and grant are not enough.
-        if self.team.parent_team_id and not (
-            CanonicalTeamTokenPermission().has_permission(request, self)
-            and canonical_user_access_control(self).check_access_level_for_resource("business_knowledge", "viewer")
-        ):
+        if not _can_read_parent_knowledge(self, request):
             raise exceptions.PermissionDenied(
                 detail="You need access to business knowledge in this project to search it."
             )
