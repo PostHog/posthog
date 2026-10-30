@@ -30,6 +30,8 @@ from posthog.schema import (
     TrendsQuery,
 )
 
+from posthog.hogql.errors import TableAccessDeniedError
+
 from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.constants import AvailableFeature
 from posthog.errors import CHQueryErrorQueryWasCancelled
@@ -38,7 +40,7 @@ from posthog.exceptions import (
     ClickHouseClusterMemoryLimitExceeded,
     ClickHouseQueryMemoryLimitExceeded,
 )
-from posthog.models import Team, User
+from posthog.models import OrganizationMembership, Team, User
 from posthog.redis import get_client
 from posthog.slo.types import SloOperation, SloOutcome
 from posthog.tasks.alerts.utils import (
@@ -75,7 +77,13 @@ from posthog.temporal.alerts.types import (
     SkipReason,
 )
 
-from products.alerts.backend.evaluation.contract import AlertDataUnavailableError, AlertExtractionError
+from products.access_control.backend.models.access_control import AccessControl
+from products.alerts.backend.evaluation.contract import (
+    CREATOR_LEFT_DISABLE_REASON,
+    CREATOR_LOST_ACCESS_DISABLE_REASON,
+    AlertDataUnavailableError,
+    AlertExtractionError,
+)
 from products.alerts.backend.evaluation.validation import THRESHOLD_BOUNDS_REQUIRED_MESSAGE
 from products.alerts.backend.facade.api import (
     LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
@@ -144,9 +152,14 @@ async def _create_alert(
     insight_deleted: bool = False,
     state: str = AlertState.NOT_FIRING,
     detector_config: dict | None = None,
+    created_by: User | None = None,
 ) -> AlertConfiguration:
     @sync_to_async
     def _create() -> AlertConfiguration:
+        # Production always writes an owner, and an alert with none counts as one whose owner was deleted.
+        owner = created_by or User.objects.create_and_join(
+            ateam.organization, f"alert-owner-{uuid.uuid4().hex[:6]}@posthog.com", None
+        )
         insight = Insight.objects.create(
             team=ateam,
             name="insight",
@@ -174,6 +187,7 @@ async def _create_alert(
             schedule_start_time=schedule_start_time,
             state=state,
             detector_config=detector_config,
+            created_by=owner,
         )
         return alert
 
@@ -1262,6 +1276,59 @@ class TestEvaluateAlert:
         assert second.kwargs["template_context"]["alert_error"] == "Alert configuration is invalid"
         await sync_to_async(check.refresh_from_db)()
         assert check.targets_notified
+
+    @pytest.mark.parametrize(
+        "owner_change, expected_message",
+        [
+            ("left_organization", CREATOR_LEFT_DISABLE_REASON),
+            ("lost_table_access", CREATOR_LOST_ACCESS_DISABLE_REASON),
+            ("lost_insight_access", CREATOR_LOST_ACCESS_DISABLE_REASON),
+        ],
+    )
+    async def test_evaluate_auto_disables_when_the_owner_can_no_longer_run_the_query(
+        self, alert_with_user, aorganization, owner_change, expected_message
+    ) -> None:
+        owner = await sync_to_async(lambda: alert_with_user.subscribed_users.get())()
+        alert_with_user.created_by = owner
+        await sync_to_async(alert_with_user.save)(update_fields=["created_by"])
+        if owner_change == "left_organization":
+            await sync_to_async(
+                OrganizationMembership.objects.filter(organization_id=aorganization.id, user=owner).delete
+            )()
+        if owner_change == "lost_insight_access":
+            # The owner is a plain member, so a no-access rule on the insight applies to them.
+            aorganization.available_product_features = [
+                {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+            ]
+            await sync_to_async(aorganization.save)()
+            await sync_to_async(AccessControl.objects.create)(
+                team=alert_with_user.team,
+                resource="insight",
+                resource_id=str(alert_with_user.insight_id),
+                access_level="none",
+            )
+
+        with (
+            # Patched under the real `check_alert_for_insight`, which turns the denial into the owner reason.
+            patch(
+                "products.alerts.backend.evaluation.dispatcher._check_alert_for_insight",
+                side_effect=TableAccessDeniedError("revenue"),
+            ) as mock_check,
+            patch("posthog.temporal.alerts.activities.capture_exception") as mock_capture,
+        ):
+            result = await ActivityEnvironment().run(
+                evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(alert_with_user.id))
+            )
+
+        assert result.new_state == AlertState.ERRORED
+        mock_capture.assert_not_called()
+        # A departed owner's alert must stop even when its query would still run.
+        assert mock_check.called is (owner_change == "lost_table_access")
+        check = await sync_to_async(AlertCheck.objects.get)(pk=result.alert_check_id)
+        # The shared code routes the check to the "alert disabled" email, in-app notice and banner.
+        assert check.error == {"message": expected_message, "code": "invalid_configuration"}
+        refreshed = await sync_to_async(AlertConfiguration.objects.get)(pk=alert_with_user.pk)
+        assert refreshed.enabled is False
 
     # Transient CH errors bubble up so Temporal's retry policy handles them.
     # Capacity errors (codes 202/439) surface as ClickHouseAtCapacity, so that's what we simulate.

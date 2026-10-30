@@ -25,7 +25,11 @@ from posthog.schema_enums import AlertCalculationInterval
 from posthog.tasks.alerts.utils import AlertEvaluationResult, RenderedInsightChart, next_check_time
 from posthog.temporal.alerts.admission import admit_evaluation_slots, inflight_alert_ids, release_evaluation_slot
 
-from products.alerts.backend.evaluation.contract import AlertExtractionError
+from products.alerts.backend.evaluation.contract import (
+    CREATOR_LEFT_DISABLE_REASON,
+    AlertExtractionError,
+    AlertOwnerAccessError,
+)
 from products.alerts.backend.evaluation.dispatcher import PerSeriesEvaluation, SeriesEvaluation
 from products.alerts.backend.judge.contract import (
     LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
@@ -92,7 +96,10 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         self.organization.save()
 
     def _alert(self, **overrides: Any) -> AlertConfiguration:
-        return create_insight_alert(self.team, **{"next_check_at": CUTOFF - timedelta(minutes=1), **overrides})
+        # Production always writes an owner, and an alert with none counts as one whose owner was deleted.
+        return create_insight_alert(
+            self.team, **{"next_check_at": CUTOFF - timedelta(minutes=1), "created_by": self.user, **overrides}
+        )
 
     def _copy(self, alert: AlertConfiguration | None, **overrides: Any) -> PlatformConfigurationSnapshot:
         with team_scope(self.team.id):
@@ -626,6 +633,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         [
             ("bad_query_shape", AlertExtractionError("bad query shape")),
             ("ai_consent_withdrawn", LLMDetectorMisconfiguredError("consent withdrawn")),
+            ("owner_left_or_lost_access", AlertOwnerAccessError(CREATOR_LEFT_DISABLE_REASON)),
         ]
     )
     def test_an_alert_production_cannot_evaluate_as_configured_errors_and_is_disabled(

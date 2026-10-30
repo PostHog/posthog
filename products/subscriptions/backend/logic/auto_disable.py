@@ -1,13 +1,19 @@
 import uuid
+from collections.abc import Iterable
 from typing import NamedTuple
 from urllib.parse import urlparse
 
 import structlog
 
+from posthog.hogql.errors import TableAccessDeniedError
+
 from posthog.email import EmailMessage
 from posthog.exceptions_capture import capture_exception
 from posthog.models import User
+from posthog.query_creator_access import CreatorLeftOrganizationError
 
+from products.access_control.backend.facade.contracts import UserNotOrganizationMemberError
+from products.access_control.backend.facade.user_access_control import UserAccessControlError
 from products.notifications.backend.facade.api import (
     NotificationData,
     NotificationType,
@@ -58,6 +64,22 @@ SLACK_FILE_UPLOAD_PERMISSION_REVOKED_DISABLE_REASON = DisableReason(
         "Add files:write to a custom Slack app, or reconnect PostHog's Slack app, then try again."
     ),
 )
+CREATOR_LEFT_DISABLE_REASON = DisableReason(
+    key="creator_left_organization",
+    description="The owner of this subscription is no longer in the organization",
+    user_message=(
+        "Cannot re-enable {target_type} subscription: its owner is no longer in the organization. "
+        "Create a new subscription to keep receiving this report."
+    ),
+)
+CREATOR_LOST_ACCESS_DISABLE_REASON = DisableReason(
+    key="creator_lost_access",
+    description="The owner of this subscription no longer has access to some of its data",
+    user_message=(
+        "Cannot re-enable {target_type} subscription until its owner has access to all of its data again. "
+        "Ask a project admin for access, or create a new subscription."
+    ),
+)
 AI_PROMPT_INVALID_DISABLE_REASON = DisableReason(
     key="ai_prompt_invalid",
     description="AI subscription prompt or creator is invalid",
@@ -80,6 +102,28 @@ def get_subscription_disable_reason(target_type: str | None, integration_id: int
         return UNSUPPORTED_TARGET_DISABLE_REASON
     if target_type == Subscription.SubscriptionTarget.SLACK and not integration_id:
         return SLACK_DISCONNECTED_DISABLE_REASON
+    return None
+
+
+# Export failures that mean the owner can no longer run the query, not that the export broke.
+# Matched by name because delivery only sees the `exception_type` stored on the asset.
+_CREATOR_LEFT_ERROR_NAMES = frozenset({CreatorLeftOrganizationError.__name__, UserNotOrganizationMemberError.__name__})
+_CREATOR_LOST_ACCESS_ERROR_NAMES = frozenset({TableAccessDeniedError.__name__, UserAccessControlError.__name__})
+
+
+def get_assets_owner_disable_reason(exception_types: Iterable[str | None]) -> DisableReason | None:
+    """The reason to disable a subscription after a delivery whose exports failed for its owner.
+
+    An owner who left fails every export, so one such failure is enough. Lost access is judged on the
+    whole delivery: a dashboard with one denied tile is still delivered, with that tile showing why.
+    """
+    names = list(exception_types)
+    if not names:
+        return None
+    if any(name in _CREATOR_LEFT_ERROR_NAMES for name in names):
+        return CREATOR_LEFT_DISABLE_REASON
+    if all(name in _CREATOR_LOST_ACCESS_ERROR_NAMES for name in names):
+        return CREATOR_LOST_ACCESS_DISABLE_REASON
     return None
 
 
@@ -110,7 +154,10 @@ def _get_notification_creator(subscription: Subscription) -> User | None:
     return creator
 
 
-def disable_invalid_subscription(subscription: Subscription, reason: DisableReason) -> None:
+def disable_invalid_subscription(
+    subscription: Subscription, reason: DisableReason, *, notify_owner: bool = True
+) -> None:
+    """Disable the subscription once. Pass `notify_owner=False` when the delivery itself already told the recipients why."""
     # Compare-and-swap so only one racing caller sends the disabled-notification
     # email (UUID4 campaign keys mean MessagingRecord can't dedup the duplicate).
     rowcount = Subscription.objects.filter(pk=subscription.pk, enabled=True).update(enabled=False)
@@ -137,6 +184,8 @@ def disable_invalid_subscription(subscription: Subscription, reason: DisableReas
     # SELECT — refresh_from_db() would also drop the eagerly-loaded created_by
     # relation (loaded via select_related at the activity site).
     subscription.enabled = False
+    if not notify_owner:
+        return
 
     try:
         create_subscription_auto_disabled_notification(subscription, reason)

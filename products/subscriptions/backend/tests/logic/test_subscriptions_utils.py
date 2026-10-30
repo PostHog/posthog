@@ -131,6 +131,7 @@ class TestSubscriptionAssetErrorMessage(APIBaseTest):
             export_format="image/png",
             exception=exception,
             exception_type=exception_type,
+            created_by=self.user,
         )
 
     def setUp(self) -> None:
@@ -164,6 +165,18 @@ class TestSubscriptionAssetErrorMessage(APIBaseTest):
                 ASSET_GENERATION_FAILED_MESSAGE,
             ),
             ("falls_back_when_no_exception", None, None, ASSET_GENERATION_FAILED_MESSAGE),
+            (
+                "explains_an_owner_who_left",
+                "The owner is no longer in the organization.",
+                "CreatorLeftOrganizationError",
+                "The owner of this subscription is no longer in the organization.",
+            ),
+            (
+                "explains_an_owner_who_lost_access",
+                "You don't have access to table `revenue`.",
+                "TableAccessDeniedError",
+                "The owner of this subscription no longer has access to some of its data.",
+            ),
         ]
     )
     def test_subscription_asset_error_message(

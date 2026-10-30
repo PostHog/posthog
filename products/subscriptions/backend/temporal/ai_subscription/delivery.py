@@ -18,10 +18,12 @@ from posthog.exceptions_capture import capture_exception
 from posthog.helpers.markdown_safety import is_allowed_link_url, strip_external_links_markdown
 from posthog.models import Team, User
 from posthog.models.integration import Integration
+from posthog.query_creator_access import CreatorLeftOrganizationError, assert_creator_can_run
 from posthog.slack.formatting import channel_id_from_target
 from posthog.sync import database_sync_to_async
 from posthog.utils import absolute_uri
 
+from products.access_control.backend.facade.user_access_control import UserAccessControlError
 from products.exports.backend.facade.api import get_delivery_image_url
 from products.slack_app.backend.facade.api import slack_followup_invite
 from products.subscriptions.backend.facade.contracts import PromptRejectedError, SubscriptionTriggerType
@@ -439,9 +441,15 @@ async def build_ai_subscription_report(subscription: Subscription) -> AiReportRe
     team, user, window, ai_query_plan = await database_sync_to_async(
         _resolve_subscription_context, thread_sensitive=False
     )(subscription)
-    # created_by is FK SET_NULL; the pipeline requires a non-None user
-    if user is None:
-        raise PromptRejectedError("AI subscription has no creator (created_by deleted); cannot deliver.")
+    # The report's queries run as the creator, so a creator who was deleted, left the organization or
+    # lost access to the project ends the subscription the same way a bad prompt does.
+    try:
+        await database_sync_to_async(assert_creator_can_run, thread_sensitive=False)(user, team)
+    except CreatorLeftOrganizationError as error:
+        raise PromptRejectedError("The owner of this subscription is no longer in the organization.") from error
+    except UserAccessControlError as error:
+        raise PromptRejectedError("The owner of this subscription no longer has access.") from error
+    assert user is not None
 
     include_images = subscription.includes_delivery_part("include_images")
     result = await generate_ai_report(

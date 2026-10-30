@@ -15,6 +15,7 @@ from posthog.utils import wait_for_parallel_celery_group
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.product_analytics.backend.facade.models import Insight
 from products.subscriptions.backend.facade.contracts import SharedInsightImage
+from products.subscriptions.backend.logic.auto_disable import get_assets_owner_disable_reason
 from products.subscriptions.backend.models.subscription import Subscription
 
 logger = structlog.get_logger(__name__)
@@ -63,6 +64,10 @@ def _is_oom_exception_text(exception_text: str | None) -> bool:
 def subscription_asset_error_message(asset: ExportedAsset) -> str:
     # Recipients of scheduled subscriptions didn't author the query, so the OOM advice is
     # unactionable. Original text stays on asset.exception/exception_type for our own logs.
+    # The raw access error ("You don't have access to table ...") reads as if the recipient lacks access.
+    owner_reason = get_assets_owner_disable_reason([asset.exception_type])
+    if owner_reason is not None:
+        return f"{owner_reason.description}."
     is_oom_exception = asset.exception_type == _OOM_EXCEPTION_TYPE or _is_oom_exception_text(asset.exception)
     if asset.exception and not is_oom_exception:
         return asset.exception

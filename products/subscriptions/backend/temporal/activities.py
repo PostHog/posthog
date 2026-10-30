@@ -21,6 +21,7 @@ from products.subscriptions.backend.logic import _capture_delivery_failed_event
 from products.subscriptions.backend.logic.auto_disable import (
     UNSUPPORTED_TARGET_DISABLE_REASON,
     disable_invalid_subscription,
+    get_assets_owner_disable_reason,
     get_subscription_disable_reason,
 )
 from products.subscriptions.backend.logic.email_subscriptions import send_email_subscription_report
@@ -506,6 +507,38 @@ async def _deliver_insight_dashboard_subscription(
         _capture_delivery_failed_event(subscription, Exception(NO_ASSETS_REASON))
         return DeliverSubscriptionResult(recipient_results=recipient_results)
 
+    # The failed tiles in this delivery already tell the recipients why, so nobody else gets an email.
+    disable_reason = get_assets_owner_disable_reason(asset.exception_type for asset in assets)
+
+    try:
+        result = await _send_to_target(subscription, inputs, assets, recipient_results, send_only_to_new_recipients)
+    except ApplicationError as error:
+        # Temporal retries this activity, so the retry delivers the reason and the row stays enabled.
+        if not error.non_retryable:
+            disable_reason = None
+        raise
+    finally:
+        if disable_reason is not None:
+            await database_sync_to_async(disable_invalid_subscription, thread_sensitive=False)(
+                subscription, disable_reason, notify_owner=False
+            )
+
+    await LOGGER.ainfo(
+        "deliver_subscription.completed",
+        subscription_id=inputs.subscription_id,
+        target_type=subscription.target_type,
+    )
+    return result
+
+
+async def _send_to_target(
+    subscription: Subscription,
+    inputs: DeliverSubscriptionInputs,
+    assets: list[ExportedAsset],
+    recipient_results: list[RecipientResult],
+    send_only_to_new_recipients: bool,
+) -> DeliverSubscriptionResult:
+    """Send the assets over the subscription's channel. Split out so the caller can wrap the one send."""
     if subscription.target_type == Subscription.SubscriptionTarget.EMAIL:
 
         async def _send_email(email: str) -> None:
@@ -551,12 +584,6 @@ async def _deliver_insight_dashboard_subscription(
             f"Subscription delivery reached an unsupported target {subscription.target_type!r}",
             non_retryable=True,
         )
-
-    await LOGGER.ainfo(
-        "deliver_subscription.completed",
-        subscription_id=inputs.subscription_id,
-        target_type=subscription.target_type,
-    )
     return result
 
 
