@@ -43,6 +43,7 @@ from posthog.api.integration import (
     GitHubReposQuerySerializer,
     GitHubReposRefreshResponseSerializer,
     GitHubReposResponseSerializer,
+    external_page_links,
     github_rate_limited_response,
     github_repos_page,
     validate_github_repository_name,
@@ -514,6 +515,7 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
 
         return Response(
             github_repos_page(
+                request,
                 UserGitHubIntegration(integration, source="user_integrations_api", priority=Priority.CRITICAL),
                 query_serializer.validated_data,
             )
@@ -576,7 +578,15 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
             offset=offset,
         )
 
-        return Response({"branches": branches, "default_branch": default_branch, "has_more": has_more})
+        next_offset = offset + limit if has_more else None
+        return Response(
+            {
+                "branches": branches,
+                "default_branch": default_branch,
+                "has_more": has_more,
+                **external_page_links(request, offset=offset, limit=limit, next_offset=next_offset),
+            }
+        )
 
     @extend_schema(
         summary="List the user's GitHub install-approval requests",

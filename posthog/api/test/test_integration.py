@@ -6,7 +6,7 @@ from collections.abc import Callable
 from contextlib import nullcontext
 from datetime import timedelta
 from typing import Any, cast
-from urllib.parse import quote, urlencode
+from urllib.parse import parse_qs, quote, urlencode, urlparse
 from uuid import uuid4
 
 import pytest
@@ -1981,21 +1981,21 @@ class TestIntegrationAPIKeyAccess:
         )
 
         seen: list[str] = []
-        offset: int | None = 0
+        url: str | None = (
+            f"/api/environments/{self.team.pk}/integrations/{self.github_integration.id}/github_repos/"
+            f"?limit=100&offset=0&compact={str(compact).lower()}"
+        )
         pages = 0
-        while offset is not None:
-            response = client.get(
-                f"/api/environments/{self.team.pk}/integrations/{self.github_integration.id}/github_repos/"
-                f"?limit=100&offset={offset}&compact={str(compact).lower()}",
-                HTTP_AUTHORIZATION=f"Bearer {key_value}",
-            )
+        while url is not None:
+            response = client.get(url, HTTP_AUTHORIZATION=f"Bearer {key_value}")
             assert response.status_code == status.HTTP_200_OK
             data = response.json()
             assert data["total"] == 250
-            assert data["has_more"] is (data["next_offset"] is not None)
+            assert data["has_more"] is (data["next_offset"] is not None) is (data["next"] is not None)
+            assert (data["previous"] is None) is (pages == 0)
             assert all(set(repo) == expected_keys for repo in data["repositories"])
             seen.extend(repo["full_name"] for repo in data["repositories"])
-            offset = data["next_offset"]
+            url = data["next"]
             pages += 1
 
         assert pages == 3
@@ -2514,6 +2514,10 @@ class TestIntegrationAPIKeyAccess:
         assert data["channels"][0]["id"] == "C2"
         assert data["has_more"] is True
 
+        last_page = client.get(data["next"], HTTP_AUTHORIZATION=f"Bearer {key_value}").json()
+        assert [channel["id"] for channel in last_page["channels"]] == ["C3"]
+        assert last_page["next"] is None
+
         mock_slack_instance.list_channels.assert_called_once()
 
     @pytest.mark.parametrize("owns_integration", [True, False])
@@ -2941,6 +2945,11 @@ class TestIntegrationAPIKeyAccess:
         data = response.json()
         assert [member["id"] for member in data["users"]] == ["U1"]
         assert data["has_more"] is True
+
+        last_page = client.get(data["next"], HTTP_AUTHORIZATION=f"Bearer {key_value}").json()
+        assert [member["id"] for member in last_page["users"]] == ["U2"]
+        assert last_page["next"] is None
+        assert last_page["previous"] is not None
 
     @patch("posthog.api.integration.SlackIntegration")
     def test_users_action_direct_lookup_and_kind_guard(self, mock_slack_class, client: HttpClient):
@@ -6491,6 +6500,8 @@ class TestGitHubBranches:
         data = response.json()
         assert len(data["branches"]) == 10
         assert data["has_more"] is True
+        assert parse_qs(urlparse(data["next"]).query)["offset"] == ["60"]
+        assert parse_qs(urlparse(data["previous"]).query)["offset"] == ["40"]
         assert data["default_branch"] == "main"
         mock_list_cached.assert_called_once_with(
             "org/repo",

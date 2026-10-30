@@ -28,6 +28,7 @@ from rest_framework.exceptions import APIException, NotFound, PermissionDenied, 
 from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.utils.urls import remove_query_param, replace_query_param
 from rest_framework.views import APIView
 from slack_sdk.errors import SlackApiError
 
@@ -60,6 +61,7 @@ from posthog.api.integration_push_tokens import (
     push_channel_app_id,
 )
 from posthog.api.mixins import ValidatedRequest, validated_request
+from posthog.api.pagination import PageLinksSerializer, previous_offset
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import ErrorResponseSerializer, action
@@ -425,7 +427,7 @@ class GitHubReposQuerySerializer(serializers.Serializer):
     )
 
 
-class GitHubReposResponseSerializer(serializers.Serializer):
+class GitHubReposResponseSerializer(PageLinksSerializer):
     repositories = GitHubRepoSerializer(many=True)
     has_more = serializers.BooleanField(help_text="Whether more repositories are available beyond this page.")
     next_offset = serializers.IntegerField(
@@ -437,7 +439,21 @@ class GitHubReposResponseSerializer(serializers.Serializer):
     )
 
 
-def github_repos_page(github: GitHubIntegrationBase, query: dict[str, Any]) -> dict[str, Any]:
+def external_page_links(request: Request, *, offset: int, limit: int, next_offset: int | None) -> dict[str, str | None]:
+    """Build the `next` and `previous` links of one offset page of a list read from an external API.
+
+    The links drop `force_refresh`, so a followed link reads the list that the first page cached
+    and does not call the external API again.
+    """
+    url = remove_query_param(request.build_absolute_uri(), "force_refresh")
+    previous = previous_offset(offset, limit)
+    return {
+        "next": replace_query_param(url, "offset", next_offset) if next_offset is not None else None,
+        "previous": replace_query_param(url, "offset", previous) if previous is not None else None,
+    }
+
+
+def github_repos_page(request: Request, github: GitHubIntegrationBase, query: dict[str, Any]) -> dict[str, Any]:
     """Build one `GitHubReposResponseSerializer` page from validated `GitHubReposQuerySerializer` data."""
     search, limit, offset = query["search"], query["limit"], query["offset"]
     repositories, has_more = github.list_cached_repositories(search=search, limit=limit, offset=offset)
@@ -446,11 +462,13 @@ def github_repos_page(github: GitHubIntegrationBase, query: dict[str, Any]) -> d
         repositories = [
             {"id": repo["id"], "name": repo["name"], "full_name": repo["full_name"]} for repo in repositories
         ]
+    next_offset = offset + len(repositories) if has_more else None
     return {
         "repositories": repositories,
         "has_more": has_more,
-        "next_offset": offset + len(repositories) if has_more else None,
+        "next_offset": next_offset,
         "total": total,
+        **external_page_links(request, offset=offset, limit=limit, next_offset=next_offset),
     }
 
 
@@ -570,7 +588,7 @@ class GitHubTeamsQuerySerializer(serializers.Serializer):
     )
 
 
-class GitHubTeamsResponseSerializer(serializers.Serializer):
+class GitHubTeamsResponseSerializer(PageLinksSerializer):
     teams = GitHubTeamSerializer(
         many=True, help_text="List of GitHub teams available to the installation organization."
     )
@@ -591,7 +609,7 @@ class GitHubBranchesQuerySerializer(serializers.Serializer):
     offset = serializers.IntegerField(required=False, default=0, min_value=0, help_text="Number of branches to skip")
 
 
-class GitHubBranchesResponseSerializer(serializers.Serializer):
+class GitHubBranchesResponseSerializer(PageLinksSerializer):
     branches = serializers.ListField(child=serializers.CharField(), help_text="List of branch names")
     default_branch = serializers.CharField(
         help_text="The default branch of the repository", required=False, allow_null=True
@@ -654,7 +672,7 @@ class SlackChannelsQuerySerializer(serializers.Serializer):
     )
 
 
-class SlackChannelsResponseSerializer(serializers.Serializer):
+class SlackChannelsResponseSerializer(PageLinksSerializer):
     channels = SlackChannelSerializer(many=True, help_text="Slack channels visible to the PostHog Slack app.")
     lastRefreshedAt = serializers.CharField(
         required=False,
@@ -738,7 +756,7 @@ class SlackUsersQuerySerializer(serializers.Serializer):
     )
 
 
-class SlackUsersResponseSerializer(serializers.Serializer):
+class SlackUsersResponseSerializer(PageLinksSerializer):
     users = SlackUserSerializer(many=True, help_text="Human Slack workspace members the PostHog Slack app can DM.")
     lastRefreshedAt = serializers.CharField(
         required=False,
@@ -1972,6 +1990,9 @@ class IntegrationViewSet(
                 "channels": page,
                 "lastRefreshedAt": data.get("lastRefreshedAt"),
                 "has_more": has_more,
+                **external_page_links(
+                    request, offset=offset, limit=limit, next_offset=offset + limit if has_more else None
+                ),
             }
         )
 
@@ -2108,6 +2129,9 @@ class IntegrationViewSet(
                 "users": page,
                 "lastRefreshedAt": data.get("lastRefreshedAt"),
                 "has_more": has_more,
+                **external_page_links(
+                    request, offset=offset, limit=limit, next_offset=offset + limit if has_more else None
+                ),
             }
         )
 
@@ -2429,6 +2453,7 @@ class IntegrationViewSet(
             raise ValidationError("github_repos endpoint is only supported for GitHub integrations")
         return Response(
             github_repos_page(
+                request,
                 GitHubIntegration(instance, source="integrations_api", priority=Priority.CRITICAL),
                 query_serializer.validated_data,
             )
@@ -2686,7 +2711,14 @@ class IntegrationViewSet(
                 "Unable to fetch GitHub teams. Please check integration settings and try again."
             ) from err
 
-        return Response({"teams": teams, "has_more": has_more})
+        next_offset = offset + limit if has_more else None
+        return Response(
+            {
+                "teams": teams,
+                "has_more": has_more,
+                **external_page_links(request, offset=offset, limit=limit, next_offset=next_offset),
+            }
+        )
 
     @extend_schema(
         parameters=[GitHubBranchesQuerySerializer],
@@ -2715,7 +2747,15 @@ class IntegrationViewSet(
             offset=offset,
         )
 
-        return Response({"branches": branches, "default_branch": default_branch, "has_more": has_more})
+        next_offset = offset + limit if has_more else None
+        return Response(
+            {
+                "branches": branches,
+                "default_branch": default_branch,
+                "has_more": has_more,
+                **external_page_links(request, offset=offset, limit=limit, next_offset=next_offset),
+            }
+        )
 
     @extend_schema(responses={200: JiraProjectsResponseSerializer})
     @action(methods=["GET"], detail=True, url_path="jira_projects")
