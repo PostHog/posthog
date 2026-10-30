@@ -123,10 +123,15 @@ describe("ChatView", () => {
 
   it("marks the top while earlier messages exist, and keeps the reader's place when they arrive", () => {
     const chat = new ChatView();
+    let asked = 0;
+    chat.onTopReached = () => asked++;
     chat.setTranscript(replies(30).slice(20), { hasOlder: true });
     chat.render(40, 5);
     chat.scrollBy(-1000);
     expect(chat.isAtTop()).toBe(true);
+    expect(asked).toBe(0);
+    chat.scrollBy(-1);
+    expect(asked).toBe(1);
     expect(plain(chat.render(40, 5))[0]).toContain("Loading earlier messages");
 
     // At the very top, the place kept is the first message, not the loading row that stays at the top: a page that

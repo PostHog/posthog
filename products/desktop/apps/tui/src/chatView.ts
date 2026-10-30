@@ -369,6 +369,8 @@ export class ChatView {
     upTo: number;
   } | null = null;
   private readonly scroll = new ScrollView(new Container(), { follow: "end" });
+  // Called when a scroll up finds the top already reached, so the reader can pull in the page above.
+  onTopReached?: () => void;
   // The message at the top of the screen, so new history above it does not move the reader.
   private anchor: {
     id: string;
@@ -765,6 +767,7 @@ export class ChatView {
   }
 
   scrollBy(lines: number): void {
+    if (lines < 0 && this.isAtTop()) this.onTopReached?.();
     this.scroll.scrollBy(lines);
   }
 
