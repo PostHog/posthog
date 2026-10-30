@@ -12,6 +12,8 @@ from django.utils import timezone
 
 from posthog.api.app_metrics2 import fetch_app_metric_totals
 from posthog.dataclasses import frozen
+from posthog.paging import Page, PageRequest
+from posthog.queryset_paging import select_page
 
 from products.workflows.backend.facade.contracts import CreatedWorkflowProposal, ProposalChanges, WorkflowProposalRecord
 from products.workflows.backend.facade.enums import WorkflowProposalStatus
@@ -76,13 +78,9 @@ def _proposals(hog_flow_id: UUID, status: str | None) -> QuerySet[WorkflowPropos
     return queryset
 
 
-def count_proposals(*, hog_flow_id: UUID, status: str | None) -> int:
-    return _proposals(hog_flow_id, status).count()
-
-
-def list_proposals(*, hog_flow_id: UUID, status: str | None, offset: int, limit: int) -> list[WorkflowProposalRecord]:
+def list_proposals(*, hog_flow_id: UUID, status: str | None, page: PageRequest) -> Page[WorkflowProposalRecord]:
     queryset = _proposals(hog_flow_id, status).select_related("resolved_by")
-    return [_to_record(proposal) for proposal in queryset[offset : offset + limit]]
+    return select_page(queryset, page).map(_to_record)
 
 
 def get_proposal(*, team_id: int, hog_flow_id: UUID, proposal_id: UUID) -> WorkflowProposalRecord | None:

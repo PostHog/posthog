@@ -2,7 +2,6 @@ import json
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
-import pytest
 import time_machine
 from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
 from unittest import mock
@@ -36,8 +35,6 @@ from posthog.session_recordings.session_recording_playlist_api import (
     _attach_empty_recordings_counts,
     _empty_saved_filters_counts,
     count_collection_recordings,
-    parse_non_negative_int,
-    parse_positive_int,
     precompute_recordings_counts,
 )
 from posthog.session_recordings.synthetic_playlists import ExpiringPlaylistSource
@@ -1887,31 +1884,3 @@ class TestPrecomputeRecordingsCounts(APIBaseTest):
         # and certainly no self-referential loop.
         assert data["next"] is None
         assert len(data["results"]) == data["count"]
-
-
-@pytest.mark.parametrize(
-    "value,expected",
-    [
-        ("30", 30),
-        ("0", 0),
-        ("-5", 0),
-        ("abc", 100),
-        (None, 100),
-    ],
-)
-def test_parse_non_negative_int(value: object, expected: int) -> None:
-    assert parse_non_negative_int(value, 100) == expected
-
-
-@pytest.mark.parametrize(
-    "value,expected",
-    [
-        ("30", 30),
-        ("0", 100),  # limit=0 would loop pagination -> default
-        ("-5", 100),  # non-positive -> default
-        ("abc", 100),
-        (None, 100),
-    ],
-)
-def test_parse_positive_int(value: object, expected: int) -> None:
-    assert parse_positive_int(value, 100) == expected

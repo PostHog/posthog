@@ -78855,11 +78855,11 @@ export namespace Schemas {
     } as const;
 
     /**
-     * * `DEBUG` - DEBUG
-     * * `LOG` - LOG
-     * * `INFO` - INFO
-     * * `WARN` - WARN
-     * * `ERROR` - ERROR
+     * * `DEBUG` - Debug
+     * * `LOG` - Log
+     * * `INFO` - Info
+     * * `WARN` - Warn
+     * * `ERROR` - Error
      */
     export type PluginLogEntryTypeEnum = typeof PluginLogEntryTypeEnum[keyof typeof PluginLogEntryTypeEnum];
 
@@ -129458,6 +129458,7 @@ export namespace Schemas {
     export type CrossProjectDashboardsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number;
     /**
@@ -129469,6 +129470,7 @@ export namespace Schemas {
     export type CrossProjectDashboardsTilesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number;
     /**
@@ -136700,6 +136702,7 @@ export namespace Schemas {
     include_tags?: boolean;
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -137160,6 +137163,7 @@ export namespace Schemas {
     latest_send_first?: boolean;
     /**
      * Number of results to return per page.
+     * @maximum 500
      */
     limit?: number;
     /**
@@ -137575,6 +137579,7 @@ export namespace Schemas {
     export type HogFlowsProposalsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 500
      */
     limit?: number;
     /**
@@ -137600,6 +137605,7 @@ export namespace Schemas {
     export type HogFlowsRevisionsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 500
      */
     limit?: number;
     /**
@@ -140778,14 +140784,51 @@ export namespace Schemas {
 
     export type PluginConfigsLogsListParams = {
     /**
-     * Number of results to return per page.
+     * Only return entries after this ISO 8601 timestamp.
+     */
+    after?: string;
+    /**
+     * Only return entries before this ISO 8601 timestamp.
+     */
+    before?: string;
+    /**
+     * Maximum number of log entries to return (1-1000, default 100).
+     * @minimum 1
+     * @maximum 1000
      */
     limit?: number;
     /**
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Case-insensitive substring search across log messages.
+     * @minLength 1
+     */
+    search?: string;
+    /**
+     * Log types to include. Repeat the parameter to include more than one type.
+     */
+    type_filter?: PluginConfigsLogsListTypeFilterItem[];
     };
+
+    /**
+     * * `DEBUG` - Debug
+     * * `LOG` - Log
+     * * `INFO` - Info
+     * * `WARN` - Warn
+     * * `ERROR` - Error
+     */
+    export type PluginConfigsLogsListTypeFilterItem = typeof PluginConfigsLogsListTypeFilterItem[keyof typeof PluginConfigsLogsListTypeFilterItem];
+
+
+    export const PluginConfigsLogsListTypeFilterItem = {
+      Debug: 'DEBUG',
+      Log: 'LOG',
+      Info: 'INFO',
+      Warn: 'WARN',
+      Error: 'ERROR',
+    } as const;
 
     export type PrecomputeDebugStateParams = {
     /**
@@ -141450,6 +141493,7 @@ export namespace Schemas {
     created_by?: number;
     /**
      * Number of results to return per page.
+     * @maximum 500
      */
     limit?: number;
     /**
@@ -144567,6 +144611,7 @@ export namespace Schemas {
     kind?: WarehouseSuggestionsListKind;
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number;
     /**
@@ -144816,6 +144861,7 @@ export namespace Schemas {
     created_after?: string;
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number;
     /**
@@ -144853,7 +144899,7 @@ export namespace Schemas {
     export type WizardSessionsListParams = {
     /**
      * Maximum number of sessions to return.
-     * @minimum 0
+     * @minimum 1
      * @maximum 200
      */
     limit?: number;

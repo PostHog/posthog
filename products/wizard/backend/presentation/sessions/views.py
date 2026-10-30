@@ -23,6 +23,7 @@ from rest_framework.renderers import BaseRenderer
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.pagination import FacadeLimitOffsetPagination, facade_page_response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.streaming import sse_streaming_response
 from posthog.models.scoping import team_scope
@@ -38,6 +39,8 @@ from products.wizard.backend.facade.enums import WizardSessionRunPhase
 from products.wizard.backend.facade.errors import WizardSessionOwnershipError
 from products.wizard.backend.presentation.sessions import config as session_config
 from products.wizard.backend.presentation.sessions.serializers import (
+    DEFAULT_LIST_LIMIT,
+    MAX_LIST_LIMIT,
     UpsertWizardSessionRequestSerializer,
     WizardSessionListQuerySerializer,
     WizardSessionLookupQuerySerializer,
@@ -112,12 +115,19 @@ def _wizard_sync_killswitch_enabled(distinct_id: str) -> bool:
     )
 
 
+class WizardSessionPagination(FacadeLimitOffsetPagination):
+    # Matches `WizardSessionListQuerySerializer.limit`, which rejects a limit out of range before the paginator reads it.
+    default_limit = DEFAULT_LIST_LIMIT
+    max_limit = MAX_LIST_LIMIT
+
+
 class WizardSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "wizard_session"
     scope_object_read_actions = ["list", "retrieve", "stream", "latest"]
     scope_object_write_actions = ["create"]
     http_method_names = ["get", "post", "head", "options"]
     lookup_field = "session_id"
+    pagination_class = WizardSessionPagination
     # Negative lookahead so a session_id of `stream` or `latest` can't collide
     # with the `@action(url_path=...)` detail-vs-action routes.
     lookup_value_regex = r"(?!(?:stream|latest)$)[^/]+"
@@ -152,17 +162,15 @@ class WizardSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # GET /projects/:projectId/wizard/sessions
         query = WizardSessionListQuerySerializer(data=request.query_params)
         query.is_valid(raise_exception=True)
-        sessions = wizard_facade.list_for_team(
-            self.team_id,
-            workflow_id=query.validated_data.get("workflow_id"),
-            skill_id=query.validated_data.get("skill_id") or None,
-            offset=query.validated_data["offset"],
-            limit=query.validated_data["limit"],
+        workflow_id = query.validated_data.get("workflow_id")
+        skill_id = query.validated_data.get("skill_id") or None
+        return facade_page_response(
+            self,
+            lambda page: wizard_facade.list_for_team(
+                self.team_id, workflow_id=workflow_id, skill_id=skill_id, page=page
+            ),
+            serializer_class=WizardSessionSerializer,
         )
-        page = self.paginate_queryset(sessions)
-        if page is not None:
-            return self.get_paginated_response(WizardSessionSerializer(page, many=True).data)
-        return Response(WizardSessionSerializer(sessions, many=True).data)
 
     @extend_schema(
         description="Retrieve a single wizard session by its session_id.",

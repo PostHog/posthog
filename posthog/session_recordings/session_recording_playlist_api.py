@@ -19,13 +19,13 @@ from drf_spectacular.utils import OpenApiParameter
 from opentelemetry import trace
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.exceptions import ValidationError
-from rest_framework.pagination import LimitOffsetPagination
 
 from posthog.schema import RecordingsQuery
 
 from posthog.api.documentation import extend_schema
 from posthog.api.file_system.file_system_logging import log_api_file_system_view
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
+from posthog.api.pagination import FacadeLimitOffsetPagination, facade_page_response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
@@ -36,6 +36,7 @@ from posthog.models import SessionRecording, SessionRecordingPlaylist, SessionRe
 from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, log_activity
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDT
+from posthog.paging import Page, PageRequest
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.redis import get_client
 from posthog.session_recordings.data_retention import retention_period_in_days
@@ -84,13 +85,7 @@ class PlaylistPageSplit:
     db_items: builtins.list[SessionRecordingPlaylist]
 
 
-@dataclass(frozen=True)
-class PaginationLinks:
-    next_link: Optional[str]
-    previous_link: Optional[str]
-
-
-class SessionRecordingPlaylistPagination(LimitOffsetPagination):
+class SessionRecordingPlaylistPagination(FacadeLimitOffsetPagination):
     default_limit = 100
     max_limit = PLAYLIST_LIST_MAX_LIMIT
 
@@ -132,21 +127,6 @@ def playlist_name_sort_expression() -> Coalesce:
 def playlist_name_sort_key(playlist: SessionRecordingPlaylist) -> str:
     """In-memory twin of playlist_name_sort_expression."""
     return (playlist.name or playlist.derived_name or "").lower()
-
-
-def parse_non_negative_int(value: Any, default: int) -> int:
-    try:
-        return max(0, int(value))
-    except (TypeError, ValueError):
-        return default
-
-
-def parse_positive_int(value: Any, default: int) -> int:
-    """Like parse_non_negative_int but rejects 0. A limit of 0 makes the paginator's
-    next link point back at the same offset — an infinite-paging loop — so non-positive
-    input falls back to the default, matching DRF's LimitOffsetPagination."""
-    parsed = parse_non_negative_int(value, default)
-    return parsed if parsed > 0 else default
 
 
 def create_synthetic_playlist_instance(
@@ -752,60 +732,48 @@ class SessionRecordingPlaylistViewSet(
             sorted_synthetics = self._order_playlists(request, filtered_synthetics)
 
         synth_count = len(sorted_synthetics)
-        total_count = db_count + synth_count
-
-        limit = min(parse_positive_int(request.GET.get("limit"), 100), PLAYLIST_LIST_MAX_LIMIT)
-        offset = parse_non_negative_int(request.GET.get("offset"), 0)
-
         span.set_attribute("team_id", self.team.id)
         span.set_attribute("db_count", db_count)
         span.set_attribute("synth_count", synth_count)
-        span.set_attribute("limit", limit)
-        span.set_attribute("offset", offset)
 
-        # Pair each synthetic with its global rank at the source so the two never
-        # drift, then split the requested window into in-page synthetics + DB slice.
-        with tracer.start_as_current_span("rank_synthetics"):
-            synth_ranks = self._synthetic_global_ranks(request, queryset, db_count, sorted_synthetics)
-            ranked_synthetics = list(zip(synth_ranks, sorted_synthetics))
+        def fetch(page: PageRequest) -> Page[SessionRecordingPlaylist]:
+            span.set_attribute("limit", page.limit)
+            span.set_attribute("offset", page.offset)
 
-        with tracer.start_as_current_span("split_page"):
-            page_split = self._split_page(offset, limit, ranked_synthetics, queryset)
+            # Pair each synthetic with its global rank at the source so the two never
+            # drift, then split the requested window into in-page synthetics + DB slice.
+            with tracer.start_as_current_span("rank_synthetics"):
+                synth_ranks = self._synthetic_global_ranks(request, queryset, db_count, sorted_synthetics)
+                ranked_synthetics = list(zip(synth_ranks, sorted_synthetics))
 
-        with tracer.start_as_current_span("order_combined_page"):
-            combined = self._order_playlists(request, page_split.synthetics + page_split.db_items)
+            with tracer.start_as_current_span("split_page"):
+                page_split = self._split_page(page.offset, page.limit, ranked_synthetics, queryset)
 
-        span.set_attribute("page_size", len(combined))
+            with tracer.start_as_current_span("order_combined_page"):
+                combined = self._order_playlists(request, page_split.synthetics + page_split.db_items)
 
-        # Batch-fetch recording counts for the page to avoid the per-playlist
-        # N+1 queries performed by SessionRecordingPlaylistSerializer.get_recordings_counts.
-        # On failure we log and attach empty prefetched attrs so the serializer
-        # short-circuits to default empty counts instead of retrying per-playlist
-        # (which amplifies load during a Redis/DB partial outage).
-        with tracer.start_as_current_span("precompute_recordings_counts"):
-            try:
-                precompute_recordings_counts(combined, cast(User, request.user), self.team)
-            except Exception as e:
-                logger.exception(
-                    "playlist_recordings_counts_precompute_failed",
-                    team_id=self.team.id,
-                    page_size=len(combined),
-                )
-                posthoganalytics.capture_exception(e)
-                _attach_empty_recordings_counts(combined)
+            span.set_attribute("page_size", len(combined))
 
-        with tracer.start_as_current_span("serialize"):
-            results = self.get_serializer(combined, many=True).data
+            # Batch-fetch recording counts for the page to avoid the per-playlist
+            # N+1 queries performed by SessionRecordingPlaylistSerializer.get_recordings_counts.
+            # On failure we log and attach empty prefetched attrs so the serializer
+            # short-circuits to default empty counts instead of retrying per-playlist
+            # (which amplifies load during a Redis/DB partial outage).
+            with tracer.start_as_current_span("precompute_recordings_counts"):
+                try:
+                    precompute_recordings_counts(combined, cast(User, request.user), self.team)
+                except Exception as e:
+                    logger.exception(
+                        "playlist_recordings_counts_precompute_failed",
+                        team_id=self.team.id,
+                        page_size=len(combined),
+                    )
+                    posthoganalytics.capture_exception(e)
+                    _attach_empty_recordings_counts(combined)
 
-        links = self._pagination_links(request, total_count, limit, offset)
-        return response.Response(
-            {
-                "count": total_count,
-                "next": links.next_link,
-                "previous": links.previous_link,
-                "results": results,
-            }
-        )
+            return Page(results=combined, count=db_count + synth_count)
+
+        return facade_page_response(self, fetch)
 
     def _split_page(
         self,
@@ -828,17 +796,6 @@ class SessionRecordingPlaylistViewSet(
         db_take = max(0, limit - len(synth_for_page))
         db_items = list(queryset[db_offset : db_offset + db_take]) if db_take > 0 else []
         return PlaylistPageSplit(synthetics=synth_for_page, db_items=db_items)
-
-    def _pagination_links(
-        self, request: request.Request, total_count: int, limit: int, offset: int
-    ) -> "PaginationLinks":
-        """next/previous links over the merged total via a directly-seeded paginator."""
-        paginator = SessionRecordingPlaylistPagination()
-        paginator.count = total_count
-        paginator.limit = limit
-        paginator.offset = offset
-        paginator.request = request
-        return PaginationLinks(next_link=paginator.get_next_link(), previous_link=paginator.get_previous_link())
 
     def _synthetic_global_ranks(
         self,

@@ -19,8 +19,14 @@ export const CrossProjectDashboardsListParams = () => zod.object({
         ),
 })
 
+export const crossProjectDashboardsListQueryLimitMax = 100
+
 export const CrossProjectDashboardsListQueryParams = () => zod.object({
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod
+        .number()
+        .max(crossProjectDashboardsListQueryLimitMax)
+        .optional()
+        .describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
@@ -39,8 +45,14 @@ export const CrossProjectDashboardsTilesListParams = () => zod.object({
         ),
 })
 
+export const crossProjectDashboardsTilesListQueryLimitMax = 100
+
 export const CrossProjectDashboardsTilesListQueryParams = () => zod.object({
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod
+        .number()
+        .max(crossProjectDashboardsTilesListQueryLimitMax)
+        .optional()
+        .describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 

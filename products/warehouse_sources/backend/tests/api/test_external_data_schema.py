@@ -5,7 +5,7 @@ from typing import Any
 
 import pytest
 import time_machine
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest import mock
 
 from django.conf import settings
@@ -20,6 +20,7 @@ from rest_framework import status
 from rest_framework.exceptions import ValidationError
 from temporalio.service import RPCError, RPCStatusCode
 
+from posthog.api.test.test_log_entries import create_log_entry
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
@@ -5561,3 +5562,25 @@ class TestSchemaDisplayStatus(SimpleTestCase):
     )
     def test_maps_billing_statuses_to_labels(self, raw_status, expected):
         assert schema_display_status(ExternalDataSchema(status=raw_status)) == expected
+
+
+class TestExternalDataSchemaLogs(ClickhouseTestMixin, APIBaseTest):
+    @time_machine.travel("2023-09-23 12:00:00", tick=False)
+    def test_pages_logs_by_offset(self) -> None:
+        source = ExternalDataSource.objects.create(team=self.team, source_type=ExternalDataSourceType.STRIPE)
+        schema = ExternalDataSchema.objects.create(name="customers", team=self.team, source=source)
+        for hour in range(1, 4):
+            create_log_entry(
+                team_id=self.team.pk,
+                log_source="external_data_jobs",
+                log_source_id=str(schema.id),
+                message=f"entry {hour}",
+                level="INFO",
+                timestamp=f"2023-09-22 0{hour}:00:00",
+            )
+
+        url = f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/logs/"
+        second_page = self.client.get(url, {"limit": 2, "offset": 2}).json()
+
+        assert second_page["count"] == 3
+        assert [entry["message"] for entry in second_page["results"]] == ["entry 1"]

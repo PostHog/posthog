@@ -9,6 +9,7 @@ from django.utils import timezone
 import structlog
 
 from posthog.models import Team, User
+from posthog.paging import Page, PageRequest
 
 from products.wizard.backend.facade.config import DEFAULT_WIZARD_VERSION
 from products.wizard.backend.facade.contracts import (
@@ -19,7 +20,6 @@ from products.wizard.backend.facade.contracts import (
     UpdateWizardRunTaskInput,
     WizardRunCreationResult,
     WizardRunDTO,
-    WizardRunPage,
     WizardRunTaskDTO,
 )
 from products.wizard.backend.facade.enums import (
@@ -167,8 +167,8 @@ def get_run(team_id: int, run_id: UUID) -> WizardRunDTO:
     return store.get_run(team_id, run_id)
 
 
-def list_runs(params: ListWizardRunsInput) -> WizardRunPage:
-    return store.list_runs(params)
+def list_runs(params: ListWizardRunsInput, page: PageRequest) -> Page[WizardRunDTO]:
+    return store.list_runs(params, page)
 
 
 def start_run(team_id: int, run_id: UUID) -> WizardRunDTO:

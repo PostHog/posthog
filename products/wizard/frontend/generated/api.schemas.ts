@@ -869,6 +869,7 @@ export type WizardRunsListParams = {
     created_after?: string
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number
     /**
@@ -905,7 +906,7 @@ export type WizardRunsArtifactsListParams = {
 export type WizardSessionsListParams = {
     /**
      * Maximum number of sessions to return.
-     * @minimum 0
+     * @minimum 1
      * @maximum 200
      */
     limit?: number

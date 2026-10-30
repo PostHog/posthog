@@ -3,7 +3,7 @@ import json
 import uuid as uuid_mod
 import hashlib
 import dataclasses
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Mapping
 from copy import deepcopy
 from datetime import datetime, timedelta
 from time import monotonic
@@ -30,7 +30,6 @@ from drf_spectacular.utils import (
 )
 from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
@@ -52,6 +51,7 @@ from posthog.api.app_metrics2 import (
 from posthog.api.documentation import _FallbackSerializer
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.mixins import ValidatedRequest, validated_request
+from posthog.api.pagination import FacadeLimitOffsetPagination, facade_page_response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import (
@@ -67,6 +67,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Team, User
 from posthog.models.property.parse import expand_cohort_properties, parse_property_group_data
+from posthog.paging import Page, PageRequest
 from posthog.permissions import (
     AccessControlPermission,
     get_authenticator_scoped_team_ids,
@@ -205,7 +206,6 @@ from products.workflows.backend.facade.contracts import (
     WorkflowProposalResolved,
     WorkflowRef,
     WorkflowRevisionNotFound,
-    WorkflowRevisionSummary,
     WorkflowSchedule,
     WorkflowScheduleNotFound,
     WorkflowStale,
@@ -244,7 +244,6 @@ from products.workflows.backend.facade.proposals import (
     absolute_window,
     approve_proposal,
     as_the_serializer_stores_it,
-    count_proposals,
     create_proposal,
     get_proposal,
     get_proposal_by_source_id,
@@ -260,7 +259,7 @@ from products.workflows.backend.facade.proposals import (
     target_metric_in,
     version_outcome,
 )
-from products.workflows.backend.facade.revisions import count_revisions, get_revision, list_revisions, restore_revision
+from products.workflows.backend.facade.revisions import get_revision, list_revisions, restore_revision
 from products.workflows.backend.facade.schedules import (
     compute_next_occurrences,
     create_schedule,
@@ -4804,33 +4803,7 @@ def _validate_merge_keys(field: str, items: Any) -> None:
         seen.add(key)
 
 
-class _RevisionPages:
-    """Lets LimitOffsetPagination page revisions in the database, as it did over a queryset."""
-
-    def __init__(self, hog_flow_id: uuid_mod.UUID) -> None:
-        self.hog_flow_id = hog_flow_id
-
-    def count(self) -> int:
-        return count_revisions(self.hog_flow_id)
-
-    def __getitem__(self, page: slice) -> list[WorkflowRevisionSummary]:
-        return list_revisions(self.hog_flow_id, offset=page.start or 0, limit=page.stop - (page.start or 0))
-
-
-class _ProposalPages:
-    def __init__(self, hog_flow_id: uuid_mod.UUID, status: str | None) -> None:
-        self.hog_flow_id = hog_flow_id
-        self.status = status
-
-    def count(self) -> int:
-        return count_proposals(hog_flow_id=self.hog_flow_id, status=self.status)
-
-    def __getitem__(self, page: slice) -> list[WorkflowProposalRecord]:
-        offset = page.start or 0
-        return list_proposals(hog_flow_id=self.hog_flow_id, status=self.status, offset=offset, limit=page.stop - offset)
-
-
-class HogFlowPagination(LimitOffsetPagination):
+class HogFlowPagination(FacadeLimitOffsetPagination):
     default_limit = 100
     max_limit = 500
 
@@ -5062,6 +5035,8 @@ class HogFlowViewSet(
     app_source = "hog_flow"
     function_kind = "hog_flow"
     _workflow_last_runs: dict[uuid_mod.UUID, WorkflowLastRunDTO] | None = None
+    # WorkflowProposalSerializer reads the workflow to tell whether each proposal is stale.
+    _proposals_hog_flow: WorkflowEditState | None = None
 
     @extend_schema(parameters=[HogFlowVersionMetricsRequestSerializer], responses=AppMetricResponseSerializer)
     @action(detail=True, methods=["GET"], url_path="metrics/version")
@@ -5204,6 +5179,8 @@ class HogFlowViewSet(
         context["event_source"] = get_event_source(self.request)
         if self._workflow_last_runs is not None:
             context["workflow_last_runs"] = self._workflow_last_runs
+        if self._proposals_hog_flow is not None:
+            context["hog_flow"] = self._proposals_hog_flow
         return context
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
@@ -5294,40 +5271,34 @@ class HogFlowViewSet(
 
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         query = self._list_query()
-        paginator = cast(HogFlowPagination, self.paginator)
-        # The default page size always applies, so there is always a limit.
-        limit = cast(int, paginator.get_limit(request))
-        offset = paginator.get_offset(request)
-        try:
-            page = list_workflows(
-                team_id=self.team_id,
-                query=query,
-                # Service credentials are synthetic users that UserAccessControl cannot evaluate.
-                user_access_control=None if is_service_auth(request) else self.user_access_control,
-                # Half implemented: admins may want to list workflows they cannot open.
-                include_all_if_admin=request.GET.get("admin_include_all") == "true",
-                offset=offset,
-                limit=limit,
-            )
-        except WorkflowListFiltersInvalid as invalid:
-            raise exceptions.ValidationError(
-                {
-                    name: [exceptions.ErrorDetail(error.message, code=error.code) for error in errors]
-                    for name, errors in invalid.errors.items()
-                }
-            )
 
-        # The MCP summary serializer has no last_run, so only the full list row pays for the lookup.
-        if self.get_serializer_class() is HogFlowMinimalSerializer:
-            # One lookup for every loop on the page, so each row does not query tasks on its own.
-            loop_ids = [flow.id for flow in page.results if flow.origin_product == HogFlowOriginProduct.LOOPS]
-            self._workflow_last_runs = list_workflow_last_runs(self.team_id, request.user.id, loop_ids)
+        def fetch(page_request: PageRequest) -> Page[Workflow]:
+            try:
+                page = list_workflows(
+                    team_id=self.team_id,
+                    query=query,
+                    # Service credentials are synthetic users that UserAccessControl cannot evaluate.
+                    user_access_control=None if is_service_auth(request) else self.user_access_control,
+                    # Half implemented: admins may want to list workflows they cannot open.
+                    include_all_if_admin=request.GET.get("admin_include_all") == "true",
+                    page=page_request,
+                )
+            except WorkflowListFiltersInvalid as invalid:
+                raise exceptions.ValidationError(
+                    {
+                        name: [exceptions.ErrorDetail(error.message, code=error.code) for error in errors]
+                        for name, errors in invalid.errors.items()
+                    }
+                )
 
-        paginator.request = request
-        paginator.limit = limit
-        paginator.offset = offset
-        paginator.count = page.count
-        return paginator.get_paginated_response(self.get_serializer(page.results, many=True).data)
+            # The MCP summary serializer has no last_run, so only the full list row pays for the lookup.
+            if self.get_serializer_class() is HogFlowMinimalSerializer:
+                # One lookup for every loop on the page, so each row does not query tasks on its own.
+                loop_ids = [flow.id for flow in page.results if flow.origin_product == HogFlowOriginProduct.LOOPS]
+                self._workflow_last_runs = list_workflow_last_runs(self.team_id, request.user.id, loop_ids)
+            return page
+
+        return facade_page_response(self, fetch)
 
     @validated_request(
         query_serializer=SendCalendarQuerySerializer,
@@ -6051,8 +6022,11 @@ class HogFlowViewSet(
         # Version history: one snapshot per live-content change, newest first. Content is fetched
         # per-version via the detail endpoint — the list stays light.
         instance = self._workflow_ref()
-        page = self.paginate_queryset(cast(Sequence[Any], _RevisionPages(instance.id)))
-        return self.get_paginated_response(HogFlowRevisionBasicSerializer(page, many=True).data)
+        return facade_page_response(
+            self,
+            lambda page: list_revisions(instance.id, page),
+            serializer_class=HogFlowRevisionBasicSerializer,
+        )
 
     @extend_schema(
         parameters=[OpenApiParameter("version", int, OpenApiParameter.PATH, description="Workflow version to fetch.")],
@@ -6137,9 +6111,11 @@ class HogFlowViewSet(
                 raise exceptions.ValidationError(
                     {"status": f"Must be one of: {', '.join(WorkflowProposalStatus.values)}."}
                 )
-            page = self.paginate_queryset(cast(Sequence[Any], _ProposalPages(instance.id, requested_status or None)))
-            return self.get_paginated_response(
-                WorkflowProposalSerializer(page, many=True, context={"hog_flow": instance}).data
+            self._proposals_hog_flow = instance
+            return facade_page_response(
+                self,
+                lambda page: list_proposals(hog_flow_id=instance.id, status=requested_status or None, page=page),
+                serializer_class=WorkflowProposalSerializer,
             )
 
         param_serializer = WorkflowProposalCreateSerializer(data=request.data)

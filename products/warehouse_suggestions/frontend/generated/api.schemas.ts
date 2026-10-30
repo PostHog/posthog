@@ -428,6 +428,7 @@ export type WarehouseSuggestionsListParams = {
     kind?: WarehouseSuggestionsListKind
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number
     /**
