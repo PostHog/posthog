@@ -1,7 +1,7 @@
 """The `source_config` of a warehouse alert on the alerts platform, and its native lifecycle.
 
-A warehouse alert has no row of its own in this product. The platform creates and deletes it, and its
-configuration id is the id its destinations match on.
+A warehouse alert has no row of its own in this product. The platform creates and deletes it, and
+keeps its destinations as `AlertDestination` rows that go with it.
 """
 
 from collections.abc import Callable
@@ -10,7 +10,6 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from products.alerts.backend.facade.destinations import soft_delete_all_alert_destinations
 from products.alerts_platform.backend.facade.contracts import (
     GroupingMode,
     InvalidPlatformAlertEdit,
@@ -21,7 +20,7 @@ from products.alerts_platform.backend.facade.contracts import (
 )
 from products.warehouse_sources.backend.models.external_data_destination import ExternalDataDestination
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.sync_alerts.destinations import EVENT_IDS, EVENT_IDS_BY_INCIDENT_ACTION
+from products.warehouse_sources.backend.sync_alerts.destinations import EVENT_IDS_BY_INCIDENT_ACTION
 from products.warehouse_sources.backend.sync_alerts.wording import (
     DEFAULT_GROUP_BY,
     DESTINATION_ID_KEY,
@@ -126,18 +125,12 @@ def _spec(
     def check_in_team(*, team_id: int, edit: PlatformAlertConfigurationEdit) -> None:
         _require_ids_in_team(source_kind, team_id, edit)
 
-    def remove_destinations(*, team_id: int, configuration_id: UUID) -> None:
-        soft_delete_all_alert_destinations(
-            team_id=team_id, alert_id=str(configuration_id), allowed_event_ids=EVENT_IDS[source_kind]
-        )
-
     return SourceConfigSpec(
         model=model,
         validate=validate,
         check_in_team=check_in_team,
-        native=NativeAlertLifecycle(
-            check_interval_minutes=CHECK_INTERVAL_MINUTES, remove_destinations=remove_destinations
-        ),
+        # No `remove_destinations`, so the platform owns the destinations from the start.
+        native=NativeAlertLifecycle(check_interval_minutes=CHECK_INTERVAL_MINUTES),
         incident_event_ids=EVENT_IDS_BY_INCIDENT_ACTION[source_kind],
         alert_url=alert_url,
     )

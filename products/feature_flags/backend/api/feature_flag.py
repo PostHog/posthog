@@ -33,6 +33,7 @@ from drf_spectacular.utils import (
 from prometheus_client import Counter
 from rest_framework import exceptions, request, serializers, status, viewsets
 from rest_framework.exceptions import ErrorDetail
+from rest_framework.generics import get_object_or_404
 from rest_framework.permissions import BasePermission
 from rest_framework.response import Response
 from rest_framework.settings import api_settings
@@ -95,14 +96,14 @@ from products.access_control.backend.presentation.access_control import (
     UserAccessControlSerializerMixin,
 )
 from products.approvals.backend.decorators import approval_gate
-from products.approvals.backend.mixins import ApprovalHandlingMixin
 from products.approvals.backend.models import ApprovalPolicy
 from products.approvals.backend.ownership import scope_by_owner_enabled
 from products.approvals.backend.policies import lock_approval_policies
+from products.approvals.backend.presentation.mixins import ApprovalHandlingMixin
 from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.cohorts.backend.models.util import get_all_cohort_dependencies
 from products.dashboards.backend.api.dashboard import Dashboard
-from products.experiments.backend.models.experiment import Experiment, flag_has_live_experiment
+from products.experiments.backend.facade.contracts import LinkedExperiment
 from products.feature_flags.backend.api.filters_schema import (
     FEATURE_FLAG_OPERATOR_ALIASES,
     FEATURE_FLAG_PROPERTY_TYPES,
@@ -126,6 +127,12 @@ from products.feature_flags.backend.encrypted_flag_payloads import (
     get_decrypted_flag_payloads_protected,
     restore_redacted_flag_payloads,
 )
+from products.feature_flags.backend.exposure_change import (
+    ExposureChange,
+    ExposureDirection,
+    FlagExposureConfig,
+    classify_exposure_change,
+)
 from products.feature_flags.backend.facade import (
     config_writes,
     filters as flag_filters,
@@ -141,7 +148,10 @@ from products.feature_flags.backend.facade.config import (
 from products.feature_flags.backend.facade.config_validation import ConfigValidationError, ValidationLimits
 from products.feature_flags.backend.facade.references import InvalidIds, references
 from products.feature_flags.backend.filters_validation import collect_cross_field_violations, flatten_structural_errors
-from products.feature_flags.backend.flag_analytics import increment_request_count
+from products.feature_flags.backend.flag_analytics import (
+    increment_local_evaluation_request_counts,
+    increment_request_count,
+)
 from products.feature_flags.backend.flag_limits import get_max_feature_flags_for_team
 from products.feature_flags.backend.flag_status import (
     STALE_ACTIVE_PARAM_DESCRIPTION,
@@ -154,6 +164,7 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag, Feat
 from products.feature_flags.backend.models.team_feature_flag_policy_config import team_requires_flag_tags
 from products.feature_flags.backend.realtime_targeting import is_realtime_cohort_flag_targeting_enabled
 from products.feature_flags.backend.reserved_variant_keys import is_reserved_variant_key
+from products.feature_flags.backend.rollback_reason import RollbackReason, RollbackReasonContext
 from products.feature_flags.backend.session_recording_links import (
     REPLAY_GATE_DELETE_ERROR,
     ReplayFlagGates,
@@ -1308,7 +1319,40 @@ class FeatureFlagCreateRequestSchemaSerializer(serializers.Serializer):
     )
 
 
-class FeatureFlagPartialUpdateRequestSchemaSerializer(serializers.Serializer):
+ROLLBACK_REASON_FIELDS = frozenset({"ask_rollback_reason", "rollback_reason", "rollback_reason_note"})
+
+
+class FeatureFlagRollbackReasonSerializer(serializers.Serializer):
+    ask_rollback_reason = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="When true, the edit lowers the flag's exposure, and the request sends no `rollback_reason`, the "
+        "flag is not saved and the response is a 409 with the code `rollback_reason_required`. Send the edit again "
+        "without this field to save it, with or without a `rollback_reason`. Ignored for an edit that needs approval "
+        "and for a config version 2 flag.",
+    )
+    rollback_reason = serializers.ChoiceField(
+        choices=RollbackReason.choices,
+        required=False,
+        allow_null=True,
+        help_text="Why this edit lowers the flag's exposure, for example a rollback after errors. Stored on the "
+        "activity log entry of the edit. Not stored for an edit that needs approval or for a config version 2 flag.",
+    )
+    rollback_reason_note = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        max_length=1000,
+        help_text="A free-text note for `rollback_reason`. Requires `rollback_reason`.",
+    )
+
+    def validate(self, attrs: dict) -> dict:
+        if attrs.get("rollback_reason_note") and not attrs.get("rollback_reason"):
+            raise serializers.ValidationError({"rollback_reason_note": "Send a rollback_reason with the note."})
+        return attrs
+
+
+class FeatureFlagPartialUpdateRequestSchemaSerializer(FeatureFlagRollbackReasonSerializer):
     key = serializers.CharField(required=False, help_text="Feature flag key.")
     name = serializers.CharField(
         required=False,
@@ -1409,8 +1453,31 @@ def _load_condition_cohorts(flags: Iterable[FeatureFlag], project_id: int) -> di
     }
 
 
+def _attach_live_experiments(flags: Sequence[FeatureFlag]) -> None:
+    """Load the experiments that the serializer lists for each flag, in one query for all the flags. The experiments
+    product owns the experiment model, so the flag queryset cannot prefetch them."""
+    if not flags:
+        return
+    # The experiments facade imports this module, so a module-level import would be circular.
+    from products.experiments.backend.facade import api as experiments_api  # noqa: PLC0415
+
+    experiments = experiments_api.live_experiments_by_flag([flag.id for flag in flags])
+    for flag in flags:
+        flag._active_experiments = experiments.get(flag.id, ())
+
+
+def _live_experiments(flag: FeatureFlag) -> tuple[LinkedExperiment, ...]:
+    if hasattr(flag, "_active_experiments"):
+        return flag._active_experiments
+    # The experiments facade imports this module, so a module-level import would be circular.
+    from products.experiments.backend.facade import api as experiments_api  # noqa: PLC0415
+
+    return experiments_api.live_experiments_by_flag([flag.id]).get(flag.id, ())
+
+
 class FeatureFlagListSerializer(serializers.ListSerializer):
-    """Loads the condition cohorts of every flag on a page in one query, instead of one query per flag.
+    """Loads the experiments and the condition cohorts of every flag on a page, one query each, instead of one query
+    per flag.
 
     The cohort ids live in each flag's JSON filters, so a queryset prefetch cannot select them. This is
     the only hook DRF gives that sees the whole page.
@@ -1419,6 +1486,7 @@ class FeatureFlagListSerializer(serializers.ListSerializer):
     def to_representation(self, data: Any) -> Any:
         flags = list(data)
         assert isinstance(self.child, FeatureFlagSerializer)
+        _attach_live_experiments(flags)
         self.child.context[CONDITION_COHORTS_CONTEXT_KEY] = _load_condition_cohorts(
             flags, self.child.context["project_id"]
         )
@@ -1941,8 +2009,10 @@ class FeatureFlagSerializer(
     def _unsupported_v2_fields(self, attrs: dict, allowed: frozenset[str]) -> set[str]:
         submitted = set(self.initial_data) if isinstance(self.initial_data, Mapping) else set()
         names = {"filters" if field == "get_filters" else field for field in attrs} | submitted
-        # DRF drops unknown and read-only input fields; original_flag stays an ignored v1 compatibility field.
-        return names - allowed - {"original_flag"}
+        # DRF drops unknown and read-only input fields; original_flag stays an ignored v1 compatibility field. The
+        # rollback reason fields are request metadata that a version 2 write ignores, so a client may send them with
+        # any edit.
+        return names - allowed - {"original_flag"} - ROLLBACK_REASON_FIELDS
 
     def _resolve_v2_document(self, submitted: object, *, stored: Mapping[str, Any], flag_id: int | None) -> dict:
         """Resolve server-owned identity against ``stored`` and validate; the result is the exact document persisted."""
@@ -2736,6 +2806,14 @@ class FeatureFlagSerializer(
             request_data = {}
 
         validated_data["last_modified_by"] = request.user
+        # These are not flag fields, so they never reach the model. They come from the data this serializer validates,
+        # not from the request body, because a service caller can pass a request whose body is for another endpoint.
+        initial_data = getattr(self, "initial_data", None)
+        rollback_input = FeatureFlagRollbackReasonSerializer(
+            data=initial_data if isinstance(initial_data, dict) else {}
+        )
+        rollback_input.is_valid(raise_exception=True)
+        rollback_change: ExposureChange | None = None
         # Prevent DRF from attempting to set reverse FK relation directly
         validated_data.pop("evaluation_contexts", None)
 
@@ -2853,6 +2931,16 @@ class FeatureFlagSerializer(
                         )
                     validated_data = self._discard_unchanged_stale_fields(validated_data, original_flag)
 
+                if not self._v2_write:
+                    rollback = rollback_input.validated_data
+                    rollback_change = self._classify_for_rollback_reason(locked_instance, validated_data, rollback)
+                    if rollback_change is not None:
+                        locked_instance._activity_context = RollbackReasonContext(
+                            rollback_reason=rollback["rollback_reason"],
+                            rollback_reason_note=rollback.get("rollback_reason_note") or None,
+                            exposure_direction=rollback_change.direction,
+                        )
+
                 # Continue with the update
                 validated_data["version"] = locked_version + 1
                 # Every read and the save below use the locked row, not the instance loaded
@@ -2919,6 +3007,20 @@ class FeatureFlagSerializer(
             team=instance.team,
             request=request,
         )
+        if rollback_change is not None:
+            report_user_action(
+                request.user,
+                "feature flag rollback reason given",
+                {
+                    "feature_flag_id": instance.id,
+                    "feature_flag_version": instance.version,
+                    "rollback_reason": rollback_input.validated_data["rollback_reason"],
+                    "has_note": bool(rollback_input.validated_data.get("rollback_reason_note")),
+                    "exposure_direction": rollback_change.direction,
+                },
+                team=instance.team,
+                request=request,
+            )
 
         # If flag is using encrypted payloads, replace them with redacted string or unencrypted value
         # if the request was made with a personal API key
@@ -2931,6 +3033,59 @@ class FeatureFlagSerializer(
             _count_filters_write_success(self, "update", request)
 
         return instance
+
+    def _classify_for_rollback_reason(
+        self, locked_instance: FeatureFlag, validated_data: dict, rollback: dict
+    ) -> ExposureChange | None:
+        """Classifies the edit only when the request asks for a rollback reason or sends one, so other saves pay
+        nothing. Returns the classification when the request sends a reason. Raises the `rollback_reason_required`
+        409, and so refuses the save, when the request asks for a reason, sends none, and the edit lowers exposure."""
+        reason = rollback.get("rollback_reason")
+        if not rollback.get("ask_rollback_reason") and reason is None:
+            return None
+
+        stored_filters = self._normalized_stored_filters(locked_instance)
+        change = classify_exposure_change(
+            before=FlagExposureConfig(
+                active=locked_instance.active,
+                deleted=locked_instance.deleted,
+                filters=stored_filters,
+                key=locked_instance.key,
+                bucketing_identifier=locked_instance.bucketing_identifier,
+                ensure_experience_continuity=locked_instance.ensure_experience_continuity,
+            ),
+            after=FlagExposureConfig(
+                active=validated_data.get("active", locked_instance.active),
+                deleted=validated_data.get("deleted", locked_instance.deleted),
+                filters=validated_data.get("filters", stored_filters),
+                key=validated_data.get("key", locked_instance.key),
+                bucketing_identifier=validated_data.get("bucketing_identifier", locked_instance.bucketing_identifier),
+                ensure_experience_continuity=validated_data.get(
+                    "ensure_experience_continuity", locked_instance.ensure_experience_continuity
+                ),
+            ),
+        )
+        if reason is None:
+            if change.direction == ExposureDirection.LOWERS:
+                raise Conflict(
+                    detail="This edit lowers the flag's exposure. Send it again with a rollback_reason, or without "
+                    "ask_rollback_reason to save it without one.",
+                    code="rollback_reason_required",
+                )
+            return None
+        return change
+
+    @staticmethod
+    def _normalized_stored_filters(locked_instance: FeatureFlag) -> dict:
+        """The stored filters, normalized the way `validate_filters` normalizes the request's, so a shape the
+        serializer rewrites (a condition without a `properties` key, an operator alias) does not read as an edit.
+        Payloads are left out because the classifier does not read them and stored ones can be ciphertext."""
+        stored = flag_filters.without_payloads(locked_instance.filters)
+        structural = FeatureFlagFiltersSerializer(
+            data=stored,
+            context={FLAG_ID_CONTEXT_KEY: locked_instance.id, PRESERVE_UNKNOWN_KEYS_CONTEXT_KEY: True},
+        )
+        return structural.validated_data if structural.is_valid() else stored
 
     def _discard_unchanged_stale_fields(self, validated_data: dict, original_flag: dict | None) -> dict:
         if not original_flag:
@@ -3166,20 +3321,12 @@ class FeatureFlagSerializer(
         return representation
 
     def get_experiment_set(self, obj: FeatureFlag) -> list[int]:
-        # Use the prefetched active experiments
-        if hasattr(obj, "_active_experiments"):
-            return [exp.id for exp in obj._active_experiments]
-        return [exp.id for exp in obj.experiment_set.filter(deleted=False)]
+        return [exp.id for exp in _live_experiments(obj)]
 
     @extend_schema_field(FeatureFlagExperimentSetMetadataSerializer(many=True))
     def get_experiment_set_metadata(self, obj: FeatureFlag) -> list[dict]:
-        # Use the prefetched active experiments
-        if hasattr(obj, "_active_experiments"):
-            experiments = obj._active_experiments
-        else:
-            experiments = obj.experiment_set.filter(deleted=False)
         # `is_running` mirrors the deletion guard: only a running experiment blocks flag deletion
-        return [{"id": exp.id, "name": exp.name, "is_running": exp.is_running} for exp in experiments]
+        return [{"id": exp.id, "name": exp.name, "is_running": exp.is_running} for exp in _live_experiments(obj)]
 
 
 # Migration 0546 backfilled `creation_mode="template"` onto dashboards matching these, so together
@@ -3665,7 +3812,10 @@ class EvaluationFeatureFlagSerializer(MinimalFeatureFlagSerializer):
         cached = getattr(feature_flag, "_has_experiment", None)
         if cached is not None:
             return cached
-        return flag_has_live_experiment(feature_flag.pk)
+        # The experiments facade imports this module, so a module-level import would be circular.
+        from products.experiments.backend.facade import api as experiments_api  # noqa: PLC0415
+
+        return experiments_api.flag_has_live_experiment(feature_flag.pk)
 
 
 class MyFlagsResponseSerializer(serializers.Serializer):
@@ -4186,18 +4336,15 @@ class FeatureFlagViewSet(
         """
         return replay_gated_flags(self.project_id)
 
+    def safely_get_object(self, queryset: QuerySet) -> FeatureFlag:
+        lookup_url_kwarg = self.lookup_url_kwarg or self.lookup_field
+        flag = get_object_or_404(queryset, **{self.lookup_field: self.kwargs[lookup_url_kwarg]})
+        _attach_live_experiments([flag])
+        return flag
+
     def safely_get_queryset(self, queryset) -> QuerySet:
         from products.early_access_features.backend.models import EarlyAccessFeature
         from products.feature_flags.backend.models.evaluation_context import FeatureFlagEvaluationContext
-
-        # Always prefetch experiment_set since it's used in both list and retrieve
-        queryset = queryset.prefetch_related(
-            Prefetch(
-                "experiment_set",
-                queryset=Experiment.objects.filter(deleted=False),
-                to_attr="_active_experiments",
-            )
-        )
 
         # `features` is serialized on every action (list/retrieve/create/update), and
         # MinimalEarlyAccessFeatureSerializer resolves the assignee's name, so join the
@@ -4362,7 +4509,7 @@ class FeatureFlagViewSet(
     def list(self, request, *args, **kwargs):
         if isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication):
             # Add request for analytics only if request coming with personal API key authentication
-            increment_request_count(self.team.pk, 1, FlagRequestType.LOCAL_EVALUATION)
+            increment_local_evaluation_request_counts(self.team.pk)
 
         response = super().list(request, *args, **kwargs)
         feature_flags_data = response.data.get("results", [])

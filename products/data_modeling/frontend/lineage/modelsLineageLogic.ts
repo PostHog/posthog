@@ -11,8 +11,14 @@ import { DataModelingEdge, DataModelingNode, DataModelingNodeType } from '~/type
 import { NodeTypeEnumApi } from '../generated/api.schemas'
 import { lineageDataLogic } from './lineageDataLogic'
 import {
+    HiddenNodeBridging,
+    LineageEdge,
+    LineageGraphNode,
+    bridgeHiddenNodes,
+    nodesWithHubs,
+} from './lineageHiddenNodes'
+import {
     ParsedLineageSearch,
-    edgesWithinNodes,
     matchNodesByName,
     orderedNodesForLineageSearch,
     parseLineageSearch,
@@ -24,6 +30,9 @@ type SearchResultFocusTrigger = 'keyboard' | 'click' | 'previous' | 'next'
 
 // Product analytics can depend on this event name, so keep it stable.
 const MODELS_LINEAGE_NODE_MOVED_EVENT = 'models lineage node moved'
+export const LINEAGE_TYPE_FILTER_CHANGED_EVENT = 'models lineage type filter changed'
+
+const nodeIds = (nodes: DataModelingNode[]): Set<string> => new Set(nodes.map((node) => node.id))
 
 export interface SearchFocusRequest {
     nodeId: string
@@ -52,8 +61,11 @@ export interface modelsLineageLogicValues {
     searchResultAnnouncement: string
     highlightedNodeIds: Set<string>
     focusNodeIds: Set<string> | null
+    scopedNodes: DataModelingNode[]
     visibleNodes: DataModelingNode[]
-    visibleEdges: DataModelingEdge[]
+    hiddenNodeBridging: HiddenNodeBridging
+    graphNodes: LineageGraphNode[]
+    visibleEdges: LineageEdge[]
     isFiltered: boolean
     nodePositions: Record<string, XYPosition>
 }
@@ -216,6 +228,13 @@ export const modelsLineageLogic = kea<modelsLineageLogicType>([
                 })
             }
         },
+        setTypeFilter: ({ typeFilter }) => {
+            posthog.capture(LINEAGE_TYPE_FILTER_CHANGED_EVENT, {
+                surface: 'models',
+                visible_types: typeFilter,
+                hidden_type_count: LINEAGE_FILTER_TYPES.length - typeFilter.length,
+            })
+        },
         nodeDragStopped: ({ nodeId }) => {
             const node = values.nodes.find((candidate) => candidate.id === nodeId)
             if (node) {
@@ -301,7 +320,7 @@ export const modelsLineageLogic = kea<modelsLineageLogicType>([
                 if (searchTerm !== debouncedSearchTerm) {
                     return []
                 }
-                const visibleNodeIds = new Set(visibleNodes.map((node) => node.id))
+                const visibleNodeIds = nodeIds(visibleNodes)
                 return (orderedLineageNodes ?? []).filter((node) => visibleNodeIds.has(node.id))
             },
         ],
@@ -357,26 +376,23 @@ export const modelsLineageLogic = kea<modelsLineageLogicType>([
                 parsedSearchTerm.mode === 'search' ? new Set(searchResults.map((node) => node.id)) : new Set(),
         ],
 
-        visibleNodes: [
-            (s) => [s.nodes, s.orderedLineageNodes, s.typeFilter],
-            (
-                nodes: DataModelingNode[],
-                orderedLineageNodes: DataModelingNode[] | null,
-                typeFilter: DataModelingNodeType[]
-            ): DataModelingNode[] => {
-                let kept = nodes
-
-                if (orderedLineageNodes) {
-                    const reached = new Set(orderedLineageNodes.map((node) => node.id))
-                    kept = kept.filter((node) => reached.has(node.id))
+        scopedNodes: [
+            (s) => [s.nodes, s.orderedLineageNodes],
+            (nodes: DataModelingNode[], orderedLineageNodes: DataModelingNode[] | null): DataModelingNode[] => {
+                if (!orderedLineageNodes) {
+                    return nodes
                 }
-
-                if (typeFilter.length !== LINEAGE_FILTER_TYPES.length) {
-                    kept = kept.filter((node) => typeFilter.includes(node.type))
-                }
-
-                return kept
+                const reached = nodeIds(orderedLineageNodes)
+                return nodes.filter((node) => reached.has(node.id))
             },
+        ],
+
+        visibleNodes: [
+            (s) => [s.scopedNodes, s.typeFilter],
+            (scopedNodes: DataModelingNode[], typeFilter: DataModelingNodeType[]): DataModelingNode[] =>
+                typeFilter.length === LINEAGE_FILTER_TYPES.length
+                    ? scopedNodes
+                    : scopedNodes.filter((node) => typeFilter.includes(node.type)),
         ],
 
         focusNodeIds: [
@@ -385,14 +401,34 @@ export const modelsLineageLogic = kea<modelsLineageLogicType>([
                 if (parsedSearch.mode === 'search') {
                     return parsedSearch.term ? null : new Set()
                 }
-                return new Set(visibleNodes.map((node) => node.id))
+                return nodeIds(visibleNodes)
             },
         ],
 
+        hiddenNodeBridging: [
+            (s) => [s.edges, s.scopedNodes, s.visibleNodes],
+            (
+                edges: DataModelingEdge[],
+                scopedNodes: DataModelingNode[],
+                visibleNodes: DataModelingNode[]
+            ): HiddenNodeBridging => bridgeHiddenNodes(edges, nodeIds(scopedNodes), nodeIds(visibleNodes)),
+        ],
+
+        graphNodes: [
+            (s) => [s.scopedNodes, s.visibleNodes, s.hiddenNodeBridging],
+            (
+                scopedNodes: DataModelingNode[],
+                visibleNodes: DataModelingNode[],
+                hiddenNodeBridging: HiddenNodeBridging
+            ): LineageGraphNode[] =>
+                hiddenNodeBridging.hubNodeIds.size === 0
+                    ? visibleNodes
+                    : nodesWithHubs(scopedNodes, nodeIds(visibleNodes), hiddenNodeBridging.hubNodeIds),
+        ],
+
         visibleEdges: [
-            (s) => [s.edges, s.visibleNodes],
-            (edges: DataModelingEdge[], visibleNodes: DataModelingNode[]): DataModelingEdge[] =>
-                edgesWithinNodes(edges, new Set(visibleNodes.map((node) => node.id))),
+            (s) => [s.hiddenNodeBridging],
+            (hiddenNodeBridging: HiddenNodeBridging): LineageEdge[] => hiddenNodeBridging.edges,
         ],
 
         isFiltered: [

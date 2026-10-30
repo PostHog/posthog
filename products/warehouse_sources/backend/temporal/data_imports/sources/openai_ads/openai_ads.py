@@ -18,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     BasePaginator,
     SinglePagePaginator,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
@@ -58,6 +59,11 @@ _T = TypeVar("_T")
 # `since` with a 400 (https://developers.openai.com/ads/reporting). The window is one day shorter
 # because the API reads dates in the ad account's timezone and this source sends them in UTC.
 INSIGHTS_HISTORY_DAYS = 364
+
+# A first sync or full refresh asks for most of a year of daily buckets. OpenAI Ads can answer that
+# request with a `server_error` on every run, while the few days an incremental run asks for read
+# fine. So a long range is read in windows of at most this many days.
+INSIGHTS_WINDOW_DAYS = 30
 
 
 @dataclasses.dataclass
@@ -204,6 +210,18 @@ def _insights_window(db_incremental_field_last_value: Optional[Any]) -> SyncWind
     return SyncWindow(start=since.isoformat(), end=until.isoformat())
 
 
+def _split_insights_window(window: SyncWindow[str]) -> list[SyncWindow[str]]:
+    start = date.fromisoformat(window.start)
+    end = date.fromisoformat(window.end)
+    windows: list[SyncWindow[str]] = []
+    while True:
+        last = min(start + timedelta(days=INSIGHTS_WINDOW_DAYS - 1), end)
+        windows.append(SyncWindow(start=start.isoformat(), end=last.isoformat()))
+        if last >= end:
+            return windows
+        start = last + timedelta(days=1)
+
+
 def _convert_insights_times(row: dict[str, Any]) -> dict[str, Any]:
     # Bucket bounds arrive as epoch seconds; real timestamps are needed for the DateTime
     # incremental watermark and datetime partitioning.
@@ -319,12 +337,95 @@ def openai_ads_source(
     can_resume = resumable_source_manager.can_resume() and not config.single_object
     resume = resumable_source_manager.load_state() if can_resume else None
 
-    data_map: Callable[[dict[str, Any]], dict[str, Any]] | None = None
     if config.aggregation_level is not None:
-        if resume is not None and resume.since and resume.until:
-            window: SyncWindow[str] = SyncWindow(start=resume.since, end=resume.until)
-        else:
-            window = _insights_window(db_incremental_field_last_value)
+        return _insights_source(
+            config, api_key, team_id, job_id, resumable_source_manager, resume, db_incremental_field_last_value
+        )
+
+    if config.single_object:
+        params: dict[str, Any] = {}
+    else:
+        # An explicit stable sort prevents page-boundary skips/duplicates while paginating the
+        # full campaign list.
+        params = {"limit": LIST_PAGE_SIZE, "order": "asc"}
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resume is not None and resume.cursor:
+        initial_paginator_state = {"cursor": resume.cursor}
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Persist only while a next page remains; the checkpoint is saved AFTER a page is yielded,
+        # pointing at the next page, so a crash resumes from a page whose predecessors were all
+        # yielded — the overlap merge dedupes on the primary key.
+        if state and state.get("cursor"):
+            resumable_source_manager.save_state(OpenAIAdsResumeConfig(cursor=state["cursor"]))
+
+    resource = rest_api_resource(
+        _rest_config(config, api_key, params, None),
+        team_id,
+        job_id,
+        db_incremental_field_last_value,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
+
+    return _source_response(
+        config, lambda: _retry_forbidden_server_errors(resource), column_hints=resource.column_hints
+    )
+
+
+def _rest_config(
+    config: OpenAIAdsEndpointConfig,
+    api_key: str,
+    params: dict[str, Any],
+    data_map: Callable[[dict[str, Any]], dict[str, Any]] | None,
+) -> RESTAPIConfig:
+    return {
+        "client": {
+            "base_url": OPENAI_ADS_BASE_URL,
+            "headers": _headers(),
+            "auth": {"type": "bearer", "token": api_key},
+        },
+        "resource_defaults": None,
+        "resources": [
+            {
+                "name": config.name,
+                "endpoint": {
+                    "path": config.path,
+                    "params": params,
+                    "data_selector": "$" if config.single_object else "data",
+                    "paginator": SinglePagePaginator() if config.single_object else _ListPaginator(),
+                },
+                "data_map": data_map,
+            }
+        ],
+    }
+
+
+def _insights_source(
+    config: OpenAIAdsEndpointConfig,
+    api_key: str,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[OpenAIAdsResumeConfig],
+    resume: OpenAIAdsResumeConfig | None,
+    db_incremental_field_last_value: Optional[Any],
+) -> SourceResponse:
+    full_window = _insights_window(db_incremental_field_last_value)
+    if resume is not None and resume.since and resume.until:
+        windows = [SyncWindow(start=resume.since, end=resume.until)]
+        next_start = date.fromisoformat(resume.until) + timedelta(days=1)
+        if next_start <= date.fromisoformat(full_window.end):
+            windows += _split_insights_window(SyncWindow(start=next_start.isoformat(), end=full_window.end))
+    else:
+        windows = _split_insights_window(full_window)
+
+    currency = _account_currency(api_key)
+
+    def enrich_insights(row: dict[str, Any]) -> dict[str, Any]:
+        return {**_convert_insights_times(_stable_insights_id(row)), "currency_code": currency}
+
+    def window_resource(window: SyncWindow[str], cursor: str | None) -> Resource:
         params: dict[str, Any] = {
             "aggregation_level": config.aggregation_level,
             "time_granularity": "daily",
@@ -339,65 +440,43 @@ def openai_ads_source(
         }
         if config.segment is not None:
             params["segments[]"] = config.segment
-        currency = _account_currency(api_key)
 
-        def enrich_insights(row: dict[str, Any]) -> dict[str, Any]:
-            return {**_convert_insights_times(_stable_insights_id(row)), "currency_code": currency}
+        def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+            # Persist only while a next page remains; the checkpoint is saved AFTER a page is
+            # yielded, pointing at the next page, so a crash resumes from a page whose predecessors
+            # were all yielded — the overlap merge dedupes on the primary key. The window is pinned
+            # with the cursor so the resumed cursor pairs with the result set it was issued for.
+            if state and state.get("cursor"):
+                resumable_source_manager.save_state(
+                    OpenAIAdsResumeConfig(cursor=state["cursor"], since=window.start, until=window.end)
+                )
 
-        data_map = enrich_insights
-    elif config.single_object:
-        window = SyncWindow(start="", end="")
-        params = {}
-    else:
-        window = SyncWindow(start="", end="")
-        # An explicit stable sort prevents page-boundary skips/duplicates while paginating the
-        # full campaign list.
-        params = {"limit": LIST_PAGE_SIZE, "order": "asc"}
+        return rest_api_resource(
+            _rest_config(config, api_key, params, enrich_insights),
+            team_id,
+            job_id,
+            db_incremental_field_last_value,
+            resume_hook=save_checkpoint,
+            initial_paginator_state={"cursor": cursor} if cursor else None,
+        )
 
-    rest_config: RESTAPIConfig = {
-        "client": {
-            "base_url": OPENAI_ADS_BASE_URL,
-            "headers": _headers(),
-            "auth": {"type": "bearer", "token": api_key},
-        },
-        "resource_defaults": None,
-        "resources": [
-            {
-                "name": endpoint,
-                "endpoint": {
-                    "path": config.path,
-                    "params": params,
-                    "data_selector": "$" if config.single_object else "data",
-                    "paginator": SinglePagePaginator() if config.single_object else _ListPaginator(),
-                },
-                "data_map": data_map,
-            }
-        ],
-    }
+    first_resource = window_resource(windows[0], resume.cursor if resume is not None else None)
 
-    initial_paginator_state: Optional[dict[str, Any]] = None
-    if resume is not None and resume.cursor:
-        initial_paginator_state = {"cursor": resume.cursor}
-
-    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
-        # Persist only while a next page remains; the checkpoint is saved AFTER a page is yielded,
-        # pointing at the next page, so a crash resumes from a page whose predecessors were all
-        # yielded — the overlap merge dedupes on the primary key. Insights pin their window so the
-        # resumed cursor pairs with the result set it was issued for.
-        if state and state.get("cursor"):
-            resumable_source_manager.save_state(
-                OpenAIAdsResumeConfig(cursor=state["cursor"], since=window.start or None, until=window.end or None)
-            )
-
-    resource = rest_api_resource(
-        rest_config,
-        team_id,
-        job_id,
-        db_incremental_field_last_value,
-        resume_hook=save_checkpoint,
-        initial_paginator_state=initial_paginator_state,
-    )
+    def pages() -> Iterator[Any]:
+        for index, window in enumerate(windows):
+            resource = first_resource
+            if index > 0:
+                # Every row of the earlier windows is already yielded, so a resume can start here.
+                resumable_source_manager.save_state(
+                    OpenAIAdsResumeConfig(cursor=None, since=window.start, until=window.end)
+                )
+                resumable_source_manager.safe_point()
+                resource = window_resource(window, None)
+            # This wrapper hides the framework's own safe points, and a window can hold no rows.
+            for page in resource:
+                yield page
+                resumable_source_manager.safe_point()
 
     return _source_response(
-        config, lambda: _retry_forbidden_server_errors(resource), column_hints=resource.column_hints
+        config, lambda: _retry_forbidden_server_errors(pages()), column_hints=first_resource.column_hints
     )

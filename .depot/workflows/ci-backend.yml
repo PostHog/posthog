@@ -38,8 +38,13 @@
 #   Without those plans, shards use the combined .test_durations file.
 # - actions/cache uses Depot Cache, which Depot CI and Depot GitHub Actions runners share.
 #   GitHub-hosted runners use a separate GitHub Actions cache.
-# - Only master matrix runs save the hypothesis constants cache. PR shards rebuild the pool
-#   until the hourly run saves it.
+# - A stalled actions/cache request holds a restore for about 15 minutes and then misses. The
+#   client tries each request 5 times with a 3-minute socket timeout, and no input or env var
+#   shortens either. SEGMENT_DOWNLOAD_TIMEOUT_MINS covers only the blob download. Restores here
+#   and in the Depot composite mirrors set timeout-minutes and continue-on-error, so a stall
+#   becomes an early miss. Schema restores get 4 minutes, so one retry runs before a
+#   from-scratch migrate. Saves stay unbounded, because a timeout drops what they write. The uv
+#   cache inside astral-sh/setup-uv stays unbounded, because a timeout there kills the install.
 # - The env block clears GITHUB_TOKEN and OTEL_SERVICE_NAME because Depot provides them by default.
 # - Token steps read vars.* and secrets.* from Depot's store. If a value is missing there,
 #   setup-action steps with continue-on-error fall back to the default GITHUB_TOKEN, a Depot
@@ -119,10 +124,6 @@ env:
     # and HEAD (push) key computations below can't drift.
     # ci-e2e-playwright.yml, ci-dagster.yml, ci-mcp.yml and ci-rust-flags-integration.yml restore by the same key; keep their copies in sync when bumping.
     SCHEMA_CACHE_EPOCH: v2
-    # Hypothesis constants cache epoch. Bump to abandon every shared entry at once
-    # (key is posthog-hypothesis-constants-<version>-<epoch>-<isoyear>-<isoweek>); used by
-    # the Django test shards below.
-    HYPOTHESIS_CONSTANTS_EPOCH: v1
     # A Depot step timeout leaves the step's processes running. A stalled uv sync then
     # keeps the env lock, and the step's retry blocks on it. Ending uv before the step
     # timeout frees the lock. Keep this under the 5-minute timeout-minutes of every step that uses it.
@@ -786,6 +787,8 @@ jobs:
                   enable-cache: false
               continue-on-error: true
             - name: Restore test durations from cache
+              timeout-minutes: 2
+              continue-on-error: true
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: .test_durations
@@ -813,6 +816,8 @@ jobs:
                   gh run download "$run_id" --repo "$GITHUB_REPOSITORY" --name test-durations --dir . \
                       || echo "::warning::Timing artifact of run $run_id unavailable, sharding without durations"
             - name: Restore per-segment test durations from cache
+              timeout-minutes: 2
+              continue-on-error: true
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: |
@@ -825,6 +830,8 @@ jobs:
               # The timing workflow rebuilds it from the newest hourly recording. A miss
               # leaves the file absent, and the events_json rows then run every listed test.
               if: github.event_name == 'pull_request'
+              timeout-minutes: 2
+              continue-on-error: true
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: events-schema-prune.json
@@ -948,6 +955,8 @@ jobs:
         steps:
             - name: Look up schema cache
               id: schema-cache
+              timeout-minutes: 4
+              continue-on-error: true
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: schema.sql.gz
@@ -1170,6 +1179,8 @@ jobs:
                     || { echo "::group::compose launch log"; cat "${RUNNER_TEMP:-/tmp}/compose-launch.log" 2>/dev/null || true; echo "::endgroup::"; exit 1; }
             - name: Restore schema cache from master
               if: ${{ github.event_name == 'pull_request' }}
+              timeout-minutes: 4
+              continue-on-error: true
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: schema.sql.gz
@@ -1226,7 +1237,7 @@ jobs:
                   bin/wait-for-docker temporal
                   PYTHONFAULTHANDLER=1 timeout --signal=ABRT --kill-after=30s 3m python manage.py register_temporal_search_attributes
             - name: Restore test durations from cache
-              timeout-minutes: 7
+              timeout-minutes: 2
               continue-on-error: true
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
@@ -1524,7 +1535,8 @@ jobs:
         needs: [changes]
         if: needs.changes.outputs.sdk_manifests == 'true' && github.event_name != 'schedule'
         timeout-minutes: 5
-        permissions: {}
+        permissions:
+            contents: read
         name: SDK major-version guard (depot-ubuntu-24.04)
         runs-on: depot-ubuntu-24.04
         steps:
@@ -1835,6 +1847,8 @@ jobs:
             - name: Restore master schema dump from cache
               id: master-schema-cache
               if: github.event_name != 'push' && steps.master-schema-key.outputs.key != ''
+              timeout-minutes: 4
+              continue-on-error: true
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: schema.sql.gz
@@ -2164,6 +2178,11 @@ jobs:
                   GH_TOKEN: ${{ steps.migration-risk-app-token.outputs.token }}
                   HEAD_SHA: ${{ github.event.pull_request.head.sha }}
                   REPO: ${{ github.repository }}
+              # A repeated POST adds a second identical check run, and GitHub shows the newest one.
+              retry:
+                  retries: 3
+                  backoff: exponential
+                  delay-seconds: 5
               run: |
                   if [ ! -f migration_analysis.json ]; then
                     # Analyzer crashed before writing JSON. Publish a failure
@@ -2648,7 +2667,21 @@ jobs:
               run: gh pr merge --disable-auto "$PR_NUMBER" || echo "Auto-merge was not enabled"
 
             - name: Commit OpenAPI types via GitHub API (signed)
+              id: openapi-commit
               if: steps.openapi-check.outputs.needs-commit == 'true'
+              continue-on-error: true
+              uses: planetscale/ghcommit-action@25309d8005ac7c3bcd61d3fe19b69e0fe47dbdde # v0.2.20
+              with:
+                  commit_message: 'chore: update OpenAPI generated types'
+                  repo: ${{ github.repository }}
+                  branch: ${{ github.event.pull_request.head.ref }}
+                  file_pattern: ${{ steps.openapi-check.outputs.drifted-files }}
+              env:
+                  GITHUB_TOKEN: ${{ steps.openapi-app-token.outputs.token }}
+
+            # Depot rejects retry: on a uses: step, so a failed commit gets one more attempt here.
+            - name: Retry OpenAPI types commit
+              if: steps.openapi-commit.outcome == 'failure'
               uses: planetscale/ghcommit-action@25309d8005ac7c3bcd61d3fe19b69e0fe47dbdde # v0.2.20
               with:
                   commit_message: 'chore: update OpenAPI generated types'
@@ -3162,6 +3195,8 @@ jobs:
             # Restore before setup-python so the tool cache is warm when it starts.
             - name: Restore Python tool cache
               id: python-toolcache
+              timeout-minutes: 2
+              continue-on-error: true
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: ${{ runner.tool_cache }}/Python/${{ matrix.python-version }}
@@ -3323,6 +3358,8 @@ jobs:
                     || { echo "::group::compose launch log"; cat "${RUNNER_TEMP:-/tmp}/compose-launch.log" 2>/dev/null || true; echo "::endgroup::"; exit 1; }
             - name: Restore schema cache from master
               if: ${{ github.event_name == 'pull_request' }}
+              timeout-minutes: 4
+              continue-on-error: true
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: schema.sql.gz
@@ -3374,6 +3411,8 @@ jobs:
                       admin_psql -c "DROP DATABASE IF EXISTS test_posthog;" || true
                   fi
             - name: Restore test durations from cache
+              timeout-minutes: 2
+              continue-on-error: true
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: .test_durations
@@ -3401,6 +3440,8 @@ jobs:
                   gh run download "$run_id" --repo "$GITHUB_REPOSITORY" --name test-durations --dir . \
                       || echo "::warning::Timing artifact of run $run_id unavailable, sharding without durations"
             - name: Restore per-segment test durations from cache
+              timeout-minutes: 2
+              continue-on-error: true
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: |
@@ -3409,37 +3450,6 @@ jobs:
                   key: posthog-segment-durations-${{ github.run_id }}
                   restore-keys: |
                       posthog-segment-durations-
-            - name: Compute hypothesis constants cache key
-              # hypothesis builds its constants pool of property-test inputs by
-              # AST-parsing every local module in sys.modules. It caches the result
-              # in .hypothesis/constants under a hash of each source file, so the
-              # pool is content-addressed: restoring a stale copy is safe, because a
-              # changed file reads as a miss and rebuilds. CI otherwise pays the full
-              # parse on every shard's pytest collection (about 10 s per shard).
-              id: hyp-constants-key
-              shell: bash
-              run: |
-                  # The key includes the installed hypothesis version because the
-                  # entry format is an implementation detail, and rotates weekly so
-                  # entries for deleted or rewritten files expire. The restore prefix
-                  # covers the gap until the first master run of a new week saves.
-                  hyp_version=$(python -c "import hypothesis; print(hypothesis.__version__)")
-                  prefix="posthog-hypothesis-constants-${hyp_version}-${HYPOTHESIS_CONSTANTS_EPOCH}-"
-                  {
-                      echo "key=${prefix}$(date -u +%G-%V)"
-                      echo "restore_prefix=${prefix}"
-                  } >> "$GITHUB_OUTPUT"
-            - name: Restore hypothesis constants cache
-              id: hyp-constants
-              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
-              with:
-                  # Constants only. Do NOT add .hypothesis/examples: the example
-                  # database decides which inputs property tests replay, so reusing
-                  # one across runs changes what the tests check.
-                  path: .hypothesis/constants
-                  key: ${{ steps.hyp-constants-key.outputs.key }}
-                  restore-keys: |
-                      ${{ steps.hyp-constants-key.outputs.restore_prefix }}
             # Tests
             - name: Set snapshot update flags
               if: ${{ needs.changes.outputs.backend == 'true' && (needs.detect-snapshot-mode.outputs.mode == 'update' || matrix.person-on-events) }}
@@ -3778,27 +3788,6 @@ jobs:
                   else
                       exit $exit_code
                   fi
-            - name: Save hypothesis constants cache
-              # One Core shard per master run writes the weekly entry: a save from
-              # every shard would race on the same key and churn the shared cache
-              # budget. cache-hit != 'true' skips the save once this week's entry
-              # exists, which keeps later master runs cheap.
-              # continue-on-error: overlapping master runs at week rollover fail its
-              # reservation check when an earlier run has saved the same key, and a
-              # cache miss must never red a green run.
-              continue-on-error: true
-              if: |
-                  env.IS_MASTER == 'true' &&
-                  matrix.segment == 'Core' &&
-                  matrix.group == 1 &&
-                  !matrix.person-on-events &&
-                  !matrix.new-events-schema &&
-                  !matrix.compat &&
-                  steps.hyp-constants.outputs.cache-hit != 'true'
-              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
-              with:
-                  path: .hypothesis/constants
-                  key: ${{ steps.hyp-constants-key.outputs.key }}
             # Post tests
             - name: Show docker compose logs on failure
               if: failure() && (needs.changes.outputs.backend == 'true' && steps.run-core-tests.outcome != 'failure' && steps.run-temporal-tests.outcome != 'failure')

@@ -17,7 +17,10 @@ from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    DEFAULT_RETRY,
+    make_tracked_session,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
     incremental_field,
@@ -158,11 +161,17 @@ def _auth_session(credentials: FirebaseCredentials) -> requests.Session:
     return make_tracked_session(redact_values=credentials.secret_values, capture=False)
 
 
+# Firestore's `listCollectionIds` and `runQuery` are read-only POSTs, so the GET retry policy is safe
+# for them. Without it, one transient 503 from Google fails schema discovery in the source wizard.
+_API_RETRY = DEFAULT_RETRY.new(allowed_methods=frozenset(DEFAULT_RETRY.allowed_methods or ()) | {"POST"})
+
+
 def _api_session(credentials: FirebaseCredentials, *, capture: bool = True) -> requests.Session:
     return make_tracked_session(
         headers={"Accept": "application/json"},
         redact_values=credentials.secret_values,
         capture=capture,
+        retry=_API_RETRY,
     )
 
 
