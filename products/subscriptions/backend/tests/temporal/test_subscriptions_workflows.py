@@ -1,4 +1,5 @@
 import uuid
+import asyncio
 import smtplib
 from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
@@ -15,6 +16,7 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from django.utils import timezone
 
 import pytest_asyncio
+import temporalio.workflow
 from asgiref.sync import sync_to_async
 from slack_sdk.errors import SlackApiError
 from temporalio.client import Client, WorkflowFailureError
@@ -73,6 +75,7 @@ from products.subscriptions.backend.temporal.ai_subscription.activities import (
 from products.subscriptions.backend.temporal.ai_subscription.report_pipeline import AiReportResult, QueryStepDiagnostic
 from products.subscriptions.backend.temporal.delivery_common import deliver_email
 from products.subscriptions.backend.temporal.types import (
+    AI_PROMPT_RESOURCE_TYPE,
     CreateDeliveryRecordInputs,
     CreateExportAssetsInputs,
     DeliverSubscriptionInputs,
@@ -501,6 +504,81 @@ async def test_handle_subscription_value_change_email(
     ]
     assert len(completed_calls) == 1
     assert completed_calls[0].kwargs["properties"]["outcome"] == SloOutcome.SUCCESS
+
+
+_started_child_ids: list[str] = []
+
+
+class _BlockingChildWorkflow:
+    def __init__(self) -> None:
+        self.released = False
+
+    @temporalio.workflow.signal
+    def release(self) -> None:
+        self.released = True
+
+    async def _block(self) -> None:
+        _started_child_ids.append(temporalio.workflow.info().workflow_id)
+        await temporalio.workflow.wait_condition(lambda: self.released)
+
+
+@temporalio.workflow.defn(name="process-subscription")
+class _BlockingProcessSubscriptionWorkflow(_BlockingChildWorkflow):
+    @temporalio.workflow.run
+    async def run(self, inputs: TrackedSubscriptionInputs) -> None:
+        await self._block()
+
+
+@temporalio.workflow.defn(name="process-ai-subscription")
+class _BlockingProcessAISubscriptionWorkflow(_BlockingChildWorkflow):
+    @temporalio.workflow.run
+    async def run(self, inputs: TrackedSubscriptionInputs) -> None:
+        await self._block()
+
+
+@pytest.mark.parametrize("resource_type", ["", AI_PROMPT_RESOURCE_TYPE])
+@pytest.mark.asyncio
+async def test_handle_subscription_value_change_overlapping_parents_each_deliver(resource_type: str) -> None:
+    _started_child_ids.clear()
+    inputs = ProcessSubscriptionWorkflowInputs(
+        subscription_id=1,
+        team_id=1,
+        distinct_id="distinct-id",
+        trigger_type=SubscriptionTriggerType.SUBSCRIPTION_CHANGE,
+        resource_type=resource_type,
+    )
+
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            workflows=[
+                HandleSubscriptionValueChangeWorkflow,
+                _BlockingProcessSubscriptionWorkflow,
+                _BlockingProcessAISubscriptionWorkflow,
+            ],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            parents = [
+                await env.client.start_workflow(
+                    HandleSubscriptionValueChangeWorkflow.run,
+                    inputs,
+                    id=f"handle-subscription-value-change-1-{uuid.uuid4()}",
+                    task_queue=settings.TEMPORAL_TASK_QUEUE,
+                )
+                for _ in range(2)
+            ]
+
+            for _ in range(200):
+                if len(_started_child_ids) == 2:
+                    break
+                await asyncio.sleep(0.05)
+            assert len(set(_started_child_ids)) == 2
+
+            for child_id in _started_child_ids:
+                await env.client.get_workflow_handle(child_id).signal("release")
+            for parent in parents:
+                await parent.result()
 
 
 @patch(
