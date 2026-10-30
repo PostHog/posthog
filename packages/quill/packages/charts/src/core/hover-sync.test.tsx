@@ -17,6 +17,12 @@ describe('hover-sync', () => {
         // Labels are bucket starts, so a time maps to the bucket it falls in, not the nearest start.
         ['picks the bucket that contains a time', DAYS, '2026-01-02T15:00:00Z', 1],
         ['covers the whole last bucket', DAYS, '2026-01-03T10:00:00Z', 2],
+        [
+            'covers a last month longer than the one before it',
+            ['2026-01-01', '2026-02-01', '2026-03-01'],
+            '2026-03-30',
+            2,
+        ],
         ['reads an offset label as its instant', DAYS, '2026-01-02T22:00:00-05:00', 2],
         ['ignores a date past the last bucket', DAYS, '2026-01-04T00:00:00Z', -1],
         ['ignores a date before the range', DAYS, '2025-12-31', -1],
