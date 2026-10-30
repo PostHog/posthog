@@ -73,10 +73,11 @@ export class LocalChats {
   // Task ids of the local chats with a session file, with when each last changed.
   list(): Map<string, number> {
     const chats = new Map<string, number>();
-    for (const name of this.names()) {
-      const id = name.slice(0, -SESSION_SUFFIX.length);
+    for (const name of [...this.names(), ...this.names(HARNESS_SUFFIX)]) {
+      const id = name.slice(0, name.lastIndexOf("."));
       if (id.startsWith(LEGACY_PREFIX)) continue;
-      chats.set(id, statSync(join(this.dir, name)).mtimeMs);
+      const changed = statSync(join(this.dir, name)).mtimeMs;
+      chats.set(id, Math.max(chats.get(id) ?? 0, changed));
     }
     return chats;
   }
