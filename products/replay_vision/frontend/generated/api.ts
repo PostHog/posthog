@@ -23,6 +23,8 @@ import type {
     EstimateRequestApi,
     EstimateResponseApi,
     ExperimentVariantsReadoutApi,
+    HighlightFeedImpressionsApi,
+    HighlightFeedResponseApi,
     InlineScanRequestApi,
     InlineScanResponseApi,
     ObservationFeedDismissalApi,
@@ -69,6 +71,7 @@ import type {
     VisionObservationsThumbnailRetrieveParams,
     VisionQuotaApi,
     VisionScannersBackfillsListParams,
+    VisionScannersHighlightFeedRetrieveParams,
     VisionScannersImpactRetrieveParams,
     VisionScannersListParams,
     VisionScannersObservationsListParams,
@@ -76,10 +79,7 @@ import type {
     VisionScannersObservationsSignalReportsListParams,
     VisionScannersObservationsStatsRetrieveParams,
     VisionScannersObservationsThumbnailRetrieveParams,
-    VisionScannersWatchFeedRetrieveParams,
     VisionSpendSeriesApi,
-    WatchFeedImpressionsApi,
-    WatchFeedResponseApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -1596,6 +1596,59 @@ export const visionScannersEstimateCreate = async (
     })
 }
 
+export const getVisionScannersHighlightFeedRetrieveUrl = (
+    projectId: string,
+    params?: VisionScannersHighlightFeedRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/vision/scanners/highlight_feed/?${stringifiedParams}`
+        : `/api/projects/${projectId}/vision/scanners/highlight_feed/`
+}
+
+/**
+ * Succeeded observations in the window worth watching, ranked for the Highlights tab.
+ */
+export const visionScannersHighlightFeedRetrieve = async (
+    projectId: string,
+    params?: VisionScannersHighlightFeedRetrieveParams,
+    options?: RequestInit
+): Promise<HighlightFeedResponseApi> => {
+    return apiMutator<HighlightFeedResponseApi>(getVisionScannersHighlightFeedRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getVisionScannersHighlightFeedImpressionsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/vision/scanners/highlight_feed_impressions/`
+}
+
+/**
+ * Record that the calling user saw these cards in the Highlights feed, so the feed ranks them lower next time.
+ */
+export const visionScannersHighlightFeedImpressionsCreate = async (
+    projectId: string,
+    highlightFeedImpressionsApi: HighlightFeedImpressionsApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getVisionScannersHighlightFeedImpressionsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(highlightFeedImpressionsApi),
+    })
+}
+
 export const getVisionScannersInlineScanCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/vision/scanners/inline_scan/`
 }
@@ -1637,58 +1690,5 @@ export const visionScannersStatsRetrieve = async (
     return apiMutator<ScannerStatsResponseApi>(getVisionScannersStatsRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
-    })
-}
-
-export const getVisionScannersWatchFeedRetrieveUrl = (
-    projectId: string,
-    params?: VisionScannersWatchFeedRetrieveParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/vision/scanners/watch_feed/?${stringifiedParams}`
-        : `/api/projects/${projectId}/vision/scanners/watch_feed/`
-}
-
-/**
- * Succeeded observations in the window worth watching, ranked for the Highlights tab.
- */
-export const visionScannersWatchFeedRetrieve = async (
-    projectId: string,
-    params?: VisionScannersWatchFeedRetrieveParams,
-    options?: RequestInit
-): Promise<WatchFeedResponseApi> => {
-    return apiMutator<WatchFeedResponseApi>(getVisionScannersWatchFeedRetrieveUrl(projectId, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getVisionScannersWatchFeedImpressionsCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/vision/scanners/watch_feed_impressions/`
-}
-
-/**
- * Record that the calling user saw these cards in the Highlights feed, so the feed ranks them lower next time.
- */
-export const visionScannersWatchFeedImpressionsCreate = async (
-    projectId: string,
-    watchFeedImpressionsApi: WatchFeedImpressionsApi,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getVisionScannersWatchFeedImpressionsCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(watchFeedImpressionsApi),
     })
 }

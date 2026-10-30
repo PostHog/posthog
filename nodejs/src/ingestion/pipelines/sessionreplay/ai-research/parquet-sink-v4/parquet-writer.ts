@@ -20,11 +20,23 @@ PARQUET_COMPRESSION_METHODS.ZSTD = {
     inflate: (value: Buffer) => zstdDecompressAsync(value),
 }
 
+// A list of structs gets the 3-level LIST layout because Athena reads a bare repeated group of several fields as null.
 function schemaDef(columns: readonly V4Column[]): SchemaDef {
     const def: Record<string, unknown> = {}
     for (const column of columns) {
         if ('repeated' in column) {
-            def[column.name] = { repeated: true, fields: schemaDef(column.fields) }
+            def[column.name] = {
+                type: 'LIST',
+                fields: { list: { repeated: true, fields: { element: { fields: schemaDef(column.fields) } } } },
+            }
+        } else if ('elements' in column) {
+            def[column.name] = {
+                type: 'LIST',
+                optional: true,
+                fields: {
+                    list: { repeated: true, fields: { element: { type: column.elements, compression: 'ZSTD' } } },
+                },
+            }
         } else if ('list' in column) {
             def[column.name] = { type: column.list, repeated: true, compression: 'ZSTD' }
         } else {
@@ -71,9 +83,16 @@ function toRecord(row: V4IndexRow, columns: readonly V4Column[]): Record<string,
     for (const column of columns) {
         const value = row[column.name]
         if ('repeated' in column) {
-            record[column.name] = (value as V4IndexRow[]).map((item) => toRecord(item, column.fields))
+            record[column.name] = {
+                list: (value as V4IndexRow[]).map((item) => ({ element: toRecord(item, column.fields) })),
+            }
         } else if ('list' in column) {
             record[column.name] = (value as unknown[]).map((item) => toValue(column.list, item))
+        } else if ('elements' in column) {
+            record[column.name] =
+                value === null || value === undefined
+                    ? null
+                    : { list: (value as unknown[]).map((item) => ({ element: toValue(column.elements, item) })) }
         } else if (value === null || value === undefined) {
             record[column.name] = null
         } else {

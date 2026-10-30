@@ -22,7 +22,7 @@ import { usePlayerMounted } from './usePlayerMounted'
 export interface ReplayListColumnProps {
     logicKey: string
     recordingsList: ReactNode
-    /** The What to watch list, when the picks experiment offers one. */
+    /** The Highlights list, when the picks experiment offers one. */
     picksList?: ReactNode
     picksMode: ReplayListPicksMode
     unwatchedPicksCount?: number
@@ -79,7 +79,7 @@ function ReplayListColumnView({
                       value: 'picks' as const,
                       label: (
                           <span className="flex items-center gap-1">
-                              <span>What to watch</span>
+                              <span>Highlights</span>
                               {unwatchedPicksCount > 0 && (
                                   <LemonBadge.Number count={unwatchedPicksCount} size="small" status="muted" />
                               )}

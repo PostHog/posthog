@@ -16,6 +16,7 @@ import { createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
+import { logger } from '~/common/utils/logger'
 import { UUIDT } from '~/common/utils/utils'
 import { waitForExpect } from '~/tests/helpers/expectations'
 
@@ -264,6 +265,33 @@ describe('CDP API', () => {
               "Fetch response:, {"status":200,"body":{}}",
             ]
         `)
+    })
+
+    it('keeps the server project when the request globals carry a different one', async () => {
+        const res = await supertest(app)
+            .post(`/api/projects/${hogFunction.team_id}/hog_functions/${hogFunction.id}/invocations`)
+            .send({
+                globals: {
+                    ...globals,
+                    project: { id: 999, name: 'Placeholder', url: 'https://example.com/project/999' },
+                },
+                mock_async_functions: true,
+                configuration: {
+                    inputs: {
+                        ...hogFunction.inputs,
+                        body: {
+                            value: { project_url: '{project.url}' },
+                            bytecode: { project_url: ['_H', 1, 32, 'url', 32, 'project', 1, 2] },
+                        },
+                    },
+                },
+            })
+
+        expect(res.status).toEqual(200)
+        expect(res.body.errors).toEqual([])
+        const fetchLog = res.body.logs.map((log: any) => log.message).join('\n')
+        expect(fetchLog).toContain(`"project_url": "http://localhost:8000/project/${team.id}"`)
+        expect(fetchLog).not.toContain('/project/999')
     })
 
     it('can invoke a function via the API with real fetch', async () => {
@@ -2183,7 +2211,7 @@ describe('CDP API', () => {
         })
 
         it('queues one run on the email fast lane with the recipient and the data', async () => {
-            const queueAppMetric = jest.spyOn(api['hogFunctionMonitoringService'], 'queueAppMetric')
+            const queueAppMetric = jest.spyOn(api['invocationResultsService'].monitoringService, 'queueAppMetric')
             const queuedBefore = await outcomeCount('queued')
             const stagesBefore = await stageCounts()
 
@@ -2213,16 +2241,43 @@ describe('CDP API', () => {
                 state: {
                     event: { distinct_id: 'distinct_A_1', properties: { to: 'user@example.com' } },
                     variables: { reset_link: 'https://example.com/reset' },
+                    triggerMetricPending: true,
                 },
             })
-            // The run counts as started in the workflow's metrics, like an event-triggered run.
-            expect(queueAppMetric).toHaveBeenCalledWith(
-                expect.objectContaining({ app_source_id: hogFlow.id, metric_name: 'triggered', count: 1 }),
-                'hog_flow'
+            // The email worker counts the run as triggered, so a count here would count it twice.
+            expect(queueAppMetric).not.toHaveBeenCalledWith(
+                expect.objectContaining({ metric_name: 'triggered' }),
+                expect.anything()
             )
             expect(emailStatusRows()).toEqual([
                 expect.objectContaining({ team_id: team.id, message_id: res.body.invocation_id, status: 'queued' }),
             ])
+        })
+
+        it('replies before Kafka acks the result and status rows', async () => {
+            let ackProduce: () => void = () => {}
+            const acked = new Promise<void>((resolve) => (ackProduce = resolve))
+            produceOutput.mockImplementation(() => acked)
+            const resultsOutputs = api['invocationResultsService'].invocationResultsRowsService['outputs']
+            const produceResultRow = jest.spyOn(resultsOutputs, 'produce').mockImplementation(() => acked)
+            const resultsEnabled = hub.HOG_INVOCATION_RESULTS_ENABLED
+            hub.HOG_INVOCATION_RESULTS_ENABLED = true
+
+            try {
+                const res = await send(hogFlow.id, { Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` })
+
+                expect(res.status).toEqual(202)
+                expect(produceResultRow).toHaveBeenCalledWith(
+                    'hog_invocation_results',
+                    expect.objectContaining({ key: Buffer.from(res.body.invocation_id) })
+                )
+                expect(emailStatusRows()).toEqual([
+                    expect.objectContaining({ message_id: res.body.invocation_id, status: 'queued' }),
+                ])
+            } finally {
+                hub.HOG_INVOCATION_RESULTS_ENABLED = resultsEnabled
+                ackProduce()
+            }
         })
 
         describe('with an idempotency key', () => {
@@ -2390,6 +2445,41 @@ describe('CDP API', () => {
 
             expect(retry.status).toEqual(202)
             expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
+        })
+
+        it.each([
+            ['a valid address', { to: 'user@example.com' }, 202, 'queued'],
+            ['a domain with a fullwidth dot', { to: 'user@ph\uFF0Eexample.com' }, 422, 'recipient_unreachable'],
+            ['an ideographic full stop', { to: 'user@ph\u3002example.com' }, 422, 'recipient_unreachable'],
+            ['a zero-width space', { to: 'user\u200B@example.com' }, 422, 'recipient_unreachable'],
+            ['no recipient', { to: undefined }, 400, 'invalid_request'],
+            [
+                'a bad address and no distinct_id',
+                { to: 'user@ph\u3002example.com', distinct_id: '' },
+                400,
+                'invalid_request',
+            ],
+        ] as const)('answers a send to %s', async (_desc, overrides, expectedStatus, outcome) => {
+            const warn = jest.spyOn(logger, 'warn')
+            const before = await outcomeCount(outcome)
+
+            const res = await send(
+                hogFlow.id,
+                { Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` },
+                { ...body, ...overrides }
+            )
+
+            expect(res.status).toEqual(expectedStatus)
+            expect(await outcomeCount(outcome)).toEqual(before + 1)
+            expect(mockQueueInvocations).toHaveBeenCalledTimes(expectedStatus === 202 ? 1 : 0)
+            if (expectedStatus === 422) {
+                expect(res.body).toEqual({ error: 'recipient_unreachable' })
+            }
+            const validationLogs = warn.mock.calls.filter((args) =>
+                args.includes('Transactional email request failed validation')
+            )
+            expect(validationLogs).toHaveLength(expectedStatus === 400 ? 1 : 0)
+            expect(JSON.stringify(validationLogs)).not.toContain('example.com')
         })
 
         it('sends to a recipient whose only suppression is a spam complaint', async () => {

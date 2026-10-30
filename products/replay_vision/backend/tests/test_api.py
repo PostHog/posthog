@@ -36,9 +36,9 @@ from posthog.session_recordings.queries.test.session_replay_sql import produce_r
 from products.access_control.backend.models.access_control import AccessControl
 from products.experiments.backend.models.experiment import Experiment
 from products.replay_vision.backend.api.scanners import (
-    WATCH_FEED_PICKS_BUCKET_S,
+    HIGHLIGHT_FEED_PICKS_BUCKET_S,
+    HighlightFeedQuerySerializer,
     ReplayScannerSerializer,
-    WatchFeedQuerySerializer,
 )
 from products.replay_vision.backend.api.trigger import WorkflowStartOutcome, start_apply_scanner_workflow
 from products.replay_vision.backend.billing import observation_credits_for_model
@@ -777,12 +777,24 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
 
     @parameterized.expand(
         [
-            ("unknown_field", {"this_field_does_not_exist": True}),
+            ("unknown_field", {"this_field_does_not_exist": True}, "Recording filter is invalid."),
             # An oversized query is copied into every observation's snapshot, so it is capped on save.
-            ("oversized", {"distinct_ids": ["x" * 1_000 for _ in range(100)]}),
+            (
+                "oversized",
+                {"distinct_ids": ["x" * 1_000 for _ in range(100)]},
+                "Recording filter is too large. Keep it under 50 KB.",
+            ),
+            # Every rule reads fields off the query, so any other shape must be refused before they run.
+            ("not_an_object", ["kind", "RecordingsQuery"], "Recording filter must be a JSON object."),
+            # Exposure in the query would skip experiment_targeting's access check.
+            (
+                "experiment_exposure",
+                {"experiment_exposure": {"experiment_id": 1}},
+                "Recording filter can't set experiment exposure directly. Set experiment_targeting instead.",
+            ),
         ]
     )
-    def test_create_rejects_invalid_query(self, _name: str, query: dict) -> None:
+    def test_create_rejects_invalid_query(self, _name: str, query: object, detail: str) -> None:
         resp = self.client.post(
             self.scanners_url,
             data={
@@ -795,7 +807,7 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
             format="json",
         )
         self.assertEqual(resp.status_code, 400, resp.json())
-        self.assertEqual(resp.json()["attr"], "query")
+        self.assertEqual((resp.json()["attr"], resp.json()["detail"]), ("query", detail))
 
     def test_delete(self) -> None:
         scanner = self._create_scanner()
@@ -2249,14 +2261,15 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
             ("asked_by_a_copy", "copy"),
             ("unknown_id", None),
             ("another_teams_row", "other_team"),
+            ("kept_to_the_chosen_kinds", "copy", "failure,revenue"),
         ]
     )
-    def test_filter_by_watch_group(self, _name: str, asked: str | None) -> None:
+    def test_filter_by_watch_group(self, _name: str, asked: str | None, categories: str | None = None) -> None:
         rows = {
             name: self._create_observation(
                 session_id=name, status=ObservationStatus.SUCCEEDED, completed_at=timezone.now()
             )
-            for name in ("root", "copy", "routine", "stale", "other")
+            for name in ("root", "copy", "struggle", "routine", "stale", "other")
         }
         root_id = str(rows["root"].id)
 
@@ -2271,6 +2284,7 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
         for name, watch_rank in {
             "root": rank(None),
             "copy": rank(root_id),
+            "struggle": rank(root_id, category="struggle"),
             "routine": rank(root_id, category="routine"),
             "stale": rank(root_id, anchor_version=ANCHOR_VERSION - 1),
             "other": rank(None),
@@ -2287,10 +2301,12 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
             watch_rank=rank(root_id),
         )
         member = {"other_team": str(other_row.id), None: str(uuid.uuid4())}.get(asked) or str(rows[str(asked)].id)
-        resp = self.client.get(f"{self.observations_url(str(self.scanner.id))}?watch_group={member}")
+        query = f"watch_group={member}" + (f"&watch_category={categories}" if categories else "")
+        resp = self.client.get(f"{self.observations_url(str(self.scanner.id))}?{query}")
 
         self.assertEqual(resp.status_code, 200)
-        expected = {"root", "copy"} if asked in ("root", "copy") else set()
+        group = {"root", "copy"} if categories else {"root", "copy", "struggle"}
+        expected = group if asked in ("root", "copy") else set()
         self.assertEqual({r["session_id"] for r in resp.json()["results"]}, expected)
 
     def test_order_by_created_at_descending(self) -> None:
@@ -2479,6 +2495,7 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
             ("status=bogus", "status"),
             ("triggered_by=hack", "triggered_by"),
             ("verdict=maybe", "verdict"),
+            ("watch_category=routine", "watch_category"),
             ("min_score=low", "min_score"),
             ("max_score=high", "max_score"),
             ("order_by=garbage", "order_by"),
@@ -4195,6 +4212,10 @@ class TestReplayScannerEstimateAction(ClickhouseTestMixin, _VisionAPITestCase):
                 {"experiment": {"experiment_id": 1}, "experiment_targeting": {"experiment_id": 1, "variant": None}},
             ),
             ("empty_variant_list", {"experiment": {"experiment_id": 1, "variants": []}}),
+            # The estimate takes the same filter a saved scanner keeps, so it applies the same rules.
+            ("query_oversized", {"query": {"distinct_ids": ["x" * 1_000 for _ in range(100)]}}),
+            ("query_experiment_exposure", {"query": {"experiment_exposure": {"experiment_id": 1}}}),
+            ("query_not_an_object", {"query": ["kind", "RecordingsQuery"]}),
         ]
     )
     def test_estimate_rejects_invalid_input(self, _name: str, payload: dict[str, Any]) -> None:
@@ -4764,7 +4785,7 @@ class TestInlineScanAction(_VisionAPITestCase):
         start_workflow.assert_not_called()
 
 
-class TestWatchFeedQueryValidation(SimpleTestCase):
+class TestHighlightFeedQueryValidation(SimpleTestCase):
     @parameterized.expand(
         [
             ("empty_scanner_ids", {"scanner_ids": ""}),
@@ -4774,23 +4795,35 @@ class TestWatchFeedQueryValidation(SimpleTestCase):
             ("non_numeric_created_by", {"created_by": "1,alice"}),
             ("limit_too_high", {"limit": "51"}),
             ("limit_zero", {"limit": "0"}),
+            ("unknown_category", {"categories": "failure,billing"}),
+            ("only_separators", {"categories": ","}),
         ]
     )
     def test_rejects_invalid_query(self, _name: str, params: dict[str, str]) -> None:
-        serializer = WatchFeedQuerySerializer(data=params)
+        serializer = HighlightFeedQuerySerializer(data=params)
         assert not serializer.is_valid()
 
     def test_defaults_apply(self) -> None:
-        serializer = WatchFeedQuerySerializer(data={})
+        serializer = HighlightFeedQuerySerializer(data={})
         assert serializer.is_valid()
         assert serializer.validated_data["date_from"] == "-7d"
         assert serializer.validated_data["limit"] == 20
 
+    @parameterized.expand(
+        [("every_category", "struggle,revenue,failure", None), ("subset", "revenue,failure", ["failure", "revenue"])]
+    )
+    def test_categories_normalize_so_equal_choices_share_cached_picks(
+        self, _name: str, raw: str, expected: list[str] | None
+    ) -> None:
+        serializer = HighlightFeedQuerySerializer(data={"categories": raw})
+        assert serializer.is_valid()
+        assert serializer.validated_data["categories"] == expected
 
-class TestWatchFeedAPI(_VisionAPITestCase):
+
+class TestHighlightFeedAPI(_VisionAPITestCase):
     @property
     def feed_url(self) -> str:
-        return f"{self.scanners_url}watch_feed/"
+        return f"{self.scanners_url}highlight_feed/"
 
     def _succeeded_observation(
         self,
@@ -4860,6 +4893,32 @@ class TestWatchFeedAPI(_VisionAPITestCase):
             [item["observation"]["session_id"] for item in items], [f"row-{i}" for i in range(len(expected_kinds))]
         )
 
+    def test_categories_drop_the_left_out_picks_even_when_picks_are_cached(self) -> None:
+        scanner = self._create_scanner(name="m")
+        # Of 20 ranked rows the top four clear the percentile cut: two failures and two revenue rows.
+        rows = []
+        for i in range(20):
+            category = ("failure", "revenue")[i % 2] if i < 4 else "routine"
+            rows.append(self._ranked_observation(scanner, f"row-{i}", 10 + i, category, 0.9 - i / 100))
+        self._ranked_observation(scanner, "row-1-failure-copy", 40, "failure", -0.5, group=str(rows[1].id))
+
+        everything = self.client.get(self.feed_url, {"limit": 50}).json()["results"]
+        revenue_only = self.client.get(self.feed_url, {"limit": "50", "categories": "revenue"}).json()["results"]
+
+        def picks(items: list[dict]) -> dict[str, int]:
+            return {
+                item["observation"]["session_id"]: item["reason"]["similar_count"]
+                for item in items
+                if item["reason"]["kind"] == "embedding_pick"
+            }
+
+        assert picks(everything) == {"row-0": 0, "row-1": 1, "row-2": 0, "row-3": 0}
+        assert picks(revenue_only) == {"row-1": 0, "row-3": 0}
+        # Two picks fall short of the floor, so filler pads the feed without the failures just hidden.
+        shown = [item["observation"]["session_id"] for item in revenue_only]
+        assert len(shown) >= 3
+        assert not {"row-0", "row-2"} & set(shown)
+
     def test_pages_do_not_shift_when_the_reader_opens_a_card_mid_scroll(self) -> None:
         scanner = self._create_scanner(name="m")
         for i in range(30):
@@ -4882,7 +4941,8 @@ class TestWatchFeedAPI(_VisionAPITestCase):
     def test_a_later_loads_cached_picks_do_not_serve_an_earlier_loads_pages(self) -> None:
         scanner = self._create_scanner(name="m")
         bucket_start = datetime.fromtimestamp(
-            (int(timezone.now().timestamp()) // WATCH_FEED_PICKS_BUCKET_S - 1) * WATCH_FEED_PICKS_BUCKET_S, tz=UTC
+            (int(timezone.now().timestamp()) // HIGHLIGHT_FEED_PICKS_BUCKET_S - 1) * HIGHLIGHT_FEED_PICKS_BUCKET_S,
+            tz=UTC,
         )
         earlier, later = bucket_start + timedelta(minutes=1), bucket_start + timedelta(minutes=5)
         for index in range(12):
@@ -4913,8 +4973,11 @@ class TestWatchFeedAPI(_VisionAPITestCase):
         self._ranked_observation(scanner, "copy", 400, "failure", -0.5, group=str(oldest.id))
         for index in range(10):
             self._ranked_observation(scanner, f"routine-{index}", index)
+        # A row outside the reader's scanner selection never counts, even under the same group id.
+        other = self._create_scanner(name="other")
+        self._ranked_observation(other, "elsewhere", 300, "failure", 0.9, group=str(oldest.id))
 
-        items = self.client.get(self.feed_url).json()["results"]
+        items = self.client.get(self.feed_url, {"scanner_ids": str(scanner.id)}).json()["results"]
         picks = [item for item in items if item["reason"]["kind"] == "embedding_pick"]
         self.assertEqual([item["observation"]["session_id"] for item in picks], ["oldest-failure"])
         self.assertEqual(picks[0]["reason"]["similar_count"], 1)
@@ -4951,7 +5014,7 @@ class TestWatchFeedAPI(_VisionAPITestCase):
                     }
                 )
 
-        with patch("products.replay_vision.backend.api.scanners.WATCH_FEED_CANDIDATE_CAP", 2):
+        with patch("products.replay_vision.backend.api.scanners.HIGHLIGHT_FEED_CANDIDATE_CAP", 2):
             items = self.client.get(self.feed_url).json()["results"]
         picked = {item["observation"]["session_id"] for item in items if item["reason"]["kind"] == "embedding_pick"}
         self.assertEqual(picked, {"busy-0", "quiet-0"})
@@ -4980,8 +5043,8 @@ class TestWatchFeedAPI(_VisionAPITestCase):
             root_id = root_id or str(obs.id)
 
         with (
-            patch("products.replay_vision.backend.api.scanners.WATCH_FEED_CANDIDATE_CAP", cap),
-            patch("products.replay_vision.backend.watch_rank.WATCH_PICK_GROUP_CANDIDATES", group_candidates),
+            patch("products.replay_vision.backend.api.scanners.HIGHLIGHT_FEED_CANDIDATE_CAP", cap),
+            patch("products.replay_vision.backend.watch_rank.HIGHLIGHT_PICK_GROUP_CANDIDATES", group_candidates),
         ):
             items = self.client.get(self.feed_url).json()["results"]
         picked = {item["observation"]["session_id"] for item in items if item["reason"]["kind"] == "embedding_pick"}
@@ -5033,7 +5096,7 @@ class TestWatchFeedAPI(_VisionAPITestCase):
         for _ in range(2):
             # The same load reporting twice, as a tab hidden and shown again does, counts once.
             resp = self.client.post(
-                f"{self.scanners_url}watch_feed_impressions/",
+                f"{self.scanners_url}highlight_feed_impressions/",
                 {"feed_load_id": str(load), "observation_ids": [str(rows["s-0"].id), str(foreign.id)]},
                 format="json",
             )
@@ -5278,7 +5341,7 @@ class TestWatchFeedAPI(_VisionAPITestCase):
             cache,
             "get",
             side_effect=lambda key, *args, **kwargs: (
-                None if key.startswith("replay_vision:watch_picks:") else real_get(key, *args, **kwargs)
+                None if key.startswith("replay_vision:highlight_picks:") else real_get(key, *args, **kwargs)
             ),
         )
         with uncached_picks, CaptureQueriesContext(connection) as one:

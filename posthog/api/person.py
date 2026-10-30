@@ -1,4 +1,5 @@
 import re
+import json
 import uuid
 import builtins
 import dataclasses
@@ -219,13 +220,29 @@ class PersonsDeleteSustainedThrottle(PersonalApiKeyRateThrottle):
 
 
 class PersonUpdatePropertyRequestSerializer(serializers.Serializer):
-    key = serializers.CharField(help_text="The property key to set.")
-    value = serializers.JSONField(help_text="The property value. Can be a string, number, boolean, or object.")
+    key = serializers.CharField(
+        required=False, help_text="The property key to set. Pair it with 'value' to set one property."
+    )
+    value = serializers.JSONField(
+        required=False, help_text="The property value. Can be a string, number, boolean, or object."
+    )
+    properties = serializers.DictField(
+        required=False,
+        child=serializers.JSONField(),
+        help_text=(
+            "Property keys and values to set together, instead of 'key' and 'value'. "
+            "One request sets up to 1000 properties and emits a single $set event."
+        ),
+    )
 
 
-# Matches the cap on the persons bulk-delete endpoint; also keeps the resulting
-# capture event safely under the ~1 MB Kafka message limit.
-MAX_UNSET_KEYS_PER_REQUEST = 1000
+# Matches the cap on the persons bulk-delete endpoint.
+MAX_PROPERTY_KEYS_PER_REQUEST = 1000
+
+# Capture refuses an event over the ~1 MB Kafka message limit, and _set_properties
+# discards that failure, so an oversized request would answer 202 having written
+# nothing. The headroom covers the event envelope around the properties.
+MAX_PROPERTIES_PAYLOAD_BYTES = 900_000
 
 
 @extend_schema_field(
@@ -236,7 +253,7 @@ MAX_UNSET_KEYS_PER_REQUEST = 1000
                 "type": "array",
                 "items": {"type": "string", "minLength": 1},
                 "minItems": 1,
-                "maxItems": MAX_UNSET_KEYS_PER_REQUEST,
+                "maxItems": MAX_PROPERTY_KEYS_PER_REQUEST,
             },
         ]
     }
@@ -252,7 +269,7 @@ class PersonDeletePropertyRequestSerializer(serializers.Serializer):
         fields = super().get_fields()
         # The handler reads validated_data["$unset"], so the field name must include the $ prefix.
         fields["$unset"] = UnsetPropertyKeysField(
-            max_items=MAX_UNSET_KEYS_PER_REQUEST,
+            max_items=MAX_PROPERTY_KEYS_PER_REQUEST,
             help_text="A property key, or a list of property keys, to remove from this person.",
         )
         return fields
@@ -1461,31 +1478,52 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @extend_schema(request=PersonUpdatePropertyRequestSerializer, parameters=[_PERSON_ID_PARAMETER])
     @action(methods=["POST"], detail=True, required_scopes=["person:write"])
     def update_property(self, request: request.Request, pk=None, **kwargs) -> response.Response:
-        if "value" not in request.data:
-            return Response(
-                {
-                    "attr": "value",
-                    "code": "This field is required.",
-                    "detail": "required",
-                    "type": "validation_error",
-                },
-                status=400,
+        properties = request.data.get("properties")
+        if properties is None:
+            if "value" not in request.data:
+                return Response(
+                    {
+                        "attr": "value",
+                        "code": "This field is required.",
+                        "detail": "required",
+                        "type": "validation_error",
+                    },
+                    status=400,
+                )
+            if request.data.get("key") is None:
+                return Response(
+                    {
+                        "attr": "key",
+                        "code": "This field is required.",
+                        "detail": "required",
+                        "type": "validation_error",
+                    },
+                    status=400,
+                )
+            properties = {request.data["key"]: request.data["value"]}
+        elif not isinstance(properties, dict) or not properties:
+            raise ValidationError(
+                {"properties": "Provide 'properties' as a non-empty object of property keys to values."}
             )
-        if request.data.get("key") is None:
-            return Response(
-                {
-                    "attr": "key",
-                    "code": "This field is required.",
-                    "detail": "required",
-                    "type": "validation_error",
-                },
-                status=400,
+        elif len(properties) > MAX_PROPERTY_KEYS_PER_REQUEST:
+            raise ValidationError(
+                {"properties": f"Set at most {MAX_PROPERTY_KEYS_PER_REQUEST} properties in one request."}
             )
-        key = request.data["key"]
+
+        payload_size = len(json.dumps(properties, default=str).encode())
+        if payload_size > MAX_PROPERTIES_PAYLOAD_BYTES:
+            raise ValidationError(
+                {
+                    "properties": f"Property values total {payload_size} bytes, over the "
+                    f"{MAX_PROPERTIES_PAYLOAD_BYTES} byte limit for one request. Send them in smaller batches."
+                }
+            )
+
         non_writable = self._get_non_writable_person_properties(request)
-        if key in non_writable:
-            raise ValidationError(f'You do not have write access to the property "{key}".')
-        self._set_properties({key: request.data["value"]}, request.user)
+        for key in properties:
+            if key in non_writable:
+                raise ValidationError(f'You do not have write access to the property "{key}".')
+        self._set_properties(properties, request.user)
         return Response(status=202)
 
     @validated_request(PersonDeletePropertyRequestSerializer, parameters=[_PERSON_ID_PARAMETER])

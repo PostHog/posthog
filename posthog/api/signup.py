@@ -37,6 +37,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import (
     EmailLookupHandler,
     EmailValidationHelper,
+    reject_lookalike_email_characters,
     reject_plus_addressed_email,
     validate_display_name,
 )
@@ -144,6 +145,12 @@ class SignupSerializer(serializers.Serializer):
     referral_source_ai_prompt: serializers.Field = serializers.CharField(
         max_length=1000, required=False, allow_blank=True
     )
+    referral_source_influencer: serializers.Field = serializers.CharField(
+        max_length=1000,
+        required=False,
+        allow_blank=True,
+        help_text="The social media account or person that referred the user, asked when the referral source mentions a social network or creator channel.",
+    )
     turnstile_token: serializers.Field = serializers.CharField(required=False, allow_blank=True, default="")
     challenge_nonce: serializers.Field = serializers.CharField(required=False, allow_blank=True, default="")
 
@@ -221,6 +228,7 @@ class SignupSerializer(serializers.Serializer):
 
             value = session_email
 
+        reject_lookalike_email_characters(value)
         if not settings.DEMO:
             if not self.is_social_signup:
                 reject_plus_addressed_email(value)
@@ -292,6 +300,7 @@ class SignupSerializer(serializers.Serializer):
         role_at_organization = validated_data.pop("role_at_organization", "")
         referral_source = validated_data.pop("referral_source", "")
         referral_source_ai_prompt = validated_data.pop("referral_source_ai_prompt", "")
+        referral_source_influencer = validated_data.pop("referral_source_influencer", "")
 
         # For passkey signup, set password to None and use the pre-generated UUID
         if passkey_credential:
@@ -368,6 +377,7 @@ class SignupSerializer(serializers.Serializer):
             role_at_organization=role_at_organization,
             referral_source=referral_source,
             referral_source_ai_prompt=referral_source_ai_prompt,
+            referral_source_influencer=referral_source_influencer,
             oauth_connection=oauth_connection,
         )
 
@@ -457,6 +467,7 @@ class SignupEmailPrecheckViewset(generics.GenericAPIView):
             # Mirror SignupSerializer.validate_email. Without this the form clears the email step,
             # the user fills in the rest, and only then hits the rejection on submit.
             reject_plus_addressed_email(email)
+            reject_lookalike_email_characters(email)
             email_exists = (
                 EmailValidationHelper.user_exists_with_stripped_alias(email)
                 or EmailValidationHelper.user_exists_with_gmail_canonical(email)
@@ -599,7 +610,7 @@ class InviteSignupSerializer(serializers.Serializer):
         try:
             # nosemgrep: idor-lookup-without-org, idor-taint-user-input-to-org-model (invite UUID serves as auth token)
             invite: OrganizationInvite = OrganizationInvite.objects.select_related("organization").get(id=invite_id)
-        except OrganizationInvite.DoesNotExist:
+        except (OrganizationInvite.DoesNotExist, ValidationError):
             raise serializers.ValidationError("The provided invite ID is not valid.")
 
         if not user and invite.target_email:
@@ -831,6 +842,13 @@ class SocialSignupSerializer(serializers.Serializer):
     referral_source_ai_prompt: serializers.Field = serializers.CharField(
         max_length=1000, required=False, allow_blank=True, default=""
     )
+    referral_source_influencer: serializers.Field = serializers.CharField(
+        max_length=1000,
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text="The social media account or person that referred the user, asked when the referral source mentions a social network or creator channel.",
+    )
 
     def validate_first_name(self, value: str) -> str:
         return validate_display_name(value)
@@ -851,6 +869,7 @@ class SocialSignupSerializer(serializers.Serializer):
         role_at_organization = validated_data["role_at_organization"]
         referral_source = validated_data.get("referral_source", "")
         referral_source_ai_prompt = validated_data.get("referral_source_ai_prompt", "")
+        referral_source_influencer = validated_data.get("referral_source_influencer", "")
         first_name = validated_data["first_name"]
 
         serializer = SignupSerializer(
@@ -862,6 +881,7 @@ class SocialSignupSerializer(serializers.Serializer):
                 "role_at_organization": role_at_organization,
                 "referral_source": referral_source,
                 "referral_source_ai_prompt": referral_source_ai_prompt,
+                "referral_source_influencer": referral_source_influencer,
             },
             context={"request": request},
         )

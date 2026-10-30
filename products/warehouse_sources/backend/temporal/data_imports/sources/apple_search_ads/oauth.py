@@ -5,7 +5,8 @@ The customer grants PostHog access from the connect form, and the grant is store
 so the token is resolved per authentication rather than once per run.
 """
 
-from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration, OauthIntegration
+from posthog.integrations import IntegrationRecord
+from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, OauthIntegration
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.apple_search_ads.apple_search_ads import (
     AppleSearchAdsAuthError,
@@ -20,7 +21,7 @@ class AppleAdsOauthError(AppleSearchAdsAuthError):
     """Raised where the client expects an auth failure, so `validate_credentials` reports it."""
 
 
-def apple_ads_access_token(integration: Integration) -> str:
+def apple_ads_access_token(integration: IntegrationRecord) -> str:
     """Current bearer token for an Apple Ads grant, refreshing it when it has expired."""
     oauth_integration = OauthIntegration(integration)
     if oauth_integration.access_token_expired():

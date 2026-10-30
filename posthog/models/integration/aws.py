@@ -14,6 +14,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.credentials import AWSKeyPair
 from posthog.credentials_service.callers import CredentialsCaller
 from posthog.credentials_service.settings_fallback import get_or_settings
+from posthog.integrations.contracts import IntegrationRecord
 from posthog.models.user import User
 from posthog.models.utils import IntegrityError
 from posthog.security.url_validation import is_url_allowed
@@ -258,13 +259,13 @@ class AWSRoleBasedIntegration:
 
     integration_kind: ClassVar[_AWSKindType]
 
-    def __init__(self, integration: model.Integration) -> None:
+    def __init__(self, integration: IntegrationRecord) -> None:
         if integration.kind != self.integration_kind:
             raise common.IntegrationError(
                 "Integration provided is not the expected AWS integration "
                 f"(got kind='{integration.kind}', expected kind='{self.integration_kind}')"
             )
-        self.integration = integration
+        self.integration = model.integration_model(integration)
         try:
             self.aws_role_arn = integration.config["aws_role_arn"]
         except KeyError:
@@ -413,14 +414,14 @@ class AWSCredentialsIntegration:
 
     integration_kind: ClassVar[_AWSKindType]
 
-    def __init__(self, integration: model.Integration) -> None:
+    def __init__(self, integration: IntegrationRecord) -> None:
         if integration.kind != self.integration_kind:
             raise common.IntegrationError(
                 "Integration provided is not the expected AWS integration "
                 f"(got kind='{integration.kind}', expected kind='{self.integration_kind}')"
             )
-        self.integration = integration
-        self.credentials = _read_aws_credentials(integration)
+        self.integration = model.integration_model(integration)
+        self.credentials = _read_aws_credentials(self.integration)
 
     @property
     def aws_account_id(self) -> str | None:
@@ -540,13 +541,13 @@ class S3CompatibleIntegration:
     credentials: AWSKeyPair
     endpoint_url: str
 
-    def __init__(self, integration: model.Integration) -> None:
+    def __init__(self, integration: IntegrationRecord) -> None:
         if integration.kind != model.Integration.IntegrationKind.S3_COMPATIBLE:
             raise common.IntegrationError(
                 f"Integration provided is not an S3-compatible integration (got kind='{integration.kind}')"
             )
-        self.integration = integration
-        self.credentials = _read_aws_credentials(integration)
+        self.integration = model.integration_model(integration)
+        self.credentials = _read_aws_credentials(self.integration)
         try:
             self.endpoint_url = integration.config["endpoint_url"]
         except KeyError:

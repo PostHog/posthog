@@ -18,6 +18,8 @@ interface CardState {
     myThreshold?: string | null
     /** Repositories that branch from somewhere other than their default branch. */
     baseBranches?: Record<string, string>
+    /** Extra repositories implementation tasks can also write to. */
+    implementationRepositories?: string[]
     dailyLimit?: number | null
     reportsToday?: number
     /** Personal opt-in to being added as a GitHub assignee on the implementation PR. */
@@ -43,6 +45,7 @@ function useAutonomyMocks({
     projectThreshold = 'P2',
     myThreshold = null,
     baseBranches = {},
+    implementationRepositories = [],
     dailyLimit = null,
     reportsToday = 0,
     githubAssign = false,
@@ -61,6 +64,7 @@ function useAutonomyMocks({
                 autostart_enabled: enabled,
                 default_autostart_priority: projectThreshold,
                 autostart_base_branches: baseBranches,
+                implementation_repositories: implementationRepositories,
                 issue_tracking_integration: issueTrackingIntegration,
                 issue_tracking_config: issueTrackingConfig,
                 max_reports_per_day: dailyLimit,
@@ -146,6 +150,17 @@ export const SettingsTabBaseBranches: Story = {
 // GitHub disconnected after an override was saved: the override stays readable and removable, the picker hides.
 export const SettingsTabBaseBranchesWithoutGitHub: Story = {
     render: () => <SettingsCard width="wide" baseBranches={{ 'posthog/posthog.com': 'develop' }} />,
+}
+
+// An assets repository every implementation task can also write to: the list and the Add repository button render.
+export const SettingsTabExtraRepositories: Story = {
+    render: () => (
+        <SettingsCard
+            width="wide"
+            integrations={[GITHUB_INTEGRATION]}
+            implementationRepositories={['posthog/pr-assets']}
+        />
+    ),
 }
 
 // A Jira tracker with a saved project: the target reads as text with a Change button, and no picker mounts.

@@ -485,6 +485,61 @@
             "required": ["kind", "definitionId"],
             "type": "object"
         },
+        "AccountsTableCustomPropertyDefinition": {
+            "additionalProperties": false,
+            "properties": {
+                "description": {
+                    "type": ["string", "null"]
+                },
+                "display_type": {
+                    "$ref": "#/definitions/AccountsTableCustomPropertyDisplayType"
+                },
+                "has_workflow_reference": {
+                    "type": "boolean"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "is_big_number": {
+                    "type": "boolean"
+                },
+                "is_canonical": {
+                    "type": "boolean"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "options": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/AccountsTableCustomPropertyOption"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "source": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/AccountsTableCustomPropertySource"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                }
+            },
+            "required": ["id", "name", "display_type", "is_canonical", "has_workflow_reference"],
+            "type": "object"
+        },
+        "AccountsTableCustomPropertyDisplayType": {
+            "enum": ["text", "link", "number", "currency", "percent", "date", "datetime", "boolean", "select"],
+            "type": "string"
+        },
         "AccountsTableCustomPropertyFilter": {
             "additionalProperties": false,
             "properties": {
@@ -562,6 +617,32 @@
                 "is_date_after"
             ],
             "type": "string"
+        },
+        "AccountsTableCustomPropertyOption": {
+            "additionalProperties": false,
+            "properties": {
+                "color": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": ["string", "null"]
+                },
+                "label": {
+                    "type": "string"
+                }
+            },
+            "required": ["label", "color"],
+            "type": "object"
+        },
+        "AccountsTableCustomPropertySource": {
+            "additionalProperties": false,
+            "properties": {
+                "id": {
+                    "type": "string"
+                }
+            },
+            "required": ["id"],
+            "type": "object"
         },
         "AccountsTableCustomPropertyValue": {
             "type": ["string", "number", "boolean", "null"]
@@ -673,6 +754,10 @@
                     },
                     "type": "array"
                 },
+                "ignoreMissingDefinitions": {
+                    "description": "Omit missing definitions and custom-property filters incompatible with their current types.",
+                    "type": "boolean"
+                },
                 "includeChurned": {
                     "description": "Include churned accounts. Churned accounts are hidden by default.",
                     "type": "boolean"
@@ -711,6 +796,9 @@
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
                 },
+                "useDefaultColumns": {
+                    "type": "boolean"
+                },
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
@@ -722,6 +810,18 @@
         "AccountsTableQueryResponse": {
             "additionalProperties": false,
             "properties": {
+                "columns": {
+                    "items": {
+                        "$ref": "#/definitions/AccountsTableResolvedColumn"
+                    },
+                    "type": "array"
+                },
+                "customPropertyDefinitions": {
+                    "items": {
+                        "$ref": "#/definitions/AccountsTableCustomPropertyDefinition"
+                    },
+                    "type": "array"
+                },
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
@@ -757,6 +857,12 @@
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "relationshipDefinitions": {
+                    "items": {
+                        "$ref": "#/definitions/AccountsTableRelationshipDefinition"
+                    },
+                    "type": "array"
                 },
                 "resolved_compare_date_range": {
                     "$ref": "#/definitions/ResolvedDateRangeResponse",
@@ -819,6 +925,28 @@
             "required": ["kind", "definitionId"],
             "type": "object"
         },
+        "AccountsTableRelationshipDefinition": {
+            "additionalProperties": false,
+            "properties": {
+                "description": {
+                    "type": ["string", "null"]
+                },
+                "id": {
+                    "type": "string"
+                },
+                "is_controlled": {
+                    "type": "boolean"
+                },
+                "is_single_holder": {
+                    "type": "boolean"
+                },
+                "name": {
+                    "type": "string"
+                }
+            },
+            "required": ["id", "name", "is_controlled"],
+            "type": "object"
+        },
         "AccountsTableRelationshipFilter": {
             "additionalProperties": false,
             "properties": {
@@ -845,6 +973,33 @@
         "AccountsTableRelationshipOperator": {
             "enum": ["exact", "is_not", "is_set", "is_not_set"],
             "type": "string"
+        },
+        "AccountsTableResolvedColumn": {
+            "discriminator": {
+                "propertyName": "kind"
+            },
+            "oneOf": [
+                {
+                    "$ref": "#/definitions/AccountsTableAccountFieldColumn"
+                },
+                {
+                    "$ref": "#/definitions/AccountsTableTagsColumn"
+                },
+                {
+                    "$ref": "#/definitions/AccountsTableNoteCountColumn"
+                },
+                {
+                    "$ref": "#/definitions/AccountsTableRelationshipColumn"
+                },
+                {
+                    "$ref": "#/definitions/AccountsTableCustomPropertyColumn"
+                },
+                {
+                    "$ref": "#/definitions/AccountsTableCustomPropertyHistoryColumn"
+                }
+            ],
+            "required": ["kind"],
+            "type": "object"
         },
         "AccountsTableRow": {
             "additionalProperties": false,
@@ -1442,6 +1597,14 @@
                 },
                 "error_count": {
                     "$ref": "#/definitions/integer"
+                },
+                "health_reason": {
+                    "description": "Short reason for `health_status`, such as `error rate 0.2% → 4.1%`. Empty when the status is `ok`.",
+                    "type": "string"
+                },
+                "health_status": {
+                    "$ref": "#/definitions/SpanHealthStatus",
+                    "description": "Set only when the query asked for `includeHealth`. Same statuses as the service health check."
                 },
                 "name": {
                     "type": "string"
@@ -6222,6 +6385,10 @@
             "enum": ["count", "count_distinct", "sum", "average", "minimum", "maximum", "custom"],
             "type": "string"
         },
+        "BICatalogMetricStatus": {
+            "enum": ["approved", "proposed"],
+            "type": "string"
+        },
         "BICategoryGroup": {
             "additionalProperties": false,
             "properties": {
@@ -6267,6 +6434,32 @@
                 "catalogMetric": {
                     "description": "Catalog provenance only: the snapshot does not track subsequent definition edits.",
                     "type": "string"
+                },
+                "catalogMetricContext": {
+                    "additionalProperties": false,
+                    "description": "Catalog metadata at copy time, not a live approval of the worksheet.",
+                    "properties": {
+                        "id": {
+                            "type": "string"
+                        },
+                        "isDrifted": {
+                            "type": "boolean"
+                        },
+                        "owner": {
+                            "type": ["string", "null"]
+                        },
+                        "status": {
+                            "$ref": "#/definitions/BICatalogMetricStatus"
+                        },
+                        "unit": {
+                            "type": "string"
+                        },
+                        "updatedAt": {
+                            "type": ["string", "null"]
+                        }
+                    },
+                    "required": ["id", "status", "isDrifted", "unit", "owner", "updatedAt"],
+                    "type": "object"
                 },
                 "chartType": {
                     "$ref": "#/definitions/ChartDisplayType"
@@ -7455,6 +7648,18 @@
                     "description": "What triggered the calculation of the query, leave empty if user/immediate",
                     "type": "string"
                 },
+                "columns": {
+                    "items": {
+                        "$ref": "#/definitions/AccountsTableResolvedColumn"
+                    },
+                    "type": "array"
+                },
+                "customPropertyDefinitions": {
+                    "items": {
+                        "$ref": "#/definitions/AccountsTableCustomPropertyDefinition"
+                    },
+                    "type": "array"
+                },
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
@@ -7508,6 +7713,12 @@
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "relationshipDefinitions": {
+                    "items": {
+                        "$ref": "#/definitions/AccountsTableRelationshipDefinition"
+                    },
+                    "type": "array"
                 },
                 "resolved_compare_date_range": {
                     "$ref": "#/definitions/ResolvedDateRangeResponse",
@@ -10200,6 +10411,13 @@
         "CachedLifecycleQueryResponse": {
             "additionalProperties": false,
             "properties": {
+                "action_names": {
+                    "additionalProperties": {
+                        "type": "string"
+                    },
+                    "description": "The name of each action the query's series reference, keyed by action id. A series saved without a `name` displays this name, because the query holds only the action's id.",
+                    "type": "object"
+                },
                 "cache_key": {
                     "type": "string"
                 },
@@ -14690,6 +14908,13 @@
         "CachedStickinessQueryResponse": {
             "additionalProperties": false,
             "properties": {
+                "action_names": {
+                    "additionalProperties": {
+                        "type": "string"
+                    },
+                    "description": "The name of each action the query's series reference, keyed by action id. A series saved without a `name` displays this name, because the query holds only the action's id.",
+                    "type": "object"
+                },
                 "cache_key": {
                     "type": "string"
                 },
@@ -15833,6 +16058,13 @@
         "CachedTrendsQueryResponse": {
             "additionalProperties": false,
             "properties": {
+                "action_names": {
+                    "additionalProperties": {
+                        "type": "string"
+                    },
+                    "description": "The name of each action the query's series reference, keyed by action id. A series saved without a `name` displays this name, because the query holds only the action's id.",
+                    "type": "object"
+                },
                 "boxplot_data": {
                     "deprecated": "Box plot data is now returned in results. This field is no longer populated.",
                     "items": {
@@ -20773,6 +21005,18 @@
                         {
                             "additionalProperties": false,
                             "properties": {
+                                "columns": {
+                                    "items": {
+                                        "$ref": "#/definitions/AccountsTableResolvedColumn"
+                                    },
+                                    "type": "array"
+                                },
+                                "customPropertyDefinitions": {
+                                    "items": {
+                                        "$ref": "#/definitions/AccountsTableCustomPropertyDefinition"
+                                    },
+                                    "type": "array"
+                                },
                                 "error": {
                                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                                     "type": "string"
@@ -20808,6 +21052,12 @@
                                 "query_status": {
                                     "$ref": "#/definitions/QueryStatus",
                                     "description": "Query status indicates whether next to the provided data, a query is still running."
+                                },
+                                "relationshipDefinitions": {
+                                    "items": {
+                                        "$ref": "#/definitions/AccountsTableRelationshipDefinition"
+                                    },
+                                    "type": "array"
                                 },
                                 "resolved_compare_date_range": {
                                     "$ref": "#/definitions/ResolvedDateRangeResponse",
@@ -31521,6 +31771,13 @@
         "LifecycleQueryResponse": {
             "additionalProperties": false,
             "properties": {
+                "action_names": {
+                    "additionalProperties": {
+                        "type": "string"
+                    },
+                    "description": "The name of each action the query's series reference, keyed by action id. A series saved without a `name` displays this name, because the query holds only the action's id.",
+                    "type": "object"
+                },
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
@@ -36233,7 +36490,7 @@
             "additionalProperties": false,
             "properties": {
                 "breakdown": {
-                    "enum": ["keyword", "page"],
+                    "enum": ["keyword", "page", "search_term"],
                     "type": "string"
                 },
                 "compareFilter": {
@@ -36475,17 +36732,26 @@
                 "keywordTable": {
                     "type": "string"
                 },
+                "performanceMaxSearchTermTable": {
+                    "description": "Google Ads search terms from Performance Max campaigns.",
+                    "type": "string"
+                },
                 "placementTable": {
                     "type": "string"
                 },
                 "queryPageTable": {
                     "type": "boolean"
                 },
+                "searchTermTable": {
+                    "description": "Google Ads search terms from Search campaigns.",
+                    "type": "string"
+                },
                 "sourceType": {
                     "enum": ["GoogleAds", "BingAds", "GoogleSearchConsole"],
                     "type": "string"
                 },
                 "statsTable": {
+                    "description": "For the Google Ads search term breakdown, the campaign table, which carries the account currency.",
                     "type": "string"
                 }
             },
@@ -46687,6 +46953,18 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "columns": {
+                            "items": {
+                                "$ref": "#/definitions/AccountsTableResolvedColumn"
+                            },
+                            "type": "array"
+                        },
+                        "customPropertyDefinitions": {
+                            "items": {
+                                "$ref": "#/definitions/AccountsTableCustomPropertyDefinition"
+                            },
+                            "type": "array"
+                        },
                         "error": {
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
@@ -46722,6 +47000,12 @@
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "relationshipDefinitions": {
+                            "items": {
+                                "$ref": "#/definitions/AccountsTableRelationshipDefinition"
+                            },
+                            "type": "array"
                         },
                         "resolved_compare_date_range": {
                             "$ref": "#/definitions/ResolvedDateRangeResponse",
@@ -46772,6 +47056,13 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "action_names": {
+                            "additionalProperties": {
+                                "type": "string"
+                            },
+                            "description": "The name of each action the query's series reference, keyed by action id. A series saved without a `name` displays this name, because the query holds only the action's id.",
+                            "type": "object"
+                        },
                         "boxplot_data": {
                             "deprecated": "Box plot data is now returned in results. This field is no longer populated.",
                             "items": {
@@ -47104,6 +47395,13 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "action_names": {
+                            "additionalProperties": {
+                                "type": "string"
+                            },
+                            "description": "The name of each action the query's series reference, keyed by action id. A series saved without a `name` displays this name, because the query holds only the action's id.",
+                            "type": "object"
+                        },
                         "error": {
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
@@ -47169,6 +47467,13 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "action_names": {
+                            "additionalProperties": {
+                                "type": "string"
+                            },
+                            "description": "The name of each action the query's series reference, keyed by action id. A series saved without a `name` displays this name, because the query holds only the action's id.",
+                            "type": "object"
+                        },
                         "error": {
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
@@ -48708,6 +49013,18 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "columns": {
+                            "items": {
+                                "$ref": "#/definitions/AccountsTableResolvedColumn"
+                            },
+                            "type": "array"
+                        },
+                        "customPropertyDefinitions": {
+                            "items": {
+                                "$ref": "#/definitions/AccountsTableCustomPropertyDefinition"
+                            },
+                            "type": "array"
+                        },
                         "error": {
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
@@ -48743,6 +49060,12 @@
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "relationshipDefinitions": {
+                            "items": {
+                                "$ref": "#/definitions/AccountsTableRelationshipDefinition"
+                            },
+                            "type": "array"
                         },
                         "resolved_compare_date_range": {
                             "$ref": "#/definitions/ResolvedDateRangeResponse",
@@ -53395,6 +53718,10 @@
             "required": ["startLine", "endLine"],
             "type": "object"
         },
+        "SpanHealthStatus": {
+            "enum": ["silent", "regressed", "degraded", "new", "recovered", "improved", "ok"],
+            "type": "string"
+        },
         "SpanPropertyFilter": {
             "additionalProperties": false,
             "properties": {
@@ -53714,6 +54041,13 @@
         "StickinessQueryResponse": {
             "additionalProperties": false,
             "properties": {
+                "action_names": {
+                    "additionalProperties": {
+                        "type": "string"
+                    },
+                    "description": "The name of each action the query's series reference, keyed by action id. A series saved without a `name` displays this name, because the query holds only the action's id.",
+                    "type": "object"
+                },
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
@@ -55222,6 +55556,14 @@
                 "filterGroup": {
                     "$ref": "#/definitions/PropertyGroupFilter"
                 },
+                "groupByEndpoint": {
+                    "description": "Group HTTP server spans by `METHOD route` in place of the span name. Spans without a route keep their name. Spans that are not HTTP server spans are left out.",
+                    "type": "boolean"
+                },
+                "includeHealth": {
+                    "description": "Classify each row against the comparison window, or the previous period when `compareFilter` is off. Fills `health_status` and `health_reason`. Runs a second window query.",
+                    "type": "boolean"
+                },
                 "includeImpact": {
                     "description": "Also aggregate sessions and people per operation. Off by default: it reads the attribute maps.",
                     "type": "boolean"
@@ -56368,6 +56710,13 @@
         "TrendsQueryResponse": {
             "additionalProperties": false,
             "properties": {
+                "action_names": {
+                    "additionalProperties": {
+                        "type": "string"
+                    },
+                    "description": "The name of each action the query's series reference, keyed by action id. A series saved without a `name` displays this name, because the query holds only the action's id.",
+                    "type": "object"
+                },
                 "boxplot_data": {
                     "deprecated": "Box plot data is now returned in results. This field is no longer populated.",
                     "items": {
@@ -59245,9 +59594,13 @@
                         "type": "string"
                     },
                     "type": "array"
+                },
+                "order": {
+                    "$ref": "#/definitions/integer",
+                    "description": "The index of the row's series in the query."
                 }
             },
-            "required": ["data", "days", "action"],
+            "required": ["data", "days", "order", "action"],
             "type": "object"
         },
         "WebVitalsItemAction": {
