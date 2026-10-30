@@ -1068,6 +1068,28 @@ class BillingManager:
 
         return res.json()
 
+    def reload_ai_balance(
+        self, organization: Organization, *, idempotency_key: str, balance_usd: str
+    ) -> dict[str, Any]:
+        """Ask billing to reload the organization's AI balance, for the AI gateway's low-balance call.
+
+        Billing answers 200 with `charged` or `declined`. Any other status raises
+        `BillingServiceResponseError`. Its status code tells a running reload (409) from a refusal (403)
+        and from a charge that couldn't finish (503). The same idempotency key gets billing's first answer.
+        """
+        headers = self.get_auth_headers(organization, service_action="ai_credit_reload")
+        headers["Idempotency-Key"] = idempotency_key
+        res = http_session.post(
+            f"{BILLING_SERVICE_URL}/api/ai-credits/reload",
+            headers=headers,
+            json={"balance_usd": balance_usd},
+            # Billing charges the card inside the request, and it waits up to 30 seconds for Anrok
+            # to tax the invoice before it pays.
+            timeout=60,
+        )
+        handle_billing_service_error(res, valid_codes=(200,))
+        return res.json()
+
     def _system_auth_headers(self, service_action: str) -> dict[str, str]:
         if not self.license:  # mypy
             raise Exception("No license found")

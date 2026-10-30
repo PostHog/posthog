@@ -1965,6 +1965,48 @@ class TestRequestWithPostFallback(BaseTest):
         mock_post.assert_not_called()
 
 
+class TestReloadAIBalance(BaseTest):
+    def _license(self) -> License:
+        return super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123",
+            plan="enterprise",
+            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
+        )
+
+    @patch(
+        "ee.billing.billing_manager.http_session.post",
+        return_value=MagicMock(
+            status_code=200, json=MagicMock(return_value={"result": "charged", "amount_usd": "45.90"})
+        ),
+    )
+    def test_posts_the_reload_with_the_service_action_and_the_key(self, billing_post_request_mock: MagicMock):
+        result = BillingManager(self._license()).reload_ai_balance(
+            self.organization, idempotency_key="low-balance-1", balance_usd="4.10"
+        )
+
+        assert result == {"result": "charged", "amount_usd": "45.90"}
+        call_args = billing_post_request_mock.call_args
+        assert call_args[0][0].endswith("/api/ai-credits/reload")
+        assert call_args[1]["json"] == {"balance_usd": "4.10"}
+        assert call_args[1]["headers"]["Idempotency-Key"] == "low-balance-1"
+        token = call_args[1]["headers"]["Authorization"].removeprefix("Bearer ")
+        decoded = jwt.decode(token, options={"verify_signature": False})
+        assert decoded["service_action"] == "ai_credit_reload"
+        assert decoded["organization_id"] == str(self.organization.id)
+        assert "organization_role" not in decoded
+        assert "distinct_id" not in decoded
+
+    @parameterized.expand([("reload_running", 409), ("not_deployed", 404), ("auth_failure", 401)])
+    def test_raises_on_any_answer_but_200(self, _name, status_code):
+        response = MagicMock(status_code=status_code, json=MagicMock(return_value={"detail": "nope"}), ok=False)
+        with patch("ee.billing.billing_manager.http_session.post", return_value=response):
+            with self.assertRaises(BillingServiceResponseError) as context:
+                BillingManager(self._license()).reload_ai_balance(
+                    self.organization, idempotency_key="low-balance-1", balance_usd="4.10"
+                )
+        assert context.exception.status_code == status_code
+
+
 class TestDisputeSignalsPr(BaseTest):
     def _license(self) -> License:
         return super(LicenseManager, cast(LicenseManager, License.objects)).create(
