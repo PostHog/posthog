@@ -20,10 +20,32 @@ from collections.abc import AsyncIterator, Iterator
 from typing import Any, TypeVar, cast
 
 from django.db import models
+from django.db.models.fetch_modes import FetchPeers
+from django.db.models.query_utils import DeferredAttribute
 
 from posthog.models.scoping import get_current_team_id
 
 T = TypeVar("T", bound=models.Model)
+
+
+class FetchRelationPeers(FetchPeers):
+    """`FETCH_PEERS` for relations, `FETCH_ONE` for deferred fields."""
+
+    __slots__ = ()
+
+    def fetch(self, fetcher: Any, instance: models.Model) -> None:
+        # Django's DeferredAttribute.fetch_many overwrites a value the caller already
+        # assigned on a peer, and raises KeyError when a peer row is gone.
+        if isinstance(fetcher, DeferredAttribute):
+            fetcher.fetch_one(instance)
+        else:
+            super().fetch(fetcher, instance)
+
+    def __reduce__(self) -> str:
+        return "FETCH_RELATION_PEERS"
+
+
+FETCH_RELATION_PEERS = FetchRelationPeers()
 
 
 class TeamScopeError(Exception):
@@ -67,13 +89,13 @@ class TeamScopedQuerySet(models.QuerySet[T]):
     Provides an `unscoped()` method to bypass automatic filtering when you
     need to explicitly query across teams.
 
-    Defaults to `FETCH_PEERS`: a lazy related or deferred read on one row
-    loads it for every row the same query returned, in one query.
+    Defaults to `FETCH_RELATION_PEERS`: a lazy related read on one row loads
+    it for every row the same query returned, in one query.
     """
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
-        self._fetch_mode = models.FETCH_PEERS
+        self._fetch_mode = FETCH_RELATION_PEERS
 
     def iterator(self, chunk_size: int | None = None) -> Iterator[T]:
         return super(TeamScopedQuerySet, self._without_streamed_peers()).iterator(chunk_size)
@@ -85,7 +107,7 @@ class TeamScopedQuerySet(models.QuerySet[T]):
         # A streamed query shares one peer list across all its rows, and FETCH_PEERS
         # scans that list on each lazy read, so a loop that reads a relation per row
         # costs O(rows²). The rows a loop has dropped are not batched anyway.
-        if self._fetch_mode is models.FETCH_PEERS:
+        if self._fetch_mode is FETCH_RELATION_PEERS:
             return self.fetch_mode(models.FETCH_ONE)
         return self
 

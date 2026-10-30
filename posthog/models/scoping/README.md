@@ -56,9 +56,14 @@ def my_task(team_id: int):
 
 ## Fetch mode
 
-Scoped querysets use Django's `FETCH_PEERS` fetch mode.
-When code reads a relation or a deferred field that a row has not loaded, Django loads it for every row from the same query, in one query.
+Scoped querysets use `FETCH_RELATION_PEERS`, a variant of Django's `FETCH_PEERS` fetch mode.
+When code reads a relation that a row has not loaded, Django loads it for every row from the same query, in one query.
 A loop that reads `run.repo` on each of N rows costs 2 queries, not N + 1.
+The batch covers every row the query returned, so a loop that reads one row and stops still loads the relation for all of them.
+Slice the queryset when you only need the first rows.
+
+Deferred fields from `.only()` and `.defer()` still load one row at a time.
+Django's batched load of a deferred field overwrites values already assigned on other rows, and fails when another row has been deleted.
 
 `.iterator()` and `.aiterator()` use `FETCH_ONE`.
 A streamed query shares one peer list across all its rows, so `FETCH_PEERS` would scan a growing list on each read.

@@ -99,6 +99,25 @@ class TestTeamScopedManager(BaseTest):
                 flags = list(rows)
                 assert [flag.created_by for flag in flags] == [self.user] * 3
 
+    def test_deferred_read_keeps_value_assigned_on_peer(self) -> None:
+        for key in ("flag-1", "flag-2"):
+            FeatureFlag.objects.create(team=self.team, key=key, name=key, created_by=self.user)
+
+        first, second = list(self._make_manager().for_team(self.team.id, canonical=True).only("id").order_by("key"))
+        first.name = "edited"
+
+        assert second.name == "flag-2"
+        assert first.name == "edited"
+
+    def test_deferred_read_survives_deleted_peer(self) -> None:
+        for key in ("flag-1", "flag-2"):
+            FeatureFlag.objects.create(team=self.team, key=key, name=key, created_by=self.user)
+
+        first, second = list(self._make_manager().for_team(self.team.id, canonical=True).only("id").order_by("key"))
+        FeatureFlag.objects.filter(pk=second.pk).delete()
+
+        assert first.name == "flag-1"
+
     def test_unscoped_context_clears_team(self):
         with team_scope(self.team.id):
             from posthog.models.scoping import get_current_team_id
