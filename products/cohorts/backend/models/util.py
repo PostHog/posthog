@@ -78,6 +78,15 @@ COHORT_QUERY_TIMEOUT_SETTINGS = {
     "receive_timeout": COHORT_QUERY_TIMEOUT_SECONDS,
 }
 
+# The cohorts ClickHouse user caps a query at 42 GiB. On ClickHouse 26.6 the ratio-based spill settings never
+# trigger under a per-query cap, so the ratios are zero and the byte thresholds (half the cap) govern.
+COHORT_QUERY_SPILL_SETTINGS = {
+    "max_bytes_before_external_group_by": 21 * 1024**3,
+    "max_bytes_before_external_sort": 21 * 1024**3,
+    "max_bytes_ratio_before_external_group_by": 0,
+    "max_bytes_ratio_before_external_sort": 0,
+}
+
 
 class CohortErrorCode(StrEnum):
     CAPACITY = "capacity"
@@ -917,8 +926,7 @@ def _recalculate_cohortpeople_for_team_hogql(
             {
                 **COHORT_QUERY_TIMEOUT_SETTINGS,
                 "optimize_on_insert": 0,
-                "max_bytes_ratio_before_external_group_by": 0.5,
-                "max_bytes_ratio_before_external_sort": 0.5,
+                **COHORT_QUERY_SPILL_SETTINGS,
             }
         )
 
@@ -1287,8 +1295,7 @@ def insert_actors_into_cohort_by_query(
         },
         settings={
             **COHORT_QUERY_TIMEOUT_SETTINGS,
-            "max_bytes_ratio_before_external_group_by": 0.5,
-            "max_bytes_ratio_before_external_sort": 0.5,
+            **COHORT_QUERY_SPILL_SETTINGS,
         },
         workload=Workload.OFFLINE,
         ch_user=ClickHouseUser.COHORTS,
