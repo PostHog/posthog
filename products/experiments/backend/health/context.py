@@ -35,6 +35,7 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthMetricCompileErrorKind,
 )
 from products.experiments.backend.health.delays import ENDED_FLAG_QUIET_PERIOD, LAST_CALLED_AT_LAG_DURATION
+from products.experiments.backend.hogql_queries.experiment_exposure_query_builder import ExposureSegmentDimension
 from products.experiments.backend.hogql_queries.experiment_query_builder import get_exposure_config_params_for_builder
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     DEFAULT_EXPOSURE_EVENT,
@@ -116,7 +117,7 @@ class FlagHistory:
 
 
 class FlagHistoryNotCheckedReason(StrEnum):
-    # pinned: the finding's `evidence.reason`.
+    # pinned: the finding's `reason`.
     NO_HISTORY_ACCESS = "no_history_access"
     NO_QUERY_ACCESS = "no_query_access"
     EXPOSURE_FILTERS = "exposure_filters"
@@ -231,6 +232,21 @@ class PrimaryMetric:
 
 
 @frozen
+class ExposureSegment:
+    """The persons or groups whose first exposure carries one value of a dimension, such as the SDK library."""
+
+    dimension: ExposureSegmentDimension
+    # The property's value on the first exposure. BREAKDOWN_NULL_STRING_LABEL when the event has none, and
+    # BREAKDOWN_OTHER_STRING_LABEL for the values outside the largest segments of the dimension. The version in the
+    # library version dimension.
+    value: str
+    exposed_by_variant: Mapping[str, int]
+    # The library of a library version segment, also BREAKDOWN_NULL_STRING_LABEL when the event has none. None in the
+    # other dimensions and in the BREAKDOWN_OTHER_STRING_LABEL segment.
+    library: str | None = None
+
+
+@frozen
 class ExposureTotals:
     total_exposures: Mapping[str, int]
     multiple_variant_handling: MultipleVariantHandling
@@ -244,6 +260,10 @@ class ExposureTotals:
     hours_since_launch: float | None
     # Whether the totals count groups rather than persons, by the rule the exposure query uses.
     counts_groups: bool
+    # The next two need a scan of the exposure events. Only the exposure query loads them, and only when the check
+    # that reads them reports a finding. None when not loaded or when the query failed.
+    segments: tuple[ExposureSegment, ...] | None = None
+    exposed_without_test_account_filter: int | None = None
 
 
 @frozen

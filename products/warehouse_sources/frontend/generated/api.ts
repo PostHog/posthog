@@ -68,7 +68,6 @@ import type {
     WarehouseAlertCreateDestinationApi,
     WarehouseAlertDeleteDestinationApi,
     WarehouseAlertDestinationApi,
-    WarehouseAlertDestinationCreatedApi,
     WarehouseColumnStatisticsApi,
     WarehouseColumnStatisticsListParams,
     WebhookInfoResponseApi,
@@ -1553,15 +1552,15 @@ export const getWarehouseAlertsDestinationsCreateUrl = (projectId: string, id: s
 }
 
 /**
- * Add a notification destination to a warehouse alert. One HogFunction is created per alert event kind (firing, resolved). A PagerDuty destination gets the incident opened and incident closed kinds instead, so each incident it opens is resolved.
+ * Add a notification destination to a warehouse alert.
  */
 export const warehouseAlertsDestinationsCreate = async (
     projectId: string,
     id: string,
     warehouseAlertCreateDestinationApi: WarehouseAlertCreateDestinationApi,
     options?: RequestInit
-): Promise<WarehouseAlertDestinationCreatedApi> => {
-    return apiMutator<WarehouseAlertDestinationCreatedApi>(getWarehouseAlertsDestinationsCreateUrl(projectId, id), {
+): Promise<WarehouseAlertDestinationApi> => {
+    return apiMutator<WarehouseAlertDestinationApi>(getWarehouseAlertsDestinationsCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -1574,7 +1573,7 @@ export const getWarehouseAlertsDestinationsDeleteCreateUrl = (projectId: string,
 }
 
 /**
- * Delete one notification destination of a warehouse alert, all its HogFunctions together.
+ * Delete notification destinations of a warehouse alert.
  */
 export const warehouseAlertsDestinationsDeleteCreate = async (
     projectId: string,

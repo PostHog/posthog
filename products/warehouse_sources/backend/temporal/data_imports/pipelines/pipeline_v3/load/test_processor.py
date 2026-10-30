@@ -20,8 +20,11 @@ from temporalio.service import RPCError, RPCStatusCode
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
     CDC_OP_COLUMN,
     CDC_SEQ_COLUMN,
-    SCD2_VALID_TO_COLUMN,
+    HISTORY_NAMING,
+    HISTORY_PARTITION_COLUMN,
+    LEGACY_HISTORY_NAMING,
     TOAST_OMITTED_COLUMN,
+    HistoryNaming,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.load import PostLoadResult
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
@@ -464,10 +467,12 @@ class TestMarkJobCompleted:
             # If the job was cancelled (absorbing Failed) after the final batch passed
             # should_process_batch, the Completed write is rejected and the staged
             # incremental cursor must NOT be promoted.
-            ("completed_write_lands", "Completed", True),
-            ("completed_write_absorbed_by_failed", "Failed", False),
+            ("completed_write_lands", "Completed", True, None),
+            ("completed_write_absorbed_by_failed", "Failed", False, None),
+            ("schedule_resume_fails", "Completed", True, RuntimeError("temporal down")),
         ]
     )
+    @patch(f"{_PROCESSOR}.resume_schedule_after_ad_hoc_run")
     @patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor.transaction")
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor.release_v3_pipeline_lock"
@@ -490,13 +495,16 @@ class TestMarkJobCompleted:
         _case: str,
         resulting_status: str,
         expect_promotion: bool,
+        resume_error: Exception | None,
         mock_update: MagicMock,
         mock_schema_objects: MagicMock,
         mock_finish_row_tracking: AsyncMock,
         mock_job_objects: MagicMock,
         mock_release: MagicMock,
         mock_transaction: MagicMock,
+        mock_resume: MagicMock,
     ) -> None:
+        mock_resume.side_effect = resume_error
         model = MagicMock()
         model.status = resulting_status
         mock_update.return_value = model
@@ -511,9 +519,11 @@ class TestMarkJobCompleted:
 
         if expect_promotion:
             schema.promote_staged_incremental_values.assert_called_once_with("run-abc-a1", merge_source_cursors=ANY)
+            mock_resume.assert_called_once_with("schema-1", 1, "job-1")
         else:
             schema.promote_staged_incremental_values.assert_not_called()
             mock_finish_row_tracking.assert_not_awaited()
+            mock_resume.assert_not_called()
         # The pipeline lock must be released either way, or the next sync is blocked.
         mock_release.assert_called_once_with(team_id=1, schema_id="schema-1", token="wf-run-1")
 
@@ -1730,23 +1740,42 @@ class TestEnrichCdcRows:
             assert result.column("name").to_pylist() == ["renamed", "two"]
             assert TOAST_OMITTED_COLUMN not in result.column_names
 
-    def test_scd2_fill_uses_current_row_not_history(self):
+    @parameterized.expand(
+        [
+            ("legacy_table", LEGACY_HISTORY_NAMING, False),
+            ("new_table", HISTORY_NAMING, False),
+            # The read keeps to the current partition, which must still hold the open row.
+            ("partitioned_new_table", HISTORY_NAMING, True),
+        ]
+    )
+    def test_scd2_fill_uses_current_row_not_history(
+        self, _name: str, history: HistoryNaming, partitioned: bool
+    ) -> None:
         with tempfile.TemporaryDirectory() as path:
             ts = pa.timestamp("us", tz="UTC")
+            existing = pa.table(
+                {
+                    "id": pa.array([1, 1], pa.int64()),
+                    "name": pa.array(["v1", "v2"], pa.string()),
+                    "big": pa.array(["old-toast", "current-toast"], pa.string()),
+                    history.valid_from: pa.array([0, 1_000_000], ts),
+                    history.valid_to: pa.array([1_000_000, None], ts),
+                }
+            )
+            if partitioned:
+                existing = existing.append_column(HISTORY_PARTITION_COLUMN, pa.array(["1970-01", "current"]))
             write_deltalake(
                 path,
-                pa.table(
-                    {
-                        "id": pa.array([1, 1], pa.int64()),
-                        "name": pa.array(["v1", "v2"], pa.string()),
-                        "big": pa.array(["old-toast", "current-toast"], pa.string()),
-                        SCD2_VALID_TO_COLUMN: pa.array([1_000_000, None], ts),
-                    }
-                ),
+                existing,
                 mode="overwrite",
+                partition_by=[HISTORY_PARTITION_COLUMN] if partitioned else None,
             )
 
+            # The lane stamps the batch with its table's validity columns before the loader sees it.
             batch = self._batch([{"id": 1, "op": "U", "name": "v3", "omitted": ["big"]}])
+            batch = batch.append_column(history.valid_from, pa.array([2_000_000], ts)).append_column(
+                history.valid_to, pa.array([None], ts)
+            )
             result = _enrich_cdc_rows(
                 batch,
                 primary_keys=["id"],

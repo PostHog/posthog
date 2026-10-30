@@ -46,7 +46,16 @@ class TestStamphogResult(SimpleTestCase):
         self, _name: str, status: ReviewRunStatus, verdict: ReviewVerdict, expected: str
     ) -> None:
         finished = FinishedReviewRun(
-            run_id=uuid4(), team_id=1, repository="acme/widgets", pr_number=7, status=status, verdict=verdict
+            run_id=uuid4(),
+            team_id=1,
+            repository="acme/widgets",
+            pr_number=7,
+            status=status,
+            verdict=verdict,
+            head_sha="abc123",
+            author_login="octocat",
+            head_branch="feature",
+            request_external_review=False,
         )
 
         assert expected in stamphog_result(finished, FOLLOW_UP)
