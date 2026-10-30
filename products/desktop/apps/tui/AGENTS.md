@@ -77,7 +77,7 @@ Logic sits in plain modules with unit tests. Components under `src/components/` 
 ## Things that bit us
 
 - **Tests and smoke runs never touch the real `~/.config/posthog-tui`.** `src/testHome.ts` gives each test file its own temp `HOME`, because the files run in parallel and one file's session files once showed up in another's sidebar. Drive the app in a pty with a temp `HOME` too, or a run can overwrite the user's session and layout.
-- **Every spinner tick re-renders the whole tree.** Four working chats at an 80 ms spinner held the process near a third of a core. Every spinner and shimmer ticks on one slow clock (`ANIMATION_MS` in `animation.ts`), Ink's render is capped (`maxFps` in `main.tsx`), and the sidebar is a `memo` component so a pane's tick does not redraw it.
+- **Every spinner tick re-renders the whole tree.** Four working chats at an 80 ms spinner held the process near a third of a core. Every spinner and shimmer ticks on one slow clock (`ANIMATION_MS` in `animation.ts`), and the sidebar is a `memo` component so a pane's tick does not redraw it. Ink's `maxFps` stays at its default: its throttle covers every render, and a lower cap made typing lag.
 - **Ink draws an empty string with no height.** A blank row must carry a space, as `ChatView.render` does.
 - **Flex layout rounds half rows and leaves gaps.** Splits get whole-cell sizes from `splitSizes`, and a split with its own divider sizes its children inside that divider.
 - **Ink enters the alternate screen without moving the cursor home.** The full-height root box is what makes it draw from the top.
