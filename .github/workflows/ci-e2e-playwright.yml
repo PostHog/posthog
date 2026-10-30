@@ -214,6 +214,10 @@ jobs:
                         - '!posthog/**/conftest.py'
                         - '!ee/**/test_*.py'
                         - '!ee/**/conftest.py'
+                        # Dagster code never loads in the E2E stack. No Dagster process runs there,
+                        # and no web app or worker module imports posthog.dags, because its
+                        # __init__.py calls django.setup() again. ci-dagster.yml runs its tests.
+                        - '!posthog/dags/**'
                       hogqlParser:
                         - 'common/hogql_parser/**'
 
