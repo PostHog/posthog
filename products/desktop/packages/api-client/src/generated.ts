@@ -225,6 +225,7 @@ export namespace Schemas {
         personsJoinMode: PersonsJoinMode | null;
         personsOnEventsMode: PersonsOnEventsMode | null;
         propertyGroupsMode: PropertyGroupsMode | null;
+        pushDownIntoEventsSubqueries: boolean | null;
         pushDownPredicates: boolean | null;
         s3TableUseInvalidColumns: boolean | null;
         sessionIdPushdown: boolean | null;
