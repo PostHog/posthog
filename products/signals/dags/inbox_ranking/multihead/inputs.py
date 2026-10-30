@@ -5,6 +5,8 @@ import numpy as np
 
 from posthog.dataclasses import frozen
 
+from products.signals.backend.ranking.features import PROJECT_VECTOR_KINDS
+
 # The exported graph's names. A network without context takes only the first input, and a network
 # without user history only the first three.
 ONNX_INPUTS = ("report", "project", "has_history", "user")
@@ -33,6 +35,12 @@ class ProjectContext:
     has_history: np.ndarray
     # (rows,) int, the pair each example row reads.
     index: np.ndarray
+    # The kind of each column of `vectors` and `has_history`, in order.
+    kinds: tuple[str, ...] = PROJECT_VECTOR_KINDS
+
+    def __post_init__(self) -> None:
+        if self.has_history.shape[1:] != (len(self.kinds),):
+            raise ValueError(f"project context has {self.has_history.shape[1:]} history columns for kinds {self.kinds}")
 
 
 @frozen

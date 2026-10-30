@@ -23,9 +23,11 @@ from posthog.dataclasses import frozen
 from products.signals.backend.ranking.features import (
     PAIR_BASE_FEATURE_SET,
     PAIR_USER_HISTORY_FEATURE_SET,
+    PROJECT_VECTOR_KINDS,
     REPORT_EMBEDDINGS_FEATURE_SET,
     REPORT_EMBEDDINGS_PRIORITY_FEATURE_SET,
     REPORT_EMBEDDINGS_PRIORITY_SOURCES_FEATURE_SET,
+    TRAINING_PROJECT_VECTOR_KINDS,
     FeatureSet,
 )
 from products.signals.backend.ranking.serving_manifest import DEFAULT_MODEL_KIND, ONNX_MODEL_KIND
@@ -37,6 +39,9 @@ from products.signals.backend.ranking.serving_manifest import DEFAULT_MODEL_KIND
 NN_MODEL_NAME = "nn_v3"
 NN_WITH_PRIO_MODEL_NAME = "nn_with_prio_v2"
 NN_WITH_PRIO_SOURCES_MODEL_NAME = "nn_with_prio_sources_v1"
+NN_WITH_PRIO_FIXED_MODEL_NAME = "nn_with_prio_fixed_v1"
+NN_WITH_PRIO_FIXED_NODISMISS_MODEL_NAME = "nn_with_prio_fixed_nodismiss_v1"
+FIXED_EXPERIMENT_EXPIRES = datetime.date(2026, 11, 27)
 NN_PAIR_BASE_MODEL_NAME = "nn_pair_base_v1"
 NN_PAIR_USER_MODEL_NAME = "nn_pair_user_v1"
 PAIR_EXPERIMENT_EXPIRES = datetime.date(2026, 11, 25)
@@ -59,6 +64,10 @@ class ModelFamily:
     An experiment names the serving family it is graded against in `baseline`, and the last
     partition day it trains in `expires`. A serving family has neither.
 
+    `project_vector_kinds` are the team context kinds the network reads, in its input order. Only a
+    report-grain experiment can change them: the stored table, the serving path and the pair lane
+    read `PROJECT_VECTOR_KINDS` only.
+
     A pair-grain family is always an experiment and declares its `heads` from `PAIR_HEAD_NAMES`. Its
     `baseline` is another pair experiment, and it names a `baseline`, a `reference`, or both: the
     first pair family of a comparison has no pair baseline and is graded against the reference only."""
@@ -74,8 +83,10 @@ class ModelFamily:
     # A pair-grain family's heads. A report-grain family trains every `nn` head and declares none.
     heads: tuple[str, ...] = ()
     reference: str | None = None
+    project_vector_kinds: tuple[str, ...] = PROJECT_VECTOR_KINDS
 
     def __post_init__(self) -> None:
+        self._check_project_vector_kinds()
         if self.grain == PAIR_GRAIN:
             self._check_pair()
             return
@@ -85,6 +96,19 @@ class ModelFamily:
             raise ValueError(f"experiment family {self.name} needs a baseline and an expires day")
         if not self.experiment and (self.baseline is not None or self.expires is not None):
             raise ValueError(f"serving family {self.name} cannot have a baseline or an expires day")
+
+    def _check_project_vector_kinds(self) -> None:
+        kinds = self.project_vector_kinds
+        if not kinds or len(set(kinds)) != len(kinds) or not set(kinds) <= set(TRAINING_PROJECT_VECTOR_KINDS):
+            raise ValueError(
+                f"family {self.name} declares project vector kinds {list(kinds)}; pick distinct kinds from "
+                f"{list(TRAINING_PROJECT_VECTOR_KINDS)}"
+            )
+        if kinds != PROJECT_VECTOR_KINDS and (not self.experiment or self.grain == PAIR_GRAIN):
+            raise ValueError(
+                f"family {self.name} declares project vector kinds {list(kinds)}; only a report-grain experiment "
+                f"can read other kinds than {list(PROJECT_VECTOR_KINDS)}"
+            )
 
     def _check_pair(self) -> None:
         if not self.experiment:
@@ -114,6 +138,11 @@ class ModelFamily:
 # `nn_with_prio_v2` is the same network with the report's priority levels as extra report inputs.
 # `nn_with_prio_sources_v1` is an experiment: `nn_with_prio_v2` plus the source products of the
 # report's signals as of the moment, graded against `nn_with_prio_v2`.
+# `nn_with_prio_fixed_v1` is an experiment: `nn_with_prio_v2` plus a `fixed` project vector, the
+# team's recently fixed reports. Fixes come from the status stream, so a team that works through
+# agents or merged PRs gets history there when its UI kinds are thin. `nn_with_prio_fixed_nodismiss_v1`
+# swaps `dismiss`, the kind the fewest teams have history for, for `fixed`. Both are graded against
+# `nn_with_prio_v2`.
 # `nn_pair_base_v1` and `nn_pair_user_v1` are the user-history comparison at pair grain: one network,
 # one input shape, the same pairs and seeds, and the same reviewer flag. The base holds every
 # user-history input at zero, so `nn_pair_user_v1` against it is the uplift of the user's history
@@ -136,6 +165,26 @@ MODEL_FAMILIES: tuple[ModelFamily, ...] = (
         experiment=True,
         baseline=NN_WITH_PRIO_MODEL_NAME,
         expires=datetime.date(2026, 11, 11),
+    ),
+    ModelFamily(
+        name=NN_WITH_PRIO_FIXED_MODEL_NAME,
+        feature_set=REPORT_EMBEDDINGS_PRIORITY_FEATURE_SET,
+        learner=ONNX_MODEL_KIND,
+        location=ML_LOCATION,
+        experiment=True,
+        baseline=NN_WITH_PRIO_MODEL_NAME,
+        expires=FIXED_EXPERIMENT_EXPIRES,
+        project_vector_kinds=("typical", "open", "action", "dismiss", "fixed"),
+    ),
+    ModelFamily(
+        name=NN_WITH_PRIO_FIXED_NODISMISS_MODEL_NAME,
+        feature_set=REPORT_EMBEDDINGS_PRIORITY_FEATURE_SET,
+        learner=ONNX_MODEL_KIND,
+        location=ML_LOCATION,
+        experiment=True,
+        baseline=NN_WITH_PRIO_MODEL_NAME,
+        expires=FIXED_EXPERIMENT_EXPIRES,
+        project_vector_kinds=("typical", "open", "action", "fixed"),
     ),
     ModelFamily(
         name=NN_PAIR_BASE_MODEL_NAME,
