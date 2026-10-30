@@ -787,14 +787,14 @@ describe("App", () => {
       5_000,
       true,
       "RuntimeError: send_followup failed: Could not rebind credentials",
-      false,
+      true,
     ],
     [
       "from before it was sent leaves it waiting",
       -60_000,
       false,
       "RuntimeError: send_followup failed: Could not rebind credentials",
-      false,
+      true,
     ],
     [
       "from a sandbox that answers 502 brings the run back on the next reply",
