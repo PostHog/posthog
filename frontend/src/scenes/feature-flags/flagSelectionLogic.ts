@@ -767,8 +767,9 @@ export const flagSelectionLogic = kea<flagSelectionLogicType>([
             const failed: BulkRestoreFailure[] = []
 
             actions.setBulkRestoreProgress(0, flags.length)
-            // One request per flag, the same restore the flag page sends. It undoes a delete the
-            // person just made, so it covers every deleted flag rather than stopping at a cap.
+            // One request per flag, like the flag page's restore but without its row version: DeletedFlagInfo
+            // has none, and the API refuses version 2 restores for now. It undoes a delete the person just
+            // made, so it covers every deleted flag rather than stopping at a cap.
             for (const [index, flag] of flags.entries()) {
                 try {
                     // nosemgrep: prefer-codegen-api -- The generated partial update request type has no `deleted` field.
