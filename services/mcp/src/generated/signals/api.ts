@@ -1419,7 +1419,7 @@ export const SignalsReportsBulkStateCreateBody = () => zod.object({
 })
 
 /**
- * Your open inbox reports, ranked for you by one language model call over your activity summary, the reports that need you and the ranking model's predictions. Each entry has a reason and a compact report. A current stored list returns at once. Otherwise the request builds a new list, which can take 30 seconds or more. Only the user the list is about can read it.
+ * Your open inbox reports, ranked for you by one language model call over your activity summary, the reports that need you and the ranking model's predictions. Each entry has a reason and a compact report. The request never waits on the model. A current stored list returns at once. Otherwise the request starts a background build and returns the last stored list with `stale: true`, or your reports in inbox order with `fallback_reason: building`, and `building: true`. Pass `wait_seconds` to wait a short time for the new list. Only the user the list is about can read it.
  * @summary Get your personal ranked inbox
  */
 export const SignalsReportsForMeRetrieveParams = () => zod.object({
@@ -1435,6 +1435,9 @@ export const signalsReportsForMeRetrieveQueryFocusMax = 2000
 export const signalsReportsForMeRetrieveQueryLimitMax = 100
 
 export const signalsReportsForMeRetrieveQueryRefreshDefault = false
+export const signalsReportsForMeRetrieveQueryWaitSecondsDefault = 0
+export const signalsReportsForMeRetrieveQueryWaitSecondsMin = 0
+export const signalsReportsForMeRetrieveQueryWaitSecondsMax = 30
 
 export const SignalsReportsForMeRetrieveQueryParams = () => zod.object({
     focus: zod
@@ -1442,7 +1445,7 @@ export const SignalsReportsForMeRetrieveQueryParams = () => zod.object({
         .max(signalsReportsForMeRetrieveQueryFocusMax)
         .optional()
         .describe(
-            'Free text about what to put first, such as `error tracking` or `billing reports`. A request with focus always builds a new list, and an unfocused request never reuses it.'
+            'Free text about what to put first, such as `error tracking` or `billing reports`. A request with focus always starts a new build, and an unfocused request never reuses it. Pass `wait_seconds` to wait for it.'
         ),
     limit: zod
         .number()
@@ -1456,7 +1459,15 @@ export const SignalsReportsForMeRetrieveQueryParams = () => zod.object({
         .boolean()
         .default(signalsReportsForMeRetrieveQueryRefreshDefault)
         .describe(
-            'Build a new list even when the stored one is current. A build calls a model and can take 30 seconds or more.'
+            'Start a new build even when the stored one is current. The build runs in the background, so the response has `building: true`. Pass `wait_seconds` to wait for it.'
+        ),
+    wait_seconds: zod
+        .number()
+        .min(signalsReportsForMeRetrieveQueryWaitSecondsMin)
+        .max(signalsReportsForMeRetrieveQueryWaitSecondsMax)
+        .default(signalsReportsForMeRetrieveQueryWaitSecondsDefault)
+        .describe(
+            'When the request starts a build or one is running, wait up to this many seconds for its list. Defaults to 0, which returns at once. A build usually takes 10 to 60 seconds.'
         ),
 })
 

@@ -9,6 +9,7 @@ import time_machine
 from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import MagicMock, patch
 
+from django.core.cache import cache
 from django.core.management import call_command
 from django.test import SimpleTestCase
 from django.utils import timezone
@@ -38,6 +39,7 @@ from products.signals.backend.personal_ranking.config import PersonalRankingConf
 from products.signals.backend.personal_ranking.logic import BUILT_EVENT, build_personal_ranking
 from products.signals.backend.personal_ranking.prompt import render_person, user_message
 from products.signals.backend.personal_ranking.validation import MalformedRankingError, validate_ranking
+from products.signals.backend.personal_ranking_tasks import build_lock_key, build_personal_inbox_ranking
 from products.signals.backend.ranking.report_predictions import OutcomePrediction, ReportPredictions
 
 REFS = ["c1", "c2", "c3", "c4"]
@@ -243,10 +245,11 @@ class TestBuildPersonalRanking(BaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.llm = MagicMock()
-        self.capture = MagicMock()
+        scoped_capture = MagicMock()
+        self.capture = scoped_capture.return_value.__enter__.return_value
         for target, value in (
             ("products.signals.backend.personal_ranking.logic.build_openai_client", MagicMock(return_value=self.llm)),
-            ("products.signals.backend.personal_ranking.logic.posthoganalytics.capture", self.capture),
+            ("products.signals.backend.personal_ranking.logic.ph_scoped_capture", scoped_capture),
             (
                 "products.signals.backend.personal_ranking.candidates.fetch_source_products_for_reports",
                 MagicMock(return_value={}),
@@ -464,10 +467,13 @@ class TestForMeEndpoint(APIBaseTest):
         super().setUp()
         TEST_clear_clients()
         TEST_reset_scripts()
+        cache.delete(build_lock_key(self.team.id, self.user.id))
         self.organization.is_ai_data_processing_approved = False
         self.organization.save()
         self.payload: dict[str, Any] = {"build_burst": 10}
         self.flag_enabled = True
+        self.queued: list[tuple[Any, ...]] = []
+        self.delay = MagicMock(side_effect=lambda *args: self.queued.append(args))
         for target, value in (
             (
                 "products.signals.backend.personal_ranking.config.read_flag_payload",
@@ -481,7 +487,8 @@ class TestForMeEndpoint(APIBaseTest):
                 "products.signals.backend.personal_ranking.candidates.fetch_source_products_for_reports",
                 MagicMock(return_value={}),
             ),
-            ("products.signals.backend.personal_ranking.logic.posthoganalytics.capture", MagicMock()),
+            ("products.signals.backend.personal_ranking.logic.ph_scoped_capture", MagicMock()),
+            ("products.signals.backend.personal_ranking.serve.build_personal_inbox_ranking.delay", self.delay),
         ):
             patcher = patch(target, value)
             patcher.start()
@@ -506,63 +513,108 @@ class TestForMeEndpoint(APIBaseTest):
         assert response.status_code == 200, response.json()
         return response.json()
 
-    def test_reuses_a_current_list_and_builds_when_inputs_change(self) -> None:
+    def _run_builds(self) -> None:
+        queued, self.queued = self.queued, []
+        for args in queued:
+            build_personal_inbox_ranking(*args)
+
+    def _state(self, body: dict[str, Any]) -> tuple[bool, bool, bool]:
+        return body["cached"], body["stale"], body["building"]
+
+    def test_serves_without_building_and_queues_one_build_per_user(self) -> None:
         first = self._claimed_report("First")
         body = self._get()
-        assert (body["cached"], body["fallback_reason"], self._rows()) == (False, "ai_not_approved", 1)
+        assert (body["fallback_reason"], self._state(body), self._rows()) == ("building", (False, False, True), 0)
         assert [entry["report"]["id"] for entry in body["results"]] == [str(first.id)]
         assert body["results"][0]["matched"]["needs_you"] == ["claimed"]
+        assert self._get()["building"] is True
+        assert len(self.queued) == 1
 
-        assert (self._get()["cached"], self._rows()) == (True, 1)
-        assert (self._get(refresh="true")["cached"], self._rows()) == (False, 2)
+        self._run_builds()
+        body = self._get()
+        assert (body["fallback_reason"], self._state(body), self._rows()) == (
+            "ai_not_approved",
+            (True, False, False),
+            1,
+        )
+        assert self.queued == []
+
+        assert self._state(self._get(refresh="true")) == (True, False, True)
+        self._run_builds()
+        assert self._rows() == 2
 
         first.title = "First, edited"
         first.save()
-        assert (self._get()["cached"], self._rows()) == (False, 3)
+        assert self._state(self._get()) == (True, True, True)
+        self._run_builds()
+        assert (self._state(self._get()), self._rows()) == ((True, False, False), 3)
 
         second = self._claimed_report("Second")
+        assert self._state(self._get()) == (True, True, True)
+        self._run_builds()
         body = self._get()
-        assert (body["cached"], self._rows()) == (False, 4)
         assert {entry["report"]["id"] for entry in body["results"]} == {str(first.id), str(second.id)}
 
-        assert (self._get(focus="checkout")["cached"], self._rows()) == (False, 5)
-        assert (self._get()["cached"], self._rows()) == (False, 6)
+        assert self._state(self._get(focus="checkout")) == (True, True, True)
+        self._run_builds()
+        assert (self._state(self._get()), self._rows()) == ((True, True, True), 5)
+        self._run_builds()
 
-    def test_throttled_build_returns_the_stored_list_or_429(self) -> None:
+        self.delay.side_effect = build_personal_inbox_ranking
+        body = self._get(refresh="true", wait_seconds=5)
+        assert (self._state(body), self._rows()) == ((False, False, False), 7)
+
+    def test_throttled_build_serves_the_stored_list_or_the_inbox_order(self) -> None:
         self.payload = {"build_burst": 1, "builds_per_hour": 1}
         first = self._claimed_report("First")
         self._get()
+        self._run_builds()
 
-        assert (self._get(refresh="true")["cached"], self._rows()) == (True, 1)
+        assert (self._state(self._get(refresh="true")), self.queued) == ((True, False, False), [])
         self._claimed_report("Second")
         body = self._get()
-        assert (body["cached"], body["stale"], self._rows()) == (True, True, 1)
+        assert (self._state(body), self._rows()) == ((True, True, False), 1)
         assert [entry["report"]["id"] for entry in body["results"]] == [str(first.id)]
 
         PersonalInboxRanking.objects.for_team(self.team.id).all().delete()
-        assert self.client.get(self._url()).status_code == 429
+        body = self._get()
+        assert (body["fallback_reason"], body["building"], len(body["results"])) == ("rate_limited", False, 2)
+
+    def test_failed_enqueue_serves_the_inbox_order_and_frees_the_lock(self) -> None:
+        self._claimed_report("First")
+        self.delay.side_effect = RuntimeError("broker down")
+
+        body = self._get()
+
+        assert (body["fallback_reason"], body["building"], len(body["results"])) == ("build_failed", False, 1)
+        self.delay.side_effect = lambda *args: self.queued.append(args)
+        assert self._get()["building"] is True
 
     def test_daily_cap_holds_across_hours(self) -> None:
         self.payload = {"build_burst": 10, "builds_per_hour": 120, "builds_per_day": 2}
         self._claimed_report("First")
         with time_machine.travel(timezone.now(), tick=False) as traveller:
             self._get()
+            self._run_builds()
             self._get(refresh="true")
+            self._run_builds()
 
             traveller.shift(datetime.timedelta(hours=3))
-            assert (self._get(refresh="true")["cached"], self._rows()) == (True, 2)
+            assert (self._get(refresh="true")["building"], self._rows()) == (False, 2)
 
             traveller.shift(datetime.timedelta(hours=9))
-            assert (self._get(refresh="true")["cached"], self._rows()) == (False, 3)
+            assert self._get(refresh="true")["building"] is True
 
     def test_another_user_never_reads_your_list(self) -> None:
         self._get()
+        self._run_builds()
         other = User.objects.create_and_join(self.organization, "other@example.com", "password")
         self.client.force_login(other)
 
         body = self._get()
+        self._run_builds()
 
-        assert body["cached"] is False
+        assert (body["cached"], body["fallback_reason"]) == (False, "building")
         assert PersonalInboxRanking.objects.for_team(self.team.id).filter(user_id=other.id).count() == 1
 
     @parameterized.expand([("flag_off", {"enabled": True}, False), ("kill_switch", {"enabled": False}, True)])
@@ -574,4 +626,4 @@ class TestForMeEndpoint(APIBaseTest):
             assert (response.json()["status"], response.json()["results"]) == ("unavailable", [])
         else:
             assert response.status_code == 404
-        assert self._rows() == 0
+        assert (self._rows(), self.queued) == (0, [])
