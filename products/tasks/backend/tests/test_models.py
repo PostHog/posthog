@@ -652,19 +652,27 @@ class TestTask(TestCase):
 
     @parameterized.expand(
         [
-            (Task.OriginProduct.SIGNALS_CHAT,),
-            (Task.OriginProduct.SIGNAL_REPORT,),
-            (Task.OriginProduct.SIGNALS_SCOUT_SUGGESTIONS,),
-            (Task.OriginProduct.AUTORESEARCH,),
-            (Task.OriginProduct.ACCOUNT_AUDIT,),
+            (Task.OriginProduct.SIGNALS_CHAT, False),
+            (Task.OriginProduct.SIGNAL_REPORT, False),
+            (Task.OriginProduct.SIGNALS_SCOUT_SUGGESTIONS, False),
+            (Task.OriginProduct.AUTORESEARCH, False),
+            (Task.OriginProduct.ACCOUNT_AUDIT, False),
+            (Task.OriginProduct.WORKFLOW, False),
+            (Task.OriginProduct.SUPPORT_REPLY, False),
+            (Task.OriginProduct.TASK_ANALYSIS, False),
+            (Task.OriginProduct.SPACE_SETUP, False),
+            (Task.OriginProduct.USER_CREATED, True),
+            (Task.OriginProduct.SLACK, True),
+            (Task.OriginProduct.IMAGE_BUILDER, True),
+            (Task.OriginProduct.SIGNALS_SCOUT, True),
         ]
     )
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
-    def test_create_and_run_attaches_no_github_integration_to_a_repo_less_restricted_origin(
-        self, origin_product, mock_execute_workflow
+    def test_create_and_run_attaches_github_to_a_repo_less_task_only_for_opted_in_origins(
+        self, origin_product, attaches_github, mock_execute_workflow
     ):
         user = User.objects.create(email="test@test.com")
-        Integration.objects.create(team=self.team, kind="github", config={})
+        integration = Integration.objects.create(team=self.team, kind="github", config={})
 
         with self.captureOnCommitCallbacks(execute=True):
             task = Task.create_and_run(
@@ -675,7 +683,7 @@ class TestTask(TestCase):
                 user_id=user.id,
             )
 
-        self.assertIsNone(task.github_integration)
+        self.assertEqual(task.github_integration, integration if attaches_github else None)
         self.assertIsNone(task.github_user_integration)
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
