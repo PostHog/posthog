@@ -78,6 +78,16 @@ class Candidate:
     pools: tuple[PoolName, ...]
 
 
+# Compares field by field in declaration order, so the order of the fields is the sort order.
+@frozen(order=True)
+class _RecommendedSortKey:
+    decile_rank: int
+    priority_rank: int
+    status_rank: int
+    newest_first: float
+    report_id: str
+
+
 def _priority_rank(priority: str | None) -> int:
     values = list(AutonomyPriority.values)
     return values.index(priority) if priority in values else len(values)
@@ -134,16 +144,16 @@ def _recommended_for_you(team: Team, user: User, since: datetime.datetime, size:
     priorities = latest_report_priorities(team.id, ids)
     predictions = load_predictions(team.id, ids) if ranker != "priority" else {}
 
-    def sort_key(report: SignalReport) -> tuple[int, int, int, float, str]:
+    def sort_key(report: SignalReport) -> _RecommendedSortKey:
         report_id = str(report.id)
         decile = _decile(predictions[report_id].probability(ranker)) if ranker != "priority" else None
-        return (
+        return _RecommendedSortKey(
             # Unscored reports sort after every scored report.
-            _DECILES if decile is None else _DECILES - 1 - decile,
-            _priority_rank(priorities.get(report_id)),
-            0 if report.status == SignalReport.Status.READY else 1,
-            -report.updated_at.timestamp(),
-            report_id,
+            decile_rank=_DECILES if decile is None else _DECILES - 1 - decile,
+            priority_rank=_priority_rank(priorities.get(report_id)),
+            status_rank=0 if report.status == SignalReport.Status.READY else 1,
+            newest_first=-report.updated_at.timestamp(),
+            report_id=report_id,
         )
 
     return [str(report.id) for report in sorted(reports, key=sort_key)[:size]]
