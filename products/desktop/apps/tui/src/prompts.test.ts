@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   type AgentPrompt,
-  feedbackSheet,
   promptReply,
   promptSheet,
   wantsText,
@@ -125,7 +124,14 @@ describe("promptReply", () => {
     };
     expect(wantsText(feedback, 0)).toBe(false);
     expect(wantsText(feedback, 1)).toBe(true);
-    expect(feedbackSheet(feedback, 1).items).toEqual([]);
+    // The option carries its own text field, filled with what was typed so far.
+    expect(promptSheet(feedback, 0, "use pn").items[1]).toMatchObject({
+      input: {
+        placeholder: expect.stringContaining("what to do instead"),
+        text: "use pn",
+      },
+    });
+    expect(promptSheet(feedback, 0).items[0].input).toBeUndefined();
     expect(promptReply(feedback, 1, {}, "use pnpm")).toEqual({
       kind: "acp",
       taskRunId: "local-1",

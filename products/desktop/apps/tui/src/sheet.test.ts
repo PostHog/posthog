@@ -36,6 +36,36 @@ describe("renderSheet", () => {
     ]);
   });
 
+  it("draws an item's text field under it while the cursor is on it, with its placeholder until typed in", () => {
+    const feedback: Sheet = {
+      title: "Run pnpm test",
+      items: [
+        { label: "Allow" },
+        {
+          label: "No, and tell the agent what to do differently",
+          input: { placeholder: "What to do instead", text: "" },
+        },
+      ],
+    };
+    expect(plain(renderSheet(feedback, 0, 60))).not.toContain(
+      "     What to do instead",
+    );
+    expect(plain(renderSheet(feedback, 1, 60))).toContain(
+      "     What to do instead",
+    );
+    const typed = {
+      ...feedback,
+      items: [
+        feedback.items[0],
+        {
+          ...feedback.items[1],
+          input: { placeholder: "What to do instead", text: "use pnpm" },
+        },
+      ],
+    };
+    expect(plain(renderSheet(typed, 1, 60))).toContain("     use pnpm");
+  });
+
   it("shows a window of long lists around the cursor with a count of the rest", () => {
     const long: Sheet = {
       title: "Pick",

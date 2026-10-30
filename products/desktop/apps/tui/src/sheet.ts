@@ -13,6 +13,8 @@ export interface SheetItem {
   current?: boolean;
   // Why the item cannot be chosen here; it still shows, greyed out.
   disabled?: string;
+  // A text field the item takes its answer from, drawn under it while the cursor is on it.
+  input?: { placeholder: string; text: string };
 }
 
 export interface Sheet {
@@ -31,6 +33,7 @@ const ACCENT = (text: string): string => `${ESC}[34m${text}${ESC}[39m`;
 const BOLD = (text: string): string => `${ESC}[1m${text}${ESC}[22m`;
 const DIM = (text: string): string => `${ESC}[2m${text}${ESC}[22m`;
 const GREEN = (text: string): string => `${ESC}[32m${text}${ESC}[39m`;
+const INVERSE = (text: string): string => `${ESC}[7m${text}${ESC}[27m`;
 const MAX_ITEMS = 10;
 
 export function sheetKey(sequence: string): SheetKey | null {
@@ -89,6 +92,13 @@ export function renderSheet(
     lines.push(
       truncateToWidth(` ${cursor} ${item.disabled ? DIM(text) : text}`, width),
     );
+    if (item.input && i === index)
+      lines.push(
+        truncateToWidth(
+          `     ${item.input.text ? item.input.text : DIM(item.input.placeholder)}${INVERSE(" ")}`,
+          width,
+        ),
+      );
   }
   const hidden = sheet.items.length - count;
   if (hidden > 0) lines.push(DIM(`     … +${hidden} more`));
