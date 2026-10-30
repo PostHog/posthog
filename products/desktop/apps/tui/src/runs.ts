@@ -120,17 +120,122 @@ const idleWord = (now: number): string =>
     (Math.floor(now / IDLE_WORD_MS) * 7919) % THINKING_ACTIVITIES.length
   ];
 
+export interface SetupStep {
+  step: string;
+  label: string;
+  status: "in_progress" | "completed" | "failed";
+  detail?: string;
+}
+
+export interface SetupProgress {
+  // The step under way, or the last one to finish while the next has not begun.
+  current: SetupStep;
+  // When this setup began (epoch ms).
+  startedAt: number;
+  // The agent is ready, so the chat's own state takes over.
+  done: boolean;
+}
+
+// The steps a sandbox goes through before its agent can reply. Later notices in the group, such as a sandbox
+// about to stop, come after setup and do not reopen it.
+const SETUP_STEPS = new Set([
+  "sandbox",
+  "clone",
+  "checkout",
+  "wizard",
+  "agent",
+]);
+
+// The backend logs each setup step of a cloud run as a progress notification, grouped by run. Bringing the same
+// run back writes a new setup into that group, so only the latest one, from its sandbox step on, counts.
+export function setupProgress(
+  entries: StoredLogEntry[],
+  runId: string,
+): SetupProgress | null {
+  const group = `setup:${runId}`;
+  let steps = new Map<string, SetupStep & { at: number }>();
+  let startedAt = 0;
+  for (const entry of entries) {
+    const notification = (
+      entry as { notification?: { method?: string; params?: unknown } }
+    ).notification;
+    if (notification?.method !== "_posthog/progress") continue;
+    const params = notification.params as Partial<SetupStep> & {
+      group?: string;
+    };
+    if (
+      params?.group !== group ||
+      !params.step ||
+      !params.label ||
+      !SETUP_STEPS.has(params.step)
+    )
+      continue;
+    const at = Date.parse(entry.timestamp ?? "") || 0;
+    if (params.step === "sandbox" && params.status === "in_progress") {
+      const previous = steps.get("sandbox");
+      // A new setup starts, unless this only restarts the sandbox step within the current one.
+      if (!previous || previous.status !== "in_progress") {
+        steps = new Map();
+        startedAt = at;
+      }
+    }
+    steps.set(params.step, {
+      step: params.step,
+      label: params.label,
+      status: params.status ?? "in_progress",
+      ...(params.detail ? { detail: params.detail } : {}),
+      at,
+    });
+  }
+  if (steps.size === 0) return null;
+  const all = [...steps.values()];
+  const latest = (list: typeof all) =>
+    list.reduce<(typeof all)[number] | undefined>(
+      (last, step) => (!last || step.at >= last.at ? step : last),
+      undefined,
+    );
+  const failed = all.find((step) => step.status === "failed");
+  const running = latest(all.filter((step) => step.status === "in_progress"));
+  const { at: _, ...current } = (failed ??
+    running ??
+    latest(all)) as (typeof all)[number];
+  return {
+    current,
+    startedAt: startedAt || Math.min(...all.map((step) => step.at)),
+    done: steps.get("agent")?.status === "completed",
+  };
+}
+
 export function runNotice(
   view: RunView,
   lines: TranscriptLine[],
   turnOpen: boolean,
   lastTurn: Transcript["lastTurn"],
   turnStartedAt: number | null = null,
+  setup: SetupProgress | null = null,
 ): ChatNotice | null {
   if (view.status === "failed") {
     return { text: view.runError || "The run failed.", tone: "error" };
   }
   const running = view.status === "queued" || view.status === "in_progress";
+  // While the sandbox sets up, its current step says what the wait is for.
+  if (running && setup && !setup.done) {
+    const { current } = setup;
+    if (current.status === "failed")
+      return {
+        text: current.detail
+          ? `${current.label} failed: ${current.detail}`
+          : `${current.label} failed`,
+        tone: "error",
+      };
+    return {
+      text:
+        current.status === "in_progress" ? `${current.label}…` : current.label,
+      ...(current.detail ? { subject: current.detail } : {}),
+      detail: formatDuration(Date.now() - setup.startedAt),
+      tone: "working",
+    };
+  }
   // A message the chat has echoed opens its own turn, so outside a turn only an unsent message waits.
   const waiting =
     lines.at(-1)?.kind === "user" &&
