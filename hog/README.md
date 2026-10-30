@@ -48,7 +48,6 @@ Then, once the commands above work:
 
 Smaller follow-ups, none of them blocking:
 
-- [ ] PostHog: keep an approved CLI login key until its code expires, and let a repeated poll return it again. Then `hog auth login --wait` works however long the person takes to resume the agent, and a poll whose response is lost can retry. posthog-cli polls in one process, so only hog's agent flow needs this.
 - [ ] `hog error-tracking upload --include-source`: read `DW_LNE_define_file` entries in the DWARF line program, so hog bundles the same source files as posthog-cli. Current compilers don't emit them, and DWARF 5 removed them.
 - [ ] `hog error-tracking upload --include-source`: write ZIP64, so a binary that names more than 65,533 source files keeps its sources. hog uploads it without sources and warns.
 
