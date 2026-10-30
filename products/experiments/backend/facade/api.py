@@ -6,6 +6,7 @@ using framework-free DTOs, wrapping the existing ExperimentService.
 """
 
 import dataclasses
+from collections import defaultdict
 from collections.abc import Collection, Sequence
 from datetime import datetime
 from decimal import Decimal
@@ -44,7 +45,10 @@ from products.experiments.backend.metric_calculation.config import (
     calculation_metric_name,
 )
 from products.experiments.backend.metric_calculation.results import MetricResultStore
-from products.experiments.backend.models.experiment import Experiment as ExperimentModel
+from products.experiments.backend.models.experiment import (
+    Experiment as ExperimentModel,
+    flag_has_live_experiment as _flag_has_live_experiment,
+)
 from products.experiments.backend.models.team_experiments_config import (
     TeamExperimentsConfig,
     validate_recalculation_times as _validate_stored_recalculation_times,
@@ -64,6 +68,7 @@ from .contracts import (
     ExperimentRunningTimeOutlook,
     ExperimentRunningTimeTarget,
     ExperimentValidationError,
+    LinkedExperiment,
     RunningExperiment,
     RunningTimeMode,
     StoredArmResult,
@@ -517,3 +522,22 @@ def _experiment_model_to_dto(experiment: ExperimentModel) -> Experiment:
         created_at=experiment.created_at,
         updated_at=experiment.updated_at,
     )
+
+
+def flag_has_live_experiment(feature_flag_id: int) -> bool:
+    """Whether an experiment that is not deleted uses the flag. Flag ids are unique across teams, so the id scopes
+    the read."""
+    return _flag_has_live_experiment(feature_flag_id)
+
+
+def live_experiments_by_flag(feature_flag_ids: Collection[int]) -> dict[int, tuple[LinkedExperiment, ...]]:
+    """The experiments that are not deleted on each of the flags, archived ones included, keyed by flag id, in no set
+    order. A flag without one has no key. Flag ids are unique across teams, so pass ids from a team-scoped read."""
+    experiments: defaultdict[int, list[LinkedExperiment]] = defaultdict(list)
+    for experiment in ExperimentModel.objects.filter(deleted=False, feature_flag_id__in=feature_flag_ids).only(
+        "id", "name", "feature_flag_id", "start_date", "end_date"
+    ):
+        experiments[experiment.feature_flag_id].append(
+            LinkedExperiment(id=experiment.id, name=experiment.name, is_running=experiment.is_running)
+        )
+    return {flag_id: tuple(linked) for flag_id, linked in experiments.items()}
