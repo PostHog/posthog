@@ -4,6 +4,8 @@ from typing import TYPE_CHECKING
 
 from rest_framework.exceptions import ValidationError
 
+from posthog.integrations.contracts import IntegrationRecord
+
 from . import model
 
 if TYPE_CHECKING:
@@ -13,10 +15,10 @@ if TYPE_CHECKING:
 class TwilioIntegration:
     integration: model.Integration
 
-    def __init__(self, integration: model.Integration) -> None:
+    def __init__(self, integration: IntegrationRecord) -> None:
         if integration.kind != "twilio":
             raise Exception("TwilioIntegration init called with Integration with wrong 'kind'")
-        self.integration = integration
+        self.integration = model.integration_model(integration)
         self._account_sid = self.integration.config["account_sid"]
         self._auth_token = self.integration.sensitive_config["auth_token"]
 

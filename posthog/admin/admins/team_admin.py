@@ -30,9 +30,9 @@ from temporalio import common
 from temporalio.client import WorkflowExecutionStatus
 from temporalio.common import SearchAttributePair, TypedSearchAttributes
 
+from posthog.admin.inline_registry import extra_inlines_for
 from posthog.admin.inlines.events_retention_config_inline import TeamEventsRetentionConfigInline
 from posthog.admin.inlines.organization_member_for_related_inline import OrganizationMemberForRelatedInline
-from posthog.admin.inlines.team_experiments_config_inline import TeamExperimentsConfigInline
 from posthog.admin.inlines.team_marketing_analytics_config_inline import TeamMarketingAnalyticsConfigInline
 from posthog.helpers.impersonation import is_impersonated
 from posthog.llm.gateway_internal_client import AIGatewayInternalError, AIGatewayNotConfigured, add_credit, get_wallet
@@ -204,9 +204,13 @@ class TeamAdmin(admin.ModelAdmin):
     inlines = [
         OrganizationMemberForRelatedInline,
         TeamMarketingAnalyticsConfigInline,
-        TeamExperimentsConfigInline,
         TeamEventsRetentionConfigInline,
     ]
+
+    def get_inlines(self, request, obj=None):
+        # Inlines other apps registered for Team, so a product can show a panel on
+        # this page without core importing it. See posthog.admin.inline_registry.
+        return [*super().get_inlines(request, obj), *extra_inlines_for(Team)]
 
     def changeform_view(self, request, object_id=None, form_url="", extra_context=None):
         self._current_request = request

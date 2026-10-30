@@ -21,7 +21,11 @@ from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_
 from pydantic import ValidationError
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import ParseError, PermissionDenied
+from rest_framework.exceptions import (
+    ParseError,
+    PermissionDenied,
+    ValidationError as DRFValidationError,
+)
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -68,6 +72,7 @@ from ..facade.api import (
     run_symbol_stats_query,
     service_health_byte_cap_message,
 )
+from ..facade.enums import ServiceHealthStatus
 from ..has_spans_query_runner import team_has_spans
 from ..logic import (
     _ROW_LIMIT,
@@ -618,6 +623,24 @@ class _TracingAggregationQueryBodySerializer(serializers.Serializer):
             "and resource attribute maps, which the rest of the aggregation never touches."
         ),
     )
+    groupByEndpoint = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Group HTTP server spans by `METHOD route` (from `http.route`) in place of the span name, so raw paths "
+            "like `/users/1` and `/users/2` fold into one row. Spans without a route keep their span name. Spans "
+            "that are not HTTP server spans are left out."
+        ),
+    )
+    includeHealth = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Also return `health_status` and `health_reason` per row, comparing each row with the same row in the "
+            "comparison window, or in the previous period when `compareFilter` is off. Uses the same statuses and "
+            "thresholds as the service health check. Costs a second window query."
+        ),
+    )
 
 
 class _TracingAggregationRequestSerializer(serializers.Serializer):
@@ -662,6 +685,19 @@ class _AggregatedSpanRowSerializer(serializers.Serializer):
             "How many of this group's spans carry a person distinct ID under the team's configured or conventional "
             "attribute keys. Null unless the query set `includeImpact`."
         ),
+    )
+    health_status = serializers.ChoiceField(
+        choices=ServiceHealthStatus.choices,
+        allow_null=True,
+        help_text=(
+            "How this group compares with its baseline: regressed (error rate or p95 jumped), degraded (high error "
+            "rate), new (no spans in the baseline), recovered, improved, or ok. Null unless the query set "
+            "`includeHealth`."
+        ),
+    )
+    health_reason = serializers.CharField(
+        allow_null=True,
+        help_text="Short reason for `health_status`, such as `error rate 0.2% → 4.1%`. Empty when the status is ok.",
     )
 
 
@@ -1217,6 +1253,16 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             return default
         return max(minimum, parsed)
 
+    @staticmethod
+    def _parse_bool(value: object) -> bool:
+        """Parse an untrusted JSON flag the way the declared BooleanField would, so `"false"` stays false."""
+        if value is None:
+            return False
+        try:
+            return serializers.BooleanField().run_validation(value)
+        except DRFValidationError as e:
+            raise ParseError(f"Expected a boolean, got {value!r}.") from e
+
     def _report_usage(self, request: Request, event: str, properties: dict) -> None:
         # Usage telemetry must never turn a successful read into a 5xx, so swallow and record any failure.
         try:
@@ -1694,6 +1740,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             filter_group = None
 
         compare_filter = self._parse_compare_filter(query_data)
+        include_health = self._parse_bool(query_data.get("includeHealth"))
 
         # Bound the payload: default to a conservative page so agent/MCP callers don't pull the
         # full high-cardinality tail. Callers opt into more via `limit`/`offset`.
@@ -1711,6 +1758,8 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             limit=min(limit + 1, _ROW_LIMIT),
             offset=offset,
             include_impact=bool(query_data.get("includeImpact")),
+            group_by_endpoint=self._parse_bool(query_data.get("groupByEndpoint")),
+            include_health=include_health,
         )
 
         results = list(response.results)
@@ -1719,6 +1768,10 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         # `None` when no comparison was requested, `[]` when it ran but matched no spans — keep them
         # distinct so an empty baseline isn't reported as "comparison ignored".
         compare_rows = list(response.compare)[:limit] if response.compare is not None else None
+        if include_health and response.compare is not None:
+            # Health baselines follow the result keys, not their own ranking, so match them by key.
+            visible = {(row.service_name, row.name) for row in results}
+            compare_rows = [row for row in response.compare if (row.service_name, row.name) in visible]
 
         self._report_usage(
             request,
@@ -1732,6 +1785,8 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 "has_filter_group": bool(query_data.get("filterGroup")),
                 "service_names_count": len(query_data.get("serviceNames") or []),
                 "include_impact": bool(query_data.get("includeImpact")),
+                "group_by_endpoint": bool(query_data.get("groupByEndpoint")),
+                "include_health": bool(query_data.get("includeHealth")),
             },
         )
 

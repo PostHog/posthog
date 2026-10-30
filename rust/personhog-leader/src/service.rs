@@ -1590,11 +1590,14 @@ impl PersonHogLeader for PersonHogLeaderService {
             .max();
 
         // The version is a max-merge over the target's floor and every
-        // sealed version, plus one: at or above every source's death
-        // document, which derives from the same sealed + 1 (equal when
-        // the highest sealed version dominates — harmless, the streams
-        // are per-person), and re-applying the fold only bumps it again
-        // — convergent under at-least-once delivery.
+        // sealed version, plus one. A source's death document starts
+        // from the same sealed + 1, so the fold sits at or above it and
+        // equals it when the highest sealed version dominates. A source
+        // row that moved after its seal raises its death document above
+        // the fold. The streams are per-person, so the relation is a
+        // convention, not a collision guard. Re-applying the fold only
+        // bumps the version again, so it converges under at-least-once
+        // delivery.
         let base_version = self
             .emitted_versions
             .floor_for(partition, &cache_key, person.version);

@@ -1,8 +1,8 @@
 """Generate, store and read the model-written summary of an issue.
 
 A read calls `get_or_generate_issue_summary`, directly or through the Celery task. The issue-created workflow
-calls `generate_issue_summary_from_event`. Both return the stored summary when no new one is due, so callers
-need no freshness logic of their own.
+calls `generate_issue_summary_from_event`, and the issue-reopened workflow calls `refresh_issue_summary_on_reopen`.
+Each returns the stored summary when no new one is due, so callers need no freshness logic of their own.
 """
 
 import re
@@ -159,6 +159,7 @@ return 0
 class IssueSummaryTrigger(StrEnum):
     READ = "read"
     WRITE = "write"
+    REOPEN = "reopen"
 
 
 class IssueSummaryOutcome(StrEnum):
@@ -235,6 +236,13 @@ class IssueSummaryInputs:
     input_hash: str
 
 
+class WorkflowEventUnavailable(Exception):
+    """The workflow's event did not load, often because ClickHouse has not ingested it yet.
+
+    It is not an inputs error, so the activity raises and Temporal retries it.
+    """
+
+
 def issue_summaries_enabled(team_id: int) -> bool:
     return team_flag_enabled(ISSUE_SUMMARY_FLAG, team_id)
 
@@ -273,6 +281,11 @@ def regeneration_due(summary: ErrorTrackingIssueSummary | None, now: datetime) -
 def first_summary_due(summary: ErrorTrackingIssueSummary | None, _now: datetime) -> bool:
     # Generation on issue creation sees only the first event, so any stored summary already covers it.
     return summary is None
+
+
+def refresh_due(_summary: ErrorTrackingIssueSummary | None, _now: datetime) -> bool:
+    # A reopen can make a summary of any age stale. The input hash still decides whether the model runs.
+    return True
 
 
 DueCheck = Callable[[ErrorTrackingIssueSummary | None, datetime], bool]
@@ -395,20 +408,63 @@ def generate_issue_summary_from_event(
     Does nothing when a summary is already stored. A stored summary refreshes through the read path.
     `load_event_properties` runs only after every check passes, so a blocked attempt reads no event.
     """
+    return _generate_in_workflow(
+        team_id,
+        issue_id,
+        IssueSummaryTrigger.WRITE,
+        first_summary_due,
+        lambda team, _timings: build_issue_summary_inputs_from_event(
+            team, issue_id, _load_workflow_event(load_event_properties, team)
+        ),
+    )
+
+
+def refresh_issue_summary_on_reopen(
+    team_id: int, issue_id: UUID | str, load_event_properties: Callable[[Team], dict[str, object]]
+) -> IssueSummaryResult:
+    """Regenerate the summary of a reopened issue when its inputs changed, whatever the age of the stored one.
+
+    `load_event_properties` loads the reopening event. It is the latest event, because ClickHouse may not have it yet.
+    """
+    return _generate_in_workflow(
+        team_id,
+        issue_id,
+        IssueSummaryTrigger.REOPEN,
+        refresh_due,
+        lambda team, timings: build_issue_summary_inputs(
+            team, issue_id, timings, latest_event_properties=_load_workflow_event(load_event_properties, team)
+        ),
+    )
+
+
+def _load_workflow_event(load_event_properties: Callable[[Team], dict[str, object]], team: Team) -> dict[str, object]:
+    try:
+        return load_event_properties(team)
+    except Exception as error:
+        raise WorkflowEventUnavailable from error
+
+
+def _generate_in_workflow(
+    team_id: int,
+    issue_id: UUID | str,
+    trigger: IssueSummaryTrigger,
+    due: DueCheck,
+    build_inputs: Callable[[Team, IssueSummaryTimings], IssueSummaryInputs | IssueSummaryOutcome],
+) -> IssueSummaryResult:
     generation = _SummaryGeneration(
-        trigger=IssueSummaryTrigger.WRITE,
-        due=first_summary_due,
+        trigger=trigger,
+        due=due,
         budget_key=f"{ISSUE_SUMMARY_WRITE_BUDGET_KEY_PREFIX}:{team_id}",
         budget=ISSUE_SUMMARY_WRITE_BUDGET,
-        build_inputs=lambda team, _timings: build_issue_summary_inputs_from_event(
-            team, issue_id, load_event_properties(team)
-        ),
+        build_inputs=build_inputs,
+        # A workflow attempt that leaves no summary must not stop the next read from generating at once.
+        releases_claim=True,
     )
     timings = IssueSummaryTimings()
     return _generate_and_report(
         team_id,
         issue_id,
-        generation.trigger,
+        trigger,
         timings,
         lambda: _get_or_generate_counted(team_id, issue_id, generation, timings),
     )
@@ -474,23 +530,26 @@ def get_or_generate_issue_summary(
         budget_key=f"{ISSUE_SUMMARY_BUDGET_KEY_PREFIX}:{team_id}",
         budget=ISSUE_SUMMARY_BUDGET,
         build_inputs=lambda team, inputs_timings: build_issue_summary_inputs(team, issue_id, inputs_timings),
+        releases_claim=False,
     )
     return _get_or_generate_counted(team_id, issue_id, generation, timings or IssueSummaryTimings())
 
 
 @frozen
 class _SummaryGeneration:
-    """What differs between a generation on read and one on issue creation."""
+    """What differs between a generation on read, on issue creation and on reopen."""
 
     trigger: IssueSummaryTrigger
     due: DueCheck
     budget_key: str
     budget: Budget
     build_inputs: Callable[[Team, IssueSummaryTimings], IssueSummaryInputs | IssueSummaryOutcome]
+    # Delete the claim when no summary came of the attempt, instead of writing the outcome to the lock.
+    releases_claim: bool
 
     @property
     def fails_closed(self) -> bool:
-        return self.trigger == IssueSummaryTrigger.WRITE
+        return self.trigger != IssueSummaryTrigger.READ
 
 
 def _get_or_generate_counted(
@@ -527,15 +586,12 @@ def _get_or_generate(
     if (held := _claim_generation(team_id, issue_id, claim, fails_closed=generation.fails_closed)) is not None:
         return IssueSummaryResult(outcome=held, summary=stored)
 
-    # A write attempt that leaves no summary deletes its claim instead of writing its outcome to the lock.
-    # The next read then generates at once, so the write budget or a write failure never blocks a read.
-    release = generation.trigger == IssueSummaryTrigger.WRITE
     try:
         result = _generate_claimed(team_id, issue_id, generation, timings)
     except Exception:
-        _settle_claim(team_id, issue_id, claim, IssueSummaryOutcome.UNEXPECTED_ERROR, release=release)
+        _settle_claim(team_id, issue_id, claim, IssueSummaryOutcome.UNEXPECTED_ERROR, release=generation.releases_claim)
         raise
-    _settle_claim(team_id, issue_id, claim, result.outcome, release=release)
+    _settle_claim(team_id, issue_id, claim, result.outcome, release=generation.releases_claim)
     return result
 
 
@@ -557,6 +613,8 @@ def _generate_claimed(
     try:
         with timings.stage("inputs"):
             inputs = generation.build_inputs(team, timings)
+    except WorkflowEventUnavailable:
+        raise
     except Exception as error:
         capture_exception(error, {"team_id": team_id, "issue_id": str(issue_id)})
         logger.warning("error_tracking_issue_summary_inputs_failed", team_id=team_id, issue_id=str(issue_id))
@@ -692,9 +750,16 @@ ISSUE_SUMMARY_SOURCE_PROPERTIES = frozenset(
 
 
 def build_issue_summary_inputs(
-    team: Team, issue_id: UUID | str, timings: IssueSummaryTimings
+    team: Team,
+    issue_id: UUID | str,
+    timings: IssueSummaryTimings,
+    *,
+    latest_event_properties: dict[str, object] | None = None,
 ) -> IssueSummaryInputs | IssueSummaryOutcome:
-    """Build the prompt and the input hash, or say why the issue cannot be summarised."""
+    """Build the prompt and the input hash, or say why the issue cannot be summarised.
+
+    `latest_event_properties` replaces the latest event query with an event the caller already has.
+    """
     issue = _issue_with_first_seen(team, issue_id)
     if issue is None:
         return IssueSummaryOutcome.ISSUE_MISSING
@@ -702,13 +767,16 @@ def build_issue_summary_inputs(
 
     now = timezone.now()
     event_properties: dict[str, object] = {}
-    with timings.stage("latest_event"):
-        for lookback_days in (ISSUE_SUMMARY_RECENT_EVENT_LOOKBACK_DAYS, ISSUE_SUMMARY_LATEST_EVENT_LOOKBACK_DAYS):
-            event_properties = _exception_event_properties(
-                team, issue_id, after=now - timedelta(days=lookback_days), before=now, latest=True
-            )
-            if event_properties:
-                break
+    if latest_event_properties is not None:
+        event_properties = _source_properties(latest_event_properties)
+    else:
+        with timings.stage("latest_event"):
+            for lookback_days in (ISSUE_SUMMARY_RECENT_EVENT_LOOKBACK_DAYS, ISSUE_SUMMARY_LATEST_EVENT_LOOKBACK_DAYS):
+                event_properties = _exception_event_properties(
+                    team, issue_id, after=now - timedelta(days=lookback_days), before=now, latest=True
+                )
+                if event_properties:
+                    break
     stack_trace = _summary_stack_trace(event_properties)
     if not stack_trace:
         return IssueSummaryOutcome.NO_EXCEPTION

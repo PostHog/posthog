@@ -1052,6 +1052,12 @@ const inboxSourceConfigsCreate = (): ToolBase<
         if (params.config !== undefined) {
             body['config'] = params.config
         }
+        if (params.config_set !== undefined) {
+            body['config_set'] = params.config_set
+        }
+        if (params.config_remove !== undefined) {
+            body['config_remove'] = params.config_remove
+        }
         const result = await context.api.request<Schemas.SignalSourceConfig>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/source_configs/`,
@@ -1129,6 +1135,12 @@ const inboxSourceConfigsPartialUpdate = (): ToolBase<
         if (params.config !== undefined) {
             body['config'] = params.config
         }
+        if (params.config_set !== undefined) {
+            body['config_set'] = params.config_set
+        }
+        if (params.config_remove !== undefined) {
+            body['config_remove'] = params.config_remove
+        }
         const result = await context.api.request<Schemas.SignalSourceConfig>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/source_configs/${encodeURIComponent(String(params.id))}/`,
@@ -1186,6 +1198,12 @@ const inboxSourceConfigsUpdate = (): ToolBase<
         if (params.config !== undefined) {
             body['config'] = params.config
         }
+        if (params.config_set !== undefined) {
+            body['config_set'] = params.config_set
+        }
+        if (params.config_remove !== undefined) {
+            body['config_remove'] = params.config_remove
+        }
         const result = await context.api.request<Schemas.SignalSourceConfig>({
             method: 'PUT',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/source_configs/${encodeURIComponent(String(params.id))}/`,
@@ -1232,6 +1250,8 @@ const InboxSteeringInstructionsUpdateSchema = () => {
         github_issue_writeback_enabled: true,
         pull_request_label_enabled: true,
         pull_request_label: true,
+        implementation_repositories: true,
+        anomaly_scoring_enabled: true,
     })
 }
 

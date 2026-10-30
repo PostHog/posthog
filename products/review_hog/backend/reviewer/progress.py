@@ -9,11 +9,11 @@ comment, so the two surfaces can never disagree.
 
 import logging
 import operator
-from collections.abc import Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from functools import reduce
-from typing import Any, Final, Literal
+from typing import Any, Final, Literal, cast
 
 from django.db.models import (
     Case,
@@ -219,8 +219,8 @@ def turn_stats(team_id: int, heads: dict[str, str | None]) -> dict[str, TurnStat
         .order_by("created_at", "id")
         .values("report_id", "chunk_count")
     )
-    for row in chunk_rows:  # oldest-first, so the turn's latest chunking wins
-        stats[str(row["report_id"])].chunk_count = row["chunk_count"]
+    for chunk_row in chunk_rows:  # oldest-first, so the turn's latest chunking wins
+        stats[str(chunk_row["report_id"])].chunk_count = chunk_row["chunk_count"]
 
     result_rows = (
         ReviewReportArtefact.objects.for_team(team_id)
@@ -313,7 +313,8 @@ def turn_markers(team_id: int, report_ids: list[str]) -> dict[tuple[str, int], T
         )
     )
     markers: dict[tuple[str, int], TurnMarker] = {}
-    for row in rows:
+    # KeyTextTransform returns NULL for a missing key, but the stubs type the annotation as str.
+    for row in cast(Iterable[Mapping[str, Any]], rows):
         if row["marker_run_index"] is None or row["marker_review_mode"] is None:
             continue
         # Markers written before the explicit field carry the design only in a single-agent
