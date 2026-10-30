@@ -52,6 +52,7 @@ export function useModels({
   const [heldModels, setHeldModels] = useState<Map<string, ModelChoice>>(
     new Map(),
   );
+  // Keyed by task and run: every local chat's run id is "local".
   const appliedHolds = useRef(new Set<string>());
 
   const openModelSheet = (paneId: string, task: Task | undefined): void => {
@@ -129,33 +130,35 @@ export function useModels({
     runId: string,
   ): void => {
     if (!control) return;
-    const commands = runCommands.current.get(runId);
+    const key = `${taskId}:${runId}`;
+    const commands = runCommands.current.get(key);
     if (commands === undefined) {
-      runCommands.current.set(runId, "loading");
+      runCommands.current.set(key, "loading");
       control(taskId, runId)
         .commands()
         .then(
           (loaded) => {
-            runCommands.current.set(runId, loaded);
+            runCommands.current.set(key, loaded);
             showRunCommands(paneId, taskId, runId);
           },
           // No retry: a run that cannot list commands just gets the built-in ones.
-          () => runCommands.current.set(runId, []),
+          () => runCommands.current.set(key, []),
         );
       return;
     }
-    if (commands === "loading" || commandsShown.current.get(paneId) === runId)
+    if (commands === "loading" || commandsShown.current.get(paneId) === key)
       return;
-    commandsShown.current.set(paneId, runId);
+    commandsShown.current.set(paneId, key);
     composerFor(paneId).setCommands(commands);
   };
 
   // A pick made while the run was not live is applied as soon as its sandbox is.
   const onRunLive = (paneId: string, taskId: string, runId: string): void => {
     showRunCommands(paneId, taskId, runId);
+    const key = `${taskId}:${runId}`;
     const held = heldModels.get(paneId);
-    if (!held || !control || appliedHolds.current.has(runId)) return;
-    appliedHolds.current.add(runId);
+    if (!held || !control || appliedHolds.current.has(key)) return;
+    appliedHolds.current.add(key);
     control(taskId, runId)
       .setModel(held)
       .then(
