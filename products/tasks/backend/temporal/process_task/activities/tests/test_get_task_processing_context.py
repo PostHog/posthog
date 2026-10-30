@@ -124,6 +124,34 @@ def test_snapshot_resume_requires_a_resume_marker_and_snapshot(state: dict[str, 
     assert context.is_snapshot_resume is expected
 
 
+@pytest.mark.parametrize(
+    "origin_product,repository,state,expected",
+    [
+        ("user_created", None, {"github_read_access": True}, True),
+        ("user_created", None, {}, False),
+        ("workflow", None, {}, True),
+        ("workflow", "posthog/posthog", {}, False),
+    ],
+)
+def test_github_read_access_follows_the_run_or_a_repo_less_workflow_task(
+    origin_product: str, repository: str | None, state: dict[str, bool], expected: bool
+):
+    context = TaskProcessingContext(
+        task_id="task-id",
+        run_id="run-id",
+        team_id=1,
+        team_uuid="team-uuid",
+        organization_id="organization-id",
+        github_integration_id=1,
+        repository=repository,
+        distinct_id="distinct-id",
+        state=state,
+        origin_product=origin_product,
+    )
+
+    assert context.github_read_access is expected
+
+
 @pytest.mark.parametrize("flag_value,expected", [(True, True), (False, False), (None, False)])
 def test_desktop_workspace_warm_flag_uses_organization_rollout(flag_value, expected):
     assert (

@@ -233,12 +233,19 @@ class TaskProcessingContext:
 
     @property
     def github_read_access(self) -> bool:
-        """Run that asked to be downscoped to a read-only GitHub token (see Task.create_and_run).
+        """Run that asked to be downscoped to a read-only GitHub token (see Task.create_and_run), or
+        any run of a workflow task with no repository.
 
         Independent of ``repositories``: a run that pins repos still clones them, with a token
         that carries ``contents: read`` and nothing else.
+
+        The workflow rule reads the task, not the run. A follow-up run copies the flag only from a
+        run that had it, and a repo-less workflow task can still have the team integration attached,
+        which provisioning would mint a write-capable token from.
         """
-        return (self.state or {}).get("github_read_access") is True
+        if (self.state or {}).get("github_read_access") is True:
+            return True
+        return self.origin_product == Task.OriginProduct.WORKFLOW and not self.repositories
 
     @property
     def sandbox_environment_id(self) -> str | None:
