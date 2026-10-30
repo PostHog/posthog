@@ -2,25 +2,49 @@ from django.contrib import admin, messages
 from django.db.models import QuerySet
 from django.http import HttpRequest
 from django.urls import reverse
-from django.utils import timezone
 from django.utils.html import format_html
 
 import structlog
 
 from posthog.models import UploadedMedia
+from posthog.storage.object_storage import ObjectStorageError
+from posthog.storage.uploaded_media_cdn import CdnPurgeResult, purge_media_from_cdn
 
 logger = structlog.get_logger(__name__)
+
+_CDN_PURGE_MESSAGES: dict[CdnPurgeResult, tuple[int, str]] = {
+    CdnPurgeResult.PURGED: (messages.SUCCESS, "Asked the CDN to drop its cached copies."),
+    CdnPurgeResult.NOT_CONFIGURED: (
+        messages.WARNING,
+        "CDN purge is not configured on this instance, so CDN copies stay cached until someone purges them.",
+    ),
+    CdnPurgeResult.FAILED: (
+        messages.ERROR,
+        "The CDN purge failed, so CDN copies are still cached. Run the action again or purge the URLs by hand.",
+    ),
+}
+
+_BROWSER_CACHE_NOTE = "Copies already saved by browsers or email clients can't be recalled."
 
 
 @admin.register(UploadedMedia)
 class UploadedMediaAdmin(admin.ModelAdmin):
-    list_display = ("id", "file_name", "team_link", "purpose", "created_at", "archived_at", "serving_disabled_at")
+    list_display = (
+        "id",
+        "file_name",
+        "team_link",
+        "purpose",
+        "created_at",
+        "archived_at",
+        "serving_disabled_at",
+        "has_stored_file",
+    )
     # The table holds every dashboard image and toolbar screenshot, so look rows up by exact id
     # (the UUID in the public URL) or team id, and skip the full count on each page.
     search_fields = ("id__exact", "team__id__exact")
     show_full_result_count = False
     ordering = ("-created_at",)
-    actions = ["disable_serving", "enable_serving"]
+    actions = ["disable_serving", "enable_serving", "delete_stored_file"]
     fields = (
         "id",
         "file_name",
@@ -60,32 +84,69 @@ class UploadedMediaAdmin(admin.ModelAdmin):
         url = obj.get_absolute_url()
         return format_html('<a href="{}" target="_blank" rel="noopener noreferrer">{}</a>', url, url)
 
+    @admin.display(description="Stored file", boolean=True)
+    def has_stored_file(self, obj: UploadedMedia) -> bool:
+        return obj.media_location is not None
+
+    def _report_cdn_purge(self, request: HttpRequest, media: list[UploadedMedia]) -> None:
+        level, message = _CDN_PURGE_MESSAGES[purge_media_from_cdn(media)]
+        self.message_user(request, f"{message} {_BROWSER_CACHE_NOTE}", level)
+
     @admin.action(description="Stop serving the selected images at their public URL")
     def disable_serving(self, request: HttpRequest, queryset: QuerySet[UploadedMedia]) -> None:
-        changed = list(queryset.filter(serving_disabled_at__isnull=True))
-        now = timezone.now()
-        for media in changed:
-            media.serving_disabled_at = now
-            media.save(update_fields=["serving_disabled_at"])
-            self.log_change(request, media, "Stopped serving at the public URL.")
-            logger.info("uploaded_media.serving_disabled", media_id=str(media.id), team_id=media.team_id)
-        self.message_user(
-            request,
-            f"Stopped serving {len(changed)} image(s). Copies that CDNs or browsers already cached "
-            "can still load until those caches are purged.",
-            messages.SUCCESS if changed else messages.WARNING,
-        )
+        media = list(queryset)
+        for item in media:
+            if item.stop_serving():
+                self.log_change(request, item, "Stopped serving at the public URL.")
+                logger.info("uploaded_media.serving_disabled", media_id=str(item.id), team_id=item.team_id)
+        self.message_user(request, f"Stopped serving {len(media)} image(s).", messages.SUCCESS)
+        # Purge every selected image, including ones already stopped, so a failed purge can be retried.
+        self._report_cdn_purge(request, media)
 
     @admin.action(description="Serve the selected images at their public URL again")
     def enable_serving(self, request: HttpRequest, queryset: QuerySet[UploadedMedia]) -> None:
-        changed = list(queryset.filter(serving_disabled_at__isnull=False))
-        for media in changed:
-            media.serving_disabled_at = None
-            media.save(update_fields=["serving_disabled_at"])
-            self.log_change(request, media, "Resumed serving at the public URL.")
-            logger.info("uploaded_media.serving_enabled", media_id=str(media.id), team_id=media.team_id)
+        changed = list(queryset.filter(serving_disabled_at__isnull=False, media_location__isnull=False))
+        for item in changed:
+            item.serving_disabled_at = None
+            item.save(update_fields=["serving_disabled_at"])
+            self.log_change(request, item, "Resumed serving at the public URL.")
+            logger.info("uploaded_media.serving_enabled", media_id=str(item.id), team_id=item.team_id)
         self.message_user(
             request,
-            f"Resumed serving {len(changed)} image(s).",
+            f"Resumed serving {len(changed)} image(s). Images whose stored file was deleted stay unavailable.",
             messages.SUCCESS if changed else messages.WARNING,
         )
+
+    @admin.action(description="Delete the stored file of the selected images permanently")
+    def delete_stored_file(self, request: HttpRequest, queryset: QuerySet[UploadedMedia]) -> None:
+        # Stopping serving first is the confirmation step, because this delete can't be undone.
+        stopped = list(queryset.filter(serving_disabled_at__isnull=False))
+        skipped = queryset.filter(serving_disabled_at__isnull=True).count()
+        deleted: list[UploadedMedia] = []
+        failed = 0
+        for item in stopped:
+            try:
+                item.delete_stored_file()
+            except ObjectStorageError:
+                failed += 1
+                continue
+            deleted.append(item)
+            self.log_change(request, item, "Deleted the stored file permanently.")
+            logger.info("uploaded_media.stored_file_deleted", media_id=str(item.id), team_id=item.team_id)
+
+        if deleted:
+            self.message_user(request, f"Deleted the stored file of {len(deleted)} image(s).", messages.SUCCESS)
+        if skipped:
+            self.message_user(
+                request,
+                f"Skipped {skipped} image(s) that are still served. Stop serving them first, then delete.",
+                messages.WARNING,
+            )
+        if failed:
+            self.message_user(
+                request,
+                f"Could not delete the stored file of {failed} image(s). Their public URL stays off. Try again.",
+                messages.ERROR,
+            )
+        if deleted:
+            self._report_cdn_purge(request, deleted)

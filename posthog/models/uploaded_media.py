@@ -5,6 +5,7 @@ from typing import Optional
 from django.conf import settings
 from django.db import models
 from django.db.models import Q
+from django.utils import timezone
 
 import structlog
 from PIL import ExifTags, Image
@@ -168,6 +169,25 @@ class UploadedMedia(UUIDTModel, RootTeamMixin):
         if settings.UPLOADED_MEDIA_PUBLIC_URL:
             return f"{settings.UPLOADED_MEDIA_PUBLIC_URL}{path}"
         return absolute_uri(path)
+
+    def stop_serving(self) -> bool:
+        """Make the public URL return 404. Returns False when serving was already stopped."""
+        if self.serving_disabled_at is not None:
+            return False
+        self.serving_disabled_at = timezone.now()
+        self.save(update_fields=["serving_disabled_at"])
+        return True
+
+    def delete_stored_file(self) -> None:
+        """Delete the image bytes from object storage and keep the row as a record of the takedown.
+
+        Raises ObjectStorageError when the delete fails. The row then still points at the object,
+        so the delete can be retried.
+        """
+        if self.media_location:
+            object_storage.delete(self.media_location)
+        self.media_location = None
+        self.save(update_fields=["media_location"])
 
     @staticmethod
     def build_media_location(team_id: int, media_id) -> str:
