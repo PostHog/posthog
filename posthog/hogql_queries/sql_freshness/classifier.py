@@ -8,11 +8,11 @@ from posthog.hogql import ast
 from posthog.dataclasses import frozen
 from posthog.hogql_queries.sql_freshness.facts import extract_facts
 from posthog.hogql_queries.sql_freshness.rules import (
-    RULES,
-    Cap,
     FreshnessReason,
     Reject,
     SqlWindowClass,
+    fresh_until,
+    reject_reason,
     shortest_lived_window,
 )
 
@@ -32,7 +32,6 @@ def classify(
     week_start_day: Optional[int],
     relative_inputs: bool,
 ) -> SqlFreshness | Reject:
-    """Any rejecting rule keeps the default age, otherwise the earliest cap wins, so rule order never changes the age."""
     try:
         facts = extract_facts(
             resolved_query,
@@ -43,15 +42,11 @@ def classify(
         )
     except Exception:
         return Reject(reason=FreshnessReason.UNPARSEABLE)
-    verdicts = [rule(facts) for rule in RULES]
-    rejects = [verdict for verdict in verdicts if isinstance(verdict, Reject)]
-    if rejects:
-        return rejects[0]
-    caps = [verdict for verdict in verdicts if isinstance(verdict, Cap)]
-    binding = min(caps, key=lambda cap: cap.until)
-    return SqlFreshness(
-        window=shortest_lived_window(facts), fresh_until=binding.until.astimezone(UTC), reason=binding.reason
-    )
+    reason = reject_reason(facts)
+    if reason is not None:
+        return Reject(reason=reason)
+    until, binding_reason = fresh_until(facts)
+    return SqlFreshness(window=shortest_lived_window(facts), fresh_until=until.astimezone(UTC), reason=binding_reason)
 
 
 def freshness_record(freshness: SqlFreshness) -> dict[str, str]:

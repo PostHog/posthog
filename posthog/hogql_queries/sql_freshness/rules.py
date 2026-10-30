@@ -1,4 +1,3 @@
-from collections.abc import Callable
 from datetime import datetime, timedelta
 from enum import StrEnum
 from typing import Optional
@@ -45,16 +44,6 @@ class Reject:
     reason: FreshnessReason
 
 
-@frozen
-class Cap:
-    until: datetime
-    reason: FreshnessReason
-
-
-Verdict = Optional[Reject | Cap]
-Rule = Callable[[QueryFacts], Verdict]
-
-
 def window_class(window: Window, facts: QueryFacts) -> SqlWindowClass:
     if (
         window.end is not None
@@ -74,61 +63,25 @@ def shortest_lived_window(facts: QueryFacts) -> SqlWindowClass:
     return min((window_class(window, facts) for window in facts.windows), key=SQL_WINDOW_MAX_AGE.__getitem__)
 
 
-def _reads_fixed_past(facts: QueryFacts) -> bool:
-    return any(window_class(window, facts) == SqlWindowClass.FIXED_PAST for window in facts.windows)
+def reject_reason(facts: QueryFacts) -> Optional[FreshnessReason]:
+    checks = (
+        (facts.unsupported_field, FreshnessReason.UNSUPPORTED_FIELD),
+        (facts.join, FreshnessReason.JOIN),
+        (facts.foreign_source, FreshnessReason.FOREIGN_SOURCE),
+        (facts.unsupported_bound, FreshnessReason.UNSUPPORTED_BOUND),
+        (facts.unbounded_select or not facts.windows, FreshnessReason.UNBOUNDED),
+        (facts.clock_outside_bounds, FreshnessReason.CLOCK_OUTSIDE_BOUNDS),
+    )
+    return next((reason for failed, reason in checks if failed), None)
 
 
-def supported_fields_only(facts: QueryFacts) -> Verdict:
-    return Reject(reason=FreshnessReason.UNSUPPORTED_FIELD) if facts.unsupported_field else None
-
-
-def no_joins(facts: QueryFacts) -> Verdict:
-    return Reject(reason=FreshnessReason.JOIN) if facts.join else None
-
-
-def only_events_sources(facts: QueryFacts) -> Verdict:
-    return Reject(reason=FreshnessReason.FOREIGN_SOURCE) if facts.foreign_source else None
-
-
-def supported_bounds(facts: QueryFacts) -> Verdict:
-    return Reject(reason=FreshnessReason.UNSUPPORTED_BOUND) if facts.unsupported_bound else None
-
-
-def every_select_bounded(facts: QueryFacts) -> Verdict:
-    return Reject(reason=FreshnessReason.UNBOUNDED) if facts.unbounded_select or not facts.windows else None
-
-
-def no_clock_outside_bounds(facts: QueryFacts) -> Verdict:
-    return Reject(reason=FreshnessReason.CLOCK_OUTSIDE_BOUNDS) if facts.clock_outside_bounds else None
-
-
-def window_age(facts: QueryFacts) -> Verdict:
-    if not facts.windows:
-        return None
-    return Cap(until=facts.now + SQL_WINDOW_MAX_AGE[shortest_lived_window(facts)], reason=FreshnessReason.WINDOW_AGE)
-
-
-def clock_days_end_at_midnight(facts: QueryFacts) -> Verdict:
-    if not (facts.reads_clock or facts.relative_inputs):
-        return None
-    next_midnight = min(facts.start_of_today + timedelta(days=1), facts.start_of_utc_today + timedelta(days=1))
-    return Cap(until=next_midnight, reason=FreshnessReason.CLOCK_DAY)
-
-
-def now_anchored_past_moves(facts: QueryFacts) -> Verdict:
-    if not (facts.reads_now or facts.relative_inputs) or not _reads_fixed_past(facts):
-        return None
-    return Cap(until=facts.now + SQL_WINDOW_MAX_AGE[SqlWindowClass.UP_TO_NOW_LONG], reason=FreshnessReason.NOW_ANCHORED)
-
-
-RULES: tuple[Rule, ...] = (
-    supported_fields_only,
-    no_joins,
-    only_events_sources,
-    supported_bounds,
-    every_select_bounded,
-    no_clock_outside_bounds,
-    window_age,
-    clock_days_end_at_midnight,
-    now_anchored_past_moves,
-)
+def fresh_until(facts: QueryFacts) -> tuple[datetime, FreshnessReason]:
+    """Every limit that applies holds at once, so the earliest one sets the expiry."""
+    limits = [(facts.now + SQL_WINDOW_MAX_AGE[shortest_lived_window(facts)], FreshnessReason.WINDOW_AGE)]
+    if facts.reads_clock or facts.relative_inputs:
+        next_midnight = min(facts.start_of_today, facts.start_of_utc_today) + timedelta(days=1)
+        limits.append((next_midnight, FreshnessReason.CLOCK_DAY))
+    reads_fixed_past = any(window_class(window, facts) == SqlWindowClass.FIXED_PAST for window in facts.windows)
+    if (facts.reads_now or facts.relative_inputs) and reads_fixed_past:
+        limits.append((facts.now + SQL_WINDOW_MAX_AGE[SqlWindowClass.UP_TO_NOW_LONG], FreshnessReason.NOW_ANCHORED))
+    return min(limits, key=lambda limit: limit[0])
