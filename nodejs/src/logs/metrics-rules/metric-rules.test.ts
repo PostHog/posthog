@@ -228,6 +228,16 @@ describe('metric rules compile + tally', () => {
             expect(nextHour.get(JSON.stringify(['req-new']))!.count).toBe(1)
         })
 
+        it('stops admitting new label sets when the process-wide budget is spent, across teams and rules', () => {
+            const admission = new MetricSeriesAdmission(2, 3)
+            expect(admission.admit(1, 'rule-a', 'x', NOW_MS)).toBe(true)
+            expect(admission.admit(1, 'rule-a', 'y', NOW_MS)).toBe(true)
+            expect(admission.admit(2, 'rule-a', 'x', NOW_MS)).toBe(true)
+            expect(admission.admit(2, 'rule-b', 'z', NOW_MS)).toBe(false)
+            expect(admission.admit(1, 'rule-a', 'x', NOW_MS)).toBe(true)
+            expect(admission.admit(2, 'rule-b', 'z', NOW_MS + 60 * 60 * 1000)).toBe(true)
+        })
+
         it.each([
             [0, 0],
             [5, 1],

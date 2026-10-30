@@ -42,7 +42,6 @@ export type MetricTallyEntry = {
     labelValues: string[]
     count: number
     sum: number
-    /** Null for count rules. */
     bucketCounts: number[] | null
     overflow: boolean
     exemplarTraceId: string | null
@@ -127,6 +126,18 @@ function resolveLabelValue(key: string, record: LogRecord): string {
 
 const SERIES_WINDOW_MS = 60 * 60 * 1000
 
+export const MAX_ADMITTED_LABEL_SETS = 200_000
+
+/** FNV-1a. A collision only lets a rare extra label set through; it never drops a record. */
+function hashLabelKey(labelKey: string): number {
+    let hash = 0x811c9dc5
+    for (let i = 0; i < labelKey.length; i++) {
+        hash ^= labelKey.charCodeAt(i)
+        hash = Math.imul(hash, 0x01000193)
+    }
+    return hash >>> 0
+}
+
 /**
  * Bounds the label sets each rule admits per hour in this process. Batch tallies start empty,
  * so without this a rule whose labels change every batch would store new series without limit.
@@ -134,34 +145,40 @@ const SERIES_WINDOW_MS = 60 * 60 * 1000
  */
 export class MetricSeriesAdmission {
     private window = -1
-    private admitted = new Map<string, Set<string>>()
+    private admitted = new Map<string, Set<number>>()
+    private admittedTotal = 0
 
-    constructor(private readonly maxPerRule: number = MAX_LABEL_SETS_PER_RULE) {}
+    constructor(
+        private readonly maxPerRule: number = MAX_LABEL_SETS_PER_RULE,
+        private readonly maxTotal: number = MAX_ADMITTED_LABEL_SETS
+    ) {}
 
     public admit(teamId: number, ruleId: string, labelKey: string, nowMs: number): boolean {
         const window = Math.floor(nowMs / SERIES_WINDOW_MS)
         if (window !== this.window) {
             this.admitted.clear()
+            this.admittedTotal = 0
             this.window = window
         }
         const key = `${teamId}:${ruleId}`
-        let labelKeys = this.admitted.get(key)
-        if (!labelKeys) {
-            labelKeys = new Set()
-            this.admitted.set(key, labelKeys)
-        }
-        if (labelKeys.has(labelKey)) {
+        const labelHash = hashLabelKey(labelKey)
+        let labelHashes = this.admitted.get(key)
+        if (labelHashes?.has(labelHash)) {
             return true
         }
-        if (labelKeys.size >= this.maxPerRule) {
+        if ((labelHashes?.size ?? 0) >= this.maxPerRule || this.admittedTotal >= this.maxTotal) {
             return false
         }
-        labelKeys.add(labelKey)
+        if (!labelHashes) {
+            labelHashes = new Set()
+            this.admitted.set(key, labelHashes)
+        }
+        labelHashes.add(labelHash)
+        this.admittedTotal++
         return true
     }
 }
 
-/** The last bucket is unbounded. */
 function histogramBucketIndex(value: number): number {
     for (let i = 0; i < DEFAULT_HISTOGRAM_BOUNDS.length; i++) {
         if (value <= DEFAULT_HISTOGRAM_BOUNDS[i]!) {
