@@ -176,6 +176,8 @@ class TestFinalAuthoredAgentChecks(FinalAuthoredAgentChecksSetup, BaseTest):
             ("finished", "completed", "window_ended"),
             ("stale_run", "in_progress", "window_ended"),
             ("old_attempt", "in_progress", "window_ended"),
+            ("missing_attempt", "in_progress", "window_ended"),
+            ("malformed_assignment", "in_progress", "window_ended"),
             ("changed_definition", "in_progress", "window_ended"),
             ("submitted", "in_progress", "window_ended"),
             ("retry_backoff", "completed", "window_ended"),
@@ -194,6 +196,11 @@ class TestFinalAuthoredAgentChecks(FinalAuthoredAgentChecksSetup, BaseTest):
         elif case == "changed_definition":
             self.check.title = "A revised expectation"
             self.check.save(update_fields=["title"])
+        elif case == "missing_attempt":
+            self.attempt.delete()
+        elif case == "malformed_assignment":
+            run.metadata["run_note"] = f"Invalid assignment for report {self.report.id}"
+            run.save(update_fields=["metadata"])
         elif case == "submitted":
             submit_monitoring_scout_result(
                 run, MonitoringScoutResult.model_validate_json(self._payload("insufficient"))
@@ -207,7 +214,8 @@ class TestFinalAuthoredAgentChecks(FinalAuthoredAgentChecksSetup, BaseTest):
         self.check.report = self.report
         context = {"report_monitoring_enabled_by_team": {self.team.id: True}, "report_check_timing_now": self.now}
 
-        with self.assertNumQueries(0 if case == "archived" else 4):
+        expected_queries = {"archived": 0, "missing_attempt": 1}.get(case, 4)
+        with self.assertNumQueries(expected_queries):
             data = SignalReportCheckSerializer([self.check, self.check], many=True, context=context).data
 
         assert [row["monitoring_timing"]["state"] for row in data] == [state, state]
