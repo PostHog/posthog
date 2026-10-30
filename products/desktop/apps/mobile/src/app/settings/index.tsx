@@ -10,6 +10,7 @@ import { Linking, Pressable, ScrollView, Switch, View } from "react-native";
 import { useAuthStore, useProjectsQuery, useUserQuery } from "@/features/auth";
 import { useDismissedReportsStore } from "@/features/inbox/stores/dismissedReportsStore";
 import { usePushTokenStore } from "@/features/notifications/stores/pushTokenStore";
+import { saveAutoPublishCloudRuns } from "@/features/preferences/serverAutoPublish";
 import {
   type CompletionSound,
   type DefaultReasoningEffort,
@@ -200,9 +201,12 @@ export default function SettingsScreen() {
   const autoPublishCloudRuns = usePreferencesStore(
     (s) => s.autoPublishCloudRuns,
   );
-  const setAutoPublishCloudRuns = usePreferencesStore(
-    (s) => s.setAutoPublishCloudRuns,
-  );
+  const setAutoPublishCloudRuns = (enabled: boolean) => {
+    if (!projectId) return;
+    saveAutoPublishCloudRuns(projectId, enabled).catch((error: unknown) => {
+      logger.warn("Auto-publish setting save failed", error);
+    });
+  };
   const rtkEnabledCloud = usePreferencesStore((s) => s.rtkEnabledCloud);
   const setRtkEnabledCloud = usePreferencesStore((s) => s.setRtkEnabledCloud);
   const defaultMessagingMode = useMessagingModeStore((s) => s.defaultMode);

@@ -17,6 +17,7 @@ import {
 import { useAuthStore } from "@/features/auth";
 import { useOrgConsent } from "@/features/consent/hooks/useOrgConsent";
 import { setupNotificationResponseListener } from "@/features/notifications/lib/notifications";
+import { useServerAutoPublishSync } from "@/features/preferences/serverAutoPublish";
 import { usePreferencesStore } from "@/features/preferences/stores/preferencesStore";
 import { PendingPromptRecovery } from "@/features/tasks/components/PendingPromptRecovery";
 import { useNetworkStatus } from "@/hooks/useNetworkStatus";
@@ -43,6 +44,7 @@ function RootLayoutNav({ isConnected }: RootLayoutNavProps) {
   useScreenTracking();
   useIdentifyUser();
   useRegisterSuperProperties();
+  useServerAutoPublishSync();
 
   useEffect(() => {
     initializeAuth();
