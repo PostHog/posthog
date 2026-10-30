@@ -1,6 +1,6 @@
 import dagster
 
-from posthog.dags import distinct_id_usage, ingestion_assets, person_property_reconciliation
+from posthog.dags import distinct_id_usage, ingestion_assets
 
 from . import loggers, resources
 
@@ -10,13 +10,9 @@ defs = dagster.Definitions(
     ],
     jobs=[
         distinct_id_usage.distinct_id_usage_monitoring,
-        person_property_reconciliation.person_property_reconciliation_job,
     ],
     schedules=[
         distinct_id_usage.distinct_id_usage_monitoring_schedule,
-    ],
-    sensors=[
-        person_property_reconciliation.person_property_reconciliation_scheduler,
     ],
     loggers=loggers,
     resources=resources,
