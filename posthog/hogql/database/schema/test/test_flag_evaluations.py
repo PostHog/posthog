@@ -982,6 +982,13 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
 
         assert response.results == [(1,)]
 
+    def test_swapped_scan_reads_exception_values_as_an_array(self):
+        results = self._query_events(
+            f"SELECT count() FROM events WHERE {FLAG_CALL_CONJUNCTS} AND NOT has(properties.$exception_values, 'x')"
+        ).results
+
+        assert results == [(1,)]
+
     @parameterized.expand(
         [
             # The events-only call has the JSON value true as its key. A typed comparison matches it on events.
