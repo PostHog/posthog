@@ -6,7 +6,7 @@ and experiment. Variants and examples join the observations of the clusters on t
 
 import uuid
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, cast
 
 from django.db import models
 from django.db.models import CharField, Count, F, Max, Min, Q, QuerySet, Value, Window
@@ -20,14 +20,13 @@ from products.replay_vision.backend.experiment_variants import UNATTRIBUTED_VARI
 from products.replay_vision.backend.highlight_builds import ISSUE_CODES
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
 from products.replay_vision.backend.models.replay_observation_rank import ReplayObservationRank
-from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 from products.replay_vision.backend.models.replay_scanner_semantics import (
     ReplayScannerFeedGroup,
     ReplayScannerSearchTheme,
 )
 from products.replay_vision.backend.observation_formatting import summarize_observation
-from products.replay_vision.backend.scanner_access import accessible_experiment_ids
-from products.replay_vision.backend.watch_rank import ANCHOR_VERSION
+from products.replay_vision.backend.scanner_access import readable_experiment_ids
+from products.replay_vision.backend.watch_rank import current_ranks
 
 EXAMPLES_PER_CLUSTER = 3
 
@@ -177,21 +176,20 @@ def summarize_clusters(
         for cluster in _CLUSTER_MODEL[kind]
         .objects.for_team(team_id)
         .filter(id__in=cluster_ids)
-        .values("id", "scanner_id", "created_at", "last_member_at", *(["name"] if kind == ClusterKind.THEME else []))
+        .values(
+            "id",
+            "scanner_id",
+            "created_at",
+            "last_member_at",
+            *(["name"] if kind == ClusterKind.THEME else []),
+            scanner_name=F("scanner__name"),
+        )
     }
-    scanner_names = dict(
-        ReplayScanner.all_origins.filter(
-            team_id=team_id, id__in={c["scanner_id"] for c in clusters.values()}
-        ).values_list("id", "name")
-    )
     members = rows.filter(**{f"{column}__in": cluster_ids})
     weeks = _recent_weeks(members, column, now)
-    examples = _examples(members.filter(created_at__gte=window.date_from, created_at__lt=window.date_to), column)
-    variants = (
-        _variant_counts(members.filter(created_at__gte=window.date_from, created_at__lt=window.date_to), column)
-        if by_variant
-        else {}
-    )
+    window_members = members.filter(created_at__gte=window.date_from, created_at__lt=window.date_to)
+    examples = _examples(window_members, column)
+    variants = _variant_counts(window_members, column) if by_variant else {}
 
     results = []
     for row in page:
@@ -205,7 +203,7 @@ def summarize_clusters(
             ClusterSummary(
                 id=row["cluster"],
                 scanner_id=cluster["scanner_id"],
-                scanner_name=scanner_names.get(cluster["scanner_id"], ""),
+                scanner_name=cluster["scanner_name"] or "",
                 name=cluster.get("name") or None,
                 status=cluster_status(
                     now=now,
@@ -228,12 +226,15 @@ def summarize_clusters(
 
 
 def cluster_members(
-    queryset: QuerySet[ReplayObservation], kind: ClusterKind, cluster_id: uuid.UUID, *, include_routine: bool = False
+    queryset: QuerySet[ReplayObservation],
+    team_id: int,
+    kind: ClusterKind,
+    cluster_id: uuid.UUID,
+    *,
+    include_routine: bool = False,
 ) -> QuerySet[ReplayObservation]:
     """The observations a cluster counts, in the same scope as its summary."""
-    ranks = ReplayObservationRank.objects.unscoped().filter(
-        anchor_version=ANCHOR_VERSION, **{_MEMBER_COLUMN[kind]: cluster_id}
-    )
+    ranks = current_ranks(team_id).filter(**{_MEMBER_COLUMN[kind]: cluster_id})
     if not include_routine:
         ranks = ranks.filter(category__in=ISSUE_CODES)
     return queryset.filter(id__in=ranks.values("observation_id"))
@@ -255,21 +256,18 @@ def _readable_ranks(
 ) -> QuerySet[ReplayObservationRank]:
     column = _MEMBER_COLUMN[kind]
     # Members scanned for an experiment the caller can't open stay out of every count.
-    experiment_ids = {0, *accessible_experiment_ids(access, team_id, None)}
-    rows = ReplayObservationRank.objects.for_team(team_id).filter(
-        anchor_version=ANCHOR_VERSION,
+    rows = current_ranks(team_id).filter(
         scanner_id__in=scanner_ids,
-        experiment_id__in=experiment_ids,
+        experiment_id__in={0, *readable_experiment_ids(access, team_id)},
         **{f"{column}__isnull": False},
     )
     if not scope.include_routine:
         rows = rows.filter(category__in=ISSUE_CODES)
     if scope.variants:
-        rows = rows.filter(
-            observation_id__in=ReplayObservation.objects.filter(team_id=team_id, scanner_id__in=scanner_ids)
-            .alias(variant=_variant_key("scanner_result"))
-            .filter(variant__in=scope.variants)
-            .values("id")
+        # Joined through the rank rows, so the variant is read only for rows already in scope.
+        rows = cast(
+            QuerySet[ReplayObservationRank],
+            rows.alias(variant=_variant_key("observation__scanner_result")).filter(variant__in=scope.variants),
         )
     return rows
 

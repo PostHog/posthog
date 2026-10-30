@@ -1,5 +1,5 @@
 import uuid
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 from django.utils.timezone import now
@@ -13,8 +13,7 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.rate_limit import ReplayVisionClustersBurstRateThrottle, ReplayVisionClustersSustainedRateThrottle
 
-from products.replay_vision.backend.api.filters import split_csv
-from products.replay_vision.backend.api.observations import _validate_date_bound
+from products.replay_vision.backend.api.filters import split_csv, validate_date_bound
 from products.replay_vision.backend.experiment_variants import UNATTRIBUTED_VARIANT
 from products.replay_vision.backend.scanner_access import readable_scanner_ids_in_scope
 from products.replay_vision.backend.search import parse_date_bound
@@ -30,16 +29,17 @@ from products.replay_vision.backend.semantic_clusters import (
     summarize_clusters,
 )
 
+
+def _check_date_bound(value: str) -> None:
+    validate_date_bound(value)
+
+
 DEFAULT_CLUSTER_WINDOW = timedelta(days=30)
 # Clusters with no member for this long are pruned, so a longer window would undercount.
 MAX_CLUSTER_WINDOW = timedelta(days=90)
 # Counted live across every scanner, so a window past this reads too many rows for one request.
 MAX_CROSS_SCANNER_WINDOW = timedelta(days=30)
 MAX_CLUSTER_LIMIT = 100
-
-
-def _check_date_bound(value: str) -> None:
-    _validate_date_bound(value)
 
 
 class ClusterQuerySerializer(serializers.Serializer):
@@ -174,9 +174,8 @@ class _ClusterViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object_read_actions = ["list", "retrieve"]
     throttle_classes = [ReplayVisionClustersBurstRateThrottle, ReplayVisionClustersSustainedRateThrottle]
 
-    def _window(self, params: dict[str, Any], scanner_id: uuid.UUID | None) -> ClusterWindow:
+    def _window(self, params: dict[str, Any], scanner_id: uuid.UUID | None, current: datetime) -> ClusterWindow:
         timezone_info = self.team.timezone_info
-        current = now()
         date_to = parse_date_bound(params.get("date_to") or "now", timezone_info, end_of_range=True, now=current)
         date_from = (
             parse_date_bound(params["date_from"], timezone_info, end_of_range=False, now=current)
@@ -199,12 +198,13 @@ class _ClusterViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     def _summarize(
         self, params: dict[str, Any], scanner_id: uuid.UUID | None, cluster_id: uuid.UUID | None = None
     ) -> ClusterPage:
+        current = now()
         return summarize_clusters(
             kind=self.kind,
             team_id=self.team_id,
             access=self.user_access_control,
             scanner_ids=readable_scanner_ids_in_scope(self.user_access_control, self.team_id, scanner_id),
-            window=self._window(params, scanner_id),
+            window=self._window(params, scanner_id, current),
             order=ClusterOrder(params.get("order", ClusterOrder.PEOPLE)),
             limit=params.get("limit", 1),
             offset=params.get("offset", 0),
@@ -214,7 +214,7 @@ class _ClusterViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 variants=tuple(split_csv(params.get("variant") or "")),
             ),
             by_variant=params.get("by_variant", False),
-            now=now(),
+            now=current,
         )
 
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:

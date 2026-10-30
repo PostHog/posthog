@@ -52,6 +52,7 @@ from products.replay_vision.backend.api.filters import (
     ordering_enum,
     split_csv,
     validate_csv_choices,
+    validate_date_bound,
 )
 from products.replay_vision.backend.api.observation_progress import stream_observation_progress
 from products.replay_vision.backend.api.observation_stats import compute_observation_stats
@@ -932,13 +933,17 @@ class ReplayObservationFilter(django_filters.FilterSet):
     def _filter_theme(
         self, queryset: QuerySet[ReplayObservation], _name: str, value: uuid.UUID
     ) -> QuerySet[ReplayObservation]:
-        return cluster_members(queryset, ClusterKind.THEME, value)
+        if self._team is None:
+            return queryset.none()
+        return cluster_members(queryset, self._team.id, ClusterKind.THEME, value)
 
     def _filter_group(
         self, queryset: QuerySet[ReplayObservation], _name: str, value: uuid.UUID
     ) -> QuerySet[ReplayObservation]:
         include_routine = self.form.cleaned_data.get("include_routine") is True
-        return cluster_members(queryset, ClusterKind.GROUP, value, include_routine=include_routine)
+        if self._team is None:
+            return queryset.none()
+        return cluster_members(queryset, self._team.id, ClusterKind.GROUP, value, include_routine=include_routine)
 
     def _filter_include_routine(
         self, queryset: QuerySet[ReplayObservation], _name: str, _value: bool | None
@@ -1578,14 +1583,6 @@ class ReplayObservationViewSet(
         return Response(ReplayObservationLabelSerializer(label).data)
 
 
-def _validate_date_bound(value: str) -> str:
-    try:
-        parse_date_bound(value, None, end_of_range=False)
-    except ValueError as e:
-        raise serializers.ValidationError(str(e))
-    return value
-
-
 class ObservationSearchQuerySerializer(serializers.Serializer):
     q = serializers.CharField(
         max_length=2000,
@@ -1634,10 +1631,10 @@ class ObservationSearchQuerySerializer(serializers.Serializer):
     )
 
     def validate_date_from(self, value: str) -> str:
-        return _validate_date_bound(value)
+        return validate_date_bound(value)
 
     def validate_date_to(self, value: str) -> str:
-        return _validate_date_bound(value)
+        return validate_date_bound(value)
 
     def validate_verdict(self, value: str) -> str:
         # Same contract as the list endpoint's verdict filter: an unknown verdict is a 400, not a silent empty result.
