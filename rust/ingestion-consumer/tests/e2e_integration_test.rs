@@ -1246,6 +1246,41 @@ fn broker_committed_offset(group_id: &str, topic: &str, partition: i32) -> Optio
     }
 }
 
+fn group_state(group_id: &str) -> Option<(String, usize)> {
+    let probe: BaseConsumer = ClientConfig::new()
+        .set("bootstrap.servers", KAFKA_BROKERS)
+        .set("group.id", group_id)
+        .create()
+        .expect("group probe");
+    let groups = probe
+        .client()
+        .fetch_group_list(Some(group_id), Duration::from_secs(5))
+        .ok()?;
+    groups
+        .groups()
+        .iter()
+        .find(|group| group.name() == group_id)
+        .map(|group| (group.state().to_string(), group.members().len()))
+}
+
+async fn wait_for_group_state(group_id: &str, state: &str, members: usize, timeout: Duration) {
+    let deadline = tokio::time::Instant::now() + timeout;
+    loop {
+        let observed = group_state(group_id);
+        if observed
+            .as_ref()
+            .is_some_and(|(observed, count)| observed == state && *count == members)
+        {
+            return;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "timed out waiting for group state {state} with {members} member(s), last seen {observed:?}"
+        );
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+}
+
 async fn wait_until(timeout: Duration, msg: &str, mut cond: impl FnMut() -> bool) {
     let deadline = tokio::time::Instant::now() + timeout;
     while !cond() {
@@ -3580,6 +3615,208 @@ async fn a_drain_commits_the_in_flight_messages_before_the_new_owner_reads() {
     assert!(
         duplicates.is_empty(),
         "the new owner processed again what the old owner finished: {duplicates:?}"
+    );
+
+    second.stop().await;
+    harness.stop().await;
+}
+
+fn processed_counts(harness: &Harness) -> std::collections::HashMap<(String, usize), usize> {
+    let mut counts = std::collections::HashMap::new();
+    for entry in harness.delivery_log.lock().unwrap().iter() {
+        *counts.entry(entry.clone()).or_insert(0) += 1;
+    }
+    counts
+}
+
+#[tokio::test]
+async fn a_drain_holds_every_partition_and_dispatches_nothing_until_its_release() {
+    let topic = format!("e2e-drain-hold-{}", Uuid::new_v4());
+    let harness = Harness::start_draining_revokes(&topic, 2, 2, Duration::from_secs(20)).await;
+    let producer = make_producer();
+
+    let mut guards = Vec::new();
+    for w in &harness.workers {
+        guards.push(w.block().await);
+    }
+    for seq in 0..5usize {
+        produce(&producer, &topic, 0, "tok", "user-1", seq).await;
+        produce(&producer, &topic, 1, "tok", "user-2", seq).await;
+    }
+    wait_until(
+        Duration::from_secs(10),
+        "every produced message to dispatch",
+        || harness.poll_sizes().iter().sum::<usize>() == 10,
+    )
+    .await;
+
+    let second = harness.join_second_consumer().await;
+    // The broker counts the joining member while it waits for the first one.
+    wait_for_group_state(
+        &harness.group_id,
+        "PreparingRebalance",
+        2,
+        Duration::from_secs(10),
+    )
+    .await;
+    // The revoke reaches the first consumer on its next heartbeat, and the
+    // gated requests hold its drain.
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    let dispatched = harness.poll_sizes().len();
+    for seq in 5..15usize {
+        produce(&producer, &topic, 0, "tok", "user-1", seq).await;
+        produce(&producer, &topic, 1, "tok", "user-2", seq).await;
+    }
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    assert_eq!(
+        harness.poll_sizes().len(),
+        dispatched,
+        "librdkafka pauses the whole assignment until the unassign, so a drain dispatches no poll"
+    );
+    assert_eq!(
+        group_state(&harness.group_id),
+        Some(("PreparingRebalance".to_string(), 2)),
+        "the drain still holds the revoke"
+    );
+
+    guards.clear();
+    let expected: HashSet<(String, usize)> = ["user-1", "user-2"]
+        .iter()
+        .flat_map(|user| (0..15usize).map(|seq| (user.to_string(), seq)))
+        .collect();
+    wait_until(
+        Duration::from_secs(30),
+        "every message to be delivered",
+        || {
+            let delivered: HashSet<(String, usize)> = harness
+                .delivery_log
+                .lock()
+                .unwrap()
+                .iter()
+                .cloned()
+                .collect();
+            expected.is_subset(&delivered)
+        },
+    )
+    .await;
+    wait_for_group_state(&harness.group_id, "Stable", 2, Duration::from_secs(10)).await;
+    // Time for a replay by either owner to arrive.
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    let duplicates: Vec<((String, usize), usize)> = processed_counts(&harness)
+        .into_iter()
+        .filter(|(_, count)| *count > 1)
+        .collect();
+    assert!(duplicates.is_empty(), "processed more than once: {duplicates:?}");
+
+    second.stop().await;
+    harness.stop().await;
+}
+
+#[tokio::test]
+async fn a_drain_that_times_out_hands_the_partitions_over_uncommitted() {
+    let topic = format!("e2e-drain-timeout-{}", Uuid::new_v4());
+    let harness = Harness::start_draining_revokes(&topic, 2, 2, Duration::from_secs(3)).await;
+    let producer = make_producer();
+    let partitions = [
+        TopicPartition::new(topic.clone(), 0),
+        TopicPartition::new(topic.clone(), 1),
+    ];
+
+    let mut guards = Vec::new();
+    for w in &harness.workers {
+        guards.push(w.block().await);
+    }
+    for seq in 0..5usize {
+        produce(&producer, &topic, 0, "tok", "user-1", seq).await;
+        produce(&producer, &topic, 1, "tok", "user-2", seq).await;
+    }
+    wait_until(
+        Duration::from_secs(10),
+        "every produced message to dispatch",
+        || harness.poll_sizes().iter().sum::<usize>() == 10,
+    )
+    .await;
+    let generations_before: Vec<u64> = partitions
+        .iter()
+        .map(|partition| harness.ledger.generation(partition))
+        .collect();
+
+    let joined = tokio::time::Instant::now();
+    let second = harness.join_second_consumer().await;
+    // The gated requests outlive the drain timeout.
+    wait_for_group_state(&harness.group_id, "Stable", 2, Duration::from_secs(20)).await;
+    assert!(
+        joined.elapsed() >= Duration::from_secs(3),
+        "the drain held the revoke for its timeout"
+    );
+    assert_eq!(harness.committed_offset(0), None);
+    assert_eq!(harness.committed_offset(1), None);
+    // The release forgets both partitions, and the new assignment forgets
+    // the kept one again.
+    wait_until(
+        Duration::from_secs(10),
+        "the first consumer to apply its new assignment",
+        || {
+            let bumps: Vec<u64> = partitions
+                .iter()
+                .zip(&generations_before)
+                .map(|(partition, before)| harness.ledger.generation(partition) - before)
+                .collect();
+            bumps.contains(&1) && bumps.contains(&2)
+        },
+    )
+    .await;
+    let moved = partitions
+        .iter()
+        .zip(&generations_before)
+        .find(|(partition, before)| harness.ledger.generation(partition) == *before + 1)
+        .map(|(partition, _)| partition.partition)
+        .expect("one partition left the first consumer");
+
+    guards.clear();
+    let everything_twice = |harness: &Harness| {
+        let counts = processed_counts(harness);
+        ["user-1", "user-2"].iter().all(|user| {
+            (0..5usize).all(|seq| counts.get(&(user.to_string(), seq)) == Some(&2))
+        })
+    };
+    wait_until(
+        Duration::from_secs(30),
+        "the released requests and the new owners to process every message",
+        || everything_twice(&harness),
+    )
+    .await;
+    wait_until(
+        Duration::from_secs(10),
+        "each owner to commit its partition",
+        || harness.committed_offset(0) == Some(5) && harness.committed_offset(1) == Some(5),
+    )
+    .await;
+    // Time for a replay by either owner to arrive.
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    assert!(
+        everything_twice(&harness),
+        "the old owner's released requests and the new assignment each process every message once: {:?}",
+        processed_counts(&harness)
+    );
+    let commits_of_moved: Vec<i64> = harness
+        .debug_recorder
+        .backlog()
+        .into_iter()
+        .filter_map(|event| match event.kind {
+            DebugEventKind::CommitSubmitted { offsets } => Some(offsets),
+            _ => None,
+        })
+        .flatten()
+        .filter(|offset| offset.partition == moved)
+        .map(|offset| offset.offset)
+        .collect();
+    assert_eq!(
+        commits_of_moved,
+        Vec::<i64>::new(),
+        "the old owner's late completions commit nothing for the partition it handed over"
     );
 
     second.stop().await;
