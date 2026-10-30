@@ -1086,13 +1086,19 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
 
         first_page = self.client.get(url, {"limit": 2}).json()
         second_page = self.client.get(url, {"limit": 2, "offset": 2}).json()
+        past_the_end = self.client.get(url, {"limit": 2, "offset": 5}).json()
 
+        self.assertEqual(first_page["count"], 3)
         self.assertEqual(second_page["count"], 3)
+        self.assertEqual(past_the_end["count"], 3)
+        self.assertEqual(past_the_end["results"], [])
         self.assertEqual(len(second_page["results"]), 1)
         messages = {entry["message"] for entry in first_page["results"] + second_page["results"]}
         self.assertEqual(messages, {"entry 0", "entry 1", "entry 2"})
 
-    @parameterized.expand([("after", "not-a-date"), ("before", "not-a-date"), ("type_filter", "NOT_A_TYPE")])
+    @parameterized.expand(
+        [("after", "not-a-date"), ("before", "not-a-date"), ("type_filter", "NOT_A_TYPE"), ("limit", "5000")]
+    )
     def test_retrieving_plugin_config_logs_rejects_bad_filter(self, mock_get, mock_reload, param, value):
         plugin = Plugin.objects.create(organization=self.organization)
         plugin_config = PluginConfig.objects.create(plugin=plugin, enabled=True, team=self.team, order=0)

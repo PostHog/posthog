@@ -14,6 +14,7 @@ from products.cdp.backend.api.plugin import PluginsAccessLevelPermission
 from products.cdp.backend.models.plugin import (
     PluginLogEntry,
     PluginLogEntryType,
+    PluginLogFilters,
     count_plugin_log_entries,
     fetch_plugin_log_entries,
 )
@@ -24,9 +25,20 @@ class PluginLogEntrySerializer(DataclassSerializer):
         dataclass = PluginLogEntry
 
 
+class PluginLogEntryPagination(FacadeLimitOffsetPagination):
+    # `PluginLogEntryRequestSerializer.limit` uses these bounds, so it rejects a limit the paginator would cut.
+    default_limit = 100
+
+
 class PluginLogEntryRequestSerializer(serializers.Serializer):
     limit = serializers.IntegerField(
-        required=False, min_value=1, help_text="Maximum number of log entries to return (default 100)."
+        required=False,
+        min_value=1,
+        max_value=PluginLogEntryPagination.max_limit,
+        help_text=(
+            "Maximum number of log entries to return "
+            f"(1-{PluginLogEntryPagination.max_limit}, default {PluginLogEntryPagination.default_limit})."
+        ),
     )
     after = serializers.DateTimeField(required=False, help_text="Only return entries after this ISO 8601 timestamp.")
     before = serializers.DateTimeField(required=False, help_text="Only return entries before this ISO 8601 timestamp.")
@@ -36,10 +48,6 @@ class PluginLogEntryRequestSerializer(serializers.Serializer):
         required=False,
         help_text="Log types to include. Repeat the parameter to include more than one type.",
     )
-
-
-class PluginLogEntryPagination(FacadeLimitOffsetPagination):
-    default_limit = 100
 
 
 class PluginLogEntryViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
@@ -54,19 +62,21 @@ class PluginLogEntryViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         param_serializer.is_valid(raise_exception=True)
         params = param_serializer.validated_data
 
-        filters: dict[str, Any] = {
-            "team_id": self.team_id,
-            "plugin_config_id": self.parents_query_dict["plugin_config_id"],
-            "after": params.get("after"),
-            "before": params.get("before"),
-            "search": params.get("search"),
-            "type_filter": [PluginLogEntryType[name] for name in params.get("type_filter", [])],
-        }
+        filters = PluginLogFilters(
+            team_id=self.team_id,
+            plugin_config_id=self.parents_query_dict["plugin_config_id"],
+            after=params.get("after"),
+            before=params.get("before"),
+            search=params.get("search"),
+            type_filter=tuple(PluginLogEntryType[name] for name in params.get("type_filter", [])),
+        )
 
         def fetch(page: PageRequest) -> Page[PluginLogEntry]:
-            return Page(
-                results=fetch_plugin_log_entries(**filters, limit=page.limit, offset=page.offset),
-                count=count_plugin_log_entries(**filters),
-            )
+            rows = fetch_plugin_log_entries(filters, limit=page.limit, offset=page.offset)
+            # A short page is the last page, so it gives the total without a second scan. An empty page
+            # past the first one gives no total, because the offset can be past the end.
+            if len(rows) < page.limit and (rows or page.offset == 0):
+                return Page(results=rows, count=page.offset + len(rows))
+            return Page(results=rows, count=count_plugin_log_entries(filters))
 
         return facade_page_response(self, fetch)
