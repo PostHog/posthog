@@ -213,6 +213,7 @@ class TestApiSessionRetries:
     def test_read_only_posts_retry_transient_errors(self, method: str, status_code: int, expected_retry: bool) -> None:
         adapter = _api_session(credentials()).get_adapter("https://firestore.googleapis.com")
 
+        assert isinstance(adapter, requests.adapters.HTTPAdapter)
         assert adapter.max_retries.is_retry(method, status_code) is expected_retry
 
 
