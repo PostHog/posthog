@@ -10,13 +10,15 @@ import {
   showToday,
 } from "./layout";
 import { LEGACY_PREFIX } from "./localChats";
-import type { PinnedChat } from "./prefs";
+import type { ChatScope, PinnedChat } from "./prefs";
 
 // "waiting" is a chat whose turn ended while the reader was elsewhere.
 export type Indicator = "working" | "waiting" | "alive" | "failed" | "asleep";
 
 export interface WorkPage {
   tasks: Task[] | null;
+  // The signed-in user, once a page has loaded.
+  me?: number;
   hasMore: boolean;
   loadingMore: boolean;
   error: string | null;
@@ -26,8 +28,10 @@ export type SidebarRow =
   | { kind: "heading"; label: "Work" }
   // The day's briefing, shown in the main view while it has no chat; the pane it is in, if any.
   | { kind: "today"; paneId: string | null }
-  // Names the list of every task, under the split workspaces.
-  | { kind: "section"; label: "Pinned" | "All chats" }
+  // Names the pinned chats, above the split workspaces.
+  | { kind: "section"; label: "Pinned" }
+  // Heads the list of every task, under the split workspaces: the My chats and All chats tabs.
+  | { kind: "tabs"; scope: ChatScope }
   // A blank row after each workspace.
   | { kind: "gap" }
   | {
@@ -52,6 +56,8 @@ export type SidebarRow =
       last?: boolean;
       // Sits in the Pinned section above the workspaces.
       pinned?: boolean;
+      // Who started the chat, on the All chats tab, when it was someone else.
+      author?: string;
     }
   | { kind: "loading" }
   | { kind: "signedOut" }
@@ -156,6 +162,7 @@ export function sidebarRows({
   local = NO_LOCAL_CHATS,
   showToday = true,
   pinned = [],
+  scope = "mine",
 }: {
   layout: LayoutState;
   work: WorkPage;
@@ -173,6 +180,8 @@ export function sidebarRows({
   showToday?: boolean;
   // Chats pinned with Ctrl+P, in the order they were pinned, named so they show before the list loads.
   pinned?: PinnedChat[];
+  // The tab the chat list is on.
+  scope?: ChatScope;
 }): SidebarRow[] {
   const byId = new Map([
     ...known,
@@ -276,7 +285,7 @@ export function sidebarRows({
     );
   }
   rows.push(
-    { kind: "section", label: "All chats" },
+    { kind: "tabs", scope },
     taskRow(null, newChatPaneId, false),
     ...unlisted,
   );
@@ -290,7 +299,15 @@ export function sidebarRows({
   else if (tasks.length === 0) rows.push({ kind: "empty" });
   for (const task of tasks) {
     if (pinnedIds.has(task.id)) continue;
-    rows.push(taskRow(task.id, singlePaneOf.get(task.id) ?? null, false));
+    const by = task.created_by;
+    const author =
+      scope === "all" && by && by.id !== work.me
+        ? by.first_name || by.email
+        : undefined;
+    rows.push({
+      ...taskRow(task.id, singlePaneOf.get(task.id) ?? null, false),
+      ...(author && { author }),
+    });
   }
   if (work.loadingMore) rows.push({ kind: "loading" });
   else if (work.hasMore) rows.push({ kind: "viewMore" });
@@ -298,6 +315,10 @@ export function sidebarRows({
 }
 
 // An open workspace's row only labels its chats, which the keyboard moves between; folded, the row stands for them.
+// The chat list under the tabs, where ← and → switch tabs instead of folding a workspace.
+export const underTabs = (rows: SidebarRow[], index: number): boolean =>
+  rows.slice(0, index).some((row) => row.kind === "tabs");
+
 export const isSelectable = (row: SidebarRow): boolean =>
   row.kind === "task" ||
   row.kind === "today" ||

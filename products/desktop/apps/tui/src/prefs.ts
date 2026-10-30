@@ -5,6 +5,8 @@ import { BILLINGS, type Billing } from "./billing";
 import type { ModelChoice } from "./models";
 
 export type ChatPlace = "local" | "cloud";
+// Whose chats the sidebar lists under its tabs: the user's own, or the whole team's.
+export type ChatScope = "mine" | "all";
 
 export interface PinnedChat {
   id: string;
@@ -34,6 +36,8 @@ export interface Prefs {
   relayLocalMcp: boolean;
   // Chats pinned above the workspaces with Ctrl+P, with the name they had so they show before the list loads.
   pinnedChats: PinnedChat[];
+  // The tab the sidebar's chat list is on.
+  chatScope: ChatScope;
 }
 
 const modelOf = (saved: unknown): ModelChoice | undefined => {
@@ -58,6 +62,7 @@ const DEFAULT_PREFS: Prefs = {
   welcomed: false,
   relayLocalMcp: false,
   pinnedChats: [],
+  chatScope: "mine",
 };
 
 const repositoriesOf = (saved: unknown): Record<string, string[]> =>
@@ -93,6 +98,7 @@ export function loadPrefs(path: string = PREFS_PATH): Prefs {
               typeof chat?.id === "string" && typeof chat?.title === "string",
           )
         : [],
+      chatScope: saved.chatScope === "all" ? "all" : "mine",
     };
   } catch {
     return DEFAULT_PREFS;

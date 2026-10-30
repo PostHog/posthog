@@ -8,7 +8,7 @@ import {
 import { track } from "../analytics";
 import type { ChatView } from "../chatView";
 import { copyToClipboard } from "../clipboard";
-import { HEADER_GAP } from "../components/Sidebar";
+import { ALL_TAB_COLUMN, HEADER_GAP } from "../components/Sidebar";
 import type { Composer } from "../composer";
 import { focusPane, focusSidebar, type LayoutState } from "../layout";
 import {
@@ -18,6 +18,7 @@ import {
   type Wheel,
 } from "../mouse";
 import { openImage, openUrl } from "../openUrl";
+import type { ChatScope } from "../prefs";
 import { Gesture } from "../selection";
 import { isSelectable, type SidebarRow } from "../sidebar";
 import type { FlashNotice } from "./useNotice";
@@ -63,6 +64,7 @@ export function usePointer({
   navigate,
   setNavigating,
   setCollapsed,
+  setScope,
   setLayout,
   chatIn,
   chats,
@@ -78,6 +80,7 @@ export function usePointer({
   navigate: (step: 1 | -1) => void;
   setNavigating: (navigating: boolean) => void;
   setCollapsed: (workspaceId: string, collapsed: boolean) => void;
+  setScope: (scope: ChatScope) => void;
   setLayout: Dispatch<SetStateAction<LayoutState>>;
   chatIn: (paneId: string) => ChatView;
   chats: () => Iterable<ChatView>;
@@ -114,6 +117,10 @@ export function usePointer({
       // A click on a workspace's title folds it, or opens it, which unfolds it; one on a chat opens the chat.
       if (row?.kind === "workspace" && row.expanded) {
         setCollapsed(row.workspaceId, true);
+      } else if (row?.kind === "tabs") {
+        setScope(
+          click.column - sidebar.left >= ALL_TAB_COLUMN ? "all" : "mine",
+        );
       } else if (row && isSelectable(row)) {
         setNavigating(row.kind !== "viewMore");
         activate(index);

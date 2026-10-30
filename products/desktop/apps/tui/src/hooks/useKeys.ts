@@ -23,7 +23,7 @@ import {
 import type { PiControl } from "../models";
 import { moveCursor, type SheetKey, sheetKey } from "../sheet";
 import { DoublePress, optionSplitFor, shortcutFor } from "../shortcuts";
-import { workspaceOf } from "../sidebar";
+import { underTabs, workspaceOf } from "../sidebar";
 import type { HistoryNav } from "./useHistory";
 import type { Notice } from "./useNotice";
 import type { SearchState } from "./useSearch";
@@ -61,6 +61,7 @@ export function useKeys({
   typed,
   toggleSidebar,
   togglePin,
+  toggleScope,
   cycleMode,
   history,
   repoPickerKey,
@@ -81,6 +82,8 @@ export function useKeys({
   typed: () => void;
   toggleSidebar: () => void;
   togglePin: () => void;
+  // ← or → on a chat under the tabs switches between My chats and All chats.
+  toggleScope: () => void;
   cycleMode: (paneId: string, step: 1 | -1) => void;
   history: HistoryNav;
   // Gives a key to the pane's open /repo picker; false when it has none.
@@ -202,6 +205,7 @@ export function useKeys({
     const fold = (): void => {
       const workspaceId = workspaceOf(rows[selectedIndex]);
       if (workspaceId) setCollapsed(workspaceId, key.leftArrow);
+      else if (underTabs(rows, selectedIndex)) toggleScope();
     };
     if (!sidebarFocused) {
       // A sheet open on the pane takes the arrows, which also reach it through the raw key stream.
