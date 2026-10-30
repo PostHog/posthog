@@ -1,10 +1,12 @@
-import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_USER, MOCK_TEAM_ID } from 'lib/api.mock'
+import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_TEAM, MOCK_DEFAULT_USER, MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { render } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { productSetupStatusLogic } from 'lib/components/ProductEmptyState/productSetupStatusLogic'
+import { ProductSetupStatus } from 'lib/components/ProductEmptyState/types'
 import { reverseProxyCheckerLogic } from 'lib/components/ReverseProxyChecker/reverseProxyCheckerLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -14,6 +16,7 @@ import { verifyEmailLogic } from 'scenes/authentication/verify-email/verifyEmail
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -32,6 +35,25 @@ window.POSTHOG_APP_CONTEXT = {
 } as unknown as AppContext
 
 describe('projectNoticeLogic', () => {
+    describe('projects without events', () => {
+        it.each<ProductSetupStatus>(['loading', 'unknown', 'has-data', 'needs-setup'])(
+            'only shows the no-events notice after warehouse setup is ruled out (%s)',
+            (status) => {
+                initKeaTests()
+                teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, ingested_event: false })
+                userLogic.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, is_email_verified: true })
+                const logic = projectNoticeLogic()
+                logic.mount()
+                productSetupStatusLogic({ productKey: ProductKey.DATA_WAREHOUSE }).actions.setDetectedStatus(status)
+
+                expect(logic.values.postHogNoticeVariant === 'real_project_with_no_events').toBe(
+                    status === 'needs-setup'
+                )
+                logic.unmount()
+            }
+        )
+    })
+
     describe('proxy records conditional loading', () => {
         let getItemSpy: jest.SpyInstance
 

@@ -4,6 +4,8 @@ from datetime import date
 import pytest
 from unittest import mock
 
+from posthog.integrations import IntegrationNotFound
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import VersionDeprecation
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.linkedinads import (
     LinkedinAdsSourceConfig,
@@ -202,31 +204,25 @@ class TestLinkedInAdsSource:
         assert error_message is not None
         assert "numeric account ID" in error_message
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.source.Integration")
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.source.IntegrationManager"
+    )
     def test_validate_credentials_integration_not_found(self, mock_integration_model):
-        # Mock DoesNotExist exception
-        class MockDoesNotExist(Exception):
-            pass
-
-        mock_integration_model.DoesNotExist = MockDoesNotExist
-        mock_integration_model.objects.get.side_effect = MockDoesNotExist()
+        mock_integration_model.linkedin_ads.oauth.get.side_effect = IntegrationNotFound()
 
         is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
 
         assert is_valid is False
         assert error_message == _MISSING_INTEGRATION_ERROR
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.source.Integration")
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.source.IntegrationManager"
+    )
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.source.capture_exception"
     )
     def test_validate_credentials_unexpected_error(self, mock_capture_exception, mock_integration_model):
-        # Mock DoesNotExist exception
-        class MockDoesNotExist(Exception):
-            pass
-
-        mock_integration_model.DoesNotExist = MockDoesNotExist
-        mock_integration_model.objects.get.side_effect = Exception("Database error")
+        mock_integration_model.linkedin_ads.oauth.get.side_effect = Exception("Database error")
 
         is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
 

@@ -5,6 +5,8 @@ import pytest
 import numpy as np
 from parameterized import parameterized
 
+from posthog.schema import DetectorConfig
+
 from posthog.tasks.alerts.detector import _compute_min_samples_for_detector
 from posthog.tasks.alerts.detectors.base import DetectionResult
 from posthog.tasks.alerts.detectors.ensemble import EnsembleDetector
@@ -250,20 +252,31 @@ class TestStatisticalDetectors:
 
     @parameterized.expand(
         [
-            ("zscore", ZScoreDetector),
-            ("iqr", IQRDetector),
-            ("mad", MADDetector),
+            (f"{name}_{fields}", detector_type, detector_cls, explicit)
+            for name, detector_type, detector_cls in (
+                ("zscore", "zscore", ZScoreDetector),
+                ("iqr", "iqr", IQRDetector),
+                ("mad", "mad", MADDetector),
+            )
+            for fields, explicit in (
+                ("preprocessing_none", {"window": 5, "preprocessing": None}),
+                ("schema_defaults", {}),
+            )
         ]
     )
-    def test_handles_explicit_none_preprocessing(self, _name: str, detector_cls: Any) -> None:
-        # Serializers round-trip a detector_config with an explicit "preprocessing": None
-        # key (not merely omitted) when no preprocessing was configured. `config.get(key,
-        # {})` only falls back to `{}` when the key is absent, so a present-but-None value
-        # used to reach detect()/detect_batch() as None and crash on `.get("diffs_n", ...)`.
-        detector = detector_cls({"threshold": 0.9, "window": 5, "preprocessing": None})
-        data = np.arange(20, dtype=float)
-        detector.detect(data)
-        detector.detect_batch(data)
+    def test_handles_explicit_none_config_values(
+        self, _name: str, detector_type: str, detector_cls: Any, explicit: dict[str, Any]
+    ) -> None:
+        # Serializers round-trip a detector_config through the schema's model_dump(), which
+        # writes every unset field as an explicit None (not merely omitted). `config.get(key,
+        # default)` only falls back when the key is absent, so a present-but-None value used
+        # to reach detect()/detect_batch()/fit() and crash on arithmetic or comparison.
+        config = DetectorConfig.model_validate({"type": detector_type, **explicit}).model_dump()
+        detector = detector_cls(config)
+        data = np.array([10.0, 12.0, 11.0, 13.0] * 15 + [500.0])
+        assert detector.detect(data).score is not None
+        assert detector.detect_batch(data).all_scores[-1] is not None
+        detector.fit(data[:-1])
 
     @parameterized.expand(
         [

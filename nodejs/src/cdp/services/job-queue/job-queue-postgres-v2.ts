@@ -356,6 +356,8 @@ export function v2JobToInvocation(job: CyclotronV2DequeuedJob): CyclotronJobInvo
         queue: job.queueName as CyclotronJobQueueKind,
         queuePriority: job.priority,
         queueScheduledAt: job.scheduled ?? undefined,
+        queueCreatedAt: job.created,
+        queueDueAt: job.scheduled ?? undefined,
         queueMetadata: parsed.queueMetadata ?? undefined,
         queueParameters: parsed.queueParameters ?? undefined,
         state: parsed.state,

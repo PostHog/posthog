@@ -29,6 +29,7 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSource,
     ExternalDataSourceDestination,
 )
+from products.warehouse_sources.backend.facade.source_inputs import SourceInputsStore, UnreadableSourceInputsError
 from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind, ExternalDataSourceType
 from products.warehouse_sources.backend.presentation.views.destination_links import (
     DestinationLinkSerializer,
@@ -82,9 +83,20 @@ class ExternalDataSourceConnectionMetadataSerializer(serializers.Serializer):
     )
 
 
+class _DefaultSchemaField(serializers.CharField):
+    def to_representation(self, value: Any) -> Any:
+        # `source="*"` passes the whole ExternalDataSource, not a string.
+        try:
+            schema = SourceInputsStore.load_settings(value).get("schema")
+        except UnreadableSourceInputsError:
+            # One unreadable row must not fail the whole connections list.
+            return None
+        return None if schema is None else str(schema)
+
+
 class ExternalDataSourceConnectionOptionSerializer(serializers.ModelSerializer):
-    schema_name = serializers.CharField(
-        source="job_inputs.schema",
+    schema_name = _DefaultSchemaField(
+        source="*",
         read_only=True,
         allow_null=True,
         help_text="Default database schema used to group tables in the SQL editor.",

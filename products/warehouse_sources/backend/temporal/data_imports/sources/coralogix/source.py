@@ -114,6 +114,7 @@ The **Frequent search** tier queries your indexed retention and works out of the
                     ),
                     SourceFieldSelectConfig(
                         name="tier",
+                        sync_setting=True,
                         label="Query tier",
                         required=True,
                         defaultValue="frequent_search",

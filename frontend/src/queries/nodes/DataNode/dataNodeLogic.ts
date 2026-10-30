@@ -24,6 +24,7 @@ import { dayjs } from 'lib/dayjs'
 import { ConcurrencyController } from 'lib/utils/concurrencyController'
 import { inStorybook, inStorybookTestRunner, uuid } from 'lib/utils/dom'
 import { shouldCancelQuery } from 'lib/utils/requests'
+import type { TaskQueue } from 'scenes/dashboard/dashboardUtils'
 import { UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES } from 'scenes/insights/insightLogic'
 import { compareDataNodeQuery, haveVariablesOrFiltersChanged, validateQuery } from 'scenes/insights/utils/queryUtils'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -125,6 +126,7 @@ import {
 } from './responseCache'
 
 export interface DataNodeLogicProps {
+    loadQueue?: TaskQueue
     key: string
     query: DataNode
     /** Cached results when fetching nodes in bulk (list endpoint), sharing or exporting. */
@@ -1210,39 +1212,42 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         ) {
                             reclaimReleasedQuery()
                         }
-                        const responsePromise = queryConcurrencyController.run({
-                            debugTag: query.kind,
-                            abortController,
-                            priority:
-                                props.loadPriority ??
-                                (queryConcurrencyController === notebookConcurrencyController
-                                    ? notebookLoadOrder++
-                                    : undefined),
-                            fn: async (): Promise<{ duration: number; data: Record<string, any> }> => {
-                                const now = performance.now()
-                                try {
-                                    breakpoint()
-                                    const data =
-                                        (await performQuery<DataNode>(
-                                            addModifiers(query, props.modifiers),
-                                            methodOptions,
-                                            refresh,
-                                            queryId,
-                                            actions.setPollResponse,
-                                            props.filtersOverride,
-                                            props.variablesOverride,
-                                            pollOnly,
-                                            props.limitContext
-                                        )) ?? null
-                                    const duration = performance.now() - now
-                                    return { data, duration }
-                                } catch (error: any) {
-                                    const duration = performance.now() - now
-                                    error.duration = duration
-                                    throw error
-                                }
-                            },
-                        })
+                        const runQuery = async (): Promise<{ duration: number; data: Record<string, any> }> => {
+                            const now = performance.now()
+                            try {
+                                breakpoint()
+                                const data =
+                                    (await performQuery<DataNode>(
+                                        addModifiers(query, props.modifiers),
+                                        methodOptions,
+                                        refresh,
+                                        queryId,
+                                        actions.setPollResponse,
+                                        props.filtersOverride,
+                                        props.variablesOverride,
+                                        pollOnly,
+                                        props.limitContext
+                                    )) ?? null
+                                const duration = performance.now() - now
+                                return { data, duration }
+                            } catch (error: any) {
+                                const duration = performance.now() - now
+                                error.duration = duration
+                                throw error
+                            }
+                        }
+                        const responsePromise = props.loadQueue
+                            ? props.loadQueue.run(runQuery, abortController.signal)
+                            : queryConcurrencyController.run({
+                                  debugTag: query.kind,
+                                  abortController,
+                                  priority:
+                                      props.loadPriority ??
+                                      (queryConcurrencyController === notebookConcurrencyController
+                                          ? notebookLoadOrder++
+                                          : undefined),
+                                  fn: runQuery,
+                              })
                         if (key && keepRunningOnUnmount) {
                             const teamId = values.currentTeamId
                             // The in-flight entry retains the result, so `loadDataSuccess` skips its copy.
@@ -2278,6 +2283,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             props.onData?.(response as Record<string, unknown> | null | undefined)
             actions.collectionNodeLoadDataSuccess(props.key, {
                 isCached: !!response && typeof response === 'object' && 'is_cached' in response && !!response.is_cached,
+                lastRefresh: values.lastRefresh,
             })
             if ('query' in props.query) {
                 cache.localResults[JSON.stringify(props.query.query)] = response

@@ -32,6 +32,7 @@ import type {
 import {
     isActionsNode,
     isEventsNode,
+    isFunnelsQuery,
     isGroupNode,
     isInsightQueryWithSeries,
     isInsightVizNode,
@@ -500,7 +501,13 @@ export const insightDataChecksLogic: LogicWrapper<insightDataChecksLogicType> = 
                     return null
                 }
                 const source = query.source
-                if (!isInsightQueryWithSeries(source) || !source.series.length || !source.series.every(readsEvents)) {
+                // A funnel with one step runs no query, and the server rejects it.
+                const minSeries = isFunnelsQuery(source) ? 2 : 1
+                if (
+                    !isInsightQueryWithSeries(source) ||
+                    source.series.length < minSeries ||
+                    !source.series.every(readsEvents)
+                ) {
                     return null
                 }
                 return { kind: NodeKind.InsightVizNode, source }

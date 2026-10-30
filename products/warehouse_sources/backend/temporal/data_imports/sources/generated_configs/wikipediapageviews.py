@@ -12,4 +12,5 @@ class WikipediaPageviewsSourceConfig(config.Config):
     access: Literal["all-access", "desktop", "mobile-app", "mobile-web"] = config.value(default="all-access")
     agent: Literal["user", "all-agents", "spider", "automated"] = config.value(default="user")
     article_names: str | None = None
+    countries: str | None = None
     start_date: str | None = None

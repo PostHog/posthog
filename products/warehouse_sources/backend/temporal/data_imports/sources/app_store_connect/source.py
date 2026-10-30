@@ -131,6 +131,7 @@ Leave **app IDs** blank to sync every app the key can read. To sync only some of
                     ),
                     SourceFieldInputConfig(
                         name="app_ids",
+                        sync_setting=True,
                         label="App IDs (optional)",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,

@@ -13,7 +13,6 @@ import {
     DEFAULT_DATE_RANGE,
     DEFAULT_ORDER_BY,
     DEFAULT_ORDER_DIRECTION,
-    DEFAULT_VIEW_MODE,
     TracingFilters,
     TracingOrderBy,
     TracingOrderDirection,
@@ -213,7 +212,7 @@ export function apmSpansQueryToViewerFilters(input: Record<string, unknown>): Pa
         filterGroup,
         orderBy,
         orderDirection,
-        viewMode: query.flatSpans === true ? 'spans' : DEFAULT_VIEW_MODE,
+        viewMode: query.flatSpans === true ? 'spans' : 'traces',
     }
 }
 

@@ -14,6 +14,10 @@ class RB2BSource(SimpleSource[RB2BSourceConfig]):
         return ExternalDataSourceType.RB2B
 
     @property
+    def credential_kind(self) -> str | None:
+        return "rb2b"
+
+    @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=ExternalDataSourceType.RB2B,

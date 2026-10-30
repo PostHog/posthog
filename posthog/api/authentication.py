@@ -525,20 +525,20 @@ class LoginPrecheckSerializer(serializers.Serializer):
     @staticmethod
     def _available_local_methods(email: str, *, saml_available: bool, oidc_available: bool = False) -> dict[str, Any]:
         """
-        Report whether this account can log in with a password, and which of its linked social
-        identities are actually usable on this instance, so the login form can stop offering a
-        password box (or a dead SSO button) to an account that cannot use it.
+        Report whether an account exists for this email, whether it can log in with a password,
+        and which of its linked social identities are actually usable on this instance.
 
-        An email with no active user looks identical to a user who does have a password — a typo
-        must never be a dead end, and it keeps the account-existence signal limited to accounts
-        that are genuinely passwordless.
+        The auth page asks for the email first and uses `account_exists` to choose between the
+        login step and the signup step. Signup already refuses an email that has an account, so
+        this tells a caller nothing the signup precheck does not.
         """
         # Same lookup login itself uses (`UserManager.get_by_natural_key`), so precheck can never
         # describe a different account than the one a password would authenticate: case-insensitive,
-        # and deterministic (active first, then last logged in) if case variations coexist.
-        user = EmailLookupHandler.get_user_by_email(email)
+        # and deterministic (active first, then last logged in) if case variations coexist. A
+        # deactivated account counts as existing, because signup cannot reuse its email either.
+        user = EmailLookupHandler.get_user_by_email(email, is_active=None)
         if user is None:
-            return {"password_login_available": True, "social_providers": []}
+            return {"account_exists": False, "password_login_available": True, "social_providers": []}
 
         # Mirrors `UserSerializer.get_has_password`: `has_usable_password()` is True for an empty
         # password, so the `bool(...)` half of the check is load-bearing.
@@ -555,6 +555,7 @@ class LoginPrecheckSerializer(serializers.Serializer):
             usable_providers.add("oidc")
 
         return {
+            "account_exists": True,
             "password_login_available": password_login_available,
             "social_providers": sorted(linked_providers & usable_providers),
         }

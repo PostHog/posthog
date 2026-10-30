@@ -1762,21 +1762,17 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         pageview_action = create_action(team=self.team, name="$pageview", event_name="$pageview")
 
-        result = (
-            LifecycleQueryRunner(
-                team=self.team,
-                query=LifecycleQuery(
-                    dateRange=DateRange(date_from="2020-01-12T00:00:00Z", date_to="2020-01-19T00:00:00Z"),
-                    interval=IntervalType.DAY,
-                    series=[ActionsNode(id=pageview_action.pk)],
-                ),
-            )
-            .calculate()
-            .results
-        )
+        response = LifecycleQueryRunner(
+            team=self.team,
+            query=LifecycleQuery(
+                dateRange=DateRange(date_from="2020-01-12T00:00:00Z", date_to="2020-01-19T00:00:00Z"),
+                interval=IntervalType.DAY,
+                series=[ActionsNode(id=pageview_action.pk)],
+            ),
+        ).calculate()
 
         assertLifecycleResults(
-            result,
+            response.results,
             [
                 {"status": "dormant", "data": [0, -2, -1, 0, -2, 0, -1, 0]},
                 {"status": "new", "data": [1, 0, 0, 1, 0, 0, 0, 0]},
@@ -1784,6 +1780,7 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 {"status": "returning", "data": [1, 1, 0, 0, 0, 0, 0, 0]},
             ],
         )
+        assert response.action_names == {str(pageview_action.pk): "$pageview"}
 
     def test_lifecycle_trend_all_time(self):
         self._create_events(

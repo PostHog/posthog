@@ -99,19 +99,41 @@ export function markNoncanonicalMetricRun(toolName: string, result: unknown): un
             ...envelope,
         }
     }
+    if (isDrifted && (status === APPROVED_METRIC_STATUS || status === PROPOSED_METRIC_STATUS)) {
+        const approval = status === APPROVED_METRIC_STATUS ? 'approved' : 'not yet approved'
+        return {
+            NONCANONICAL: `status=${status} is_drifted=true. Its source insight changed after this definition was saved, and this run used the saved definition. Use it only if that definition measures what the user asked. If you use it, open the answer with '⚠️ **Drifted definition in your data catalog**: [<display_name>](<url>), ${approval}, and its source insight changed after it was saved. Review it before you rely on this number.', with the url from generate-app-url for '/data-catalog/metrics/{name}', and say in one sentence why you used it.`,
+            ...envelope,
+        }
+    }
     return {
         NONCANONICAL: `status=${String(status)} is_drifted=${String(isDrifted)}. Do not present this as the answer; derive from an approved metric, label the result noncanonical in \`context\`, and tell the reader plainly that the number is a one-off calculation rather than a saved definition.`,
         ...envelope,
     }
 }
 
-function catalogDiscoveryHint(allTools: Tool<ZodObjectAny>[], matches: string[]): string | undefined {
+// A tool whose description happens to mention the search term says nothing about what the
+// search was for: `search persons-` reaches query-logs that way. Only a name match counts.
+function namesMatchingSearch(names: string[], term: string): string[] {
+    if (isRegexPattern(term)) {
+        try {
+            const regex = new RegExp(term, 'i')
+            return names.filter((name) => regex.test(name))
+        } catch {
+            return []
+        }
+    }
+    const tokens = term.toLowerCase().split(/\s+/).filter(Boolean)
+    return names.filter((name) => tokens.some((token) => name.toLowerCase().includes(token)))
+}
+
+function catalogDiscoveryHint(allTools: Tool<ZodObjectAny>[], nameMatches: string[]): string | undefined {
     const availableToolNames = new Set(allTools.map((tool) => tool.name))
     const hasMetricCatalog =
         availableToolNames.has('metric-list') &&
         availableToolNames.has('metric-describe') &&
         availableToolNames.has('data-catalog-metric-run')
-    const hasDataDomainMatch = matches.some((name) =>
+    const hasDataDomainMatch = nameMatches.some((name) =>
         DATA_DOMAIN_TOOL_PREFIXES.some((prefix) => name.startsWith(prefix))
     )
     if (!hasMetricCatalog || !hasDataDomainMatch) {
@@ -177,6 +199,8 @@ export interface ExecCommandMeta {
     exec_search_query?: string
     /** How many tools matched, before the response is truncated — 0 is the interesting case. */
     exec_search_match_count?: number
+    /** When a regex matched nothing, how many tools the word-ranked fallback returned instead. */
+    exec_search_fallback_match_count?: number
     /** How many of those matches came from a connected third-party server. */
     exec_search_gateway_match_count?: number
     exec_learn_kind?: ExecLearnKind
@@ -319,8 +343,10 @@ function execHelp(command: string, learnEnabled: boolean): string {
     }
     const help = commands[command]
     if (typeof help !== 'string') {
+        // `help <prefix>` is a natural way to ask "what can I do with workflows", so the
+        // refusal names the command that answers it rather than only listing the verbs.
         throw new ExecCommandError(
-            `Unknown command: "${command}". Run "help" to list available commands.`,
+            `Unknown command: "${command}". Run "help" to list available commands, or "search ${command}" to find tools for it.`,
             'unknown_command'
         )
     }
@@ -1851,6 +1877,12 @@ export function createExecTool(
                         )
                     }
 
+                    // Agents quote single words (`search "project"`), and a literal quote
+                    // matches no tool.
+                    const query = rest.replace(/["'`]/g, '').trim()
+                    if (!query) {
+                        throw new ExecCommandError('Usage: search <words or regex_pattern>', 'usage')
+                    }
                     // Route by pattern shape: a pattern with regex metacharacters
                     // (e.g. `query-`, `feature-flag`) keeps the original regex
                     // predicate; plain words — including multi-word, natural-
@@ -1859,35 +1891,55 @@ export function createExecTool(
                     // `matches` is the page the agent sees; `matchedNames` is every match,
                     // which is what the counts report — a truncated page would make a broad
                     // query look as narrow as a precise one.
-                    let matchedNames: string[]
-                    let matches: string[]
-                    let gatedMatches: ScopeGatedTool[]
+                    let matchedNames: string[] = []
+                    let matches: string[] = []
+                    let gatedMatches: ScopeGatedTool[] = []
                     let truncatedFrom = 0
-                    if (isRegexPattern(rest)) {
-                        try {
-                            matchedNames = searchToolsRegex(searchableTools, rest).map((t) => t.name)
-                            matches = matchedNames
-                            gatedMatches = searchToolsRegex(scopeGatedTools, rest)
-                        } catch {
-                            throw new ExecCommandError(`Invalid regex pattern: "${rest}"`, 'invalid_regex')
-                        }
-                    } else {
-                        const ranked = searchToolsRanked(searchableTools, rest)
+                    let fallbackFrom: string | undefined
+                    // The word fallback searches something other than what the agent typed, so
+                    // the catalog hint has to read the matches against the term that found them.
+                    let searchTerm = query
+                    const rankByWords = (words: string): void => {
+                        searchTerm = words
+                        const ranked = searchToolsRanked(searchableTools, words)
                         truncatedFrom = ranked.length > MAX_RANKED_SEARCH_RESULTS ? ranked.length : 0
                         matchedNames = ranked.map((r) => r.name)
                         matches = matchedNames.slice(0, MAX_RANKED_SEARCH_RESULTS)
                         // Preserve ranked order for gated matches too, then map
                         // each name back to its ScopeGatedTool (for missingScopes).
                         const gatedByName = new Map(scopeGatedTools.map((t) => [t.name, t]))
-                        gatedMatches = searchToolsRanked(scopeGatedTools, rest)
+                        gatedMatches = searchToolsRanked(scopeGatedTools, words)
                             .map((r) => gatedByName.get(r.name))
                             .filter((t): t is ScopeGatedTool => t !== undefined)
+                    }
+                    if (isRegexPattern(query)) {
+                        try {
+                            matchedNames = searchToolsRegex(searchableTools, query).map((t) => t.name)
+                            matches = matchedNames
+                            gatedMatches = searchToolsRegex(scopeGatedTools, query)
+                        } catch {
+                            throw new ExecCommandError(`Invalid regex pattern: "${query}"`, 'invalid_regex')
+                        }
+                        // A guessed name such as `project-update` matches nothing as a regex,
+                        // but its words usually name the tool the agent wants.
+                        const words = query.replace(/[^a-z0-9]+/gi, ' ').trim()
+                        if (matchedNames.length === 0 && gatedMatches.length === 0 && words) {
+                            rankByWords(words)
+                            if (matchedNames.length > 0 || gatedMatches.length > 0) {
+                                fallbackFrom = query
+                            }
+                        }
+                    } else {
+                        rankByWords(query)
                     }
 
                     options.trackCommand?.({
                         exec_verb: verb,
                         exec_search_query: rest,
-                        exec_search_match_count: matchedNames.length,
+                        exec_search_match_count: fallbackFrom === undefined ? matchedNames.length : 0,
+                        ...(fallbackFrom === undefined
+                            ? {}
+                            : { exec_search_fallback_match_count: matchedNames.length }),
                         exec_search_gateway_match_count: matchedNames.filter(isGatewayToolName).length,
                     })
 
@@ -1907,15 +1959,20 @@ export function createExecTool(
                     if (matches.length === 0) {
                         return JSON.stringify({
                             matches: [],
-                            hint: `No tools matched "${rest}". Run "tools" to see all available tool names.`,
+                            hint: `No tools matched "${query}". Search again with plain words that describe the task, for example "create dashboard". Run "tools" only if that also finds nothing.`,
                         })
                     }
+                    const fallbackHint =
+                        fallbackFrom === undefined
+                            ? undefined
+                            : `No tool is named "${fallbackFrom}". These are the closest matches by its words.`
                     if (truncatedFrom > 0) {
-                        const catalogHint = catalogDiscoveryHint(allTools, matches)
+                        const catalogHint = catalogDiscoveryHint(allTools, namesMatchingSearch(matchedNames, searchTerm))
                         return JSON.stringify({
                             matches,
                             truncated: true,
                             hint: [
+                                fallbackHint,
                                 catalogHint,
                                 `Showing the top ${MAX_RANKED_SEARCH_RESULTS} of ${truncatedFrom} matches, ranked by relevance. Use a more specific query to narrow the results.`,
                             ]
@@ -1923,9 +1980,10 @@ export function createExecTool(
                                 .join(' '),
                         })
                     }
-                    const catalogHint = catalogDiscoveryHint(allTools, matches)
-                    if (catalogHint) {
-                        return JSON.stringify({ matches, hint: catalogHint })
+                    const catalogHint = catalogDiscoveryHint(allTools, namesMatchingSearch(matchedNames, searchTerm))
+                    const hint = [fallbackHint, catalogHint].filter(Boolean).join(' ')
+                    if (hint) {
+                        return JSON.stringify({ matches, hint })
                     }
                     return JSON.stringify(matches)
                 }

@@ -691,6 +691,13 @@ pub struct TrafficArgs {
     )]
     pub chaos_writer_namespace: String,
 
+    #[arg(
+        long,
+        env = "CHAOS_IDENTITY_NAMESPACE",
+        default_value = "personhog-identity"
+    )]
+    pub chaos_identity_namespace: String,
+
     /// etcd endpoints of the stack under test (comma-separated). Enables
     /// the coordinator-targeted scenarios, which resolve the live
     /// election holder; absent, those scenarios are excluded.

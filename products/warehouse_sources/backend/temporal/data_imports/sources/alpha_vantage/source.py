@@ -146,6 +146,7 @@ Note: the free tier is limited to roughly 25 requests per day, and each selected
                     ),
                     SourceFieldInputConfig(
                         name="symbols",
+                        sync_setting=True,
                         label="Symbols (comma-separated)",
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,

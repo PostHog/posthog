@@ -115,16 +115,28 @@ class TestSdkOutdatedCheck(SimpleTestCase):
         assert alert.title == "SDK migration recommended"
         assert alert.summary == issue.payload["reason"]
 
-    def test_sorts_partial_and_full_semver_versions_before_assessment(self):
+    @parameterized.expand(
+        [
+            ("posthog-server",),
+            ("posthog-rs",),
+            ("posthog-rs-mcp",),
+            ("posthog-godot",),
+            ("posthog-unreal",),
+            ("posthog-go-mcp",),
+            ("posthog-ruby-mcp",),
+            ("js",),
+        ]
+    )
+    def test_sorts_partial_and_full_semver_versions_before_assessment(self, sdk_type: str):
         github = {
-            "posthog-server": {
+            sdk_type: {
                 "latestVersion": "2.0.0",
                 "releaseDates": {"1.2.0": OLD_RELEASE, "1.10": OLD_RELEASE},
             }
         }
         rows = [
-            _make_ch_row(1, "posthog-server", "1.2.0", event_count=100),
-            _make_ch_row(1, "posthog-server", "1.10", event_count=50),
+            _make_ch_row(1, sdk_type, "1.2.0", event_count=100),
+            _make_ch_row(1, sdk_type, "1.10", event_count=50),
         ]
 
         results = self._run(github, rows, [1])

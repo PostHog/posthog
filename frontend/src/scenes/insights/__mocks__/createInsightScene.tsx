@@ -1,6 +1,6 @@
 import { samplePersonProperties, sampleRetentionPeopleResponse } from 'scenes/insights/__mocks__/insight.mocks'
 
-import { StoryFn } from '@storybook/react'
+import type { Parameters, StoryFn } from '@storybook/react'
 import { waitFor } from '@testing-library/dom'
 import userEvent from '@testing-library/user-event'
 import { useMountedLogic } from 'kea'
@@ -21,14 +21,14 @@ export const insightSceneStoryParameters = {
     viewMode: 'story',
     mockDate: '2022-03-11',
     testOptions: {
-        snapshotBrowsers: ['chromium' as const],
+        snapshotBrowsers: ['chromium'],
         viewport: {
             // needs a slightly larger width to push the rendered scene away from the breakpoint boundary
             width: 1300,
             height: 720,
         },
     },
-}
+} satisfies Parameters
 
 /** API mocks the insight scene needs beyond the insight itself (editor taxonomy, persons). */
 export const insightSceneMswDecorator = mswDecorator({

@@ -267,6 +267,106 @@ class TestSingleSendLinkStatsFanOut:
         assert result.rows == [{"url": "https://example.com/b", "singlesend_id": "s2"}]
 
 
+def _automation_links_path(automation_id: str) -> str:
+    return f"/marketing/stats/automations/{automation_id}/links"
+
+
+class TestAutomationLinkStatsFanOut:
+    def test_walks_every_automation_and_tags_rows_with_its_id(self) -> None:
+        stats_next = "https://api.sendgrid.com/v3/marketing/stats/automations?page_token=p2&page_size=50"
+        link = {"url": "https://example.com/a", "url_location": 0, "step_id": "all"}
+
+        result = _run(
+            "automation_link_stats",
+            route(
+                {
+                    "/marketing/stats/automations": [
+                        _response(
+                            {
+                                "results": [
+                                    {"id": "a1", "aggregation": "total", "step_id": "all"},
+                                    {"id": "gone", "aggregation": "total", "step_id": "all"},
+                                ],
+                                "_metadata": {"next": stats_next},
+                            }
+                        ),
+                        _response(
+                            {"results": [{"id": "a3", "aggregation": "total", "step_id": "all"}], "_metadata": {}}
+                        ),
+                    ],
+                    _automation_links_path("a1"): [_response({"results": [{**link, "clicks": 4}], "_metadata": {}})],
+                    _automation_links_path("gone"): [ScriptedResponse(status=404, json={"errors": [{"message": "x"}]})],
+                    _automation_links_path("a3"): [_response({"results": [{**link, "clicks": 9}], "_metadata": {}})],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert result.rows == [
+            {**link, "clicks": 4, "automation_id": "a1"},
+            {**link, "clicks": 9, "automation_id": "a3"},
+        ]
+        assert stats_next in result.urls
+
+
+def _category_stats_bucket(day: str, category: str, delivered: int) -> dict[str, Any]:
+    return {"date": day, "stats": [{"type": "category", "name": category, "metrics": {"delivered": delivered}}]}
+
+
+class TestCategoryStatsFanOut:
+    @pytest.mark.parametrize(
+        ("inputs", "expected_start_date"),
+        [
+            # start_date is required, so a full refresh backfills a fixed window.
+            ({}, "2025-08-07"),
+            (
+                {
+                    "should_use_incremental_field": True,
+                    "db_incremental_field_last_value": date(2026, 8, 1),
+                    "incremental_field": "date",
+                },
+                "2026-08-01",
+            ),
+        ],
+    )
+    @time_machine.travel("2026-08-07T12:00:00Z", tick=False)
+    def test_requests_each_category_and_keys_rows_by_it(self, inputs: dict[str, Any], expected_start_date: str) -> None:
+        categories_page = [{"category": f"c{i}"} for i in range(49)] + [{"category": "news & offers"}]
+
+        result = _run(
+            "category_stats",
+            route(
+                {
+                    "/v3/categories": [_response(categories_page), _response([{"category": "a/b"}])],
+                    "/v3/categories/stats": [
+                        *[_response([]) for _ in range(49)],
+                        _response(
+                            [
+                                _category_stats_bucket("2026-08-01", "news & offers", 3),
+                                _category_stats_bucket("2026-08-02", "news & offers", 5),
+                            ]
+                        ),
+                        _response([_category_stats_bucket("2026-08-01", "a/b", 7)]),
+                    ],
+                }
+            ),
+            **inputs,
+        )
+
+        assert result.raised is None
+        assert result.rows == [
+            {"date": "2026-08-01", "category": "news & offers", "delivered": 3},
+            {"date": "2026-08-02", "category": "news & offers", "delivered": 5},
+            {"date": "2026-08-01", "category": "a/b", "delivered": 7},
+        ]
+        stats_requests = [r for r in result.requests if r.path == "/v3/categories/stats"]
+        # Names with `&` or `/` must reach the API whole, not split into extra params or path segments.
+        assert [r.param("categories") for r in stats_requests[-2:]] == ["news & offers", "a/b"]
+        assert {r.param("start_date") for r in stats_requests} == {expected_start_date}
+        assert {r.param("aggregated_by") for r in stats_requests} == {"day"}
+        assert [r.param("offset") for r in result.requests if r.path == "/v3/categories"] == ["0", "50"]
+
+
 def _messages_page(count: int, last_event_time: str) -> list[dict[str, Any]]:
     return [{"msg_id": f"m{last_event_time}-{i}", "last_event_time": last_event_time} for i in range(count)]
 
@@ -418,13 +518,23 @@ class TestGetEndpointPermissions:
         for fragment in fragments:
             assert fragment in reason
 
-    def test_fanout_endpoint_probes_its_parent_listing(self) -> None:
-        # The child path needs a single send id, so probing it as is would 404 and hide a denial.
+    @pytest.mark.parametrize(
+        ("endpoint", "expected_path"),
+        [
+            # The child path needs a parent id, so probing it as is would 404 and hide a denial.
+            ("singlesend_link_stats", "/v3/marketing/singlesends"),
+            ("automation_link_stats", "/v3/marketing/stats/automations"),
+            # The category listing reads with `categories.read`, so it can't stand in for the
+            # `categories.stats.read` this child needs.
+            ("category_stats", "/v3/categories/stats"),
+        ],
+    )
+    def test_fanout_endpoint_probe_path(self, endpoint: str, expected_path: str) -> None:
         with scripted_network(always(ScriptedResponse(status=403, json={}))) as network:
-            permissions = get_endpoint_permissions("k", ["singlesend_link_stats"])
+            permissions = get_endpoint_permissions("k", [endpoint])
 
-        assert network.requests_log[0].path == "/v3/marketing/singlesends"
-        assert permissions["singlesend_link_stats"] is not None
+        assert network.requests_log[0].path == expected_path
+        assert permissions[endpoint] is not None
 
     def test_unbounded_endpoint_probes_a_small_one_with_the_same_scope(self) -> None:
         with scripted_network(always(ScriptedResponse(status=403, json={}))) as network:
@@ -445,6 +555,8 @@ class TestGetEndpointPermissions:
             ("marketing_lists", {"page_size": "1"}),
             ("templates", {"page_size": "1", "generations": "legacy,dynamic"}),
             ("unsubscribe_groups", {}),
+            # /categories/stats requires `categories` and `start_date`.
+            ("category_stats", {"categories": "posthog", "start_date": "2026-08-07", "aggregated_by": "day"}),
             # /messages requires `query`, so a probe without one risks the same masking 400.
             (
                 "message_activity",

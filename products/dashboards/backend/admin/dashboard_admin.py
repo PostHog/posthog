@@ -55,9 +55,9 @@ class DashboardAdmin(admin.ModelAdmin):
     def get_queryset(self, request):
         return Dashboard.objects_including_soft_deleted.all()
 
-    def get_actions(self, request: HttpRequest) -> dict[str, Any]:
+    def get_actions(self, request: HttpRequest, *args: Any, **kwargs: Any) -> dict[str, Any]:
         # Drop the built-in hard-delete: dashboards are soft-deleted product-side.
-        actions = super().get_actions(request)
+        actions = super().get_actions(request, *args, **kwargs)
         actions.pop("delete_selected", None)
         return actions
 

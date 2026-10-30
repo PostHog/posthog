@@ -12,7 +12,6 @@ from rest_framework import serializers
 from posthog.hogql import ast
 from posthog.hogql.property_access_types import RestrictedProperty
 
-from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.models import Organization, PropertyDefinition, Team
 from posthog.models.integration import Integration
 from posthog.models.scoping import team_scope
@@ -380,7 +379,4 @@ class TestBatchExportDestinationSerializerTeamScoping(BaseTest):
         own_integration = self._make_integration(self.team)
 
         serializer = BatchExportDestinationSerializer(context={"team_id": self.team.pk})
-        # Field-level queryset filter should include same-team integrations.
-        field = cast(TeamScopedPrimaryKeyRelatedField, serializer.fields[field_name])
-        queryset = field.get_queryset()
-        assert queryset is not None and own_integration in queryset
+        assert serializer.fields[field_name].run_validation(own_integration.pk) == own_integration

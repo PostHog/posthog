@@ -1328,18 +1328,64 @@ class TestPersistReplyActivity:
             team=team, channel_source="widget", widget_session_id="session", distinct_id="customer"
         )
 
+        reply = (
+            "1. Create a Rule with **Hashtag or keywords**.\n"
+            "See [Set up a Rule](https://www.mentbot.com/help/set-up-a-rule#add-a-rule)."
+        )
         _persist_reply_sync(
             PersistReplyInput(
                 team_id=team.id,
                 ticket_id=str(ticket.id),
-                reply="Here's how to do X.",
+                reply=reply,
                 citations=["chunk-1", "chunk-2"],
                 confidence=0.85,
             )
         )
 
         comment = Comment.objects.get(team_id=team.id, item_id=str(ticket.id))
-        assert comment.content == "Here's how to do X."
+        assert comment.content == reply
+        assert comment.rich_content == {
+            "type": "doc",
+            "content": [
+                {
+                    "type": "orderedList",
+                    "content": [
+                        {
+                            "type": "listItem",
+                            "content": [
+                                {
+                                    "type": "paragraph",
+                                    "content": [
+                                        {"type": "text", "text": "Create a Rule with "},
+                                        {
+                                            "type": "text",
+                                            "text": "Hashtag or keywords",
+                                            "marks": [{"type": "bold"}],
+                                        },
+                                        {"type": "text", "text": "."},
+                                        {"type": "hardBreak"},
+                                        {"type": "text", "text": "See "},
+                                        {
+                                            "type": "text",
+                                            "text": "Set up a Rule",
+                                            "marks": [
+                                                {
+                                                    "type": "link",
+                                                    "attrs": {
+                                                        "href": "https://www.mentbot.com/help/set-up-a-rule#add-a-rule"
+                                                    },
+                                                }
+                                            ],
+                                        },
+                                        {"type": "text", "text": "."},
+                                    ],
+                                }
+                            ],
+                        }
+                    ],
+                },
+            ],
+        }
         assert comment.scope == "conversations_ticket"
         assert comment.item_context is not None
         assert comment.item_context["author_type"] == "AI"
@@ -1747,6 +1793,10 @@ class TestClarifyActivity:
         assert comment.item_context["is_private"] is False
         assert comment.item_context["persist_as"] == "clarification"
         assert comment.content == "Which SDK are you using?"
+        assert comment.rich_content == {
+            "type": "doc",
+            "content": [{"type": "paragraph", "content": [{"type": "text", "text": "Which SDK are you using?"}]}],
+        }
         assert "The ticket never named an SDK." not in (comment.content or "")
         assert ticket.status == Status.PENDING
         assert ticket.ai_triage["status"] == "awaiting_clarification"

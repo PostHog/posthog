@@ -470,7 +470,6 @@ describe('ToolExecutor', () => {
                     clientProfile: {
                         capabilities: { supportsInstructions: true },
                         isCliModeEnabled: vi.fn(() => true),
-                        isClaudeUiHost: vi.fn(() => isClaudeChatHost),
                         isInlineExecUiHost: vi.fn(() => false),
                         isClaudeChatHost: vi.fn(() => isClaudeChatHost),
                         isAnthropicConnector: vi.fn(() => isClaudeChatHost),
@@ -727,7 +726,6 @@ describe('ToolExecutor', () => {
                         clientProfile: {
                             capabilities: { supportsInstructions },
                             isCliModeEnabled: vi.fn(() => true),
-                            isClaudeUiHost: vi.fn(() => false),
                             isInlineExecUiHost: vi.fn(() => false),
                             isClaudeChatHost: vi.fn(() => isClaudeChatHost),
                             isAnthropicConnector: vi.fn(() => isClaudeChatHost),
@@ -763,7 +761,6 @@ describe('ToolExecutor', () => {
                     clientProfile: {
                         capabilities: { supportsInstructions: true },
                         isCliModeEnabled: vi.fn(() => true),
-                        isClaudeUiHost: vi.fn(() => false),
                         isInlineExecUiHost: vi.fn(() => false),
                         isClaudeChatHost: vi.fn(() => true),
                         isAnthropicConnector: vi.fn(() => true),
@@ -783,7 +780,7 @@ describe('ToolExecutor', () => {
             expect(result.content[0]!.text).toContain('### Rendering visualizations')
         })
 
-        it('lists render-ui alongside exec when render-ui is enabled and a UI-app tool is available', async () => {
+        it('advertises the same render-ui schema across accounts with different allowed tools', async () => {
             const state = makeToolExecutorState([uiAppTool], { useSingleExec: true, renderUiEnabled: true })
 
             const result = await executor.handleToolsList(state)
@@ -793,12 +790,18 @@ describe('ToolExecutor', () => {
             // render-ui calls from this list response.
             const renderUiEntry = result.tools[1]!
             const properties = renderUiEntry.inputSchema.properties as Record<string, Record<string, unknown>>
-            expect(properties.tool_name!.enum).toEqual(['survey-get'])
+            expect(properties.tool_name!.enum).toEqual(expect.arrayContaining(['survey-get', 'query-trends']))
+            expect(properties.tool_name!.enum).not.toContain('survey-launch')
             expect(properties.tool_name!.description).toBeTruthy()
             expect(properties.tool_input!.description).toBeTruthy()
             expect(properties.context!.description).toBeTruthy()
             expect(properties.llm_model!.description).toBeTruthy()
             expect(renderUiEntry.inputSchema.required).toEqual(['tool_name', 'context', 'llm_model'])
+
+            const restrictedResult = await executor.handleToolsList(
+                makeToolExecutorState([], { useSingleExec: true, renderUiEnabled: true })
+            )
+            expect(restrictedResult.tools.find((tool) => tool.name === 'render-ui')).toEqual(renderUiEntry)
         })
 
         it('omits render-ui when render-ui is disabled, even with a UI-app tool available', async () => {
@@ -833,6 +836,18 @@ describe('ToolExecutor', () => {
 
             expect(result.isError).toBe(true)
             expect(result.content[0].text).toContain('not found')
+        })
+
+        it('rejects a cached render-ui choice that is not allowed for the current account', async () => {
+            const state = makeToolExecutorState([uiAppTool], { useSingleExec: true, renderUiEnabled: true })
+
+            const result = (await executor.handleToolCall(
+                { name: 'render-ui', arguments: { tool_name: 'query-trends', tool_input: {} } },
+                state
+            )) as { isError?: boolean; _meta?: { ui?: unknown } }
+
+            expect(result.isError).toBe(true)
+            expect(result._meta?.ui).toBeUndefined()
         })
     })
 

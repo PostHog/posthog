@@ -19,7 +19,7 @@ from django.db import connection
 from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
 
-from parameterized import parameterized
+from parameterized import param, parameterized
 from pydantic import BaseModel
 
 from posthog.schema import (
@@ -101,6 +101,8 @@ from products.access_control.backend.models.access_control import AccessControl
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.data_tools.backend.models.expression import DataWarehouseExpression
 from products.data_tools.backend.models.join import DataWarehouseJoin
+from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
+from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
 from products.revenue_analytics.backend.views import RevenueAnalyticsChargeView
 from products.revenue_analytics.backend.views.core import SourceHandle
 from products.revenue_analytics.backend.views.orchestrator import build_revenue_views_for_handles
@@ -478,6 +480,76 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             else:
                 with pytest.raises(QueryError, match="Unknown table"):
                     execute_hogql_query(query, team=self.team, pretty=False)
+
+    @parameterized.expand(
+        [
+            ("events_mode", FlagEvaluationsMode.EVENTS, True, False),
+            # DEBUG puts the table in the catalog on EVENTS, but events still holds every flag call.
+            param("events_mode_under_debug", FlagEvaluationsMode.EVENTS, True, False, debug=True),
+            param(
+                "events_mode_with_the_table_forced_in",
+                FlagEvaluationsMode.EVENTS,
+                True,
+                False,
+                include_flag_evaluations_table=True,
+            ),
+            ("read_mode", FlagEvaluationsMode.READ_FLAG_EVALUATIONS, True, True),
+            ("read_mode_with_the_flag_off", FlagEvaluationsMode.READ_FLAG_EVALUATIONS, False, False),
+            param(
+                "read_mode_with_reads_forced_to_events",
+                FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
+                True,
+                False,
+                reads_forced_to_events=True,
+            ),
+            ("only_mode", FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY, True, True),
+            ("only_mode_with_the_flag_off", FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY, False, False),
+            # The switch skips FLAG_EVALUATIONS_ONLY, whose flag calls are no longer in events.
+            param(
+                "only_mode_with_reads_forced_to_events",
+                FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+                True,
+                True,
+                reads_forced_to_events=True,
+            ),
+            param(
+                "only_mode_without_the_table",
+                FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+                True,
+                False,
+                include_flag_evaluations_table=False,
+            ),
+        ]
+    )
+    def test_read_flag_calls_from_flag_evaluations_follows_the_read_mode_and_the_flag(
+        self,
+        _name: str,
+        mode: FlagEvaluationsMode,
+        flag_enabled: bool,
+        expected: bool,
+        reads_forced_to_events: bool = False,
+        debug: bool = False,
+        include_flag_evaluations_table: bool | None = None,
+    ) -> None:
+        OrganizationFeatureFlagsConfig.objects.update_or_create(
+            organization=self.organization, defaults={"flag_evaluations_mode": mode}
+        )
+
+        with (
+            override_settings(DEBUG=debug),
+            override_instance_config("FLAG_EVALUATIONS_READS_FORCE_EVENTS", reads_forced_to_events),
+            patch(
+                "posthog.hogql.database.database.feature_enabled_or_false",
+                side_effect=lambda key, *args, **kwargs: (
+                    flag_enabled and key == "hogql-flag-calls-from-flag-evaluations"
+                ),
+            ),
+        ):
+            database = Database.create_for(
+                team=self.team, include_flag_evaluations_table=include_flag_evaluations_table
+            )
+
+        assert database.read_flag_calls_from_flag_evaluations is expected
 
     def test_serialize_database_without_fields_matches_full_metadata(self):
         credential = DataWarehouseCredential.objects.create(access_key="blah", access_secret="blah", team=self.team)

@@ -44,6 +44,7 @@ from posthog.models.person.divergence.fleet_scans import (
 from posthog.models.person.divergence.repairs import _WritePacer, repair_distinct_id, repair_persons
 from posthog.models.person.divergence.team_check import _team_check_modulus, check_team
 from posthog.models.person.sql import BULK_INSERT_PERSON_DISTINCT_ID2
+from posthog.models.person.test.divergence_fixtures import rpc_error
 from posthog.models.person.util import (
     create_person as create_person_in_ch,
     tombstone_persons_in_postgres,
@@ -62,12 +63,6 @@ CH_ONLY_PROPERTIES = {"plan": "free", "company": "Acme"}
 _PERSON_COLUMNS = (
     "id, created_at, team_id, properties, is_identified, _timestamp, _offset, is_deleted, version, last_seen_at"
 )
-
-
-def _rpc_error(code: grpc.StatusCode) -> grpc.RpcError:
-    error = grpc.RpcError()
-    error.code = MagicMock(return_value=code)
-    return error
 
 
 def _utc_naive(hours_ago: float) -> datetime:
@@ -619,7 +614,7 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
         self, _name: str, step: str, error: Exception | grpc.StatusCode
     ) -> None:
         person = self._divergent_person("hidden")
-        failure = _rpc_error(error) if isinstance(error, grpc.StatusCode) else error
+        failure = rpc_error(error) if isinstance(error, grpc.StatusCode) else error
 
         with self._failing_once(step, failure), patch("posthog.models.person.divergence.repairs._sleep") as sleep:
             summary, actions = self._repair(person.uuid)
@@ -632,7 +627,7 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
     @parameterized.expand(
         [
             ("non_transient_error_is_not_retried", ValueError("bad request"), 1, []),
-            ("transient_error_on_every_attempt_stops_after_three", _rpc_error(grpc.StatusCode.INTERNAL), 3, [1.0, 2.0]),
+            ("transient_error_on_every_attempt_stops_after_three", rpc_error(grpc.StatusCode.INTERNAL), 3, [1.0, 2.0]),
         ]
     )
     def test_stops_the_run_on_an_error_that_does_not_clear(

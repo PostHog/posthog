@@ -20,11 +20,11 @@ import {
     OBSERVATION_RETURN_PATH_PARAM,
     POSTHOG_AI_ORIGIN,
     RECORDING_ORIGIN,
-    WATCH_FEED_ORIGIN,
+    HIGHLIGHT_FEED_ORIGIN,
     isObservationOrigin,
     safeReturnPath,
     scannerBreadcrumb,
-    watchFeedBreadcrumb,
+    highlightFeedBreadcrumb,
 } from '../utils/breadcrumbs'
 import { hasScannerPage, scannerLabel } from '../utils/observation'
 import { parseNumericParam } from '../utils/urlParams'
@@ -115,8 +115,8 @@ function recordingBreadcrumb(observation: ReplayObservationApi, returnPath: stri
 function parentBreadcrumbFor(observation: ReplayObservationApi, searchParams: Record<string, unknown>): Breadcrumb {
     const origin = searchParams[OBSERVATION_ORIGIN_PARAM]
     const returnPath = safeReturnPath(searchParams[OBSERVATION_RETURN_PATH_PARAM])
-    if (origin === WATCH_FEED_ORIGIN) {
-        return watchFeedBreadcrumb()
+    if (origin === HIGHLIGHT_FEED_ORIGIN) {
+        return highlightFeedBreadcrumb()
     }
     if (origin === RECORDING_ORIGIN) {
         return recordingBreadcrumb(observation, returnPath)
@@ -349,10 +349,15 @@ export const replayObservationLogic = kea<replayObservationLogicType>([
             const inFlight = values.observation?.status === 'pending' || values.observation?.status === 'running'
             scheduleObservationPoll(cache.disposables, inFlight, actions.loadObservation)
         }
-        const setParentBreadcrumb = (observation: ReplayObservationApi): void => {
-            replayObservationSceneLogic().actions.setParentBreadcrumb(
-                parentBreadcrumbFor(observation, router.values.searchParams)
-            )
+        const syncScene = (observation: ReplayObservationApi): void => {
+            const sceneLogic = replayObservationSceneLogic()
+            // A late response for an observation the user has left must not change the one on screen.
+            if (sceneLogic.values.observationId && sceneLogic.values.observationId !== props.id) {
+                return
+            }
+            const sceneActions = sceneLogic.actions
+            sceneActions.setParentBreadcrumb(parentBreadcrumbFor(observation, router.values.searchParams))
+            sceneActions.setObservationStatus(observation.status)
         }
         return {
             loadObservation: async () => {
@@ -369,7 +374,7 @@ export const replayObservationLogic = kea<replayObservationLogicType>([
                         values.pageNeighbors ? undefined : values.neighborParams
                     )
                     actions.loadObservationSuccess(response)
-                    setParentBreadcrumb(response)
+                    syncScene(response)
                 } catch (error: any) {
                     // Only toast the initial load — background poll retries would otherwise spam one toast per tick.
                     if (!values.loadedObservation) {
@@ -388,7 +393,7 @@ export const replayObservationLogic = kea<replayObservationLogicType>([
             },
             loadObservationFailure: reschedulePoll,
 
-            seedObservation: ({ observation }) => setParentBreadcrumb(observation),
+            seedObservation: ({ observation }) => syncScene(observation),
 
             markViewed: async () => {
                 const teamId = teamLogic.values.currentTeamId

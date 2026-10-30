@@ -698,7 +698,8 @@ def product_tour_deleted(sender, instance, **kwargs):
 
 
 @receiver(post_save, sender="error_tracking.ErrorTrackingSuppressionRule")
-def error_tracking_suppression_rule_saved(sender, instance, created, **kwargs):
+@receiver(post_delete, sender="error_tracking.ErrorTrackingSuppressionRule")
+def error_tracking_suppression_rule_changed(sender, instance, **kwargs):
     transaction.on_commit(lambda: _update_team_remote_config(instance.team_id))
 
 

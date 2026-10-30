@@ -289,6 +289,13 @@
             "iconType": "broadcasts",
             "type": "broadcasts",
             "intents": ["workflows"]
+        },
+        {
+            "path": "Transactional",
+            "category": "Messaging",
+            "iconType": "transactional",
+            "type": "transactional",
+            "intents": ["workflows"]
         }
     ],
     "games": [

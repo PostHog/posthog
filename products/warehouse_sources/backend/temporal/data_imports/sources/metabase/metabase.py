@@ -261,7 +261,11 @@ def validate_credentials(
 
     try:
         headers = _resolve_auth_headers(base_url, auth, structlog.get_logger())
-    except (MetabaseAuthError, MetabaseRetryableError) as e:
+    except MetabaseRetryableError as e:
+        if isinstance(e.__cause__, requests.exceptions.RequestException):
+            return False, _connection_error_message(e.__cause__)
+        return False, str(e)
+    except MetabaseAuthError as e:
         return False, str(e)
 
     session = make_tracked_session(redact_values=_redact_values_for_data_requests(auth, headers))

@@ -227,14 +227,21 @@ class TestPrinter(BaseTest):
         )
         return printed
 
-    @parameterized.expand([(12,), (84,)])
+    @parameterized.expand(
+        [
+            (12, "events", "events"),
+            (84, "events", "events"),
+            (12, "posthog.flag_evaluations", "flag_evaluations"),
+        ]
+    )
     @override_settings(EVENTS_DATA_RETENTION_ENFORCED=True)
-    def test_events_retention_floor_applied(self, months: int):
+    def test_events_retention_floor_applied(self, months: int, table: str, printed_table: str):
         self.team.event_retention_months = months
         context = HogQLContext(team_id=self.team.pk, team=self.team, enable_select_queries=True)
-        sql = self._select("select count() from events", context=context)
+        with patch("products.feature_flags.backend.facade.flags.is_flag_evaluations_table_enabled", return_value=True):
+            sql = self._select(f"select count() from {table}", context=context)
         assert f"toIntervalMonth({months})" in sql
-        assert "greater(events.timestamp, minus(now" in sql
+        assert f"greater({printed_table}.timestamp, minus(now" in sql
 
     @override_settings(EVENTS_DATA_RETENTION_ENFORCED=False)
     def test_events_retention_floor_not_applied_when_disabled(self):
@@ -1786,10 +1793,6 @@ class TestPrinter(BaseTest):
             else:
                 assert "properties_group_custom" in enabled_response.clickhouse
                 assert "properties_group_custom" in optimized_response.clickhouse
-            if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-                labels = labels - {"empty_string"}
-                if "null" in labels:
-                    labels = labels | {"empty_string"}
             assert {row[0] for row in disabled_response.results} == labels
             assert {row[0] for row in enabled_response.results} == labels
             assert {row[0] for row in optimized_response.results} == labels
@@ -3296,6 +3299,62 @@ class TestPrinter(BaseTest):
         assert "toDateOrNull" not in printed, printed
         assert "parseDateTime64BestEffort" not in printed, printed
         assert printed.startswith(expected_prefix), printed
+
+    @parameterized.expand(
+        [
+            (
+                "aggregated_array",
+                "SELECT toDate(d) AS day FROM (SELECT groupArrayIf(timestamp, event = 'a') AS ds FROM events) ARRAY JOIN ds AS d",
+                "toDate(d)",
+            ),
+            (
+                "nullable_items",
+                "SELECT toDate(d) AS day FROM (SELECT [toDateTime('2026-10-18 12:00:00'), NULL] AS ds) ARRAY JOIN ds AS d",
+                "toDate(d)",
+            ),
+            (
+                "where_clause",
+                "SELECT 1 FROM (SELECT groupArray(timestamp) AS ds FROM events) ARRAY JOIN ds AS d WHERE toDate(d) = today()",
+                "toDate(d)",
+            ),
+            (
+                "tuple_item",
+                "SELECT toDate(p.2) AS day FROM (SELECT groupArray((event, timestamp)) AS ps FROM events) ARRAY JOIN ps AS p",
+                "toDate(p.2)",
+            ),
+            (
+                "tuple_lambda",
+                "SELECT arrayMap((e, t) -> toDate(t), groupArray(event), groupArray(timestamp)) AS days FROM events",
+                "toDate(t)",
+            ),
+            (
+                "string_items",
+                "SELECT toDate(d) AS day FROM (SELECT groupArray(toString(timestamp)) AS ds FROM events) ARRAY JOIN ds AS d",
+                "toDateOrNull(d)",
+            ),
+        ]
+    )
+    def test_date_conversion_of_an_array_join_item_uses_the_item_type(self, _name: str, query: str, expected: str):
+        printed = self._select(query)
+        assert expected in printed, printed
+
+    @parameterized.expand(
+        [
+            ("toStartOfMinute",),
+            ("toStartOfHour",),
+            ("toStartOfDay",),
+            ("toStartOfWeek",),
+            ("toStartOfMonth",),
+            ("toStartOfQuarter",),
+            ("toStartOfYear",),
+            ("toStartOfISOYear",),
+        ]
+    )
+    def test_to_datetime_of_start_of_interval_uses_the_plain_constructor(self, trunc_func: str):
+        # Funnel trends wrap the interval bucket in toDateTime, and the parser rejects a Date (code 43).
+        printed = self._expr(f"toDateTime({trunc_func}(timestamp))")
+        assert "parseDateTime64BestEffort" not in printed, printed
+        assert printed.startswith(f"toDateTime({trunc_func}("), printed
 
     def test_window_functions(self):
         self.assertEqual(
@@ -6124,7 +6183,8 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
 
             index_name = get_minmax_index_name(mat_col.name)
             if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-                expected_lt_mango = [("d_low",)]
+                # The native table has no materialized column, so '' and 'null' are values in both flavors.
+                expected_lt_mango = [("d_empty",), ("d_low",)]
                 expected_gte_mango = [("d_high",), ("d_mid",), ("d_null_str",)]
 
             lt_result = execute_hogql_query(
@@ -6239,7 +6299,7 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
 
         Expected behavior:
         - with_email: is_not_set=0 - property has a value
-        - test_with_empty_string: is_not_set=1 for native String paths and materialized columns, otherwise 0
+        - test_with_empty_string: is_not_set=1 for legacy materialized columns, otherwise 0
         - with_null: is_not_set=1 - null is treated as "not set"
         - without: is_not_set=1 - property doesn't exist
 
@@ -6339,8 +6399,8 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
         )
         assert result.clickhouse
 
-        # Native String paths and materialized string columns use empty strings for missing values.
-        materialized_column_nullifies_empty_string = is_materialized or (
+        # A legacy materialized column reads '' as NULL; the native table has none, so a read on events keeps ''.
+        materialized_column_nullifies_empty_string = is_materialized and not (
             settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
             and poe_mode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
         )
@@ -6849,8 +6909,6 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
                 and not settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
             ):
                 ilike_expected = ilike_expected_if_non_nullable
-            if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-                ilike_expected = (ilike_expected | {""}) if pattern == "None" else ilike_expected - {""}
             pattern_expr = ast.Constant(value=pattern if pattern != "None" else None)
             ilike_result = execute_hogql_query(
                 team=self.team,
@@ -6946,8 +7004,6 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
             ):
                 in_expected = in_expected_if_non_nullable
 
-            if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-                in_expected = in_expected - {""}
             in_values_exprs: list[ast.Expr] = [ast.Constant(value=v) for v in in_values]
             in_tuple = ast.Tuple(exprs=in_values_exprs)
 

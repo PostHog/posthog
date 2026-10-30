@@ -434,6 +434,10 @@ database "posthog" {
     column "pattern_version" {
       type = "UInt8"
     }
+    column "internal_source" {
+      type    = "LowCardinality(String)"
+      default = "''"
+    }
     engine "distributed" {
       cluster_name    = "logs"
       remote_database = "posthog"
@@ -1366,7 +1370,8 @@ SELECT
   toInt64OrNull(_headers.value[indexOf(_headers.name, 'bytes_uncompressed')]) / _record_count AS _bytes_uncompressed,
   toInt64OrNull(_headers.value[indexOf(_headers.name, 'bytes_compressed')]) / _record_count AS _bytes_compressed,
   ifNull(pattern, '') AS pattern,
-  toUInt8(ifNull(pattern_version, 0)) AS pattern_version
+  toUInt8(ifNull(pattern_version, 0)) AS pattern_version,
+  _headers.value[indexOf(_headers.name, 'internal-source')] AS internal_source
 FROM posthog.kafka_logs_avro
 SQL
 
@@ -1441,6 +1446,9 @@ SQL
     }
     column "pattern_version" {
       type = "UInt8"
+    }
+    column "internal_source" {
+      type = "LowCardinality(String)"
     }
   }
 

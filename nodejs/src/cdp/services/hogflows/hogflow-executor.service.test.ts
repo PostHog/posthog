@@ -99,7 +99,8 @@ describe('Hogflow Executor', () => {
             hub.SITE_URL,
             new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
             emailSuppressionService,
-            new RecipientsManagerService(hub.postgres)
+            new RecipientsManagerService(hub.postgres),
+            null
         )
         const recipientTokensService = new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
         const hogExecutor = new HogExecutorAsyncService(
@@ -183,7 +184,8 @@ describe('Hogflow Executor', () => {
             recipientPreferencesService,
             emailValidationService,
             cohortMembershipRepository,
-            hub.integrationManager
+            hub.integrationManager,
+            null
         )
     })
 

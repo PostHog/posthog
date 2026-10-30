@@ -1,12 +1,16 @@
+import json
+import hashlib
 import dataclasses
+from collections import Counter
 from collections.abc import Iterator
-from datetime import date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 
 from requests import Request, Response, Session
 from requests.exceptions import HTTPError, RequestException
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import parse_datetime_value
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
@@ -20,12 +24,19 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mailchimp.
     MAILCHIMP_ENDPOINTS,
     MAX_PAGE_SIZE,
     MailchimpEndpointConfig,
+    MailchimpEventsConfig,
     MailchimpPagination,
     MailchimpParentConfig,
 )
+from products.warehouse_sources.backend.types import ExternalDataSchemaSyncType
 
 REQUEST_TIMEOUT_SECONDS = 120
 MAX_RETRY_ATTEMPTS = 5
+EVENT_CUTOFF_MARGIN = timedelta(minutes=10)
+# Mailchimp does not say how soon an event shows up in a report, so each run re-reads this much.
+EVENT_LOOKBACK = timedelta(days=1)
+EVENT_MEMBER_FIELDS = ("list_id", "email_id", "email_address")
+EVENT_TABLE_APPEND_ERROR = "Mailchimp event tables do not support append sync"
 
 
 class MailchimpRetryableError(Exception):
@@ -59,7 +70,7 @@ def _get_with_retry(
     return response
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class MailchimpResumeConfig:
     """Resume state for Mailchimp endpoints.
 
@@ -79,6 +90,7 @@ class MailchimpResumeConfig:
     offset: int
     list_id: Optional[str] = None
     parent_ids: Optional[list[str]] = None
+    events_until: Optional[str] = None
 
 
 def extract_data_center(api_key: str) -> str:
@@ -408,7 +420,8 @@ def _iter_pages(
 
         yield offset, records
 
-        if pagination != "offset" or not records:
+        # Only `total_items` ends the walk, because a `since_*` filter can empty a page in the middle.
+        if pagination != "offset":
             return
 
         total_items = data.get("total_items", 0)
@@ -452,6 +465,55 @@ def _resolve_parent_id_maps(
     return id_maps
 
 
+def _event_cutoff(
+    config: MailchimpEndpointConfig,
+    should_use_incremental_field: bool,
+    resume_config: Optional[MailchimpResumeConfig],
+) -> Optional[datetime]:
+    """The newest event time an incremental run keeps.
+
+    A fan-out reads one campaign after another, so an event can land on a page the run already read.
+    A cursor past that event would skip it for good, so the run keeps only events from before it
+    started, less a margin for clock skew with Mailchimp, and the next run reads the rest. A resumed
+    attempt keeps the first attempt's cutoff, because the pages read before the hand-off used it.
+    """
+    if config.events is None or not should_use_incremental_field:
+        return None
+    if resume_config is not None and resume_config.events_until is not None:
+        return datetime.fromisoformat(resume_config.events_until)
+    return datetime.now(UTC) - EVENT_CUTOFF_MARGIN
+
+
+def _explode_records(
+    records: list[dict[str, Any]],
+    events: MailchimpEventsConfig,
+    id_map: dict[str, str],
+    events_until: Optional[datetime],
+) -> Iterator[dict[str, Any]]:
+    """One row per event in each record's events array, carrying the recipient's stable fields."""
+    for record in records:
+        member = {key: record[key] for key in EVENT_MEMBER_FIELDS if key in record}
+        occurrences: Counter[str] = Counter()
+        for event in record.get(events.array_field) or []:
+            moment = parse_datetime_value(event.get("timestamp"))
+            # Mailchimp gives events no id and opens no `url`, so the id hashes fixed fields plus an
+            # occurrence count, which stays stable because identical events share a timestamp.
+            identity = json.dumps(
+                {
+                    **id_map,
+                    "email_id": record.get("email_id"),
+                    **{key: event.get(key) for key in events.key_fields},
+                    "timestamp": moment.isoformat() if moment else event.get("timestamp"),
+                },
+                sort_keys=True,
+            )
+            occurrences[identity] += 1
+            if events_until is not None and moment is not None and moment > events_until:
+                continue
+            event_id = hashlib.sha256(f"{identity}#{occurrences[identity]}".encode()).hexdigest()
+            yield {**member, **event, "event_id": event_id}
+
+
 def _fetch_endpoint_rows(
     session: Session,
     base_url: str,
@@ -462,6 +524,7 @@ def _fetch_endpoint_rows(
     start_offset: int,
     resumable_source_manager: ResumableSourceManager[MailchimpResumeConfig],
     parent_ids: Optional[list[str]],
+    events_until: Optional[datetime],
 ) -> Iterator[dict[str, Any]]:
     if config.single_object:
         response = _get_with_retry(
@@ -482,16 +545,24 @@ def _fetch_endpoint_rows(
         extra_params,
         start_offset,
     ):
-        if not records:
-            continue
-
         if config.pagination == "offset":
             # Checkpoint the page we are about to yield, matching the contacts path: a resume
             # re-fetches it and the primary key dedupes the overlap.
-            resumable_source_manager.save_state(MailchimpResumeConfig(offset=offset, parent_ids=parent_ids))
+            resumable_source_manager.save_state(
+                MailchimpResumeConfig(
+                    offset=offset,
+                    parent_ids=parent_ids,
+                    events_until=events_until.isoformat() if events_until else None,
+                )
+            )
 
-        for record in records:
-            yield {**record, **id_map}
+        rows = _explode_records(records, config.events, id_map, events_until) if config.events else records
+        yielded = False
+        for row in rows:
+            yielded = True
+            yield {**row, **id_map}
+        if not yielded:
+            resumable_source_manager.safe_point()
 
 
 def _get_endpoint_iterator(
@@ -517,10 +588,12 @@ def _get_endpoint_iterator(
 
     if not config.parents:
         start_offset = 0
+        top_level_resume: MailchimpResumeConfig | None = None
         if config.pagination == "offset" and resumable_source_manager.can_resume():
             loaded = resumable_source_manager.load_state()
             if loaded is not None and loaded.parent_ids is None:
                 start_offset = loaded.offset
+                top_level_resume = loaded
 
         yield from _fetch_endpoint_rows(
             session,
@@ -532,6 +605,7 @@ def _get_endpoint_iterator(
             start_offset,
             resumable_source_manager,
             parent_ids=None,
+            events_until=_event_cutoff(config, should_use_incremental_field, top_level_resume),
         )
         return
 
@@ -547,6 +621,7 @@ def _get_endpoint_iterator(
             known_chains = {tuple(id_map[key] for key in parent_keys) for id_map in id_maps}
             if tuple(loaded.parent_ids) in known_chains:
                 resume_config = loaded
+    events_until = _event_cutoff(config, should_use_incremental_field, resume_config)
 
     for id_map in id_maps:
         parent_ids = [id_map[key] for key in parent_keys]
@@ -569,6 +644,7 @@ def _get_endpoint_iterator(
             start_offset,
             resumable_source_manager,
             parent_ids=parent_ids,
+            events_until=events_until,
         )
 
 
@@ -581,9 +657,17 @@ def mailchimp_source(
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
     incremental_field: str | None = None,
+    sync_type: Optional[ExternalDataSchemaSyncType] = None,
 ) -> SourceResponse:
     """Create a Mailchimp data source for the specified endpoint."""
     endpoint_config = MAILCHIMP_ENDPOINTS[endpoint]
+
+    if endpoint_config.events is not None:
+        # The schema API does not enforce `supports_append`, and append would keep re-read events.
+        if sync_type == ExternalDataSchemaSyncType.APPEND:
+            raise ValueError(EVENT_TABLE_APPEND_ERROR)
+        if isinstance(db_incremental_field_last_value, datetime):
+            db_incremental_field_last_value -= EVENT_LOOKBACK
 
     # Contacts endpoint is special - fetches from all lists
     if endpoint == "contacts":
@@ -605,7 +689,7 @@ def mailchimp_source(
 
     # Fan-out endpoints and the collections Mailchimp serves without offset pagination can't be
     # expressed as a single `rest_api_resource`, so they go through the generic iterator.
-    if endpoint_config.parents or endpoint_config.pagination != "offset":
+    if endpoint_config.parents or endpoint_config.events or endpoint_config.pagination != "offset":
         return SourceResponse(
             name=endpoint,
             items=lambda: _get_endpoint_iterator(

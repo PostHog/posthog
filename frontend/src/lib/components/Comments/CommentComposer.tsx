@@ -11,6 +11,7 @@ import { LemonRichContentEditor } from 'lib/lemon-ui/LemonRichContent/LemonRichC
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { CommentsLogicProps, commentsLogic } from './commentsLogic'
+import { scopeSyncsToSlack } from './commentUtils'
 import { SlackDestinationPicker } from './SlackDestinationPicker'
 
 export type CommentComposerProps = CommentsLogicProps & {
@@ -43,7 +44,8 @@ export const CommentComposer = ({ variant = 'footer', ...props }: CommentCompose
     const { featureFlags } = useValues(featureFlagLogic)
 
     // Toggling a brand-new top-level comment straight to Slack; replies sync automatically.
-    const showSlackToggle = !replyingCommentId && !!featureFlags[FEATURE_FLAGS.DISCUSSIONS_SLACK_SYNC]
+    const showSlackToggle =
+        !replyingCommentId && !!featureFlags[FEATURE_FLAGS.DISCUSSIONS_SLACK_SYNC] && scopeSyncsToSlack(props.scope)
 
     const placeholder = replyingCommentId
         ? 'Reply...'

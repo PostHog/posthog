@@ -18,6 +18,9 @@ on:
             - master
         paths:
             - pnpm-lock.yaml
+            # The lockfile verdict is keyed on these too: the policy and the pnpm version.
+            - pnpm-workspace.yaml
+            - package.json
             - .github/workflows/pnpm-store-cache.yml
     # A PR that edits this file runs the install as a dry run; the save stays master only.
     pull_request:
@@ -70,11 +73,26 @@ jobs:
                   key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
                   lookup-only: true
 
+            - name: Get pnpm cache path
+              id: pnpm-cache
+              run: echo "path=$(pnpm cache path --silent)" >> "$GITHUB_OUTPUT"
+
+            # pnpm writes lockfile-verified.jsonl when the install passes the supply-chain check,
+            # and pnpm-install restores it so consumers skip the check's registry requests.
+            - name: Check for an existing lockfile verdict
+              id: verdict-lookup
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: ${{ steps.pnpm-cache.outputs.path }}/lockfile-verified.jsonl
+                  key: pnpm-verdict-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', 'pnpm-workspace.yaml', 'package.json') }}
+                  lookup-only: true
+
             # Build scripts run on purpose: pnpm keeps their output in the store, so
             # consumers get prebuilt native packages instead of compiling them per job.
             # A PR dry run always installs, so a broken writer fails here and not on master.
+            # A verdict miss also installs, because a store hit alone runs no check to record.
             - name: Install into an empty store
-              if: steps.lookup.outputs.cache-hit != 'true' || github.event_name == 'pull_request'
+              if: steps.lookup.outputs.cache-hit != 'true' || steps.verdict-lookup.outputs.cache-hit != 'true' || github.event_name == 'pull_request'
               run: pnpm install --frozen-lockfile
 
             # Master only: Depot Cache has no branch isolation, so a dispatch from a
@@ -85,3 +103,12 @@ jobs:
               with:
                   path: ${{ steps.pnpm-store.outputs.path }}
                   key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+
+            # Master only, for the same reason as the store. The runner starts with an empty
+            # pnpm cache, so the record comes from the check the install above just ran.
+            - name: Save lockfile verdict
+              if: github.ref == 'refs/heads/master' && steps.verdict-lookup.outputs.cache-hit != 'true'
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: ${{ steps.pnpm-cache.outputs.path }}/lockfile-verified.jsonl
+                  key: pnpm-verdict-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', 'pnpm-workspace.yaml', 'package.json') }}

@@ -644,6 +644,12 @@ mod tests {
         headers.insert("user-agent", "posthog-unity/4.5.0".parse().unwrap());
         let result = detect_evaluation_runtime_from_request(&headers, None);
         assert_eq!(result, Some(EvaluationRuntime::Client));
+
+        for sdk in ["posthog-godot/1.0.0", "posthog-unreal/1.0.0"] {
+            headers.insert("user-agent", sdk.parse().unwrap());
+            let result = detect_evaluation_runtime_from_request(&headers, None);
+            assert_eq!(result, Some(EvaluationRuntime::Client));
+        }
     }
 
     #[test]
@@ -661,6 +667,9 @@ mod tests {
         let server_sdks = vec![
             "posthog-python/1.4.0",
             "posthog-python-mcp/0.1.0",
+            "posthog-rs-mcp/1.0.0",
+            "posthog-go-mcp/1.0.0",
+            "posthog-ruby-mcp/1.0.0",
             "posthog-ruby/2.0.0",
             "posthog-ruby2.0.0",
             "posthog-rails/3.18.0",

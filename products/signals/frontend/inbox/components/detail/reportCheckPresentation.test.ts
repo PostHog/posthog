@@ -85,7 +85,7 @@ describe('reportCheckPresentation', () => {
             expect(markup).not.toContain('Window end:')
         })
 
-        it.each(['resolved', 'ready', 'suppressed', 'potential'] as const)(
+        it.each(['resolved', 'closed', 'ready', 'suppressed', 'potential'] as const)(
             'pauses open checks on a %s report without hiding historical verdicts',
             (reportStatus) => {
                 const checks = [

@@ -126,7 +126,7 @@ tools:
             business-knowledge-repositories-search. Returns the file text and a permalink. Does not search file
             contents. Pass library_id to read a repository in that library, using the same id as document search and
             repository search. Omit library_id to read any selected repository.
-        feature_flag: business-knowledge-github-repos
+        feature_flag: product-business-knowledge
     business-knowledge-repositories-search:
         operation: business_knowledge_repositories_search
         enabled: true
@@ -144,7 +144,7 @@ tools:
             holds a handbook or docs, search that repository for those words and read the file. Does not search inside
             file contents and does not call GitHub code search. Pass library_id to search repositories in that library,
             using the same id as document search and file read. Omit library_id to search every selected repository.
-        feature_flag: business-knowledge-github-repos
+        feature_flag: product-business-knowledge
     business-knowledge-sources-list:
         operation: business_knowledge_sources_list
         enabled: true

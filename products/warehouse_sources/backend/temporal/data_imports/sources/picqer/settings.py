@@ -79,6 +79,21 @@ PICQER_ENDPOINTS: dict[str, PicqerEndpointConfig] = {
         primary_keys=["idpicklist"],
         partition_key="created",
     ),
+    # Batches change status as picking completes and expose no time filter.
+    "picklist_batches": PicqerEndpointConfig(
+        name="picklist_batches",
+        path="/picklists/batches",
+        primary_keys=["idpicklist_batch"],
+        partition_key="created_at",
+    ),
+    # Backorders change as stock is reserved and disappear once processed, so only a full refresh
+    # reflects the current set. `sincedate` filters by creation and would miss both.
+    "backorders": PicqerEndpointConfig(
+        name="backorders",
+        path="/backorders",
+        primary_keys=["idbackorder"],
+        partition_key="created_at",
+    ),
     "purchaseorders": PicqerEndpointConfig(
         name="purchaseorders",
         path="/purchaseorders",
@@ -175,6 +190,17 @@ PICQER_ENDPOINTS: dict[str, PicqerEndpointConfig] = {
         path="/return_reasons",
         primary_keys=["idreturn_reason"],
         paginated=False,
+    ),
+    "return_statuses": PicqerEndpointConfig(
+        name="return_statuses",
+        path="/return_statuses",
+        primary_keys=["idreturn_status"],
+        paginated=False,
+    ),
+    "pricelists": PicqerEndpointConfig(
+        name="pricelists",
+        path="/pricelists",
+        primary_keys=["idpricelist"],
     ),
 }
 

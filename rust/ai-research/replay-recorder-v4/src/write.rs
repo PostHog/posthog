@@ -26,7 +26,8 @@ use tokio::sync::Semaphore;
 
 use crate::batch::{Block, SessionKey};
 use crate::index::{BlockIndexRow, ImageIndexRow};
-use crate::rewrite::{canonical_strings, UrlRewrite};
+use crate::rewrite::{canonical_strings, Fallback, RewriteReport, UrlRewrite};
+use crate::scrub::Scrub;
 use crate::store::{BlobStore, StoreError};
 
 /// Brotli settings for blocks, the same as the v3 lane, which uses the same C encoder. The lane keeps blocks for months
@@ -65,9 +66,13 @@ pub struct WriterCounts {
     /// The bytes of the lines the writer gives the encoder, and the longest line.
     pub jsonl_bytes: u64,
     pub max_line_bytes: u64,
-    /// Why the block must not be stored, as the outcome of its drop: a URL the policy declines stays in it, or the
-    /// inspector did not name all its URLs.
+    /// Why the block must not be stored, as the outcome of its drop: a URL the policy declines stays in it even after
+    /// the fallback.
     pub dropped: Option<&'static str>,
+    /// Why the writer used a fallback to keep the block, as a metric label.
+    pub fallback: Option<&'static str>,
+    /// The URL tokens the fallback replaced.
+    pub scrubbed: u64,
 }
 
 /// A block compressed once for all the attempts of its flush, with the images it moved out.
@@ -79,6 +84,7 @@ pub struct CompressedBlock {
     pub images: Vec<Arc<Image>>,
     pub counts: WriterCounts,
     pub url_fingerprints: Vec<String>,
+    pub visited_url_fingerprints: Vec<String>,
 }
 
 /// A block sealed for one object, with the images it moved out.
@@ -89,6 +95,7 @@ pub struct SealedBlock {
     pub images: Vec<Arc<Image>>,
     pub counts: WriterCounts,
     pub url_fingerprints: Vec<String>,
+    pub visited_url_fingerprints: Vec<String>,
 }
 
 fn unique_suffix(at: DateTime<Utc>) -> String {
@@ -107,33 +114,26 @@ pub fn object_key(write_day: &str, at: DateTime<Utc>) -> String {
 /// per event. Every image goes into this flush's packs, even one an earlier flush stored: a pack expires by its own
 /// write time, so it must be no older than the blocks that reference it.
 /// Expanded `cv` events can make a block far larger than its messages, so only one event is held at a time.
-pub fn prepare_block(
+fn prepare_block(
     block: &Block,
     team_key: &[u8; 32],
     key_month: &str,
+    fallback: &Fallback,
     out: &mut impl Write,
-) -> io::Result<(Vec<Image>, WriterCounts)> {
-    // Fail closed: a URL the inspector did not name could be one the policy declines.
-    if let Some(limit) = block.url_limit {
-        let dropped = Some(limit.label());
-        return Ok((
-            Vec::new(),
-            WriterCounts {
-                dropped,
-                ..WriterCounts::default()
-            },
-        ));
-    }
+) -> io::Result<(Vec<Image>, WriterCounts, RewriteReport)> {
     let content_key = image_content_key(team_key);
     let mut rewrite = UrlRewrite::new(
         &block.remote_urls,
+        &block.srcsets,
         block.session.team_id,
         key_month,
         team_key,
-    );
+    )
+    .with_fallback(fallback.clone());
     let mut images = Vec::new();
     let mut kept = HashSet::new();
     let mut counts = WriterCounts::default();
+    let mut removed_avif = 0u64;
     for message in &block.messages {
         let mut window = Vec::new();
         write_json_string(
@@ -156,7 +156,10 @@ pub fn prepare_block(
                     .as_deref()
                     .unwrap_or(&message.inner[event.span.0..event.span.1]),
             );
-            let event_bytes = rewrite.apply(&canonical);
+            // The inspector reads image slots in full snapshots and mutations only.
+            let dom_event =
+                event.kind == Some(2) || (event.kind == Some(3) && event.source == Some(0));
+            let event_bytes = rewrite.apply(&canonical, dom_event);
             out.write_all(&event_bytes)?;
             out.write_all(b"]\n")?;
             let line = (window.len() + event_bytes.len() + 4) as u64;
@@ -170,17 +173,90 @@ pub fn prepare_block(
             .map(|i| i.bytes.len() as u64)
             .sum::<u64>();
         counts.inline += sink.left_inline;
+        removed_avif += u64::from(sink.removed_avif);
         images.extend(
             sink.images
                 .into_iter()
                 .filter(|image| kept.insert(image.reference.clone())),
         );
     }
-    // Fail closed: the flush drops a block that still holds a declined URL, a credential or a private host.
-    if !rewrite.finish() {
+    let mut report = rewrite.finish();
+    report.counters.removed_avif = removed_avif;
+    counts.scrubbed = report.scrubbed;
+    Ok((images, counts, report))
+}
+
+/// A block whose URLs the inspector did not all name has every remote URL token it did not name scrubbed, so that the
+/// block is kept without a URL nobody checked.
+fn first_fallback(block: &Block) -> Fallback {
+    match block.url_limit {
+        Some(limit) => Fallback {
+            overwrite_declined: true,
+            scrub: Scrub::AllRemote,
+            reason: Some(limit.label()),
+        },
+        None => Fallback::default(),
+    }
+}
+
+/// What the second pass does about what the first left unsafe: it overwrites each declined URL wherever it is, and
+/// scrubs the tokens that hold the host of a declined URL the stored bytes do not hold as the inspector read it.
+fn second_fallback(first: &Fallback, report: &RewriteReport) -> Fallback {
+    let scrub = match (&first.scrub, &report.unfound_hosts) {
+        (Scrub::AllRemote, _) | (_, None) => Scrub::AllRemote,
+        (_, Some(hosts)) if hosts.is_empty() => Scrub::Nothing,
+        (_, Some(hosts)) => Scrub::Hosts(hosts.clone()),
+    };
+    let reason = if report.unfound_hosts.as_ref().is_some_and(Vec::is_empty) {
+        "declined_kept"
+    } else {
+        "declined_unfound"
+    };
+    Fallback {
+        overwrite_declined: true,
+        scrub,
+        reason: first.reason.or(Some(reason)),
+    }
+}
+
+/// Writes a block's lines to an output from `open`. A block that the first pass leaves unsafe is written again to a
+/// fresh output with the fallback that makes it safe, so a block is dropped only when even that fails. Moves the
+/// images out and returns them with the output.
+pub fn write_block<W: Write>(
+    block: &Block,
+    team_key: &[u8; 32],
+    key_month: &str,
+    mut open: impl FnMut() -> io::Result<W>,
+) -> io::Result<(W, Vec<Image>, WriterCounts)> {
+    let first = first_fallback(block);
+    let mut out = open()?;
+    let (images, mut counts, report) = prepare_block(block, team_key, key_month, &first, &mut out)?;
+    if report.safe {
+        report.counters.emit();
+        counts.fallback = first.reason;
+        return Ok((out, images, counts));
+    }
+    let second = second_fallback(&first, &report);
+    if let Some(key) = &report.kept_in {
+        tracing::info!(
+            team_id = block.session.team_id,
+            key,
+            "a declined URL stayed inside a longer token"
+        );
+    }
+    // The second pass copies every image again, so the first pass's output and images go before it starts.
+    drop(out);
+    drop(images);
+    let mut out = open()?;
+    let (images, mut counts, report) =
+        prepare_block(block, team_key, key_month, &second, &mut out)?;
+    report.counters.emit();
+    counts.fallback = second.reason;
+    // Fail closed only when the fallback could not make the block safe either.
+    if !report.safe {
         counts.dropped = Some("declined_unrewritten");
     }
-    Ok((images, counts))
+    Ok((out, images, counts))
 }
 
 fn block_encoder() -> Result<brotlic::BrotliEncoder, WriteError> {
@@ -217,11 +293,24 @@ pub fn compress_block(
     let seal_error = |e: io::Error| WriteError::Seal(e.to_string());
     // Lines go into the encoder as they are built, so memory follows the compressed block and not its plaintext.
     // A brotli stream does not state its decompressed size, so a reader decompresses it as a stream.
-    let encoder = brotlic::CompressorWriter::with_encoder(block_encoder()?, Vec::new());
     // The encoder works on each write it gets, so small writes cost far more CPU than the same bytes in one.
-    let mut lines = io::BufWriter::with_capacity(BLOCK_WRITE_BUFFER, encoder);
-    let (images, counts) =
-        prepare_block(block, team_key, key_month, &mut lines).map_err(seal_error)?;
+    let open = || {
+        block_encoder()
+            .map(|encoder| {
+                io::BufWriter::with_capacity(
+                    BLOCK_WRITE_BUFFER,
+                    brotlic::CompressorWriter::with_encoder(encoder, Vec::new()),
+                )
+            })
+            .map_err(|e| io::Error::other(e.to_string()))
+    };
+    let (lines, images, counts) =
+        write_block(block, team_key, key_month, open).map_err(seal_error)?;
+    if let Some(reason) = counts.fallback {
+        counter!("ai_research_v4_recorder_url_fallbacks_total", "reason" => reason).increment(1);
+        counter!("ai_research_v4_recorder_scrubbed_urls_total", "reason" => reason)
+            .increment(counts.scrubbed);
+    }
     let encoder = lines.into_inner().map_err(|e| seal_error(e.into_error()))?;
     let body = encoder
         .into_inner()
@@ -233,6 +322,7 @@ pub fn compress_block(
         images: images.into_iter().map(Arc::new).collect(),
         counts,
         url_fingerprints: url_fingerprints(&key.key, &block_urls(block)),
+        visited_url_fingerprints: visited_url_fingerprints(&key.key, &block.visited_urls),
     })
 }
 
@@ -255,6 +345,7 @@ pub fn seal_compressed(
         images: block.images.clone(),
         counts: block.counts,
         url_fingerprints: block.url_fingerprints.clone(),
+        visited_url_fingerprints: block.visited_url_fingerprints.clone(),
     })
 }
 
@@ -498,6 +589,16 @@ pub fn url_fingerprints(session_key: &[u8; 32], urls: &[String]) -> Vec<String> 
     fingerprints
 }
 
+/// The block's distinct visited pages for its surfacing features, as fingerprints under the session's fingerprint key,
+/// sorted.
+pub fn visited_url_fingerprints(session_key: &[u8; 32], urls: &[String]) -> Vec<String> {
+    let key = url_fingerprint_key(session_key);
+    let mut fingerprints: Vec<String> = urls.iter().map(|url| url_fingerprint(&key, url)).collect();
+    fingerprints.sort_unstable();
+    fingerprints.dedup();
+    fingerprints
+}
+
 /// Numbers the rows of each partition in order and gives each row the count of its partition.
 fn number_rows(rows: &mut [BlockIndexRow<'_>]) {
     let mut counts: HashMap<(&str, i32), u32> = HashMap::new();
@@ -607,13 +708,13 @@ mod tests {
     use base64::engine::general_purpose::STANDARD;
     use base64::Engine;
     use replay_core_v4::envelope::open_frame;
-    use replay_core_v4::inspect::dom::MAX_REMOTE_URL_BYTES;
     use replay_core_v4::inspect::session::Moment;
     use replay_core_v4::scan::message::read_message;
     use serde_json::{json, Value};
 
     use super::*;
     use crate::batch::{Origin, Tp};
+    use replay_core_v4::inspect::dom::MAX_BLOCK_REMOTE_URLS;
 
     #[derive(Default)]
     struct MemoryStore {
@@ -683,12 +784,19 @@ mod tests {
             image_urls: Vec::new(),
             remote_urls: Vec::new(),
             url_limit: None,
+            srcsets: Vec::new(),
+            visited_urls: Vec::new(),
             captured_at_ms: None,
         }
     }
 
-    fn uri(bytes: &[u8]) -> String {
-        format!("data:image/png;base64,{}", STANDARD.encode(bytes))
+    /// PNG bytes: the signature, then `body`. The image scan takes only bytes of a raster format.
+    fn png(body: &[u8]) -> Vec<u8> {
+        [b"\x89PNG\r\n\x1a\n".as_slice(), body].concat()
+    }
+
+    fn uri(body: &[u8]) -> String {
+        format!("data:image/png;base64,{}", STANDARD.encode(png(body)))
     }
 
     /// The block's stored lines, after the inspector named its remote URLs.
@@ -702,11 +810,12 @@ mod tests {
         let found = inspection.finish();
         inspected.remote_urls = found.remote_urls;
         inspected.url_limit = found.url_limit;
+        inspected.srcsets = found.srcsets;
         inspected
             .remote_urls
             .extend(extra.iter().map(|url| (*url).to_owned()));
-        let mut lines = Vec::new();
-        let (_, counts) = prepare_block(&inspected, &[6; 32], "2026-10", &mut lines).unwrap();
+        let (lines, _, counts) =
+            write_block(&inspected, &[6; 32], "2026-10", || Ok(Vec::new())).unwrap();
         if counts.dropped.is_some() {
             return String::new();
         }
@@ -739,20 +848,40 @@ mod tests {
             )),
             "{lines}"
         );
-        // A URL past the length cap is not named, so the block is not stored.
+        // A URL past the length the fetcher takes is named and declined.
         let long = |len: usize| {
             let url = format!("https://cdn.example.com/{}", "a".repeat(len - 24));
             json!([{"type": 3, "timestamp": 1, "data": {"source": 0, "adds": [], "removes": [], "texts": [],
                 "attributes": [{"id": 99, "attributes": {"src": url}}]}}])
             .to_string()
         };
-        assert!(!stored_lines(&long(MAX_REMOTE_URL_BYTES), &[]).is_empty());
-        assert_eq!(stored_lines(&long(MAX_REMOTE_URL_BYTES + 1), &[]), "");
+        // A URL too long to fetch is declined, and the block is kept.
+        let long_lines = stored_lines(&long(16 * 1024), &[]);
+        assert!(
+            long_lines.contains(&crate::rewrite::declined_marker("too_long")),
+            "{long_lines}"
+        );
         // Keys written with escapes hide no URL.
         let escaped = events
             .replace(r#""src""#, r#""\u0073rc""#)
             .replace(r#""srcset""#, r#""src\u0073et""#);
         assert_eq!(stored_lines(&escaped, &[]), lines);
+        // A browser reads backslashes after the scheme as slashes, so such a URL is replaced like its `https://` form.
+        for backslashed in [
+            r"https:\\user:secret@cdn.example.com/a.png",
+            r"https:/\user:secret@cdn.example.com/a.png",
+            "https:user:secret@cdn.example.com/a.png",
+        ] {
+            let events = json!([{"type": 3, "timestamp": 1, "data": {"source": 0, "adds": [], "removes": [], "texts": [],
+                "attributes": [{"id": 99, "attributes": {"src": backslashed}}]}}])
+            .to_string();
+            let lines = stored_lines(&events, &[]);
+            assert!(
+                lines.contains(&crate::rewrite::declined_marker("credential"))
+                    && !lines.contains("secret"),
+                "{lines}"
+            );
+        }
         // The player loads the last of a repeated attribute, so the inspector names that one.
         for events in [
             format!(
@@ -769,12 +898,203 @@ mod tests {
                 "{lines}"
             );
         }
-        // A declined URL the inspector named but the stored bytes do not show as it read it fails the whole block.
-        let event =
-            json!([{"type": 4, "timestamp": 1, "data": {"href": "https://app.example.com/"}}])
-                .to_string();
-        assert_eq!(stored_lines(&event, &[signed]), "");
+        // A declined URL the inspector named but the stored bytes do not show as it read it no longer fails the block:
+        // the writer scrubs every token that holds its host, and keeps the rest.
+        let event = json!([{"type": 4, "timestamp": 1, "data": {"href": "https://app.example.com/", "img": "https\\3a //bucket.s3.amazonaws.com/avatar.png"}}])
+            .to_string();
+        let lines = stored_lines(&event, &[signed]);
+        assert!(
+            lines.contains("https://app.example.com/")
+                && !lines.contains("bucket.s3.amazonaws.com"),
+            "{lines}"
+        );
         assert!(!stored_lines(&event, &[public]).is_empty());
+        // A declined URL that a longer URL also holds is overwritten there too, and the block is kept.
+        let events = json!([{"type": 3, "timestamp": 1, "data": {"source": 0, "adds": [], "removes": [], "texts": [],
+            "attributes": [{"id": 99, "attributes": {"src": signed, "alt": format!("{signed}&size=2")}}]}}])
+        .to_string();
+        let lines = stored_lines(&events, &[]);
+        assert!(
+            !lines.is_empty() && !lines.contains("X-Amz-Signature"),
+            "{lines}"
+        );
+    }
+
+    #[test]
+    fn keeps_a_block_past_the_url_limit_without_a_url_it_did_not_check() {
+        let urls = MAX_BLOCK_REMOTE_URLS + 1;
+        let nodes: Vec<_> = (0..urls)
+            .map(|i| json!({"type": 2, "tagName": "img", "attributes": {"src": format!("https://cdn.example.com/{i}.png")}, "childNodes": [], "id": i + 2}))
+            .collect();
+        let events = json!([{"type": 2, "timestamp": 1, "data": {"node": {"type": 0, "id": 1, "childNodes": nodes}}}]).to_string();
+        let lines = stored_lines(&events, &[]);
+        // The inspector named the first URLs, which keep their references; the fallback scrubbed the rest.
+        assert!(
+            lines.contains("imageurl:v4:7:2026-10:"),
+            "named URLs keep their references"
+        );
+        assert!(lines.contains(crate::scrub::UNCHECKED_MARKER));
+        assert!(!lines.contains("https://"));
+    }
+
+    #[test]
+    fn leaves_a_picture_only_the_sources_that_can_load() {
+        let (avif, webp, signed, fallback) = (
+            "https://cdn.example.com/a.avif",
+            "https://cdn.example.com/a.webp",
+            "https://bucket.s3.amazonaws.com/a.webp?X-Amz-Signature=abc123",
+            "https://cdn.example.com/a.png",
+        );
+        let source = |id: i64, attributes: serde_json::Value| json!({"type": 2, "tagName": "source", "attributes": attributes, "childNodes": [], "id": id});
+        let (bare, typeless) = (
+            "https://cdn.example.com/b.avif",
+            "https://cdn.example.com/c.webp",
+        );
+        // The scan leaves an SVG inline, so the browser can load it from the block. The fetcher stores a remote SVG.
+        let svg =
+            "data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%2F%3E";
+        let remote_svg = "https://cdn.example.com/a.svg";
+        let shared = "https://cdn.example.com/shared.webp";
+        let other_avif = format!(
+            "data:image/avif;base64,{}",
+            STANDARD.encode(b"\x00\x00\x00\x1cftypavif\x00\x00\x00\x00avifmif1other")
+        );
+        // The dataset keeps no AVIF, so an inline one leaves the list too.
+        let inline_avif = format!(
+            "data:image/avif;base64,{}",
+            STANDARD.encode(b"\x00\x00\x00\x1cftypavif\x00\x00\x00\x00avifmif1miaf")
+        );
+        let picture = json!({"type": 2, "tagName": "picture", "attributes": {}, "id": 2, "childNodes": [
+            source(6, json!({"type": "image/svg+xml", "srcset": format!("{svg} 1x")})),
+            source(7, json!({"type": "image/svg+xml", "srcset": format!("{remote_svg} 1x")})),
+            source(3, json!({"type": "image/avif", "srcset": format!("{avif} 1x, {inline_avif} 2x")})),
+            // A bare srcset equal to the img's src below: only the srcset empties.
+            source(8, json!({"type": "image/avif", "srcset": bare})),
+            // Values that read the same once their inline AVIFs leave merge their policies, so the WebP source keeps
+            // the shared candidate.
+            source(11, json!({"type": "image/avif", "srcset": format!("{shared} 1x, {inline_avif} 2x")})),
+            source(12, json!({"type": "image/webp", "srcset": format!("{shared} 1x, {other_avif} 2x")})),
+            // An empty type gives no hint, so the source keeps its candidate.
+            source(9, json!({"type": "", "srcset": format!("{typeless} 1x")})),
+            source(4, json!({"type": "image/webp", "srcset": format!("{signed} 2x, {webp} 1x")})),
+            {"type": 2, "tagName": "img", "attributes": {"src": fallback}, "childNodes": [], "id": 5},
+        ]});
+        let img = json!({"type": 2, "tagName": "img", "attributes": {"src": bare}, "childNodes": [], "id": 10});
+        let events = json!([{"type": 2, "timestamp": 1, "data": {"node": {"type": 0, "id": 1, "childNodes": [picture, img]}}}]).to_string();
+
+        let block = block_of("kept", &events);
+        let mut inspector = replay_core_v4::inspect::session::SessionInspector::default();
+        let mut inspection = replay_core_v4::inspect::session::BlockInspection::default();
+        for message in &block.messages {
+            inspector.observe_message(&mut inspection, message);
+        }
+        // The fetcher stores no AVIF, so the AVIF source gets no fetch job.
+        assert!(!inspection.finish().image_urls.iter().any(|u| u == avif));
+
+        let lines = stored_lines(&events, &[]);
+        let reference = |url: &str| {
+            crate::urls::url_reference(
+                url,
+                7,
+                "2026-10",
+                &replay_core_v4::seal::image_url_key(&[6; 32]),
+            )
+            .unwrap()
+            .1
+        };
+        // The AVIF source has no candidate left and the declined one leaves the list, so the browser takes the WebP.
+        assert!(lines.contains(r#""srcset":"""#), "{lines}");
+        assert!(
+            lines.contains(&format!(r#""srcset":"{svg} 1x""#)),
+            "{lines}"
+        );
+        assert!(
+            lines.contains(&format!(r#""srcset":"{} 1x""#, reference(remote_svg))),
+            "{lines}"
+        );
+        assert!(
+            lines.contains(&format!(r#""srcset":"{} 1x""#, reference(webp))),
+            "{lines}"
+        );
+        assert!(lines.contains(&reference(fallback)), "{lines}");
+        assert!(
+            lines.contains(&format!(r#""srcset":"{} 1x""#, reference(shared))),
+            "{lines}"
+        );
+        assert!(
+            lines.contains(&format!(r#""src":"{}""#, reference(bare))),
+            "{lines}"
+        );
+        assert!(
+            lines.contains(&format!(r#""srcset":"{} 1x""#, reference(typeless))),
+            "{lines}"
+        );
+        assert!(
+            !lines.contains("a.avif")
+                && !lines.contains("ftypavif")
+                && !lines.contains("data:image/avif")
+                && !lines.contains("X-Amz-Signature")
+                && !lines.contains("declined"),
+            "{lines}"
+        );
+    }
+
+    #[test]
+    fn rebuilds_a_srcset_as_the_block_holds_it_after_escapes_are_written_again() {
+        // The `\/` escapes keep the PNG inline, and the writer then writes them as `/`.
+        let png = STANDARD.encode(png(&[0xff; 30]));
+        assert!(png.contains('/'));
+        let inline = format!("data:image/png;base64,{png}");
+        let events = format!(
+            r#"[{{"type":3,"timestamp":1,"data":{{"source":0,"adds":[],"removes":[],"texts":[],"attributes":[{{"id":99,"attributes":{{"srcset":"{} 1x, https://10.0.0.7/a.png 2x"}}}}]}}}}]"#,
+            inline.replace('/', "\\/")
+        );
+        let lines = stored_lines(&events, &[]);
+        assert!(
+            lines.contains(&format!(r#""srcset":"{inline} 1x""#)),
+            "{lines}"
+        );
+        assert!(
+            !lines.contains("declined") && !lines.contains("10.0.0.7"),
+            "{lines}"
+        );
+
+        // A srcset key outside an image slot, here in a custom event, is no srcset of the DOM and stays as it is. With
+        // the same value as an inspected image slot, only the slot is rebuilt, and the custom event gets the rewrite of
+        // each URL that every copy of a named URL gets.
+        let value = "https://cdn.example.com/a.png 1x, https://10.0.0.7/a.png 2x";
+        let both = format!(
+            r#"[{{"type":3,"timestamp":1,"data":{{"source":0,"adds":[],"removes":[],"texts":[],"attributes":[{{"id":99,"attributes":{{"srcset":"{value}"}}}}]}}}},{{"type":5,"timestamp":2,"data":{{"tag":"app","payload":{{"srcset":"{value}"}}}}}}]"#
+        );
+        let lines = stored_lines(&both, &[]);
+        let reference = crate::urls::url_reference(
+            "https://cdn.example.com/a.png",
+            7,
+            "2026-10",
+            &replay_core_v4::seal::image_url_key(&[6; 32]),
+        )
+        .unwrap()
+        .1;
+        let (dom, custom) = lines.split_once('\n').unwrap();
+        assert!(
+            dom.contains(&format!(r#""srcset":"{reference} 1x""#)),
+            "{dom}"
+        );
+        assert!(
+            custom.contains(&format!(
+                r#""srcset":"{reference} 1x, {} 2x""#,
+                crate::rewrite::declined_marker("non_public_host")
+            )),
+            "{custom}"
+        );
+        let custom = r#"[{"type":5,"timestamp":1,"data":{"tag":"app","payload":{"srcset":"https://cdn.example.com/a.png 1x, https://10.0.0.7/a.png 2x"}}}]"#;
+        let lines = stored_lines(custom, &[]);
+        assert!(
+            lines.contains(
+                r#""srcset":"https://cdn.example.com/a.png 1x, https://10.0.0.7/a.png 2x""#
+            ),
+            "{lines}"
+        );
     }
 
     #[test]
@@ -813,8 +1133,8 @@ mod tests {
         keys.team_months.insert(7, [6; 32]);
         let mut stats = BlockStats::default();
         let jobs = crate::urls::fetch_jobs([(&block, &mut stats)], &keys, "2026-10", 1, &|_| false);
-        let mut lines = Vec::new();
-        prepare_block(&block, &[6; 32], "2026-10", &mut lines).unwrap();
+        let (lines, _, _) = write_block(&block, &[6; 32], "2026-10", || Ok(Vec::new())).unwrap();
+
         let lines = String::from_utf8(lines).unwrap();
         let reference = jobs["example.com"][0]["originalRef"].as_str().unwrap();
         assert!(
@@ -881,8 +1201,8 @@ mod tests {
         let events = json!([{"type": 2, "timestamp": 1, "data": {"node": {"attributes": {"src": uri(b"logo")}}}}]);
         let mut repeated = block("s", events.clone());
         repeated.messages.extend(block("s", events).messages);
-        let (images, counts) =
-            prepare_block(&repeated, &[6; 32], "2026-10", &mut io::sink()).unwrap();
+        let (_, images, counts) =
+            write_block(&repeated, &[6; 32], "2026-10", || Ok(io::sink())).unwrap();
         assert_eq!((images.len(), counts.extracted), (1, 2));
     }
 
@@ -917,6 +1237,9 @@ mod tests {
             {"type": 4, "timestamp": 4, "data": {"href": "https://app.example.com/a"}},
         ]);
         let mut blocks = [block("kept", events.clone()), block("again", events)];
+        blocks[0].visited_urls = ["/b", "/a"]
+            .map(|path| format!("https://app.example.com{path}"))
+            .to_vec();
         let mut keys = FlushKeys::default();
         for session in ["kept", "again"] {
             let (id, key) = session_key(session);
@@ -926,7 +1249,7 @@ mod tests {
         let old_ref = replay_core_v4::refs::image_ref(
             7,
             "2026-10",
-            &replay_core_v4::refs::reference_hash(&image_content_key(&[6; 32]), b"old"),
+            &replay_core_v4::refs::reference_hash(&image_content_key(&[6; 32]), &png(b"old")),
         );
         let object = object_key("2026-10-15", at());
         let mut sealed: Vec<SealedBlock> = blocks
@@ -946,7 +1269,7 @@ mod tests {
             sealed[0].counts,
             WriterCounts {
                 extracted: 2,
-                bytes: 6,
+                bytes: 2 * 8 + 6,
                 inline: 0,
                 ..sealed[0].counts
             }
@@ -960,6 +1283,9 @@ mod tests {
             sealed[0].url_fingerprints,
             [fingerprint("/a"), fingerprint("/b")]
         );
+        let mut visited = [fingerprint("/a"), fingerprint("/b")];
+        visited.sort_unstable();
+        assert_eq!(sealed[0].visited_url_fingerprints, visited);
 
         let session_frames = session_keyed_frames(&sealed);
         let memory = Arc::new(MemoryStore::default());
@@ -1028,7 +1354,7 @@ mod tests {
         let sealed_image = &pack[row.byte_start as usize..=row.byte_end as usize];
         assert_eq!(
             open_frame(&[6; 32], Version::V4, &image_context, sealed_image).unwrap(),
-            b"new"
+            png(b"new")
         );
         // The team month key seals images, as the fetcher's, so a session key does not open them.
         assert!(open_frame(&[5; 32], Version::V4, &image_context, sealed_image).is_err());

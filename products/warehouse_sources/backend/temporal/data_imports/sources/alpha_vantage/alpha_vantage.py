@@ -56,6 +56,9 @@ _CSV_ENVELOPE_KEYS = ("Information", "Error Message", "Note")
 # dividend), which would otherwise land in the warehouse as literal text in a date column.
 _NULL_PLACEHOLDERS = frozenset({"none", "null", ""})
 
+# The economic series come from FRED, which writes a missing observation (e.g. a market holiday) as ".".
+_ECONOMIC_MISSING_VALUE = "."
+
 
 class AlphaVantageRetryableError(Exception):
     pass
@@ -263,7 +266,7 @@ def _parse_earnings(body: dict[str, Any], symbol: str) -> Iterator[dict[str, Any
 
 
 def _parse_corporate_action(body: dict[str, Any], symbol: str) -> Iterator[dict[str, Any]]:
-    # DIVIDENDS and SPLITS both answer with {"symbol": ..., "data": [{...}, ...]}.
+    # DIVIDENDS, SPLITS and SHARES_OUTSTANDING all answer with {"symbol": ..., "data": [{...}, ...]}.
     data = body.get("data")
     if not isinstance(data, list):
         return
@@ -274,6 +277,70 @@ def _parse_corporate_action(body: dict[str, Any], symbol: str) -> Iterator[dict[
         # The entries are not symbol-tagged, so the requested symbol is the only source for the column.
         row["symbol"] = symbol
         yield row
+
+
+def _parse_estimates(body: dict[str, Any], symbol: str) -> Iterator[dict[str, Any]]:
+    estimates = body.get("estimates")
+    if not isinstance(estimates, list):
+        return
+    for entry in estimates:
+        if not isinstance(entry, dict):
+            continue
+        yield {
+            **{key: _nullable(value) for key, value in entry.items()},
+            "date": entry["date"],
+            "horizon": entry["horizon"],
+            "symbol": symbol,
+        }
+
+
+def _parse_etf_profile(body: dict[str, Any], symbol: str) -> Iterator[dict[str, Any]]:
+    # A symbol that is not an ETF has no profile to return.
+    if not body:
+        return
+    # `sectors` and `holdings` stay nested, the same as the arrays on `news_sentiment`, so the ETF keeps
+    # one row like its `company_overview` counterpart.
+    row: dict[str, Any] = {key: _nullable(value) for key, value in body.items()}
+    row["symbol"] = symbol
+    yield row
+
+
+def _parse_economic(body: dict[str, Any], maturity: str | None) -> Iterator[dict[str, Any]]:
+    data = body.get("data")
+    if not isinstance(data, list):
+        return
+    series = {key: body.get(key) for key in ("name", "interval", "unit")}
+    for entry in data:
+        if not isinstance(entry, dict):
+            continue
+        value = entry.get("value")
+        row: dict[str, Any] = {
+            **series,
+            "date": entry["date"],
+            "value": None if value == _ECONOMIC_MISSING_VALUE else _nullable(value),
+        }
+        if maturity is not None:
+            row["maturity"] = maturity
+        yield row
+
+
+def _economic_rows(
+    session: requests.Session, api_key: str, config: AlphaVantageEndpointConfig, logger: FilteringBoundLogger
+) -> Iterator[list[dict[str, Any]]]:
+    maturities: tuple[str | None, ...] = config.maturities or (None,)
+    for maturity in maturities:
+        params: dict[str, Any] = {"function": config.function, **config.extra_params, "apikey": api_key}
+        if maturity is not None:
+            params["maturity"] = maturity
+
+        body = _fetch(session, params, logger)
+        if "Error Message" in body:
+            # Not symbol-scoped, so the refusal covers the whole table.
+            raise AlphaVantageAPIError(f"Alpha Vantage API error [{config.function}]: {body['Error Message']}")
+
+        rows = list(_parse_economic(body, maturity))
+        if rows:
+            yield rows
 
 
 def _parse_news(body: dict[str, Any], symbol: str) -> Iterator[dict[str, Any]]:
@@ -409,6 +476,8 @@ _PARSERS = {
     "reports": _parse_reports,
     "earnings": _parse_earnings,
     "corporate_action": _parse_corporate_action,
+    "estimates": _parse_estimates,
+    "etf_profile": _parse_etf_profile,
     "insider": _parse_insider,
     "institutional": _parse_institutional,
 }
@@ -489,6 +558,11 @@ def get_rows(
     if config.kind == "calendar":
         # The whole market's schedule arrives in one call, so the configured symbols don't apply either.
         yield from _earnings_calendar_rows(session, api_key, logger)
+        return
+
+    if config.kind == "economic":
+        # US macro series, so the configured symbols don't apply.
+        yield from _economic_rows(session, api_key, config, logger)
         return
 
     if config.kind == "news":

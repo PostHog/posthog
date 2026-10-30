@@ -146,6 +146,7 @@ Note: the free tier is rate limited to 60 requests/minute, and some endpoints re
                     ),
                     SourceFieldInputConfig(
                         name="symbols",
+                        sync_setting=True,
                         label="Symbols (comma-separated)",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
@@ -154,6 +155,7 @@ Note: the free tier is rate limited to 60 requests/minute, and some endpoints re
                     ),
                     SourceFieldInputConfig(
                         name="indices",
+                        sync_setting=True,
                         label="Indices (comma-separated)",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
@@ -162,6 +164,7 @@ Note: the free tier is rate limited to 60 requests/minute, and some endpoints re
                     ),
                     SourceFieldInputConfig(
                         name="exchange",
+                        sync_setting=True,
                         label="Exchange (for the stock symbols table)",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,

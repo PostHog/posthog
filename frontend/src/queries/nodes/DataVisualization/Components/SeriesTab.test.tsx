@@ -11,7 +11,7 @@ import { ChartDisplayType } from '~/types'
 import { dataNodeLogic } from '../../DataNode/dataNodeLogic'
 import { DataVisualizationLogicProps, dataVisualizationLogic } from '../dataVisualizationLogic'
 import { SeriesTab, YSeriesDisplayTab, YSeriesFormattingTab } from './SeriesTab'
-import { YSeriesLogicProps } from './ySeriesLogic'
+import { YSeriesLogicProps, ySeriesLogic } from './ySeriesLogic'
 
 const renderPartOfWholeSeriesTab = (
     display: ChartDisplayType,
@@ -329,5 +329,12 @@ describe('SeriesTab', () => {
                 })
             )
         )
+
+        setQuery.mockClear()
+        ySeriesLogic(ySeriesLogicProps).actions.submitDisplay()
+        await waitFor(() => expect(setQuery).toHaveBeenCalled())
+        const savedDisplay = setQuery.mock.lastCall[0].chartSettings.yAxis[0].settings.display
+        expect(savedDisplay).not.toHaveProperty('excludeFromTotal')
+        expect(savedDisplay).not.toHaveProperty('valueLabels')
     })
 })

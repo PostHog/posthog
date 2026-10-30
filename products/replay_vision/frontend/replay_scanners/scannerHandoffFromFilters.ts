@@ -16,8 +16,8 @@ export interface ScannerHandoffFromFilters {
      * Whether the resulting scanner would watch a subset of sessions rather than all of them.
      *
      * Deliberately not the replay list's filter count, which also counts the date range and pinned
-     * session IDs. A scanner keeps neither, so counting them offers a one-click path to a scanner
-     * aimed at every session.
+     * session IDs. A scanner keeps neither, so counting them would tell the person their scanner is
+     * narrowed when it actually watches every session.
      */
     narrowsSessions: boolean
 }

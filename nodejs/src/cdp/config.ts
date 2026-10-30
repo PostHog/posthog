@@ -1,6 +1,7 @@
 import {
     KAFKA_APP_METRICS_2,
     KAFKA_CDP_EVENTS_DLQ,
+    KAFKA_EMAIL_STATUS,
     KAFKA_EVENTS_JSON,
     KAFKA_HOG_INVOCATION_RESULTS,
     KAFKA_LOG_ENTRIES,
@@ -133,6 +134,10 @@ export type CdpConfig = ClickhouseConfig & {
     // "Assets" tab.
     MESSAGE_ASSETS_TOPIC: string
     MESSAGE_ASSETS_PRODUCER: CdpProducerName
+    // One row per status change of a transactional email, for the email_status ClickHouse table.
+    EMAIL_STATUS_TOPIC: string
+    EMAIL_STATUS_PRODUCER: CdpProducerName
+    EMAIL_STATUS_ENABLED: boolean
     HOG_INVOCATION_RERUN_MAX_COUNT: number
     // How many rerun wrapper jobs the worker dequeues per cyclotron-v2 poll.
     // Kept small by default — each job runs a full ClickHouse query per page.
@@ -374,6 +379,11 @@ export function getDefaultCdpConfig(): CdpConfig {
         // Same cyclotron Warpstream cluster as hog_invocation_results — ClickHouse
         // consumes message_assets from the warpstream_cyclotron named collection.
         MESSAGE_ASSETS_PRODUCER: WARPSTREAM_CYCLOTRON_PRODUCER,
+        EMAIL_STATUS_TOPIC: KAFKA_EMAIL_STATUS,
+        // ClickHouse consumes email_status from the warpstream_cyclotron named collection.
+        EMAIL_STATUS_PRODUCER: WARPSTREAM_CYCLOTRON_PRODUCER,
+        // Off by default in production, so that writes start only once the email_status table exists.
+        EMAIL_STATUS_ENABLED: isDevEnv() || isTestEnv(),
         // Hard cap on rows a single rerun wrapper job will drain. Mirrors the
         // Django serializer's HOG_INVOCATION_RERUN_MAX_COUNT (same env var).
         HOG_INVOCATION_RERUN_MAX_COUNT: 10000,

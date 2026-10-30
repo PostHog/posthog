@@ -18,6 +18,8 @@ permissions:
 
 jobs:
     test:
+        # Push and schedule runs only belong in this repo. Mirrors run CI on their own PRs only.
+        if: github.repository == 'PostHog/posthog' || (github.event_name != 'push' && github.event_name != 'schedule')
         name: OpenAPI codegen tests
         runs-on: ubuntu-24.04
         timeout-minutes: 5

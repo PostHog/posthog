@@ -1,12 +1,23 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Optional
+
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    DependentEndpointConfig,
+)
 
 
-@dataclass
+@dataclass(frozen=True)
 class PaystackEndpointConfig:
     # API path relative to https://api.paystack.co (e.g. "/transaction").
     path: str
     # Paystack list resources expose a globally-unique integer `id`, unique across the account.
-    primary_key: str = "id"
+    primary_keys: list[str] = field(default_factory=lambda: ["id"])
+    # Most list endpoints take `perPage`; a few newer ones document `per_page` instead.
+    page_size_param: str = "perPage"
+    # Paged by an opaque `meta.next` cursor instead of `page` / `perPage`.
+    cursor_paginated: bool = False
+    # Set for resources only listed per parent row; the parent is re-listed each sync.
+    fanout: Optional[DependentEndpointConfig] = None
 
 
 # Paystack list endpoints. Each returns a `{"status", "message", "data": [...], "meta": {...}}`
@@ -32,6 +43,25 @@ PAYSTACK_ENDPOINTS: dict[str, PaystackEndpointConfig] = {
     "Disputes": PaystackEndpointConfig(path="/dispute"),
     "Subaccounts": PaystackEndpointConfig(path="/subaccount"),
     "PaymentPages": PaystackEndpointConfig(path="/page"),
+    "TransactionSplits": PaystackEndpointConfig(path="/split", page_size_param="per_page"),
+    "BalanceLedger": PaystackEndpointConfig(path="/balance/ledger"),
+    "SettlementTransactions": PaystackEndpointConfig(
+        path="/settlement/{settlement_id}/transactions",
+        # A transaction id is unique on its own, but the key is scoped to the settlement so the
+        # table stays unique even if Paystack ever lists one transaction under two settlements.
+        primary_keys=["settlement_id", "id"],
+        fanout=DependentEndpointConfig(
+            parent_name="Settlements",
+            resolve_param="settlement_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "settlement_id"},
+        ),
+    ),
+    # The page size is left at Paystack's default because the endpoint documents no maximum.
+    "DirectDebitMandateAuthorizations": PaystackEndpointConfig(
+        path="/directdebit/mandate-authorizations", cursor_paginated=True
+    ),
 }
 
 ENDPOINTS = tuple(PAYSTACK_ENDPOINTS.keys())

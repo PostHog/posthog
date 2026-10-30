@@ -1,5 +1,5 @@
-from collections.abc import Iterator
-from contextlib import contextmanager
+from collections.abc import Callable, Iterator
+from contextlib import AbstractContextManager, contextmanager, nullcontext
 from dataclasses import replace
 from typing import Any
 
@@ -85,12 +85,18 @@ def owner_sql_errors(query: object) -> Iterator[None]:
         raise AlertExtractionError(str(err)) from err
 
 
+# Entered around the ClickHouse query alone, so a caller can bound its concurrent queries without
+# counting the insight load, the evaluation or a detector's model call.
+QuerySlot = Callable[[], AbstractContextManager[object]]
+
+
 def run_extractor(
     extractor: Extractor,
     alert: AlertConfiguration,
     insight: Insight,
     query: object,
     execution_mode: ExecutionMode,
+    query_slot: QuerySlot = nullcontext,
 ) -> ExtractionResult:
     """Run an extractor, routing a query the runner refuses to the auto-disable path.
 
@@ -109,7 +115,7 @@ def run_extractor(
     (see ``owner_sql_errors``).
     """
     try:
-        with owner_sql_errors(query):
+        with query_slot(), owner_sql_errors(query):
             return extractor.extract(alert, insight, query, execution_mode)
     except DRFValidationError as err:
         if getattr(err, "served_from_query_failure_cache", False):
@@ -118,7 +124,12 @@ def run_extractor(
 
 
 def check_detector_alert(
-    alert: AlertConfiguration, insight: Insight, query: object, *, evaluation_id: str | None = None
+    alert: AlertConfiguration,
+    insight: Insight,
+    query: object,
+    *,
+    evaluation_id: str | None = None,
+    query_slot: QuerySlot = nullcontext,
 ) -> AlertEvaluationResult:
     """Route a detector (anomaly) alert to its kind's detector extractor, then score the series.
 
@@ -132,7 +143,9 @@ def check_detector_alert(
     detector_extractor = DETECTOR_EXTRACTORS.get(kind)
     if detector_extractor is None:
         raise NotImplementedError(f"AlertCheckError: Detector alerts for {kind} are not supported yet")
-    result = run_extractor(detector_extractor, alert, insight, query, _resolve_execution_mode(alert, kind, query))
+    result = run_extractor(
+        detector_extractor, alert, insight, query, _resolve_execution_mode(alert, kind, query), query_slot
+    )
     return describe_delayed_evaluation(
         evaluate_with_detector(result, detector_config, insight=insight, alert=alert, evaluation_id=evaluation_id),
         result,
@@ -171,7 +184,9 @@ def _resolved_query(alert: AlertConfiguration) -> Iterator[_ResolvedQuery]:
         yield _ResolvedQuery(insight=insight, query=query, kind=kind)
 
 
-def _check_alert_for_insight(alert: AlertConfiguration, *, evaluation_id: str | None = None) -> AlertEvaluationResult:
+def _check_alert_for_insight(
+    alert: AlertConfiguration, *, evaluation_id: str | None = None, query_slot: QuerySlot = nullcontext
+) -> AlertEvaluationResult:
     """Dispatch an alert to its insight-kind extractor, then run the shared comparator.
 
     If ``detector_config`` is set, routes through the anomaly-detector registry (one extractor per
@@ -181,9 +196,11 @@ def _check_alert_for_insight(alert: AlertConfiguration, *, evaluation_id: str | 
     """
     with _resolved_query(alert) as resolved:
         if alert.detector_config:
-            return check_detector_alert(alert, resolved.insight, resolved.query, evaluation_id=evaluation_id)
+            return check_detector_alert(
+                alert, resolved.insight, resolved.query, evaluation_id=evaluation_id, query_slot=query_slot
+            )
 
-        extracted = _extract_for_threshold(alert, resolved.insight, resolved.query, resolved.kind)
+        extracted = _extract_for_threshold(alert, resolved.insight, resolved.query, resolved.kind, query_slot)
         if extracted is None:
             return AlertEvaluationResult(value=0, breaches=[])
         return describe_delayed_evaluation(
@@ -199,7 +216,7 @@ class _ThresholdExtraction:
 
 
 def _extract_for_threshold(
-    alert: AlertConfiguration, insight: Insight, query: object, kind: NodeKind
+    alert: AlertConfiguration, insight: Insight, query: object, kind: NodeKind, query_slot: QuerySlot = nullcontext
 ) -> _ThresholdExtraction | None:
     """Run a threshold alert's query. None when the alert has no bounds, so there is nothing to breach."""
     extractor = EXTRACTORS.get(kind)
@@ -212,7 +229,7 @@ def _extract_for_threshold(
         return None
 
     condition = AlertCondition.model_validate(alert.condition)
-    result = run_extractor(extractor, alert, insight, query, _resolve_execution_mode(alert, kind, query))
+    result = run_extractor(extractor, alert, insight, query, _resolve_execution_mode(alert, kind, query), query_slot)
     return _ThresholdExtraction(result=result, condition=condition, threshold=threshold)
 
 
@@ -242,7 +259,9 @@ class PerSeriesEvaluation:
     truncated: bool = False
 
 
-def check_alert_per_series(alert: AlertConfiguration) -> PerSeriesEvaluation | AlertEvaluationResult:
+def check_alert_per_series(
+    alert: AlertConfiguration, *, query_slot: QuerySlot = nullcontext
+) -> PerSeriesEvaluation | AlertEvaluationResult:
     """Each series' own verdict for a threshold alert, rather than one verdict for the insight.
 
     `check_alert_for_insight` stops at the first series that breaches, because one alert holds one
@@ -254,7 +273,7 @@ def check_alert_per_series(alert: AlertConfiguration) -> PerSeriesEvaluation | A
         raise AlertExtractionError("Per-series evaluation supports threshold alerts only")
     try:
         with _resolved_query(alert) as resolved:
-            extracted = _extract_for_threshold(alert, resolved.insight, resolved.query, resolved.kind)
+            extracted = _extract_for_threshold(alert, resolved.insight, resolved.query, resolved.kind, query_slot)
     except DelayedEvaluationUnavailable as err:
         return AlertEvaluationResult(value=None, breaches=[], skipped_reason=str(err))
     if extracted is None:
@@ -280,9 +299,11 @@ def check_alert_per_series(alert: AlertConfiguration) -> PerSeriesEvaluation | A
     )
 
 
-def check_alert_for_insight(alert: AlertConfiguration, *, evaluation_id: str | None = None) -> AlertEvaluationResult:
+def check_alert_for_insight(
+    alert: AlertConfiguration, *, evaluation_id: str | None = None, query_slot: QuerySlot = nullcontext
+) -> AlertEvaluationResult:
     try:
-        return _check_alert_for_insight(alert, evaluation_id=evaluation_id)
+        return _check_alert_for_insight(alert, evaluation_id=evaluation_id, query_slot=query_slot)
     except DelayedEvaluationUnavailable as err:
         if is_llm_detector_config(alert.detector_config):
             raise LLMDetectorUnavailableError(str(err)) from err

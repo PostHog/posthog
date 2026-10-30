@@ -148,13 +148,12 @@ export function FunnelLineChart({
                 showTrendLines: funnelsFilter?.showTrendLines ?? false,
                 valueLabels: showValuesOnSeries ? { formatter: (value) => `${value}%` } : false,
                 showCrosshair: true,
-                tooltip: { ...INSIGHT_TOOLTIP_CONFIG, resolveClickToNearestSeries: context?.dashboardResultMenu },
+                tooltip: INSIGHT_TOOLTIP_CONFIG,
             }),
             curve: chartStyleCurve(funnelsFilter?.chartStyle),
             legend: legendConfig,
         }),
         [
-            context?.dashboardResultMenu,
             steps,
             interval,
             timezone,
@@ -264,6 +263,7 @@ export function FunnelLineChart({
             config={chartConfig}
             tooltip={renderTooltip}
             onPointClick={showPersonsModal ? onPointClick : undefined}
+            onPointContextMenu={context?.dashboardResultMenu && showPersonsModal ? onPointClick : undefined}
             onDateRangeZoom={onDateRangeZoom}
             className="LineGraph"
             dataAttr="trend-line-graph-funnel"

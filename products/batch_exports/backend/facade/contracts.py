@@ -40,6 +40,17 @@ class InvalidDestinationConfigError(ValueError):
     """
 
 
+class InvalidBatchExportDestinationError(ValueError):
+    """Raised when a destination cannot be saved, for a new export or as a change to an existing one.
+
+    The message says which check failed.
+    """
+
+
+class BatchExportScheduleError(Exception):
+    """Raised when Temporal rejects a change to the schedule of a batch export."""
+
+
 class UnsupportedDestinationTestError(ValueError):
     """Raised when a destination type has no connection test."""
 

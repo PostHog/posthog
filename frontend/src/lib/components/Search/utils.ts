@@ -118,6 +118,7 @@ export const getCategoryDisplayName = (category: string): string => {
         tools: 'Products',
         'data-management': 'Data management',
         [SEARCH_TAB_CATEGORY]: 'Tabs',
+        shortcuts: 'Shortcuts',
         settings: 'Settings',
         early_access_feature: 'Early access features',
         suggested: 'Suggested',

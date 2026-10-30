@@ -2,7 +2,7 @@ import { NodeKind } from '~/queries/schema/schema-general'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import type { ReplayScanner } from '../types'
-import { eligibleFilterGroups } from './ScannerGoalOverview'
+import { eligibleFilterGroups, goalOverviewSectionLabels } from './ScannerGoalOverview'
 
 const scanner = (overrides: Partial<ReplayScanner> = {}): ReplayScanner =>
     ({
@@ -169,5 +169,24 @@ describe('eligibleFilterGroups', () => {
 
     it('has no groups when the draft watches every recording', () => {
         expect(eligibleFilterGroups(scanner({ query: { kind: NodeKind.RecordingsQuery } }))).toEqual([])
+    })
+})
+
+describe('goalOverviewSectionLabels', () => {
+    it('reviews the eligible recordings before the prompt in the recordings-first arm', () => {
+        expect(goalOverviewSectionLabels(false)).toEqual([
+            'What it understood',
+            'Name',
+            'What it will ask',
+            'Eligible recordings',
+            'Sampling and budget',
+        ])
+        expect(goalOverviewSectionLabels(true)).toEqual([
+            'What it understood',
+            'Name',
+            'Eligible recordings',
+            'What it will ask',
+            'Sampling and limits',
+        ])
     })
 })

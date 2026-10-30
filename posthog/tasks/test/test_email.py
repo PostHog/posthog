@@ -33,6 +33,7 @@ from posthog.tasks.email import (
     send_canary_email,
     send_discussions_mentioned,
     send_email_change_emails,
+    send_email_sending_reputation_finding,
     send_email_verification_code,
     send_external_data_failure_digest,
     send_fatal_plugin_error,
@@ -205,6 +206,26 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             assert "\n" not in subject
             assert "\r" not in subject
             assert "Welcome series" in subject
+
+    @parameterized.expand(
+        [
+            ("low_again_later_that_week", "LOW", "2026-01-11T22:00:00+00:00", True),
+            ("low_again_the_next_week", "LOW", "2026-01-12T09:00:00+00:00", False),
+            ("high_again_within_the_hour", "HIGH", "2026-01-05T09:40:00+00:00", False),
+        ]
+    )
+    def test_reputation_finding_warning_dedupes_repeat_low_findings_within_a_week(
+        self, MockEmailMessage: MagicMock, _name: str, impact: str, second_at: str, deduped: bool
+    ) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        send_email_sending_reputation_finding(self.team.id, impact, "2026-01-05T09:00:00+00:00")
+        send_email_sending_reputation_finding(self.team.id, impact, second_at)
+
+        assert len(mocked_email_messages) == 2
+        assert (mocked_email_messages[0].campaign_key == mocked_email_messages[1].campaign_key) is deduped
 
     def test_send_delegation_invite_falls_back_when_organization_name_is_a_url(
         self, MockEmailMessage: MagicMock

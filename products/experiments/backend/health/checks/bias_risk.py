@@ -76,7 +76,7 @@ def bias_risk_multiple_excluded(ctx: HealthContext) -> CheckOutcome:
         code=ExperimentHealthFindingCode.BIAS_RISK_MULTIPLE_EXCLUDED,
         subcode=None,
         severity=ExperimentHealthFindingSeverity.WARNING,
-        title="Setup likely introduced bias",
+        title="The uneven split may bias the results",
         detail=(
             f"{risk.multiple_variant_percentage:.1f}% of users were exposed to multiple variants. "
             "With an uneven variant split and the Exclude handling, these users were dropped more often "

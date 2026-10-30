@@ -8,6 +8,7 @@ can be verified without standing up real ClickHouse / Postgres / S3.
 import uuid
 import asyncio
 import logging
+from collections.abc import Callable
 from contextlib import nullcontext
 from datetime import UTC, datetime, timedelta
 
@@ -33,7 +34,7 @@ from posthog.temporal.quota_limiting.run_quota_limiting import (
     RunQuotaLimitingWorkflow,
 )
 from posthog.temporal.usage_report.activities import plan_usage_counters
-from posthog.temporal.usage_report.queries import QUERIES
+from posthog.temporal.usage_report.queries import QUERIES, QuerySpec
 from posthog.temporal.usage_report.types import (
     AggregateInputs,
     AggregateResult,
@@ -50,10 +51,12 @@ from posthog.temporal.usage_report.workflow import (
     PARALLEL_COUNTER_QUERIES_PATCH_ID,
     QUERY_CONCURRENCY,
     SANDBOX_COMPUTE_QUERY_NAME,
+    TRANSACTIONAL_EMAILS_QUERY_NAME,
     USAGE_COUNTER_SERVICE_PATCH_ID,
     RunUsageReportsWorkflow,
     _queries_for_logs_distinct_patterns_patch,
     _queries_for_sandbox_compute_patch,
+    _queries_for_transactional_emails_patch,
     build_context,
 )
 from posthog.usage_counters import (
@@ -70,13 +73,17 @@ def test_sandbox_compute_query_is_versioned_for_existing_histories() -> None:
     assert SANDBOX_COMPUTE_QUERY_NAME in [spec.name for spec in _queries_for_sandbox_compute_patch(True)]
 
 
-def test_logs_distinct_patterns_query_is_versioned_for_existing_histories() -> None:
-    assert LOGS_DISTINCT_PATTERNS_QUERY_NAME not in [
-        spec.name for spec in _queries_for_logs_distinct_patterns_patch(QUERIES, False)
+@parameterized.expand(
+    [
+        ("logs_distinct_patterns", _queries_for_logs_distinct_patterns_patch, LOGS_DISTINCT_PATTERNS_QUERY_NAME),
+        ("transactional_emails", _queries_for_transactional_emails_patch, TRANSACTIONAL_EMAILS_QUERY_NAME),
     ]
-    assert LOGS_DISTINCT_PATTERNS_QUERY_NAME in [
-        spec.name for spec in _queries_for_logs_distinct_patterns_patch(QUERIES, True)
-    ]
+)
+def test_single_query_is_versioned_for_existing_histories(
+    _name: str, queries_for_patch: Callable[[list[QuerySpec], bool], list[QuerySpec]], query_name: str
+) -> None:
+    assert query_name not in [spec.name for spec in queries_for_patch(QUERIES, False)]
+    assert query_name in [spec.name for spec in queries_for_patch(QUERIES, True)]
 
 
 @parameterized.expand(

@@ -15,6 +15,7 @@ import posthoganalytics
 
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.dataclasses import frozen
+from posthog.egress.limiter.policies import Priority as EgressPriority
 from posthog.event_usage import groups
 from posthog.models import Team, User
 from posthog.models.organization import OrganizationMembership
@@ -39,6 +40,8 @@ from products.signals.backend.billing import (
 )
 from products.signals.backend.enums import ReportLinkKind
 from products.signals.backend.free_trial import capture_signal_report_free_trial_paused, self_driving_free_trial_enabled
+from products.signals.backend.github_optional import ResearchAccessPolicy
+from products.signals.backend.implementation_repositories import implementation_access_repositories
 from products.signals.backend.models import (
     MAX_SCOUT_CONTENT_REVISIONS,
     SignalReport,
@@ -319,6 +322,17 @@ def _head_branch_instruction(head_branch: str) -> str:
         "PR from it. This name was pre-generated for this run: PostHog uses it to link the opened PR "
         "back to the run for automated review, and a PR from any other branch name will not be "
         "recognized. Do NOT choose a different branch name."
+    )
+
+
+def _access_repositories_instruction(repository: str, access_repositories: list[str]) -> str:
+    if not access_repositories:
+        return ""
+    names = ", ".join(f"`{name}`" for name in access_repositories)
+    return (
+        f"\n\nYour GitHub credentials also cover {names}, which the project configured for implementation "
+        "tasks, for example to upload PR screenshots. They are not cloned. Use `gh` or clone one yourself "
+        f"when the task needs it. Open the PR on `{repository}` as usual."
     )
 
 
@@ -617,7 +631,11 @@ def _duplicate_already_worked_on(*, team_id: int, chain: list[str]) -> str | Non
         status = statuses.get(candidate)
         if status is None:
             continue
-        if candidate in with_work or status in {SignalReport.Status.RESOLVED, SignalReport.Status.MONITORING}:
+        if candidate in with_work or status in {
+            SignalReport.Status.RESOLVED,
+            SignalReport.Status.CLOSED,
+            SignalReport.Status.MONITORING,
+        }:
             return candidate
     return None
 
@@ -749,6 +767,7 @@ def _create_implementation_task_if_absent(
     *,
     team_id: int,
     report_id: str,
+    implementation_spend_kind: str = "reviewer_triggered_implementation",
     title: str,
     description: str,
     expected_content: ImplementationReportContent,
@@ -791,7 +810,13 @@ def _create_implementation_task_if_absent(
     # Create the task before the provider issue. A failed task creation must not leave an external
     # issue that says Self-driving started work when no run exists.
     head_branch = _generate_self_driving_head_branch(title)
-    description = description + _head_branch_instruction(head_branch)
+    # Read at creation, so a settings change applies to the next task and never to a running one.
+    access_repositories = implementation_access_repositories(team_id, repository)
+    description = (
+        description
+        + _head_branch_instruction(head_branch)
+        + _access_repositories_instruction(repository, access_repositories)
+    )
 
     exempt_reason: str | None = None
     task_id: str | None = None
@@ -906,6 +931,7 @@ def _create_implementation_task_if_absent(
             repository=repository,
             branch=base_branch,
             signal_report_id=report_id,
+            implementation_spend_kind=implementation_spend_kind,
             # Resolved by the caller outside this lock, like `agent_runtime` above, so the
             # create-time free-trial gate makes no flag request while the report row is locked.
             free_trial_enabled=free_trial_enabled,
@@ -919,6 +945,7 @@ def _create_implementation_task_if_absent(
             # into protected run state so the review carve-out can verify the PR is this run's.
             self_driving_head_branch=head_branch,
             stack_base_branch=stack_base_branch,
+            github_access_repositories=access_repositories,
             # Internal so the run stays out of the default task list; the report surfaces it by id.
             internal=True,
             runtime_adapter=agent_runtime.runtime_adapter,
@@ -1351,6 +1378,7 @@ async def maybe_autostart_implementation_task(
     *,
     team_id: int,
     report_id: str,
+    implementation_spend_kind: str = "reviewer_triggered_implementation",
     repository: str,
     title: str,
     summary: str,
@@ -1460,6 +1488,7 @@ async def maybe_autostart_implementation_task(
                 team_id=team_id,
                 report_id=report_id,
                 remaining_retries=remaining_retries - 1,
+                implementation_spend_kind=implementation_spend_kind,
                 dispatch=dispatch,
                 ch_user=ch_user,
             )
@@ -1514,6 +1543,10 @@ async def maybe_autostart_implementation_task(
         )
         return AutostartOutcome(status="blocked", reason="Autostart is disabled")
     team_default_priority = Priority(team_config.default_autostart_priority) if team_config else Priority.P4
+    if await database_sync_to_async(ResearchAccessPolicy.enabled)(team_id) and not await database_sync_to_async(
+        ResearchAccessPolicy.repository_available, thread_sensitive=False
+    )(team_id, repository, priority=EgressPriority.BATCH):
+        return AutostartOutcome(status="blocked", reason="Connect or repair GitHub access to the selected repository")
 
     # Between the team's master switch and the quota gate. A team that opted out of auto-start
     # entirely gets no artefact and no gate reason, and a duplicate or a plan parent never counts
@@ -1641,6 +1674,7 @@ async def maybe_autostart_implementation_task(
         created = await database_sync_to_async(_create_implementation_task_if_absent, thread_sensitive=False)(
             team_id=team_id,
             report_id=report_id,
+            implementation_spend_kind=implementation_spend_kind,
             title=title,
             expected_content=expected_content,
             expected_reviewers=assignment.state,
@@ -1675,6 +1709,7 @@ async def maybe_autostart_implementation_task(
                 team_id=team_id,
                 report_id=report_id,
                 remaining_retries=remaining_retries - 1,
+                implementation_spend_kind=implementation_spend_kind,
                 dispatch=dispatch,
                 ch_user=ch_user,
             )
@@ -1738,6 +1773,7 @@ async def maybe_autostart_from_report_artefacts(
     *,
     team_id: int,
     report_id: str,
+    implementation_spend_kind: str = "reviewer_triggered_implementation",
     remaining_retries: int = 2,
     dispatch: ImplementationDispatch | None = None,
     ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
@@ -1830,6 +1866,7 @@ async def maybe_autostart_from_report_artefacts(
     return await maybe_autostart_implementation_task(
         team_id=team_id,
         report_id=report_id,
+        implementation_spend_kind=implementation_spend_kind,
         repository=repository,
         title=report.title,
         summary=report.summary,

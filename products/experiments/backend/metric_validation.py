@@ -32,7 +32,11 @@ from products.event_definitions.backend.models import EventDefinition, effective
 from products.experiments.backend.hogql_queries.base_query_utils import is_threshold_supported_math
 from products.experiments.backend.hogql_queries.funnel_validation import FunnelDWValidator
 from products.experiments.backend.hogql_queries.retention_validation import retention_metric_error
-from products.experiments.backend.metric_resolution import METRIC_BUILDERS, ExperimentMetric
+from products.experiments.backend.metric_resolution import (
+    METRIC_BUILDERS,
+    ExperimentMetric,
+    metric_uses_warehouse_native_source,
+)
 from products.experiments.backend.models.experiment import LEGACY_METRIC_KINDS
 
 logger = structlog.get_logger(__name__)
@@ -144,6 +148,9 @@ def parse_and_validate_metric(metric: object, *, error_prefix: str) -> Experimen
         raise ValidationError(f"{error_prefix}{_pydantic_error_message(e)}")
 
     error = _semantic_error(parsed)
+    if error is None and metric_uses_warehouse_native_source(parsed):
+        # The source kind exists so the rest of the product can be built against it; nothing can run it yet.
+        error = "warehouse-native sources are not supported yet."
     if error:
         raise ValidationError(f"{error_prefix}{error}")
     return parsed

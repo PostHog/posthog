@@ -461,15 +461,18 @@ The recorder streams each block into the encoder. Read a block as a stream: a Br
 
 - posthog-js compresses some fields of an event and marks the event `cv: "2024-10"`. The recorder expands those fields to plain JSON and removes the `cv` key, as the replay player does, because the gzip strings do not compress again. An event that does not decode stays exactly as it arrived.
 - An inline image becomes `image:v4:{team_id}:{YYYY-MM}:{hash}` in the block, where the month is the UTC month of the write.
-- The recorder takes base64 PNG, JPEG, GIF and WebP data URIs in any letter case and with parameters, under the v3 size limits. It also takes the image frames of the posthog-js canvas recorder. Anything else stays inline in the sealed block, for example SVG or line-wrapped base64.
+- The recorder takes base64 PNG, JPEG, GIF and WebP data URIs in any letter case and with parameters, under the v3 size limits. The image bytes name the format, not the data URI's label, so the image index `mime` is always one of these four. A data URI whose bytes have none of their signatures stays inline, for example a font labeled `image/ttf`, an icon or an empty payload.
+- The dataset keeps no AVIF image. A base64 data URI that its label or its bytes name as AVIF becomes `image:v4:declined:avif`, and a srcset loses such a candidate. The recorder counts these as `ai_research_v4_recorder_removed_images_total{format="avif"}`. A payload broken by an escape the scan does not read stays inline. It also takes the image frames of the posthog-js canvas recorder. Anything else stays inline in the sealed block, for example SVG or line-wrapped base64.
 - A remote image URL becomes `imageurl:v4:{team_id}:{YYYY-MM}:{hash}` in the block and in its fetch job, where the month is the UTC month of the write. The block and the job always carry the same reference, so a reader opens the fetched image directly.
 - A URL that the URL policy refuses becomes `imageurl:v4:declined:{reason}` in the block, for example `declined:credential`, `declined:non_public_host` or `declined:tracking_beacon`. The original URL cannot be recovered. The recorder counts rewrites and refusals in `ai_research_v4_recorder_image_url_rewrites_total`.
 - The rewrite covers every remote URL that the recorder reads from an image slot: image sources, `srcset`, SVG image links, video posters, `<picture>` sources and CSS `url(...)` in style attributes, style sheets and style rules. It also covers `src`, `srcset`, `href` and `poster` in an attribute change on a node the recorder does not know, for example after a restart. `srcset` keeps its descriptors and CSS keeps its `url(...)` syntax. It is not limited by the 512 URLs per message that get fetch jobs.
+- A srcset in an image slot keeps only the candidates the recorder stores. A candidate the URL policy refuses leaves the list instead of becoming a `declined` marker, and the rest keep their descriptors. A `<picture>` source whose `type` names a media type the image fetcher does not store, such as `image/avif`, gets no fetch job and loses its remote candidates, unless a source of a stored type names the same URL. Its inline images, such as SVG data URIs, stay. The writer rebuilds each srcset that the inspector read in an image slot, in the bytes it stores, after the inline images left and the escapes were written again. It separates the candidates with a comma and a space. A `srcset` key elsewhere, for example in a custom event's payload, stays as it is. A browser skips a source with no candidates, so the replay falls back to the next source or the `img`. The recorder counts these as `ai_research_v4_recorder_srcset_rewrites_total{outcome="trimmed"|"emptied"}`.
+- The recorder reads a protocol-relative URL, such as `//cdn.example.com/a.png`, as `https`. It gets the same reference or `declined` marker as the `https` form, and the rewrite replaces the text as the block holds it. A browser reads a backslash as a slash there, so `\\cdn.example.com/a.png` counts too, and so does a URL such as `https:\\cdn.example.com/a.png` with any mix of slashes and backslashes after the scheme, or none: on a page of another scheme the browser loads `https:cdn.example.com/a.png` from that host.
 - Some URLs stay as they arrived: relative URLs, remote URLs outside image slots (links, frames, text, CSS custom properties and other CSS properties), the `image-set()` candidates the recorder does not choose, URLs inside a compressed value that did not decode or that the decode budget skipped, and URL text written in another form than the recorder read it, for example with a CSS escape. The recorder counts the last kind as `outcome="unrewritten"`.
 - Before the rewrite, the recorder writes again any JSON string that holds an escape capture would not write, for example `\/`, so an escaped URL is found too. A scheme matches in any letter case.
-- If a refused URL is still in a block after the rewrite, the recorder drops the block and counts it as `dropped_blocks_total{outcome="declined_unrewritten"}`, so no refused URL is stored.
+- If a refused URL is still in a block after the rewrite, the recorder writes the block again instead of dropping it. The second pass replaces the refused URL wherever its bytes are, also inside a longer URL. For a refused URL the stored bytes do not hold as the recorder read it, for example behind a CSS escape, it replaces every URL token that holds the URL's host with `imageurl:v4:declined:unchecked`. The recorder counts this as `url_fallbacks_total{reason="declined_kept"|"declined_unfound"}`. It drops the block, as `dropped_blocks_total{outcome="declined_unrewritten"}`, only when the second pass still leaves a refused URL, so no refused URL is stored.
 - The recorder reads object keys as the player does: it writes an escaped key, such as `"\u0073rc"`, in its plain form before it inspects the event, and it takes the last copy of a repeated key.
-- The recorder drops a block that it cannot check in full, and counts the reason in `dropped_blocks_total`: an image-slot URL longer than 8 KiB (`url_too_long`), more than 10,000 image-slot URLs (`too_many_urls`) or more than 2 MiB of them (`too_many_url_bytes`), or a mutation with more than 200,000 attribute changes (`too_many_attribute_items`). It sends no fetch job for a dropped block.
+- A block that the recorder cannot check in full is kept. Past 10,000 image-slot URLs (`too_many_urls`), 2 MiB of them (`too_many_url_bytes`) or 200,000 attribute changes in a mutation (`too_many_attribute_items`), the recorder names the URLs it read, and replaces every other remote URL token in the block, links and text included, with `imageurl:v4:declined:unchecked`. A replaced token runs to whitespace or the end of its JSON string, and to the `)`, `'` or `"` that ends a CSS URL, so the scrub never splits an escape. It counts these as `url_fallbacks_total{reason}` and the replaced tokens as `scrubbed_urls_total`. A URL of any length is named; one longer than the fetcher takes becomes `imageurl:v4:declined:too_long`. Only a block whose sealing fails is dropped.
 - When the text of a rewritten URL also appears outside an image slot in the same block, it is replaced there too.
 - `hash` is the first 22 characters of the base64url HMAC-SHA256, as in v3.
 
@@ -483,6 +486,8 @@ Fetched images are partitioned by the key month of their reference.
 | `rrweb-v4`  | `blocks/dt={day}/`                            | One object per recorder flush: sealed blocks, each found by byte range          |
 | `rrweb-v4`  | `index/blocks/dt={day}/`                      | Parquet, one row per block                                                      |
 | `rrweb-v4`  | `index/images/dt={day}/`                      | Parquet, one row per stored inline image                                        |
+| `rrweb-v4`  | `index/blocks/_watermarks/`                   | JSON, one object per Kafka partition: how far the block index is complete       |
+| `rrweb-v4`  | `index/images/_watermarks/`                   | JSON, one object per Kafka partition: how far the image index is complete       |
 | `images-v4` | `images/packs/dt={day}/{team_id}/`            | One object per recorder flush and team: sealed images, each found by byte range |
 | `images-v4` | `images/url/month={YYYY-MM}/{team_id}/{hash}` | One sealed fetched image per URL reference                                      |
 
@@ -493,7 +498,7 @@ The recorder does not write the two index prefixes itself, as in v3:
 - After a flush stores its packs and blocks, the recorder sends one JSON record per index row to `ai_research_v4_index`. The record's keys are the Parquet column names.
 - The recorder commits without waiting for delivery. A row that is not delivered leaves its block or image stored but not in the index.
 - The v4 Parquet sink reads the topic, groups the rows by index and write day, and writes one file per group and flush as `{ms}-{random}.parquet`. A flush runs every 10 minutes, or at 128 MiB of rows or 1,000,000 rows. The sink commits its offsets only after the files are stored.
-- Index files use four column types: `INT32`, `INT64`, `UTF8` and `BOOLEAN`. Integers are signed. The recorder caps an `INT32` value at the type's range and an `INT64` value at ±(2^53 − 1), so every value is a safe JavaScript integer. It ignores an event timestamp outside the JavaScript date range. Byte counts, offsets and times are `INT64`, the other counts `INT32`. `moments` is a repeated group whose item is named `moments`; an Arrow reader sees a list of structs. `url_fingerprints` and `window_ids` are lists of `UTF8` with no null items. Row groups hold 131072 rows, and every column is snappy-compressed. The sink writes no statistics for `urls`, because a sealed value has no useful order.
+- Index files use four column types: `INT32`, `INT64`, `UTF8` and `BOOLEAN`. Integers are signed. The recorder caps an `INT32` value at the type's range and an `INT64` value at ±(2^53 − 1), so every value is a safe JavaScript integer. It ignores an event timestamp outside the JavaScript date range. Byte counts, offsets and times are `INT64`, the other counts `INT32`. `moments` is a 3-level `LIST` (`moments`, then the repeated group `list`, then the struct `element`), so Athena, Arrow readers and DuckDB see a non-null list of structs. Files written before the sink used that layout hold `moments` as a bare repeated group whose item is named `moments`. Arrow readers and DuckDB read those as the same list of structs, but Athena reads the column as null, because Trino reads a bare repeated group of more than one field as a missing column. Those files expire with the bucket's lifecycle. `url_fingerprints` and `window_ids` are lists of `UTF8` with no null items. The three [surfacing](#surfacing-features) sets are nullable 3-level `LIST`s of `UTF8` or `INT64` with no null items. Row groups hold 131072 rows, and every column is zstd-compressed at level 9. Older files can still be snappy-compressed and in arrival order until they expire; Parquet records the codec per column chunk, so a reader handles both. The sink writes no statistics for `urls`, because a sealed value has no useful order.
 - The sink can write a row twice after a restart. The copies have the same `flush_id`, so the rule below does not remove them: readers first drop rows that repeat within one `flush_id`.
 
 ### Block index
@@ -513,6 +518,9 @@ Readers drop duplicates with one rule per (`topic`, `partition`), applied to all
 
 A flush keeps or loses its whole range. When two flushes overlap, the reader keeps only the one it reaches first, even when their ranges differ in size, so it never merges parts of two flushes.
 
+Each file holds its rows in (`team_id`, `session_id`, `first_ts_ms`) order, with a null `first_ts_ms` last, so the blocks of a session in one file are adjacent and in time order.
+The order holds only within a file. The blocks of a session spread over many files and write days, and a file is usually one row group, so its min and max statistics do not narrow a lookup.
+
 A reader that needs whole sessions selects them by the start time in the session UUIDv7, not by write day:
 
 - Read the write days from the UTC day of `start - 1 day` onward. The recorder admits a session from 1 day before its start until 14 days after it, so no block of a session has an earlier write day.
@@ -523,6 +531,7 @@ A session row is a fold over its block rows: sort them by `first_ts_ms`, then me
 Counts sum, times take the minimum or maximum, flags take the logical or, `host` takes the first value and the viewport takes the one with the highest `viewport_ts_ms`.
 The DOM sizes `dom_nodes` and `dom_text_chars` and `max_written_event_bytes` take the maximum, because they describe a state or a single event, not an amount.
 `url_fingerprints` and `window_ids` take the ordered union, capped at 10 and 32 entries. A session at the cap has that many or more.
+The [surfacing](#surfacing-features) sums add, its two maxima take the maximum, and its three sets take the union with no cap.
 The flush columns describe a row, not a session, so the fold does not carry them.
 `events_before_first_full_snapshot` sums, because the recorder stops counting it once the session has a decoded full snapshot.
 `max_gap_ms` also counts the gap between one block's last event and the next block's first event. When blocks overlap, for example the main and overflow topics, it is an upper bound.
@@ -545,6 +554,7 @@ This holds for the blocks that one recorder process inspected. After a rebalance
 | Images      | `images_extracted`, `image_bytes`, `images_inline`, `image_urls`                                                                                                                                                                                                                           |
 | Moments     | `moments`: a list of `{kind, window_id, ts_ms, event_index}` for full snapshots, navigations, clicks and large DOM changes, and `moments_truncated`                                                                                                                                        |
 | Sealed      | `urls`: the visited URLs as a sealed index value, `urls_truncated`, and `url_fingerprints`                                                                                                                                                                                                 |
+| Surfacing   | The `surfacing_` columns: what ingestion's surfacing feature recorder records for the block as one batch. See [Surfacing features](#surfacing-features)                                                                                                                                    |
 
 - `full_snapshots` counts only snapshots that decoded.
 - `events_before_first_full_snapshot` counts the session's events before its first decoded full snapshot.
@@ -560,6 +570,69 @@ This holds for the blocks that one recorder process inspected. After a rebalance
 - `url_fingerprints` holds up to 10 distinct page URLs of the block as the first 16 hexadecimal characters of an HMAC-SHA256 of the URL. The key is derived from the session key with HKDF-SHA256, empty salt and info `ml-url-fingerprint-key`, so fingerprints can be compared only within one session. They count distinct URLs, where `navigations` counts URL changes.
 - `cold_start` is true when the recorder first sees a session after it started, for example after a partition rebalance, or after it dropped the session's DOM state to stay within its memory budget. Its playability columns then describe only the part of the session the recorder saw.
 
+#### Surfacing features
+
+The `surfacing_` columns let a sampler score whole sessions with the surfacing booster without opening a block.
+Each block row holds what ingestion's `SessionFeatureRecorder` (`session-feature-recorder.ts`) records for one batch, and the recorder computes it with the same definitions.
+Its state starts again at each block, as ingestion's does at each batch: a block is one session's events from one Kafka partition in one recorder flush, as a batch is.
+After the prefix, each column has the name of the `session_replay_features` column it matches, with a unit for the sums that are not counts.
+A session's values are the fold of its block rows, as `_AGGREGATED_STATS_FRAGMENT` (`posthog/temporal/session_replay/surfacing_scoring_sweep/sql.py`) folds the batch rows, and `fold_session` in `replay-core-v4` implements it.
+
+| Kind   | Columns                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Counts | `INT32`: `surfacing_{name}_count` for the 31 counters of `session_replay_features`, from `event_count` to `selection_copy_count`, and `surfacing_{token}_path_visit_count` for the 14 path tokens, where `404` is `not_found`                                                                                                                                                                                                                                                                                                           |
+| Sums   | `INT64`: `surfacing_mouse_sum_x_millipx`, `surfacing_mouse_sum_y_millipx`, `surfacing_mouse_sum_x_squared_px2`, `surfacing_mouse_sum_y_squared_px2`, `surfacing_mouse_distance_traveled_millipx`, `surfacing_mouse_velocity_sum_px_per_s`, `surfacing_mouse_velocity_sum_of_squares_px2_per_s2`, `surfacing_total_scroll_magnitude_millipx`, `surfacing_inter_action_gap_sum_ms`, `surfacing_inter_action_gap_sum_of_squares_ms2`, `surfacing_network_request_duration_sum_us`, `surfacing_network_request_duration_sum_of_squares_ms2` |
+| Maxima | `INT64`: `surfacing_max_scroll_y_millipx`, `surfacing_max_idle_gap_ms`                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| Sets   | `surfacing_visited_url_fingerprints` (`UTF8`), `surfacing_click_target_ids` and `surfacing_form_field_ids` (`INT64`)                                                                                                                                                                                                                                                                                                                                                                                                                    |
+
+- Ingestion stores a float sum as a double. The index stores it as an integer in the unit at the end of its name, rounded once per block, so that a fold is exact in any order. `millipx` is 1/1000 of a pixel and `us` is a microsecond. Ingestion's mouse velocity is in pixels per millisecond, so `surfacing_mouse_velocity_sum_px_per_s` is 1000 times its sum and `surfacing_mouse_velocity_sum_of_squares_px2_per_s2` 1000000 times its sum of squares.
+- The sets hold distinct values, sorted. The click targets and form fields are rrweb node IDs. The visited pages are fingerprints in the format of `url_fingerprints`, under the same key: ingestion stores an md5 of each URL instead. Each set keeps the first 1000 values of a block, as ingestion keeps 1000 per batch. The sweep counts a set with `uniqCombinedMerge(12)`, and the length of the folded set is the exact count.
+- A page URL is the trimmed `data.href`, or else `data.payload.href`, of any event, as `hrefFrom` in `rrweb-types.ts` reads it. The path token counts compare the segments of its path with a fixed list of words, so they hold no other part of a URL.
+- The recorder skips an event without a positive timestamp, which ingestion's parse step drops before its recorder. The booster's rates divide by the session duration, which a sampler takes from `first_ts_ms` and `last_ts_ms`. Those also count events with a timestamp of zero or less.
+- The columns are null in a row from a recorder that predates them, and absent from files written before them. A sampler falls back to the session's live score for such a session.
+- Ingestion corrects the event times of a message by the sender's clock skew, rounded to 5 minutes, and the recorder does not. A block whose messages got different corrections can therefore differ in its time-based values.
+- A field of an unexpected JSON type counts as missing, where JavaScript can coerce it or produce NaN, for example a mouse position without coordinates. Ingestion's parse step lets such fields through.
+
+#### Watermark files
+
+After a flush, the sink writes one JSON file per index and Kafka partition of `ai_research_v4_index`, so a reader can learn from the bucket how far the index is complete:
+
+- `index/blocks/_watermarks/partition={NNNN}.json` for block rows.
+- `index/images/_watermarks/partition={NNNN}.json` for image rows.
+
+`{NNNN}` is the partition number with four digits, for example `partition=0007.json`.
+Each file holds one object:
+
+| Field                       | Meaning                                                                                                                                                                                                                                                                                  |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `partition`                 | The Kafka partition.                                                                                                                                                                                                                                                                     |
+| `complete_up_to_capture_ms` | Every row that the sink read from the partition with an earlier capture time is in an index file in S3. It is the value of `ml_replay_capture_watermark_timestamp_seconds` for the partition, in milliseconds: `data="event_metadata"` for blocks and `data="inline_images"` for images. |
+| `committed_offset`          | The next offset to read on the partition. The sink stored it for commit after it wrote every row below it.                                                                                                                                                                               |
+| `written_at_ms`             | When the sink wrote the file.                                                                                                                                                                                                                                                            |
+
+The capture time of a row is the Kafka timestamp of the replay record that it came from, which the recorder sends in the `capture-timestamp-ms` header.
+The sink writes a file only for a partition that it still owns, and only after a flush wrote the partition's rows and stored its offset.
+A row that the sink holds but has not written keeps the value at or below its capture time.
+The sink rewrites its files once every `WATERMARK_FILE_INTERVAL_MS` (`index-watermark-files.ts`), on the first flush or poll after the interval, also when no rows arrive.
+A value can rise without new rows, because the watermark also counts the rows that it finished in the last `FINISHED_WINDOW_MS` (`capture-watermark.ts`).
+Each write is a plain PUT that replaces the file.
+A failed write does not fail the flush. The sink counts it in `ai_research_v4_parquet_sink_watermark_writes_total`, logs it, and writes the file again after the next interval. A write that the sink aborts because it lost the partition counts as `outcome="cancelled"`.
+S3 expires a file 30 days after its last write, as it does every object in the bucket.
+
+To learn how far an index is complete, a reader:
+
+1. Reads every file under that index's `_watermarks/`.
+2. Takes the minimum `complete_up_to_capture_ms` across the partitions.
+3. Treats a file whose `written_at_ms` is more than about 15 minutes old as a partition that is not progressing: no sink writes it. Its value is still true, but it does not move. A running sink keeps each file it owns at most the rewrite interval plus one poll old.
+
+Some limits apply:
+
+- A partition that delivers no records keeps its last value, as the gauge does, and the sink keeps rewriting its file. So a quiet partition holds the minimum down.
+- When the sink loses a partition, it aborts the partition's watermark writes that are still in flight, retries included. A write that S3 already received can still land. The new owner writes its first file only after its first flush, so the two overlap only if S3 takes longer to apply that write than the new owner takes to flush. The file then holds an older value until the new owner writes again. That value is still true. A full fence is not possible, because the bucket does not let the sink read the file that it replaces.
+- A partition that the sink has not flushed since it started to write these files has no file. A reader that needs every partition compares the number of files with the partition count of the topic.
+- The value covers only the rows that reached the sink. The recorder sends a row only after its own flush stores the block or image, so a row with an earlier capture time can still be in the recorder. A sink that has read all of its topic does not make the index complete.
+- A reader that lists `index/blocks/` or `index/images/` for Parquet files must skip `_watermarks/`. Hive-style readers such as Spark, Athena and pyarrow datasets ignore paths that start with `_`, and a `*.parquet` glob does not match the JSON files.
+
 ### Image index
 
 `index/images/` has one row per inline image in a pack: `team_id`, `key_month`, `image_ref`, `pack_s3_key`, `byte_start`, `byte_end`, `mime` and `byte_size`.
@@ -567,6 +640,7 @@ This holds for the blocks that one recorder process inspected. After a rebalance
 - Each frame in a pack is sealed under the team month key of the write month, as a fetched image is. A session deletion therefore does not make inline images unreadable (see [Deletion](#deletion)).
 - `image_ref` uses the team month image content key, so the same image has the same reference in every session of the team month. A pack holds one frame per distinct reference, so an image that two sessions show in one flush is stored once. A later flush stores it again.
 - A reader resolves an image of a block by (`team_id`, `image_ref`) and opens it with the team month key of `key_month`.
+- The sink writes [watermark files](#watermark-files) for this index too, under `index/images/_watermarks/`.
 
 ### Remote images
 
@@ -576,6 +650,8 @@ The topics hold jobs for 24 hours, because jobs carry raw URLs.
 The v4 image fetcher is its own copy of the v3 fetcher under `ai-research/image-fetch-v4/`, with the v3 fetch policy, its own consumer groups, its own `AI_RESEARCH_V4_IMAGE_FETCH_*` settings and a share of the v3 per-host limits. It shares no code or table with v3.
 It applies the recorder's URL policy through `@posthog/ai-research-v4-native`, an addon over `replay_core_v4::url_policy`, so it canonicalizes a URL, groups it by registrable domain and refuses private hosts exactly as the recorder does.
 It stores each image, sealed and unscrubbed, under `images/url/`, and it does not send images to the scrub lane.
+It stores PNG, JPEG, GIF, WebP and SVG as fetched. It does not rasterize an SVG; redaction downstream of the dataset handles SVG text.
+The response must have one of these media types and bytes of that format: a signature for a raster image, or an SVG root element for SVG. An SVG may carry a byte order mark, comments, processing instructions and a doctype before its root. The doctype may name no internal subset and no external DTD other than a W3C SVG DTD, so that a parser downstream cannot resolve entities from the document. It refuses AVIF and every other type.
 
 The fetcher keeps a crawl history per URL reference, so per team and month, in its own DynamoDB table `ai-research-v4-image-fetch-history`, with the v3 fetch interval and conditional requests. The table also holds its robots.txt and tdmrep cache:
 

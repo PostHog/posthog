@@ -1,3 +1,4 @@
+import dataclasses
 from typing import Any, cast
 
 from products.warehouse_sources.backend.facade.codebase_detection import detect
@@ -21,6 +22,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
     source_caption,
     text_field,
     url_field,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.filesystem import (
+    lookup_s3_bucket_region,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.locations import (
     S3_EXAMPLE_URL,
@@ -60,14 +64,21 @@ class AmazonS3Source(ObjectStorageSource[AmazonS3SourceConfig]):
         return ExternalDataSourceType.AMAZONS3
 
     @property
+    def credential_kind(self) -> str | None:
+        return "aws-s3"
+
+    @property
     def connection_host_fields(self) -> list[str]:
         # The URL picks the bucket and region the stored key is sent to, so changing it must re-require the key.
         return ["url_pattern"]
 
     def object_store_config(self, config: AmazonS3SourceConfig) -> ObjectStoreConfig:
+        url = parse_s3_url(config.url_pattern)
+        if url.region is None:
+            url = dataclasses.replace(url, region=lookup_s3_bucket_region(url.bucket))
         return ObjectStoreConfig.from_url(
             ObjectStoreProvider.S3,
-            parse_s3_url(config.url_pattern),
+            url,
             access_key_id=config.access_key_id.strip(),
             secret_access_key=config.secret_access_key.strip(),
         )
@@ -100,7 +111,10 @@ class AmazonS3Source(ObjectStorageSource[AmazonS3SourceConfig]):
             fields=cast(
                 list[FieldType],
                 [
-                    url_field(S3_EXAMPLE_URL),
+                    url_field(
+                        S3_EXAMPLE_URL,
+                        "Paste the S3 URI (s3://...) or the object URL from the AWS console.",
+                    ),
                     text_field("access_key_id", "Access key ID", "AKIA..."),
                     secret_field("secret_access_key", "Secret access key"),
                     *file_option_fields(),

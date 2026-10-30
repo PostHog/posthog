@@ -77,7 +77,7 @@ class PaymongoSource(ResumableSource[PaymongoSourceConfig, PaymongoResumeConfig]
             label="PayMongo",
             iconPath="/static/services/paymongo.png",
             docsUrl="https://posthog.com/docs/cdp/sources/paymongo",
-            caption="Import payments, refunds, payment links, payouts, and webhook settings from PayMongo.",
+            caption="Import payments, refunds, payment links, payouts and their transactions, subscriptions, invoices, and webhook settings from PayMongo.",
             fields=cast(
                 list[FieldType],
                 [

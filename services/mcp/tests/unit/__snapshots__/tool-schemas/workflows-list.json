@@ -21,6 +21,10 @@
         "id": {
             "type": "string"
         },
+        "latest_send_first": {
+            "description": "Pass `true` to order by when each workflow's newest completed run finished, newest first. Workflows that never finished a run come last.",
+            "type": "boolean"
+        },
         "limit": {
             "description": "Number of results to return per page.",
             "type": "number"

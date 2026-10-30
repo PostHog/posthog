@@ -9,6 +9,7 @@ from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.hogql import ast
+from posthog.hogql.metadata import get_table_names
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 from posthog.hogql.visitor import clone_expr
@@ -393,6 +394,7 @@ class HogQLQueryRecordBatchModel(RecordBatchModel):
         self.hogql_query = hogql_query
         self.hogql_modifiers = load_hogql_modifiers(hogql_modifiers)
         self.parsed_hogql_query = parse_hogql_select_for_batch_export(hogql_query)
+        self.hogql_table_names = tuple(sorted(get_table_names(self.parsed_hogql_query)))
         self.wait_for_data_interval_end = DATA_INTERVAL_END_PLACEHOLDER in find_interval_placeholders(
             self.parsed_hogql_query
         )

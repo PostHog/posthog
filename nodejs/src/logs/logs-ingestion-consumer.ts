@@ -1566,7 +1566,7 @@ export class LogsIngestionConsumer {
                         internalLogs: this.internalLogsVerifier.verify(
                             headers[INTERNAL_LOGS_HEADER],
                             team.id,
-                            message.value
+                            headers.created_at
                         ),
                     })
                 } catch (e) {

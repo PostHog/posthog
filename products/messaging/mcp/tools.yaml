@@ -113,3 +113,55 @@ tools:
         description: >
             Opt a recipient back in to the message category named by category_key, or to all marketing messages if
             omitted. Use to honor a resubscribe recorded in your own app. Repeating a call is safe.
+    supabase-auth-emails-settings-get:
+        operation: messaging_supabase_auth_emails_settings_retrieve
+        enabled: true
+        scopes:
+            - hog_flow:read
+        title: Get the Supabase auth email settings
+        description: >
+            Get how the project sends a Supabase project's auth emails through PostHog email templates, including the
+            hook URL to paste into Supabase and every email type it can map. Call this before
+            supabase-auth-emails-settings-update, because that tool replaces the whole template mapping.
+        feature_flag: workflows-supabase-auth-emails
+    supabase-auth-emails-settings-update:
+        operation: messaging_supabase_auth_emails_settings_partial_update
+        enabled: true
+        scopes:
+            - hog_flow:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Update the Supabase auth email settings
+        description: >
+            Update how the project sends a Supabase project's auth emails. Send only the fields to change, but templates
+            replaces the whole mapping, so include every type to keep. To get templates to map, call
+            supabase-auth-emails-starter-templates-create or use the email template tools. Ask the user for the hook
+            secret. Never invent one. Map the core emails before the user turns on the hook in Supabase. Load the
+            setting-up-supabase-auth-emails skill before you set up or change the connection.
+        feature_flag: workflows-supabase-auth-emails
+        response:
+            exclude:
+                - email_types
+                - hook_url
+    supabase-auth-emails-starter-templates-create:
+        operation: messaging_supabase_auth_emails_starter_templates_create
+        enabled: true
+        scopes:
+            - hog_flow:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create starter templates for the Supabase auth emails
+        description: >
+            Create and map an email template for each core Supabase auth email that has no usable template yet. A repeat
+            call skips types that still have one. Needs a verified email sender on the project. Edit the templates
+            afterwards with the email template tools. Load the setting-up-supabase-auth-emails skill before you set up
+            the connection.
+        feature_flag: workflows-supabase-auth-emails
+        response:
+            exclude:
+                - email_types
+                - hook_url

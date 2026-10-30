@@ -19,11 +19,13 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { Link } from 'lib/lemon-ui/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
-import { loginLogic } from 'scenes/authentication/login/loginLogic'
+import { loginLogic } from 'scenes/authentication/auth/loginLogic'
+import { AuthBanner } from 'scenes/authentication/shared/authScene/AuthBanner'
 import { AuthCardTitle } from 'scenes/authentication/shared/authScene/AuthCardTitle'
+import { AUTH_NOTES } from 'scenes/authentication/shared/authScene/authNotes'
 import { AuthScene, AuthSceneCard } from 'scenes/authentication/shared/authScene/AuthScene'
 import { OrgTile } from 'scenes/authentication/shared/authScene/OrgTile'
-import { TurnstileChallenge } from 'scenes/authentication/signup/signupForm/TurnstileChallenge'
+import { TurnstileChallenge } from 'scenes/authentication/shared/TurnstileChallenge'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -158,12 +160,12 @@ function InviteNewUser({ invite }: { invite: PrevalidatedInvite }): JSX.Element 
     )
 
     return (
-        <AuthScene notes={["// you've been invited", `// ${org.toLowerCase()} is waiting`]}>
+        <AuthScene notes={AUTH_NOTES.inviteSignup.invited(org)}>
             <AuthSceneCard top={inviteHeader} footer={footer}>
                 <AuthCardTitle title="Create your account" sub="Your teammates are already in. This takes a minute." />
                 {signupManualErrors?.generic && (
-                    <div className="mb-4 py-2.5 px-3 text-sm leading-normal text-primary text-left bg-danger-highlight border border-danger rounded">
-                        {signupManualErrors.generic.detail || 'Could not complete your signup.'}{' '}
+                    <AuthBanner variant="danger" className="mb-4">
+                        <span>{signupManualErrors.generic.detail || 'Could not complete your signup.'}</span>{' '}
                         <Link
                             data-attr="invite-signup-error-contact-support"
                             onClick={() => openSupportForm({ kind: 'support' })}
@@ -171,12 +173,12 @@ function InviteNewUser({ invite }: { invite: PrevalidatedInvite }): JSX.Element 
                         >
                             Need help?
                         </Link>
-                    </div>
+                    </AuthBanner>
                 )}
                 {passkeyError && (
-                    <div className="mb-4 py-2.5 px-3 text-sm leading-normal text-primary text-left bg-danger-highlight border border-danger rounded">
+                    <AuthBanner variant="danger" className="mb-4">
                         {passkeyError}
-                    </div>
+                    </AuthBanner>
                 )}
                 <Form logic={inviteSignupLogic} formKey="signup" enableFormOnSubmit className="flex flex-col gap-4">
                     <LemonField.Pure label="Email" help="The invite is tied to this address.">
@@ -296,7 +298,7 @@ function InviteExistingAccount({ invite }: { invite: PrevalidatedInvite }): JSX.
     const org = invite.organization_name
 
     return (
-        <AuthScene notes={['// hey, welcome back', '// one more org for you']}>
+        <AuthScene notes={AUTH_NOTES.inviteSignup.existingUser}>
             <AuthSceneCard>
                 <div className="mb-4 flex justify-center">
                     <OrgTile name={org} />
@@ -444,7 +446,7 @@ function InviteInvalid(): JSX.Element {
     )
 
     return (
-        <AuthScene notes={['// hmm', "// this invite isn't right"]}>
+        <AuthScene notes={AUTH_NOTES.inviteSignup.invalid}>
             <AuthSceneCard footer={footer}>
                 <div className="flex flex-col items-center text-center">
                     <HedgehogJudge className="block w-auto mx-auto h-28" />

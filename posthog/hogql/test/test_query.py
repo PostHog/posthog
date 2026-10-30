@@ -1198,8 +1198,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 response.results,
                 [
                     (
-                        # The native-JSON table treats an empty value as absent, like a materialized column does.
-                        None if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else "",
+                        "",
                         None,  # null
                         None,  # undefined
                         "0",  # zero string

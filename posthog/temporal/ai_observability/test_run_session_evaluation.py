@@ -1,5 +1,4 @@
 import uuid
-from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -293,14 +292,6 @@ class TestRunHogEvalOverRecentSessions:
 
 
 class TestFetchSessionForEvaluation:
-    @pytest.fixture(autouse=True)
-    def unrestricted_project_defaults(self) -> Iterator[None]:
-        with patch(
-            "posthog.temporal.ai_observability.run_session_evaluation.get_restricted_properties_with_group_type_index_for_team",
-            return_value=set(),
-        ):
-            yield
-
     def test_queries_in_evaluation_mode_with_both_date_bounds(self):
         user = Mock()
         with (
@@ -598,7 +589,7 @@ class TestExecuteSessionActivities:
             "session_too_large",
             "session_payload_too_large",
             "session_truncated",
-            "property_access_restricted",
+            "session_has_no_traces",
         ],
     )
     @pytest.mark.parametrize("output_type", ["boolean", "numeric"])
@@ -640,7 +631,7 @@ class TestExecuteSessionActivities:
             )
 
     @pytest.mark.parametrize("output_type", ["boolean", "numeric"])
-    @pytest.mark.parametrize("skip_reason", ["session_truncated", "property_access_restricted"])
+    @pytest.mark.parametrize("skip_reason", ["session_truncated", "session_has_no_traces"])
     def test_judge_skips_without_judging(self, output_type: str, skip_reason: str) -> None:
         with (
             patch(
@@ -668,8 +659,7 @@ class TestExecuteSessionActivities:
         assert "score" not in result
         if output_type == "numeric":
             assert "verdict" not in result
-        if skip_reason == "property_access_restricted":
-            assert "property access rules" in result["reasoning"]
+        assert result["reasoning"]
         # The whole point of the truncation-as-skip choice: never grade a partial transcript.
         mock_call_llm_judge.assert_not_called()
 

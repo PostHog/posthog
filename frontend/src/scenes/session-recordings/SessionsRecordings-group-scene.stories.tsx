@@ -120,9 +120,6 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-07-04',
-        testOptions: {
-            loaderTimeout: 15000,
-        },
     },
     decorators: [
         mswDecorator({

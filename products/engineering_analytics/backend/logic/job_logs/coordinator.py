@@ -48,6 +48,7 @@ from products.engineering_analytics.backend.logic.queries._test_spans import rer
 from products.engineering_analytics.backend.logic.sources import depot_source_job_attempts_table
 from products.engineering_analytics.backend.logic.views.depot_ci import depot_github_run_id, depot_id_to_int
 from products.warehouse_sources.backend.facade.models import ExternalDataSource
+from products.warehouse_sources.backend.facade.source_inputs import SourceInputsStore, UnreadableSourceInputsError
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 logger = structlog.get_logger(__name__)
@@ -159,7 +160,11 @@ def _discover_jobs_with_diagnostics(cutoff_iso: str) -> list[dict[str, Any]]:
     eligible_sources = 0
     skipped_sources = 0
     for source in _live_sources(ExternalDataSourceType.GITHUB):
-        params = _github_source_params(source.job_inputs)
+        try:
+            inputs = SourceInputsStore.load(source)
+        except UnreadableSourceInputsError:
+            continue
+        params = _github_source_params(inputs)
         prefix = source.prefix or ""
         if params is None or not _PREFIX.match(prefix):
             continue

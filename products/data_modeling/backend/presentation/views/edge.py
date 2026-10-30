@@ -47,6 +47,16 @@ class EdgeSerializer(serializers.ModelSerializer):
         return attrs
 
 
+class EdgeSummarySerializer(serializers.ModelSerializer):
+    source_id = serializers.UUIDField(read_only=True, help_text="ID of the upstream node.")
+    target_id = serializers.UUIDField(read_only=True, help_text="ID of the downstream node.")
+
+    class Meta:
+        model = Edge
+        fields = ["id", "source_id", "target_id"]
+        read_only_fields = fields
+
+
 class EdgePagination(PageNumberPagination):
     page_size = 5000
 
@@ -69,6 +79,9 @@ class EdgeViewSet(
     def get_serializer_context(self) -> dict[str, Any]:
         return super().get_serializer_context()
 
+    def get_serializer_class(self) -> type[serializers.Serializer]:
+        return EdgeSummarySerializer if self.action == "list" else EdgeSerializer
+
     def perform_destroy(self, instance: Edge) -> None:
         self._require_warehouse_access(level="editor", message=DELETE_DENIED)
         if instance.target.belongs_to_managed_viewset:
@@ -79,4 +92,6 @@ class EdgeViewSet(
         delete_orphaned_table_nodes(instance.team_id, [instance.source_id])
 
     def safely_get_queryset(self, queryset):
+        if self.action == "list":
+            queryset = queryset.select_related(None)
         return self._exclude_hidden_edges(queryset.filter(team_id=self.team_id)).order_by(self.ordering)

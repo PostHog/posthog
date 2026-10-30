@@ -14,7 +14,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.gleif.glei
     _flatten_json_api_item,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.gleif.settings import LEI_RECORDS
+from products.warehouse_sources.backend.temporal.data_imports.sources.gleif.settings import (
+    COUNTRIES,
+    LEI_RECORDS,
+    REGIONS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.gleif.source import GleifSource
 
 _LEI_ITEM: dict[str, Any] = {
@@ -74,6 +78,43 @@ class TestGleifSourceResumeBehavior:
         assert result.queries[1] == {"page[cursor]": ("abc",)}
         assert result.rows[0]["last_update_date"] == "2026-08-17T22:46:53Z"
         assert result.saved_states == [GleifResumeConfig(next_url=next_url)]
+
+    @pytest.mark.parametrize(
+        ("endpoint", "expected_path", "item"),
+        [
+            (
+                REGIONS,
+                "/api/v1/regions",
+                {
+                    "type": "regions",
+                    "id": "XX-01",
+                    "attributes": {
+                        "code": "XX-01",
+                        "name": None,
+                        "names": [{"language": "en", "name": "North Testland"}],
+                    },
+                },
+            ),
+            (
+                COUNTRIES,
+                "/api/v1/countries",
+                {"type": "countries", "id": "XX", "attributes": {"code": "XX", "name": "Testland"}},
+            ),
+        ],
+    )
+    def test_reference_endpoint_walks_page_number_links_to_last_page(
+        self, endpoint: str, expected_path: str, item: dict[str, Any]
+    ) -> None:
+        next_url = f"https://api.gleif.org{expected_path}?page%5Bnumber%5D=2&page%5Bsize%5D=200"
+        result = self._driver().run(endpoint, [self._page([item], next_url), self._page([item])])
+
+        assert result.raised is None
+        assert result.requests[0].path == expected_path
+        # Reference tables use page-number links, so the lei-records cursor and sort must not leak in.
+        assert result.queries[0] == {"page[size]": ("200",)}
+        assert result.urls[1] == next_url
+        assert len(result.requests) == 2
+        assert result.rows == [{"id": item["id"], **item["attributes"]}] * 2
 
     def test_lei_records_incremental_run_adds_gte_filter(self) -> None:
         result = self._driver().run(

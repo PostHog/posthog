@@ -6,6 +6,7 @@ from posthog.schema import (
     ExperimentDataWarehouseNode,
     ExperimentMetricOutlierHandling,
     ExperimentRatioMetric,
+    ExperimentWarehouseNativeNode,
 )
 
 from posthog.hogql import ast
@@ -72,7 +73,7 @@ class RatioQueryBuilder:
         )
 
     def _metric_events_query_for_precomputation(
-        self, source: EventsNode | ActionsNode | ExperimentDataWarehouseNode
+        self, source: EventsNode | ActionsNode | ExperimentDataWarehouseNode | ExperimentWarehouseNativeNode
     ) -> tuple[str, dict[str, ast.Expr]]:
         assert isinstance(source, (ActionsNode, EventsNode))
         return build_metric_events_precompute_query(

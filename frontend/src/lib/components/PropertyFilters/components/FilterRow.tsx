@@ -15,6 +15,8 @@ import { OperandTag } from './OperandTag'
 import { PropertyFilterButton } from './PropertyFilterButton'
 
 interface FilterRowProps {
+    header?: React.ReactNode
+    onOpen?: () => void
     item: Record<string, any>
     index: number
     filters: PropertyFilterRow[] | PathCleaningFilter[]
@@ -38,6 +40,8 @@ interface FilterRowProps {
 
 export const FilterRow = React.memo(function FilterRow({
     item,
+    onOpen,
+    header,
     index,
     filters,
     pageKey,
@@ -63,6 +67,9 @@ export const FilterRow = React.memo(function FilterRow({
     const isValid = isValidPropertyFilter(item)
 
     const handleVisibleChange = (visible: boolean): void => {
+        if (visible) {
+            onOpen?.()
+        }
         if (!visible && isValid && !item.key) {
             onRemove(index)
         }
@@ -101,18 +108,23 @@ export const FilterRow = React.memo(function FilterRow({
                         className="filter-row-popover"
                         visible={open}
                         onClickOutside={() => handleVisibleChange(false)}
-                        overlay={filterComponent(() => setOpen(false))}
+                        overlay={
+                            <>
+                                {header}
+                                {filterComponent(() => setOpen(false))}
+                            </>
+                        }
                     >
                         {isValid ? (
                             <PropertyFilterButton
-                                onClick={() => setOpen(!open)}
+                                onClick={() => handleVisibleChange(!open)}
                                 onClose={() => onRemove(index)}
                                 item={item}
                                 disabledReason={disabledReason}
                             />
                         ) : !disabledReason ? (
                             <LemonButton
-                                onClick={() => setOpen(!open)}
+                                onClick={() => handleVisibleChange(!open)}
                                 className={clsx('new-prop-filter', labelClassName)}
                                 data-attr={'new-prop-filter-' + pageKey}
                                 type="secondary"

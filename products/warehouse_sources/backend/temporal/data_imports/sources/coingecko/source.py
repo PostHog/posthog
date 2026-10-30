@@ -103,6 +103,7 @@ The global market cap chart and NFT market tables need a Pro key on the Analyst 
                     ),
                     SourceFieldInputConfig(
                         name="coin_ids",
+                        sync_setting=True,
                         label="Coin IDs",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
@@ -112,6 +113,7 @@ The global market cap chart and NFT market tables need a Pro key on the Analyst 
                     ),
                     SourceFieldInputConfig(
                         name="start_date",
+                        sync_setting=True,
                         label="Start date",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,

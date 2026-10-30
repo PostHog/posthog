@@ -17,6 +17,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_a
     LinkedinAdsResource,
     LinkedinAdsRetryableError,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.schemas import (
+    FLOAT_FIELDS,
+    INT_FIELDS,
+)
 
 
 class TestLinkedinAdsClient:
@@ -205,10 +209,24 @@ class TestLinkedinAdsClient:
         assert elements[0]["costInUsd"] == 25.50
         assert mock_client_instance.finder.call_count == 1
 
+    @pytest.mark.parametrize(
+        "pivot,expected_windows",
+        [
+            # Uncapped responses keep one wide window, so a small account does not pay one call per week.
+            (LinkedinAdsPivot.CAMPAIGN_GROUP, [("2024-01-01", "2024-07-19")]),
+            # Tables that request reach stay at 92 days or less, or LinkedIn leaves reach out.
+            (
+                LinkedinAdsPivot.CAMPAIGN,
+                [("2024-01-01", "2024-04-01"), ("2024-04-02", "2024-07-02"), ("2024-07-03", "2024-07-19")],
+            ),
+            (
+                LinkedinAdsPivot.CREATIVE,
+                [("2024-01-01", "2024-04-01"), ("2024-04-02", "2024-07-02"), ("2024-07-03", "2024-07-19")],
+            ),
+        ],
+    )
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.client.RestliClient")
-    def test_get_analytics_uncapped_range_fits_in_single_wide_window(self, mock_restli_client):
-        """When responses never cap, even a long range is fetched in a single wide window —
-        a small account no longer pays one call per week."""
+    def test_get_analytics_uncapped_range_windows(self, mock_restli_client, pivot, expected_windows):
         mock_response = mock.MagicMock()
         mock_response.status_code = 200
         mock_response.elements = [{"impressions": 100}]
@@ -217,22 +235,23 @@ class TestLinkedinAdsClient:
         mock_client_instance.finder.return_value = mock_response
 
         client = LinkedinAdsClient(self.access_token)
-        # 200-day range, well under the 365-day initial window → one call.
-        pages = list(
+        list(
             client.get_analytics(
                 account_id=self.account_id,
-                pivot=LinkedinAdsPivot.CREATIVE,
+                pivot=pivot,
                 date_start="2024-01-01",
                 date_end="2024-07-19",
             )
         )
 
-        assert len(pages) == 1
-        assert mock_client_instance.finder.call_count == 1
-        assert mock_client_instance.finder.call_args[1]["query_params"]["dateRange"] == {
-            "start": {"year": 2024, "month": 1, "day": 1},
-            "end": {"year": 2024, "month": 7, "day": 19},
-        }
+        def as_date(value: dict[str, int]) -> str:
+            return dt.date(value["year"], value["month"], value["day"]).isoformat()
+
+        windows = [
+            (as_date(c[1]["query_params"]["dateRange"]["start"]), as_date(c[1]["query_params"]["dateRange"]["end"]))
+            for c in mock_client_instance.finder.call_args_list
+        ]
+        assert windows == expected_windows
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.client.RestliClient")
     def test_get_analytics_shrinks_window_on_capped_response(self, mock_restli_client):
@@ -264,7 +283,7 @@ class TestLinkedinAdsClient:
         pages = list(
             client.get_analytics(
                 account_id=self.account_id,
-                pivot=LinkedinAdsPivot.CAMPAIGN,
+                pivot=LinkedinAdsPivot.CAMPAIGN_GROUP,
                 date_start="2024-01-01",
                 date_end="2025-12-31",
             )
@@ -596,7 +615,14 @@ class TestLinkedinAdsClient:
             )
         )
 
-        assert mock_client_instance.finder.call_args[1]["query_params"]["pivot"] == expected_pivot
+        query_params = mock_client_instance.finder.call_args[1]["query_params"]
+        assert query_params["pivot"] == expected_pivot
+        # LinkedIn accepts at most 20 fields per adAnalytics request, and every requested metric
+        # must be coerced, else a batch where LinkedIn omitted it breaks the schema merge.
+        requested_fields = query_params["fields"].split(",")
+        assert len(requested_fields) <= 20
+        metrics = set(requested_fields) - {"dateRange", "pivotValues"}
+        assert metrics <= INT_FIELDS | FLOAT_FIELDS, metrics - (INT_FIELDS | FLOAT_FIELDS)
 
     @pytest.mark.parametrize(
         "resource",

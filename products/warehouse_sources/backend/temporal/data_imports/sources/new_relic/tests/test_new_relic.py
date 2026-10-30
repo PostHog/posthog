@@ -121,7 +121,9 @@ class TestExecuteGraphql:
             session, "https://api.newrelic.com/graphql", "query", {}, MagicMock()
         )
 
-    @parameterized.expand([("rate_limited", 429), ("server_error", 500), ("bad_gateway", 502)])
+    @parameterized.expand(
+        [("request_timeout", 408), ("rate_limited", 429), ("server_error", 500), ("bad_gateway", 502)]
+    )
     def test_retryable_status_codes_raise_retryable_error(self, _name: str, status_code: int) -> None:
         with pytest.raises(NewRelicRetryableError):
             self._execute(self._response(status_code=status_code))

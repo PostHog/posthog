@@ -76,6 +76,7 @@ import {
     type PosthogProgressParams,
     type AgentCommand,
     type PosthogUsageUpdateParams,
+    type SessionUpdateBody,
     type SessionUpdateUsage,
     type SseErrorFrameData,
     type StoredLogEntry,
@@ -220,6 +221,16 @@ const AGENT_GENERATING_SESSION_UPDATES: ReadonlySet<string> = new Set([
     'tool_call',
     'plan',
 ])
+
+function opensAgentTurn(update: SessionUpdateBody): boolean {
+    if (!AGENT_GENERATING_SESSION_UPDATES.has(update.sessionUpdate)) {
+        return false
+    }
+    if (update.sessionUpdate !== 'agent_message_chunk' && update.sessionUpdate !== 'agent_thought_chunk') {
+        return true
+    }
+    return String(update.content?.text ?? update.text ?? '') !== ''
+}
 
 /**
  * In-band durable end-of-run sentinel emitted by both the Django stream view and the agent-proxy
@@ -4742,7 +4753,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
             // stream never carries one, and the persisted one is written when the message is received, so a
             // message sent mid-turn is replayed *before* the previous turn's `turn_complete`. Guarded on
             // `turnComplete` so this costs one dispatch per turn rather than one per streamed chunk.
-            if (values.turnComplete && AGENT_GENERATING_SESSION_UPDATES.has(update.sessionUpdate)) {
+            if (values.turnComplete && opensAgentTurn(update)) {
                 actions.markTurnStarted()
             }
             if (update.sessionUpdate === 'current_mode_update') {

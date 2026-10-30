@@ -51,6 +51,30 @@ def extract_text_from_messages(messages: Union[str, list, dict, None]) -> str:
     return "\n".join(rendered for rendered in rendered_messages if rendered is not None)
 
 
+def last_message_text(messages: Union[str, list, dict, None], role: str) -> str:
+    """Text of the last message in a role, or all the text when no message has that role.
+
+    A preview built from the start of the input shows the system prompt, which is the same on every sample.
+    """
+    if isinstance(messages, list):
+        for msg in reversed(messages):
+            if isinstance(msg, dict) and msg.get("role") == role and not _only_tool_results(msg):
+                rendered = extract_text_from_messages([msg])
+                if rendered:
+                    return rendered.removeprefix(f"{role}: ")
+    return extract_text_from_messages(messages)
+
+
+def _only_tool_results(msg: dict) -> bool:
+    # Anthropic sends tool output back as a user message made only of tool_result blocks.
+    content = msg.get("content")
+    return (
+        isinstance(content, list)
+        and len(content) > 0
+        and all(isinstance(part, dict) and part.get("type") == "tool_result" for part in content)
+    )
+
+
 def _render_message(msg: dict) -> str | None:
     """Render a single message dict into a `role: body` line.
 

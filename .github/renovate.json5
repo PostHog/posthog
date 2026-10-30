@@ -3,7 +3,6 @@
   extends: [
     'config:best-practices',
     ':dependencyDashboardApproval',
-    ':separateMultipleMajorReleases',
   ],
   enabledManagers: [
     'pep621',
@@ -21,7 +20,11 @@
   ],
   dependencyDashboardOSVVulnerabilitySummary: 'all',
   dependencyDashboardReportAbandonment: false,
-  configMigration: false,
+  prConcurrentLimit: 5,
+  gitIgnoredAuthors: [
+    '206114724+posthog[bot]@users.noreply.github.com',
+    '250237707+tests-posthog[bot]@users.noreply.github.com',
+  ],
   vulnerabilityAlerts: {
     enabled: false,
   },
@@ -71,9 +74,97 @@
     },
   },
   packageRules: [
+    // Matches the cooldowns in pnpm-workspace.yaml and pyproject.toml
+    {
+      matchDatasources: ['npm', 'pypi', 'crate'],
+      matchUpdateTypes: ['major', 'minor', 'patch'],
+      minimumReleaseAge: '7 days',
+    },
+    // Keep in sync with minimumReleaseAgeExclude in pnpm-workspace.yaml
+    {
+      matchDatasources: ['npm'],
+      matchPackageNames: [
+        'posthog-js',
+        'posthog-js-lite',
+        'posthog-node',
+        '@posthog/*',
+        '@earendil-works/*',
+        'typebox',
+        '@oxfmt/*',
+        '@shadcn/react',
+        'kea-typegen',
+        '@typescript/native-preview*',
+        'shiki',
+        'shadcn',
+        '@shikijs/*',
+      ],
+      minimumReleaseAge: null,
+    },
+    // Keep in sync with exclude-newer-package in pyproject.toml
+    {
+      matchDatasources: ['pypi'],
+      matchPackageNames: [
+        'brotli',
+        'certifi',
+        'hogql-parser',
+        'hogql-parser-rs',
+        'deltalite',
+        'posthoganalytics',
+        'pixelhog',
+        'django',
+        'modal',
+        'posthog-hogland',
+        'google-ads',
+        'grpcio',
+      ],
+      minimumReleaseAge: null,
+    },
+    {
+      matchManagers: ['npm', 'pep621', 'cargo'],
+      matchUpdateTypes: ['minor', 'patch'],
+      groupName: '{{manager}} non-major',
+    },
+    // Directories with their own lock file
+    {
+      matchManagers: ['npm', 'pep621', 'cargo', 'gomod'],
+      matchUpdateTypes: ['minor', 'patch'],
+      matchFileNames: [
+        '**/go.mod',
+        'cli/**',
+        'funnel-udf/**',
+        'rust/common/hogvm/node/Cargo.toml',
+        'services/llm-gateway/**',
+        'services/stripe-mock/**',
+        'tools/hedgebox-dummy/**',
+        'frontend/@posthog/lemon-ui/**',
+        'nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub-sidecar/**',
+        '.depot/actions/paths-filter/**',
+        '.github/actions/paths-filter/**',
+        '.github/actions/shared-image-releases/**',
+        'products/canvas/packages/canvas_builder/**',
+        'products/visual_review/cli/**',
+        'rust/batch-import-worker/scripts/**',
+      ],
+      groupName: '{{manager}} non-major in {{packageFileDir}}',
+    },
+    {
+      matchManagers: ['npm', 'pep621', 'cargo', 'gomod'],
+      matchUpdateTypes: ['minor', 'patch'],
+      matchFileNames: ['products/desktop/**', 'packages/agent/**'],
+      groupName: "{{manager}} non-major in {{lookup (split packageFileDir '/') 0}}/{{lookup (split packageFileDir '/') 1}}",
+    },
+    {
+      matchManagers: ['npm', 'pep621', 'cargo', 'gomod'],
+      matchUpdateTypes: ['minor'],
+      matchCurrentVersion: '/^v?0\\./',
+      groupName: null,
+    },
+    {
+      matchDepTypes: ['requires-python', 'packageManager'],
+      groupName: null,
+    },
     {
       matchDepNames: ['chrome-headless-shell'],
-      automerge: true,
       matchUpdateTypes: ['minor', 'patch'],
       schedule: ['every 2 weeks on Monday'],
       commitMessageExtra: '(chrome-headless-shell)',

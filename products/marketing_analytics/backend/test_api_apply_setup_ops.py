@@ -419,15 +419,12 @@ class TestApplySetupOpsFeatureFlag(APIBaseTest):
         get_or_create_team_extension(self.team, TeamMarketingAnalyticsConfig)
         cache.clear()
 
-    @parameterized.expand(
-        [(False, False, False), (False, False, True), (False, True, False), (True, False, False), (True, True, True)]
-    )
-    def test_setup_availability(self, setup: bool, dashboard: bool, mcp: bool) -> None:
+    @parameterized.expand([(False, False), (False, True), (True, False), (True, True)])
+    def test_setup_availability(self, setup: bool, mcp: bool) -> None:
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
         flags = {
             "marketing-analytics-setup": setup,
-            "new-marketing-analytics-dashboard": dashboard,
             "marketing-analytics-setup-plan-mcp": mcp,
         }
         with patch(_FLAG_TARGET, side_effect=lambda flag, *args, **kwargs: flags[flag]):
@@ -437,9 +434,9 @@ class TestApplySetupOpsFeatureFlag(APIBaseTest):
                 format="json",
             )
 
-        assert response.status_code == (200 if setup or dashboard else 404)
+        assert response.status_code == (200 if setup else 404)
         assert TeamMarketingAnalyticsConfig.objects.get(team=self.team).custom_source_mappings == (
-            {"MetaAds": ["fb-ads"]} if setup or dashboard else {}
+            {"MetaAds": ["fb-ads"]} if setup else {}
         )
 
 

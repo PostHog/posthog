@@ -15,6 +15,9 @@ INT_FIELDS = {
     "impressions",
     "clicks",
     "externalWebsiteConversions",
+    "externalWebsitePostClickConversions",
+    "externalWebsitePostViewConversions",
+    "approximateMemberReach",
     "landingPageClicks",
     "totalEngagements",
     "videoViews",
@@ -35,6 +38,13 @@ EPOCH_MS_VIRTUAL_COLUMNS = {
     "created": "created_time",
     "lastModified": "last_modified_time",
 }
+
+# Creative `content` members that hold the landing page URL in the creative itself.
+CREATIVE_INLINE_LANDING_PAGE_TYPES = ("textAd", "spotlight")
+# Creative `content` members that hold the sponsored post URN, besides `content.reference`.
+CREATIVE_REFERENCE_CONTENT_TYPES = ("standardUpdateAd", "videoAd")
+# Sponsored post URNs that open at https://www.linkedin.com/feed/update/<urn>/ (Posts API docs).
+POST_URN_PREFIXES = ("urn:li:share:", "urn:li:ugcPost:")
 
 # This maps the the URN type to the virtual column name. LinkedIn Ads API uses URNs to identify resources.
 # URNs are like "urn:li:sponsoredCampaign:12345678"
@@ -126,6 +136,12 @@ class ResourceSchema(TypedDict):
     initial_lookback_days: NotRequired[int]
     # False leaves the table unticked in the schema picker.
     should_sync_default: NotRequired[bool]
+    # Upper bound on the days in one analytics request, for metrics LinkedIn returns only on short ranges.
+    max_window_days: NotRequired[int]
+
+
+# LinkedIn returns `approximateMemberReach` only when the date range of the request is 92 days or less.
+REACH_MAX_WINDOW_DAYS = 92
 
 
 # LinkedIn retains professional demographic reporting for two years, versus ten for performance
@@ -235,7 +251,8 @@ RESOURCE_SCHEMAS: dict[LinkedinAdsResource, ResourceSchema] = {
     },
     LinkedinAdsResource.Creatives: {
         "resource_name": "creatives",
-        # CreativeV11 rejects `type` and `changeAuditStamps` — don't add them here.
+        # CreativeV11 rejects `type` and `changeAuditStamps` — don't add them here. Never add
+        # `metadata` either: LinkedIn returns a 400 for that projection on versions before 202610.
         "field_names": [
             "id",
             "account",
@@ -244,6 +261,8 @@ RESOURCE_SCHEMAS: dict[LinkedinAdsResource, ResourceSchema] = {
             "intendedStatus",
             "isServing",
             "review",
+            "content",
+            "leadgenCallToAction",
             "createdAt",
             "lastModifiedAt",
         ],
@@ -288,6 +307,9 @@ RESOURCE_SCHEMAS: dict[LinkedinAdsResource, ResourceSchema] = {
             "costInUsd",
             "costInLocalCurrency",
             "externalWebsiteConversions",
+            "externalWebsitePostClickConversions",
+            "externalWebsitePostViewConversions",
+            "approximateMemberReach",
             "conversionValueInLocalCurrency",
             "landingPageClicks",
             "totalEngagements",
@@ -305,6 +327,7 @@ RESOURCE_SCHEMAS: dict[LinkedinAdsResource, ResourceSchema] = {
         "partition_format": "week",
         "is_stats": True,
         "partition_size": 1,
+        "max_window_days": REACH_MAX_WINDOW_DAYS,
     },
     LinkedinAdsResource.CampaignGroupStats: {
         "resource_name": "campaign_group_stats",
@@ -344,6 +367,9 @@ RESOURCE_SCHEMAS: dict[LinkedinAdsResource, ResourceSchema] = {
             "costInUsd",
             "costInLocalCurrency",
             "externalWebsiteConversions",
+            "externalWebsitePostClickConversions",
+            "externalWebsitePostViewConversions",
+            "approximateMemberReach",
             "conversionValueInLocalCurrency",
             "landingPageClicks",
             "totalEngagements",
@@ -361,6 +387,7 @@ RESOURCE_SCHEMAS: dict[LinkedinAdsResource, ResourceSchema] = {
         "partition_format": "week",
         "is_stats": True,
         "partition_size": 1,
+        "max_window_days": REACH_MAX_WINDOW_DAYS,
     },
     LinkedinAdsResource.MemberCompanyStats: _demographic_stats_schema("member_company_stats"),
     LinkedinAdsResource.MemberCompanySizeStats: _demographic_stats_schema("member_company_size_stats"),

@@ -185,7 +185,7 @@ A table created before the switch to `ReplacingMergeTree` keeps every duplicate,
 
 #### Rows past the TTL
 
-A request window can reach rows past the 90-day TTL that a part still holds, because `ttl_only_drop_parts = 1` drops a part only once its newest row expires.
+A request window can reach rows past the 92-day TTL that a part still holds, because `ttl_only_drop_parts = 1` drops a part only once its newest row expires.
 The copy stages those rows like any others.
 A reingested part that holds only expired rows can then drop before the reingest or the shard verify counts it.
 `DeletionTarget.ttl_days` makes both checks compare only rows at least two days short of their TTL, on the table side and the staged side alike.
@@ -218,7 +218,7 @@ The job finds typed columns through their comments in `system.columns`, not thro
 ### Immediate event removal with a HogQL predicate does not sweep `flag_evaluations`
 
 `get_event_removal_shards` leaves `flag_evaluations` out of the sweep for an immediate request that carries a HogQL predicate.
-A row with an events copy ages out with the table's TTL. The table partitions by month with `ttl_only_drop_parts = 1`, so a part drops only once its newest row expires: the real wait is up to about 120 days, not the 90-day TTL.
+A row with an events copy ages out with the table's TTL. The table partitions by month with `ttl_only_drop_parts = 1`, so a part drops only once its newest row expires: the real wait is up to about 122 days, not the 92-day TTL.
 The events copies that a deferred request deletes through do not help here, because the immediate path deletes the events rows without queueing their uuids.
 A row with no events copy is checked instead.
 The request refuses while such a row matches the predicate compiled for this table (below), or matches the request's other criteria when the predicate cannot run on this table.

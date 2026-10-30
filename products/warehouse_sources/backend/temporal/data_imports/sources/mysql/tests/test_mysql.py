@@ -2448,23 +2448,40 @@ class TestMySQLSourceNonRetryableErrors:
         return MySQLSource()
 
     @pytest.mark.parametrize(
-        "error_msg",
+        "error_msg, stops_the_sync",
         [
-            "(2003, \"Can't connect to MySQL server on 'db.example.com' (timed out)\")",
-            "(2003, \"Can't connect to MySQL server on 'db.example.com' ([Errno 111] Connection refused)\")",
+            ("(2003, \"Can't connect to MySQL server on 'db.example.com' (timed out)\")", False),
+            ("(2003, \"Can't connect to MySQL server on 'db.example.com' ([Errno 110] Connection timed out)\")", False),
+            (
+                "(2003, \"Can't connect to MySQL server on 'db.example.com' ([Errno 104] Connection reset by peer)\")",
+                False,
+            ),
+            ("(2003, \"Can't connect to MySQL server on 'db.example.com' ([Errno 111] Connection refused)\")", True),
+            ("(2003, \"Can't connect to MySQL server on 'db.example.com' ([Errno 113] No route to host)\")", True),
+            (
+                "(2003, \"Can't connect to MySQL server on 'nope.example.com' ([Errno -2] Name or service not known)\")",
+                True,
+            ),
         ],
     )
-    def test_cannot_connect_surfaces_actionable_message(self, source, error_msg):
-        # A persistent connect failure is non-retryable, but the customer must get reachability
-        # guidance rather than the raw pymysql (2003, ...) tuple. Guards against reverting the
-        # umbrella message back to None.
-        non_retryable = source.get_non_retryable_errors()
+    def test_cannot_connect_surfaces_actionable_message(self, source, error_msg, stops_the_sync):
+        # A refused port or an unknown host stays wrong on every attempt, so it stops the sync. A
+        # timeout or reset often clears by the next run, so it stays retryable. Both must replace
+        # pymysql's raw (2003, ...) tuple, which repeats the customer's host.
+        non_retryable = {**Any_Source_Errors, **source.get_non_retryable_errors()}
+        assert error_message_matches(error_msg, non_retryable) is stops_the_sync
+        if stops_the_sync:
+            messages = source.get_non_retryable_errors()
+        else:
+            assert error_message_matches(error_msg, source.get_retryable_errors())
+            messages = source.get_retry_exhausted_errors()
         friendly = next(
-            (message for pattern, message in non_retryable.items() if pattern in error_msg),
+            (message for pattern, message in messages.items() if error_message_matches(error_msg, [pattern])),
             None,
         )
         assert friendly is not None, f"Connect failure should surface a friendly message: {error_msg}"
         assert "SSH tunnel" in friendly
+        assert "example.com" not in friendly
 
     def test_tidb_cloud_access_denied_surfaces_actionable_message(self, source):
         # TiDB Cloud's ER_ACCESS_DENIED_ERROR wording doesn't contain the standard MySQL

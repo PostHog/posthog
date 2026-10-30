@@ -1810,19 +1810,30 @@ async fn person_planning_is_all_or_nothing_and_idempotent() -> Result<()> {
     .await
 }
 
-/// The sentinel day makes person chunks claim strictly after behavioral days on the shared claim
-/// loop, and a person claim decodes its range with `num_bands` = the run's chunk count.
+/// Behavioral days claim newest first across runs, and person chunks claim strictly after every
+/// behavioral day on the shared claim loop even though their sentinel day is the newest. A person
+/// claim decodes its range with `num_bands` = the run's chunk count.
 #[tokio::test]
-async fn person_chunks_claim_after_behavioral_days_and_carry_ranges() -> Result<()> {
+async fn behavioral_days_claim_newest_first_then_person_chunks_with_ranges() -> Result<()> {
     with_db(|pool| async move {
         let behavioral_run =
             insert_run(&pool, 2, "team_enablement", "seeding", true, empty_pinned()).await?;
+        // Another team, because a team holds one active team-scoped run per kind.
+        let other_team_run =
+            insert_run(&pool, 3, "team_enablement", "seeding", true, empty_pinned()).await?;
         let person_run = insert_person_run(&pool, 2, "seeding", true, person_pinned(&[])).await?;
         let store = PgChunkStore::new(pool.clone());
         ensure!(
             planned_count(
                 store
-                    .plan_chunks(behavioral_run, historical([100]), ONE_BAND)
+                    .plan_chunks(behavioral_run, historical([98, 100]), ONE_BAND)
+                    .await?
+            )? == 2
+        );
+        ensure!(
+            planned_count(
+                store
+                    .plan_chunks(other_team_run, historical([99]), ONE_BAND)
                     .await?
             )? == 1
         );
@@ -1832,42 +1843,54 @@ async fn person_chunks_claim_after_behavioral_days_and_carry_ranges() -> Result<
 
         let lease60 = LeaseDuration::new(Duration::from_secs(60))?;
         let attempts5 = MaxAttempts::new(5)?;
-        let run_ids = [behavioral_run, person_run];
+        let run_ids = [behavioral_run, other_team_run, person_run];
         let claimant = Claimant::new("worker-a")?;
 
-        let first = store
-            .claim_next(&run_ids, &claimant, lease60, attempts5)
-            .await?
-            .context("behavioral chunk was not claimed first")?;
-        ensure!(first.chunk.spec().lease.run_id() == behavioral_run);
-        ensure!(first.chunk.spec().person_range.is_none());
+        let mut behavioral_claims = Vec::new();
+        for _ in 0..3 {
+            let claim = store
+                .claim_next(&run_ids, &claimant, lease60, attempts5)
+                .await?
+                .context("behavioral chunk was not claimed before person chunks")?;
+            ensure!(claim.chunk.spec().person_range.is_none());
+            behavioral_claims.push((claim.chunk.spec().lease.run_id(), claim.chunk.spec().day));
+        }
+        ensure!(
+            behavioral_claims
+                == [
+                    (behavioral_run, 100),
+                    (other_team_run, 99),
+                    (behavioral_run, 98)
+                ],
+            "expected newest day first across runs, got {behavioral_claims:?}"
+        );
 
-        let second = store
+        let first_person = store
             .claim_next(&run_ids, &claimant, lease60, attempts5)
             .await?
             .context("first person chunk was not claimed")?;
-        let second_spec = second.chunk.spec();
-        ensure!(second_spec.lease.run_id() == person_run);
-        ensure!(second_spec.band.band() == 0);
-        ensure!(second_spec.band.num_bands().get() == 2);
-        let second_range = second_spec
+        let first_person_spec = first_person.chunk.spec();
+        ensure!(first_person_spec.lease.run_id() == person_run);
+        ensure!(first_person_spec.band.band() == 0);
+        ensure!(first_person_spec.band.num_bands().get() == 2);
+        let first_person_range = first_person_spec
             .person_range
             .context("person claim lost its range")?;
-        ensure!(second_range.lo() == Uuid::nil());
-        ensure!(second_range.hi() == Some(boundary));
+        ensure!(first_person_range.lo() == Uuid::nil());
+        ensure!(first_person_range.hi() == Some(boundary));
 
-        let third = store
+        let second_person = store
             .claim_next(&run_ids, &claimant, lease60, attempts5)
             .await?
             .context("second person chunk was not claimed")?;
-        let third_range = third
+        let second_person_range = second_person
             .chunk
             .spec()
             .person_range
             .context("person claim lost its range")?;
-        ensure!(third_range.lo() == boundary);
-        ensure!(third_range.hi().is_none());
-        drop((first, second, third));
+        ensure!(second_person_range.lo() == boundary);
+        ensure!(second_person_range.hi().is_none());
+        drop((first_person, second_person));
         Ok(())
     })
     .await

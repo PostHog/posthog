@@ -9,6 +9,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { tagsModel } from '~/models/tagsModel'
 
+import { AnalyticsDisplayMenu } from './AnalyticsDisplayMenu'
 import { AnalyticsFilterOption, AnalyticsFilterPicker } from './AnalyticsFilterPicker'
 import { analyticsListLogic } from './analyticsListLogic'
 import { AnalyticsOwnerAvatar } from './AnalyticsOwner'
@@ -18,7 +19,7 @@ import { ANALYTICS_TYPES, AnalyticsTypeFilter } from './analyticsUtils'
 
 /** Search, type, creator and the personal toggle, all one height so the row reads as one bar. */
 export function AnalyticsListFilters(): JSX.Element {
-    const { filters, filtersActive, searchInput, scope } = useValues(analyticsListLogic)
+    const { filters, filtersActive, searchInput, scope, insightsHidden } = useValues(analyticsListLogic)
     const { setSearchInput, setFilters, clearFilters } = useActions(analyticsListLogic)
     const { tags: allTags, tagsLoading } = useValues(tagsModel)
     const { loadTagsIfNeeded } = useActions(tagsModel)
@@ -53,7 +54,10 @@ export function AnalyticsListFilters(): JSX.Element {
                     <IconTrends />
                     All
                 </ToggleGroupItem>
-                {ANALYTICS_TYPES.map((info) => (
+                {ANALYTICS_TYPES.filter(
+                    // A link can still open the insight type, so its tab stays while it is the one shown.
+                    (info) => !insightsHidden || info.type !== 'insight' || filters.type === 'insight'
+                ).map((info) => (
                     <ToggleGroupItem
                         key={info.type}
                         value={info.type}
@@ -102,6 +106,9 @@ export function AnalyticsListFilters(): JSX.Element {
                     Clear filters
                 </Button>
             )}
+            <div className="ml-auto">
+                <AnalyticsDisplayMenu />
+            </div>
         </div>
     )
 }

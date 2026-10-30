@@ -1,8 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import { BindLogic } from 'kea'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-
 import { useStorybookMocks } from '~/mocks/browser'
 
 import { llmEvaluationLogic } from '../llmEvaluationLogic'
@@ -14,7 +12,6 @@ const meta: Meta<{ method?: JudgeMethod; narrow?: boolean; empty?: boolean; nati
     component: EvaluationModelPicker,
     parameters: {
         layout: 'padded',
-        featureFlags: [FEATURE_FLAGS.LLM_ANALYTICS_SYSTEM_ONE_EVALUATIONS],
     },
     render: ({ method = 'llm', narrow = false, empty = false, nativeOpenAI = false }) => {
         useStorybookMocks({
@@ -107,6 +104,5 @@ export const LLM: Story = { args: { method: 'llm' } }
 export const Decision: Story = { args: { method: 'decision' } }
 export const DecisionNarrow: Story = { args: { method: 'decision', narrow: true } }
 export const NoDecisionModels: Story = { args: { method: 'decision', empty: true } }
-export const FlagOff: Story = { parameters: { featureFlags: [] } }
 export const NativeOpenAI: Story = { args: { method: 'decision', nativeOpenAI: true } }
 export const NativeOpenAINarrow: Story = { args: { method: 'decision', nativeOpenAI: true, narrow: true } }

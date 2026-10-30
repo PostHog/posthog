@@ -18,7 +18,7 @@ from posthog.dataclasses import frozen
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.oauth import PosthogMcpScopes
 
-from products.tasks.backend.constants import SNAPSHOT_KIND_FILESYSTEM, is_same_run_resume_state
+from products.tasks.backend.constants import RESUME_SNAPSHOT_KIND, is_same_run_resume_state
 from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.logic.services.sandbox import is_public_sandbox_repo
 from products.tasks.backend.temporal.babysit_pr.prompts import (
@@ -70,7 +70,6 @@ from .activities.feature_flags import (
 )
 from .activities.forward_pending_message import forward_pending_user_message
 from .activities.get_sandbox_exit_reason import GetSandboxExitReasonInput, get_sandbox_exit_reason
-from .activities.get_sandbox_for_repository import GetSandboxForRepositoryOutput
 from .activities.get_task_processing_context import (
     GetTaskProcessingContextInput,
     TaskProcessingContext,
@@ -79,11 +78,13 @@ from .activities.get_task_processing_context import (
 from .activities.materialize_context_layer import MaterializeContextLayerInput, materialize_context_layer_in_sandbox
 from .activities.post_slack_update import PostSlackUpdateInput, post_slack_update
 from .activities.provision_sandbox import (
+    REPOSITORY_CLONE_RETRY_DELAYS_SECONDS,
     CheckoutBranchInSandboxInput,
     CloneRepositoryInSandboxInput,
     CloneRepositoryInSandboxOutput,
     CreateSandboxForRepositoryInput,
     CreateSandboxForRepositoryOutput,
+    GetSandboxForRepositoryOutput,
     InjectFreshTokensOnResumeInput,
     InvalidateResumeSnapshotInput,
     PrepareSandboxForRepositoryInput,
@@ -99,12 +100,6 @@ from .activities.provision_sandbox import (
     restore_sandbox_connection_state,
 )
 from .activities.read_sandbox_logs import ReadSandboxLogsInput, read_sandbox_logs
-from .activities.record_peer_message_outcome import (
-    RecordPeerMessageOutcomeInput,
-    is_timeout_activity_failure,
-    peer_message_id_from_context,
-    record_peer_message_outcome,
-)
 from .activities.relay_sandbox_events import RelaySandboxEventsInput, relay_sandbox_events_deferred_completion
 from .activities.run_wizard import RunWizardInput, run_wizard
 from .activities.send_followup_to_sandbox import (
@@ -351,11 +346,6 @@ SELF_DRIVING_QUOTA_RECHECK_INTERVAL = timedelta(minutes=5)
 
 _ORIGIN_PRODUCT_SIGNAL_REPORT = "signal_report"
 
-# Gates the forward of the agent_final_text signal to the Slack relay. A worker without the
-# handler records that signal in history and sends nothing, so a replay that forwards it emits a
-# command the history does not have (TMPRL1100).
-_PATCH_ID_SLACK_AGENT_FINAL_TEXT = "tasks-slack-agent-final-text"
-
 # Progress steps of sandbox setup. The Slack plan shows them until the first turn starts.
 _SLACK_SETUP_PROGRESS_STEPS = frozenset({"sandbox", "clone", "checkout", "wizard", "agent"})
 
@@ -450,8 +440,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._sandbox_ttl_snapshot_taken: bool = False
         # Decided once at workflow start; gates the placeholder skip + relay spawn.
         self._is_agent_design_enabled: bool = False
-        # See _PATCH_ID_SLACK_AGENT_FINAL_TEXT.
-        self._forwards_agent_final_text: bool = False
         self._dev_stack_preview_enabled: bool = False
         # Deadline-based so heartbeats waking the event loop don't keep resetting the timer.
         self._self_driving_quota_next_check_at: Optional[datetime] = None
@@ -668,6 +656,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             self._self_driving_quota_checks_active
             and self._context is not None
             and self.context.origin_product == _ORIGIN_PRODUCT_SIGNAL_REPORT
+            and (self.context.state or {}).get("billing_product") != "posthog_ai"
             # Research / repo-selection / custom-agent sessions run with create_pr=False and can
             # never open the billable PR; rechecking them would let the quota gate cancel
             # in-flight research.
@@ -1201,8 +1190,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 )
             self._sandbox_url = sandbox_url
             self._sandbox_connect_token = sandbox_connect_token
-            if self._is_agent_design_enabled:
-                self._forwards_agent_final_text = workflow.patched(_PATCH_ID_SLACK_AGENT_FINAL_TEXT)
 
             relay_task: asyncio.Task[None] | None = self._spawn_event_relay(
                 sandbox_url, sandbox_connect_token, sandbox_id
@@ -1625,61 +1612,68 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             # Skip teardown on a continue_as_new hand-off (a `return` here would swallow the
             # ContinueAsNewError); the loops are already stopped and the sandbox lives on.
             if not continuing_as_new:
-                if self._active_followup_task is not None:
-                    await self._cancel_relay(self._active_followup_task)
-                    self._active_followup_task = None
-                if credential_refresh_task is not None:
-                    await self._cancel_relay(credential_refresh_task)
-                if permission_response_task is not None:
-                    await self._cancel_relay(permission_response_task)
-                if preview_task is not None:
-                    await self._cancel_relay(preview_task)
-                if agent_shadow_task is not None:
-                    await self._cancel_relay(agent_shadow_task)
-                await self._flush_boot_telemetry_tasks()
-                await self._flush_pending_progress_activities()
-                await self._close_dev_stack_preview_progress()
+                try:
+                    if self._active_followup_task is not None:
+                        await self._cancel_relay(self._active_followup_task)
+                        self._active_followup_task = None
+                    if credential_refresh_task is not None:
+                        await self._cancel_relay(credential_refresh_task)
+                    if permission_response_task is not None:
+                        await self._cancel_relay(permission_response_task)
+                    if preview_task is not None:
+                        await self._cancel_relay(preview_task)
+                    if agent_shadow_task is not None:
+                        await self._cancel_relay(agent_shadow_task)
+                    await self._flush_boot_telemetry_tasks()
+                    await self._flush_pending_progress_activities()
+                    await self._close_dev_stack_preview_progress()
 
-                cleanup_sandbox_id = sandbox_id or self._sandbox_id_for_cleanup
-                if cleanup_sandbox_id:
+                    cleanup_sandbox_id = sandbox_id or self._sandbox_id_for_cleanup
+                    if cleanup_sandbox_id:
+                        if (
+                            self._context
+                            and self._context.mode == "interactive"
+                            and self._context.use_modal_resume_snapshots
+                        ):
+                            await self._create_resume_snapshot(
+                                cleanup_sandbox_id,
+                                reason="teardown",
+                                allow_pruning=True,
+                            )
+
+                        await self._read_sandbox_logs(cleanup_sandbox_id)
+                        await self._cleanup_sandbox(
+                            cleanup_sandbox_id,
+                            complete_stream=True,
+                        )
+                        sandbox_cleaned = True
+                        self._sandbox_id_for_cleanup = None
+                    elif not run_stream_completed and (self._context is None or self._context.environment == "cloud"):
+                        await self._complete_run_stream(run_id)
+
+                    if sandbox_cleaned and self._slack_thread_context and self._context:
+                        await self._post_slack_update(sandbox_cleaned=True)
+                finally:
                     if (
                         self._context
-                        and self._context.mode == "interactive"
-                        and self._context.use_modal_resume_snapshots
+                        and self.context.origin_product in {_ORIGIN_PRODUCT_SIGNAL_REPORT, "signals_scout"}
+                        and (self.context.state or {}).get("billing_product") != "posthog_ai"
+                        and workflow.patched("signals-publish-spend-on-completion")
                     ):
-                        await self._create_resume_snapshot(
-                            cleanup_sandbox_id,
-                            reason="teardown",
-                            allow_pruning=True,
-                        )
-
-                    await self._read_sandbox_logs(cleanup_sandbox_id)
-                    await self._cleanup_sandbox(
-                        cleanup_sandbox_id,
-                        complete_stream=True,
-                    )
-                    sandbox_cleaned = True
-                    self._sandbox_id_for_cleanup = None
-                elif not run_stream_completed and (self._context is None or self._context.environment == "cloud"):
-                    await self._complete_run_stream(run_id)
-
-                if sandbox_cleaned and self._slack_thread_context and self._context:
-                    await self._post_slack_update(sandbox_cleaned=True)
-
-                if (
-                    self._context
-                    and self.context.origin_product in {_ORIGIN_PRODUCT_SIGNAL_REPORT, "signals_scout"}
-                    and workflow.patched("signals-publish-spend-on-completion")
-                ):
-                    try:
-                        await workflow.execute_activity(
-                            complete_signal_spend,
-                            run_id,
-                            start_to_close_timeout=timedelta(minutes=20),
-                            retry_policy=RetryPolicy(maximum_attempts=1),
-                        )
-                    except Exception:
-                        workflow.logger.exception("Failed to finalize signal spend", extra={"run_id": run_id})
+                        try:
+                            await workflow.execute_activity(
+                                complete_signal_spend,
+                                run_id,
+                                start_to_close_timeout=timedelta(minutes=15),
+                                schedule_to_close_timeout=timedelta(minutes=15),
+                                retry_policy=RetryPolicy(
+                                    initial_interval=timedelta(seconds=5), maximum_interval=timedelta(seconds=30)
+                                ),
+                            )
+                        except temporalio.exceptions.ActivityError:
+                            workflow.logger.exception(
+                                "signals.spend.accounting_failed", extra={"run_id": run_id, "stage": "task_completion"}
+                            )
 
     async def _provision_and_start_agent(self, input: ProcessTaskInput, run_id: str) -> tuple[str, str, str | None]:
         """Initial-run setup: resolve agent-design, provision the sandbox, start the agent
@@ -2034,7 +2028,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     snapshot_external_id=None,
                     used_snapshot=False,
                     should_create_snapshot=True,
-                    snapshot_kind=SNAPSHOT_KIND_FILESYSTEM,
                     snapshot_mount_path=None,
                     snapshot_source="none",
                     image_source=fresh_image_source,
@@ -2102,7 +2095,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                             shallow_clone=prepared.shallow_clone,
                         ),
                         start_to_close_timeout=timedelta(minutes=5),
-                        retry_policy=RetryPolicy(maximum_attempts=3),
+                        retry_policy=RetryPolicy(maximum_attempts=len(REPOSITORY_CLONE_RETRY_DELAYS_SECONDS) + 1),
                     )
                 except Exception as error:
                     if _is_dead_sandbox_failure(error):
@@ -2999,7 +2992,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self.context.state = {
             **(self.context.state or {}),
             "snapshot_external_id": snapshot.external_id,
-            "snapshot_kind": snapshot.snapshot_kind,
+            "snapshot_kind": RESUME_SNAPSHOT_KIND,
             "snapshot_mount_path": snapshot.snapshot_mount_path,
             "same_run_resume": True,
             "same_run_resume_idle": True,
@@ -3321,7 +3314,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                         "sandbox_id": sandbox_id,
                         "reason": reason,
                         "snapshot_external_id": result.external_id,
-                        "snapshot_kind": result.snapshot_kind,
                         "duration_ms": result.duration_ms,
                     },
                 )
@@ -3333,7 +3325,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                         "run_id": self.context.run_id,
                         "sandbox_id": sandbox_id,
                         "reason": reason,
-                        "snapshot_kind": result.snapshot_kind,
                         "duration_ms": result.duration_ms,
                         "error": result.error,
                     },
@@ -3491,8 +3482,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.signal
     async def agent_final_text(self, payload: dict[str, Any]) -> None:
-        if not self._forwards_agent_final_text:
-            return
         await self._forward_to_slack_relay(
             SlackAgentDesignRelayWorkflow.agent_final_text, payload, "slack_final_text_forward_failed"
         )
@@ -3756,22 +3745,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     **error_properties,
                 },
             )
-            peer_message_id = peer_message_id_from_context(context)
-            if peer_message_id is not None:
-                # Peer messages are best-effort: record the outcome on the sender's
-                # audit row and leave this (recipient) run's completion state
-                # untouched. The branch is replay-safe because pre-feature histories
-                # cannot contain peer context.
-                if is_timeout_activity_failure(e):
-                    # The timed-out attempt may still deliver, so leave the row
-                    # non-terminal for a possible delivered write.
-                    workflow.logger.warning(
-                        "peer_message_delivery_timeout_left_nonterminal",
-                        extra={"run_id": self.context.run_id, "peer_message_id": peer_message_id},
-                    )
-                    return None
-                await self._record_peer_message_delivery_failure(peer_message_id, cause_message or str(e))
-                return None
             if self.context.mode == "interactive":
                 if message_id:
                     dedupe_key = _message_dedupe_key(message_id, actor_user_id, context)
@@ -3795,30 +3768,3 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             self._completion_error_type = "followup_delivery_failed"
             self._task_completed = True
         return None
-
-    async def _record_peer_message_delivery_failure(self, peer_message_id: str, detail: str) -> None:
-        """Terminalize the peer message row when delivery failed in a way the
-        delivery activity could not record itself (worker death, timeout). The
-        transition is idempotent (non-terminal rows only), so double-reporting with
-        the activity is harmless; a recording failure is logged and swallowed —
-        bookkeeping must not take the run down either."""
-        try:
-            await workflow.execute_activity(
-                record_peer_message_outcome,
-                RecordPeerMessageOutcomeInput(
-                    peer_message_id=peer_message_id,
-                    outcome="delivery_failed",
-                    failure_phase="sandbox_delivery",
-                    failure_detail=truncate_error_message(detail),
-                ),
-                start_to_close_timeout=timedelta(seconds=30),
-                retry_policy=RetryPolicy(
-                    initial_interval=timedelta(seconds=2),
-                    maximum_attempts=3,
-                ),
-            )
-        except Exception:
-            workflow.logger.warning(
-                "peer_message_failure_record_failed",
-                extra={"run_id": self.context.run_id, "peer_message_id": peer_message_id},
-            )

@@ -3,7 +3,7 @@ import { BindLogic, useValues } from 'kea'
 import React, { useCallback, useMemo, useState } from 'react'
 
 import { IconChevronRight, IconWarning, IconWrench } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonDivider, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 import {
     ChatBubble,
     ChatBubbleContent,
@@ -55,7 +55,6 @@ import {
     useQuillThread,
 } from 'products/posthog_ai/frontend/api/primitives'
 import { LogEntry } from 'products/posthog_ai/frontend/lib/parse-logs'
-import { isPiTaskRuntime } from 'products/posthog_ai/frontend/types/taskTypes'
 import { ReplayVisionScanWidget } from 'products/replay_vision/frontend/posthogAi/ReplayVisionScanWidget'
 
 import { LangGraphActivity } from './components/Activity'
@@ -125,7 +124,6 @@ export function Thread({ compact = false }: { compact?: boolean }): JSX.Element 
     const threadSkin = useThreadSkin()
     const quill = threadSkin === 'quill'
     const isSandboxRuntime = conversation?.agent_runtime === 'sandbox'
-    const isPiTask = isPiTaskRuntime(conversation?.task?.runtime)
 
     // Register the sandbox stream rendered in the side panel as the foreground stream (tool apply-back
     // reacts only to it). Only the side-panel instance qualifies — the full-page /ai scene (any other
@@ -158,10 +156,6 @@ export function Thread({ compact = false }: { compact?: boolean }): JSX.Element 
             ) : null,
         [feedbackTaskId, feedbackRun]
     )
-
-    if (isPiTask) {
-        return <LemonBanner type="info">Pi session logs aren't available in PostHog yet.</LemonBanner>
-    }
 
     // Born-sandbox conversation (no legacy history): render only the sandbox thread.
     if (isSandboxRuntime && !isConvertedConversation) {
@@ -846,16 +840,14 @@ const Message = React.memo(function Message({
                     } else if (isArtifactMessage(message)) {
                         if (isVisualizationArtifactContent(message.content)) {
                             return (
-                                // A chart card needs more room from the text around it than the thread's row gap gives.
-                                <div key={key} className={quill ? 'my-2' : undefined}>
-                                    <VisualizationArtifact
-                                        message={message}
-                                        content={message.content}
-                                        status={message.status}
-                                        isEditingInsight={editInsightToolRegistered}
-                                        activeSceneId={activeSceneId}
-                                    />
-                                </div>
+                                <VisualizationArtifact
+                                    key={key}
+                                    message={message}
+                                    content={message.content}
+                                    status={message.status}
+                                    isEditingInsight={editInsightToolRegistered}
+                                    activeSceneId={activeSceneId}
+                                />
                             )
                         } else if (isNotebookArtifactContent(message.content)) {
                             return (

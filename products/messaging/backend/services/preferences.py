@@ -1,4 +1,4 @@
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from typing import Any
 
 from django.db import transaction
@@ -145,17 +145,21 @@ def recipient_or_none(team_id: int, identifier: str) -> MessageRecipientPreferen
     return MessageRecipientPreference.objects.filter(team_id=team_id, identifier=identifier).first()
 
 
-def set_preferences_column(team_id: int, identifier: str, preferences: dict[str, Any]) -> None:
-    recipient = MessageRecipientPreference.objects.get(team_id=team_id, identifier=identifier)
-    recipient.preferences = preferences
-    recipient.save(update_fields=["preferences"])
+def transition_preferences(
+    team_id: int,
+    identifier: str,
+    build: Callable[[dict[str, Any]], dict[str, Any]],
+    *,
+    touch_updated_at: bool,
+) -> dict[str, Any]:
+    """Replace the recipient's preferences with `build(stored)` under a row lock, and return the stored ones.
 
-
-def replace_preferences(team_id: int, identifier: str, preferences: dict[str, Any]) -> None:
-    try:
-        recipient = MessageRecipientPreference.objects.get(team_id=team_id, identifier=identifier)
-    except MessageRecipientPreference.DoesNotExist:
-        recipient = MessageRecipientPreference(team_id=team_id, identifier=identifier)
-    # Update all preferences with a single DB write
-    recipient.preferences = preferences
-    recipient.save()
+    Concurrent saves for one recipient run one after another, so each sees the result of the one before it.
+    """
+    with transaction.atomic():
+        MessageRecipientPreference.objects.get_or_create(team_id=team_id, identifier=identifier)
+        recipient = MessageRecipientPreference.objects.select_for_update().get(team_id=team_id, identifier=identifier)
+        prior = dict(recipient.preferences or {})
+        recipient.preferences = build(prior)
+        recipient.save(update_fields=None if touch_updated_at else ["preferences"])
+    return prior

@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect, useRef } from 'react'
 
-import { IconArrowLeft, IconCheckCircle, IconPullRequest } from '@posthog/icons'
+import { IconArrowLeft, IconCheckCircle } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
@@ -24,6 +24,7 @@ import {
 } from '../../utils/reportPresentation'
 import { SignalReportPriorityBadge } from '../badges/SignalReportPriorityBadge'
 import { ConventionalCommitScopeTag, InboxCardSourceMeta } from '../cards/ReportCard'
+import { ImplementButton } from '../detail/ImplementButton'
 import { DismissOrUnassignButton } from './DismissOrUnassignButton'
 
 /**
@@ -105,8 +106,8 @@ function HintBarItem({ shortcut, label }: { shortcut: JSX.Element; label: string
 }
 
 export function TriageCard({ report, expanded }: { report: SignalReport; expanded: boolean }): JSX.Element {
-    const { canCreatePr, isCreatingPr, createPrDisabledReason, currentReportUrl } = useValues(inboxTriageLogic)
-    const { resolveCurrent, createPrForCurrent, openCurrent, toggleExpanded } = useActions(inboxTriageLogic)
+    const { canCreatePr, currentReportUrl } = useValues(inboxTriageLogic)
+    const { resolveCurrent, openCurrent, toggleExpanded } = useActions(inboxTriageLogic)
     // Read above the article keyed by report, so a key still held after Unassign me survives the
     // move to the next report.
     const commandKeyHeld = useKeyHeld(COMMAND_KEY)
@@ -211,20 +212,7 @@ export function TriageCard({ report, expanded }: { report: SignalReport; expande
                     Resolve
                 </LemonButton>
                 <DismissOrUnassignButton commandKeyHeld={commandKeyHeld} />
-                {canCreatePr && (
-                    <LemonButton
-                        type="primary"
-                        size="small"
-                        icon={<IconPullRequest />}
-                        onClick={createPrForCurrent}
-                        loading={isCreatingPr}
-                        disabledReason={createPrDisabledReason ?? undefined}
-                        sideIcon={<KeyboardShortcut c />}
-                        data-attr="inbox-triage-create-pr"
-                    >
-                        Create PR
-                    </LemonButton>
-                )}
+                {canCreatePr && <ImplementButton report={report} surface="triage_mode" />}
                 <div className="flex-1" />
                 <LemonButton
                     type="tertiary"

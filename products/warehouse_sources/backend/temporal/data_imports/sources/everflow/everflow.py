@@ -121,11 +121,18 @@ def flatten_entity_row(row: dict[str, Any], day: str, currency_code: str) -> dic
     return flat
 
 
-def _without(columns: tuple[str, ...]) -> Callable[[dict[str, Any]], dict[str, Any]]:
-    def drop(row: dict[str, Any]) -> dict[str, Any]:
-        return {key: value for key, value in row.items() if key not in columns}
+def _row_map(
+    drop_columns: tuple[str, ...], float_columns: tuple[str, ...]
+) -> Callable[[dict[str, Any]], dict[str, Any]]:
+    def apply(row: dict[str, Any]) -> dict[str, Any]:
+        mapped = {key: value for key, value in row.items() if key not in drop_columns}
+        for column in float_columns:
+            value = mapped.get(column)
+            if isinstance(value, int) and not isinstance(value, bool):
+                mapped[column] = float(value)
+        return mapped
 
-    return drop
+    return apply
 
 
 def _api_key_auth(api_key: str) -> APIKeyAuth:
@@ -140,6 +147,7 @@ def _daily_performance(
     start: date,
     end: date,
     manager: ResumableSourceManager[EverflowResumeConfig],
+    row_map: Callable[[dict[str, Any]], dict[str, Any]],
 ) -> Iterator[list[dict[str, Any]]]:
     client = RESTClient(base_url=base_url, auth=_api_key_auth(api_key), request_timeout=REQUEST_TIMEOUT)
     day = start
@@ -163,7 +171,8 @@ def _daily_performance(
                         f"Everflow's daily report for {day.isoformat()} hit its 10,000-row limit"
                     )
                 rows.extend(
-                    flatten_entity_row(row, day.isoformat(), currency_code) for row in response_body.get("table") or []
+                    row_map(flatten_entity_row(row, day.isoformat(), currency_code))
+                    for row in response_body.get("table") or []
                 )
 
         if next_day <= end:
@@ -201,6 +210,7 @@ def everflow_source(
         "partition_format": "month" if config.partition_key else None,
         "partition_keys": [config.partition_key] if config.partition_key else None,
     }
+    row_map = _row_map(config.drop_columns, config.float_columns)
 
     if endpoint == "daily_performance":
         start = (
@@ -210,7 +220,7 @@ def everflow_source(
         )
         return SourceResponse(
             items=lambda: _daily_performance(
-                api_key, base_url, config.path, currency_code, start, today, resumable_source_manager
+                api_key, base_url, config.path, currency_code, start, today, resumable_source_manager, row_map
             ),
             # Days are requested in order, so rows arrive in date order.
             sort_mode="asc",
@@ -259,7 +269,7 @@ def everflow_source(
                     "data_selector": config.data_selector,
                 },
                 "table_format": "delta",
-                **({"data_map": _without(config.drop_columns)} if config.drop_columns else {}),
+                **({"data_map": row_map} if config.drop_columns or config.float_columns else {}),
             }
         ],
     }

@@ -1178,7 +1178,40 @@ export interface FeatureFlagCreateRequestSchemaApi {
     bucketing_identifier?: BucketingIdentifierEnumApi | null
 }
 
+/**
+ * * `errors` - Errors or bugs
+ * * `metrics` - Metrics got worse
+ * * `planned` - It was planned
+ * * `wrong_configuration` - Wrong configuration
+ * * `other` - Other
+ */
+export type RollbackReasonEnumApi = (typeof RollbackReasonEnumApi)[keyof typeof RollbackReasonEnumApi]
+
+export const RollbackReasonEnumApi = {
+    Errors: 'errors',
+    Metrics: 'metrics',
+    Planned: 'planned',
+    WrongConfiguration: 'wrong_configuration',
+    Other: 'other',
+} as const
+
 export interface PatchedFeatureFlagPartialUpdateRequestSchemaApi {
+    /** When true, the edit lowers the flag's exposure, and the request sends no `rollback_reason`, the flag is not saved and the response is a 409 with the code `rollback_reason_required`. Send the edit again without this field to save it, with or without a `rollback_reason`. Ignored for an edit that needs approval and for a config version 2 flag. */
+    ask_rollback_reason?: boolean
+    /** Why this edit lowers the flag's exposure, for example a rollback after errors. Stored on the activity log entry of the edit. Not stored for an edit that needs approval or for a config version 2 flag.
+     *
+     * * `errors` - Errors or bugs
+     * * `metrics` - Metrics got worse
+     * * `planned` - It was planned
+     * * `wrong_configuration` - Wrong configuration
+     * * `other` - Other */
+    rollback_reason?: RollbackReasonEnumApi | null
+    /**
+     * A free-text note for `rollback_reason`. Requires `rollback_reason`.
+     * @maxLength 1000
+     * @nullable
+     */
+    rollback_reason_note?: string | null
     /** Feature flag key. */
     key?: string
     /** Feature flag description (stored in the `name` field for backwards compatibility). */
@@ -1214,6 +1247,11 @@ export interface PatchedFeatureFlagPartialUpdateRequestSchemaApi {
      * * `distinct_id` - User ID (default)
      * * `device_id` - Device ID */
     bucketing_identifier?: BucketingIdentifierEnumApi | null
+    /**
+     * The `version` from your most recent read of this flag. Required when the flag's `filters.version` is 2: the update is then refused with 409 if anyone else changed the flag after that version. Other flags do not check it.
+     * @minimum 0
+     */
+    version?: number
 }
 
 export interface ChangeApi {
@@ -1652,6 +1690,17 @@ export interface DependentFlagApi {
     name: string
 }
 
+export interface FeatureFlagSetActiveRequestApi {
+    /**
+     * The `version` from your most recent read of this flag. Required when the flag's `filters.version` is 2, optional otherwise. When sent, the change is refused with 409 if anyone else changed the flag after that version. Null is the same as leaving it out.
+     * @minimum 0
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type FeatureFlagActionConflictApi = FlagActionErrorApi | FlagApprovalConflictApi
+
 export interface FeatureFlagRollOutToEveryoneRequestApi {
     /**
      * The `version` from your most recent read of this flag. The change is refused with 409 if anyone else changed the flag after that version. A flag written before versioning reads as `null`; send that back unchanged and it is read as 0, so the value a read returns is always one this accepts.
@@ -1665,8 +1714,6 @@ export interface FeatureFlagRollOutToEveryoneRequestApi {
      */
     variant_key?: string | null
 }
-
-export type FeatureFlagActionConflictApi = FlagActionErrorApi | FlagApprovalConflictApi
 
 export interface FeatureFlagSetReleaseConditionRolloutRequestApi {
     /**
@@ -1784,7 +1831,7 @@ export interface FeatureFlagTestEvaluationResponseApi {
      */
     reason_description?: string | null
     /**
-     * The index of the condition that matched, if applicable
+     * The index of the condition that matched, if applicable. For a flag with config version 2, the zero-based index of the rule in `filters.rules` that decided the result, or null when no rule decided it.
      * @nullable
      */
     condition_index: number | null
@@ -1797,8 +1844,10 @@ export interface FeatureFlagTestEvaluationResponseApi {
      * @nullable
      */
     evaluation_distinct_id: string | null
-    /** Detailed analysis of each condition in the feature flag */
+    /** Detailed analysis of each condition in the feature flag. Always empty for a flag with config version 2, which `conditions_unavailable_reason` then explains. */
     conditions: FeatureFlagConditionAnalysisApi[]
+    /** Present only when `conditions` is empty because the evaluated config has no per-condition analysis. An empty list then does not mean the flag has no conditions or rules. */
+    conditions_unavailable_reason?: string
 }
 
 export type FeatureFlagVersionResponseApiFilters = { [key: string]: unknown }

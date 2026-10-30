@@ -164,6 +164,7 @@ class MetronomeSource(ResumableSource[MetronomeSourceConfig, MetronomeResumeConf
                     ),
                     SourceFieldInputConfig(
                         name="usage_hourly_history_days",
+                        sync_setting=True,
                         label="Hourly usage history (days)",
                         type=SourceFieldInputConfigType.NUMBER,
                         required=False,
@@ -172,6 +173,7 @@ class MetronomeSource(ResumableSource[MetronomeSourceConfig, MetronomeResumeConf
                     ),
                     SourceFieldInputConfig(
                         name="usage_daily_history_months",
+                        sync_setting=True,
                         label="Daily usage history (months)",
                         type=SourceFieldInputConfigType.NUMBER,
                         required=False,

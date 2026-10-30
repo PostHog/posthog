@@ -10,8 +10,8 @@ from django.test import SimpleTestCase
 
 from products.customer_analytics.backend.facade.contracts import KeyMetric
 from products.today.backend.logic.highlight_registry import load_sources
-from products.today.backend.logic.highlight_sources import key_metrics
 from products.today.backend.logic.highlight_types import Context, DailyValueNotReady
+from products.today.backend.logic.today_highlights import key_metrics
 
 TODAY = date(2026, 10, 13)
 

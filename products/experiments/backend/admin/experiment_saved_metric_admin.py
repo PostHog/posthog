@@ -2,6 +2,7 @@ from django.contrib import admin, messages
 from django.shortcuts import redirect
 from django.urls import path, reverse
 from django.utils.html import format_html
+from django.utils.safestring import mark_safe
 
 from products.experiments.backend.legacy_migration import migrate_saved_metric
 from products.experiments.backend.models.experiment import ExperimentSavedMetric
@@ -36,7 +37,7 @@ class ExperimentSavedMetricAdmin(admin.ModelAdmin):
     def engine(self, saved_metric: ExperimentSavedMetric):
         kind = saved_metric.query.get("kind") if saved_metric.query else None
         if kind in ("ExperimentFunnelsQuery", "ExperimentTrendsQuery"):
-            return format_html('<span style="color: orange;">Legacy</span>')
+            return mark_safe('<span style="color: orange;">Legacy</span>')
         return ""
 
     @admin.display(description="")

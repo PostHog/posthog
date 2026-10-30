@@ -1085,6 +1085,42 @@ describe("buildSessionOptions", () => {
       expect(options.settingSources).toEqual(["user", "project", "local"]);
     });
 
+    it("pins disableAllHooks for a run that opts out of repo hooks", () => {
+      const options = buildSessionOptions({
+        ...makeParams(),
+        gatewayEnv,
+        disableRepoHooks: true,
+      });
+
+      const settings = flagSettings(options);
+      expect(settings.disableAllHooks).toBe(true);
+      expect(settings.hooks).toBeUndefined();
+      expect(settings.env.ANTHROPIC_BASE_URL).toBe("https://gateway.example");
+      expect(options.settingSources).toEqual(["user", "project", "local"]);
+    });
+
+    it("passes disableAllHooks inline when no gateway pin is written", () => {
+      const options = buildSessionOptions({
+        ...makeParams(),
+        disableRepoHooks: true,
+      });
+
+      expect(JSON.parse(String(options.extraArgs?.settings))).toEqual({
+        disableAllHooks: true,
+      });
+    });
+
+    it("drops repo settings to keep repo hooks off when the caller owns the settings flag", () => {
+      const options = buildSessionOptions({
+        ...makeParams(),
+        gatewayEnv,
+        disableRepoHooks: true,
+        userProvidedOptions: { settings: '{"model":"x"}' },
+      });
+
+      expect(options.settingSources).toEqual(["user"]);
+    });
+
     it.each([
       ["a settings file path", { settings: "/tmp/caller-settings.json" }],
       ["an unparseable settings flag", { extraArgs: { settings: "not json" } }],

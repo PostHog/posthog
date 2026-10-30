@@ -1243,6 +1243,9 @@ function decideSelection({ applies, disabled, draft, legacyChanged, runLegacy, r
         console.error(`Selector requested a full run:\n  ${fullRunReasons.join('\n  ')}`)
         return fallbackSelection(fallbackMode, 'full_run_requested', selection)
     }
+    if (!(Number(selection.durations?.total_seconds) > 0)) {
+        return fallbackSelection(fallbackMode, 'no_durations', selection)
+    }
     const segments = selection.combined?.segments ?? {}
     const core = segments.core ?? []
     const poe = segments.poe ?? []

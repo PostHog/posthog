@@ -323,6 +323,13 @@ body.has-today-phone-layout .Toastify__toast-container--bottom-right {
     padding: 0 8px;
 }
 
+.TodayIconBadge .LemonBadge:not(.LemonBadge--hidden) {
+    width: var(--lemon-badge-size);
+    padding: 0;
+    font-size: 0.5625rem;
+    letter-spacing: -0.03em;
+}
+
 .TodayPane__filters {
     display: flex;
     flex-direction: column;

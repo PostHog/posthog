@@ -28,6 +28,11 @@ class UnsupportedSyncTypeError(ValueError):
     """The stored sync type is not a mode PostHog can run."""
 
 
+class UnreadableSourceInputsError(ValueError):
+    """A source's stored inputs do not decode to a mapping. The message never holds the value, because the
+    value can hold credentials."""
+
+
 class UndecryptedConfigError(ValueError):
     """Raised when a config value reaches conversion still Fernet-encrypted.
 
@@ -44,6 +49,12 @@ class ConfigValueError(ValueError):
     opaque, value-leaking builtin error such as ``invalid literal for int() with base 10: 'lakjsd'``.
     We name the field but never its value, so nothing a user typed reaches logs or error tracking.
     """
+
+
+@dataclass(frozen=True)
+class SyncedWarehouseTable:
+    table_id: UUID
+    name: str
 
 
 @dataclass(frozen=True)

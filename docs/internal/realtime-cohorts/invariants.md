@@ -206,6 +206,8 @@ Most of these are not enforced by a single test, and a violation usually shows u
   Every outcome write is fenced by the dispatch epoch, and `reconcile_observed_at` is written last.
 - Limit: the proof covers planned days, not persons.
   Raising the seeder's band count while a run is seeding leaves persons unscanned, and every chunk still confirms.
+- Limit: a chunk skips a person's tile on a condition where only the newest day counts, once a newer day's chunk of the run has scanned that person.
+  If the newer chunk fails and the person's events on its day are deleted before the retry, neither day sends the person, and every chunk still confirms.
 - See [completion and readiness](completion-and-readiness.md).
 
 **26. A readiness stamp vouches only for the definition its run replayed.**

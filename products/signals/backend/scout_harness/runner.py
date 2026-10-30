@@ -7,7 +7,7 @@ from collections import deque
 from contextlib import nullcontext
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
-from functools import lru_cache
+from functools import lru_cache, partial
 from typing import Any
 from uuid import UUID
 
@@ -38,6 +38,7 @@ from products.signals.backend.first_report_completion import complete_first_repo
 from products.signals.backend.first_report_experiment import FirstReportExperiment, resolve_first_report_experiment
 from products.signals.backend.first_report_scout import set_first_report_state
 from products.signals.backend.first_report_scout_types import FirstReportScoutResult
+from products.signals.backend.github_optional import ResearchAccessPolicy
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
 from products.signals.backend.scout_harness.acting_user import resolve_scout_run_acting_user
 from products.signals.backend.scout_harness.derived_metadata import stamp_derived_metadata
@@ -86,6 +87,7 @@ from products.signals.backend.scout_harness.trial_launch import (
 from products.signals.backend.scout_harness.trial_result import export_trial_result, validate_trial_runtime
 from products.signals.backend.scout_harness.trial_state import SCOUT_TRIAL_METADATA_KEY, initial_trial_state
 from products.signals.backend.scout_report import scout_report_tags_in_use
+from products.signals.backend.spend import record_task_spend
 from products.signals.backend.temporal.agentic import (
     SIGNALS_REPORT_RESEARCH_ENV_NAME,
     get_or_create_signals_sandbox_env,
@@ -1012,6 +1014,7 @@ async def _spawn_and_run(
     # The config's `network_access` picks the sandbox env — and with it the egress policy the
     # provisioning layer enforces. Trusted (default) shares the research env; full gets its own
     # env name so its unrestricted policy can't be reasserted onto the shared one.
+    github_optional = await database_sync_to_async(ResearchAccessPolicy.enabled, thread_sensitive=False)(team.id)
     if config.network_access == SignalScoutConfig.NetworkAccess.FULL:
         sandbox_env_name = SIGNALS_SCOUT_FULL_NETWORK_ENV_NAME
         network_access_level = tasks_facade.SandboxNetworkAccessLevel.FULL
@@ -1157,6 +1160,7 @@ async def _spawn_and_run(
             runtime=runtime,
             experiment=experiment,
             github_guidance=github_guidance,
+            github_optional=github_optional,
             business_knowledge_maintained=business_knowledge_maintained,
             background_backoff=background_backoff,
             repositories=repositories,
@@ -1367,6 +1371,10 @@ def _self_heal_stale_runs(team_id: int, skill_name: str) -> None:
     )
     if not stale_runs:
         return
+    from products.signals.backend.tasks import (
+        settle_scout_spend,  # noqa: PLC0415 - avoids loading the Celery task registry when importing the runner
+    )
+
     # Resolve the team once, only when there is actually something to reap, so the reaped
     # event carries the same team / groups shape as the other scout lifecycle events.
     team = _get_team(team_id)
@@ -1414,6 +1422,7 @@ def _self_heal_stale_runs(team_id: int, skill_name: str) -> None:
                 status_before=status_before,
                 age_seconds=age_seconds,
             )
+            transaction.on_commit(partial(settle_scout_spend.delay, team_id=team_id, run_id=str(task_run.id)))
         except Exception:
             logger.exception(
                 "signals_scout: failed to reap stale in-progress run; continuing",
@@ -1460,6 +1469,7 @@ def _create_run_row(
     runtime: str = "acp",
     experiment: FirstReportExperiment | None = None,
     github_guidance: bool = False,
+    github_optional: bool = False,
     business_knowledge_maintained: bool = False,
     background_backoff: BackgroundBackoff | None = None,
     repositories: list[str] | None = None,
@@ -1509,6 +1519,7 @@ def _create_run_row(
     # minted. Both can change between runs, so this is a fourth composition fork rather than a
     # property of the build.
     metadata["github_guidance"] = github_guidance
+    metadata["github_optional"] = github_optional
     # Whether the business-knowledge section rendered — a fifth composition fork, resolved per run
     # from the team's flag + a maintained knowledge base (`_business_knowledge_maintained_for_team`).
     # Both inputs can change between runs, so like `github_guidance` this is stamped rather than
@@ -1575,16 +1586,19 @@ def _create_run_row(
     # by it. Absent when no pre-check ran.
     if precheck_query_source:
         metadata["precheck_query_source"] = precheck_query_source
-    return SignalScoutRun.objects.unscoped().create(
-        id=run_id,
-        task_run_id=task_run_id,
-        team=team,
-        scout_config=config,
-        skill_name=skill.name,
-        skill_version=skill.version,
-        metadata=metadata,
-        trial_state=initial_trial_state() if trial is not None else None,
-    )
+    with transaction.atomic():
+        run = SignalScoutRun.objects.for_team(team.id).create(
+            id=run_id,
+            task_run_id=task_run_id,
+            team=team,
+            scout_config=config,
+            skill_name=skill.name,
+            skill_version=skill.version,
+            metadata=metadata,
+            trial_state=initial_trial_state() if trial is not None else None,
+        )
+        record_task_spend(team_id=team.id, run_id=str(task_run_id), scout_run_id=str(run.id), stage="scout")
+    return run
 
 
 @dataclass(frozen=True)

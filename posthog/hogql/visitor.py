@@ -274,6 +274,9 @@ class TraversingVisitor(Visitor[None]):
     def visit_field_alias_type(self, node: ast.FieldAliasType):
         self.visit(node.type)
 
+    def visit_array_join_alias_type(self, node: ast.ArrayJoinAliasType):
+        self.visit_field_alias_type(node)
+
     def visit_field_type(self, node: ast.FieldType):
         pass
 

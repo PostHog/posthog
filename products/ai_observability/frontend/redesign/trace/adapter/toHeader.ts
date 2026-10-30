@@ -15,10 +15,15 @@ export interface TraceNeighbours {
 
 type SearchParams = Record<string, unknown>
 
+// The lists read `search` as their own search term, and another trace starts with an empty search.
+function listParams(searchParams: SearchParams): SearchParams {
+    return sanitizeTraceUrlSearchParams(searchParams, { removeSearch: true })
+}
+
 function neighbourHref(traceId: string | null, timestamp: string | null, searchParams: SearchParams): string | null {
     return traceId
         ? combineUrl(urls.aiObservabilityTrace(traceId), {
-              ...sanitizeTraceUrlSearchParams(searchParams),
+              ...listParams(searchParams),
               timestamp: timestamp ?? undefined,
           }).url
         : null
@@ -28,7 +33,7 @@ function neighbourHref(traceId: string | null, timestamp: string | null, searchP
 function reviewsBackHref(searchParams: SearchParams): string {
     const inQueue = typeof searchParams.queue_id === 'string' && searchParams.queue_id !== ''
     return combineUrl(urls.aiObservabilityReviews(), {
-        ...sanitizeTraceUrlSearchParams(searchParams),
+        ...listParams(searchParams),
         human_reviews_tab: inQueue ? undefined : 'reviews',
     }).url
 }
@@ -37,14 +42,13 @@ export function toBackLink(searchParams: SearchParams): LabeledLink {
     if (searchParams.back_to === 'reviews') {
         return { label: 'Back to reviews', href: reviewsBackHref(searchParams) }
     }
-    const listParams = sanitizeTraceUrlSearchParams(searchParams)
     if (searchParams.back_to === 'generations') {
         return {
             label: 'Back to generations',
-            href: combineUrl(urls.aiObservabilityGenerations(), listParams).url,
+            href: combineUrl(urls.aiObservabilityGenerations(), listParams(searchParams)).url,
         }
     }
-    return { label: 'Back to traces', href: combineUrl(urls.aiObservabilityTraces(), listParams).url }
+    return { label: 'Back to traces', href: combineUrl(urls.aiObservabilityTraces(), listParams(searchParams)).url }
 }
 
 export function toHeader(

@@ -27,6 +27,30 @@ tools:
             batches. Pass `date_from` (e.g. '-30d') when the recordings' age is known — it makes the lookup much faster.
             IDs with no matching recording are skipped, so a `deleted_count` below `total_requested` is normal when some
             recordings were already deleted or never existed.
+    session-recording-console-logs-list:
+        operation: session_recordings_console_logs_retrieve
+        enabled: true
+        scopes:
+            - session_recording:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List session recording console logs
+        description: >
+            List the browser console messages captured during a session recording, oldest first. Use this after
+            `session-recording-get` reports console log, warning, or error counts and you need the actual text, for
+            example to tell a JavaScript exception apart from a failed network or resource load. Filter with `level`
+            (`info`, `warn`, or `error`), narrow the time range with `after` and `before`, and page with `limit` and
+            `offset` while `has_more` is true. Results never extend outside the recording's own start and end time.
+            Identical messages logged close together can be collapsed into one entry, so the number of entries can be
+            lower than the counts on the recording. Entries carry only the message text: there are no stack traces here.
+            For an exception's stack trace, look up `$exception` events with the same `$session_id` through the error
+            tracking tools. An empty `results` list does not always mean the session logged nothing: check
+            `console_log_capture_enabled` (false means the project does not capture console logs) and `logs_expired`
+            (true means the recording is older than the console log retention period).
+        feature_flag: mcp-session-recording-console-logs
+        reads_ingested_data: events
     session-recording-delete:
         operation: session_recordings_destroy
         enabled: true

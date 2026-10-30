@@ -188,6 +188,7 @@ class GainsightCsSource(ResumableSource[GainsightCsSourceConfig, GainsightCsResu
                     ),
                     SourceFieldInputConfig(
                         name="custom_objects",
+                        sync_setting=True,
                         label="Custom objects (optional)",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,

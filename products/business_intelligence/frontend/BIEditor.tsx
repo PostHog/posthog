@@ -2,12 +2,11 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { useRef, type ReactNode, type Ref } from 'react'
 
 import { IconX } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { resizerLogic, ResizerLogicProps } from 'lib/components/Resizer/resizerLogic'
 import { IconTableChart } from 'lib/lemon-ui/icons'
-import { urls } from 'scenes/urls'
 
 import { BICalculatedMeasureModal } from 'products/business_intelligence/frontend/BICalculatedMeasureModal'
 import { biEditorLogic } from 'products/business_intelligence/frontend/biEditorLogic'
@@ -26,6 +25,9 @@ import { BIToolbar } from 'products/business_intelligence/frontend/components/BI
 import { BIAnalysisControls } from './BIAnalysisControls'
 import { BILocalFieldModal } from './BILocalFieldModal'
 import { BIMeasureSettingsModal } from './BIMeasureSettingsModal'
+import { biMetricParametersLogic, metricParameterDrafts } from './biMetricParametersLogic'
+import { BIMetricParametersModal } from './BIMetricParametersModal'
+import { BIMetricSnapshotContext } from './BIMetricSnapshotContext'
 
 export function BIEditor({
     tabId,
@@ -40,6 +42,8 @@ export function BIEditor({
     const { removeFieldFromShelf, setActiveDropShelf, setActivePanel, toggleFieldsPane } = useActions(
         biEditorLogic({ tabId })
     )
+    const { open: openMetricParameters } = useActions(biMetricParametersLogic({ tabId }))
+    const hasMetricParameters = metricParameterDrafts(config.querySnapshot).length > 0
     const containerRef = useRef<HTMLDivElement>(null)
     const biEditorResizerProps: ResizerLogicProps = {
         logicKey: 'bi-editor-side-pane',
@@ -87,13 +91,15 @@ export function BIEditor({
         return (
             <BindLogic logic={biEditorLogic} props={{ tabId }}>
                 <div className="@container/bi-editor flex min-h-0 flex-1 flex-col" data-attr="bi-catalog-snapshot">
-                    <LemonBanner type="info" dismissKey="bi-query-snapshot">
-                        This is a fixed SQL copy. Use View SQL to edit its dates or grouping in the SQL editor. Catalog
-                        changes won't update this copy.{' '}
-                        {config.catalogMetric && (
-                            <Link to={urls.dataCatalogMetric(config.catalogMetric)}>View catalog definition</Link>
-                        )}
-                    </LemonBanner>
+                    <BIMetricSnapshotContext config={config} />
+                    {hasMetricParameters && (
+                        <div className="p-2">
+                            <LemonButton type="secondary" onClick={openMetricParameters}>
+                                Edit parameters
+                            </LemonButton>
+                        </div>
+                    )}
+                    <BIMetricParametersModal tabId={tabId} />
                     <BIToolbar />
                     <div className="relative flex min-h-0 flex-1">
                         <div className="flex min-h-0 min-w-0 flex-1 flex-col">{children}</div>

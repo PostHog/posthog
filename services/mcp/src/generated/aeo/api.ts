@@ -147,7 +147,7 @@ export const AeoPromptsChecksQueryParams = () => zod.object({
 })
 
 /**
- * Gets citation totals per answer engine for one prompt, plus per-day counts for the last 30 days in the project's timezone.
+ * Gets citation and brand-mention totals per answer engine for one prompt, plus, for the last 30 days in the project's timezone, per-day counts, which engines cite which domains, brand sentiment per engine, and the words of the web searches the engines ran.
  * @summary Get an AEO prompt's citation stats
  */
 export const AeoPromptsStatsParams = () => zod.object({

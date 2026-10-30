@@ -296,8 +296,12 @@ export interface projectTreeDataLogicActions {
     addLoadedUsers: (users: UserBasicType[]) => {
         users: UserBasicType[]
     }
-    addShortcutItem: (item: FileSystemEntry) => {
+    addShortcutItem: (
+        item: FileSystemEntry,
+        successMessage?: string
+    ) => {
         item: FileSystemEntry
+        successMessage: string | undefined
     }
     addShortcutItemFailure: (
         error: string,
@@ -310,11 +314,13 @@ export interface projectTreeDataLogicActions {
         shortcutData: FileSystemEntry[],
         payload?: {
             item: FileSystemEntry
+            successMessage: string | undefined
         }
     ) => {
         shortcutData: FileSystemEntry[]
         payload?: {
             item: FileSystemEntry
+            successMessage: string | undefined
         }
     }
     createSavedItem: (savedItem: FileSystemEntry) => {
@@ -330,8 +336,12 @@ export interface projectTreeDataLogicActions {
     deleteSavedItem: (savedItem: FileSystemEntry) => {
         savedItem: FileSystemEntry
     }
-    deleteShortcut: (id: FileSystemEntry['id']) => {
+    deleteShortcut: (
+        id: FileSystemEntry['id'],
+        successMessage?: string
+    ) => {
         id: string
+        successMessage: string | undefined
     }
     deleteShortcutFailure: (
         error: string,
@@ -344,11 +354,13 @@ export interface projectTreeDataLogicActions {
         shortcutData: FileSystemEntry[],
         payload?: {
             id: string
+            successMessage: string | undefined
         }
     ) => {
         shortcutData: FileSystemEntry[]
         payload?: {
             id: string
+            successMessage: string | undefined
         }
     }
     deleteTypeAndRef: (
@@ -747,8 +759,8 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
 
         setLastNewFolder: (folder: string | null) => ({ folder }),
 
-        addShortcutItem: (item: FileSystemEntry) => ({ item }),
-        deleteShortcut: (id: FileSystemEntry['id']) => ({ id }),
+        addShortcutItem: (item: FileSystemEntry, successMessage?: string) => ({ item, successMessage }),
+        deleteShortcut: (id: FileSystemEntry['id'], successMessage?: string) => ({ id, successMessage }),
         loadShortcuts: true,
         reorderShortcuts: (orderedIds: NonNullable<FileSystemEntry['id']>[]) => ({ orderedIds }),
         // Resolves a sibling drag ('before' / 'after' a target row) into a new ordered list and
@@ -1070,14 +1082,22 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                     // the loader settle: on timeout it rejects, firing loadShortcutsFailure (which
                     // flips shortcutDataHasLoaded), and kea-loaders' global onFailure handler in
                     // initKea captures the exception so the previously-silent hang is surfaced.
-                    const response = await withTimeout(
-                        (signal) => api.fileSystemShortcuts.list({ signal }),
-                        SHORTCUTS_LOADER_TIMEOUT_MS,
-                        'loadShortcuts timed out'
-                    )
-                    return response.results.map(withProductShortcutHref)
+                    // Each page gets its own timeout. A star past the first page would otherwise look unstarred.
+                    const listPage = (offset: number): ReturnType<typeof api.fileSystemShortcuts.list> =>
+                        withTimeout(
+                            (signal) => api.fileSystemShortcuts.list(offset ? { offset, signal } : { signal }),
+                            SHORTCUTS_LOADER_TIMEOUT_MS,
+                            'loadShortcuts timed out'
+                        )
+                    let page = await listPage(0)
+                    const shortcuts = [...page.results]
+                    while (page.next) {
+                        page = await listPage(shortcuts.length)
+                        shortcuts.push(...page.results)
+                    }
+                    return shortcuts.map(withProductShortcutHref)
                 },
-                addShortcutItem: async ({ item }) => {
+                addShortcutItem: async ({ item, successMessage }) => {
                     const shortcutItem = shortcutFromEntry(item)
                     const { shortcut: response, created } = await api.fileSystemShortcuts.create(shortcutItem)
                     // A star the user already has, for example from another tab, is not a new add.
@@ -1087,7 +1107,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                             item_name: shortcutItem.path,
                         })
                     }
-                    lemonToast.success('Added to starred')
+                    lemonToast.success(successMessage ?? 'Added to starred')
                     // The API returns the existing shortcut when the item is already starred, so
                     // appending it unconditionally would show the same star twice until a reload.
                     if (values.shortcutData.some((shortcut) => shortcut.id === response.id)) {
@@ -1107,14 +1127,14 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                     // when kea-loaders' success handler sets `shortcutData` to the resolved value.
                     return values.shortcutData
                 },
-                deleteShortcut: async ({ id }) => {
+                deleteShortcut: async ({ id, successMessage }) => {
                     const shortcut = values.shortcutData.find((s) => s.id === id)
                     await api.fileSystemShortcuts.delete(id)
                     posthog.capture('navbar starred item removed', {
                         item_type: shortcut?.type ?? 'unknown',
                         item_name: shortcut?.path ?? 'unknown',
                     })
-                    lemonToast.success('Removed from starred')
+                    lemonToast.success(successMessage ?? 'Removed from starred')
                     return values.shortcutData.filter((s) => s.id !== id)
                 },
             },

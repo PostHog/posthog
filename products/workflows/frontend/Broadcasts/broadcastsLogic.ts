@@ -89,29 +89,43 @@ export function isBroadcastShaped(actions: FlowStep[] | null | undefined): boole
 
 type FlowEdge = { from?: string; to?: string }
 
+export type BroadcastChannel = 'email' | 'push'
+
+export const BROADCAST_MESSAGE_ACTION_TYPES: Record<BroadcastChannel, string> = {
+    email: 'function_email',
+    push: 'function_push',
+}
+
+const MESSAGE_TYPES = Object.values(BROADCAST_MESSAGE_ACTION_TYPES)
+
+/** The channel a broadcast sends on, read from its one message step. */
+export function getBroadcastChannel(actions: FlowStep[] | null | undefined): BroadcastChannel {
+    return (actions ?? []).some((step) => step.type === BROADCAST_MESSAGE_ACTION_TYPES.push) ? 'push' : 'email'
+}
+
 /**
  * Whether the broadcast wizard can edit a broadcast-shaped workflow without misdescribing it. The
- * wizard only models a person audience along trigger, email, exit. Its Content step edits the email's
- * "To" like any other field, so a custom recipient is fine;
- * anything else opens as the read-only summary instead.
+ * wizard only models a person audience along trigger, message, exit, where the message is one email
+ * or one push step. Its Content step edits the email's "To" like any other field, so a custom
+ * recipient is fine; anything else opens as the read-only summary instead.
  */
 export function canEditInWizard(actions: FlowStep[] | null | undefined, edges: FlowEdge[] | null | undefined): boolean {
     const steps = actions ?? []
-    const [trigger, email, exit] = ['trigger', 'function_email', 'exit'].map((type) =>
-        steps.filter((step) => step.type === type)
-    )
+    const trigger = steps.filter((step) => step.type === 'trigger')
+    const message = steps.filter((step) => MESSAGE_TYPES.includes(step.type ?? ''))
+    const exit = steps.filter((step) => step.type === 'exit')
     // One of each and nothing else, so the steps the wizard edits are the only ones there are.
-    if (steps.length !== 3 || trigger.length !== 1 || email.length !== 1 || exit.length !== 1) {
+    if (steps.length !== 3 || trigger.length !== 1 || message.length !== 1 || exit.length !== 1) {
         return false
     }
-    // Exactly trigger -> email -> exit: any other edge is a path the wizard cannot show, such as one
-    // that skips the email.
+    // Exactly trigger -> message -> exit: any other edge is a path the wizard cannot show, such as one
+    // that skips the message.
     const paths = new Set((edges ?? []).map((edge) => `${edge.from}->${edge.to}`))
     return (
         trigger[0].config?.filters?.audience_type !== 'accounts' &&
         paths.size === 2 &&
-        paths.has(`${trigger[0].id}->${email[0].id}`) &&
-        paths.has(`${email[0].id}->${exit[0].id}`)
+        paths.has(`${trigger[0].id}->${message[0].id}`) &&
+        paths.has(`${message[0].id}->${exit[0].id}`)
     )
 }
 
@@ -246,6 +260,9 @@ export interface broadcastsLogicActions {
     deleteBroadcast: (broadcast: ManagedBroadcast) => {
         broadcast: ManagedBroadcast
     }
+    fillMissingFilters: () => {
+        value: true
+    }
     loadBroadcasts: () => {
         value: true
     }
@@ -319,6 +336,7 @@ export const broadcastsLogic = kea<broadcastsLogicType>([
         loadBroadcasts: true,
         setFilters: (filters: Partial<BroadcastsFilters>) => ({ filters }),
         setFiltersFromUrl: (filters: BroadcastsFilters) => ({ filters }),
+        fillMissingFilters: true,
         setRowDetails: (id: string, details: BroadcastRowDetails) => ({ id, details }),
         clearRowDetails: (id: string) => ({ id }),
         setLoadedFilters: (filters: BroadcastsFilters) => ({ filters }),
@@ -438,9 +456,14 @@ export const broadcastsLogic = kea<broadcastsLogicType>([
                 // Any change other than the page itself starts the list over from the first page.
                 setFilters: (state, { filters }) => ({ ...state, page: 1, ...filters }),
                 setFiltersFromUrl: (_, { filters }) => filters,
+                fillMissingFilters: (state) => ({ ...DEFAULT_FILTERS, ...state }),
             },
         ],
     })),
+    // Filters saved before a field existed come back without it. This runs before urlToAction reads them.
+    afterMount(({ actions }) => {
+        actions.fillMissingFilters()
+    }),
     selectors({
         filtersPending: [
             (s) => [s.filters, s.loadedFilters],

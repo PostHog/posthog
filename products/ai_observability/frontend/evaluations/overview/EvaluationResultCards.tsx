@@ -65,7 +65,7 @@ export function EvaluationResultCards({
 
     return (
         <div className="@container">
-            <div className="grid gap-3 grid-cols-1 @2xl:grid-cols-2">
+            <div className="grid gap-3 grid-cols-1 @2xl:grid-cols-2 items-start">
                 <Card title="Over time" action={chartAction} className="@2xl:col-span-2">
                     <EvaluationResultTrendChart
                         row={row}

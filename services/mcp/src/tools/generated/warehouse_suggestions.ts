@@ -102,6 +102,35 @@ const warehouseSuggestionsAcceptExecute = (): ToolBase<
     },
 })
 
+const WarehouseSuggestionsAssignSchema = () => {
+    const WarehouseSuggestionsAssignCreateBody = orvalSchemas.WarehouseSuggestionsAssignCreateBody()
+    const WarehouseSuggestionsAssignCreateParams = orvalSchemas.WarehouseSuggestionsAssignCreateParams()
+    return WarehouseSuggestionsAssignCreateParams.omit({ project_id: true }).extend(
+        WarehouseSuggestionsAssignCreateBody.shape
+    )
+}
+
+const warehouseSuggestionsAssign = (): ToolBase<
+    ReturnType<typeof WarehouseSuggestionsAssignSchema>,
+    Schemas.WarehouseSuggestion
+> => ({
+    name: 'warehouse-suggestions-assign',
+    schema: WarehouseSuggestionsAssignSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WarehouseSuggestionsAssignSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.assignee_id !== undefined) {
+            body['assignee_id'] = params.assignee_id
+        }
+        const result = await context.api.request<Schemas.WarehouseSuggestion>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_suggestions/${encodeURIComponent(String(params.id))}/assign/`,
+            body,
+        })
+        return result
+    },
+})
+
 const WarehouseSuggestionsDismissSchema = () => {
     const WarehouseSuggestionsDismissCreateBody = orvalSchemas.WarehouseSuggestionsDismissCreateBody()
     const WarehouseSuggestionsDismissCreateParams = orvalSchemas.WarehouseSuggestionsDismissCreateParams()
@@ -172,6 +201,7 @@ const warehouseSuggestionsList = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_suggestions/`,
             query: {
+                assignee_id: params.assignee_id,
                 kind: params.kind,
                 limit: params.limit,
                 offset: params.offset,
@@ -182,7 +212,16 @@ const warehouseSuggestionsList = (): ToolBase<
         const filtered = {
             ...result,
             results: (result.results ?? []).map((item: any) =>
-                pickResponseFields(item, ['id', 'kind', 'subject_kind', 'subject_id', 'payload', 'status', 'can_act'])
+                pickResponseFields(item, [
+                    'id',
+                    'kind',
+                    'subject_kind',
+                    'subject_id',
+                    'payload',
+                    'status',
+                    'can_act',
+                    'assignee',
+                ])
             ),
         } as typeof result
         return await withPostHogUrl(context, filtered, '/models')
@@ -231,6 +270,7 @@ const warehouseSuggestionsStatus = (): ToolBase<
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'warehouse-suggestions-accept-prepare': warehouseSuggestionsAcceptPrepare,
     'warehouse-suggestions-accept-execute': warehouseSuggestionsAcceptExecute,
+    'warehouse-suggestions-assign': warehouseSuggestionsAssign,
     'warehouse-suggestions-dismiss': warehouseSuggestionsDismiss,
     'warehouse-suggestions-get': warehouseSuggestionsGet,
     'warehouse-suggestions-list': warehouseSuggestionsList,

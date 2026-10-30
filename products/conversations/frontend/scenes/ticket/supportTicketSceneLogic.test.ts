@@ -164,6 +164,19 @@ describe('supportTicketSceneLogic ai reply feedback', () => {
         })
     })
 
+    it('keeps feedback on the AI reply after an automated update', () => {
+        logic.actions.setMessages([
+            makeAiComment('msg-ai-1', false),
+            {
+                ...makeAiComment('pr-update', false),
+                created_at: '2026-01-01T00:01:00Z',
+                item_context: { author_type: 'AI', is_private: false, automated_update_key: 'pr-123' },
+            } as unknown as CommentType,
+        ])
+
+        expect(logic.values.latestAiMessage?.id).toBe('msg-ai-1')
+    })
+
     it('calls backend relay on good feedback', async () => {
         await expectLogic(logic, () => {
             logic.actions.submitAiReplyFeedback('msg-ai-1', 'good')
@@ -346,6 +359,19 @@ describe('supportTicketSceneLogic chatMessages mapping', () => {
         ])
 
         expect(logic.values.latestAiDraftId).toBe('new-draft')
+    })
+
+    it('shows automated private notes without treating them as AI drafts', () => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PRODUCT_SUPPORT_AI_NOTES]: false })
+        logic.actions.setMessages([
+            {
+                ...makeAiComment('pr-update'),
+                item_context: { author_type: 'AI', is_private: true, automated_update_key: 'pr-123' },
+            } as unknown as CommentType,
+        ])
+
+        expect(logic.values.chatMessages).toEqual([expect.objectContaining({ id: 'pr-update', automatedUpdate: true })])
+        expect(logic.values.latestAiDraftId).toBeNull()
     })
 
     it('selects widget delivery statuses for public team messages', () => {

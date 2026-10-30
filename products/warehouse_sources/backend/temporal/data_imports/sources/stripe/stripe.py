@@ -569,6 +569,9 @@ class StripeResumeConfig:
     warehouse_row_offset: int | None = None
     warehouse_table_uri: str | None = None
     warehouse_version: int | None = None
+    # The parent's Delta table id. A reset purges and rebuilds the table at the same URI with
+    # versions from 0, so the URI and version alone can name a different table.
+    warehouse_table_id: str | None = None
 
 
 def _scrub_client_secrets(obj: Any) -> Any:
@@ -611,8 +614,10 @@ class _WarehouseParentRows:
         schema_name: str,
         parent_name: str,
         start_position: Optional["ScanPosition"],
+        table_id: Optional[str] = None,
     ) -> None:
         self._table = table
+        self.table_id = table_id
         self._columns = columns
         self._parent_name = parent_name
         self._page_size = page_size
@@ -664,7 +669,9 @@ def _flush_staging_state(
         yield table
 
 
-def _resume_state(position: Optional["ScanPosition"], parent_id: Optional[str]) -> StripeResumeConfig:
+def _resume_state(
+    position: Optional["ScanPosition"], parent_id: Optional[str], parent_pages: Optional[_WarehouseParentRows] = None
+) -> StripeResumeConfig:
     """Resume state in whichever coordinate system this sweep is walking."""
     if position is not None:
         return StripeResumeConfig(
@@ -672,6 +679,7 @@ def _resume_state(position: Optional["ScanPosition"], parent_id: Optional[str]) 
             warehouse_row_offset=position.row_offset,
             warehouse_table_uri=position.table_uri,
             warehouse_version=position.version,
+            warehouse_table_id=parent_pages.table_id if parent_pages else None,
         )
     return StripeResumeConfig(starting_after=parent_id)
 
@@ -699,9 +707,9 @@ def _nested_checkpoint(
         # Without an id there is no cursor into the parent's own pages, so the sweep can only move
         # past it. The one resource in this shape returns a single row per parent, which is
         # therefore finished by the time that row is written.
-        return _resume_state(parent_pages.position_after_current if parent_pages else None, chunk_parent)
+        return _resume_state(parent_pages.position_after_current if parent_pages else None, chunk_parent, parent_pages)
     return dataclasses.replace(
-        _resume_state(parent_pages.position_at_current if parent_pages else None, last_finished_parent),
+        _resume_state(parent_pages.position_at_current if parent_pages else None, last_finished_parent, parent_pages),
         nested_parent_id=chunk_parent,
         nested_starting_after=py_table.column("id")[-1].as_py(),
     )
@@ -734,7 +742,8 @@ def _warehouse_start_position(
     Discards state saved against another table, version or coordinate system — including
     `starting_after` cursors from a run that took the API path, which name a place in Stripe's
     ordering and mean nothing here. A discarded position restarts the sweep rather than
-    resuming somewhere arbitrary.
+    resuming somewhere arbitrary. `_reconcile_warehouse_resume` drops such state before the
+    pipeline reads it, so that restart overwrites the table instead of appending to it.
     """
     from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent import (  # noqa: PLC0415
         ScanPosition,
@@ -978,6 +987,7 @@ def get_rows(
     should_use_incremental_field: bool = False,
     warehouse_parent: Optional["ParentTableRef"] = None,
     include_zero_balance_customers: bool = False,
+    warehouse_table_id: Optional[str] = None,
 ):
     new_client = _client_factory(api_key, account_id, api_version)
     client = new_client(None)
@@ -1043,6 +1053,7 @@ def get_rows(
                     schema_name=endpoint,
                     parent_name=converted.schema,
                     start_position=warehouse_start,
+                    table_id=warehouse_table_id,
                 )
                 parent_rows = parent_pages
             else:
@@ -1097,7 +1108,7 @@ def get_rows(
                     or time.monotonic() - last_checkpoint_at >= NESTED_SWEEP_CHECKPOINT_SECONDS
                 )
                 if checkpoint_due and last_finished_parent is not None:
-                    position = _resume_state(last_finished_position, last_finished_parent)
+                    position = _resume_state(last_finished_position, last_finished_parent, parent_pages)
                     if batcher.should_yield(include_incomplete_chunk=True):
                         yield from _flush_staging_state(batcher, resumable_source_manager, _fixed_state(position))
                     else:
@@ -1215,7 +1226,7 @@ def get_rows(
                 last_cur = py_table.column(resource.nested_parent_param)[-1].as_py()
             else:
                 last_cur = py_table.column("id")[-1].as_py()
-            return _resume_state(parent_pages.position_after_current if parent_pages else None, last_cur)
+            return _resume_state(parent_pages.position_after_current if parent_pages else None, last_cur, parent_pages)
 
         yield from _flush_staging_state(batcher, resumable_source_manager, trailing_state)
 
@@ -1496,6 +1507,76 @@ def _resolve_warehouse_parent(
     )
 
 
+def _reconcile_warehouse_resume(
+    endpoint: str,
+    warehouse_parent: Optional["ParentTableRef"],
+    resumable_source_manager: ResumableSourceManager[StripeResumeConfig],
+    logger: FilteringBoundLogger,
+) -> tuple[Optional["ParentTableRef"], Optional[str]]:
+    """The parent table this attempt sweeps and its Delta table id, after making the stored resume
+    state agree with them.
+
+    The pipeline appends every batch of an attempt that finds resume state to what the earlier
+    attempts wrote, and only an attempt that finds none overwrites the table. So a sweep that
+    restarts from its first parent while the state is still there writes every row from before the
+    interruption a second time, once per restart.
+
+    The usual cause is the parent moving on: a webhook-synced Customer table commits every drain,
+    so the next attempt resolves a newer version than its checkpoint names. That attempt is pinned
+    back to the checkpointed version while it is still readable, so the position applies again.
+    Any other state the sweep would discard — another or a rebuilt table, a version past the vacuum
+    window, a cursor from the other parent path — is dropped here, at build time, before the
+    pipeline checks for it, so the restart runs as a fresh attempt that overwrites the table.
+    """
+    if endpoint not in WAREHOUSE_PARENT_FANOUT:
+        return warehouse_parent, None
+
+    table_id: Optional[str] = None
+    if warehouse_parent is not None:
+        # noqa reason: keeps deltalake/pyarrow off the import path of every Stripe import.
+        from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent import (  # noqa: PLC0415
+            parent_table_id,
+            pin_parent_table_version,
+        )
+
+        table_id = parent_table_id(warehouse_parent)
+
+    if not resumable_source_manager.can_resume():
+        return warehouse_parent, table_id
+    resume_config = resumable_source_manager.load_state()
+    if resume_config is None:
+        return warehouse_parent, table_id
+
+    if warehouse_parent is None:
+        if resume_config.warehouse_fragment_index is None:
+            return None, None
+    elif (
+        table_id is not None
+        and resume_config.warehouse_table_id == table_id
+        and resume_config.warehouse_table_uri == warehouse_parent.uri
+        and resume_config.warehouse_version is not None
+    ):
+        pinned = pin_parent_table_version(warehouse_parent, resume_config.warehouse_version)
+        if pinned is not None and _warehouse_start_position(resume_config, pinned) is not None:
+            logger.info(
+                "Stripe: resuming the sweep on the parent version it checkpointed against",
+                endpoint=endpoint,
+                pinned_version=pinned.version,
+                latest_version=warehouse_parent.version,
+                fragment_index=resume_config.warehouse_fragment_index,
+                row_offset=resume_config.warehouse_row_offset,
+            )
+            return pinned, table_id
+
+    logger.info(
+        "Stripe: dropping resume state the sweep cannot continue from, so this attempt rewrites the table",
+        endpoint=endpoint,
+        parent_source="warehouse" if warehouse_parent is not None else "api",
+    )
+    resumable_source_manager.clear_state()
+    return warehouse_parent, table_id
+
+
 def stripe_source(
     api_key: str,
     account_id: Optional[str],
@@ -1529,6 +1610,11 @@ def stripe_source(
     webhook_only = endpoint in WEBHOOK_ONLY_ENDPOINTS
     webhook_enabled = async_to_sync(webhook_source_manager.webhook_enabled)(webhook_only=webhook_only)
     warehouse_parent = _resolve_warehouse_parent(endpoint, team_id, source_id, use_warehouse_parent)
+    warehouse_table_id: Optional[str] = None
+    if not webhook_enabled:
+        warehouse_parent, warehouse_table_id = _reconcile_warehouse_resume(
+            endpoint, warehouse_parent, resumable_source_manager, logger
+        )
 
     def items():
         if webhook_enabled:
@@ -1569,6 +1655,7 @@ def stripe_source(
             api_version=api_version,
             warehouse_parent=warehouse_parent,
             include_zero_balance_customers=include_zero_balance_customers,
+            warehouse_table_id=warehouse_table_id,
         )
 
     # A few Stripe objects carry no timestamp at all, so there is nothing to partition on — the

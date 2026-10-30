@@ -11,6 +11,7 @@ describe('report claim', () => {
         task_id: kind === 'task' ? 'task-1' : null,
         agent: kind === 'agent' ? 'codex' : null,
         claimed_at: '2026-10-22T10:00:00Z',
+        responsible_user: { id: 1, uuid: 'user-1', first_name: 'Bob', last_name: 'Smith', email: 'bob@example.com' },
     })
 
     it.each([

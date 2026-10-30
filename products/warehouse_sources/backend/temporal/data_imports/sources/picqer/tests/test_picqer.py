@@ -108,15 +108,22 @@ class TestPagination:
         assert result.params(filter_param) == ["2020-01-02 03:04:05"] * 2
         assert result.params("offset") == ["0", str(PAGE_SIZE)]
 
-    def test_unpaginated_endpoint_stops_after_one_full_page(self) -> None:
-        # return_reasons is not documented as paginated; an offset loop would refetch the same full
+    @pytest.mark.parametrize(
+        "endpoint,primary_key",
+        [
+            ("return_reasons", "idreturn_reason"),
+            ("return_statuses", "idreturn_status"),
+        ],
+    )
+    def test_unpaginated_endpoint_stops_after_one_full_page(self, endpoint: str, primary_key: str) -> None:
+        # These lookups are not documented as paginated; an offset loop would refetch the same full
         # page forever if the endpoint ignores `offset`.
-        reasons = [{"idreturn_reason": i, "name": f"Reason {i}"} for i in range(PAGE_SIZE)]
-        result = _driver().run("return_reasons", route({"/return_reasons": [ScriptedResponse(json=reasons)]}))
+        rows = [{primary_key: i, "name": f"Row {i}"} for i in range(PAGE_SIZE)]
+        result = _driver().run(endpoint, route({f"/{endpoint}": [ScriptedResponse(json=rows)]}))
 
         assert result.raised is None
         assert len(result.rows) == PAGE_SIZE
-        assert result.paths == ["/api/v1/return_reasons"]
+        assert result.paths == [f"/api/v1/{endpoint}"]
         assert result.params("offset") == [None]
 
 

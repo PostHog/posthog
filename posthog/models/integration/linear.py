@@ -6,6 +6,8 @@ import requests
 import structlog
 from rest_framework.exceptions import ValidationError
 
+from posthog.integrations.contracts import IntegrationRecord
+
 from . import common, model
 from .assignees import MAX_ASSIGNEES, Assignee, AssigneeLookupFailed
 
@@ -15,11 +17,11 @@ logger = structlog.get_logger(__name__)
 class LinearIntegration:
     integration: model.Integration
 
-    def __init__(self, integration: model.Integration) -> None:
+    def __init__(self, integration: IntegrationRecord) -> None:
         if integration.kind != "linear":
             raise Exception("LinearIntegration init called with Integration with wrong 'kind'")
 
-        self.integration = integration
+        self.integration = model.integration_model(integration)
 
     def url_key(self) -> str:
         return common.dot_get(self.integration.config, "data.viewer.organization.urlKey")

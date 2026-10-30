@@ -265,6 +265,14 @@ class ClickHouseCheckQueryStatusError(ClickHouseError):
         super().__init__(error_message, query_id=query_id)
 
 
+class ClickHouseUnknownTableError(ClickHouseError):
+    """Exception raised when a table does not exist.
+
+    This should only happen in HogQL batch exports, when users try to select tables that
+    batch exports cannot reach.
+    """
+
+
 def update_query_tags_with_temporal_info(query_tags: typing.Optional[QueryTags] = None):
     """
     Updates query_tags with a temporal workflow's properties.
@@ -441,6 +449,7 @@ class ClickHouseClient:
             "TOO_MANY_BYTES": ClickHouseTooManyBytesError,
             "TOO_MANY_SIMULTANEOUS_QUERIES": ClickHouseTooManySimultaneousQueriesError,
             "TIMEOUT_EXCEEDED": ClickHouseQueryTimeoutError,
+            "UNKNOWN_TABLE": ClickHouseUnknownTableError,
         }
         for error_code, exc_class in ERROR_CODE_TO_EXCEPTION.items():
             if error_code in error_message:

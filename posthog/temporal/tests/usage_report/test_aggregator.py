@@ -10,7 +10,7 @@ import gzip
 import json
 import weakref
 import dataclasses
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from datetime import UTC, datetime
 from typing import Any, cast
 
@@ -28,6 +28,7 @@ from posthog.temporal.tests.usage_report.test_aggregate_activity import _instanc
 from posthog.temporal.usage_report.aggregator import (
     add_pre_logs_distinct_patterns_patch_defaults,
     add_pre_sandbox_compute_patch_defaults,
+    add_pre_transactional_emails_patch_defaults,
     build_manifest,
     iter_chunk_lines,
     load_all_data,
@@ -167,11 +168,25 @@ def test_load_all_data_defaults_compute_for_pre_patch_workflow_history() -> None
     assert all_data["teams_with_sandbox_compute_memory_mib_seconds_in_period"] == {}
 
 
-def test_load_all_data_defaults_logs_distinct_patterns_for_pre_patch_workflow_history() -> None:
+@pytest.mark.parametrize(
+    "add_defaults,query_name",
+    [
+        (add_pre_logs_distinct_patterns_patch_defaults, "teams_with_logs_distinct_patterns_in_period"),
+        (add_pre_transactional_emails_patch_defaults, "teams_with_workflow_transactional_emails_sent_in_period"),
+    ],
+)
+def test_load_all_data_defaults_single_query_for_pre_patch_workflow_history(
+    add_defaults: Callable[[dict[str, dict[int, int]], list[RunQueryToS3Result]], None], query_name: str
+) -> None:
     all_data: dict[str, dict[int, int]] = {}
-    add_pre_logs_distinct_patterns_patch_defaults(all_data, [])
+    add_defaults(all_data, [])
 
-    assert all_data == {"teams_with_logs_distinct_patterns_in_period": {}}
+    assert all_data == {query_name: {}}
+
+    patched_data: dict[str, dict[int, int]] = {query_name: {1: 2}}
+    add_defaults(patched_data, [RunQueryToS3Result(query_name=query_name, s3_key="unused", duration_ms=1)])
+
+    assert patched_data == {query_name: {1: 2}}
 
 
 def test_load_all_data_does_not_default_compute_for_patched_workflow_history() -> None:

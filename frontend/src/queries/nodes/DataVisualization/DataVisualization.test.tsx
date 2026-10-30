@@ -97,6 +97,7 @@ describe('DataTableVisualization', () => {
             memberAliases: alias ? [{ field: region, aliases: [{ value: 'west', label: 'West coast' }] }] : [],
         }
         renderDataVisualization({
+            embedded: true,
             context: { dashboardResultMenu: true },
             query: {
                 ...buildBIQuery(config)!.node,
@@ -127,12 +128,15 @@ describe('DataTableVisualization', () => {
                       results: [['west', 2]],
                   },
         })
-        fireEvent.click(await screen.findByText('First slice'))
+        fireEvent.contextMenu(await screen.findByText('First slice'))
         const menu = await screen.findByRole('menu')
         const link = within(menu).getByText('Open in SQL editor').closest('a')!
         const openedQuery = JSON.parse(new URL(link.href).searchParams.get('open_query')!)
         expect(openedQuery.source.query).toContain("region = 'west'")
         expect(openedQuery.source.query).not.toContain("region = 'West coast'")
+        fireEvent.click(screen.getByText('First slice'))
+        expect(screen.queryByRole('menu')).toBeNull()
+        await screen.findByText('Explore this result')
     })
 
     it.each([false, true])('opens and closes settings in the correct panel (hosted: %s)', async (hosted) => {

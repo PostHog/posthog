@@ -109,9 +109,6 @@ export default function AuthenticatedShell({ children }: { children: React.React
                         </Suspense>
                     </ErrorBoundary>
                 )}
-                {featureFlags[FEATURE_FLAGS.EXPERIMENTS_DW_AA_TEST] === 'test' && (
-                    <div data-attr="experiments-dw-aa-test-variant" className="hidden" />
-                )}
                 {featureFlags[FEATURE_FLAGS.EXPERIMENTS_FREEZE_EXPOSURE_AA_TEST] === 'test' && (
                     <div data-attr="experiments-freeze-exposure-aa-test-variant" className="hidden" />
                 )}

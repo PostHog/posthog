@@ -205,7 +205,8 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             self.assertEqual(response.json()["attr"], "logo_media_id")
             self.assertIsNone(self.project.logo_media_id)
 
-    def test_cannot_create_second_demo_project(self):
+    @patch("posthog.tasks.demo_create_data.create_data_for_demo_team.delay")
+    def test_cannot_create_second_demo_project(self, _mock_create_demo_data: MagicMock):
         # Create first demo project
         Project.objects.create_with_team(
             organization=self.organization, name="First Demo", initiating_user=self.user, team_fields={"is_demo": True}
@@ -550,7 +551,8 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             "You have reached the maximum limit of 2000 projects per organization. Contact support if you'd like access to more projects.",
         )
 
-    def test_demo_projects_not_counted_toward_limit(self):
+    @patch("posthog.tasks.demo_create_data.create_data_for_demo_team.delay")
+    def test_demo_projects_not_counted_toward_limit(self, _mock_create_demo_data: MagicMock):
         # Set project limit to 2
         self.organization.available_product_features = [
             {

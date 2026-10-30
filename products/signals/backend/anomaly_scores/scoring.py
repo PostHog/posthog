@@ -709,7 +709,7 @@ def _series_definition(query: TrendsQuery, result: dict[str, Any]) -> dict[str, 
             "formula": formulas[order] if order < len(formulas) else None,
             "series": [_series_node_definition(node) for node in query.series],
         }
-    order = (result.get("action") or {}).get("order")
+    order = result.get("order")
     if order is None or order >= len(query.series):
         return {"label": result.get("label")}
     return _series_node_definition(query.series[order])

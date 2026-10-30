@@ -15,6 +15,9 @@ from products.warehouse_sources.backend.types import IncrementalField, Increment
 # so they are full refresh only, and re-pulled rows dedupe on the primary key at merge time.
 # NEWS_SENTIMENT (`time_from`) and INSIDER_TRANSACTIONS (`from`) are the two that do filter.
 ParseKind = Literal[
+    "economic",
+    "estimates",
+    "etf_profile",
     "time_series",
     "quote",
     "overview",
@@ -53,6 +56,10 @@ class AlphaVantageEndpointConfig:
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     # The order rows actually arrive in, which the pipeline's cursor watermark trusts.
     sort_mode: SortMode | None = "asc"
+    # Fixed query params beyond function/symbol/apikey, e.g. the finest `interval` a series offers.
+    extra_params: dict[str, str] = field(default_factory=dict)
+    # Each value is one request with `maturity=<value>`, tagged onto its rows as a `maturity` column.
+    maturities: tuple[str, ...] = ()
 
 
 ALPHA_VANTAGE_ENDPOINTS: dict[str, AlphaVantageEndpointConfig] = {
@@ -212,6 +219,78 @@ ALPHA_VANTAGE_ENDPOINTS: dict[str, AlphaVantageEndpointConfig] = {
         kind="calendar",
         primary_keys=["symbol", "reportDate", "fiscalDateEnding"],
         description="Company earnings scheduled over the next 12 months, with the consensus EPS estimate. Covers the whole market rather than the configured symbols. Full refresh.",
+    ),
+    "shares_outstanding": AlphaVantageEndpointConfig(
+        name="shares_outstanding",
+        function="SHARES_OUTSTANDING",
+        kind="corporate_action",
+        primary_keys=["symbol", "date"],
+        description="Quarterly diluted and basic shares outstanding per symbol. One row per quarter. Full refresh.",
+        should_sync_default=False,
+    ),
+    "earnings_estimates": AlphaVantageEndpointConfig(
+        name="earnings_estimates",
+        function="EARNINGS_ESTIMATES",
+        kind="estimates",
+        # A fiscal year and its last fiscal quarter end on the same date, so `horizon` is part of the key.
+        primary_keys=["symbol", "date", "horizon"],
+        partition_key="date",
+        description="Annual and quarterly analyst EPS and revenue estimates per symbol, with analyst counts and revision history. One row per period. Full refresh.",
+        should_sync_default=False,
+    ),
+    "etf_profile": AlphaVantageEndpointConfig(
+        name="etf_profile",
+        function="ETF_PROFILE",
+        kind="etf_profile",
+        primary_keys=["symbol"],
+        description="ETF metrics (net assets, expense ratio, turnover) with the sector allocation and holdings per symbol (one row per ETF). Full refresh.",
+        should_sync_default=False,
+    ),
+    "real_gdp": AlphaVantageEndpointConfig(
+        name="real_gdp",
+        function="REAL_GDP",
+        kind="economic",
+        primary_keys=["date"],
+        extra_params={"interval": "quarterly"},
+        description="Quarterly real GDP of the United States. Not tied to the configured symbols. Full refresh.",
+        should_sync_default=False,
+    ),
+    "cpi": AlphaVantageEndpointConfig(
+        name="cpi",
+        function="CPI",
+        kind="economic",
+        primary_keys=["date"],
+        extra_params={"interval": "monthly"},
+        description="Monthly consumer price index of the United States. Not tied to the configured symbols. Full refresh.",
+        should_sync_default=False,
+    ),
+    "treasury_yield": AlphaVantageEndpointConfig(
+        name="treasury_yield",
+        function="TREASURY_YIELD",
+        kind="economic",
+        primary_keys=["maturity", "date"],
+        partition_key="date",
+        extra_params={"interval": "daily"},
+        maturities=("3month", "2year", "5year", "7year", "10year", "30year"),
+        description="Daily US treasury yields for the 3-month, 2-, 5-, 7-, 10- and 30-year maturities (one request per maturity). Not tied to the configured symbols. Full refresh.",
+        should_sync_default=False,
+    ),
+    "federal_funds_rate": AlphaVantageEndpointConfig(
+        name="federal_funds_rate",
+        function="FEDERAL_FUNDS_RATE",
+        kind="economic",
+        primary_keys=["date"],
+        extra_params={"interval": "daily"},
+        description="Daily effective federal funds rate of the United States. Not tied to the configured symbols. Full refresh.",
+        should_sync_default=False,
+    ),
+    "unemployment": AlphaVantageEndpointConfig(
+        name="unemployment",
+        function="UNEMPLOYMENT",
+        kind="economic",
+        primary_keys=["date"],
+        description="Monthly unemployment rate of the United States. Not tied to the configured symbols. Full refresh.",
+        should_sync_default=False,
     ),
 }
 

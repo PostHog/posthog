@@ -99,7 +99,7 @@ def get_issue_basics(team_id: int, issue_id: UUID | str) -> ErrorTrackingIssue |
     return (
         ErrorTrackingIssue.objects.with_first_seen()
         .filter(team_id=team_id, id=issue_id)
-        .only("id", "name", "description", "status")
+        .only("id", "name", "description", "status", "severity", "created_at")
         .first()
     )
 

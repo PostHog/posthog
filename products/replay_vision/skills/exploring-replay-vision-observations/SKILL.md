@@ -60,7 +60,7 @@ Pick the axis that matches the question:
 - **The distribution, not the rows?** → `vision-scanners-observations-stats` gives one scanner's status mix
   and success rate, distinct sessions covered, rating totals, and the per-type distributions (monitor verdict
   counts, classifier tag rankings, scorer score summary and histogram) without paging through observations.
-- **Which recordings are worth watching?** → `vision-scanners-watch-feed` ranks succeeded observations across
+- **Which recordings are worth watching?** → `vision-scanners-highlight-feed` ranks succeeded observations across
   every readable scanner over a window (default the last 7 days) and says why each made the cut.
 - **Has something already summarized this?** → if the scanner has scouts attached, read their reports instead
   of re-deriving the pattern (`vision-scanners-scout-reports-list`, then `vision-scanners-scout-reports-get`).

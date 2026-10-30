@@ -31,6 +31,8 @@ def _registration(**overrides: Any) -> HealthCheckRegistration:
         "product": None,
         "remediation": None,
         "access_controlled_resource": None,
+        "access_controlled_object_key": None,
+        "access_controlled_object_model": None,
     }
     fields.update(overrides)
     return HealthCheckRegistration(**fields)
@@ -62,6 +64,21 @@ def test_accepts_fractional_values(field: str, value: float) -> None:
 def test_rejects_out_of_range_fractions(field: str, value: float) -> None:
     with pytest.raises(ValueError, match=field):
         _registration(**{field: value})
+
+
+@pytest.mark.parametrize(
+    "overrides,missing",
+    [
+        ({"access_controlled_object_key": "flag_id"}, "access_controlled_resource"),
+        (
+            {"access_controlled_resource": "feature_flag", "access_controlled_object_model": HealthIssue},
+            "access_controlled_object_key",
+        ),
+    ],
+)
+def test_an_access_key_without_the_field_it_narrows_is_rejected(overrides: dict[str, Any], missing: str) -> None:
+    with pytest.raises(ValueError, match=f"requires {missing}"):
+        _registration(**overrides)
 
 
 def test_declared_access_controlled_resources_have_access_controls() -> None:

@@ -755,7 +755,7 @@ export interface experimentLogicActions {
         forceRefresh: boolean
     }
     reportHealthChecksOpened: (openedFrom: ExperimentHealthChecksOpenedFrom) => {
-        openedFrom: ExperimentHealthChecksOpenedFrom
+        openedFrom: 'meta_bar'
     }
     reportHealthFindingActedOn: (
         finding: ExperimentHealthFinding,

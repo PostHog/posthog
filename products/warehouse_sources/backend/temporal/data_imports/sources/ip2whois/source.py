@@ -86,6 +86,7 @@ Each sync looks up every configured domain once and replaces the table with the 
                     ),
                     SourceFieldInputConfig(
                         name="domains",
+                        sync_setting=True,
                         label="Domains",
                         type=SourceFieldInputConfigType.TEXTAREA,
                         required=True,

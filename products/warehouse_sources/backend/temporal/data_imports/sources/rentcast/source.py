@@ -80,6 +80,7 @@ To sync the **markets** table, enter the ZIP codes you want market statistics fo
                     ),
                     SourceFieldInputConfig(
                         name="zip_codes",
+                        sync_setting=True,
                         label="ZIP codes for market statistics",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,

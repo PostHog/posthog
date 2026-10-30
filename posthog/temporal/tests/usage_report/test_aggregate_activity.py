@@ -29,6 +29,8 @@ from posthog.temporal.usage_report.queries import QUERIES, QUERY_INDEX
 from posthog.temporal.usage_report.storage import queries_key, write_json
 from posthog.temporal.usage_report.types import AggregateInputs, RunQueryToS3Result, WorkflowContext
 
+from products.ai_observability.backend.models.offline_evaluations import OfflineEvaluationUsageLedger
+
 
 @sync_to_async
 def _make_org(name: str) -> Organization:
@@ -212,6 +214,19 @@ async def test_aggregate_writes_chunks_and_manifest(minio_workflow_ctx: Workflow
     # pre-seeded orgs that would otherwise inflate the manifest counts.
     ctx = minio_workflow_ctx.model_copy(update={"organization_ids": [str(org_a.id), str(org_b.id)]})
     query_results = _seed_query_results(ctx, team_a.id, team_b.id)
+    write_json(queries_key(ctx, "teams_with_ai_event_count_in_period"), [[team_a.id, 50]])
+    await sync_to_async(OfflineEvaluationUsageLedger.objects.for_team(team_a.id).bulk_create)(
+        [
+            OfflineEvaluationUsageLedger(
+                team_id=team_a.id,
+                organization_id=org_a.id,
+                experiment_id=uuid.uuid4(),
+                accepted_at=ctx.period_start,
+                quantity=quantity,
+            )
+            for quantity in (20, 10)
+        ]
+    )
 
     with patch(
         "posthog.temporal.usage_report.activities.get_instance_metadata",
@@ -243,6 +258,10 @@ async def test_aggregate_writes_chunks_and_manifest(minio_workflow_ctx: Workflow
     assert len(rows) == 2
     by_org = {row["organization_id"]: row["usage_report"] for row in rows}
     assert set(by_org.keys()) == {str(org_a.id), str(org_b.id)}
+    assert by_org[str(org_a.id)]["ai_ingested_event_count_in_period"] == 50
+    assert by_org[str(org_a.id)]["ai_offline_eval_metric_count_in_period"] == 30
+    assert by_org[str(org_a.id)]["ai_event_count_in_period"] == 80
+    assert by_org[str(org_a.id)]["teams"][str(team_a.id)]["ai_event_count_in_period"] == 80
 
     # multi-key fan-out: web events from `all_event_metrics` landed in the
     # destination key on each org's report.
@@ -443,6 +462,13 @@ async def test_aggregate_filters_by_organization_ids(minio_workflow_ctx: Workflo
 
     ctx = minio_workflow_ctx.model_copy(update={"organization_ids": [str(org_a.id)]})
     query_results = _seed_query_results(ctx, team_a.id, team_b.id)
+    await sync_to_async(OfflineEvaluationUsageLedger.objects.for_team(team_b.id).create)(
+        team_id=team_b.id,
+        organization_id=org_b.id,
+        experiment_id=uuid.uuid4(),
+        accepted_at=ctx.period_start,
+        quantity=7,
+    )
 
     with patch(
         "posthog.temporal.usage_report.activities.get_instance_metadata",

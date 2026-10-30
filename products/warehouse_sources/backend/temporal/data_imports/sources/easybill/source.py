@@ -53,7 +53,7 @@ class EasybillSource(ResumableSource[EasybillSourceConfig, EasybillResumeConfig]
             name=ExternalDataSourceType.EASYBILL,
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="easybill",
-            releaseStatus=ReleaseStatus.BETA,
+            releaseStatus=ReleaseStatus.GA,
             caption="Enter your easybill API key to sync your invoices, customers and accounting records into the PostHog data warehouse. Generate a key from your easybill account under **username menu > Profil und Einstellungen**.",
             iconPath="/static/services/easybill.png",
             docsUrl="https://posthog.com/docs/cdp/sources/easybill",

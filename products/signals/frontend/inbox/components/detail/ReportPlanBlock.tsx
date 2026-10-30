@@ -60,7 +60,10 @@ export function ReportPlanBlock({ reportId, plan }: { reportId: string; plan: Re
                                         {title}
                                     </Link>
                                 )}
-                                <SignalReportStatusBadge status={step.status as SignalReportStatus} />
+                                <SignalReportStatusBadge
+                                    status={step.status as SignalReportStatus}
+                                    suppressionSource={step.suppression_source}
+                                />
                                 {prNumber ? (
                                     <PrBadge
                                         prNumber={prNumber}

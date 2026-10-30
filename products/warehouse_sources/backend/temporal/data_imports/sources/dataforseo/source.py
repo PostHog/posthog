@@ -101,6 +101,7 @@ Note: DataForSEO bills per API request, so syncing these tables consumes account
                     ),
                     SourceFieldInputConfig(
                         name="location_name",
+                        sync_setting=True,
                         label="Location",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
@@ -109,6 +110,7 @@ Note: DataForSEO bills per API request, so syncing these tables consumes account
                     ),
                     SourceFieldInputConfig(
                         name="language_name",
+                        sync_setting=True,
                         label="Language",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,

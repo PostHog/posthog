@@ -40,6 +40,18 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "omni_channel": "Whether omni-channel routing is enabled for the team.",
         },
     },
+    "user_statuses": {
+        "description": "A default or custom availability status that Freshcaller users can select.",
+        "docs_url": "https://developers.freshcaller.com/api/#user_status_object",
+        "columns": {
+            "id": "Unique identifier for the status. Users reference it as their browser or mobile status.",
+            "name": "Descriptive name of the status.",
+            "status_type": "Real-time availability (offline, online, busy, or acw).",
+            "status_sub_type": "Sub-type of the status (offline, online, online_phone, busy, or acw).",
+            "emoji": "Emoji associated with the status.",
+            "enabled": "Whether the status is enabled for all users (0 or 1).",
+        },
+    },
     "calls": {
         "description": "A phone call handled through Freshcaller, inbound or outbound.",
         "docs_url": "https://developers.freshcaller.com/api/#calls",

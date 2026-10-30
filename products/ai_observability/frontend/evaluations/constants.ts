@@ -1,6 +1,20 @@
 import { escapeHogQLString } from '~/queries/utils'
 
-import type { EvaluationConfig, EvaluationOutputConfig, EvaluationRunsFilter } from './types'
+import type {
+    EvaluationConfig,
+    EvaluationOutputConfig,
+    EvaluationOutputType,
+    EvaluationRunsFilter,
+    EvaluationSettleStrategy,
+} from './types'
+
+/** The strategy a trace or session evaluation settles with. Rows without one use the backend's default for their target. */
+export function settleStrategy(
+    strategy: EvaluationSettleStrategy | undefined,
+    target: 'trace' | 'session'
+): EvaluationSettleStrategy {
+    return strategy ?? (target === 'session' ? 'inactivity' : 'fixed_window')
+}
 
 // Most-recent runs fetched for an evaluation's runs table and its result badges
 export const EVALUATION_RUNS_QUERY_LIMIT = 250
@@ -247,4 +261,13 @@ export function categoricalEvaluationsPassedHogQL(
     const indexes = rules.map((_, index) => index + 1).join(', ')
     const passingCategories = `arrayElement([${categories}], transform(properties.$ai_evaluation_id, [${ids}], [${indexes}], 0))`
     return `properties.$ai_evaluation_id IN (${ids}) AND if(empty(${EVALUATION_CATEGORIES_HOGQL}), empty(${passingCategories}), hasAll(${passingCategories}, ${EVALUATION_CATEGORIES_HOGQL}))`
+}
+
+/** What a decision model returns for each result type, since it writes no reasoning. */
+export function decisionModelHint(outputType: EvaluationOutputType): string {
+    return outputType === 'categorical'
+        ? 'This decision model selects categories without written reasoning. For multiple selections, each category is included when its probability is 50% or higher.'
+        : outputType === 'numeric'
+          ? 'This decision model estimates a score between your minimum and maximum without written reasoning. Define what low and high scores mean in your evaluation prompt. Scores can be fractional.'
+          : 'This decision model returns a probability without written reasoning. The decision threshold determines whether the result is true.'
 }

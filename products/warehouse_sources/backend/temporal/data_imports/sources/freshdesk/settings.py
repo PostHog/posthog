@@ -1,7 +1,7 @@
 """Freshdesk source settings and endpoint catalog."""
 
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Literal, Optional
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
     DependentEndpointConfig,
@@ -10,6 +10,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 PER_PAGE = 100
+
+# "link_header" is the RFC 5988 `Link` header most v2 endpoints use. "paging_next" is the full
+# next-page URL in the body of the new CSAT APIs. "custom_objects" is the `_links.next.href` of
+# the custom objects API, which is relative to `/api/v2/custom_objects` rather than to the host.
+FreshdeskPagination = Literal["link_header", "paging_next", "custom_objects"]
 
 
 @dataclass(frozen=True)
@@ -44,6 +49,10 @@ class FreshdeskEndpointConfig:
     data_key: Optional[str] = None
     # Read by the shared fan-out helper to size parent and child pages.
     page_size: int = PER_PAGE
+    # ``None`` for an endpoint that documents no page-size param.
+    page_size_param: Optional[str] = "per_page"
+    pagination: FreshdeskPagination = "link_header"
+    primary_keys: list[str] = field(default_factory=lambda: ["id"])
     # Set on a sub-resource that is fetched once per row of a top-level endpoint.
     fanout: Optional[DependentEndpointConfig] = None
     chained_fanout: Optional[FreshdeskChainedFanoutConfig] = None
@@ -165,6 +174,56 @@ FRESHDESK_ENDPOINTS: dict[str, FreshdeskEndpointConfig] = {
         partition_key="created_at",
         chained_fanout=FreshdeskChainedFanoutConfig(
             parent_name="solution_folders", resolve_param="folder_id", resolve_field="id"
+        ),
+    ),
+    "company_fields": FreshdeskEndpointConfig(name="company_fields", path="/api/v2/company_fields"),
+    "ticket_forms": FreshdeskEndpointConfig(name="ticket_forms", path="/api/v2/ticket-forms"),
+    "custom_object_schemas": FreshdeskEndpointConfig(
+        name="custom_object_schemas",
+        path="/api/v2/custom_objects/schemas",
+        data_key="schemas",
+        page_size_param=None,
+    ),
+    "custom_object_records": FreshdeskEndpointConfig(
+        name="custom_object_records",
+        path="/api/v2/custom_objects/schemas/{schema_id}/records",
+        data_key="records",
+        page_size_param="page_size",
+        pagination="custom_objects",
+        # `display_id` carries the schema's prefix, but nothing documents it as unique across schemas.
+        primary_keys=["schema_id", "display_id"],
+        fanout=DependentEndpointConfig(
+            parent_name="custom_object_schemas",
+            resolve_param="schema_id",
+            resolve_field="id",
+            # Record rows do not say which schema they belong to.
+            include_from_parent=["id"],
+            parent_field_renames={"id": "schema_id"},
+            child_response_actions=IGNORE_DELETED_PARENT,
+        ),
+    ),
+    "csat_surveys": FreshdeskEndpointConfig(
+        name="csat_surveys",
+        path="/api/v2/customer-satisfaction/surveys",
+        data_key="data",
+        pagination="paging_next",
+    ),
+    "csat_survey_responses": FreshdeskEndpointConfig(
+        name="csat_survey_responses",
+        path="/api/v2/customer-satisfaction/surveys/{survey_id}/responses",
+        data_key="data",
+        pagination="paging_next",
+        partition_key="created_at",
+        primary_keys=["survey_id", "id"],
+        fanout=DependentEndpointConfig(
+            parent_name="csat_surveys",
+            resolve_param="survey_id",
+            resolve_field="id",
+            # Response rows carry `survey_id` too, but it is part of the primary key, so take it
+            # from the parent where it can never be missing.
+            include_from_parent=["id"],
+            parent_field_renames={"id": "survey_id"},
+            child_response_actions=IGNORE_DELETED_PARENT,
         ),
     ),
 }

@@ -10,6 +10,8 @@ They compose as children of a chart:
 </TimeSeriesLineChart>
 ```
 
+`StackedBarList` also accepts overlay children. It places them in the chart area, which excludes the label and value cells.
+
 Trend lines, moving averages, and confidence bands are not overlays.
 They are derived `Series` entries (`overlay: true` for the first two), so the legend, the tooltip, and the axis already know about them.
 

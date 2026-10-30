@@ -1349,6 +1349,7 @@ doesn't conflict with concurrent PRs.
 - moodle
 - msg91
 - mycase
+- nango
 - nasa
 - nationbuilder
 - navan
@@ -1490,6 +1491,7 @@ doesn't conflict with concurrent PRs.
 - solarwinds_service_desk
 - sonar_cloud
 - sonatype_nexus
+- soniox
 - spacelift
 - spotify_ads
 - sprinklr

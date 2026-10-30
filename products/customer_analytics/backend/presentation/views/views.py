@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import builtins
+from collections.abc import Callable, Sequence
 from dataclasses import asdict
 from functools import cached_property
 from typing import Any, Protocol, cast
@@ -33,6 +34,7 @@ from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.serializers import BaseSerializer
 from rest_framework.throttling import UserRateThrottle
 
 from posthog.api.mixins import ValidatedRequest, validated_request
@@ -1267,10 +1269,30 @@ def _profile_config_write_fields(validated, raw_data: dict) -> dict:
     return fields
 
 
+class _DefinitionPaginationMixin(_FacadePaginationMixin):
+    def _paginate_via_facade(
+        self,
+        request: Request,
+        fetch: Callable[..., tuple[Sequence[object], int]],
+        serializer_class: type[BaseSerializer],
+    ) -> Response:
+        if request.query_params.get("pagination") == "none":
+            page, count = fetch(offset=0, limit=None)
+            return Response(
+                {
+                    "count": count,
+                    "next": None,
+                    "previous": None,
+                    "results": serializer_class(instance=page, many=True).data,
+                }
+            )
+        return super()._paginate_via_facade(request, fetch, serializer_class)
+
+
 class CustomPropertyDefinitionViewSet(
     TeamAndOrgViewSetMixin,
     AccessControlViewSetMixin,
-    _FacadePaginationMixin,
+    _DefinitionPaginationMixin,
     mixins.CreateModelMixin,
     mixins.RetrieveModelMixin,
     mixins.UpdateModelMixin,
@@ -1286,6 +1308,16 @@ class CustomPropertyDefinitionViewSet(
     serializer_class = CustomPropertyDefinitionSerializer
     queryset = None  # data is reached through the facade; declared for router/schema only
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="pagination",
+                type=str,
+                enum=["none"],
+                description="Return all definitions in one response when set to none.",
+            )
+        ]
+    )
     def list(self, request: Request, *args, **kwargs) -> Response:
         # Callers without group read authorization don't see group-target definitions.
         exclude_group_targets = not _has_group_scope(request, write=False)
@@ -1456,13 +1488,23 @@ def _custom_property_option_dicts(options) -> list[dict] | None:
 class AccountRelationshipDefinitionViewSet(
     TeamAndOrgViewSetMixin,
     AccessControlViewSetMixin,
-    _FacadePaginationMixin,
+    _DefinitionPaginationMixin,
     viewsets.ModelViewSet,
 ):
     scope_object = "account"
     serializer_class = AccountRelationshipDefinitionSerializer
     queryset = None  # data is reached through the facade; declared for router/schema only
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="pagination",
+                type=str,
+                enum=["none"],
+                description="Return all definitions in one response when set to none.",
+            )
+        ]
+    )
     def list(self, request: Request, *args, **kwargs) -> Response:
         return self._paginate_via_facade(
             request,

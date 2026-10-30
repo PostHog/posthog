@@ -61,7 +61,7 @@ On an experiment with a custom exposure event these queries read the flag's call
 
 ## A1 — Multi-variant exclusion bias on uneven split [HIGH]
 
-This is the signal behind the in-app banner "Setup likely introduced bias".
+This is the signal behind the in-app warning "The uneven split may bias the results".
 
 **Evidence.** The banner's check reports a finding when **all four** hold:
 

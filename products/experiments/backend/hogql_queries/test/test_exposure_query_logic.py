@@ -2,10 +2,18 @@ import pytest
 
 from parameterized import parameterized
 
-from posthog.schema import ExperimentEventExposureConfig, ExperimentExposureCriteria, MultipleVariantHandling
+from posthog.schema import (
+    ExperimentEventExposureConfig,
+    ExperimentExposureCriteria,
+    ExperimentWarehouseNativeExposureConfig,
+    MultipleVariantHandling,
+)
+
+from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.models.team import Team
 
+from products.experiments.backend.hogql_queries.experiment_query_builder import get_exposure_config_params_for_builder
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     DEFAULT_EXPOSURE_EVENT,
     EXPERIMENT_EXPOSURE_EVENT,
@@ -18,6 +26,12 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
 
 def _event_config(event):
     return {"exposure_config": {"kind": "ExperimentEventExposureConfig", "event": event, "properties": []}}
+
+
+_WAREHOUSE_NATIVE_EXPOSURE = ExperimentWarehouseNativeExposureConfig(
+    connection_id="00000000-0000-0000-0000-000000000000",
+    query="SELECT user_id AS entity_id, variant, exposed_at AS timestamp FROM exposures",
+)
 
 
 class TestGetExposureEventAndProperty:
@@ -121,6 +135,27 @@ class TestNormalizeToExposureCriteria:
 
         # Should return the exact same object, not a copy
         assert result is typed_criteria
+
+    def test_stored_warehouse_native_exposure_config_matches_the_typed_object(self):
+        # Stored criteria are a dict. A dict read as an event config would slip past the
+        # warehouse-native guards and fail later with an unrelated error.
+        from_dict = normalize_to_exposure_criteria(
+            {"exposure_config": _WAREHOUSE_NATIVE_EXPOSURE.model_dump(mode="json")}
+        )
+
+        assert from_dict == ExperimentExposureCriteria(exposure_config=_WAREHOUSE_NATIVE_EXPOSURE)
+
+
+class TestGetExposureConfigParamsForBuilder:
+    @parameterized.expand(
+        [
+            ("stored_dict", {"exposure_config": _WAREHOUSE_NATIVE_EXPOSURE.model_dump(mode="json")}),
+            ("typed", ExperimentExposureCriteria(exposure_config=_WAREHOUSE_NATIVE_EXPOSURE)),
+        ]
+    )
+    def test_refuses_warehouse_native_exposure_as_a_query_error(self, _name, exposure_criteria):
+        with pytest.raises(ExposedHogQLError, match="cannot be calculated yet"):
+            get_exposure_config_params_for_builder(exposure_criteria, Team(id=1, project_id=1), None)
 
 
 class TestGetTestAccountsFilter:

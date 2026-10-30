@@ -74,6 +74,7 @@ python manage.py seed_refund_test_data --team-id 1
 ```
 
 `seed_inbox_data` reports are billable too (runs are recorded via the production dual-write), but their runs are created "now", so refunds on them always take the excluded path.
+`seed_inbox_data --github-optional` seeds the reports GitHub-optional research leaves without a GitHub integration: a `data_only` repo selection with no repository, and no commits, GitHub reviewers, or implementation runs.
 Environment prerequisites (feature flag, local billing service): "Testing refunds locally" in `../../ARCHITECTURE.md`.
 
 ## Re-ingesting reports
@@ -210,6 +211,22 @@ uv run manage.py backfill_report_actionability --team-id 1 --batch-size 100 --af
 ```
 
 Idempotent. It recomputes each report from its artefacts and writes only the rows that disagree.
+
+## Filling the cached implementation PR flags
+
+`SignalReport.has_implementation_pr` and `has_active_implementation_pr` cache `implementation_pr_report_filter`, so the inbox filters on a column.
+The receivers in `implementation_pr_cache.py` refresh them after every link write.
+Run `backfill_report_inbox_state` once after the columns ship, and again as a repair after a bulk write that bypassed Django signals.
+
+```bash
+# Every team
+uv run manage.py backfill_report_inbox_state
+
+# One team, resuming after the report id an earlier run printed
+uv run manage.py backfill_report_inbox_state --team-id 1 --after <report-id>
+```
+
+Idempotent. It writes only the rows that disagree with the live filter.
 
 ## Resuming operational scouts the setup flow paused
 

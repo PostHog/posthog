@@ -14,6 +14,7 @@ import structlog
 from markdown_it import MarkdownIt
 from markdown_to_mrkdwn import SlackMarkdownConverter
 
+from posthog.models.team import Team
 from posthog.slack.formatting import channel_id_from_target
 from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
     METRICS_UNAVAILABLE_MESSAGE,
@@ -352,7 +353,8 @@ def deliver_slack_report(
     Main message = agent title (Block Kit header) + metrics context + first section.
     Thread replies = sections[1:]. If there's only one section, no thread replies.
     """
-    from posthog.models.integration import Integration, SlackIntegration
+    from posthog.integrations import IntegrationManager
+    from posthog.models.integration import SlackIntegration
 
     from products.slack_app.backend.facade.api import slack_followup_invite
 
@@ -368,6 +370,10 @@ def deliver_slack_report(
     period_line = (
         f"*{evaluation_name}*  ·  {_format_period_for_display(period_start)} → {_format_period_for_display(period_end)}"
     )
+
+    team = Team.objects.select_related("organization").get(id=team_id)
+    # Read rather than assumed: nothing on this path enforces consent before generation.
+    ai_enabled = bool(team.organization.is_ai_data_processing_approved)
 
     for target in targets:
         if target.get("type") != "slack":
@@ -386,11 +392,7 @@ def deliver_slack_report(
             continue
 
         try:
-            # The organization comes along because the follow-up invite below reads its AI consent
-            # flag, and this query already runs once per target.
-            integration = Integration.objects.select_related("team__organization").get(
-                id=integration_id, team_id=team_id, kind="slack"
-            )
+            integration = IntegrationManager.slack.oauth.get(team_id, integration_id)
             client = SlackIntegration(integration, source="eval_reports").client
 
             # Main message: header + context + metrics grid + first section (if any)
@@ -418,8 +420,6 @@ def deliver_slack_report(
                     }
                 )
 
-            # Read rather than assumed: nothing on this path enforces consent before generation.
-            ai_enabled = bool(integration.team.organization.is_ai_data_processing_approved)
             if invite := slack_followup_invite(integration, utm_tags=_INVITE_UTM_TAGS, ai_enabled=ai_enabled):
                 blocks.append(invite)
 

@@ -463,9 +463,9 @@ fn stored_event(inner: &[u8], event: &Event, sink: &mut ImageSink<'_>) -> Option
             let frame = event
                 .data
                 .and_then(|data| canvas::frame_image(inner, event.kind, event.source, data));
-            if let Some((mime, span)) = frame {
+            if let Some((_, span)) = frame {
                 let payload = scan::unescape(inner, span).ok();
-                match payload.and_then(|p| sink.take(mime, p.as_bytes())) {
+                match payload.and_then(|p| sink.take(p.as_bytes())) {
                     Some(reference) => {
                         let mut quoted = Vec::with_capacity(reference.len() + 2);
                         scan::write_json_string(&reference, &mut quoted);
@@ -597,7 +597,10 @@ mod tests {
 
     #[test]
     fn stores_cv_events_expanded_with_their_images_moved_out() {
-        let image = format!("data:image/png;base64,{}", STANDARD.encode(b"png bytes"));
+        let image = format!(
+            "data:image/png;base64,{}",
+            STANDARD.encode(b"\x89PNG\r\n\x1a\npng bytes")
+        );
         let snapshot = json!({"node": {"attributes": {"src": image}}, "initialOffset": {"top": 0}});
         let adds = json!([{"parentId": 1, "node": {"attributes": {"src": image}}}]);
         let mut message = message_with(json!([
@@ -801,7 +804,10 @@ mod tests {
 
     #[test]
     fn leaves_a_cv_event_that_does_not_decode_as_it_arrived() {
-        let image = format!("data:image/png;base64,{}", STANDARD.encode(b"png bytes"));
+        let image = format!(
+            "data:image/png;base64,{}",
+            STANDARD.encode(b"\x89PNG\r\n\x1a\npng bytes")
+        );
         let message = message_with(json!([
             {"type": 2, "timestamp": 1, "data": format!("not gzip {image}"), "cv": "2024-10"},
             // One list that does not decode fails the whole event, as in the player. So does a list sent uncompressed.
@@ -826,9 +832,15 @@ mod tests {
                 {"property": "drawImage", "args": draw_args},
             ]}})
         };
+        // posthog-js encodes the frame in the type the blob names.
         let bitmap = |mime: &str, buffer: &str| {
+            let bytes: &[u8] = match mime {
+                "image/webp" => b"RIFF\x00\x00\x00\x00WEBPframe",
+                "image/gif" => b"GIF89aframe",
+                _ => b"\x89PNG\r\n\x1a\nframe",
+            };
             json!({"rr_type": "ImageBitmap", "args": [{"rr_type": "Blob", "type": mime,
-                "data": [{"rr_type": buffer, "base64": STANDARD.encode(b"frame bytes")}]}]})
+                "data": [{"rr_type": buffer, "base64": STANDARD.encode(bytes)}]}]})
         };
         let cases = [
             (

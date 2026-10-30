@@ -31,7 +31,6 @@ import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { dateFilterToText } from 'lib/utils/dateFilters'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { everyWarehouseSeriesReadsFlagCalls } from 'scenes/insights/filters/ActionFilter/flagCallsSeries'
-import { BreakdownTag } from 'scenes/insights/filters/BreakdownFilter/BreakdownTag'
 import { humanizePathsEventTypes, hasUnsupportedBreakdownForDataWarehouseTrends } from 'scenes/insights/utils'
 import { QUERY_TYPES_METADATA } from 'scenes/saved-insights/insightTypesMetadata'
 import { urls } from 'scenes/urls'
@@ -86,6 +85,7 @@ import {
     UserBasicType,
 } from '~/types'
 
+import { BreakdownTag } from 'products/product_analytics/frontend/insights/editor/filters/BreakdownFilter/BreakdownTag'
 import { journeysSummaryParts } from 'products/product_analytics/frontend/insights/journeys/journeysSummary'
 import {
     MathCategory,

@@ -402,8 +402,8 @@ class LoginPrecheckThrottle(IPThrottle):
     """
     Rate limit login precheck requests by IP.
 
-    The response reveals which sign-in methods a passwordless account has, so cap it per-IP to make
-    bulk enumeration expensive. Per-email throttling would be useless here — enumeration uses a
+    The response reveals whether an account exists and which sign-in methods it has, so cap it
+    per-IP to make bulk enumeration expensive. Per-email throttling would be useless here — enumeration uses a
     different email on every request.
     """
 
@@ -778,23 +778,23 @@ class ReplayVisionEstimateSustainedRateThrottle(_TeamBucketRateThrottle):
     rate = "200/hour"
 
 
-# The watch feed windows, ranks and hydrates a slice of the team's observation history per call, and
+# The highlight feed windows, ranks and hydrates a slice of the team's observation history per call, and
 # its primary caller is the session-authenticated home tab, which the default Burst/Sustained
 # throttles bypass. Team-wide bucket so minting keys doesn't multiply the budget.
-class ReplayVisionWatchFeedBurstRateThrottle(_TeamBucketRateThrottle):
-    scope = "replay_vision_watch_feed_burst"
+class ReplayVisionHighlightFeedBurstRateThrottle(_TeamBucketRateThrottle):
+    scope = "replay_vision_highlight_feed_burst"
     rate = "60/minute"
 
 
-class ReplayVisionWatchFeedSustainedRateThrottle(_TeamBucketRateThrottle):
-    scope = "replay_vision_watch_feed_sustained"
+class ReplayVisionHighlightFeedSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "replay_vision_highlight_feed_sustained"
     rate = "600/hour"
 
 
 # Impression reports arrive while a reader scrolls, so they get their own per-user bucket and never use up the
 # team's feed bucket.
-class ReplayVisionWatchFeedImpressionsRateThrottle(_UserBucketRateThrottle):
-    scope = "replay_vision_watch_feed_impressions"
+class ReplayVisionHighlightFeedImpressionsRateThrottle(_UserBucketRateThrottle):
+    scope = "replay_vision_highlight_feed_impressions"
     rate = "120/minute"
 
 
@@ -990,6 +990,17 @@ class AIObservabilitySummarizationDailyThrottle(PersonalApiKeyOrUserRateThrottle
     # Hard limit to prevent runaway costs
     scope = "llm_analytics_summarization_daily"
     rate = "500/day"
+
+
+class InsightExplainBurstThrottle(PersonalApiKeyOrUserRateThrottle):
+    # A decision model call costs a small fraction of a summarization call, so it gets its own, higher limits.
+    scope = "insight_explain_burst"
+    rate = "120/minute"
+
+
+class InsightExplainDailyThrottle(PersonalApiKeyOrUserRateThrottle):
+    scope = "insight_explain_daily"
+    rate = "5000/day"
 
 
 class AIObservabilityBackfillEstimateThrottle(_UserBucketRateThrottle):
@@ -1870,6 +1881,18 @@ class GitHubRepositoryRefreshThrottle(PersonalApiKeyOrUserRateThrottle):
     # per team to avoid bypass via rotated API keys, sessions, or integrations.
     scope = "github_repository_refresh"
     rate = "10/minute"
+
+    def get_cache_key(self, request, view):
+        team_id = self.safely_get_team_id_from_view(view)
+        if team_id:
+            return self.cache_format % {"scope": self.scope, "ident": f"team_{team_id}"}
+        return super().get_cache_key(request, view)
+
+
+class PushTokenImportThrottle(PersonalApiKeyOrUserRateThrottle):
+    # Keyed per team, so a large migration cannot flood ingestion by spreading calls across keys.
+    scope = "push_token_import"
+    rate = "60/minute"
 
     def get_cache_key(self, request, view):
         team_id = self.safely_get_team_id_from_view(view)

@@ -153,13 +153,14 @@ class TestValidateCredentials:
         assert valid is False
         assert msg == "Invalid Metabase host"
 
-    def test_connection_error_does_not_leak_raw_exception(self):
+    @pytest.mark.parametrize("auth", [_api_key_auth(), _session_auth()], ids=["api_key", "session"])
+    def test_connection_error_does_not_leak_raw_exception(self, auth):
         # requests connection errors embed the customer's host/IP and give the user nothing to act
         # on. The (fictional-range) IP and the raw blob must never reach the user; a friendly,
         # actionable message must.
         raw = "HTTPSConnectionPool(host='203.0.113.10', port=3000): Max retries exceeded"
         with scripted_network(always(ConnectionResetError(raw))):
-            valid, msg = validate_credentials("https://x.metabaseapp.com", _api_key_auth())
+            valid, msg = validate_credentials("https://x.metabaseapp.com", auth)
             assert valid is False
             assert msg is not None
             assert "203.0.113.10" not in msg

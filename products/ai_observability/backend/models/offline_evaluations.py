@@ -219,6 +219,26 @@ class OfflineEvaluationResult(OfflinePayloadOwner, UUIDModel):
         ]
 
 
+class OfflineEvaluationUsageLedger(UUIDModel):
+    team_id = models.BigIntegerField(editable=False)
+    organization_id = models.UUIDField(editable=False)
+    experiment_id = models.UUIDField(editable=False)
+    accepted_at = models.DateTimeField(default=timezone.now, editable=False)
+    quantity = models.PositiveBigIntegerField(editable=False)
+
+    objects = EnvironmentScopedManager()
+
+    class Meta:
+        db_table = "llm_analytics_offlineevaluationusageledger"
+        constraints = [
+            models.CheckConstraint(condition=Q(quantity__gt=0), name="aio_offline_usage_quantity_pos"),
+        ]
+        indexes = [
+            models.Index(fields=["accepted_at"], name="aio_offline_usage_accepted_idx"),
+            models.Index(fields=["team_id", "accepted_at"], name="aio_offline_usage_team_idx"),
+        ]
+
+
 class OfflinePayload(models.Model):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     # An object preserves omitted properties separately from explicitly supplied JSON nulls.

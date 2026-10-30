@@ -169,7 +169,21 @@ class TestDailyStats:
         assert body["accountIds"] == []
         assert body["campaignIds"] == []
 
-    def test_campaign_stats_requests_contiguous_windows_and_yields_one_row_per_day_and_campaign(self) -> None:
+    @pytest.mark.parametrize(
+        ("endpoint", "sender_ids", "expected_account_filters", "expected_sender_id"),
+        [
+            ("campaign_stats", None, [[]], None),
+            # Sender 8 has no stats in any window, so it yields no rows but still walks every window.
+            ("campaign_stats_by_sender", [7, 8], [[7], [8]], 7),
+        ],
+    )
+    def test_campaign_stats_walk_contiguous_windows_per_sender_filter(
+        self,
+        endpoint: str,
+        sender_ids: list[int] | None,
+        expected_account_filters: list[list[int]],
+        expected_sender_id: int | None,
+    ) -> None:
         payload = {
             "byDayStats": {
                 "2024-12-17T00:00:00Z": [
@@ -182,24 +196,42 @@ class TestDailyStats:
         }
 
         def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == "/api/public/li_account/GetAll":
+                assert sender_ids is not None
+                return _page([{"id": sender_id} for sender_id in sender_ids], len(sender_ids))
             body = request.json()
-            if body["startDate"] <= "2024-12-17" <= body["endDate"]:
+            if body["accountIds"] in ([], [7]) and body["startDate"] <= "2024-12-17" <= body["endDate"]:
                 return ScriptedResponse(json=payload)
             return ScriptedResponse(json={"byDayStats": {}, "overallStats": []})
 
-        result = _driver().run("campaign_stats", respond)
+        result = _driver().run(endpoint, respond)
 
         assert result.raised is None
-        assert set(result.paths) == {"/api/public/stats/GetOverallStatsByCampaign"}
-        windows = [(parser.parse(r.json()["startDate"]), parser.parse(r.json()["endDate"])) for r in result.requests]
-        assert windows[0][0] == parser.parse(STATS_START_DATE)
-        assert windows[-1][1] > datetime.now(tz=UTC) - timedelta(minutes=5)
-        for (start, end), (next_start, _) in itertools.pairwise(windows):
-            assert end - start < timedelta(days=30)
-            assert next_start - end == timedelta(milliseconds=1)
-        assert [(row["date"].isoformat(), row["campaignId"], row["messagesSent"]) for row in result.rows] == [
-            ("2024-12-17T00:00:00+00:00", 1, 3),
-            ("2024-12-17T00:00:00+00:00", 2, 4),
+        stats_requests = [r for r in result.requests if r.path == "/api/public/stats/GetOverallStatsByCampaign"]
+        assert len(result.requests) - len(stats_requests) == (0 if sender_ids is None else 1)
+        assert all(r.json()["campaignIds"] == [] for r in stats_requests)
+
+        # Each sender filter walks its own full window series, one filter after the other.
+        account_filters = [r.json()["accountIds"] for r in stats_requests]
+        assert [key for key, _ in itertools.groupby(account_filters)] == expected_account_filters
+        for account_filter in expected_account_filters:
+            windows = [
+                (parser.parse(r.json()["startDate"]), parser.parse(r.json()["endDate"]))
+                for r in stats_requests
+                if r.json()["accountIds"] == account_filter
+            ]
+            assert windows[0][0] == parser.parse(STATS_START_DATE)
+            assert windows[-1][1] > datetime.now(tz=UTC) - timedelta(minutes=5)
+            for (start, end), (next_start, _) in itertools.pairwise(windows):
+                assert end - start < timedelta(days=30)
+                assert next_start - end == timedelta(milliseconds=1)
+
+        assert [
+            (row["date"].isoformat(), row["campaignId"], row["messagesSent"], row.get("linkedInAccountId"))
+            for row in result.rows
+        ] == [
+            ("2024-12-17T00:00:00+00:00", 1, 3, expected_sender_id),
+            ("2024-12-17T00:00:00+00:00", 2, 4, expected_sender_id),
         ]
 
 

@@ -1,6 +1,6 @@
 import re
 from datetime import UTC, date, datetime
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 import time_machine
 
@@ -21,9 +21,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.wikipedia_pageviews.settings import (
     ARTICLE_PAGEVIEWS_ENDPOINT,
+    COUNTRY_PAGEVIEWS_ENDPOINT,
+    COUNTRY_TOP_ARTICLES_ENDPOINT,
     MAX_ARTICLES,
+    MAX_COUNTRIES,
+    MEDIA_REQUESTS_ENDPOINT,
     PAGEVIEWS_ENDPOINT,
     TOP_ARTICLES_ENDPOINT,
+    UNIQUE_DEVICES_ENDPOINT,
     WIKIPEDIA_PAGEVIEWS_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.wikipedia_pageviews.source import (
@@ -31,10 +36,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.wikipedia_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.wikipedia_pageviews.wikipedia_pageviews import (
     NO_ARTICLES_ERROR,
+    NO_COUNTRIES_ERROR,
     WikipediaPageviewsResumeConfig,
     _coerce_date,
     _normalize_project,
     _parse_articles,
+    _parse_countries,
     validate_project,
 )
 
@@ -62,9 +69,15 @@ def _run(
     start_date: Optional[str] = None,
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
+    countries: Optional[str] = None,
+    agent: Literal["user", "all-agents", "spider", "automated"] = "user",
 ) -> DriveResult:
     config = WikipediaPageviewsSourceConfig(
-        project="en.wikipedia.org", article_names=article_names, start_date=start_date
+        project="en.wikipedia.org",
+        article_names=article_names,
+        start_date=start_date,
+        countries=countries,
+        agent=agent,
     )
     return SourceDriver(WikipediaPageviewsSource(), config).run(
         endpoint,
@@ -106,6 +119,17 @@ class TestHelpers:
     )
     def test_parse_articles(self, _name, value, expected):
         assert _parse_articles(value) == expected
+
+    @parameterized.expand(
+        [
+            ("none", None, []),
+            ("empty", " , ", []),
+            ("uppercases_and_dedupes", "us, fr,US", ["US", "FR"]),
+            ("spaces_and_newlines", "DE GB\nJP", ["DE", "GB", "JP"]),
+        ]
+    )
+    def test_parse_countries(self, _name, value, expected):
+        assert _parse_countries(value) == expected
 
     @parameterized.expand(
         [
@@ -274,6 +298,249 @@ class TestTopArticles:
         assert [state.next_start for state in result.saved_states] == ["2026-07-22"]
 
 
+class TestCountryPageviews:
+    @parameterized.expand(
+        [
+            ("start_mid_month_includes_that_month", "2026-05-15", None, ["2026/05", "2026/06", "2026/07"]),
+            (
+                "incremental_refetches_watermark_month",
+                "2026-01-01",
+                datetime(2026, 6, 1, tzinfo=UTC),
+                ["2026/06", "2026/07"],
+            ),
+            # The first window ends on 2026-06-01, so the second window must not request June again.
+            (
+                "months_split_across_windows",
+                "2025-06-15",
+                None,
+                [f"2025/{m:02d}" for m in range(6, 13)] + [f"2026/{m:02d}" for m in range(1, 8)],
+            ),
+        ]
+    )
+    @time_machine.travel("2026-07-21", tick=False)
+    def test_requests_each_month_once(self, _name, start_date, last_value, expected_months):
+        result = _run(
+            COUNTRY_PAGEVIEWS_ENDPOINT,
+            always(_response(status=404)),
+            start_date=start_date,
+            should_use_incremental_field=last_value is not None,
+            db_incremental_field_last_value=last_value,
+        )
+
+        months = []
+        for path in result.paths:
+            match = re.search(r"/top-by-country/en\.wikipedia\.org/all-access/(\d{4}/\d{2})$", path)
+            assert match is not None
+            months.append(match.group(1))
+        assert months == expected_months
+
+    @time_machine.travel("2026-07-21", tick=False)
+    def test_flattens_countries_into_rows(self):
+        result = _run(
+            COUNTRY_PAGEVIEWS_ENDPOINT,
+            [
+                _response(
+                    json_body={
+                        "items": [
+                            {
+                                "project": "en.wikipedia",
+                                "access": "all-access",
+                                "year": "2026",
+                                "month": "06",
+                                "countries": [
+                                    {"country": "US", "views": "1000000-9999999", "rank": 1, "views_ceil": 4200000},
+                                    {"country": "GB", "views": "100000-999999", "rank": 2, "views_ceil": 870000},
+                                ],
+                            }
+                        ]
+                    }
+                ),
+                _response(status=404),
+            ],
+            start_date="2026-06-01",
+        )
+
+        assert result.items == [
+            [
+                {
+                    "project": "en.wikipedia",
+                    "access": "all-access",
+                    "year": "2026",
+                    "month": "06",
+                    "date": datetime(2026, 6, 1, tzinfo=UTC),
+                    "country": "US",
+                    "views": "1000000-9999999",
+                    "views_ceil": 4200000,
+                    "rank": 1,
+                },
+                {
+                    "project": "en.wikipedia",
+                    "access": "all-access",
+                    "year": "2026",
+                    "month": "06",
+                    "date": datetime(2026, 6, 1, tzinfo=UTC),
+                    "country": "GB",
+                    "views": "100000-999999",
+                    "views_ceil": 870000,
+                    "rank": 2,
+                },
+            ]
+        ]
+
+
+class TestCountryTopArticles:
+    @time_machine.travel("2026-07-21", tick=False)
+    def test_fans_out_per_country_per_day(self):
+        def day_response(request: RecordedRequest) -> ScriptedResponse:
+            match = re.search(r"/top-per-country/([A-Z]{2})/all-access/(\d{4})/(\d{2})/(\d{2})$", request.path)
+            assert match is not None
+            country, year, month, day = match.groups()
+            return _response(
+                json_body={
+                    "items": [
+                        {
+                            "country": country,
+                            "access": "all-access",
+                            "year": year,
+                            "month": month,
+                            "day": day,
+                            "articles": [
+                                {"article": "Main_Page", "project": "en.wikipedia", "views_ceil": 9000, "rank": 1},
+                                {"article": "Main_Page", "project": "fr.wikipedia", "views_ceil": 9000, "rank": 1},
+                            ],
+                        }
+                    ]
+                }
+            )
+
+        result = _run(COUNTRY_TOP_ARTICLES_ENDPOINT, day_response, countries="us, fr", start_date="2026-07-20")
+
+        assert [path.split("/top-per-country/")[1] for path in result.paths] == [
+            "US/all-access/2026/07/20",
+            "FR/all-access/2026/07/20",
+            "US/all-access/2026/07/21",
+            "FR/all-access/2026/07/21",
+        ]
+        assert len(result.items) == 1
+        assert len(result.items[0]) == 8
+        assert result.items[0][1] == {
+            "country": "US",
+            "access": "all-access",
+            "year": "2026",
+            "month": "07",
+            "day": "20",
+            "date": datetime(2026, 7, 20, tzinfo=UTC),
+            "project": "fr.wikipedia",
+            "article": "Main_Page",
+            "views_ceil": 9000,
+            "rank": 1,
+        }
+
+    @time_machine.travel("2021-01-02", tick=False)
+    def test_start_is_clamped_to_first_day_with_data(self):
+        result = _run(COUNTRY_TOP_ARTICLES_ENDPOINT, always(_response(status=404)), countries="US")
+
+        assert [path.rsplit("/", 3)[1:] for path in result.paths] == [["2021", "01", "01"], ["2021", "01", "02"]]
+
+    def test_raises_without_configured_countries(self):
+        result = _run(COUNTRY_TOP_ARTICLES_ENDPOINT, [], countries=" , ")
+
+        assert isinstance(result.raised, ValueError)
+        assert NO_COUNTRIES_ERROR in str(result.raised)
+
+    @time_machine.travel("2026-07-21", tick=False)
+    def test_countries_capped_at_max_at_runtime(self):
+        countries = ",".join(f"{chr(65 + i)}{chr(65 + i)}" for i in range(MAX_COUNTRIES + 3))
+
+        result = _run(
+            COUNTRY_TOP_ARTICLES_ENDPOINT,
+            always(_response(status=404)),
+            countries=countries,
+            start_date="2026-07-21",
+        )
+
+        assert len(result.requests) == MAX_COUNTRIES
+
+
+class TestUniqueDevices:
+    @time_machine.travel("2026-07-21", tick=False)
+    def test_syncs_every_site_split_with_normalized_key(self):
+        def site_response(request: RecordedRequest) -> ScriptedResponse:
+            match = re.search(r"/unique-devices/en\.wikipedia\.org/([a-z-]+)/daily/20260720/20260721$", request.path)
+            assert match is not None
+            return _response(
+                json_body={
+                    "items": [
+                        {
+                            "project": "en.wikipedia",
+                            "access-site": match.group(1),
+                            "granularity": "daily",
+                            "timestamp": "20260720",
+                            "devices": 300,
+                            "offset": 100,
+                            "underestimate": 200,
+                        }
+                    ]
+                }
+            )
+
+        result = _run(UNIQUE_DEVICES_ENDPOINT, site_response, start_date="2026-07-20")
+
+        assert len(result.items) == 1
+        assert [row["access_site"] for row in result.items[0]] == ["all-sites", "desktop-site", "mobile-site"]
+        assert result.items[0][0] == {
+            "project": "en.wikipedia",
+            "access_site": "all-sites",
+            "granularity": "daily",
+            "timestamp": "20260720",
+            "date": datetime(2026, 7, 20, tzinfo=UTC),
+            "devices": 300,
+            "offset": 100,
+            "underestimate": 200,
+        }
+
+
+class TestMediaRequests:
+    @parameterized.expand(
+        [
+            ("user", "user", "user"),
+            ("spider", "spider", "spider"),
+            ("all_agents", "all-agents", "all-agents"),
+            ("automated_falls_back", "automated", "all-agents"),
+        ]
+    )
+    @time_machine.travel("2026-07-21", tick=False)
+    def test_requests_each_media_type_with_supported_agent(self, _name, agent, expected_agent):
+        result = _run(
+            MEDIA_REQUESTS_ENDPOINT,
+            always(
+                _response(
+                    json_body={
+                        "items": [
+                            {
+                                "referer": "en.wikipedia",
+                                "media_type": "image",
+                                "agent": expected_agent,
+                                "granularity": "daily",
+                                "timestamp": "2026072000",
+                                "requests": 42,
+                            }
+                        ]
+                    }
+                )
+            ),
+            start_date="2026-07-20",
+            agent=agent,
+        )
+
+        assert result.urls == [
+            f"https://wikimedia.org/api/rest_v1/metrics/mediarequests/aggregate/en.wikipedia.org/{media_type}"
+            f"/{expected_agent}/daily/20260720/20260721"
+            for media_type in ("image", "video", "audio", "document", "other")
+        ]
+        assert result.items[0][0]["date"] == datetime(2026, 7, 20, tzinfo=UTC)
+
+
 class TestValidateProject:
     @parameterized.expand(
         [
@@ -312,7 +579,9 @@ class TestSourceResponseMetadata:
     @parameterized.expand([(name,) for name in WIKIPEDIA_PAGEVIEWS_ENDPOINTS])
     @time_machine.travel("2026-07-21", tick=False)
     def test_primary_keys_and_partitioning_per_endpoint(self, endpoint):
-        result = _run(endpoint, always(_response(status=404)), article_names="Cat", start_date="2026-07-20")
+        result = _run(
+            endpoint, always(_response(status=404)), article_names="Cat", countries="US", start_date="2026-07-20"
+        )
 
         response = result.response
         assert response is not None

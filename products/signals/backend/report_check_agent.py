@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timedelta
+from uuid import UUID
 
 from django.db import transaction
 from django.db.models import Q
@@ -33,7 +34,11 @@ from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportCheck, SignalScoutConfig
 from products.signals.backend.report_check_telemetry import capture_report_check_dispatch
 from products.signals.backend.report_checks import AgentCheckConfig, parse_check_config
-from products.signals.backend.report_lifecycle import check_monitoring_disabled_organizations, report_status_filter
+from products.signals.backend.report_lifecycle import (
+    check_monitoring_disabled_organizations,
+    legacy_agent_checks_enabled,
+    report_status_filter,
+)
 from products.signals.backend.scout_harness.run_gates import check_fleet_gates, check_run_in_flight, check_spend_gates
 from products.signals.backend.scout_harness.team_limits import withheld_skills_for_team
 from products.skills.backend.models.skills import LLMSkill
@@ -405,7 +410,7 @@ def _claim_for_dispatch(check: SignalReportCheck, now: datetime) -> bool:
     """
     with transaction.atomic():
         report = SignalReport.objects.select_for_update().filter(id=check.report_id, team_id=check.team_id).first()
-        if report is None or report.effective_status != SignalReport.Status.RESOLVED:
+        if report is None or not legacy_agent_checks_enabled(report):
             return False
         claimed = (
             SignalReportCheck.objects.for_team(check.team_id)
@@ -413,6 +418,43 @@ def _claim_for_dispatch(check: SignalReportCheck, now: datetime) -> bool:
             .update(dispatched_at=now, next_run_at=now + AGENT_CHECK_RESULT_WINDOW, updated_at=now)
         )
         return bool(claimed)
+
+
+def legacy_check_dispatch_ready(
+    *, team_id: int, skill_name: str, check_id: str | None, dispatched_at: datetime | None
+) -> bool:
+    if check_id is None or dispatched_at is None or timezone.is_naive(dispatched_at):
+        return False
+    now = timezone.now()
+    if dispatched_at > now or dispatched_at + AGENT_CHECK_RESULT_WINDOW <= now:
+        return False
+    try:
+        identifier = UUID(check_id)
+    except (ValueError, TypeError, AttributeError):
+        return False
+    check = (
+        SignalReportCheck.all_teams.select_related("report__team")
+        .filter(
+            Q(team_id=team_id) | Q(team__parent_team_id=team_id),
+            id=identifier,
+            kind=SignalReportCheck.Kind.AGENT,
+            status=SignalReportCheck.Status.ACTIVE,
+            dispatched_at=dispatched_at,
+            expires_at__gt=now,
+        )
+        .first()
+    )
+    if check is None or check.team_id != check.report.team_id:
+        return False
+    if check.report.team.parent_team_id is not None:
+        return False
+    if (check.report.team.parent_team_id or check.team_id) != team_id or not legacy_agent_checks_enabled(check.report):
+        return False
+    try:
+        config = AgentCheckConfig.model_validate(check.config)
+    except ValueError:
+        return False
+    return resolve_check_skill_name(config, team_id) == skill_name
 
 
 def _release_dispatch_claim(check: SignalReportCheck, now: datetime) -> None:
@@ -448,6 +490,9 @@ def run_agent_check(check: SignalReportCheck, *, now: datetime | None = None) ->
     from products.signals.backend.temporal.agentic.scout_scheduler import start_check_signals_scout_run  # noqa: PLC0415
 
     now = now or timezone.now()
+
+    if check.report.team.parent_team_id is not None:
+        return "deferred"
 
     if check.dispatched_at is not None:
         paused_skill_name = _paused_dispatched_lane(check)
@@ -551,6 +596,7 @@ def run_agent_check(check: SignalReportCheck, *, now: datetime | None = None) ->
             skill_name=skill_name,
             run_note=build_check_run_note(check, config),
             check_id=str(check.id),
+            dispatched_at=now,
         )
     except WorkflowAlreadyStartedError:
         # Another check on the same lane is still being answered. Theirs finishes, ours goes next

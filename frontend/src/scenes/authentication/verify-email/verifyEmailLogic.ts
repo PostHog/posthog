@@ -5,6 +5,7 @@ import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { getRelativeNextPath } from 'lib/utils/url'
+import { captureAuthStepViewed } from 'scenes/authentication/shared/authStepViewed'
 import {
     clearPendingVerificationEmail,
     isValidVerificationCode,
@@ -16,7 +17,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import type { UserType } from '../../../types'
 
-// Must stay in sync with the `VerifyEmail__Progress` animation duration in VerifyEmail.scss.
+// The success screen's `AuthScene__progress` bar (AuthScene.scss) runs a little longer, so the redirect lands before it fills.
 export const VERIFY_EMAIL_REDIRECT_DELAY_MS = 2000
 
 type PostVerifyResponse = {
@@ -281,6 +282,7 @@ export const verifyEmailLogic = kea<verifyEmailLogicType>([
                     searchParams.email_sent !== 'false'
                 )
                 actions.setView('pending')
+                captureAuthStepViewed('verify_email', null)
             }
         }
         return {

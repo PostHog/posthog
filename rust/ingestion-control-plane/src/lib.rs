@@ -1,4 +1,5 @@
 pub mod api;
+pub mod backup;
 pub mod cache;
 pub mod changelog;
 pub mod config;

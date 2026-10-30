@@ -451,6 +451,27 @@ const pathsFilterJobs = workflowFiles.flatMap((file) =>
 )
 
 const STEP_EXPECTATIONS: StepExpectation[] = [
+    ...[
+        { name: 'exact schema hit', matched: 'posthog-schema-mig-v2-exact', runs: false },
+        { name: 'schema cache miss', matched: '', runs: false },
+        { name: 'master snapshot fallback', matched: `posthog-schema-master-${'a'.repeat(40)}`, runs: true },
+    ].map(({ name, matched, runs }) => ({
+        file: DEPOT_BACKEND,
+        job: 'check-migrations',
+        step: 'validate-master-schema',
+        scenario: {
+            name,
+            github: mergeQueue(),
+            steps: {
+                ...allFiltersChanged(workflow(DEPOT_BACKEND)),
+                'check-migrations': {
+                    'master-schema-key': { outputs: { key: 'posthog-schema-mig-v2-exact' } },
+                    'master-schema-cache': { outputs: { 'cache-matched-key': matched } },
+                },
+            },
+        },
+        runs,
+    })),
     ...pathsFilterJobs.flatMap(({ file, job }) => [
         {
             file,
@@ -540,6 +561,65 @@ const namedJobs = (file: string): Set<string> =>
     )
 
 describe('CI workflow run plans', () => {
+    it.each([
+        { name: 'mobile PR', github: pullRequest(), mobile: true, validate: true, install: true, appToken: true },
+        {
+            name: 'fork PR',
+            github: pullRequest({ fork: true }),
+            mobile: true,
+            validate: true,
+            install: true,
+            appToken: false,
+        },
+        {
+            name: 'Dependabot PR',
+            github: { ...pullRequest(), actor: 'dependabot[bot]' },
+            mobile: true,
+            validate: true,
+            install: true,
+            appToken: false,
+        },
+        { name: 'unrelated PR', github: pullRequest(), mobile: false, validate: false, install: false, appToken: true },
+        {
+            name: 'master cache warmer',
+            github: { ...push(), workflow: workflow('mobile-ci.yml').name! },
+            mobile: true,
+            validate: false,
+            install: true,
+            appToken: false,
+        },
+        {
+            name: 'release checks',
+            github: { ...push(), workflow: 'Mobile Release' },
+            mobile: true,
+            validate: true,
+            install: true,
+            appToken: false,
+        },
+    ])('mobile CI on $name', ({ name, github, mobile, validate, install, appToken }) => {
+        const plan = planWorkflow(workflow('mobile-ci.yml'), {
+            name,
+            github,
+            steps: { changes: { filter: pathsFilter({ mobile }) } },
+        })
+        const validationSteps = [
+            'Typecheck',
+            'Lint',
+            'Test',
+            'Fetch release validation base',
+            'Validate release requests',
+            'Test release policy',
+        ]
+        expect(plan.errors).toEqual([])
+        expect(plan.jobs.changes?.steps.find((step) => step.id === 'app-token')?.runs).toBe(appToken)
+        expect(plan.jobs.check?.steps.find((step) => step.name === 'Install dependencies')?.runs ?? false).toBe(install)
+        expect(
+            plan.jobs.check?.steps
+                .filter((step) => step.runs && validationSteps.includes(step.name ?? ''))
+                .map((step) => step.name)
+        ).toEqual(validate ? validationSteps : [])
+    })
+
     it.each([
         { name: 'canonical PR', github: pullRequest(), runs: true },
         { name: 'mirror PR', github: mirrorPullRequest(), runs: false },

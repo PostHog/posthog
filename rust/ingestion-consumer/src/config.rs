@@ -375,6 +375,11 @@ pub struct Config {
     #[envconfig(from = "INGESTION_WORKER_STREAM_ACK_TIMEOUT_MS", default = "60000")]
     pub ingestion_worker_stream_ack_timeout_ms: u64,
 
+    /// Close a worker stream after nothing on it is un-acked for this long.
+    /// `0` keeps idle streams open.
+    #[envconfig(from = "INGESTION_WORKER_STREAM_IDLE_CLOSE_MS", default = "5000")]
+    pub ingestion_worker_stream_idle_close_ms: u64,
+
     // ---- Worker discovery ----
     /// How the worker pool is discovered: `static` (use WORKER_ADDRESSES — the
     /// co-located sidecar default) or `endpointslice` (watch a Kubernetes

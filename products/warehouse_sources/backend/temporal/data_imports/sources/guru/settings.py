@@ -21,6 +21,8 @@ class GuruEndpointConfig:
     # Query param that takes the incremental cursor as an inclusive lower bound. When unset,
     # incremental endpoints filter with a Guru Query Language `q` expression instead.
     date_filter_param: Optional[str] = None
+    # The endpoint returns one JSON object, not an array; its data map turns it into rows.
+    single_object: bool = False
     fanout: Optional[DependentEndpointConfig] = None
 
     @property
@@ -33,10 +35,13 @@ class GuruEndpointConfig:
         return 0
 
 
+# Only sent alerts: scheduled alerts have no send date or read state yet.
+KNOWLEDGE_ALERT_PARAMS = {"view": "ALL_SENT", "sortField": "dateSent", "sortOrder": "ASC"}
+
 # Guru responses are bare JSON arrays paginated via a `Link: <url>; rel="next-page"`
 # header with an opaque continuation token. Only the card search surface (Guru Query
-# Language `lastModified >= <ISO8601>`) and the analytics event export (`fromDate`) support
-# a server-side date filter; the dimension tables are full refresh per run. A `{team_id}`
+# Language `lastModified >= <ISO8601>`), the analytics event export (`fromDate`) and the
+# comment list (`createdAfter`) support a server-side date filter; the dimension tables are full refresh per run. A `{team_id}`
 # path placeholder is filled from the authenticated user's team.
 GURU_ENDPOINTS: dict[str, GuruEndpointConfig] = {
     "cards": GuruEndpointConfig(
@@ -121,6 +126,55 @@ GURU_ENDPOINTS: dict[str, GuruEndpointConfig] = {
                 "field_type": IncrementalFieldType.DateTime,
             },
         ],
+    ),
+    "card_comments": GuruEndpointConfig(
+        name="card_comments",
+        # The team-wide comment list carries a `card` reference on each comment, so no per-card fan-out.
+        path="/comments",
+        partition_key="dateCreated",
+        date_filter_param="createdAfter",
+        incremental_fields=[
+            {
+                "label": "dateCreated",
+                "type": IncrementalFieldType.DateTime,
+                "field": "dateCreated",
+                "field_type": IncrementalFieldType.DateTime,
+            },
+        ],
+    ),
+    "card_verifiers": GuruEndpointConfig(
+        name="card_verifiers",
+        # Card search results embed each card's verifiers, so they are flattened from the card
+        # pages instead of one /cards/{id}/verifiers request per card.
+        path="/search/query",
+        # A user or group can verify several cards, so the verifier id is only unique per card.
+        primary_key=["cardId", "id"],
+        extra_params={"queryType": "cards", "maxResults": "50", "sortField": "dateCreated", "sortOrder": "asc"},
+    ),
+    "team_stats": GuruEndpointConfig(
+        name="team_stats",
+        path="/teams/{team_id}/stats",
+        primary_key="statKey",
+        single_object=True,
+    ),
+    "knowledge_alerts": GuruEndpointConfig(
+        name="knowledge_alerts",
+        path="/announcements/delegated",
+        primary_key="alertId",
+        extra_params=KNOWLEDGE_ALERT_PARAMS,
+    ),
+    "knowledge_alert_users": GuruEndpointConfig(
+        name="knowledge_alert_users",
+        path="/announcements/{announcementId}/stats/users",
+        primary_key=["alert_id", "email"],
+        fanout=DependentEndpointConfig(
+            parent_name="knowledge_alerts",
+            resolve_param="announcementId",
+            resolve_field="alertId",
+            include_from_parent=["alertId"],
+            parent_field_renames={"alertId": "alert_id"},
+            parent_params=KNOWLEDGE_ALERT_PARAMS,
+        ),
     ),
 }
 

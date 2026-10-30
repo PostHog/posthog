@@ -440,7 +440,7 @@ class TestSessionRecordingViewSetThrottleSelection(BaseTest):
         viewset.action = action
         request = Request(APIRequestFactory().get("/"))
         request._authenticator = authenticator  # type: ignore[attr-defined]  # backs read-only @property
-        viewset.request = request  # ty: ignore[invalid-assignment]
+        viewset.request = request
         return viewset
 
     @parameterized.expand(

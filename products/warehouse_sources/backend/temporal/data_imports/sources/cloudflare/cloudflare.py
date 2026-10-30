@@ -116,6 +116,9 @@ query DnsAnalyticsReport($zoneTag: string, $since: Time, $until: Time) {
 """
 
 DNS_ANALYTICS_ALL_ZONES_FAILED = "Cloudflare refused the DNS analytics query for every zone"
+# Cloudflare's text for a token without the Zone Analytics read permission. The REST report this
+# replaced needed the same permission and skipped such zones, so many tokens never had it.
+DNS_ANALYTICS_PERMISSION_DENIED = "does not have permission"
 
 
 def _dns_analytics_rows(zone_id: str, groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -154,7 +157,9 @@ def _dns_analytics_report(api_token: str) -> Iterator[list[dict[str, Any]]]:
     window = {"since": _to_rfc3339(until - DNS_ANALYTICS_WINDOW), "until": _to_rfc3339(until)}
 
     zones_read = 0
-    first_error: Optional[str] = None
+    # A permission denial only means the token can't read this table, like a 403 on the REST
+    # fan-out. Any other error on every zone means the query itself is broken.
+    first_failure: Optional[str] = None
     for zones in client.paginate(
         _PARENT_PATHS[ZONES_PARENT],
         params={"per_page": PAGE_SIZE},
@@ -178,7 +183,8 @@ def _dns_analytics_report(api_token: str) -> Iterator[list[dict[str, Any]]]:
             error = _graphql_error(body)
             if error is not None:
                 logger.info("cloudflare.dns_analytics_zone_skipped", zone_id=zone_id, error=error)
-                first_error = first_error or error
+                if first_failure is None and DNS_ANALYTICS_PERMISSION_DENIED not in error:
+                    first_failure = error
                 continue
             zones_read += 1
             zone_results = ((body.get("data") or {}).get("viewer") or {}).get("zones") or []
@@ -187,8 +193,8 @@ def _dns_analytics_report(api_token: str) -> Iterator[list[dict[str, Any]]]:
             if rows:
                 yield rows
 
-    if first_error is not None and zones_read == 0:
-        raise ValueError(f"{DNS_ANALYTICS_ALL_ZONES_FAILED}: {first_error}")
+    if first_failure is not None and zones_read == 0:
+        raise ValueError(f"{DNS_ANALYTICS_ALL_ZONES_FAILED}: {first_failure}")
 
 
 # A logpush job's `destination_conf` is a URI whose query string can carry the

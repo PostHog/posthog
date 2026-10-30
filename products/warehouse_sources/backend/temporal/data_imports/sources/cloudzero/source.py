@@ -167,6 +167,7 @@ class CloudzeroSource(ResumableSource[CloudzeroSourceConfig, CloudzeroResumeConf
                     ),
                     SourceFieldSelectConfig(
                         name="granularity",
+                        sync_setting=True,
                         label="Granularity",
                         required=True,
                         defaultValue="daily",
@@ -177,6 +178,7 @@ class CloudzeroSource(ResumableSource[CloudzeroSourceConfig, CloudzeroResumeConf
                     ),
                     SourceFieldSelectConfig(
                         name="cost_type",
+                        sync_setting=True,
                         label="Cost type",
                         required=True,
                         defaultValue="real_cost",
@@ -187,6 +189,7 @@ class CloudzeroSource(ResumableSource[CloudzeroSourceConfig, CloudzeroResumeConf
                     ),
                     SourceFieldInputConfig(
                         name="group_by",
+                        sync_setting=True,
                         label="Group costs by dimensions (optional)",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,

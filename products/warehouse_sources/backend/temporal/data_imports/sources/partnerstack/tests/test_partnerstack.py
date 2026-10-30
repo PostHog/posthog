@@ -73,6 +73,18 @@ class TestPagination:
         assert len(result.requests) == 1
         assert result.saved_states == []
 
+    @parameterized.expand(
+        [("deal_stages", "/api/v2/sales_cycles/deal/stages"), ("lead_stages", "/api/v2/sales_cycles/lead/stages")]
+    )
+    def test_stage_lookups_fetch_a_single_unpaginated_page(self, endpoint: str, path: str) -> None:
+        result = _driver().run(endpoint, [_response([{"key": "stg_a"}, {"key": "stg_b"}], has_more=True)])
+
+        assert result.raised is None
+        assert result.rows == [{"key": "stg_a"}, {"key": "stg_b"}]
+        assert [request.path for request in result.requests] == [path]
+        assert result.params("limit") == [None]
+        assert result.saved_states == []
+
 
 class TestRetryAndFailure:
     @parameterized.expand([("rate_limited", 429), ("server_error", 500), ("bad_gateway", 503)])

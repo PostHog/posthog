@@ -157,6 +157,7 @@ async def test_table(snowflake_client, database, schema, table_name):
         fields=(
             SnowflakeField("id", SnowflakeType("INTEGER", False), pa.int64(), True),
             SnowflakeField("text", SnowflakeType("TEXT", False), pa.string(), True),
+            SnowflakeField("amount", SnowflakeType("NUMBER", False, 38, 2), pa.decimal128(38, 2), True),
         ),
         parents=(database, schema),
     )

@@ -202,8 +202,11 @@ describe('PushNotificationService', () => {
 
             const result = await service.executeSendPushNotification(invocation)
 
-            expect(result.logs.map((log) => log.message)).toContainEqual(
-                expect.stringContaining('No active FCM device token found')
+            expect(result.logs).toContainEqual(
+                expect.objectContaining({
+                    level: 'warn',
+                    message: expect.stringContaining('No active FCM device token found'),
+                })
             )
             // No token means nothing was delivered — record push_skipped, not push_sent.
             expect(result.metrics).toContainEqual(expect.objectContaining({ metric_name: 'push_skipped', count: 1 }))
@@ -1760,6 +1763,28 @@ describe('PushNotificationService', () => {
             const urls = mockTrackedFetch.mock.calls.map((c: any) => c[0].url)
             expect(urls.some((u: string) => u.includes('fcm.googleapis.com'))).toBe(true)
             expect(urls.some((u: string) => u.includes('push.apple.com'))).toBe(true)
+        })
+
+        it('logs a skipped channel at info and reports channel counts when another channel delivered', async () => {
+            ;(integrationManager.get as jest.Mock).mockImplementation((id: number) =>
+                Promise.resolve(id === 1 ? firebaseIntegration : apnsIntegration)
+            )
+            const invocation = createSendPushNotificationInvocation({
+                '$device_push_subscription_test-project': encryptedFields.encrypt('fcm-token'),
+            })
+            invocation.queueParameters = { ...invocation.queueParameters, integrationIds: [1, 2] } as any
+            mockTrackedFetch.mockResolvedValue(ok200)
+
+            const result = await service.executeSendPushNotification(invocation)
+
+            expect(result.logs).toContainEqual(
+                expect.objectContaining({
+                    level: 'info',
+                    message: expect.stringContaining('No active APNS device token found'),
+                })
+            )
+            expect(result.logs.filter((log) => log.level === 'warn')).toEqual([])
+            expect(result.execResult).toEqual({ delivered: 1, skipped: 1, failed: 0 })
         })
 
         it('deduplicates repeated channel ids so a device is not notified twice', async () => {

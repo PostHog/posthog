@@ -1,4 +1,8 @@
-import { stripSessionIds, summarizePlaylistFilters } from 'scenes/session-recordings/playlist/playlistUtils'
+import {
+    comparableRecordingFilters,
+    stripSessionIds,
+    summarizePlaylistFilters,
+} from 'scenes/session-recordings/playlist/playlistUtils'
 
 import {
     CohortType,
@@ -199,12 +203,11 @@ describe('stripSessionIds()', () => {
         },
     }
 
-    it('strips session ids, leaves other filter fields untouched', () => {
-        const result = stripSessionIds({
-            ...baseFilters,
-            session_ids: ['019d68e1-1165-7cf9-b87b-759fe1604d99'],
-        })
-        expect(result).toEqual(baseFilters)
+    it.each([
+        ['session ids', { session_ids: ['019d68e1-1165-7cf9-b87b-759fe1604d99'] }],
+        ['the person picked from the player', { person_uuid: '019d68e1-1165-7cf9-b87b-759fe1604d99' }],
+    ])('strips %s, leaves other filter fields untouched', (_name, extra) => {
+        expect(stripSessionIds({ ...baseFilters, ...extra })).toEqual(baseFilters)
     })
 
     it('returns the same reference when session_ids is absent', () => {
@@ -218,5 +221,23 @@ describe('stripSessionIds()', () => {
         ['null', null],
     ])('passes %s through unchanged', (_name, input) => {
         expect(stripSessionIds(input as any)).toBe(input)
+    })
+})
+
+describe('comparableRecordingFilters()', () => {
+    it.each([
+        [
+            'drops recommended_only when the list wrote it back as false',
+            { recommended_only: false, date_from: '-7d' },
+            { date_from: '-7d' },
+        ],
+        [
+            'keeps recommended_only when it is on',
+            { recommended_only: true, date_from: '-7d' },
+            { recommended_only: true, date_from: '-7d' },
+        ],
+        ['drops session ids', { session_ids: ['a'], date_from: '-7d' }, { date_from: '-7d' }],
+    ])('%s', (_, filters, expected) => {
+        expect(comparableRecordingFilters(filters as any)).toEqual(expected)
     })
 })

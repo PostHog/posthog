@@ -43,6 +43,7 @@ describe('ReportStatusSection', () => {
                 task_id: null,
                 agent: 'Build agent',
                 claimed_at: '2026-06-11T10:00:00Z',
+                responsible_user: null,
             },
         })
 
@@ -75,6 +76,7 @@ describe('ReportStatusSection', () => {
                         task_id: null,
                         agent: null,
                         claimed_at: '2026-06-11T10:00:00Z',
+                        responsible_user: null,
                     },
                 })}
             />

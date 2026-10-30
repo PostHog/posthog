@@ -10,12 +10,11 @@ trace, so cost can be summed per search.
 import math
 import dataclasses
 from collections.abc import Iterable, Mapping
-from typing import Any, Literal
+from typing import Literal
 from uuid import UUID, uuid4
 
 import structlog
 import posthoganalytics
-from posthoganalytics.ai.langchain.callbacks import CallbackHandler
 
 from posthog.dataclasses import frozen
 from posthog.llm.gateway_client import team_distinct_id
@@ -93,60 +92,3 @@ def capture_embedding(*, team_id: int, input_tokens: int, trace_id: str, propert
         )
     except Exception:
         logger.warning("business_knowledge.embedding_cost_capture_failed", team_id=team_id, exc_info=True)
-
-
-class _QuietCallbackHandler(CallbackHandler):
-    """
-    Records successful generations only. On a model error the base handler
-    records the error message and calls ``capture_exception``. That message can
-    contain prompt or output text, which privacy mode does not redact, and every
-    caller here already handles the failure itself. The base handler also logs
-    every prompt at DEBUG level, which privacy mode does not redact either.
-    """
-
-    def _log_debug_event(
-        self,
-        event_name: str,
-        run_id: UUID,
-        parent_run_id: UUID | None = None,
-        **kwargs: Any,
-    ) -> None:
-        _ = event_name, run_id, parent_run_id, kwargs
-
-    def on_llm_error(
-        self,
-        error: BaseException,
-        *,
-        run_id: UUID,
-        parent_run_id: UUID | None = None,
-        **kwargs: Any,
-    ) -> None:
-        _ = error, run_id, parent_run_id, kwargs
-
-    def on_chain_error(
-        self,
-        error: BaseException,
-        *,
-        run_id: UUID,
-        parent_run_id: UUID | None = None,
-        **kwargs: Any,
-    ) -> None:
-        _ = error, run_id, parent_run_id, kwargs
-
-
-def trace_callback(team_id: int, *, trace_id: str, properties: Mapping[str, str | int]) -> CallbackHandler | None:
-    """LangChain callback that captures ``$ai_generation`` for a model call made outside a PostHog AI graph."""
-    # default_client stays None until the first module-level capture.
-    client = posthoganalytics.default_client
-    if client is None and not posthoganalytics.disabled:
-        client = posthoganalytics.setup()
-    if client is None:
-        return None
-    return _QuietCallbackHandler(
-        client,
-        distinct_id=team_distinct_id(team_id),
-        trace_id=trace_id,
-        # Prompts and outputs contain customer content, so only token counts reach analytics.
-        privacy_mode=True,
-        properties=dict(properties),
-    )

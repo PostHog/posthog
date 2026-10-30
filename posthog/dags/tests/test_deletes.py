@@ -702,7 +702,7 @@ def _teams_with_13_and_18_months() -> tuple[Team, Team, Team]:
     organization = Organization.objects.create(name="Retention")
     thirteen = Team.objects.create(organization=organization, name="13 months")
     eighteen = Team.objects.create(organization=organization, name="18 months")
-    no_retention = Team.objects.create(organization=organization, name="No retention")
+    no_retention = Team.objects.create(organization=organization, name="No retention", event_retention_months=12)
     TeamEventsRetentionConfig.objects.create(team=thirteen, events_retention_months=13)
     TeamEventsRetentionConfig.objects.create(team=eighteen, events_retention_months=18)
     return thirteen, eighteen, no_retention

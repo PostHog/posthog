@@ -211,8 +211,9 @@ Output rules:
   week"). For sub-windows inside the range (e.g. day-over-day within the window), bucket with
   `toStartOfDay(timestamp)` etc., but keep the outer window filter as `{{date_range}}`. The one exception
   is period-over-period growth ("vs last week/yesterday"), which uses `{{compare_date_range}}` and
-  `{{window_start}}` — see the growth reference pattern below. Boundary tokens `{{window_start}}` /
-  `{{window_end}}` substitute to bare `toDateTime('…')` literals where a pattern needs a single bound.
+  `{{window_start}}` — see the growth reference pattern below. Boundary tokens `{{window_start}}`,
+  `{{window_end}}` and `{{compare_window_start}}` (the start of the comparison period) substitute to
+  bare `toDateTime('…')` literals where a pattern needs a single bound.
 - Each step's `description` must briefly explain *why* that query is relevant to the prompt.
 - Format each query for readability: each clause (SELECT, FROM, WHERE, GROUP BY, ORDER BY, LIMIT) on
   its own line, one selected column per line. Queries are shown to users verbatim.
@@ -490,9 +491,12 @@ rewrite MUST follow the same HogQL syntax constraints used by the planner:
   `uniqIf($group_2, cond)`). A bare `group_<index>` is only valid as `group_<index>.properties.<name>`;
   used as a scalar it does not resolve; replace it with `$group_<index>`. The same `$`-prefixed form
   applies to person/session keys only via their documented paths, so do not add `$` elsewhere.
-- Time window: PRESERVE the original query's window tokens (`{{date_range}}`,
-  `{{compare_date_range}}`, `{{window_start}}`, `{{window_end}}`) or literal `toDateTime('…')` bounds
-  verbatim — those are the report's fixed analysis window. Do NOT introduce `now()` /
+- Time window: PRESERVE the original query's window tokens or literal `toDateTime('…')` bounds
+  verbatim — those are the report's fixed analysis window. `{{date_range}}` and `{{compare_date_range}}`
+  are whole time filters (`timestamp >= … AND timestamp < …`); `{{window_start}}`, `{{window_end}}` and
+  `{{compare_window_start}}` are single timestamps. `{{compare_date_range}}` covers the previous and the
+  current period together; for the previous period alone, use
+  `timestamp >= {{compare_window_start}} AND timestamp < {{window_start}}`. Do NOT introduce `now()` /
   `now() - INTERVAL …` / `today()`, and do NOT resolve a placeholder into dates yourself.
 - The normal result ceiling is `LIMIT 250`. If the error specifically indicates memory pressure,
   excessive result size, or a timeout, simplify or preaggregate the query and lower the final `LIMIT`

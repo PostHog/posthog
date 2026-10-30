@@ -31,3 +31,13 @@ class TestIterableSource:
         assert is_valid is expected_valid
         assert error_message == expected_message
         mock_validate.assert_called_once_with(self.config.api_key, self.config.region)
+
+    def test_retryable_errors_match_rate_limit_raise(self) -> None:
+        # The message `_stream_export_window` (iterable.py) re-raises once the tracked session's
+        # own 429 retries exhaust.
+        observed_error = (
+            "429 Client Error: Too Many Requests for url: "
+            "https://api.iterable.com/api/export/data.json?dataTypeName=emailSend"
+        )
+        retryable_errors = self.source.get_retryable_errors()
+        assert any(key in observed_error for key in retryable_errors)

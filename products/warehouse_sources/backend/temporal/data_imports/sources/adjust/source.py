@@ -119,6 +119,7 @@ Adjust's Report Service API returns metrics aggregated per day, so these tables 
                     ),
                     SourceFieldInputConfig(
                         name="app_tokens",
+                        sync_setting=True,
                         label="App tokens (optional)",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,

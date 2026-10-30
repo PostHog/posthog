@@ -25,6 +25,7 @@ from products.review_hog.backend.reviewer.constants import (
     CHUNKING_MODEL,
     CHUNKING_REASONING_EFFORT,
     CHUNKING_RUNTIME_ADAPTER,
+    CONTROL_ARM_SET,
     DEDUP_MODEL,
     DEDUP_REASONING_EFFORT,
     DEDUP_RUNTIME_ADAPTER,
@@ -47,6 +48,7 @@ from products.review_hog.backend.reviewer.constants import (
     resolve_review_arm,
     review_arm_for_mode,
     reviewhog_version_for_mode,
+    single_agent_arms,
     validation_arm_for_mode,
 )
 from products.review_hog.backend.reviewer.models import PROMPTS_DIR
@@ -235,6 +237,7 @@ class TurnFingerprint:
         flash_reasoning_effort: str,
         review_design: str = REVIEW_DESIGN_PIPELINE,
         coordinator: bool = False,
+        arm_set: str = CONTROL_ARM_SET,
     ) -> TurnFingerprint:
         stored_arm = resolve_review_arm(
             report.review_runtime_adapter,
@@ -243,7 +246,11 @@ class TurnFingerprint:
             report.review_initial_permission_mode,
         )
         review_arm = review_arm_for_mode(
-            review_mode, stored_arm, flash_reasoning_effort=flash_reasoning_effort, review_design=review_design
+            review_mode,
+            stored_arm,
+            flash_reasoning_effort=flash_reasoning_effort,
+            review_design=review_design,
+            arm_set=arm_set,
         )
         if review_design == REVIEW_DESIGN_SINGLE_AGENT:
             coordinator_inputs: dict[str, Any] = {}
@@ -251,9 +258,13 @@ class TurnFingerprint:
                 # Only coordinated turns carry it, so turns on separate sessions keep their cohort.
                 prompt = (SINGLE_AGENT_PROMPT_PATH / COORDINATOR_PROMPT_FILE.name).read_text()
                 coordinator_inputs["coordinator"] = {"prompt": _text_hash(prompt)}
+            lens_arm = single_agent_arms(arm_set).lens
+            # Only a set whose lenses run on another arm carries it, so sets with one arm keep their cohort.
+            lens_inputs = {"lens_arm": _arm_payload(lens_arm)} if lens_arm != review_arm else {}
             return cls(
                 {
                     **coordinator_inputs,
+                    **lens_inputs,
                     "review_mode": review_mode,
                     "review_design": review_design,
                     "review_arm": _arm_payload(review_arm),
@@ -305,6 +316,7 @@ def record_turn_marker(
     review_design: str = REVIEW_DESIGN_PIPELINE,
     coordinator: bool = False,
     publishes: bool | None = None,
+    arm_set: str = CONTROL_ARM_SET,
 ) -> ReviewHogMarker:
     """Compute the turn's marker and persist it as the turn's `turn_marker` artefact.
 
@@ -321,6 +333,7 @@ def record_turn_marker(
         flash_reasoning_effort=flash_reasoning_effort,
         review_design=review_design,
         coordinator=coordinator,
+        arm_set=arm_set,
     )
     marker = ReviewHogMarker(
         version=reviewhog_version_for_mode(review_mode, review_design), fingerprint=fingerprint.digest()

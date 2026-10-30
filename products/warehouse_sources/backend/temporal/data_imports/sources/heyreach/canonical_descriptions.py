@@ -137,6 +137,17 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             **_DAILY_STATS_COLUMNS,
         },
     },
+    "campaign_stats_by_sender": {
+        "description": "Daily outreach totals for each campaign, split by the LinkedIn sender account that did the outreach.",
+        "docs_url": _API_DOCS_URL,
+        "columns": {
+            "linkedInAccountId": "Identifier of the LinkedIn sender account the stats cover. Matches `id` in linkedin_accounts.",
+            "campaignId": "Identifier of the campaign the stats cover.",
+            "campaignName": "Name of the campaign.",
+            "isCampaignDeleted": "Whether the campaign has been deleted.",
+            **_DAILY_STATS_COLUMNS,
+        },
+    },
     "list_companies": {
         "description": "A company belonging to a company list, with its LinkedIn company page details.",
         "docs_url": _API_DOCS_URL,

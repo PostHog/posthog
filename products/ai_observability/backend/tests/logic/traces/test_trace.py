@@ -115,7 +115,7 @@ def test_person_label(_name: str, person: PersonRow | None, expected: str | None
             ],
             "e0",
         ),
-        ("a trace without nodes falls back to the root", [{"event": "$ai_feedback"}], "trace-1"),
+        ("a trace without nodes falls back to the root", [], "trace-1"),
     ]
 )
 def test_default_node_id(_name: str, rows: list[dict[str, Any]], expected: str) -> None:
@@ -128,7 +128,6 @@ def test_node_ids_by_alias_map_sdk_ids_of_tree_nodes_to_their_uuids() -> None:
         {"event": "$ai_generation", "generation_id": "gen-a", "parent_id": "span-a"},
         {"event": "$ai_generation", "generation_id": "gen-a"},
         {"event": "$ai_span", "span_id": "e3"},
-        {"event": "$ai_feedback", "span_id": "feedback-a"},
         {"event": "$ai_trace", "span_id": "trace-a"},
     ).node_ids_by_alias
 

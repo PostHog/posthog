@@ -5,9 +5,10 @@ from django.template.loader import render_to_string
 from products.alerts.backend.facade.email import send_alert_email
 
 
+@patch("products.alerts.backend.facade.email.is_email_available", return_value=True)
 @patch("products.alerts.backend.facade.email.EmailMessage")
-def test_send_alert_email_delivers_to_every_recipient(MockEmailMessage: MagicMock) -> None:
-    send_alert_email(
+def test_send_alert_email_delivers_to_every_recipient(MockEmailMessage: MagicMock, _mock_available: MagicMock) -> None:
+    assert send_alert_email(
         recipients=("first@example.com", "second@example.com"),
         campaign_key="alert-email-test",
         subject="Alert firing",

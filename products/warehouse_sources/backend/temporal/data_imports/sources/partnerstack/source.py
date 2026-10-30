@@ -54,7 +54,7 @@ class PartnerStackSource(ResumableSource[PartnerStackSourceConfig, PartnerStackR
             releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your PartnerStack Vendor API keys to pull your partner program data into the PostHog Data warehouse.
 
-You can find your **public key** and **private key** under **Settings → Integrations → PartnerStack API Keys** in [PartnerStack](https://dash.partnerstack.com/). The keys grant read access to your partnerships, customers, deals, and leads.
+You can find your **public key** and **private key** under **Settings → Integrations → PartnerStack API Keys** in [PartnerStack](https://dash.partnerstack.com/). The keys grant read access to your partnerships, customers, deals, leads, transactions, rewards, and deal and lead sales-cycle stages.
 """,
             iconPath="/static/services/partnerstack.png",
             docsUrl="https://posthog.com/docs/cdp/sources/partnerstack",

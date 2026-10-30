@@ -32,6 +32,7 @@ use super::completion::CompletionDriver;
 use super::execute::{
     execute_chunk, record_task_result, BreakerSignal, ChunkOutcome, ChunkTaskContext,
 };
+use super::newest_day::NewestDayIndexes;
 use super::person_execute::{execute_person_chunk, PersonChunkTaskContext};
 use super::person_plan::{plan_person_run, PersonPlanAttempt, PersonPlanRequest};
 use super::prepare::{refresh_runs, run_ids_of_kind, PreparedRun, RefreshOutcome};
@@ -101,6 +102,7 @@ impl PlanningState {
 struct ClaimState {
     inflight: InflightTasks,
     breakers: RunBreakers,
+    newest_day: NewestDayIndexes,
 }
 
 pub struct SeederOrchestrator {
@@ -160,6 +162,7 @@ impl SeederOrchestrator {
         let mut claims = ClaimState {
             inflight: InflightTasks::default(),
             breakers: RunBreakers::new(self.settings.breaker),
+            newest_day: NewestDayIndexes::new(self.settings.newest_day_index_max_entries),
         };
         let mut eligible_runs = HashMap::new();
         let mut reported_runs = HashSet::new();
@@ -234,6 +237,7 @@ impl SeederOrchestrator {
                     self.complete_trailing_runs(&eligible_runs).await;
                     claims.breakers.expire_idle(Instant::now());
                     publish_open_breakers(&eligible_runs, &claims.breakers);
+                    claims.newest_day.release_idle(&eligible_runs);
                     self.fill_claim_slots(
                         &eligible_runs,
                         &mut tasks,
@@ -518,6 +522,7 @@ impl SeederOrchestrator {
                         chunk,
                         lease,
                         prepared: prepared.clone(),
+                        newest_day: claims.newest_day.for_run(&prepared.run),
                         store: self.store.clone(),
                         scanner: self.scanner.clone(),
                         producer: self.producer.clone(),

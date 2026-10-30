@@ -1277,6 +1277,7 @@ impl PersonHogLifecycle for TestLifecycleService {
             .map(|person_id| lifecycle::DeletePersonResult {
                 person_id,
                 outcome: lifecycle::DeletePersonOutcome::Deleted as i32,
+                person_version: None,
             })
             .collect();
         Ok(Response::new(lifecycle::DeletePersonsResponse {

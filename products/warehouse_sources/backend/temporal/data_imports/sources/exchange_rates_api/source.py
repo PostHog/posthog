@@ -71,6 +71,7 @@ The free plan is restricted to the `EUR` base currency — a custom base currenc
                     ),
                     SourceFieldInputConfig(
                         name="base_currency",
+                        sync_setting=True,
                         label="Base currency",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
@@ -79,6 +80,7 @@ The free plan is restricted to the `EUR` base currency — a custom base currenc
                     ),
                     SourceFieldInputConfig(
                         name="start_date",
+                        sync_setting=True,
                         label="Start date (timeseries backfill)",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,

@@ -32,6 +32,14 @@ def not_checked(reason: str) -> CheckSkip:
     return CheckSkip(status=ExperimentHealthCheckStatus.NOT_CHECKED, reason=reason)
 
 
+def no_calculated_metric(ctx: HealthContext) -> CheckSkip:
+    """Why a check of the metrics that the experiment calculates doesn't look when it calculates none."""
+    # The calculation leaves out a metric in the legacy format, which the no-metric check counts.
+    if ctx.primary_metric_count + ctx.secondary_metric_count:
+        return not_applicable("Runs once the experiment has a metric in the current format")
+    return not_applicable("Runs once the experiment has a metric")
+
+
 def flag_to_check(ctx: HealthContext, *, before_launch: bool) -> FlagState | CheckSkip:
     """The flag that a check of the flag's setup reads, or why the check doesn't look. After the end the flag often
     holds the shipped decision, not the setup of the run, so these checks stop there."""

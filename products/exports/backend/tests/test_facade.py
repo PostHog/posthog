@@ -1,3 +1,4 @@
+from copy import deepcopy
 from datetime import timedelta
 
 from posthog.test.base import BaseTest
@@ -14,6 +15,7 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.exports.backend.facade.api import (
     _validate_adhoc_export_context,
     get_delivery_image_url,
+    query_with_reference_lines,
     render_png_export,
 )
 from products.exports.backend.models.exported_asset import ExportedAsset
@@ -54,6 +56,72 @@ class TestValidateAdhocExportContext(SimpleTestCase):
     def test_rejects_unwrapped_sources(self, _name, export_context):
         with self.assertRaises(ValueError):
             _validate_adhoc_export_context(export_context)
+
+    @parameterized.expand(
+        [
+            (
+                "trends",
+                {
+                    "kind": "InsightVizNode",
+                    "source": {
+                        "kind": "TrendsQuery",
+                        "trendsFilter": {"goalLines": [{"label": "Target", "value": 100}]},
+                    },
+                },
+                "trendsFilter",
+            ),
+            (
+                "unwrapped_trends",
+                {"kind": "TrendsQuery", "trendsFilter": {"goalLines": [{"label": "Target", "value": 100}]}},
+                "trendsFilter",
+            ),
+            (
+                "funnel",
+                {
+                    "kind": "InsightVizNode",
+                    "source": {
+                        "kind": "FunnelsQuery",
+                        "funnelsFilter": {"goalLines": [{"label": "Target", "value": 100}]},
+                    },
+                },
+                "funnelsFilter",
+            ),
+            (
+                "retention",
+                {
+                    "kind": "InsightVizNode",
+                    "source": {
+                        "kind": "RetentionQuery",
+                        "retentionFilter": {"goalLines": [{"label": "Target", "value": 100}]},
+                    },
+                },
+                "retentionFilter",
+            ),
+            (
+                "bi",
+                {"kind": "BIVisualizationNode", "chartSettings": {"goalLines": [{"label": "Target", "value": 100}]}},
+                "chartSettings",
+            ),
+            (
+                "metrics",
+                {"kind": "MetricsQuery", "display": {"goalLines": [{"label": "Target", "value": 100}]}},
+                "display",
+            ),
+            (
+                "sql",
+                {"kind": "DataVisualizationNode", "chartSettings": {"goalLines": [{"label": "Target", "value": 100}]}},
+                "chartSettings",
+            ),
+        ]
+    )
+    def test_export_bounds_preserve_saved_goals(self, _name: str, query: dict, settings_key: str) -> None:
+        bounds = [{"label": "Lower threshold", "value": 50}, {"label": "Upper threshold", "value": 250}]
+        original = deepcopy(query)
+        result = query_with_reference_lines(query, bounds)
+        settings = result.get("source", result)[settings_key]
+        assert [line["value"] for line in settings["goalLines"]] == [100, 50, 250]
+        assert query == original
+        assert query_with_reference_lines(result, bounds) == result
 
 
 class TestRenderPngExportInsightLookup(BaseTest):

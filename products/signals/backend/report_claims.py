@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from datetime import datetime
 from uuid import UUID
 
@@ -95,6 +96,35 @@ def responsible_user(claim: ReportClaim) -> User | None:
     if not tasks or tasks[0].created_by_id is None:
         return None
     return User.objects.filter(id=tasks[0].created_by_id).first()
+
+
+def responsible_users(claims: Iterable[ReportClaim]) -> dict[UUID, User]:
+    """`responsible_user` for many claims in a fixed number of queries, keyed by claim id."""
+    claims = list(claims)
+    result = {claim.claim_id: claim.actor_user for claim in claims if claim.actor_user is not None}
+    task_claims = [claim for claim in claims if claim.actor_user is None and claim.actor_task_id is not None]
+    if not task_claims:
+        return result
+    creator_by_task = tasks_facade.get_task_creator_ids(
+        [claim.actor_task_id for claim in task_claims if claim.actor_task_id is not None],
+        {claim.team_id for claim in task_claims},
+    )
+    users = User.objects.in_bulk(set(creator_by_task.values()))
+    for claim in task_claims:
+        creator_id = creator_by_task.get(str(claim.actor_task_id))
+        if creator_id in users:
+            result[claim.claim_id] = users[creator_id]
+    return result
+
+
+def reports_claimed_for_user(*, team_id: int, user_id: int) -> Q:
+    """Reports the user claimed, themselves or through their external agents.
+
+    Internal task claims do not count: auto-start runs tasks as a suggested reviewer who never took the work on.
+    """
+    own_claims = active_claims(team_id=team_id).filter(created_by_id=user_id)
+    own_legacy = legacy_claims(team_id=team_id).filter(actor_user_id=user_id)
+    return Q(id__in=own_claims.values("report_id")) | Q(id__in=own_legacy.values("report_id"))
 
 
 def reports_with_active_claim(*, team_id: int, actor: ArtefactAttribution | None = None) -> Q:

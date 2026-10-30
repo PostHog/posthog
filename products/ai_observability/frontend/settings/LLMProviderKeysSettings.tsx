@@ -15,10 +15,9 @@ import {
 } from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
-import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
+import { TeamMembershipLevel } from 'lib/constants'
 import { IconKey } from 'lib/lemon-ui/icons'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { LLMProviderIcon, LLM_PROVIDER_SELECT_OPTIONS } from '../LLMProviderIcon'
 import {
@@ -240,7 +239,6 @@ function KeyValidationStatus({
 }
 
 function AddKeyModal({ restrictionReason }: { restrictionReason: string | null }): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
     const { systemOneBaseUrl, systemOneModel } = useValues(llmProviderKeysLogic)
     const { newKeyModalOpen, providerKeysLoading, preValidationResult, preValidationResultLoading, evaluationConfig } =
         useValues(llmProviderKeysLogic)
@@ -435,11 +433,7 @@ function AddKeyModal({ restrictionReason }: { restrictionReason: string | null }
                     <LemonSelect
                         value={provider}
                         onChange={handleProviderChange}
-                        options={LLM_PROVIDER_SELECT_OPTIONS.filter(
-                            ({ value }) =>
-                                value !== 'system_one' ||
-                                featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SYSTEM_ONE_EVALUATIONS] === true
-                        )}
+                        options={LLM_PROVIDER_SELECT_OPTIONS}
                         className="mt-1"
                         fullWidth
                     />

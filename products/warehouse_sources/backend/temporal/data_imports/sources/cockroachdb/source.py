@@ -16,6 +16,10 @@ class CockroachDBSource(SimpleSource[CockroachDBSourceConfig]):
         return ExternalDataSourceType.COCKROACHDB
 
     @property
+    def credential_kind(self) -> str | None:
+        return "cockroachdb"
+
+    @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=ExternalDataSourceType.COCKROACHDB,

@@ -360,6 +360,13 @@ DIFF_CHECKS: list[DiffCheck] = [
         run=check_semgrep_devex,
     ),
     DiffCheck(
+        key="new-ee-files",
+        label="new file under ee/ (needs human approval)",
+        triggers=["ee/*"],
+        verify=["python", ".github/scripts/check-no-new-ee-files.py"],
+        takes_diff_scope=True,
+    ),
+    DiffCheck(
         key="cross-lane",
         label="Python or frontend changes mixed with Node or Rust changes (fails CI without a label)",
         triggers=["*"],

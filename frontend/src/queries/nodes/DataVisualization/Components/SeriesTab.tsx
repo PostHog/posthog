@@ -517,7 +517,8 @@ export const YSeriesFormattingTab = ({ ySeriesLogicProps }: { ySeriesLogicProps:
 }
 
 export const YSeriesDisplayTab = ({ ySeriesLogicProps }: { ySeriesLogicProps: YSeriesLogicProps }): JSX.Element => {
-    const { showTableSettings, dataVisualizationProps, effectiveVisualizationType } = useValues(dataVisualizationLogic)
+    const { showTableSettings, dataVisualizationProps, effectiveVisualizationType, chartSettings } =
+        useValues(dataVisualizationLogic)
     const { selectedSeriesBreakdownColumn } = useValues(seriesBreakdownLogic({ key: dataVisualizationProps.key }))
     const { updateSeriesIndex } = useActions(dataVisualizationLogic)
 
@@ -529,6 +530,34 @@ export const YSeriesDisplayTab = ({ ySeriesLogicProps }: { ySeriesLogicProps: YS
         effectiveVisualizationType === ChartDisplayType.ScatterPlot
     const showColorPicker = !showTableSettings && !selectedSeriesBreakdownColumn
     const showLabelInput = showTableSettings || !selectedSeriesBreakdownColumn
+    const isPercentColumn = ySeriesLogicProps.series.settings?.formatting?.style === 'percent'
+    const seriesSwitches: {
+        name: 'trendLine' | 'excludeFromTotal'
+        label: string
+        info?: string
+        disabledReason?: string
+        checked?: boolean
+    }[] = [
+        { name: 'trendLine', label: 'Trend line' },
+        {
+            name: 'excludeFromTotal',
+            label: 'Exclude from total row',
+            info:
+                effectiveVisualizationType === ChartDisplayType.ActionsStackedBar
+                    ? 'A bar still stacks with the other bars. Set the display type to line to draw it over the stack.'
+                    : undefined,
+            disabledReason:
+                chartSettings.showTotalRow === false
+                    ? 'Turn on "Show total row" to use this'
+                    : isPercentColumn
+                      ? 'Percent columns are always left out of the total row'
+                      : undefined,
+            checked: isPercentColumn || undefined,
+        },
+    ]
+    const valueLabelsInfo = chartSettings.showValuesOnSeries
+        ? 'Auto shows values, because "Show values on series" is on for the chart.'
+        : 'Auto hides values, because "Show values on series" is off for the chart.'
 
     return (
         <Form logic={ySeriesLogic} props={ySeriesLogicProps} formKey="display" className="deprecated-space-y-4">
@@ -585,27 +614,25 @@ export const YSeriesDisplayTab = ({ ySeriesLogicProps }: { ySeriesLogicProps: YS
             )}
             {!showTableSettings && !hideChartSpecificOptions && (
                 <>
-                    {!selectedSeriesBreakdownColumn && (
-                        <LemonField name="trendLine" label="Trend line">
-                            {({ value, onChange }) => (
-                                <LemonSwitch
-                                    checked={value}
-                                    onChange={(newValue) => {
-                                        onChange(newValue)
-                                        updateSeriesIndex(
-                                            ySeriesLogicProps.seriesIndex,
-                                            ySeriesLogicProps.series.column.name,
-                                            {
-                                                display: {
-                                                    trendLine: newValue,
-                                                },
-                                            }
-                                        )
-                                    }}
-                                />
-                            )}
-                        </LemonField>
-                    )}
+                    {!selectedSeriesBreakdownColumn &&
+                        seriesSwitches.map(({ name, label, info, disabledReason, checked }) => (
+                            <LemonField key={name} name={name} label={label} info={info}>
+                                {({ value, onChange }) => (
+                                    <LemonSwitch
+                                        checked={checked ?? value}
+                                        disabledReason={disabledReason}
+                                        onChange={(newValue) => {
+                                            onChange(newValue)
+                                            updateSeriesIndex(
+                                                ySeriesLogicProps.seriesIndex,
+                                                ySeriesLogicProps.series.column.name,
+                                                { display: { [name]: newValue } }
+                                            )
+                                        }}
+                                    />
+                                )}
+                            </LemonField>
+                        ))}
                     <LemonField name="yAxisPosition" label="Y-axis position">
                         {({ value, onChange }) => (
                             <LemonSegmentedButton
@@ -674,6 +701,29 @@ export const YSeriesDisplayTab = ({ ySeriesLogicProps }: { ySeriesLogicProps: YS
                             />
                         )}
                     </LemonField>
+                    {!selectedSeriesBreakdownColumn && (
+                        <LemonField name="valueLabels" label="Values on series" info={valueLabelsInfo}>
+                            {({ value, onChange }) => (
+                                <LemonSegmentedButton
+                                    value={value}
+                                    className="w-full"
+                                    options={[
+                                        { label: 'Auto', value: 'auto' },
+                                        { label: 'Show', value: 'show' },
+                                        { label: 'Hide', value: 'hide' },
+                                    ]}
+                                    onChange={(newValue) => {
+                                        onChange(newValue)
+                                        updateSeriesIndex(
+                                            ySeriesLogicProps.seriesIndex,
+                                            ySeriesLogicProps.series.column.name,
+                                            { display: { valueLabels: newValue as 'auto' | 'show' | 'hide' } }
+                                        )
+                                    }}
+                                />
+                            )}
+                        </LemonField>
+                    )}
                 </>
             )}
         </Form>
