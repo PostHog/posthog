@@ -15,7 +15,7 @@ class SqlWindowClass(StrEnum):
 
 
 SQL_WINDOW_MAX_AGE: dict[SqlWindowClass, timedelta] = {
-    SqlWindowClass.FIXED_PAST: timedelta(hours=24),
+    SqlWindowClass.FIXED_PAST: timedelta(hours=6),
     SqlWindowClass.LIVE: timedelta(minutes=5),
     SqlWindowClass.UP_TO_NOW_SHORT: timedelta(minutes=30),
     SqlWindowClass.UP_TO_NOW_LONG: timedelta(hours=1),

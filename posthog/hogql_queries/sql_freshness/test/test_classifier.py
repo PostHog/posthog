@@ -17,6 +17,7 @@ from posthog.hogql_queries.sql_freshness.rules import SQL_WINDOW_MAX_AGE, Freshn
 
 NOW = datetime(2026, 10, 29, 15, 0, tzinfo=UTC)
 NEXT_MIDNIGHT = datetime(2026, 10, 30, tzinfo=UTC)
+EVENING = datetime(2026, 10, 29, 20, 0, tzinfo=UTC)
 LOS_ANGELES = ZoneInfo("America/Los_Angeles")
 PAST_DAY = "select count() from events where timestamp >= '2026-10-28' and timestamp < '2026-10-29'"
 YESTERDAY = "select count() from events where toDate(timestamp) = yesterday()"
@@ -129,7 +130,12 @@ GRANT_CASES: list[tuple[Any, ...]] = [
         "select count() from events where timestamp between '2026-10-01' and '2026-10-15'",
         SqlWindowClass.FIXED_PAST,
     ),
-    ("yesterday_expires_at_midnight", YESTERDAY, SqlWindowClass.FIXED_PAST, {"fresh_until": NEXT_MIDNIGHT}),
+    (
+        "yesterday_expires_at_midnight",
+        YESTERDAY,
+        SqlWindowClass.FIXED_PAST,
+        {"now": EVENING, "fresh_until": NEXT_MIDNIGHT},
+    ),
     (
         "today_expires_at_midnight",
         "select count() from events where toDate(timestamp) = today()",
@@ -177,10 +183,10 @@ GRANT_CASES: list[tuple[Any, ...]] = [
         {"timezone": LOS_ANGELES, "now": datetime(2026, 10, 29, 7, 5, tzinfo=UTC)},
     ),
     (
-        "utc_yesterday_is_closed_in_the_morning",
+        "utc_yesterday_is_closed_during_the_local_day",
         YESTERDAY,
         SqlWindowClass.FIXED_PAST,
-        {"timezone": LOS_ANGELES, "fresh_until": NEXT_MIDNIGHT},
+        {"timezone": LOS_ANGELES, "now": EVENING, "fresh_until": NEXT_MIDNIGHT},
     ),
     (
         "utc_yesterday_is_the_local_today_in_the_evening",

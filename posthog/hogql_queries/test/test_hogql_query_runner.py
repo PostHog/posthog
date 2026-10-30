@@ -670,7 +670,7 @@ class TestHogQLQueryRunnerApiSqlFreshness(BaseTest):
                 ),
                 1,
             ),
-            ("static_property_filter", HogQLFilters(properties=[HogQLPropertyFilter(key="event = 'x'")]), 24),
+            ("static_property_filter", HogQLFilters(properties=[HogQLPropertyFilter(key="event = 'x'")]), 6),
         ]
     )
     @time_machine.travel("2026-10-29T15:00:00Z", tick=False)
