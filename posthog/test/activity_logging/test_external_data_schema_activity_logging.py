@@ -6,9 +6,9 @@ from django.utils import timezone
 
 from posthog.models.activity_logging.activity_log import ActivityScope, field_exclusions
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
+from posthog.models.signals import model_activity_signal
 from posthog.test.activity_log_utils import ActivityLogTestHelper
 
-from products.warehouse_sources.backend.activity_logging import handle_external_data_schema_change
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
 
 
@@ -120,7 +120,7 @@ class TestExternalDataSchemaActivityLogging(ActivityLogTestHelper):
             patch("products.warehouse_sources.backend.activity_logging.log_activity") as log_activity,
             self.assertNumQueries(1),
         ):
-            handle_external_data_schema_change(
+            model_activity_signal.send(
                 sender=ExternalDataSchema,
                 scope="ExternalDataSchema",
                 before_update=None,

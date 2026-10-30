@@ -1,4 +1,5 @@
 import dataclasses
+from uuid import UUID
 
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
 from posthog.models.signals import model_activity_signal, mutable_receiver
@@ -28,7 +29,7 @@ class ExternalDataSchemaContext(ActivityContextBase):
     source_type: str
 
 
-def _source_and_organization_id(schema: ExternalDataSchema) -> tuple[ExternalDataSource, int]:
+def _source_and_organization_id(schema: ExternalDataSchema) -> tuple[ExternalDataSource, UUID]:
     if ExternalDataSchema.source.is_cached(schema) and ExternalDataSchema.team.is_cached(schema):
         return schema.source, schema.team.organization_id
     # Lazy loads read through `_base_manager` too, so this join finds the same rows the two lazy loads did.
