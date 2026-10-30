@@ -22,7 +22,11 @@ Call `reminder-create` with these fields. Load `managing-reminders` for the othe
 - `team`: the project's numeric id
 - `resource_type`: `experiment`
 - `resource_id`: the experiment's numeric id, sent as a string (`"123"`)
-- `scheduled_at`: the experiment's `start_date` plus `running_time_calculation.recommended_running_time` days, rounded up. Read both with `experiment-get`. Use the user's date instead when they give one, and ask for a date when no running time is stored. Leave `recurrence_interval` and `cron_expression` out, so it fires once.
+- `scheduled_at`: `running_time_calculation.recommended_running_time` days, rounded up, counted from a start that depends on what the number means. Read it with `experiment-get`.
+  - When `running_time_calculation.exposure_estimate_config.conversionRateInputType` is `manual`, the number is the whole planned run. Count from the experiment's `start_date`.
+  - Otherwise, once the results page loads, the app replaces it with the days left. Count from today. Right after the launch, both give the same date.
+
+  The date must be in the future. If it isn't, the run is already due, so say so instead of setting a reminder. Use the user's date instead when they give one, and ask for a date when no running time is stored. Leave `recurrence_interval` and `cron_expression` out, so it fires once.
 
 Then tell the user the date, and that the reminder is an in-app notification only they see.
 `reminder-create` returns no link, so link the experiment with its `_posthogUrl`.
