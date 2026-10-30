@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   activeWorkspace,
   initialLayout,
+  type LayoutState,
   openTask,
   splitFocused,
 } from "./layout";
@@ -46,26 +47,27 @@ const labels = (rows: ReturnType<typeof sidebarRows>): string[] =>
   });
 
 describe("sidebarRows", () => {
-  it("lists single-pane workspaces as tasks and split ones as groups, above Work", () => {
+  const rowsFor = (
+    layout: LayoutState,
+    work: WorkPage,
+    collapsed = new Set<string>(),
+  ) => labels(sidebarRows({ layout, work, collapsed, working: new Set() }));
+
+  it("keeps one Work list and moves split tasks into their workspace", () => {
     let layout = openTask(initialLayout(), "a");
     layout = openTask(splitFocused(layout, "row"), "b");
     layout = openTask(layout, "c");
-    const work = page({ tasks: [task("a"), task("b"), task("c")] });
 
     expect(
-      labels(
-        sidebarRows({ layout, work, collapsed: new Set(), working: new Set() }),
-      ),
-    ).toEqual([
-      "# Tasks",
-      "v Workspace 1",
-      "  Task a",
-      "  Task b",
-      "Task c",
+      rowsFor(layout, page({ tasks: [task("a"), task("b"), task("c")] })),
+    ).toEqual(["# Work", "v Workspace 1", "  Task a", "  Task b", "Task c"]);
+  });
+
+  it("puts a new chat at the top", () => {
+    expect(rowsFor(initialLayout(), page({ tasks: [task("a")] }))).toEqual([
       "# Work",
+      "New chat",
       "Task a",
-      "Task b",
-      "Task c",
     ]);
   });
 
@@ -74,17 +76,9 @@ describe("sidebarRows", () => {
       splitFocused(openTask(initialLayout(), "a"), "row"),
       "b",
     );
-    const rows = sidebarRows({
-      layout,
-      work: page(),
-      collapsed: new Set([layout.workspaces[0].id]),
-      working: new Set(),
-    });
-    expect(labels(rows).slice(0, 3)).toEqual([
-      "# Tasks",
-      "> Workspace 1",
-      "# Work",
-    ]);
+    expect(rowsFor(layout, page(), new Set([layout.workspaces[0].id]))).toEqual(
+      ["# Work", "> Workspace 1", "[empty]"],
+    );
   });
 
   it.each([
@@ -101,14 +95,8 @@ describe("sidebarRows", () => {
       ["Task a", "[loading]"],
     ],
     ["failed", page({ tasks: null, error: "boom" }), ["[error]"]],
-  ])("Work section when %s", (_, work, expected) => {
-    const rows = sidebarRows({
-      layout: initialLayout(),
-      work,
-      collapsed: new Set(),
-      working: new Set(),
-    });
-    expect(labels(rows).slice(labels(rows).indexOf("# Work") + 1)).toEqual(
+  ])("Work list when %s", (_, work, expected) => {
+    expect(rowsFor(openTask(initialLayout(), "x"), work).slice(2)).toEqual(
       expected,
     );
   });
@@ -149,13 +137,13 @@ describe("sidebar selection", () => {
     collapsed: new Set(),
     working: new Set(),
   });
-  // Tasks, Workspace 1, a, b, Work, a, z, View more
+  // Work, Workspace 1, a, b, z, View more
 
   it.each([
-    ["down past a heading", 3, 1, 5],
-    ["up past a heading", 5, -1, 3],
-    ["down at the end", 7, 1, 7],
-    ["up at the start", 1, -1, 1],
+    ["down", 1, 1, 2],
+    ["up onto the heading", 1, -1, 1],
+    ["down at the end", 5, 1, 5],
+    ["up", 4, -1, 3],
   ])("moves %s", (_, from, step, to) => {
     expect(moveSelection(rows, from, step as 1 | -1)).toBe(to);
   });
@@ -166,9 +154,9 @@ describe("sidebar selection", () => {
       rows[2].kind === "task" && rows[2].paneId,
     );
 
-    const opened = activateRow(layout, rows[6]);
+    const opened = activateRow(layout, rows[4]);
     expect(opened !== "viewMore" && opened.workspaces).toHaveLength(2);
 
-    expect(activateRow(layout, rows[7])).toBe("viewMore");
+    expect(activateRow(layout, rows[5])).toBe("viewMore");
   });
 });

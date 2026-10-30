@@ -24,21 +24,28 @@ function IndicatorGlyph({
   );
 }
 
-function Row({ row }: { row: SidebarRow }): ReactElement {
+function Row({
+  row,
+  selected,
+}: {
+  row: SidebarRow;
+  selected: boolean;
+}): ReactElement {
   switch (row.kind) {
     case "heading":
       return <Text bold>{row.label}</Text>;
     case "workspace":
       return (
         <Text wrap="truncate-end">
-          {row.expanded ? "▾" : "▸"} {row.label}
+          {row.expanded ? "▾" : "▸"} <Text inverse={selected}>{row.label}</Text>
         </Text>
       );
     case "task":
       return (
         <Box paddingLeft={row.nested ? 2 : 0}>
           <Text wrap="truncate-end">
-            <IndicatorGlyph indicator={row.indicator} /> {row.title}
+            <IndicatorGlyph indicator={row.indicator} />{" "}
+            <Text inverse={selected}>{row.title}</Text>
           </Text>
         </Box>
       );
@@ -47,7 +54,11 @@ function Row({ row }: { row: SidebarRow }): ReactElement {
     case "empty":
       return <Text dimColor>No work yet</Text>;
     case "viewMore":
-      return <Text dimColor>View more</Text>;
+      return (
+        <Text dimColor={!selected} inverse={selected}>
+          View more
+        </Text>
+      );
     case "error":
       return (
         <Text color="red" wrap="truncate-end">
@@ -98,9 +109,8 @@ export function Sidebar({
         <Box
           key={rowKey(row, index)}
           marginTop={row.kind === "heading" && index > 0 ? 1 : 0}
-          backgroundColor={highlighted(row, index) ? "#3a3a3a" : undefined}
         >
-          <Row row={row} />
+          <Row row={row} selected={highlighted(row, index)} />
         </Box>
       ))}
       <Box flexGrow={1} />

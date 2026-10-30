@@ -11,7 +11,7 @@ export interface WorkPage {
 }
 
 export type SidebarRow =
-  | { kind: "heading"; label: "Tasks" | "Work" }
+  | { kind: "heading"; label: "Work" }
   | { kind: "workspace"; workspaceId: string; label: string; expanded: boolean }
   | {
       kind: "task";
@@ -74,11 +74,18 @@ export function sidebarRows({
     };
   };
 
-  const rows: SidebarRow[] = [{ kind: "heading", label: "Tasks" }];
+  // Open chats come first: new chats, then split workspaces, then single tasks the page does not hold.
+  const rows: SidebarRow[] = [{ kind: "heading", label: "Work" }];
+  const singlePaneOf = new Map<string, string>();
+  const splitTasks = new Set<string>();
+  const unlisted: SidebarRow[] = [];
   layout.workspaces.forEach((workspace, index) => {
     const workspacePanes = panes(workspace.root);
     if (workspacePanes.length === 1) {
-      rows.push(taskRow(workspacePanes[0].taskId, workspacePanes[0].id, false));
+      const [pane] = workspacePanes;
+      if (pane.taskId === null) rows.push(taskRow(null, pane.id, false));
+      else if (byId.has(pane.taskId)) singlePaneOf.set(pane.taskId, pane.id);
+      else unlisted.push(taskRow(pane.taskId, pane.id, false));
       return;
     }
     const expanded = !collapsed.has(workspace.id);
@@ -88,18 +95,20 @@ export function sidebarRows({
       label: `Workspace ${index + 1}`,
       expanded,
     });
-    if (expanded) {
-      for (const pane of workspacePanes) {
-        rows.push(taskRow(pane.taskId, pane.id, true));
-      }
+    for (const pane of workspacePanes) {
+      if (pane.taskId) splitTasks.add(pane.taskId);
+      if (expanded) rows.push(taskRow(pane.taskId, pane.id, true));
     }
   });
+  rows.push(...unlisted);
 
-  rows.push({ kind: "heading", label: "Work" });
   if (work.error) rows.push({ kind: "error", message: work.error });
   else if (work.tasks === null) rows.push({ kind: "loading" });
   else if (work.tasks.length === 0) rows.push({ kind: "empty" });
-  for (const task of work.tasks ?? []) rows.push(taskRow(task.id, null, false));
+  for (const task of work.tasks ?? []) {
+    if (splitTasks.has(task.id)) continue;
+    rows.push(taskRow(task.id, singlePaneOf.get(task.id) ?? null, false));
+  }
   if (work.loadingMore) rows.push({ kind: "loading" });
   else if (work.hasMore) rows.push({ kind: "viewMore" });
   return rows;
