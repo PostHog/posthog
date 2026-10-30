@@ -49,14 +49,12 @@ export function ExplainChart({ data, openLink, app = null }: ExplainChartProps):
             : undefined
     }, [query])
 
-    // The host updates `data` in place, so key on the story to start each new one at its summary.
-    const storyKey = `${JSON.stringify(data.query)}:${data.headline}`
-
     return (
         <Card>
             <CardContent>
                 <ExplainChartView
-                    key={storyKey}
+                    // The host updates `data` in place, so key on the story to start each new one at its summary.
+                    key={`${JSON.stringify(data.query)}:${data.headline}`}
                     data={data}
                     title={data.insightName ?? 'Trends'}
                     renderChart={(overlay) => (
@@ -82,7 +80,7 @@ export function ExplainChart({ data, openLink, app = null }: ExplainChartProps):
                         })
                     }
                 />
-                <ExplainChartFeedback key={`feedback:${storyKey}`} />
+                <ExplainChartFeedback />
             </CardContent>
         </Card>
     )
