@@ -1,4 +1,5 @@
 import { fireEvent } from '@testing-library/react'
+import type { ReactElement } from 'react'
 
 import { ChartThemeProvider } from '../../core/theme'
 import type { ChartTheme } from '../../core/types'
@@ -61,6 +62,27 @@ describe('Gauge', () => {
             max: 100,
             threshold: { threshold: { label: 'Busy' } },
         })
+    })
+
+    it.each([
+        ['a hover', false],
+        ['a re-render with equal inline props', true],
+    ])('does not repaint the static canvas on %s', async (_name, rerenderWithEqualProps) => {
+        const gauge = (): ReactElement => (
+            <Gauge value={78} min={0} max={100} thresholds={[...THRESHOLDS]} target={{ value: 80 }} theme={THEME} />
+        )
+        const { chart, rerender } = renderChart(gauge())
+        let paints = 0
+        const observer = new MutationObserver((records) => (paints += records.length))
+        observer.observe(chart.canvas, { attributeFilter: ['data-hog-charts-paint'] })
+
+        if (rerenderWithEqualProps) {
+            rerender(gauge())
+        }
+        await hoverGauge(chart.element)
+
+        expect(paints + observer.takeRecords().length).toBe(0)
+        observer.disconnect()
     })
 
     it('takes its theme from the nearest ChartThemeProvider when no theme prop is set', () => {

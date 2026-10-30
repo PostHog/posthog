@@ -1,4 +1,4 @@
-import React, { useCallback, useLayoutEffect, useMemo, useState } from 'react'
+import React, { useLayoutEffect, useMemo, useState } from 'react'
 
 import { ChartLayoutContext } from '../../core/chart-context'
 import type { ChartLayoutContextValue } from '../../core/chart-context'
@@ -282,39 +282,30 @@ function GaugeInner({
         fontFamily,
     ])
 
-    const bandPaint = useMemo(() => {
-        if (!layout || !bandsVisible) {
-            return []
-        }
-        return thresholdBands(resolvedThresholds, bounds).map((band) => ({
-            startAngle: fractionToAngle(gaugeFraction(band.from, bounds), layout.angles),
-            endAngle: fractionToAngle(gaugeFraction(band.to, bounds), layout.angles),
-            color: band.threshold.color,
-        }))
-    }, [layout, bandsVisible, resolvedThresholds, bounds])
-
-    const paint = useMemo<GaugePaint | null>(() => {
+    // `useChartDraw` repaints when `scales` changes, so each animation frame rides in on `_private`.
+    const scales = useMemo<ChartScales | null>(() => {
         if (!layout) {
             return null
         }
-        const targetInRange = target !== null && target.value >= bounds.min && target.value <= bounds.max
-        return {
+        const angleAt = (v: number): number => fractionToAngle(gaugeFraction(v, bounds), layout.angles)
+        const paint: GaugePaint = {
             layout,
             trackColor,
-            bands: bandPaint,
+            bands: bandsVisible
+                ? thresholdBands(resolvedThresholds, bounds).map((band) => ({
+                      startAngle: angleAt(band.from),
+                      endAngle: angleAt(band.to),
+                      color: band.threshold.color,
+                  }))
+                : [],
             valueAngle: fractionToAngle(animatedFraction, layout.angles),
             valueColor: arcColor,
             targetAngle:
-                targetInRange && target ? fractionToAngle(gaugeFraction(target.value, bounds), layout.angles) : null,
+                target && target.value >= bounds.min && target.value <= bounds.max ? angleAt(target.value) : null,
             targetColor: ink,
         }
-    }, [layout, trackColor, bandPaint, animatedFraction, arcColor, target, bounds, ink])
-
-    // `useChartDraw` repaints when `scales` changes, so each animation frame rides in on `_private`.
-    const scales = useMemo<ChartScales | null>(
-        () => (paint ? { x: () => undefined, y: () => 0, yTicks: () => [], _private: { gauge: paint } } : null),
-        [paint]
-    )
+        return { x: () => undefined, y: () => 0, yTicks: () => [], _private: { gauge: paint } }
+    }, [layout, bounds, trackColor, bandsVisible, resolvedThresholds, animatedFraction, arcColor, target, ink])
 
     useChartDraw({
         ctx,
@@ -345,68 +336,54 @@ function GaugeInner({
         })
     }, [layout, fontFamily, valueText, label])
 
-    const tooltipThreshold = useMemo<GaugeTooltipThreshold | null>(() => {
-        if (valueIndex < 0) {
-            return null
-        }
-        return {
-            threshold: resolvedThresholds[valueIndex],
-            from: valueIndex === 0 ? undefined : resolvedThresholds[valueIndex].value,
-            to: valueIndex + 1 < resolvedThresholds.length ? resolvedThresholds[valueIndex + 1].value : undefined,
-        }
-    }, [valueIndex, resolvedThresholds])
+    const tooltipThreshold: GaugeTooltipThreshold | null =
+        valueIndex < 0
+            ? null
+            : {
+                  threshold: resolvedThresholds[valueIndex],
+                  from: valueIndex === 0 ? undefined : resolvedThresholds[valueIndex].value,
+                  to: valueIndex + 1 < resolvedThresholds.length ? resolvedThresholds[valueIndex + 1].value : undefined,
+              }
 
     const canvasBounds = useCanvasBounds(canvasRef)
     const [hoverRect, setHoverRect] = useState<DOMRect | null>(null)
     const showTooltip = tooltipConfig?.enabled !== false
 
     // Returning the previous rect while the gauge stays put lets React skip the re-render on every mousemove.
-    const onMouseMove = useCallback(
-        (e: React.MouseEvent<HTMLDivElement>) => {
-            if (!layout || !showTooltip) {
-                return
-            }
-            const rect = e.currentTarget.getBoundingClientRect()
-            const hit = isOverGauge(layout, e.clientX - rect.left, e.clientY - rect.top)
-            setHoverRect((previous) =>
-                !hit ? null : previous && previous.left === rect.left && previous.top === rect.top ? previous : rect
-            )
-        },
-        [layout, showTooltip]
-    )
-    const onMouseLeave = useCallback(() => setHoverRect(null), [])
-    const handlers = useMemo(() => ({ onMouseMove, onMouseLeave, onClick: () => {} }), [onMouseMove, onMouseLeave])
-
-    const tooltipCtx = useMemo<GaugeTooltipContext | null>(() => {
-        if (!hoverRect || !layout) {
-            return null
+    const onMouseMove = (e: React.MouseEvent<HTMLDivElement>): void => {
+        if (!layout || !showTooltip) {
+            return
         }
-        return {
-            dataIndex: 0,
-            label: label ?? '',
-            seriesData: [],
-            position: {
-                x: layout.cx + layout.outerRadius * TOOLTIP_ANCHOR,
-                y: layout.cy - layout.outerRadius * TOOLTIP_ANCHOR,
-            },
-            hoverPosition: null,
-            canvasBounds: hoverRect,
-            isPinned: false,
-            value,
-            min: bounds.min,
-            max: bounds.max,
-            threshold: tooltipThreshold,
-            thresholdCount: resolvedThresholds.length,
-            target,
-            color: valueColor,
-            formatValue,
-        }
-    }, [hoverRect, layout, label, value, bounds, tooltipThreshold, resolvedThresholds, target, valueColor, formatValue])
+        const rect = e.currentTarget.getBoundingClientRect()
+        const hit = isOverGauge(layout, e.clientX - rect.left, e.clientY - rect.top)
+        setHoverRect((previous) =>
+            !hit ? null : previous && previous.left === rect.left && previous.top === rect.top ? previous : rect
+        )
+    }
 
-    const renderTooltip = useCallback(
-        (ctx: GaugeTooltipContext): React.ReactNode => (tooltip ? tooltip(ctx) : <GaugeTooltip ctx={ctx} />),
-        [tooltip]
-    )
+    const tooltipCtx: GaugeTooltipContext | null =
+        hoverRect && layout && showTooltip
+            ? {
+                  dataIndex: 0,
+                  label: label ?? '',
+                  seriesData: [],
+                  position: {
+                      x: layout.cx + layout.outerRadius * TOOLTIP_ANCHOR,
+                      y: layout.cy - layout.outerRadius * TOOLTIP_ANCHOR,
+                  },
+                  hoverPosition: null,
+                  canvasBounds: hoverRect,
+                  isPinned: false,
+                  value,
+                  min: bounds.min,
+                  max: bounds.max,
+                  threshold: tooltipThreshold,
+                  thresholdCount: resolvedThresholds.length,
+                  target,
+                  color: valueColor,
+                  formatValue,
+              }
+            : null
 
     const layoutValue = useMemo<ChartLayoutContextValue | null>(() => {
         if (!scales || !dimensions) {
@@ -444,7 +421,7 @@ function GaugeInner({
                 dataAttr={dataAttr}
                 pointer={false}
                 ariaLabel={ariaLabel}
-                handlers={handlers}
+                handlers={{ onMouseMove, onMouseLeave: () => setHoverRect(null), onClick: () => {} }}
                 showOverlay={!!layout}
             >
                 <GaugeLabels
@@ -454,8 +431,12 @@ function GaugeInner({
                     valueColor={valueColor}
                     mutedColor={theme.axisColor}
                 />
-                {tooltipCtx && showTooltip ? (
-                    <Tooltip context={tooltipCtx} renderTooltip={renderTooltip} placement="follow-data" />
+                {tooltipCtx ? (
+                    <Tooltip
+                        context={tooltipCtx}
+                        renderTooltip={(ctx) => (tooltip ? tooltip(ctx) : <GaugeTooltip ctx={ctx} />)}
+                        placement="follow-data"
+                    />
                 ) : null}
             </ChartShell>
         </ChartLayoutContext.Provider>
