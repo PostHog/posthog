@@ -11,16 +11,25 @@ export interface ArgumentSpec {
     stdin?: boolean
 }
 
+// `env` and `config` are for global options only: the env vars and the posthog.json key path, such
+// as `cli.noFail`, that set them.
+interface OptionSource {
+    env?: readonly string[]
+    config?: string
+}
+
 export type OptionSpec =
-    | { type: 'boolean'; description: string; short?: string }
-    | {
+    | ({ type: 'boolean'; description: string; short?: string } & OptionSource)
+    | ({
           type: 'string'
           description: string
           short?: string
           // The name shown in help, as in `--host <url>`. Defaults to the option name.
           placeholder?: string
           choices?: readonly string[]
-      }
+          // The option can repeat, as in `--var a=1 --var b=2`, and its value is a list.
+          multiple?: boolean
+      } & OptionSource)
 
 type ArgumentValues<Args> = {
     [Name in keyof Args]: Args[Name] extends { variadic: true }
@@ -33,7 +42,9 @@ type ArgumentValues<Args> = {
 export type OptionValues<Options> = {
     [Name in keyof Options]: Options[Name] extends { type: 'boolean' }
         ? boolean | undefined
-        : (Options[Name] extends { choices: readonly (infer Choice)[] } ? Choice : string) | undefined
+        : Options[Name] extends { multiple: true }
+          ? string[] | undefined
+          : (Options[Name] extends { choices: readonly (infer Choice)[] } ? Choice : string) | undefined
 }
 
 interface CommandInput<Args, Options> {
@@ -51,6 +62,12 @@ interface CommandDefinition<Args, Options, Result> {
     args?: Args
     // The key becomes the flag: `dotenvFile` is `--dotenv-file`.
     options?: Options
+    // The command changes something in PostHog or on disk. HOG_DRY_RUN turns on its `dryRun` option,
+    // and fails it when it has none. Commands that only read run as usual in a dry run.
+    writes?: boolean
+    // The command runs when posthog.json is invalid, like `hog config check`, which reports why.
+    // Every other command stops, so it never runs with settings hog couldn't read.
+    allowsInvalidConfig?: boolean
     // Personal API key scopes the command needs. `hog commands` lists them, and a 403 names them.
     scopes?: readonly string[]
     notes?: string
