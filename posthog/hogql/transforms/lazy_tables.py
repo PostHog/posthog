@@ -5,7 +5,8 @@ from posthog.hogql import ast
 from posthog.hogql.base import _T_AST
 from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.models import LazyJoinToAdd, LazyTableToAdd
+from posthog.hogql.database.models import LazyJoinToAdd, LazyTableToAdd, UnexpandedScan
+from posthog.hogql.database.schema.events_with_flag_calls import EventsWithFlagCallsTable
 from posthog.hogql.errors import ResolutionError
 from posthog.hogql.resolver import ResolverFactory, resolve_types
 from posthog.hogql.resolver_utils import get_long_table_name
@@ -14,6 +15,23 @@ from posthog.hogql.transforms.property_types import PropertySwapper
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
 from posthog.dataclasses import frozen
+
+
+def _lazy_table_of(table_type: ast.Type) -> object:
+    while isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
+        table_type = table_type.table_type
+    return table_type.table if isinstance(table_type, ast.LazyTableType) else None
+
+
+def _unexpanded_scan(join: ast.JoinExpr, table_type: ast.Type) -> UnexpandedScan:
+    """A copy of `join` as the query wrote it, with the table types that name its scan."""
+    types: list[ast.Type] = [table_type]
+    while isinstance(types[-1], (ast.TableAliasType, ast.ColumnAliasedTableType)):
+        types.append(types[-1].table_type)
+    scan = ast.JoinExpr(
+        table=join.table, alias=join.alias, sample=join.sample, table_args=join.table_args, type=join.type
+    )
+    return UnexpandedScan(scan, tuple(types))
 
 
 # This mutates the nodes
@@ -255,13 +273,18 @@ class LazyTableResolver(TraversingVisitor):
 
     def _wrap_table_for_lazy_resolution(
         self, node: ast.SelectQuery, table_alias: str, select_type: ast.SelectQueryType
-    ) -> None:
+    ) -> UnexpandedScan | None:
         # The scope key of a schema-qualified table (`posthog__events`) is not its written name, so match the binding.
         original_table_type = select_type.tables[table_alias]
         join_ptr = node.select_from
         while join_ptr is not None and join_ptr.type is not original_table_type:
             join_ptr = join_ptr.next_join
         assert join_ptr is not None and isinstance(join_ptr.table, ast.Field), f"Table {table_alias} not found"
+        scan = (
+            _unexpanded_scan(join_ptr, original_table_type)
+            if isinstance(_lazy_table_of(original_table_type), EventsWithFlagCallsTable)
+            else None
+        )
 
         # Collect while the outer reads still identify the table they belong to.
         collector = WrappedTableReferenceCollector(original_table_type)
@@ -296,6 +319,8 @@ class LazyTableResolver(TraversingVisitor):
         join_ptr.alias = table_alias
         join_ptr.type = ast.SelectQueryAliasType(alias=table_alias, select_query_type=subquery.type)
         select_type.tables[table_alias] = join_ptr.type
+        if scan is not None:
+            scan = UnexpandedScan(scan.join, (*scan.types, join_ptr.type))
 
         for property_type, export_name, through_lazy_join in collector.properties.values():
             if id(property_type.field_type) in collector.fields:
@@ -312,6 +337,7 @@ class LazyTableResolver(TraversingVisitor):
         for field_type, export_name in collector.fields.values():
             field_type.name = export_name
             field_type.table_type = join_ptr.type
+        return scan
 
     def _read_property_path(
         self, subquery_type: ast.SelectQueryType, column: ast.Alias, property_path: tuple[str | int, ...]
@@ -625,8 +651,11 @@ class LazyTableResolver(TraversingVisitor):
         # This must happen BEFORE we add lazy joins to avoid forward reference issues.
         tables_to_wrap = self._find_tables_needing_lazy_preresolution(node, select_type)
         wrapped_table_types = [select_type.tables[table_alias] for table_alias in tables_to_wrap]
+        unexpanded_scans: dict[str, UnexpandedScan] = {}
         for table_alias in tables_to_wrap:
-            self._wrap_table_for_lazy_resolution(node, table_alias, select_type)
+            wrapped_scan = self._wrap_table_for_lazy_resolution(node, table_alias, select_type)
+            if wrapped_scan is not None:
+                unexpanded_scans[table_alias] = wrapped_scan
 
         # Remove lazy joins that are now resolved inside wrapped subqueries
         joins_to_add = {
@@ -666,6 +695,8 @@ class LazyTableResolver(TraversingVisitor):
                         and join_ptr.table.type == old_table_type.table_type
                     )
                 ):
+                    if isinstance(table_to_add.lazy_table, EventsWithFlagCallsTable):
+                        unexpanded_scans[table_name] = _unexpanded_scan(join_ptr, old_table_type)
                     join_ptr.table = subquery
                     join_ptr.type = select_type.tables[table_name]
                     join_ptr.alias = table_name
@@ -684,6 +715,7 @@ class LazyTableResolver(TraversingVisitor):
 
         # For all the collected joins, create the join subqueries, and add them to the table.
         for to_table, join_scope in joins_to_add.items():
+            join_scope.from_scan = unexpanded_scans.get(join_scope.from_table)
             join_to_add: ast.JoinExpr = join_scope.lazy_join.resolve_join_to_add(
                 join_scope,
                 self.context,

@@ -17,7 +17,7 @@ from posthog.hogql.errors import NotImplementedError, ResolutionError
 from posthog.clickhouse.workload import Workload
 
 if TYPE_CHECKING:
-    from posthog.hogql.ast import JoinExpr, LazyJoinType, SelectQuery
+    from posthog.hogql.ast import JoinExpr, LazyJoinType, SelectQuery, Type
     from posthog.hogql.base import ConstantType
     from posthog.hogql.context import HogQLContext
 
@@ -541,12 +541,26 @@ class LazyTableToAdd:
 
 
 @dataclass
+class UnexpandedScan:
+    """The FROM entry of a lazy table before lazy table resolution replaced it with a subquery.
+
+    A join that hangs off the table copies the query's filters into a subquery that reads the table again, and this
+    holds what that subquery needs. `types` are the table types that the query's fields name for the scan.
+    """
+
+    join: "JoinExpr"
+    types: tuple["Type", ...]
+
+
+@dataclass
 class LazyJoinToAdd:
     from_table: str
     to_table: str
     lazy_join: LazyJoin
     lazy_join_type: "LazyJoinType"
     fields_accessed: dict[str, list[str | int]] = field(default_factory=dict)
+    # Set when the table that the join starts from is a lazy table whose scan the join can read again.
+    from_scan: Optional[UnexpandedScan] = None
 
 
 class VirtualTable(Table):
