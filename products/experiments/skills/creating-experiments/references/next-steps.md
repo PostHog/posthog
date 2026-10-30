@@ -3,7 +3,7 @@
 End the report with one question about what happens next. Don't write a sentence of offers instead.
 Each option is a step you can do now. Mark the one you'd pick as recommended.
 Use your client's question tool if it has one. Otherwise, number the options.
-If the user said they are away, list the options in the report instead of asking.
+If the user said they are away, or asked for a draft without questions, list the options in the report instead of asking.
 
 ## Options
 
