@@ -60,31 +60,35 @@ describe('flagSelectionLogic bulk restore', () => {
     })
 
     it('keeps restoring after a failure and leaves the results open to show it', async () => {
-        useRestoreMocks((id) =>
-            id === 2
-                ? [
-                      400,
-                      {
-                          type: 'validation_error',
-                          code: 'unsupported_config_version',
-                          detail: 'These fields cannot be updated on this flag: deleted.',
-                      },
-                  ]
-                : [200, {}]
-        )
+        useRestoreMocks((id) => {
+            if (id === 2) {
+                return [
+                    400,
+                    {
+                        type: 'validation_error',
+                        code: 'unsupported_config_version',
+                        detail: 'These fields cannot be updated on this flag: deleted.',
+                    },
+                ]
+            }
+            return id === 4 ? [500, { detail: 'Server error' }] : [200, {}]
+        })
         logic = flagSelectionLogic()
         logic.mount()
-        const deleted = [deletedFlag(1), deletedFlag(2), deletedFlag(3)]
+        const deleted = [deletedFlag(1), deletedFlag(2), deletedFlag(3), deletedFlag(4)]
         logic.actions.showResultsModal({ deleted, errors: [] })
 
         logic.actions.bulkRestoreFlags(deleted)
         await expectLogic(logic).toDispatchActions(['bulkRestoreFlagsFinished', 'loadFeatureFlags'])
 
-        expect(restoreRequests.map(({ id }) => id)).toEqual([1, 2, 3])
+        expect(restoreRequests.map(({ id }) => id)).toEqual([1, 2, 3, 4])
         // A version 2 flag can't be restored yet. The failure says so in the words the flag page uses.
         expect(logic.values.bulkRestoreResult).toEqual({
             restoredIds: [1, 3],
-            failed: [{ id: 2, key: 'flag-2', errorMessage: 'Restoring is not available for this flag yet.' }],
+            failed: [
+                { id: 2, key: 'flag-2', errorMessage: 'Restoring is not available for this flag yet.' },
+                { id: 4, key: 'flag-4', errorMessage: 'Server error' },
+            ],
         })
         expect(logic.values.resultsModalVisible).toBe(true)
     })
