@@ -9671,19 +9671,19 @@ Note: The official reference navigation and embedded OpenAPI definitions expose 
 
 ## Power BI admin — gaps
 
-Today (7): `activity_events`, `capacities`, `dashboards`, `dataflows`, `datasets`, `groups`, `reports`
+Today (9): `activity_events`, `capacities`, `dashboard_tiles`, `dashboards`, `dataflows`, `datasets`, `groups`, `refreshables`, `reports`
 
 Diffed against: <https://raw.githubusercontent.com/microsoft/PowerBI-CSharp/master/sdk/swaggers/swagger.json>
 
 - [ ] `Workspace users (GET /v1.0/myorg/admin/groups/{groupId}/users)` — connect workspace access and roles to the existing workspace inventory (high)
-- [ ] `Refreshables (GET /v1.0/myorg/admin/capacities/refreshables)` — measure refresh failures, duration, and load across capacities and datasets (high)
+- [x] `Refreshables (GET /v1.0/myorg/admin/capacities/refreshables)` — measure refresh failures, duration, and load across capacities and datasets (high)
 - [ ] `Dataset data sources (GET /v1.0/myorg/admin/datasets/{datasetId}/datasources)` — identify upstream databases and connections for semantic model lineage (medium)
 - [ ] `Dataset users (GET /v1.0/myorg/admin/datasets/{datasetId}/users)` — audit direct access and permissions for existing semantic models (medium)
 - [ ] `Report users (GET /v1.0/myorg/admin/reports/{reportId}/users)` — compare report access with actual viewing activity (medium)
 - [ ] `Apps (GET /v1.0/myorg/admin/apps)` — track published analytics apps and their workspace distribution (medium)
 - [ ] `Dataset to dataflow links (GET /v1.0/myorg/admin/groups/{groupId}/datasets/upstreamDataflows)` — connect existing datasets and dataflows to analyze dependencies (medium)
 - [ ] `Dataflow data sources (GET /v1.0/myorg/admin/dataflows/{dataflowId}/datasources)` — trace dataflow dependencies to external systems (medium)
-- [ ] `Dashboard tiles (GET /v1.0/myorg/admin/dashboards/{dashboardId}/tiles)` — connect dashboard content to reports and datasets (medium)
+- [x] `Dashboard tiles (GET /v1.0/myorg/admin/dashboards/{dashboardId}/tiles)` — connect dashboard content to reports and datasets (medium)
 - [ ] `Published to web artifacts (GET /v1.0/myorg/admin/widelySharedArtifacts/publishedToWeb)` — track public exposure of analytics artifacts across the tenant (medium)
 
 Note: The Microsoft SDK Swagger spec lists tenant inventory and nested admin GET operations. Parent IDs drive most new collections; the existing workspace request does not expand users. Encryption keys, scan status, and duplicate workspace inventory endpoints are excluded.
