@@ -10,10 +10,11 @@ from django.db.models import QuerySet
 
 from pydantic import JsonValue
 from rest_framework import exceptions, serializers
-from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.response import Response
 
+from posthog.api.pagination import FacadeLimitOffsetPagination
 from posthog.models import User
+from posthog.paging import Page, PageRequest
 
 from products.signals.backend.artefact_schemas import ActionabilityAssessment
 from products.signals.backend.models import MAX_SCOUT_REPORT_NOTES, SignalReport, SignalReportArtefact
@@ -23,6 +24,13 @@ from products.signals.backend.suggested_reviewer_index import report_ids_naming_
 
 if TYPE_CHECKING:
     from products.signals.backend.views import SignalReportViewSet
+
+
+class _RenderedReportRowSerializer(serializers.Serializer):
+    """Returns a report row that the inbox already rendered."""
+
+    def to_representation(self, instance: Mapping[str, object]) -> dict[str, object]:
+        return dict(instance)
 
 
 class TrialInboxReads:
@@ -346,26 +354,23 @@ class TrialInboxReads:
             return value if isinstance(value, (int, float)) else 0
         return str(value or "")
 
-    def list(self, *, count_only: bool = False, include_source_metadata: bool = True) -> Response:
-        self._validate_parameters()
-        queryset = self.view.filter_queryset(self.view.get_queryset())
-        private = self.store.reports()
-        documents = self._private_documents(private, include_source_metadata=include_source_metadata and not count_only)
-        queryset = queryset.exclude(id__in=[report.id for report in private])
+    def _merged_page(
+        self,
+        queryset: QuerySet[SignalReport],
+        documents: Sequence[Mapping[str, object]],
+        page: PageRequest,
+        *,
+        include_source_metadata: bool,
+    ) -> Page[Mapping[str, object]]:
+        """One page of production rows and this run's private reports, sorted together.
+
+        The private reports are not in Postgres, so the sort happens in Python. It sorts a window of
+        production rows that is just wide enough to hold every row of the page.
+        """
         count = queryset.count() + len(documents)
-        if count_only:
-            return Response({"count": count, "next": None, "previous": None, "results": []})
-        paginator = self.view.paginator
-        if not isinstance(paginator, LimitOffsetPagination):
-            raise exceptions.ValidationError({"detail": "This scout run requires limit/offset inbox pagination."})
-        paginator.request = self.view.request
-        paginator.limit = paginator.get_limit(self.view.request)
-        paginator.offset = paginator.get_offset(self.view.request)
-        paginator.count = count
-        limit = paginator.limit or count
         # At most this run's private reports can shift a production row across the requested offset.
-        start = max(0, paginator.offset - len(documents))
-        production = list(queryset[start : paginator.offset + limit])
+        start = max(0, page.offset - len(documents))
+        production = list(queryset[start : page.offset + page.limit])
         merged: list[Mapping[str, object]] = [
             *self.view._render_report_rows(production, include_source_metadata=include_source_metadata),
             *documents,
@@ -375,8 +380,24 @@ class TrialInboxReads:
             clauses.append("id")
         for clause in reversed(clauses):
             merged.sort(key=lambda row: self._sort_value(row, clause.lstrip("-")), reverse=clause.startswith("-"))
-        offset = paginator.offset - start
-        return paginator.get_paginated_response(merged[offset : offset + limit])
+        offset = page.offset - start
+        return Page(results=merged[offset : offset + page.limit], count=count)
+
+    def list(self, *, count_only: bool = False, include_source_metadata: bool = True) -> Response:
+        self._validate_parameters()
+        queryset = self.view.filter_queryset(self.view.get_queryset())
+        private = self.store.reports()
+        documents = self._private_documents(private, include_source_metadata=include_source_metadata and not count_only)
+        queryset = queryset.exclude(id__in=[report.id for report in private])
+        if count_only:
+            count = queryset.count() + len(documents)
+            return Response({"count": count, "next": None, "previous": None, "results": []})
+        return FacadeLimitOffsetPagination().get_paginated_facade_response(
+            self.view.request,
+            self.view,
+            lambda page: self._merged_page(queryset, documents, page, include_source_metadata=include_source_metadata),
+            serializer_class=_RenderedReportRowSerializer,
+        )
 
 
 def private_report_artefacts(store: ScoutTrialStore, report_id: str) -> list[SignalReportArtefact]:
