@@ -259,22 +259,89 @@ const bayesianFallbackResults: ExperimentResultsData = {
     _posthogUrl: 'https://us.posthog.com/project/1/experiments/1',
 }
 
-const legacyResults: ExperimentResultsData = {
+const resultsGetResults: ExperimentResultsData = {
     experiment: { id: 2, name: 'Pricing page CTA' },
-    exposures: { control: 5200, 'test-a': 5100, 'test-b': 4900 },
-    primaryMetricsResults: [
-        [
-            { variant: 'control', count: 312, probability: 0.12, significant: false },
-            { variant: 'test-a', count: 410, probability: 0.87, significant: true },
-            { variant: 'test-b', count: 295, probability: 0.01, significant: false },
-        ],
-    ],
-    secondaryMetricsResults: [
-        [
-            { variant: 'control', count: 1050, probability: 0.45 },
-            { variant: 'test-a', count: 1120, probability: 0.55 },
-        ],
-    ],
+    metrics: {
+        primary: {
+            results: [
+                {
+                    index: 0,
+                    metric: { uuid: 'e1f5a4b3-0000-4000-8000-000000000020', name: 'Checkout started' },
+                    data: {
+                        baseline: {
+                            key: 'control',
+                            number_of_samples: 5200,
+                            sum: 312,
+                            sum_squares: 312,
+                            step_counts: [312],
+                        },
+                        variant_results: [
+                            {
+                                key: 'test-a',
+                                method: 'bayesian',
+                                number_of_samples: 5100,
+                                sum: 410,
+                                sum_squares: 410,
+                                step_counts: [410],
+                                chance_to_win: 0.997,
+                                significant: true,
+                                credible_interval: [0.011, 0.049],
+                            },
+                            {
+                                key: 'test-b',
+                                method: 'bayesian',
+                                number_of_samples: 4900,
+                                sum: 295,
+                                sum_squares: 295,
+                                step_counts: [295],
+                                chance_to_win: 0.46,
+                                significant: false,
+                                credible_interval: [-0.019, 0.021],
+                            },
+                        ],
+                    },
+                },
+                {
+                    index: 1,
+                    metric: { uuid: 'f2a6b5c4-0000-4000-8000-000000000021', name: 'Plan upgraded' },
+                    data: null,
+                },
+            ],
+        },
+        secondary: {
+            results: [
+                {
+                    index: 0,
+                    metric: { uuid: 'a3b7c6d5-0000-4000-8000-000000000022', name: null },
+                    data: {
+                        baseline: { key: 'control', number_of_samples: 5200, sum: 14560, sum_squares: 61152 },
+                        variant_results: [
+                            {
+                                key: 'test-a',
+                                method: 'bayesian',
+                                number_of_samples: 5100,
+                                sum: 15300,
+                                sum_squares: 68850,
+                                chance_to_win: 0.81,
+                                significant: false,
+                                credible_interval: [-0.012, 0.21],
+                            },
+                            {
+                                key: 'test-b',
+                                method: 'bayesian',
+                                number_of_samples: 4900,
+                                sum: 13230,
+                                sum_squares: 55566,
+                                chance_to_win: 0.22,
+                                significant: false,
+                                credible_interval: [-0.11, 0.09],
+                            },
+                        ],
+                    },
+                },
+            ],
+        },
+    },
     _posthogUrl: 'https://us.posthog.com/project/1/experiments/2',
 }
 
@@ -288,7 +355,7 @@ export const ResultsFallback: Story = {
     name: 'Experiment results (preliminary)',
 }
 
-export const ResultsLegacy: Story = {
-    render: () => <ExperimentResultsView data={legacyResults} />,
-    name: 'Experiment results (legacy tool)',
+export const ResultsGet: Story = {
+    render: () => <ExperimentResultsView data={resultsGetResults} />,
+    name: 'Experiment results (experiment-results-get)',
 }

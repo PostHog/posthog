@@ -217,7 +217,7 @@ export function InsightVizDisplay({
         validationError,
         validationErrorCode,
         theme,
-        showsFlagCallsRetentionNotice,
+        flagCallsRetentionGap,
         flagCallsRetentionStartDate,
     } = useValues(insightVizDataLogic(insightProps))
     const { loadData, updateQuerySource } = useActions(insightVizDataLogic(insightProps))
@@ -604,8 +604,11 @@ export function InsightVizDisplay({
                                 </div>
                             )}
 
-                        {!embedded && showsFlagCallsRetentionNotice && (
-                            <FlagCallsRetentionNotice retentionStartDate={flagCallsRetentionStartDate} />
+                        {!embedded && flagCallsRetentionGap && (
+                            <FlagCallsRetentionNotice
+                                gap={flagCallsRetentionGap}
+                                retentionStartDate={flagCallsRetentionStartDate}
+                            />
                         )}
                         <div
                             className={clsx(

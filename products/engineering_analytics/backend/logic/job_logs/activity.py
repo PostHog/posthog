@@ -22,7 +22,8 @@ from temporalio.exceptions import ApplicationError
 from posthog.dataclasses import frozen
 from posthog.egress.github.limiter import acquire_github_installation
 from posthog.egress.limiter.policies import Priority
-from posthog.models.integration import GitHubIntegration, Integration
+from posthog.integrations import IntegrationManager
+from posthog.models.integration import GitHubIntegration
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
@@ -93,13 +94,17 @@ def _resolve_credentials(team_id: int, integration_id: int) -> tuple[str, str, s
     """Return ``(github_access_token, installation_id, log_ingest_token)``. ``log_ingest_token`` is
     the owning team's project API token — the OTLP Bearer that routes emitted logs to that team's Logs.
     """
-    integration = Integration.objects.get(id=integration_id, team_id=team_id, kind="github")
+    integration = IntegrationManager.github.oauth.get(team_id, integration_id)
     github = GitHubIntegration(integration, source="job_logs", priority=Priority.BATCH)
     if github.access_token_expired():
         github.refresh_access_token()
     if not integration.access_token:
         raise ValueError(f"No GitHub access token for integration {integration_id}")
-    return integration.access_token, str(github.github_installation_id), integration.team.api_token
+    return (
+        integration.access_token,
+        str(github.github_installation_id),
+        Team.objects.values_list("api_token", flat=True).get(id=team_id),
+    )
 
 
 def _resolve_depot_credentials(team_id: int, source_id: str) -> _DepotCredentials:

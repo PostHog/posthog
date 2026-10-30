@@ -376,6 +376,9 @@ EXPERIMENTS_RECALCULATION_TASK_QUEUE = _set_temporal_task_queue("experiments-rec
 EXPERIMENTS_RECALCULATION_ACTIVITY_TASK_QUEUE = _set_temporal_task_queue(
     "experiments-recalculation-activity-task-queue"
 )
+EXPERIMENTS_RECALCULATION_PRECOMPUTE_TASK_QUEUE = _set_temporal_task_queue(
+    "experiments-recalculation-precompute-task-queue"
+)
 HEALTH_CHECK_TASK_QUEUE = _set_temporal_task_queue("health-check-task-queue")
 DUCKLAKE_TASK_QUEUE = _set_temporal_task_queue("ducklake-task-queue")
 TASKS_TASK_QUEUE = _set_temporal_task_queue("tasks-task-queue")
@@ -466,6 +469,15 @@ ALERTS_PLATFORM_LOGS_MAX_INFLIGHT_BATCHES: int = get_from_env(
 if ALERTS_PLATFORM_LOGS_MAX_INFLIGHT_BATCHES <= 0:
     raise ImproperlyConfigured(
         "ALERTS_PLATFORM_LOGS_MAX_INFLIGHT_BATCHES must be a positive integer, or no platform logs check starts"
+    )
+# The platform's metrics batches allowed to run at once, across every team. A batch runs its Snuffle
+# queries one after another, so this bounds the concurrent metrics alert queries.
+ALERTS_PLATFORM_METRICS_MAX_INFLIGHT_BATCHES: int = get_from_env(
+    "ALERTS_PLATFORM_METRICS_MAX_INFLIGHT_BATCHES", 5, type_cast=int
+)
+if ALERTS_PLATFORM_METRICS_MAX_INFLIGHT_BATCHES <= 0:
+    raise ImproperlyConfigured(
+        "ALERTS_PLATFORM_METRICS_MAX_INFLIGHT_BATCHES must be a positive integer, or no platform metrics check starts"
     )
 # Insight alert checks allowed to run against ClickHouse at once, across every team.
 ALERTS_MAX_INFLIGHT_EVALUATIONS: int = get_from_env("ALERTS_MAX_INFLIGHT_EVALUATIONS", 40, type_cast=int)

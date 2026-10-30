@@ -79,6 +79,8 @@ from posthog.personhog_client.proto import (
     GroupTypeMappingsResponse,
     InsertCohortMembersRequest,
     InsertCohortMembersResponse,
+    LifecycleDeletePersonsRequest,
+    LifecycleDeletePersonsResponse,
     ListCohortMemberIdsRequest,
     ListCohortMemberIdsResponse,
     ListGroupsRequest,
@@ -87,11 +89,14 @@ from posthog.personhog_client.proto import (
     ListPersonsForTeamResponse,
     ListPersonTombstoneQueueRequest,
     ListPersonTombstoneQueueResponse,
+    PersonHogLifecycleStub,
     PersonHogServiceStub,
     PersonsByDistinctIdsInTeamResponse,
     PersonsResponse,
     RaisePersonVersionFloorsRequest,
     RaisePersonVersionFloorsResponse,
+    RaisePersonVersionRequest,
+    RaisePersonVersionResponse,
     RestorePersonsRequest,
     RestorePersonsResponse,
     SetPersonDistinctIdVersionFloorRequest,
@@ -175,12 +180,50 @@ class _ChannelStateMonitor:
             pass
 
 
+class PersonHogLifecycleUnavailable(RuntimeError):
+    """The client has no lifecycle channel because PERSONHOG_LIFECYCLE_ADDR is not set."""
+
+
+class PersonHogLifecycleClient:
+    """The identity server's sagas, reached as ``client.lifecycle`` over their own channel.
+
+    The facade and the lifecycle service both have a DeletePersons, with opposite consistency: the
+    facade writes the replica's database directly, a saga fences the person's leader first. Keeping
+    the sagas behind their own namespace makes the destination visible at every call site.
+    """
+
+    def __init__(self, stub: PersonHogLifecycleStub | None, timeout: float) -> None:
+        self._stub = stub
+        self._timeout = timeout
+
+    @property
+    def configured(self) -> bool:
+        return self._stub is not None
+
+    def delete_persons(
+        self, request: LifecycleDeletePersonsRequest, timeout: float | None = None
+    ) -> LifecycleDeletePersonsResponse:
+        """Run the delete saga for up to 250 person ids of one team.
+
+        The call returns once the saga is complete: the persons are tombstoned in Postgres and their
+        leaders have produced the death documents. Retry a transient failure with the SAME op_id and
+        the byte-identical person_ids list; the retry attaches to the existing operation and returns
+        its recorded outcome. A FAILED_PRECONDITION whose ``semantic_refusal_reason`` is
+        ``op_id_reused`` means the op_id belongs to a different request and must not be retried.
+        """
+        if self._stub is None:
+            raise PersonHogLifecycleUnavailable("personhog lifecycle client not configured (PERSONHOG_LIFECYCLE_ADDR)")
+        return self._stub.DeletePersons(request, timeout=timeout or self._timeout)
+
+
 class PersonHogClient:
     def __init__(
         self,
         addr: str,
         client_name: str = "posthog-django",
         timeout_ms: int = 5000,
+        lifecycle_addr: str = "",
+        lifecycle_timeout_ms: int = 45_000,
         keepalive_time_ms: int = 30_000,
         keepalive_timeout_ms: int = 5_000,
         keepalive_without_calls: bool = True,
@@ -205,26 +248,52 @@ class PersonHogClient:
             # Prevent the channel from transitioning to IDLE between requests.
             ("grpc.client_idle_timeout_ms", client_idle_timeout_ms),
         ]
+        retry_interceptor = RetryInterceptor(
+            client_name,
+            max_retries=max_retries,
+            initial_backoff_ms=initial_backoff_ms,
+            max_backoff_ms=max_backoff_ms,
+        )
         channel = grpc.insecure_channel(addr, options=options)
         self._channel = grpc.intercept_channel(
             channel,
             ClientNameInterceptor(client_name),
             ConsistencyHeaderInterceptor(),
-            RetryInterceptor(
-                client_name,
-                max_retries=max_retries,
-                initial_backoff_ms=initial_backoff_ms,
-                max_backoff_ms=max_backoff_ms,
-            ),
+            retry_interceptor,
             MetricsInterceptor(client_name),
         )
         self._state_monitor = _ChannelStateMonitor(channel, client_name)
         self._stub = PersonHogServiceStub(self._channel)
         self._timeout = timeout_ms / 1000.0
 
+        # The identity server sits behind a different router than the facade. No consistency header:
+        # lifecycle requests have no read_options. Retries are safe: every request carries an op_id.
+        self._lifecycle_channel: grpc.Channel | None = None
+        self._lifecycle_state_monitor: _ChannelStateMonitor | None = None
+        lifecycle_stub: PersonHogLifecycleStub | None = None
+        self._leader_stub: PersonHogServiceStub | None = None
+        if lifecycle_addr:
+            lifecycle_channel = grpc.insecure_channel(lifecycle_addr, options=options)
+            self._lifecycle_channel = grpc.intercept_channel(
+                lifecycle_channel,
+                ClientNameInterceptor(client_name),
+                retry_interceptor,
+                MetricsInterceptor(client_name),
+            )
+            # The channel-state gauge is keyed by client_name alone; two channels under one name would fight over it.
+            self._lifecycle_state_monitor = _ChannelStateMonitor(lifecycle_channel, f"{client_name}-lifecycle")
+            lifecycle_stub = PersonHogLifecycleStub(self._lifecycle_channel)
+            # The same router reaches the leader, which the facade router cannot.
+            self._leader_stub = PersonHogServiceStub(self._lifecycle_channel)
+        self.lifecycle = PersonHogLifecycleClient(lifecycle_stub, lifecycle_timeout_ms / 1000.0)
+
     def close(self) -> None:
         self._state_monitor.close()
         self._channel.close()
+        if self._lifecycle_state_monitor is not None:
+            self._lifecycle_state_monitor.close()
+        if self._lifecycle_channel is not None:
+            self._lifecycle_channel.close()
 
     # -- Person deletes --
 
@@ -294,6 +363,18 @@ class PersonHogClient:
         self, request: RaisePersonVersionFloorsRequest, timeout: float | None = None
     ) -> RaisePersonVersionFloorsResponse:
         return self._stub.RaisePersonVersionFloors(request, timeout=timeout or self._timeout)
+
+    def raise_person_version(
+        self, request: RaisePersonVersionRequest, timeout: float | None = None
+    ) -> RaisePersonVersionResponse:
+        if self._leader_stub is None:
+            raise PersonHogLifecycleUnavailable("personhog leader path not configured (PERSONHOG_LIFECYCLE_ADDR)")
+        # The router routes leader calls by these headers, never by the request body.
+        return self._leader_stub.RaisePersonVersion(
+            request,
+            timeout=timeout or self._timeout,
+            metadata=[("x-team-id", str(request.team_id)), ("x-person-id", str(request.person_id))],
+        )
 
     def restore_persons(self, request: RestorePersonsRequest, timeout: float | None = None) -> RestorePersonsResponse:
         return self._stub.RestorePersons(request, timeout=timeout or self._timeout)
@@ -454,11 +535,14 @@ def get_personhog_client() -> Optional[PersonHogClient]:
                     return None
 
                 timeout_ms = getattr(settings, "PERSONHOG_TIMEOUT_MS", 5000)
+                lifecycle_addr = getattr(settings, "PERSONHOG_LIFECYCLE_ADDR", "")
                 client_name = getattr(settings, "OTEL_SERVICE_NAME", None) or "posthog-django"
                 _client = PersonHogClient(
                     addr=addr,
                     client_name=client_name,
                     timeout_ms=timeout_ms,
+                    lifecycle_addr=lifecycle_addr,
+                    lifecycle_timeout_ms=getattr(settings, "PERSONHOG_LIFECYCLE_TIMEOUT_MS", 45_000),
                     keepalive_time_ms=getattr(settings, "PERSONHOG_KEEPALIVE_TIME_MS", 30_000),
                     keepalive_timeout_ms=getattr(settings, "PERSONHOG_KEEPALIVE_TIMEOUT_MS", 5_000),
                     keepalive_without_calls=getattr(settings, "PERSONHOG_KEEPALIVE_WITHOUT_CALLS", True),
@@ -471,7 +555,9 @@ def get_personhog_client() -> Optional[PersonHogClient]:
                     initial_backoff_ms=getattr(settings, "PERSONHOG_INITIAL_BACKOFF_MS", 50),
                     max_backoff_ms=getattr(settings, "PERSONHOG_MAX_BACKOFF_MS", 1000),
                 )
-                logger.info("personhog_client_initialized", addr=addr, timeout_ms=timeout_ms)
+                logger.info(
+                    "personhog_client_initialized", addr=addr, timeout_ms=timeout_ms, lifecycle_addr=lifecycle_addr
+                )
 
     return _client
 

@@ -142,7 +142,7 @@ export function sanitizeAgentErrorCause(
   return text.slice(0, 400);
 }
 
-function rejectedRequestMessage(body: string): string | undefined {
+export function rejectedRequestMessage(body: string): string | undefined {
   try {
     const message = JSON.parse(body)?.error?.message;
     return typeof message === "string" ? message : undefined;

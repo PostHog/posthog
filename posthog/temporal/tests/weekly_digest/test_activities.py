@@ -75,7 +75,7 @@ from posthog.token_bucket import BucketDecision, BucketUnavailable
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.error_tracking.backend.facade.testing import create_issue
 from products.event_definitions.backend.models.event_definition import EventDefinition
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.facade.testing import create_experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.growth.backend.models import ProductPushCampaign
 from products.surveys.backend.models import Survey
@@ -186,11 +186,11 @@ def _make_event_definitions(team: Team, other_team: Team, digest: Digest) -> lis
     return ["new_event"]
 
 
-def _make_experiment(team: Team, name: str, **fields: Any) -> Experiment:
+def _make_experiment(team: Team, name: str, **fields: Any) -> int:
     flag = FeatureFlag.objects.create(
         team=team, key=f"flag-{uuid4().hex[:8]}", name=f"Feature Flag for Experiment {name}"
     )
-    return Experiment.objects.create(team=team, feature_flag=flag, name=name, **fields)
+    return create_experiment(team_id=team.id, feature_flag_id=flag.id, name=name, **fields)
 
 
 def _make_experiments_launched(team: Team, other_team: Team, digest: Digest) -> list[str]:
@@ -317,6 +317,25 @@ def test_generic_lookup_stores_only_this_teams_rows_from_the_window(
     # The quiet team is in range with nothing new, so its stale key goes; the other team is out of range.
     assert team.id < quiet_team.id < other_team.id
     assert redis_servers.digest.keys(f"{digest.key}-{key_kind}-*") == [key]
+
+
+@pytest.mark.django_db
+def test_experiment_completed_lookup_stores_both_dates(team, redis_servers, common_input, digest):
+    start_date = (digest.period_start - timedelta(days=30)).replace(microsecond=0)
+    end_date = (digest.period_end - timedelta(days=1)).replace(microsecond=0)
+    experiment_id = _make_experiment(team, "Completed", start_date=start_date, end_date=end_date)
+
+    run_sync(generate_experiment_completed_lookup, batch_input(team, digest, common_input))
+
+    stored = json.loads(redis_servers.digest.get(team_data_key(digest.key, TeamDataKey.EXPERIMENTS_COMPLETED, team.id)))
+    assert stored == [
+        {
+            "name": "Completed",
+            "id": experiment_id,
+            "start_date": start_date.isoformat().replace("+00:00", "Z"),
+            "end_date": end_date.isoformat().replace("+00:00", "Z"),
+        }
+    ]
 
 
 @pytest.mark.django_db

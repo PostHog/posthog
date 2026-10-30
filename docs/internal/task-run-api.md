@@ -69,7 +69,11 @@ Run responses omit internal cost accounting, including gateway request IDs.
 
 GitHub credentials that require user action fail the run without retrying. Fresh runs and resumed sandboxes preserve the actionable error, and Temporal does not report these expected failures to error tracking.
 
-Sandbox GitHub tokens are scoped to the repositories requested by the run. When GitHub rejects a repository scope, the run refreshes installation access and resolves renamed repositories by their GitHub ID. Public repositories outside the installation can be cloned anonymously; private or missing repositories require the user to check repository access. Public-only access results are cached for five minutes before checking again. GitHub outages and connection failures remain retryable, including failures during token refresh.
+Sandbox GitHub tokens are scoped to the repositories requested by the run.
+A self-driving implementation run also gets the project's extra implementation repositories that share the selected repository's owner.
+The server stores that list in `github_access_repositories` at creation and keeps it on resume.
+Run state updates cannot change it, and the run does not clone those repositories.
+When GitHub rejects a repository scope, the run refreshes installation access and resolves renamed repositories by their GitHub ID. Public repositories outside the installation can be cloned anonymously; private or missing repositories require the user to check repository access. Public-only access results are cached for five minutes before checking again. GitHub outages and connection failures remain retryable, including failures during token refresh.
 
 Without an authenticated GitHub token, the agent can still read public repositories and repository files already in its workspace. It asks the user to connect GitHub when the work requires unavailable private repository or publishing access.
 
