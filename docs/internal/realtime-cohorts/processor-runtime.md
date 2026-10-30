@@ -130,7 +130,9 @@ Live output is at most once and its state is already committed, so waiting would
 The window holds at most four unacknowledged batches per partition.
 When it is full, the worker waits for the oldest one, so a slow broker shows as lag on that partition, and `output_window_waits_total` counts each wait.
 The worker enqueues each batch's records before it moves on and collects only the acknowledgments later, so records are enqueued in the order of state changes.
-A producer retry can still reorder batches that are in flight together, and the membership consumer's version check puts them back in order ([invariant 28](invariants.md#membership-output)).
+A producer retry can still reorder batches that are in flight together.
+With version writes on, the membership consumer's version check puts them back in order ([invariant 28](invariants.md#membership-output)).
+With them off, an older change can win until the next change for that cohort and person.
 Before a worker stops, it waits for every batch in its window.
 
 If the re-key produce fails, the worker skips the mark.

@@ -24,11 +24,13 @@ use cohort_stream_processor::consumers::{BootReadiness, CohortStreamEvent, Event
 use cohort_stream_processor::filters::{
     CatalogHandle, CohortId, FilterCatalog, TeamFilters, TeamFiltersBuilder, TeamId,
 };
+use cohort_stream_processor::merge::transfer::Tombstone;
 use cohort_stream_processor::partitions::{
-    OffsetTracker, PartitionRouter, ShuffleMessage, WorkerInbox,
+    partition_of, OffsetTracker, PartitionRouter, ShuffleMessage, WorkerInbox,
+    COHORT_PARTITION_COUNT,
 };
 use cohort_stream_processor::producer::{
-    CaptureSink, CohortMembershipChange, MembershipSink, MembershipStatus,
+    CaptureSink, CaptureStreamEventSink, CohortMembershipChange, MembershipSink, MembershipStatus,
 };
 use cohort_stream_processor::stage1::bucket_tz::{day_idx_in_tz, start_of_day_ms_in_tz};
 use cohort_stream_processor::stage1::{
@@ -37,7 +39,7 @@ use cohort_stream_processor::stage1::{
 use cohort_stream_processor::stage2::Stage2State;
 use cohort_stream_processor::store::{
     BehavioralKey, CohortStore, LeafStateKey, OffloadConfig, OffloadMode, PersonRecordKey,
-    Stage2Key, StoreConfig, StoreHandle,
+    Stage2Key, StoreConfig, StoreHandle, TombstoneKey,
 };
 use cohort_stream_processor::workers::{
     process_event, EvictionRestore, MergeWorkerDeps, Stage1Worker,
@@ -364,6 +366,7 @@ fn spawn_worker_prefilled(
     catalog: Arc<CatalogHandle>,
     sink: Arc<dyn MembershipSink>,
     tracker: Arc<OffsetTracker>,
+    merge: Arc<MergeWorkerDeps>,
     batches: Vec<Vec<ShuffleMessage>>,
 ) -> Stage1Worker {
     let (tx, rx) = mpsc::channel(batches.len().max(1));
@@ -379,7 +382,7 @@ fn spawn_worker_prefilled(
         catalog,
         sink,
         tracker,
-        MergeWorkerDeps::capture(),
+        merge,
         EvictionRestore::Skip,
     )
 }
@@ -419,15 +422,44 @@ fn status_runs(changes: &[CohortMembershipChange], status: MembershipStatus) -> 
 }
 
 /// Drive a due wave larger than one sweep batch against a live lane that is already full, producing
-/// into `sink`, and return once the worker has drained both.
+/// into `sink`, and return once the worker has drained both. With `failing_re_key`, each live batch
+/// after the wave also carries an event of a merged person whose re-key fails, which skips that
+/// batch's mark.
 async fn wave_against_a_full_live_lane(
     wave: usize,
     live_after: usize,
     sink: Arc<dyn MembershipSink>,
+    failing_re_key: bool,
 ) {
     let (_dir, store) = temp_store();
     let filters = build_team_filters(vec![behavioral_leaf(7)]);
     let tracker = Arc::new(OffsetTracker::new());
+    let mut merge = Arc::try_unwrap(MergeWorkerDeps::capture())
+        .unwrap_or_else(|_| panic!("the test owns the only dependency Arc"));
+    let merged = person(u128::MAX);
+    if failing_re_key {
+        let survivor = (1u128 << 64..)
+            .map(person)
+            .find(|p| partition_of(TeamId(TEAM), p, COHORT_PARTITION_COUNT) as u16 != PARTITION_ID)
+            .expect("some person hashes off the worker's partition");
+        store
+            .write_batch(|batch| {
+                batch.put_tombstone(
+                    &TombstoneKey {
+                        partition_id: PARTITION_ID,
+                        team_id: TEAM as u64,
+                        person: merged,
+                    },
+                    &Tombstone {
+                        new_person: survivor,
+                        merged_at_ms: 1,
+                    }
+                    .encode(),
+                )
+            })
+            .unwrap();
+        merge.stream_event_sink = Arc::new(CaptureStreamEventSink::failing_always());
+    }
 
     let ts = "2026-05-20 10:00:00.000000";
     let event_ms = clickhouse_timestamp_to_millis(ts).unwrap();
@@ -438,14 +470,29 @@ async fn wave_against_a_full_live_lane(
     // Distinct persons, so these enter on their own rather than reviving a key the pass selected.
     batches.extend((0..live_after).map(|i| {
         let offset = (wave + i) as i64;
-        vec![ShuffleMessage::Event {
+        let mut batch = vec![ShuffleMessage::Event {
             event: Box::new(event_at(person(offset as u128 + 1), ts, offset)),
             cse_offset: offset,
             broker_ts_ms: None,
-        }]
+        }];
+        if failing_re_key {
+            batch.push(ShuffleMessage::Event {
+                event: Box::new(event_at(merged, ts, offset)),
+                cse_offset: offset,
+                broker_ts_ms: None,
+            });
+        }
+        batch
     }));
 
-    let worker = spawn_worker_prefilled(&store, catalog_of(filters), sink, tracker, batches);
+    let worker = spawn_worker_prefilled(
+        &store,
+        catalog_of(filters),
+        sink,
+        tracker,
+        Arc::new(merge),
+        batches,
+    );
     worker.join().await.unwrap();
 }
 
@@ -826,41 +873,47 @@ async fn sweep_caps_evictions_per_pass_and_drains_the_remainder_next_tick() {
 async fn a_due_wave_drains_in_batches_that_alternate_with_live_traffic() {
     // A wave used to drain in one pass, holding the partition for its whole duration and allocating
     // every state value at once. Each batch now claims at most the target, and a live batch takes the
-    // turn in between, so a tz-midnight wave costs live traffic one batch at a time.
-    let sink = CaptureSink::new();
-    wave_against_a_full_live_lane(
-        INTERLEAVED_WAVE,
-        INTERLEAVED_LIVE_AFTER,
-        Arc::new(sink.clone()),
-    )
-    .await;
-    let changes = sink.changes();
+    // turn in between, so a tz-midnight wave costs live traffic one batch at a time. The turn is
+    // claimed before a live batch runs, so a batch whose re-key fails and skips the rest of the loop
+    // still owes it. Claiming after the batch instead passes the case whose re-keys succeed, while a
+    // lane that keeps failing holds a due wave until it closes.
+    for failing_re_key in [false, true] {
+        let sink = CaptureSink::new();
+        wave_against_a_full_live_lane(
+            INTERLEAVED_WAVE,
+            INTERLEAVED_LIVE_AFTER,
+            Arc::new(sink.clone()),
+            failing_re_key,
+        )
+        .await;
+        let changes = sink.changes();
 
-    assert_eq!(
-        status_runs(&changes, MembershipStatus::Left),
-        vec![
-            SWEEP_BATCH_KEYS,
-            SWEEP_BATCH_KEYS,
-            INTERLEAVED_WAVE - 2 * SWEEP_BATCH_KEYS,
-        ],
-        "three bounded batches, each separated by the live output of the batch that ran between",
-    );
-    assert_eq!(
-        changes
-            .iter()
-            .filter(|change| change.status == MembershipStatus::Left)
-            .count(),
-        INTERLEAVED_WAVE,
-        "interleaving does not cost the sweep any of its wave",
-    );
-    assert_eq!(
-        changes
-            .iter()
-            .filter(|change| change.status == MembershipStatus::Entered)
-            .count(),
-        INTERLEAVED_WAVE + INTERLEAVED_LIVE_AFTER,
-        "every queued live event entered while the sweep was draining",
-    );
+        assert_eq!(
+            status_runs(&changes, MembershipStatus::Left),
+            vec![
+                SWEEP_BATCH_KEYS,
+                SWEEP_BATCH_KEYS,
+                INTERLEAVED_WAVE - 2 * SWEEP_BATCH_KEYS,
+            ],
+            "failing_re_key={failing_re_key}: three bounded batches, each separated by the live output of the batch that ran between",
+        );
+        assert_eq!(
+            changes
+                .iter()
+                .filter(|change| change.status == MembershipStatus::Left)
+                .count(),
+            INTERLEAVED_WAVE,
+            "failing_re_key={failing_re_key}: interleaving does not cost the sweep any of its wave",
+        );
+        assert_eq!(
+            changes
+                .iter()
+                .filter(|change| change.status == MembershipStatus::Entered)
+                .count(),
+            INTERLEAVED_WAVE + INTERLEAVED_LIVE_AFTER,
+            "failing_re_key={failing_re_key}: every queued live event entered while the sweep was draining",
+        );
+    }
 }
 
 #[tokio::test]
@@ -873,6 +926,7 @@ async fn a_resumed_sweep_stamps_newer_than_the_live_output_it_yielded_to() {
         INTERLEAVED_WAVE,
         INTERLEAVED_LIVE_AFTER,
         Arc::new(sink.clone()),
+        false,
     )
     .await;
     let changes = sink.changes();
@@ -923,6 +977,7 @@ async fn an_event_between_batches_saves_a_key_the_pass_had_already_selected() {
         catalog_of(filters),
         Arc::new(sink.clone()),
         tracker,
+        MergeWorkerDeps::capture(),
         vec![
             wave_then_sweep(WAVE, ts, cutoff),
             // Two days later, so this person's new deadline lands past the pass's cutoff.
@@ -980,6 +1035,7 @@ async fn a_later_batchs_produce_failure_leaves_the_earlier_batches_settled() {
         catalog_of(filters),
         Arc::new(sink.clone()),
         tracker,
+        MergeWorkerDeps::capture(),
         vec![
             wave_then_sweep(WAVE, ts, cutoff),
             vec![ShuffleMessage::Sweep {

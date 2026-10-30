@@ -199,13 +199,14 @@ That answer is wrong for anyone who really is in the untracked cohort.
    It reads a single-leaf referenced cohort from its leaf state, a composed one from its Stage 2 row, and an untracked one as not a member.
    If a message's person already has an unwritten Stage 2 bit in the group, the group settles first, so the message reads the written bit.
 4. For each referrer that flips, the group collects the membership change and, if the chain may continue, a further cascade message.
-   The group produces both topics together, in one round trip.
-5. Only after both produces are acknowledged does it write the group's new Stage 2 bits and mark the group's last offset.
-   A failure pins the partition's cascade commit at the group's first message, and the rest of the sub-batch waits for redelivery.
-   Kafka redelivers them after the next restart, and the redelivered messages recompute the same flips.
+   The group produces both topics for all of its messages at once, in one round trip.
+5. A message's new Stage 2 bits are written only after all of its produces are acknowledged.
+   The group writes the bits of every such message in one batch, and the worker marks the sub-batch's last offset.
+   A message with a failed produce pins the partition's cascade commit at its own offset, and the rest of the sub-batch goes on.
+   Kafka redelivers it after the next restart, and the redelivered message recomputes the same flips.
    Until then, cascade commits for that partition stall.
-   The flips of the failed group that did reach the topic also have no Stage 2 bit behind them until then.
-   So a later recompute for one of those persons can miss a change, and only reconcile repairs it.
+   The flips of the failed message that did reach the topic also have no Stage 2 bit behind them until then.
+   So a later recompute for that person can miss a change, and only reconcile repairs it.
 
 Three limits bound the work:
 

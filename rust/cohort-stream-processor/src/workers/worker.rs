@@ -23,7 +23,7 @@ use cohort_core::seed::CoverageStartMs;
 use futures::FutureExt;
 use metrics::{counter, gauge, histogram};
 use tokio::task::JoinHandle;
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use crate::cascade::{first_cascade, CascadeMessage};
@@ -187,8 +187,9 @@ struct PendingRuns {
 ///
 /// [`submit`](Self::submit) enqueues a batch's records before it returns, and only the acks are
 /// collected on a spawned task. So batches are enqueued in submit order, ahead of anything the
-/// worker produces next. A producer retry can still reorder batches that are in flight together;
-/// the membership consumer's version check puts them back in order.
+/// worker produces next. A producer retry can still reorder batches that are in flight together.
+/// With version writes on, the membership consumer's version check puts them back in order. With
+/// them off, an older change can win until the next change for that cohort and person.
 struct ProduceWindow {
     partition_id: u16,
     sink: Arc<dyn MembershipSink>,
@@ -250,7 +251,7 @@ impl ProduceWindow {
             return;
         };
         if let Err(error) = produce.await {
-            warn!(
+            error!(
                 partition_id = self.partition_id,
                 error = %error,
                 "live produce task failed; its output is lost",
@@ -282,7 +283,7 @@ async fn produce_live(
             changes = produced,
             membership_errors,
             cascade_errors,
-            "live produce failed; the changes stay lost until a reconcile re-emits them",
+            "live produce failed; the changes are lost, and only a reconcile re-emits them",
         );
     }
 }

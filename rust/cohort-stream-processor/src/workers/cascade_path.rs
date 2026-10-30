@@ -6,21 +6,23 @@
 //! `cohort_cascade_events` is co-partitioned with `cohort_stream_events` so the worker that owns
 //! the person's `cf_stage2` always handles it.
 //!
-//! **One group per sub-batch.** The messages of a worker sub-batch share one produce round trip on
-//! each topic and one `cf_stage2` write batch. A message whose person already has an unwritten bit
-//! in the group settles the group first, so the message reads the written bit instead of the stale
-//! one.
+//! **One group per sub-batch.** The messages of a worker sub-batch share one produce round trip and
+//! one `cf_stage2` write batch. A message whose person already has an unwritten bit in the group
+//! settles the group first, so the message reads the written bit instead of the stale one.
 //!
-//! **Produce-before-state.** A group's new `cf_stage2` bits are committed only after both produces
-//! ack; a failure holds the group's first offset without writing, so replay re-detects the
-//! still-old bits and re-emits (the downstream UPSERT is idempotent). The cascade input is a fixed
-//! message that recomputes the same flip on replay — unlike Stage 2 composition, which dedupes by
-//! `cf_behavioral`'s applied-offset and writes state-before-produce (at-most-once).
+//! **Produce-before-state, per message.** A message's new `cf_stage2` bits are committed only after
+//! all of its records ack; a message with a failed record holds its own offset without writing, so
+//! replay re-detects the still-old bits and re-emits (the downstream UPSERT is idempotent). The rest
+//! of its group still commits, because a message reads and writes only its own person's rows. The
+//! cascade input is a fixed message that recomputes the same flip on replay — unlike Stage 2
+//! composition, which dedupes by `cf_behavioral`'s applied-offset and writes state-before-produce
+//! (at-most-once).
 
 use std::collections::HashSet;
 use std::sync::Arc;
 
 use chrono::NaiveDateTime;
+use futures::future::join_all;
 use metrics::{counter, gauge, histogram};
 use tracing::{debug, warn};
 use uuid::Uuid;
@@ -56,49 +58,42 @@ pub(crate) async fn handle_cascades(
     clock: &mut LastUpdatedClock,
     batch: Vec<(Box<CascadeMessage>, i64)>,
 ) {
-    let (Some(&(_, first)), Some(&(_, last))) = (batch.first(), batch.last()) else {
+    let Some(&(_, last)) = batch.last() else {
         return;
     };
     // A config flip can leave cascades queued after the gate closed; drain them rather than wedge.
-    if !merge.cascade.enabled {
-        mark_processed(&merge.cascade_tracker, partition_id, last);
-        return;
-    }
-    histogram!(CASCADE_BATCH_MESSAGES).record(batch.len() as f64);
-
-    let snapshot = catalog.load();
-    let settled = async move {
-        let mut group = CascadeGroup::open(first, clock);
+    if merge.cascade.enabled {
+        let snapshot = catalog.load();
+        let mut group = CascadeGroup::open(clock);
         for (message, offset) in batch {
             histogram!(CASCADE_DEPTH_OBSERVED).record(f64::from(message.depth));
-            if let Some((filters, person_id, referrers)) =
+            let Some((filters, person_id, referrers)) =
                 referrers_to_reevaluate(&snapshot, &message, merge.cascade.fanout_cap)
-            {
-                if group.touched.contains(&person_id) {
-                    std::mem::replace(&mut group, CascadeGroup::open(offset, clock))
-                        .settle(partition_id, handle, sink, merge)
-                        .await?;
-                }
-                group
-                    .reevaluate(
-                        partition_id,
-                        handle,
-                        filters,
-                        merge.cascade.depth_cap,
-                        &message,
-                        person_id,
-                        referrers,
-                    )
-                    .await?;
+            else {
+                continue;
+            };
+            if group.touched.contains(&person_id) {
+                std::mem::replace(&mut group, CascadeGroup::open(clock))
+                    .settle(partition_id, handle, sink, merge)
+                    .await;
             }
-            group.last = offset;
+            group
+                .reevaluate(
+                    partition_id,
+                    handle,
+                    filters,
+                    merge,
+                    &message,
+                    offset,
+                    person_id,
+                    referrers,
+                )
+                .await;
         }
-        group.settle(partition_id, handle, sink, merge).await
+        group.settle(partition_id, handle, sink, merge).await;
     }
-    .await;
-    if let Err(Unsettled { first }) = settled {
-        hold(&merge.cascade_tracker, partition_id, first);
-    }
+    // Every message that did not settle is held, and the hold caps this mark.
+    mark_processed(&merge.cascade_tracker, partition_id, last);
 }
 
 /// The team filters, person and referrers one cascade message re-evaluates. `None` when there is
@@ -128,54 +123,57 @@ fn referrers_to_reevaluate<'a>(
     Some((filters, person_id, referrers))
 }
 
-/// Consecutive cascade messages, from `first` to `last` offset, whose flips one produce round trip
-/// carries and whose bits one write batch commits.
+/// Cascade messages of one sub-batch whose flips share one produce round trip and whose bits one
+/// write batch commits.
 struct CascadeGroup {
-    first: i64,
-    last: i64,
     /// One stamp for every change in the group. A group holds at most one message per person, so no
     /// two of its changes share a cohort and person.
     last_updated: String,
     evaluated_at_ms: i64,
-    /// Persons with a `cf_stage2` write in `writes`, which is not committed yet.
+    /// The persons of `messages`, whose `cf_stage2` writes are not committed yet.
     touched: HashSet<Uuid>,
+    messages: Vec<Reevaluated>,
+}
+
+/// One message's output. Its bits commit only if all of its records ack.
+struct Reevaluated {
+    offset: i64,
     writes: Vec<(Stage2Key, Stage2State)>,
     changes: Vec<CohortMembershipChange>,
     outgoing: Vec<CascadeMessage>,
 }
 
-/// A group that did not settle. The cascade commit must stop at its first offset.
-struct Unsettled {
-    first: i64,
-}
-
 impl CascadeGroup {
-    fn open(first: i64, clock: &mut LastUpdatedClock) -> Self {
+    fn open(clock: &mut LastUpdatedClock) -> Self {
         let last_updated = clock.next();
         Self {
-            first,
-            last: first,
             evaluated_at_ms: clickhouse_millis(&last_updated),
             last_updated,
             touched: HashSet::new(),
-            writes: Vec::new(),
-            changes: Vec::new(),
-            outgoing: Vec::new(),
+            messages: Vec::new(),
         }
     }
 
-    /// Recompose each referrer for `person_id` and collect its bit, its flip and its onward hop.
+    /// Recompose each referrer for `person_id` and collect its bit, its flip and its onward hop. The
+    /// message joins the group only if it writes a bit, and every flip writes one.
     #[allow(clippy::too_many_arguments)]
     async fn reevaluate(
         &mut self,
         partition_id: u16,
         handle: &StoreHandle,
         filters: &TeamFilters,
-        depth_cap: u8,
+        merge: &MergeWorkerDeps,
         message: &CascadeMessage,
+        offset: i64,
         person_id: Uuid,
         referrers: &[CohortId],
-    ) -> Result<(), Unsettled> {
+    ) {
+        let mut reevaluated = Reevaluated {
+            offset,
+            writes: Vec::new(),
+            changes: Vec::new(),
+            outgoing: Vec::new(),
+        };
         for &referrer in referrers {
             // The reverse index includes excluded referrers (cycle members, unresolved refs); only
             // re-evaluate cohorts maintained in `cf_stage2`, else a cycle member would re-enter the
@@ -204,29 +202,30 @@ impl CascadeGroup {
                 Err(error) => {
                     warn!(
                         partition_id,
+                        offset,
                         team_id = message.change.team_id,
                         referrer = referrer.0,
                         error = %error,
-                        "cascade recompute read failed; holding the cascade group for redelivery",
+                        "cascade recompute read failed; holding the cascade offset for redelivery",
                     );
-                    return Err(Unsettled { first: self.first });
+                    hold(&merge.cascade_tracker, partition_id, offset);
+                    return;
                 }
             };
             if diff.requires_write() {
-                self.writes.push((
+                reevaluated.writes.push((
                     diff.stage2_key,
                     Stage2State {
                         in_cohort: diff.new_bit,
                         last_evaluated_at_ms: self.evaluated_at_ms,
                     },
                 ));
-                self.touched.insert(person_id);
             }
             if !diff.flipped() {
                 continue;
             }
             let status = diff.status();
-            self.changes.push(CohortMembershipChange {
+            reevaluated.changes.push(CohortMembershipChange {
                 team_id: message.change.team_id,
                 cohort_id: referrer.0,
                 person_id: message.change.person_id.clone(),
@@ -236,8 +235,14 @@ impl CascadeGroup {
                 run_id: None,
             });
             // The external flip above is unconditional; only the onward hop is depth/cycle bounded.
-            match should_emit(message, referrer, status, &self.last_updated, depth_cap) {
-                CascadeDecision::Emit { outgoing: hop } => self.outgoing.push(hop),
+            match should_emit(
+                message,
+                referrer,
+                status,
+                &self.last_updated,
+                merge.cascade.depth_cap,
+            ) {
+                CascadeDecision::Emit { outgoing: hop } => reevaluated.outgoing.push(hop),
                 CascadeDecision::Drop {
                     reason: DropReason::DepthExceeded,
                 } => {
@@ -259,58 +264,70 @@ impl CascadeGroup {
                 }
             }
         }
-        Ok(())
+        if !reevaluated.writes.is_empty() {
+            self.touched.insert(person_id);
+            self.messages.push(reevaluated);
+        }
     }
 
-    /// Produce the group's flips and onward hops, then commit its bits and mark its last offset.
+    /// Produce the group's flips and onward hops, then commit the bits of every message whose records
+    /// all acked. A message with a failed record holds its own offset.
     async fn settle(
         self,
         partition_id: u16,
         handle: &StoreHandle,
         sink: &Arc<dyn MembershipSink>,
         merge: &MergeWorkerDeps,
-    ) -> Result<(), Unsettled> {
-        let Self {
-            first,
-            last,
-            writes,
-            changes,
-            outgoing,
-            ..
-        } = self;
-        if !changes.is_empty() {
-            // Produce-before-state: both legs must ack before flipped bits commit (see the module
-            // doc).
+    ) {
+        let Some(first) = self.messages.first().map(|message| message.offset) else {
+            return;
+        };
+        histogram!(CASCADE_BATCH_MESSAGES).record(self.messages.len() as f64);
+        // One produce per message and topic, so each message learns whether its own records acked.
+        // Every produce is in flight at once, so the group still costs one round trip.
+        let produced = join_all(self.messages.into_iter().map(|message| async move {
+            // Produce-before-state: both legs must ack before the message's bits commit (see the
+            // module doc).
             let (membership_errors, cascade_errors) = tokio::join!(
-                produce_membership(sink, changes),
-                produce_cascades(merge, outgoing),
+                produce_membership(sink, message.changes),
+                produce_cascades(merge, message.outgoing),
             );
+            (
+                message.offset,
+                message.writes,
+                membership_errors,
+                cascade_errors,
+            )
+        }))
+        .await;
+        let mut staged = StagedBatch::default();
+        for (offset, writes, membership_errors, cascade_errors) in produced {
             if membership_errors + cascade_errors > 0 {
                 warn!(
                     partition_id,
+                    offset,
                     membership_errors,
                     cascade_errors,
-                    "cascade produce failed; holding the cascade group for redelivery",
+                    "cascade produce failed; holding the cascade offset for redelivery",
                 );
-                return Err(Unsettled { first });
+                hold(&merge.cascade_tracker, partition_id, offset);
+                continue;
             }
-        }
-        if !writes.is_empty() {
-            let mut staged = StagedBatch::default();
             for (key, state) in &writes {
                 staged.put_stage2(key, &state.encode());
             }
-            if let Err(error) = handle.commit(staged).await {
-                warn!(
-                    partition_id,
-                    error = %error,
-                    "cascade cf_stage2 write failed; holding the cascade group for redelivery",
-                );
-                return Err(Unsettled { first });
-            }
         }
-        mark_processed(&merge.cascade_tracker, partition_id, last);
-        Ok(())
+        if staged.is_empty() {
+            return;
+        }
+        if let Err(error) = handle.commit(staged).await {
+            warn!(
+                partition_id,
+                error = %error,
+                "cascade cf_stage2 write failed; holding the cascade group for redelivery",
+            );
+            hold(&merge.cascade_tracker, partition_id, first);
+        }
     }
 }
 
@@ -935,7 +952,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_batch_of_flips_produces_once_and_commits_every_bit() {
+    async fn a_batch_of_flips_commits_every_bit() {
         let (_dir, store) = temp_store();
         let catalog = catalog(
             vec![
@@ -951,8 +968,6 @@ mod tests {
         let (sink, deps) = deps(&membership, &cascade, true, 1000);
         run(&store, &catalog, &sink, &deps, messages).await;
 
-        assert_eq!(membership.produce_calls(), 1, "one membership round trip");
-        assert_eq!(cascade.produce_calls(), 1, "one onward cascade round trip");
         assert_eq!(membership.changes().len(), 3);
         assert_eq!(cascade.messages().len(), 3);
         for who in people {
@@ -1003,18 +1018,14 @@ mod tests {
             vec![2, 1],
             "B enters, then C enters on B's written bit"
         );
-        assert_eq!(
-            membership.produce_calls(),
-            2,
-            "the touched person split the group"
-        );
         assert_eq!(read_stage2(&store, 2, alice), Some(true));
         assert_eq!(read_stage2(&store, 1, alice), Some(true));
         assert_eq!(committed(&deps), Some(OFFSET + 2));
     }
 
+    /// Alice's records fail and Bob's and Carol's ack in the same round trip.
     #[tokio::test]
-    async fn a_failed_produce_leg_holds_the_group_at_its_first_offset_without_writing_state() {
+    async fn a_failed_produce_leg_holds_only_its_own_message() {
         for (failing_leg, membership, cascade) in [
             (
                 "membership",
@@ -1024,7 +1035,7 @@ mod tests {
             (
                 "cascade",
                 CaptureSink::new(),
-                CaptureCascadeSink::failing_always(),
+                CaptureCascadeSink::failing_first(1),
             ),
         ] {
             let (_dir, store) = temp_store();
@@ -1040,23 +1051,22 @@ mod tests {
 
             run(&store, &catalog, &sink, &deps, messages).await;
 
-            for who in people {
+            assert_eq!(
+                read_stage2(&store, 1, people[0]),
+                None,
+                "{failing_leg} leg failed: produce-before-state leaves alice's bit for the replay",
+            );
+            for who in &people[1..] {
                 assert_eq!(
-                    read_stage2(&store, 1, who),
-                    None,
-                    "{failing_leg} leg failed: produce-before-state leaves {who}'s bit for the replay",
+                    read_stage2(&store, 1, *who),
+                    Some(true),
+                    "{failing_leg} leg failed for alice only: {who}'s acked flip keeps its bit",
                 );
             }
-            // A later sub-batch's mark must not commit past the group's unsettled messages.
-            assert!(matches!(
-                deps.cascade_tracker
-                    .mark_processed(PARTITION as i32, OFFSET + 3),
-                MarkOutcome::WithinDispatch
-            ));
             assert_eq!(
                 committed(&deps),
                 Some(OFFSET),
-                "{failing_leg} leg failed: the floor pins the group's first offset",
+                "{failing_leg} leg failed: the floor pins alice's offset under the run's mark",
             );
         }
     }
