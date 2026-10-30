@@ -1,0 +1,5 @@
+# Lazy loads across peer rows that tests still allow. See posthog/models/scoping/README.md.
+# Each line is `<app_label.Model.field> <file>:<function>`. Every other such load raises FieldFetchBlocked in tests.
+# Fix a site with select_related(), prefetch_related() or only(), then delete its line.
+# CI fails when a line no longer happens, so this file only shrinks.
+# Regenerate from CI artifacts: python posthog/models/scoping/peer_lazy_loads.py write <observations dir>

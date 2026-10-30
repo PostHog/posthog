@@ -16,14 +16,18 @@ raise on framework code that has no team context. Raw SQL bypasses the
 ORM entirely. Use this alongside explicit team checks at the API layer.
 """
 
+import os
 from collections.abc import AsyncIterator, Iterator
+from functools import cache
 from typing import Any, TypeVar, cast
 
+from django.conf import settings
+from django.core.exceptions import FieldFetchBlocked
 from django.db import models
-from django.db.models.fetch_modes import FetchPeers
+from django.db.models.fetch_modes import FetchMode, FetchPeers
 from django.db.models.query_utils import DeferredAttribute
 
-from posthog.models.scoping import get_current_team_id
+from posthog.models.scoping import get_current_team_id, peer_lazy_loads
 
 T = TypeVar("T", bound=models.Model)
 
@@ -46,6 +50,56 @@ class FetchRelationPeers(FetchPeers):
 
 
 FETCH_RELATION_PEERS = FetchRelationPeers()
+
+
+def _has_live_peers(instance: models.Model) -> bool:
+    live = 0
+    for peer in instance._state.peers:
+        if peer() is not None:
+            live += 1
+            if live > 1:
+                return True
+    return False
+
+
+class FetchRaiseOnPeers(FetchRelationPeers):
+    """Test-only `FETCH_RELATION_PEERS` that raises when a lazy load would run once per row.
+
+    A row from `.get()`, `.first()` or a one-row result has no live peers and loads as usual.
+    A site listed in `peer_lazy_loads_baseline.txt` loads like production.
+    """
+
+    __slots__ = ()
+
+    def fetch(self, fetcher: Any, instance: models.Model) -> None:
+        if _has_live_peers(instance):
+            label, field = instance._meta.label, fetcher.field.name
+            entry = peer_lazy_loads.blocked_entry(label, field)
+            if entry is not None:
+                fix = (
+                    f'add "{field}" to only(), or remove it from defer()'
+                    if isinstance(fetcher, DeferredAttribute)
+                    else f'add select_related("{field}") or prefetch_related("{field}")'
+                )
+                raise FieldFetchBlocked(
+                    f"Lazy load of {label}.{field} on a row from a multi-row query, which costs one query per row. "
+                    f"Load it with the query: {fix}. Entry: {entry}"
+                ) from None
+        super().fetch(fetcher, instance)
+
+    def __reduce__(self) -> str:
+        return "FETCH_RAISE_ON_PEERS"
+
+
+FETCH_RAISE_ON_PEERS = FetchRaiseOnPeers()
+
+
+@cache
+def default_fetch_mode() -> FetchMode:
+    # PYTEST_VERSION keeps it out of servers and management commands that CI starts with TEST=1.
+    if settings.TEST and "PYTEST_VERSION" in os.environ:
+        return FETCH_RAISE_ON_PEERS
+    return FETCH_RELATION_PEERS
 
 
 class TeamScopeError(Exception):
@@ -90,12 +144,13 @@ class TeamScopedQuerySet(models.QuerySet[T]):
     need to explicitly query across teams.
 
     Defaults to `FETCH_RELATION_PEERS`: a lazy related read on one row loads
-    it for every row the same query returned, in one query.
+    it for every row the same query returned, in one query. Tests use
+    `FETCH_RAISE_ON_PEERS`, so that read raises unless its site is baselined.
     """
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
-        self._fetch_mode = FETCH_RELATION_PEERS
+        self._fetch_mode = default_fetch_mode()
 
     def iterator(self, chunk_size: int | None = None) -> Iterator[T]:
         return super(TeamScopedQuerySet, self._without_streamed_peers()).iterator(chunk_size)
@@ -107,7 +162,7 @@ class TeamScopedQuerySet(models.QuerySet[T]):
         # A streamed query shares one peer list across all its rows, and FETCH_PEERS
         # scans that list on each lazy read, so a loop that reads a relation per row
         # costs O(rows²). The rows a loop has dropped are not batched anyway.
-        if self._fetch_mode is FETCH_RELATION_PEERS:
+        if isinstance(self._fetch_mode, FetchRelationPeers):
             return self.fetch_mode(models.FETCH_ONE)
         return self
 

@@ -71,6 +71,24 @@ Use `select_related()` in a streamed loop that reads a relation.
 
 To opt out, call `.fetch_mode(models.FETCH_ONE)` on the queryset.
 
+### In tests
+
+Under pytest, scoped querysets use `FETCH_RAISE_ON_PEERS` instead.
+A lazy load on a row from a multi-row query raises `FieldFetchBlocked`, because without the batch it costs one query per row.
+The error names the model, the field, and the fix: `select_related()` or `prefetch_related()` for a relation, `only()` for a deferred field.
+A row from `.get()`, `.first()` or a one-row result still loads lazily.
+
+Django fetch modes cover forward foreign keys, one-to-one fields in both directions, generic foreign keys and deferred fields.
+They do not cover reverse foreign key or many-to-many managers such as `flag.experiments.all()`, so use `prefetch_related()` and an `assertNumQueries` test for those.
+
+Sites that existed before the check are listed in `peer_lazy_loads_baseline.txt`, as `<app_label.Model.field> <file>:<function>`.
+A listed site batches like production.
+Fix a site, then delete its line.
+The `Peer lazy load baseline` job in Backend CI fails when a line no longer happens on a full run, so the file only shrinks.
+
+To regenerate the baseline, set `POSTHOG_PEER_LAZY_LOADS: record` in `.depot/workflows/ci-backend.yml` on a pull request with the `run-ci-backend` label.
+Download the `peer-lazy-loads-*` artifacts from that run, then run `python posthog/models/scoping/peer_lazy_loads.py write <artifacts dir>`.
+
 ## Adoption
 
 ### New main-DB model
