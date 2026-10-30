@@ -96,6 +96,34 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "is_archived": "True when the contact has been archived.",
         },
     },
+    "currencies": {
+        "description": "Currencies enabled in the team space, including the single base currency all amounts convert from.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            **_COMMON_COLUMNS,
+            "code": "Currency code and its default text representation (e.g. USD, EUR).",
+            "is_base": "True for the space's base currency. Each space has exactly one base currency.",
+            "symbol": "Display symbol of the currency (e.g. $, €).",
+        },
+    },
+    "currency_exchange_rates": {
+        "description": "Exchange rates from the base currency into each other currency, grouped into dated rate lists.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            **_COMMON_COLUMNS,
+            "currency_exchange_rate_list_id": "Id of the exchange rate list (effective period) this rate belongs to.",
+            "currency_id": "Id of the currency the exchange rate applies to. Never the base currency.",
+            "exchange_rate": "Multiplier that converts an amount in the base currency into this currency.",
+        },
+    },
+    "currency_exchange_rates_lists": {
+        "description": "Dated sets of exchange rates. Opportunities and line items reference the list used to convert their values.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            **_COMMON_COLUMNS,
+            "valid_from": "Date from which the exchange rates in this list apply.",
+        },
+    },
     "leads": {
         "description": "Potential deals before qualification, with source, ranking, process step, and close details.",
         "docs_url": _DOCS_URL,
@@ -152,6 +180,25 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "unit_id": "Id of the sales unit this opportunity is assigned to.",
         },
     },
+    "oppty_product_relations": {
+        "description": "Product line items on opportunities and quotes, with quantity, price, and discounts.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            **_COMMON_COLUMNS,
+            "oppty_id": "Id of the opportunity this line item belongs to. Mutually exclusive with quote_id.",
+            "quote_id": "Id of the quote this line item belongs to. Mutually exclusive with oppty_id.",
+            "product_id": "Id of the product on this line item.",
+            "quantity": "Number of product units on this line item.",
+            "price": "Per-unit price of the line item.",
+            "amount": "Total amount of the line item (price times quantity, with discounts applied).",
+            "discount_value": "Absolute discount applied to this line item versus the price-list price.",
+            "discount_percentage": "Percentage discount applied to this line item versus the price-list price.",
+            "currency_exchange_rates_list_id": "Id of the exchange rate list used to convert this line item.",
+            "oppty_product_relation_type_id": "Id of the line item type.",
+            "comment": "Free-form note describing this line item.",
+            "sort_order": "Display order of the line item within its section.",
+        },
+    },
     "pipelines": {
         "description": "Sales pipelines that opportunities move through, each composed of ordered steps.",
         "docs_url": _DOCS_URL,
@@ -171,6 +218,25 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "product_category_id": "Id of the product category this product belongs to.",
             "product_type_id": "Id of the product type.",
             "unit_symbol": "Unit of measure shown next to product quantities (e.g. pcs, kg, hours).",
+        },
+    },
+    "sales_unit_client_relations": {
+        "description": "Membership of users in sales units, with each user's role in the unit.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            **_COMMON_COLUMNS,
+            "client_id": "Id of the user.",
+            "unit_id": "Id of the sales unit.",
+            "unit_role": "Role of the user in the sales unit: Member, or Manager (which also covers all subunits).",
+        },
+    },
+    "sales_units": {
+        "description": "Sales units (teams or regions) that accounts, contacts, leads, and opportunities are assigned to.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            **_COMMON_COLUMNS,
+            "name": "Name of the sales unit and its default text representation.",
+            "parent_id": "Id of the parent unit, or empty for the root unit.",
         },
     },
     "steps": {

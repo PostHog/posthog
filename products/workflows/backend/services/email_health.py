@@ -12,6 +12,7 @@ from django.utils import timezone
 import structlog
 
 from posthog.api.app_metrics2 import fetch_app_metric_totals_by_source, fetch_app_metric_totals_by_team_and_source
+from posthog.integrations import IntegrationManager
 from posthog.models.integration import Integration
 
 from products.workflows.backend.facade.contracts import (
@@ -215,9 +216,10 @@ def verified_email_domains(*, team_id: int) -> list[str]:
     return list(
         dict.fromkeys(
             domain
-            for domain in Integration.objects.filter(team_id=team_id, kind="email", config__verified=True)
-            .order_by("id")
-            .values_list("config__domain", flat=True)
+            for domain in (
+                (row.config or {}).get("domain")
+                for row in IntegrationManager.email.credentials.list(team_id, where={"verified": True})
+            )
             if domain
         )
     )

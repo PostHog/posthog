@@ -30,8 +30,10 @@ export interface ySeriesLogicValues {
     display: {
         color: string
         displayType: 'area' | 'auto' | 'bar' | 'line'
+        excludeFromTotal: boolean
         label: string
         trendLine: boolean
+        valueLabels: 'auto' | 'hide' | 'show'
         yAxisPosition: 'left' | 'right'
     }
     displayAllErrors: Record<string, any>
@@ -40,8 +42,10 @@ export interface ySeriesLogicValues {
         {
             color: string
             displayType: 'area' | 'auto' | 'bar' | 'line'
+            excludeFromTotal: boolean
             label: string
             trendLine: boolean
+            valueLabels: 'auto' | 'hide' | 'show'
             yAxisPosition: 'left' | 'right'
         },
         ValidationErrorType
@@ -54,8 +58,10 @@ export interface ySeriesLogicValues {
         {
             color: string
             displayType: 'area' | 'auto' | 'bar' | 'line'
+            excludeFromTotal: boolean
             label: string
             trendLine: boolean
+            valueLabels: 'auto' | 'hide' | 'show'
             yAxisPosition: 'left' | 'right'
         },
         ValidationErrorType
@@ -113,15 +119,19 @@ export interface ySeriesLogicActions {
     resetDisplay: (values?: {
         color: string
         displayType: 'area' | 'auto' | 'bar' | 'line'
+        excludeFromTotal: boolean
         label: string
         trendLine: boolean
+        valueLabels: 'auto' | 'hide' | 'show'
         yAxisPosition: 'left' | 'right'
     }) => {
         values?: {
             color: string
             displayType: 'area' | 'auto' | 'bar' | 'line'
+            excludeFromTotal: boolean
             label: string
             trendLine: boolean
+            valueLabels: 'auto' | 'hide' | 'show'
             yAxisPosition: 'left' | 'right'
         }
     }
@@ -152,16 +162,20 @@ export interface ySeriesLogicActions {
         values: DeepPartial<{
             color: string
             displayType: 'area' | 'auto' | 'bar' | 'line'
+            excludeFromTotal: boolean
             label: string
             trendLine: boolean
+            valueLabels: 'auto' | 'hide' | 'show'
             yAxisPosition: 'left' | 'right'
         }>
     ) => {
         values: DeepPartial<{
             color: string
             displayType: 'area' | 'auto' | 'bar' | 'line'
+            excludeFromTotal: boolean
             label: string
             trendLine: boolean
+            valueLabels: 'auto' | 'hide' | 'show'
             yAxisPosition: 'left' | 'right'
         }>
     }
@@ -209,30 +223,38 @@ export interface ySeriesLogicActions {
     submitDisplayRequest: (display: {
         color: string
         displayType: 'area' | 'auto' | 'bar' | 'line'
+        excludeFromTotal: boolean
         label: string
         trendLine: boolean
+        valueLabels: 'auto' | 'hide' | 'show'
         yAxisPosition: 'left' | 'right'
     }) => {
         display: {
             color: string
             displayType: 'area' | 'auto' | 'bar' | 'line'
+            excludeFromTotal: boolean
             label: string
             trendLine: boolean
+            valueLabels: 'auto' | 'hide' | 'show'
             yAxisPosition: 'left' | 'right'
         }
     }
     submitDisplaySuccess: (display: {
         color: string
         displayType: 'area' | 'auto' | 'bar' | 'line'
+        excludeFromTotal: boolean
         label: string
         trendLine: boolean
+        valueLabels: 'auto' | 'hide' | 'show'
         yAxisPosition: 'left' | 'right'
     }) => {
         display: {
             color: string
             displayType: 'area' | 'auto' | 'bar' | 'line'
+            excludeFromTotal: boolean
             label: string
             trendLine: boolean
+            valueLabels: 'auto' | 'hide' | 'show'
             yAxisPosition: 'left' | 'right'
         }
     }
@@ -353,15 +375,24 @@ export const ySeriesLogic = kea<ySeriesLogicType>([
                 color: props.series?.settings?.display?.color ?? getSeriesColor(props.seriesIndex),
                 label: props.series?.settings?.display?.label ?? '',
                 trendLine: props.series?.settings?.display?.trendLine ?? false,
+                excludeFromTotal: props.series?.settings?.display?.excludeFromTotal ?? false,
+                valueLabels: props.series?.settings?.display?.valueLabels ?? 'auto',
                 yAxisPosition: props.series?.settings?.display?.yAxisPosition ?? 'left',
                 displayType: props.series?.settings?.display?.displayType ?? 'auto',
             },
             submit: async (display) => {
+                const savedDisplay = props.series.settings?.display
                 actions.updateSeriesIndex(props.seriesIndex, props.series.column.name, {
                     display: {
                         color: display.color,
                         label: display.label,
                         trendLine: display.trendLine,
+                        ...(display.excludeFromTotal || savedDisplay?.excludeFromTotal !== undefined
+                            ? { excludeFromTotal: display.excludeFromTotal }
+                            : {}),
+                        ...(display.valueLabels !== 'auto' || savedDisplay?.valueLabels !== undefined
+                            ? { valueLabels: display.valueLabels }
+                            : {}),
                         yAxisPosition: display.yAxisPosition,
                         displayType: display.displayType,
                     },

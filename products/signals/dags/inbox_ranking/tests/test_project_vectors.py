@@ -20,23 +20,30 @@ from products.signals.backend.ranking.serving_manifest import (
     ServingManifestEntry,
     serving_engagement_key,
     serving_project_vectors_key,
+    serving_user_vectors_key,
 )
 from products.signals.dags.inbox_ranking import common
 from products.signals.dags.inbox_ranking.dataset import dag
 from products.signals.dags.inbox_ranking.dataset.dag import EMBEDDINGS_SCHEMA, LABELS_SCHEMA, USER_INTERACTIONS_SCHEMA
 from products.signals.dags.inbox_ranking.dataset.project_vectors import (
+    CONTEXT_KINDS,
     HISTORY_LIMIT,
     LABEL_COLUMNS,
     MIN_HISTORY_REPORTS,
     PROJECT_VECTORS_SCHEMA,
     PROJECT_VECTORS_SCHEMA_VERSION,
     USER_HISTORY_LIMIT,
+    USER_VECTOR_KINDS,
+    USER_VECTORS_DAY_SCHEMA,
     USER_VECTORS_SCHEMA,
+    USER_VECTORS_SCHEMA_VERSION,
     project_vectors,
     user_vectors,
+    with_user_hashes,
 )
 from products.signals.dags.inbox_ranking.mirror import dag as mirror_dag
 from products.signals.dags.inbox_ranking.multihead.prototype import project_context
+from products.signals.dags.inbox_ranking.nn.pairs import pair_user_vectors
 from products.signals.dags.inbox_ranking.training import (
     dag as training_dag,
     telemetry,
@@ -89,6 +96,7 @@ def _rows_by_key(table: pa.Table) -> dict[tuple[int, str], dict[str, Any]]:
         ("action", "first_implement_clicked_at"),
         ("action", "first_reviewer_removed_at"),
         ("dismiss", "first_ui_dismissed_at"),
+        ("fixed", "first_fixed_at"),
     ]
 )
 def test_only_engagement_and_vectors_before_as_of_enter_a_vector(kind: str, column: str) -> None:
@@ -98,7 +106,7 @@ def test_only_engagement_and_vectors_before_as_of_enter_a_vector(kind: str, colu
     # Engaged after as_of, and engaged in time with a vector re-embedded after as_of.
     engagements += [(2, 100, column, AFTER), (2, 101, column, BEFORE)]
 
-    rows = _rows_by_key(project_vectors(_labels(engagements), _embeddings(reports), AS_OF))
+    rows = _rows_by_key(project_vectors(_labels(engagements), _embeddings(reports), AS_OF, CONTEXT_KINDS))
 
     assert rows[(2, kind)]["n_reports"] == MIN_HISTORY_REPORTS
     assert rows[(2, kind)]["vector"] == pytest.approx([1.0] * EMBEDDING_DIMENSIONS)
@@ -130,6 +138,7 @@ def test_a_team_below_the_history_threshold_keeps_a_zero_vector_row() -> None:
     thin = MIN_HISTORY_REPORTS - 1
     reports = [(2, index, 1.0, BEFORE) for index in range(thin)]
     engagements = [(2, index, "first_create_pr_clicked_at", BEFORE) for index in range(thin)]
+    engagements += [(2, index, "first_fixed_at", BEFORE) for index in range(thin)]
 
     rows = _rows_by_key(project_vectors(_labels(engagements), _embeddings(reports), AS_OF))
 
@@ -233,6 +242,148 @@ def test_the_asset_writes_only_teams_opted_in_to_ai_training(monkeypatch) -> Non
     assert captured["schema_version"] == PROJECT_VECTORS_SCHEMA_VERSION
     assert set(captured["table"].column("team_id").to_pylist()) == {7}
     assert set(captured["table"].column("as_of").to_pylist()) == {AS_OF}
+
+
+def _run_user_vectors_asset(monkeypatch, interactions: pa.Table, embeddings: pa.Table, consent: frozenset[int]):
+    partition_key = (AS_OF.date() - datetime.timedelta(days=1)).isoformat()
+    snapshots = {
+        common.partition_object_key("inbox_ranking", dag.EMBEDDINGS_TABLE, partition_key): embeddings,
+        common.partition_object_key("inbox_ranking", dag.USER_INTERACTIONS_TABLE, partition_key): interactions,
+    }
+    captured: dict[str, Any] = {}
+
+    def fake_write_parquet(client, bucket, key, table, snapshot_date=None, schema_version=None):
+        captured.update(key=key, table=table, schema_version=schema_version)
+
+    monkeypatch.setattr(dag, "skip_unconfigured", lambda context: False)
+    monkeypatch.setattr(dag, "dataset_bucket", lambda: "test-bucket")
+    monkeypatch.setattr(dag, "s3_client", lambda: None)
+    monkeypatch.setattr(dag, "read_parquet", lambda client, bucket, key, columns=None: snapshots[key].select(columns))
+    monkeypatch.setattr(dag, "write_parquet", fake_write_parquet)
+    monkeypatch.setattr(dag, "training_consent_team_ids", lambda: consent)
+    monkeypatch.setattr(
+        dag, "team_organizations", lambda team_ids: {t: o for t, o in ORGANIZATIONS.items() if t in team_ids}
+    )
+    monkeypatch.setattr(dag.settings, "INBOX_RANKING_DATASET_S3_PREFIX", "inbox_ranking")
+    dag.inbox_user_vectors(dagster.build_asset_context(partition_key=partition_key))
+    assert captured["key"] == common.partition_object_key("inbox_ranking", dag.USER_VECTORS_TABLE, partition_key)
+    assert captured["schema_version"] == USER_VECTORS_SCHEMA_VERSION
+    return captured["table"]
+
+
+def test_the_user_vectors_asset_matches_the_pair_lane_for_a_report_born_the_next_day(monkeypatch) -> None:
+    reports = [(team_id, index, float(team_id + index), BEFORE) for team_id in (2, 3, 7) for index in range(3)]
+    reports.append((2, 9, 50.0, AFTER))
+    views = [
+        (2, 0, "u1", "first_viewed_at", BEFORE),
+        (3, 1, "u1", "first_viewed_at", BEFORE + datetime.timedelta(hours=1)),
+        (2, 2, "u1", "first_ui_dismissed_at", BEFORE),
+        (2, 1, "u1", "first_viewed_at", AFTER),
+        (2, 9, "u1", "first_viewed_at", BEFORE),
+        (3, 2, "u2", "first_viewed_at", BEFORE),
+        (7, 0, "u1", "first_viewed_at", BEFORE),
+        (7, 1, "u3", "first_viewed_at", BEFORE),
+    ]
+    interactions, embeddings = _interactions(views), _embeddings(reports)
+
+    table = _run_user_vectors_asset(monkeypatch, interactions, embeddings, consent=frozenset({2, 3}))
+
+    assert table.schema == USER_VECTORS_DAY_SCHEMA
+    rows = _user_rows(table)
+    # Team 7 has no training consent, so neither its user nor its organization gets a row.
+    assert set(rows) == {("org-a", "u1", "open"), ("org-a", "u1", "dismiss"), ("org-a", "u2", "open")}
+    assert rows[("org-a", "u1", "open")]["n_reports"] == 2
+    pairs = pd.DataFrame(
+        {
+            "snapshot_date": [AS_OF.date()] * 3,
+            "report_team_id": [2, 3, 2],
+            "user_distinct_id": ["u1", "u1", "u2"],
+        }
+    )
+    consented = {t: o for t, o in ORGANIZATIONS.items() if t in (2, 3)}
+    rebuilt = pair_user_vectors(pairs, interactions, embeddings, organizations=consented)
+    for position, user in enumerate(pairs["user_distinct_id"]):
+        for kind_index, kind in enumerate(USER_VECTOR_KINDS):
+            row = rows.get(("org-a", user, kind))
+            expected = np.zeros(EMBEDDING_DIMENSIONS, dtype=np.float32) if row is None else row["vector"]
+            np.testing.assert_array_equal(rebuilt[position, kind_index], expected)
+
+
+def _hashes(table: pa.Table) -> dict[tuple[str, str], str]:
+    return {
+        (row["organization_id"], row["user_distinct_id"]): row["user_hash"]
+        for row in with_user_hashes(table).to_pylist()
+    }
+
+
+@parameterized.expand(
+    [
+        ("rows_reordered", lambda rows: list(reversed(rows)), False),
+        ("last_at_moved", lambda rows: [{**rows[0], "last_at": AFTER}, *rows[1:]], False),
+        ("count_changed", lambda rows: [{**rows[0], "n_reports": rows[0]["n_reports"] + 1}, *rows[1:]], True),
+        (
+            "vector_changed",
+            lambda rows: [{**rows[0], "vector": [0.5] * EMBEDDING_DIMENSIONS}, *rows[1:]],
+            True,
+        ),
+        ("kind_dropped", lambda rows: rows[1:], True),
+    ]
+)
+def test_the_user_hash_changes_only_when_a_kind_count_or_vector_changes(_name: str, edit, changes: bool) -> None:
+    reports = [(2, index, float(index), BEFORE) for index in range(3)]
+    views = [
+        (2, 0, "u1", "first_viewed_at", BEFORE),
+        (2, 1, "u1", "first_ui_dismissed_at", BEFORE),
+        (2, 2, "u2", "first_viewed_at", BEFORE),
+    ]
+    table = user_vectors(_interactions(views), _embeddings(reports), AS_OF, organizations=ORGANIZATIONS)
+    rows = table.to_pylist()
+    assert [(row["user_distinct_id"], row["kind"]) for row in rows[:2]] == [("u1", "dismiss"), ("u1", "open")]
+
+    before = _hashes(table)
+    after = _hashes(pa.Table.from_pylist(edit(rows), schema=USER_VECTORS_SCHEMA))
+
+    assert len(set(before.values())) == 2
+    assert (after[("org-a", "u1")] != before[("org-a", "u1")]) is changes
+    assert after[("org-a", "u2")] == before[("org-a", "u2")]
+
+
+def test_serving_reads_the_published_user_vectors_of_the_users_it_asks_for(monkeypatch: pytest.MonkeyPatch) -> None:
+    reports = [(2, 0, 1.0, BEFORE), (7, 0, 2.0, BEFORE)]
+    views = [(2, 0, "u1", "first_viewed_at", BEFORE), (7, 0, "u1", "first_viewed_at", BEFORE)]
+    table = with_user_hashes(
+        user_vectors(_interactions(views), _embeddings(reports), AS_OF, organizations=ORGANIZATIONS)
+    )
+    key = serving_user_vectors_key("inbox_ranking", (AS_OF.date() - datetime.timedelta(days=1)).isoformat())
+    buffer = io.BytesIO()
+    pq.write_table(table, buffer)
+    monkeypatch.setattr(
+        model_store.object_storage,
+        "read_bytes",
+        lambda name, bucket=None, *, missing_ok=False: buffer.getvalue() if name == key else None,
+    )
+    entry = ServingManifestEntry(
+        key="nn@2026-07-29",
+        model_name="nn",
+        model_version="2026-07-29",
+        model_kind="onnx",
+        roles=[SERVED_ROLE],
+        prefix="inbox_ranking/serving/models/nn@2026-07-29",
+        heads=["open"],
+        model_file="model.onnx",
+    )
+    manifest = ServingManifest(manifest_version=AS_OF.isoformat(), models=[entry], user_vectors=key)
+
+    served = model_store.load_user_vectors(manifest, [("org-a", "u1"), ("org-a", "u9")])
+    missing = model_store.load_user_vectors(manifest.model_copy(update={"user_vectors": None}), [("org-a", "u1")])
+
+    assert served.available and not missing.available
+    assert set(served.by_user) == {("org-a", "u1")}
+    open_vector = served.by_user[("org-a", "u1")]["open"]
+    assert open_vector.n_reports == 1
+    assert open_vector.last_at == BEFORE
+    np.testing.assert_array_equal(open_vector.vector, np.ones(EMBEDDING_DIMENSIONS, dtype=np.float32))
+    assert served.hashes[("org-a", "u1")] == _hashes(table.drop_columns(["user_hash"]))[("org-a", "u1")]
 
 
 def test_serving_reads_the_published_day_as_training_builds_it(monkeypatch: pytest.MonkeyPatch) -> None:

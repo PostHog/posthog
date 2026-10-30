@@ -1557,7 +1557,7 @@ export interface ReviewUserSettingsApi {
      * * `flash` - On everywhere
      * * `off` - Off everywhere */
     default_review_mode?: DefaultReviewModeEnumApi
-    /** Give the user's draft pull requests automatic reviews. On by default. When off, a draft gets its first automatic review when it is marked ready for review. Applies to automatic reviews only: the posthog-review label, an @posthog review comment, and the Review button still review drafts. */
+    /** Give the user's draft pull requests automatic reviews. On by default. When off, a draft gets its first automatic review when it is marked ready for review. Applies to automatic reviews only: an @posthog review comment and the Review button still review drafts. */
     review_drafts?: boolean
     /** After a Deep review of the user's pull requests is published, run the resolution stage: triage the unresolved review threads, implement the worth-and-safe fixes on the PR branch, and reply on every thread. Off by default. Personal only: no project default applies. */
     resolve_comments?: boolean
@@ -1588,7 +1588,7 @@ export interface PatchedReviewUserSettingsApi {
      * * `flash` - On everywhere
      * * `off` - Off everywhere */
     default_review_mode?: DefaultReviewModeEnumApi
-    /** Give the user's draft pull requests automatic reviews. On by default. When off, a draft gets its first automatic review when it is marked ready for review. Applies to automatic reviews only: the posthog-review label, an @posthog review comment, and the Review button still review drafts. */
+    /** Give the user's draft pull requests automatic reviews. On by default. When off, a draft gets its first automatic review when it is marked ready for review. Applies to automatic reviews only: an @posthog review comment and the Review button still review drafts. */
     review_drafts?: boolean
     /** After a Deep review of the user's pull requests is published, run the resolution stage: triage the unresolved review threads, implement the worth-and-safe fixes on the PR branch, and reply on every thread. Off by default. Personal only: no project default applies. */
     resolve_comments?: boolean

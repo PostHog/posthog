@@ -39,7 +39,7 @@ from products.experiments.backend.health.skips import CheckOutcome, CheckSkip, f
 from products.experiments.backend.health.split_changes import format_change_time
 from products.feature_flags.backend.facade.edits import ConditionsChange
 
-# pinned: the subcodes are sent as `finding_variant` on the health finding events, so insights group on them.
+# pinned: the subcodes are sent as `finding_subcode` on the health finding events, so insights group on them.
 # Every condition that includes users pins a variant, so no user is randomly assigned. One variant gets
 # everyone, or each variant gets a different group of users, so the results compare nothing valid.
 ALL_CONDITIONS_PINNED = "all_conditions_pinned"
@@ -152,6 +152,7 @@ def _some_conditions_pinned(pins: _Pins, ctx: HealthContext, is_draft: bool) -> 
         pinned_keys=pinned_keys,
         diagnostic_ref="A7",
         grade_evidence={**(grade.evidence() if grade is not None else {}), **set_after_launch.evidence},
+        reason=grade.finding_reason if grade is not None else None,
     )
 
 
@@ -321,10 +322,12 @@ def _finding(
     pinned_keys: Sequence[str],
     diagnostic_ref: str,
     grade_evidence: Mapping[str, str | int | float | None] | None = None,
+    reason: str | None = None,
 ) -> ExperimentHealthFinding:
     return ExperimentHealthFinding(
         code=ExperimentHealthFindingCode.FORCED_VARIANT_RELEASE_CONDITION,
         subcode=subcode,
+        reason=reason,
         severity=severity,
         title=title,
         detail=detail,

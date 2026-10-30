@@ -255,3 +255,24 @@ class TestVitallySourceGetSchemas:
         assert not any(s.name.startswith(CUSTOM_OBJECT_SCHEMA_PREFIX) for s in schemas)
         # Unexpected discovery failures are still captured for triage.
         mock_capture.assert_called_once()
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.vitally.source.capture_exception")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.vitally.source.list_custom_object_definitions"
+    )
+    def test_transient_egress_proxy_failure_is_not_captured(self, mock_list, mock_capture):
+        # Regression: PostHog's own egress proxy briefly 502ing on the tunnel used to reach
+        # Vitally was reported as an exception on every discovery run, even though it's not a
+        # bug and the next attempt recovers on its own.
+        mock_list.side_effect = ConnectionError(
+            "HTTPSConnectionPool(host='example.rest.vitally.io', port=443): Max retries exceeded "
+            "with url: /resources/customObjects?limit=100 (Caused by ProxyError('Cannot connect "
+            "to proxy.', OSError('Tunnel connection failed: 502 Bad gateway')))"
+        )
+
+        schemas = VitallySource().get_schemas(self._make_config(), team_id=1)
+
+        names = {s.name for s in schemas}
+        assert {"Accounts", "Conversations", "Custom_Objects", "Messages"} <= names
+        assert not any(s.name.startswith(CUSTOM_OBJECT_SCHEMA_PREFIX) for s in schemas)
+        mock_capture.assert_not_called()
