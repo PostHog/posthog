@@ -150,8 +150,6 @@ def resolve_sandbox_ai_product(
         stage = "scout" if ai_stage.startswith(_SCOUT_STAGE_PREFIX) else ai_stage
         if stage in _SIGNALS_STAGE_PRODUCTS:
             return f"signals_{stage}"
-    if gateway_product == "signals":
-        return "posthog_ai"
     return gateway_product
 
 

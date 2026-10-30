@@ -162,14 +162,13 @@ export function resolveAiProduct({
   product: GatewayProduct;
   aiStage?: string | null;
 }): string {
-  if (product !== "signals") {
-    return product;
+  if (product === "signals" && aiStage) {
+    const stage = signalsStage(aiStage);
+    if (SIGNALS_STAGE_PRODUCTS.has(stage)) {
+      return `signals_${stage}`;
+    }
   }
-  const stage = aiStage ? signalsStage(aiStage) : null;
-  if (stage && SIGNALS_STAGE_PRODUCTS.has(stage)) {
-    return `signals_${stage}`;
-  }
-  return "posthog_ai";
+  return product;
 }
 
 export function getGatewayUsageUrl(

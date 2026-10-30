@@ -29,7 +29,7 @@
       "origin_product": "signals_chat",
       "ai_stage": null,
       "internal": false,
-      "expected": "posthog_ai"
+      "expected": "signals"
     },
     {
       "origin_product": "signals_scout",
@@ -71,13 +71,13 @@
       "origin_product": "signal_report",
       "ai_stage": null,
       "internal": true,
-      "expected": "posthog_ai"
+      "expected": "signals"
     },
     {
       "origin_product": "signal_report",
       "ai_stage": "match",
       "internal": false,
-      "expected": "posthog_ai"
+      "expected": "signals"
     },
     {
       "origin_product": "loop",
@@ -227,7 +227,7 @@
       "origin_product": "signal_report",
       "ai_stage": null,
       "internal": true,
-      "allowlist": "posthog_ai",
+      "allowlist": "signals",
       "expected": true
     },
     {

@@ -79,14 +79,13 @@ class TestResolveSandboxAiProduct:
             ("scout_suggestions", "scout_suggestions", "signals_scout_suggestions"),
             ("signal_report", "inbox", "signals_inbox"),
             ("signals_chat", "chat", "signals_chat"),
-            ("signals_chat", None, "posthog_ai"),
-            ("scout_suggestions", None, "posthog_ai"),
+            ("signals_chat", None, "signals"),
             ("signal_report", "research", "signals_research"),
             ("signal_report", "implementation", "signals_implementation"),
             ("signal_report", "repo_selection", "signals_repo_selection"),
             ("signal_report", "custom_agent", "signals_custom_agent"),
-            ("signal_report", None, "posthog_ai"),
-            ("signal_report", "match", "posthog_ai"),
+            ("signal_report", None, "signals"),
+            ("signal_report", "match", "signals"),
             ("loop", None, "posthog_code"),
             ("slack", None, "slack_app"),
             ("workflow", None, "workflows"),
@@ -587,19 +586,19 @@ class TestMintableGate:
             ai_gateway_env_vars(team_id=2, origin_product="review_hog", ai_stage="validation-c1", internal=False)
         mint.assert_not_called()
 
-    @pytest.mark.parametrize("origin_product", ["signal_report", "signals_chat", "scout_suggestions", "signals_scout"])
-    def test_stageless_signals_run_mints_posthog_ai_not_bare_signals(self, mint_settings, origin_product):
-        mint_settings.SANDBOX_AI_GATEWAY_PRODUCTS = "signals,posthog_ai"
-        with (
-            patch(_CREDIT_LOOKUP, return_value=None),
-            patch(
-                "products.tasks.backend.temporal.process_task.utils.mint_scoped_token",
-                return_value="phe_abc",
-            ) as mint,
-        ):
-            env = ai_gateway_env_vars(team_id=123, origin_product=origin_product, ai_stage=None)
-        assert env["AI_GATEWAY_PRODUCT"] == "posthog_ai"
-        mint.assert_called_once_with(ai_product="posthog_ai", team_id=123, user=None)
+    def test_stageless_signal_report_cannot_mint_for_bare_signals(self, mint_settings):
+        mint_settings.SANDBOX_AI_GATEWAY_PRODUCTS = "signals"
+        with patch("products.tasks.backend.temporal.process_task.utils.mint_scoped_token") as mint:
+            env = ai_gateway_env_vars(team_id=123, origin_product="signal_report", ai_stage=None)
+        assert "AI_GATEWAY_TOKEN" not in env
+        mint.assert_not_called()
+
+    def test_stageless_chat_cannot_mint_for_bare_signals(self, mint_settings):
+        mint_settings.SANDBOX_AI_GATEWAY_PRODUCTS = "signals,signals_chat"
+        with patch("products.tasks.backend.temporal.process_task.utils.mint_scoped_token") as mint:
+            env = ai_gateway_env_vars(team_id=123, origin_product="signals_chat", ai_stage=None)
+        assert "AI_GATEWAY_TOKEN" not in env
+        mint.assert_not_called()
 
     @pytest.mark.parametrize("origin_product,ai_stage", sorted(INTERACTIVE_SIGNALS_AI_STAGE_BY_ORIGIN.items()))
     # Reads the stage from the map create_run stamps, so a rename fails here instead of
