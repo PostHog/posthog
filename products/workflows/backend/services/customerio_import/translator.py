@@ -7,6 +7,7 @@ the team can review the draft before enabling it. Nothing about people is read.
 
 import re
 import json
+import secrets
 from collections import deque
 from collections.abc import Iterator
 from email.utils import parseaddr
@@ -1026,17 +1027,25 @@ def _json_with_liquid(text: str) -> Any:
     Quotes inside a tag make the raw text invalid JSON, so each tag is swapped for a placeholder while parsing.
     Liquid outside a string still fails to parse.
     """
-    tags: list[str] = []
+    try:
+        return json.loads(text)
+    except ValueError:
+        pass
+    # A random marker, so text in the body itself can never read as a placeholder.
+    marker = f"liquid-{secrets.token_hex(8)}-"
+    tags: dict[str, str] = {}
 
     def hold(match: re.Match[str]) -> str:
-        tags.append(match.group(0))
-        return f"\ue000{len(tags) - 1}\ue001"
+        key = f"{marker}{len(tags)}"
+        tags[key] = match.group(0)
+        return key
 
     parsed = json.loads(_LIQUID_TAG.sub(hold, text))
+    placeholder = re.compile(re.escape(marker) + r"\d+")
 
     def restore(value: Any) -> Any:
         if isinstance(value, str):
-            return re.sub("\ue000(\\d+)\ue001", lambda match: tags[int(match.group(1))], value)
+            return placeholder.sub(lambda match: tags.get(match.group(0), match.group(0)), value)
         if isinstance(value, list):
             return [restore(item) for item in value]
         if isinstance(value, dict):

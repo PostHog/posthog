@@ -38,7 +38,7 @@ from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.presentation.views.data_suggestion_drafts import validated_draft
 from products.workflows.backend.services.customerio_import import conditions, liquid
 from products.workflows.backend.services.customerio_import.images import _file_name
-from products.workflows.backend.services.customerio_import.translator import translate_campaign
+from products.workflows.backend.services.customerio_import.translator import _json_with_liquid, translate_campaign
 
 
 def _encode(condition: list[dict[str, Any]]) -> str:
@@ -445,6 +445,20 @@ class TestCustomerioConditions(SimpleTestCase):
 
 
 class TestCustomerioLiquid(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("quotes_inside_liquid", '{"a": "{{ x | default: "" }}"}', {"a": '{{ x | default: "" }}'}),
+            ("escaped_quotes_in_valid_json", '{"a": "{{ x | default: \\"\\" }}"}', {"a": '{{ x | default: "" }}'}),
+            (
+                "text_like_a_placeholder",
+                '{"a": "liquid-0 \\ue0000\\ue001", "b": "{{ y | default: "" }}"}',
+                {"a": "liquid-0 \ue0000\ue001", "b": '{{ y | default: "" }}'},
+            ),
+        ]
+    )
+    def test_webhook_body_keeps_its_liquid(self, _name: str, body: str, expected: dict[str, str]) -> None:
+        assert _json_with_liquid(body) == expected
+
     @parameterized.expand(
         [
             ("customer attribute", "{{ customer.first_name }}", "{{ person.properties.first_name }}"),
