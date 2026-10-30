@@ -69,8 +69,12 @@ def test_stable_queryset_ordering_adds_a_primary_key_tiebreaker() -> None:
 
     assert expression_queryset.query.order_by[-1] == "pk"
 
+    annotated_queryset = stable_queryset_ordering(Annotation.objects.annotate(count=Count("id")).order_by("content"))
 
-def test_stable_queryset_ordering_leaves_sliced_and_grouped_querysets_unchanged() -> None:
+    assert annotated_queryset.query.order_by == ("content", "pk")
+
+
+def test_stable_queryset_ordering_leaves_sliced_and_values_grouped_querysets_unchanged() -> None:
     sliced_queryset = Annotation.objects.order_by("date_marker")[:1]
 
     assert stable_queryset_ordering(sliced_queryset) is sliced_queryset

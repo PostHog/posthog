@@ -9,9 +9,11 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
+from posthog.api.pagination import FacadeLimitOffsetPagination
 from posthog.api.utils import action
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.query_tagging import Feature, tag_queries
+from posthog.paging import Page, PageRequest
 from posthog.schema_enums import ProductKey
 
 # Default lookback window applied when the caller does not pass `after`. Bounding the
@@ -74,18 +76,23 @@ class LogEntryRequestSerializer(serializers.Serializer):
     )
 
 
-def fetch_log_entries(
+class LogEntryPagination(FacadeLimitOffsetPagination):
+    # Matches `LogEntryRequestSerializer.limit`, which rejects a limit out of range before the paginator reads it.
+    default_limit = 50
+    max_limit = 500
+
+
+def _log_entries_conditions(
+    *,
     team_id: int,
     log_source: str,
     log_source_id: str,
-    limit: int,
-    instance_id: Optional[str] = None,
-    after: Optional[datetime] = None,
-    before: Optional[datetime] = None,
-    search: Optional[str] = None,
-    level: Optional[list[str]] = None,
-) -> list[Any]:
-    """Fetch a list of batch export log entries from ClickHouse."""
+    instance_id: Optional[str],
+    after: Optional[datetime],
+    before: Optional[datetime],
+    search: Optional[str],
+    level: Optional[list[str]],
+) -> tuple[str, dict[str, Any]]:
     if level is None:
         level = []
     clickhouse_where_parts: list[str] = []
@@ -121,12 +128,100 @@ def fetch_log_entries(
         clickhouse_where_parts.append("upper(level) in %(levels)s")
         clickhouse_kwargs["levels"] = [lev.upper() for lev in level]
 
+    return " AND ".join(clickhouse_where_parts), clickhouse_kwargs
+
+
+def fetch_log_entries(
+    team_id: int,
+    log_source: str,
+    log_source_id: str,
+    limit: int,
+    offset: int = 0,
+    instance_id: Optional[str] = None,
+    after: Optional[datetime] = None,
+    before: Optional[datetime] = None,
+    search: Optional[str] = None,
+    level: Optional[list[str]] = None,
+) -> list[Any]:
+    """Fetch a list of batch export log entries from ClickHouse."""
+    where, clickhouse_kwargs = _log_entries_conditions(
+        team_id=team_id,
+        log_source=log_source,
+        log_source_id=log_source_id,
+        instance_id=instance_id,
+        after=after,
+        before=before,
+        search=search,
+        level=level,
+    )
+    clickhouse_kwargs = {**clickhouse_kwargs, "limit": limit, "offset": offset}
+    # Entries can share a timestamp. The extra sort terms give them the same order in every query,
+    # so a page boundary between them cannot skip or repeat an entry.
     clickhouse_query = f"""
         SELECT log_source_id, instance_id, timestamp, upper(level) as level, message FROM log_entries
-        WHERE {" AND ".join(clickhouse_where_parts)} ORDER BY timestamp DESC {f"LIMIT {limit}"}
+        WHERE {where} ORDER BY timestamp DESC, instance_id, message LIMIT %(limit)s OFFSET %(offset)s
     """
 
     return [LogEntry(*result) for result in cast(list, sync_execute(clickhouse_query, clickhouse_kwargs))]
+
+
+def count_log_entries(
+    team_id: int,
+    log_source: str,
+    log_source_id: str,
+    instance_id: Optional[str] = None,
+    after: Optional[datetime] = None,
+    before: Optional[datetime] = None,
+    search: Optional[str] = None,
+    level: Optional[list[str]] = None,
+) -> int:
+    where, clickhouse_kwargs = _log_entries_conditions(
+        team_id=team_id,
+        log_source=log_source,
+        log_source_id=log_source_id,
+        instance_id=instance_id,
+        after=after,
+        before=before,
+        search=search,
+        level=level,
+    )
+    rows = cast(list, sync_execute(f"SELECT count() FROM log_entries WHERE {where}", clickhouse_kwargs))
+    return int(rows[0][0])
+
+
+def log_entries_response(
+    view: viewsets.GenericViewSet,
+    request: Request,
+    *,
+    log_source: str,
+    log_source_id: str,
+    instance_id: Optional[str] = None,
+) -> Response:
+    """Return one limit/offset page of an object's log entries. The view must page with `LogEntryPagination`."""
+    param_serializer = LogEntryRequestSerializer(data=request.query_params)
+    if not param_serializer.is_valid():
+        raise ValidationError(param_serializer.errors)
+    params = param_serializer.validated_data
+
+    filters: dict[str, Any] = {
+        "team_id": view.team_id,  # type: ignore[attr-defined]
+        "log_source": log_source,
+        "log_source_id": log_source_id,
+        "instance_id": instance_id or params.get("instance_id"),
+        "after": params.get("after"),
+        "before": params.get("before"),
+        "search": params.get("search"),
+        "level": params["level"].split(",") if params.get("level") else None,
+    }
+
+    def fetch(page: PageRequest) -> Page[LogEntry]:
+        return Page(
+            results=fetch_log_entries(**filters, limit=page.limit, offset=page.offset),
+            count=count_log_entries(**filters),
+        )
+
+    paginator = cast(LogEntryPagination, view.paginator)
+    return paginator.get_paginated_facade_response(request, view, fetch, serializer_class=LogEntrySerializer)
 
 
 class LogEntryMixin(viewsets.GenericViewSet):
@@ -140,11 +235,9 @@ class LogEntryMixin(viewsets.GenericViewSet):
         raise NotImplementedError()
 
     @extend_schema(parameters=[LogEntryRequestSerializer])
-    @action(detail=True, methods=["GET"], filter_backends=[])
+    @action(detail=True, methods=["GET"], filter_backends=[], pagination_class=LogEntryPagination)
     def logs(self, request: Request, *args, **kwargs):
         obj = self.get_object()
-
-        param_serializer = LogEntryRequestSerializer(data=request.query_params)
 
         if not self.log_source:
             raise ValidationError("log_source not set on the viewset")
@@ -152,33 +245,11 @@ class LogEntryMixin(viewsets.GenericViewSet):
         product_key = LOG_SOURCE_TO_PRODUCT_KEY.get(self.log_source, ProductKey.PIPELINE_DESTINATIONS)
         tag_queries(product=product_key, feature=Feature.QUERY)
 
-        if not param_serializer.is_valid():
-            raise ValidationError(param_serializer.errors)
-
-        params = param_serializer.validated_data
-
         try:
             instance_id = self.get_log_entry_instance_id()
         except NotImplementedError:
-            instance_id = params.get("instance_id")
+            instance_id = None
 
-        data = fetch_log_entries(
-            team_id=self.team_id,  # type: ignore
-            log_source=self.log_source,
-            log_source_id=str(obj.id),
-            limit=params["limit"],
-            # From request params
-            instance_id=instance_id,
-            after=params.get("after"),
-            before=params.get("before"),
-            search=params.get("search"),
-            level=params["level"].split(",") if params.get("level") else None,
+        return log_entries_response(
+            self, request, log_source=self.log_source, log_source_id=str(obj.id), instance_id=instance_id
         )
-
-        page = self.paginate_queryset(data)
-        if page is not None:
-            serializer = LogEntrySerializer(page, many=True)
-            return self.get_paginated_response(serializer.data)
-
-        serializer = LogEntrySerializer(data, many=True)
-        return Response({"status": "not implemented"})

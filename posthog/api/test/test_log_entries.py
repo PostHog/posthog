@@ -89,6 +89,21 @@ class TestLogEntries(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             }
         ]
 
+    @time_machine.travel("2023-09-23 12:00:00", tick=False)
+    def test_pages_log_entries_by_offset(self):
+        for hour in range(1, 4):
+            self.create_log_for_function(level="info", message=f"entry {hour}", timestamp=f"2023-09-22 0{hour}:00:00")
+
+        first_page = self.get_log_entries({"limit": 2}).json()
+        second_page = self.get_log_entries({"limit": 2, "offset": 2}).json()
+
+        assert first_page["count"] == 3
+        assert [entry["message"] for entry in first_page["results"]] == ["entry 3", "entry 2"]
+        assert first_page["next"] is not None
+        assert second_page["count"] == 3
+        assert [entry["message"] for entry in second_page["results"]] == ["entry 1"]
+        assert second_page["next"] is None
+
     def test_default_lookback_excludes_old_entries(self):
         """Without an explicit `after`, only entries within the default lookback window are returned."""
         old_timestamp = (datetime.now(UTC) - timedelta(days=30)).strftime("%Y-%m-%d %H:%M:%S.%f")
