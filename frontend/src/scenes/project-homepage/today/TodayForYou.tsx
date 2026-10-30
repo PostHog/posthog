@@ -14,7 +14,6 @@ import { TodayHomeHeading } from './TodayHomeHeading'
 import { type TodayForYouView, todayLogic } from './todayLogic'
 import { TodayReportRow } from './TodayReportRow'
 
-// Only people who use the feed view download it.
 const TodayFeed = lazy(() => retryImport(() => import('./TodayFeed').then((m) => ({ default: m.TodayFeed }))))
 
 function TodayRowsSkeleton(): JSX.Element {

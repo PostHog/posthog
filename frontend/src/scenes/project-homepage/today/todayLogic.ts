@@ -88,7 +88,6 @@ export type TodayList = 'for_you' | 'recents'
 
 export type TodayForYouView = 'list' | 'feed'
 
-/** One feed card, as the hover and click events describe it. */
 export interface TodayFeedCardEvent {
     kind: TodayForYouRow['kind']
     key: string
@@ -100,7 +99,6 @@ export interface TodayFeedCardEvent {
 export interface TodayFeedSource {
     label: string
     count: number
-    /** The first row from this source, which supplies the source's icon. */
     row: TodayForYouRow
 }
 
@@ -193,6 +191,7 @@ export interface todayLogicValues {
     highlightsWaitOver: boolean // todayHighlightsLogic
     reportStateOverrides: Record<string, TodayReportState> // todayVerdictLogic
     user: UserType | null // userLogic
+    activeFeedSource: string | null
     askingAi: boolean
     canLoadMoreReports: boolean
     currentMoreReports: TodayMoreReports | null
@@ -448,7 +447,8 @@ export interface todayLogicMeta {
         forYouOpenCount: (forYouRows: TodayForYouRows) => number
         forYouView: (forYouViewChoice: TodayForYouView | null, featureFlags: FeatureFlagsSet) => TodayForYouView
         feedSources: (forYouRows: TodayForYouRows) => TodayFeedSource[]
-        feedRows: (forYouRows: TodayForYouRows, feedSource: string | null) => TodayForYouRow[]
+        activeFeedSource: (feedSource: string | null, feedSources: TodayFeedSource[]) => string | null
+        feedRows: (forYouRows: TodayForYouRows, activeFeedSource: any) => TodayForYouRow[]
         forYouVisibleRows: (forYouRows: TodayForYouRows, listExpanded: Record<TodayList, boolean>) => TodayForYouRow[]
         forYouCanShowMore: (
             forYouRows: TodayForYouRows,
@@ -797,11 +797,12 @@ export const todayLogic = kea<todayLogicType>([
             (s) => [s.forYouRows],
             ({ rows }: TodayForYouRows): number => rows.filter((row) => !row.done).length,
         ],
-        // The experiment only sets the starting view. A view the person picks wins from then on.
         forYouView: [
             (s) => [s.forYouViewChoice, s.featureFlags],
-            (choice: TodayForYouView | null, featureFlags: FeatureFlagsSet): TodayForYouView =>
-                choice ?? (featureFlags[FEATURE_FLAGS.TODAY_FOR_YOU_DEFAULT_VIEW] === 'test' ? 'feed' : 'list'),
+            (choice: TodayForYouView | null, featureFlags: FeatureFlagsSet): TodayForYouView => {
+                const variantView = featureFlags[FEATURE_FLAGS.TODAY_FOR_YOU_DEFAULT_VIEW] === 'test' ? 'feed' : 'list'
+                return choice ?? variantView
+            },
         ],
         feedSources: [
             (s) => [s.forYouRows],
@@ -815,17 +816,21 @@ export const todayLogic = kea<todayLogicType>([
                 return [...sources.values()]
             },
         ],
+        activeFeedSource: [
+            (s) => [s.feedSource, s.feedSources],
+            (feedSource: string | null, feedSources: TodayFeedSource[]): string | null =>
+                feedSources.some(({ label }) => label === feedSource) ? feedSource : null,
+        ],
         feedRows: [
-            (s) => [s.forYouRows, s.feedSource],
-            ({ rows }: TodayForYouRows, feedSource: string | null): TodayForYouRow[] =>
-                feedSource ? rows.filter((row) => feedRowSource(row) === feedSource) : rows,
+            (s) => [s.forYouRows, s.activeFeedSource],
+            ({ rows }: TodayForYouRows, activeFeedSource: string | null): TodayForYouRow[] =>
+                activeFeedSource ? rows.filter((row) => feedRowSource(row) === activeFeedSource) : rows,
         ],
         forYouVisibleRows: [
             (s) => [s.forYouRows, s.listExpanded],
             ({ rows, limit }: TodayForYouRows, listExpanded: Record<TodayList, boolean>): TodayForYouRow[] =>
                 listExpanded.for_you ? rows : rows.slice(0, limit),
         ],
-        // The feed shows every loaded row, so it only offers to load more reports.
         forYouCanShowMore: [
             (s) => [s.forYouRows, s.listExpanded, s.canLoadMoreReports, s.forYouView],
             (
@@ -957,25 +962,16 @@ export const todayLogic = kea<todayLogicType>([
                 actions.loadFrequentObjects()
             },
             setForYouView: ({ view }) => {
-                // pinned: analytics event name and properties. Renaming them breaks dashboards.
                 posthog.capture('today for you view changed', { view })
             },
             setFeedSource: ({ source }) => {
-                // pinned: analytics event name and properties. Renaming them breaks dashboards.
                 posthog.capture('today feed filtered', { source })
             },
             feedCardHovered: ({ card }) => {
-                cache.hoveredFeedCards ??= new Set<string>()
-                if (cache.hoveredFeedCards.has(card.key)) {
-                    return
-                }
-                cache.hoveredFeedCards.add(card.key)
-                // pinned: analytics event name and properties. Renaming them breaks dashboards.
-                posthog.capture('today feed card hovered', { ...card, filter: values.feedSource })
+                posthog.capture('today feed card hovered', { ...card, filter: values.activeFeedSource })
             },
             feedCardClicked: ({ card, target }) => {
-                // pinned: analytics event name and properties. Renaming them breaks dashboards.
-                posthog.capture('today feed card clicked', { ...card, target, filter: values.feedSource })
+                posthog.capture('today feed card clicked', { ...card, target, filter: values.activeFeedSource })
             },
             exploreOpened: ({ product, position }) => {
                 posthog.capture('today explore opened', { product, position })
@@ -1011,7 +1007,9 @@ export const todayLogic = kea<todayLogicType>([
                 }
             },
             showMoreForYou: () => {
-                actions.setListExpanded('for_you', true)
+                if (values.forYouView === 'list') {
+                    actions.setListExpanded('for_you', true)
+                }
                 if (values.canLoadMoreReports) {
                     actions.loadMoreReports()
                 }

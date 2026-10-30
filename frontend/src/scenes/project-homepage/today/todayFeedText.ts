@@ -6,7 +6,6 @@ import type { TodayForYouRow } from './todayForYouRows'
 import type { TodayFeedCardEvent } from './todayLogic'
 import { sourceStyle } from './todaySignalReports'
 
-// Highlights whose product is Today itself, so the product name says nothing about where they came from.
 const TODAY_SOURCE_LABELS: Record<string, string> = {
     home: 'Your insights',
     routine: 'Your insights',
@@ -29,9 +28,7 @@ const HIGHLIGHT_ACTION_LABELS: Record<string, string> = {
     key_metrics: 'Open insight',
 }
 
-// The trailing window phrases the highlight sources write, so a one-line title can show them as metadata.
 const TRAILING_PERIOD = / (in the last \d+ days|within 24 hours|last week|last month|yesterday)$/
-// A quoted name long enough to push the rest of a one-line title out of view, such as an error message.
 const LONG_QUOTE = /^(.+?) ‘(.{24,})’$/
 
 export interface TodayFeedTitle {

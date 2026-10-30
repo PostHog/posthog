@@ -110,6 +110,17 @@ describe('todayLogic', () => {
         }
     )
 
+    it('shows the whole feed when the filtered source has no rows left', async () => {
+        listResponse = [200, { results: [makeReport({ id: 'r-1' })], count: 1 }]
+        const logic = todayLogic()
+        logic.mount()
+        logic.actions.setFeedSource('A source with no rows')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.activeFeedSource).toBeNull()
+        expect(logic.values.feedRows).toEqual(logic.values.forYouRows.rows)
+        expect(logic.values.feedRows.length).toBeGreaterThan(0)
+    })
+
     it.each([
         { variant: 'test', choice: null, view: 'feed' },
         { variant: 'control', choice: null, view: 'list' },

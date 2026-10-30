@@ -9,15 +9,15 @@ import { feedCardEvent } from './todayFeedText'
 import { todayLogic } from './todayLogic'
 
 export function TodayFeed(): JSX.Element {
-    const { feedRows, forYouCanShowMore } = useValues(todayLogic)
+    const { feedRows, forYouRows, forYouCanShowMore } = useValues(todayLogic)
     const { feedCardHovered, feedCardClicked } = useActions(todayLogic)
     return (
         <div className="TodayFeed">
             <TodayFeedSources />
             <div className="min-w-0">
                 <ol className="TodayFeed__posts">
-                    {feedRows.map((row, index) => {
-                        const event = feedCardEvent(row, index)
+                    {feedRows.map((row) => {
+                        const event = feedCardEvent(row, forYouRows.rows.indexOf(row))
                         const tracking = {
                             onDwell: () => feedCardHovered(event),
                             onInteract: (target: string) => feedCardClicked(event, target),

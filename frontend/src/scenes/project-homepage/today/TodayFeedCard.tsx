@@ -5,6 +5,7 @@ import { Button, IconStack, IconStackItem, Tooltip, TooltipContent, TooltipTrigg
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { retryImport } from 'lib/utils/retryImport'
+import { isExternalLink } from 'lib/utils/url'
 
 import type { TodayRowTone } from './TodayRow'
 import type { TodayRowIcon } from './todayRowIcons'
@@ -15,9 +16,7 @@ const TodaySparkline = lazy(() =>
 )
 
 export interface TodayFeedCardTracking {
-    /** Fires once the pointer rests on the card. */
     onDwell: () => void
-    /** Fires with the `data-attr` of whatever the person clicks inside the card. */
     onInteract: (target: string) => void
 }
 
@@ -27,21 +26,18 @@ interface TodayFeedCardProps {
     title: string
     tone: TodayRowTone
     priority?: string | null
-    meta?: string | null
+    meta?: ReactNode
     quote?: string | null
     lead?: string | null
     figure?: { value: string; label: string } | null
     series?: number[] | null
     chips?: ReactNode
     secondaryActions?: ReactNode
-    /** Where the title and the primary action go. */
     open?: { to: string; label: string; onOpen: () => void; crossfade?: boolean }
-    /** The primary action when the card has nowhere to link to. */
     fallbackAction?: ReactNode
     done?: boolean
     dataAttr: string
     tracking?: TodayFeedCardTracking
-    /** Lets the home page return focus to this card after the report closes. */
     reportId?: string
 }
 
@@ -68,12 +64,13 @@ export function TodayFeedCard({
     reportId,
 }: TodayFeedCardProps): JSX.Element {
     const dwellTimer = useRef<number>()
+    const dwelled = useRef(false)
     useEffect(() => () => window.clearTimeout(dwellTimer.current), [])
     const shownPriority = tone === 'risk' ? priority : null
     const link = open
         ? {
               to: open.to,
-              target: /^https?:\/\//.test(open.to) ? '_blank' : undefined,
+              target: isExternalLink(open.to) ? '_blank' : undefined,
               onClick: (event: MouseEvent<HTMLElement>): void => {
                   open.onOpen()
                   if (open.crossfade && isPlainClick(event)) {
@@ -88,12 +85,18 @@ export function TodayFeedCard({
             className="TodayFeedCard"
             data-done={done || undefined}
             onPointerEnter={() => {
-                dwellTimer.current = window.setTimeout(() => tracking?.onDwell(), DWELL_MS)
+                dwellTimer.current = window.setTimeout(() => {
+                    if (!dwelled.current) {
+                        dwelled.current = true
+                        tracking?.onDwell()
+                    }
+                }, DWELL_MS)
             }}
             onPointerLeave={() => window.clearTimeout(dwellTimer.current)}
             onClickCapture={(event) => {
-                const target = (event.target as HTMLElement).closest('[data-attr]')?.getAttribute('data-attr')
-                tracking?.onInteract(target ?? `${dataAttr}-card`)
+                const found = (event.target as HTMLElement).closest('[data-attr]')
+                const inside = found && event.currentTarget.contains(found)
+                tracking?.onInteract((inside && found.getAttribute('data-attr')) || `${dataAttr}-card`)
             }}
         >
             <header className="TodayFeedCard__header">
@@ -125,7 +128,7 @@ export function TodayFeedCard({
                 {(shownPriority || meta) && (
                     <p className="TodayFeedCard__meta">
                         {shownPriority && <span className="TodayFeedCard__priority">{shownPriority}</span>}
-                        {shownPriority && meta && ' · '}
+                        {shownPriority && meta && <span> · </span>}
                         {meta && <span translate="no">{meta}</span>}
                     </p>
                 )}
@@ -140,7 +143,8 @@ export function TodayFeedCard({
                     {lead && <p className="TodayFeedCard__lead">{lead}</p>}
                     {figure && (
                         <p className="TodayFeedCard__figure">
-                            <strong translate="no">{figure.value}</strong> {figure.label}
+                            <strong translate="no">{figure.value}</strong>
+                            <span>{figure.label}</span>
                         </p>
                     )}
                     {series && series.length > 1 && (

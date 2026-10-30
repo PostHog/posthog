@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconPullRequest, IconSparkles } from '@posthog/icons'
 import { Button } from '@posthog/quill'
 
-import { dayjs } from 'lib/dayjs'
+import { TZLabel } from 'lib/components/TZLabel'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
@@ -45,7 +45,6 @@ export function TodayFeedReportCard({
     const metricValue = metric ? formatReportMetricValue(metric, metric.value) : null
     const pullRequest = preview?.pullRequest
     const pullRequestNumber = pullRequest?.url.match(/\/pull\/(\d+)/)?.[1]
-    // A title such as "Review PR #9123" already names the pull request.
     const showPullRequest = pullRequest && !title.includes(`#${pullRequestNumber}`)
     const prompt = done ? undefined : report.suggested_prompts?.[0]
     return (
@@ -55,7 +54,7 @@ export function TodayFeedReportCard({
             title={title}
             tone={priorityTone(report.priority)}
             priority={report.priority}
-            meta={state ? reportStateLabel(state) : dayjs(report.updated_at).fromNow()}
+            meta={state ? reportStateLabel(state) : <TZLabel time={report.updated_at} noStyles />}
             lead={preview?.lead}
             figure={metric && metricValue ? { value: metricValue, label: metric.title } : null}
             series={metric?.series}

@@ -6,7 +6,7 @@ import { todayLogic } from './todayLogic'
 import { highlightIcon, reportIcon, type TodayRowIcon } from './todayRowIcons'
 
 export function TodayFeedSources(): JSX.Element {
-    const { feedSources, feedSource, forYouRows } = useValues(todayLogic)
+    const { feedSources, activeFeedSource, forYouRows } = useValues(todayLogic)
     const { setFeedSource } = useActions(todayLogic)
     const options: { label: string; count: number; value: string | null; icon: TodayRowIcon | null }[] = [
         { label: 'All', count: forYouRows.rows.length, value: null, icon: null },
@@ -24,7 +24,7 @@ export function TodayFeedSources(): JSX.Element {
                     key={label}
                     variant="link-muted"
                     size="sm"
-                    aria-pressed={feedSource === value}
+                    aria-pressed={activeFeedSource === value}
                     onClick={() => setFeedSource(value)}
                     data-attr="today-feed-source"
                 >

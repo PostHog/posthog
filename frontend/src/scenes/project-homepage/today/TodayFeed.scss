@@ -57,7 +57,6 @@
     }
 }
 
-// The avatar spans both header rows, and the title centers on it when there is no meta line.
 .TodayFeedCard__header {
     display: grid;
     grid-template-areas:
@@ -216,7 +215,6 @@
         background: color-mix(in sRGB, var(--today-ink) 6%, var(--today-paper));
     }
 
-    // A narrow scene has no room for the rail, so the filters wrap into a row above the cards.
     @container main-content (max-width: 760px) {
         position: static;
         flex-flow: row wrap;
