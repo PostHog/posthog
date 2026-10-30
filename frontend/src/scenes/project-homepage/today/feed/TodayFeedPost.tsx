@@ -6,21 +6,16 @@ import { Button, Text } from '@posthog/quill'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
-import { ReportChartCard } from 'products/signals/frontend/inbox/components/detail/ReportChart'
-
 import { TodayFeedAvatar } from './TodayFeedAvatar'
-import { TodayFeedCard } from './TodayFeedCard'
-import { TodayFeedChart } from './TodayFeedChart'
 import type { TodayFeedPost as TodayFeedPostType } from './todayFeedItems'
 import { todayFeedLogic } from './todayFeedLogic'
-import { TodayFeedReplay } from './TodayFeedReplay'
+import { TodayFeedPostMedia } from './TodayFeedPostMedia'
 
 export function TodayFeedPost({ post, position }: { post: TodayFeedPostType; position: number }): JSX.Element {
-    const { likedKeys, enrolledFlagKeys } = useValues(todayFeedLogic)
-    const { postOpened, postHidden, postLiked, postEnrolled, postPlayed } = useActions(todayFeedLogic)
+    const { likedKeys } = useValues(todayFeedLogic)
+    const { postOpened, postHidden, postLiked } = useActions(todayFeedLogic)
     const liked = !!likedKeys[post.key]
     const open = (): void => postOpened(post, position)
-    const { media } = post
 
     return (
         <article className="flex gap-3 border-b border-border px-4 py-3" aria-label={post.author.name}>
@@ -51,38 +46,7 @@ export function TodayFeedPost({ post, position }: { post: TodayFeedPostType; pos
                         </Text>
                     )}
                 </div>
-                {media?.type === 'chart' ? (
-                    <TodayFeedChart
-                        label={media.label}
-                        current={media.current}
-                        previous={media.previous}
-                        series={media.series}
-                        days={media.days}
-                        to={post.to}
-                        onOpen={open}
-                    />
-                ) : media?.type === 'report-chart' ? (
-                    <ReportChartCard chart={media.chart} />
-                ) : media?.type === 'replay' ? (
-                    <TodayFeedReplay
-                        sessionId={media.sessionId}
-                        page={media.page}
-                        caption={media.caption}
-                        to={post.to}
-                        onPlay={() => postPlayed(post, position)}
-                        onOpen={open}
-                    />
-                ) : media?.type === 'card' ? (
-                    <TodayFeedCard
-                        title={media.title}
-                        description={media.description}
-                        actionLabel={media.actionLabel}
-                        to={post.to}
-                        onOpen={open}
-                        onEnroll={media.enrollFlagKey ? () => postEnrolled(post, position) : undefined}
-                        enrolled={!!media.enrollFlagKey && !!enrolledFlagKeys[media.enrollFlagKey]}
-                    />
-                ) : null}
+                <TodayFeedPostMedia post={post} position={position} />
                 <div className="-ml-2 flex items-center gap-4">
                     <Button
                         variant="link-muted"
