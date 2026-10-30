@@ -40,6 +40,7 @@ from .skill_services import (
     compute_spec_problems,
     normalize_skill_file_path,
     resolve_owner_users,
+    resolve_skill_metadata,
     resolve_skill_owners,
     seed_skill_owner,
     set_skill_owners,
@@ -817,6 +818,7 @@ class LLMSkillCreateSerializer(LLMSkillSerializer):
         team = self.context["get_team"]()
         files = validated_data.pop("files", None)
         owner_uuids = validated_data.pop("owners", None)
+        validated_data["metadata"] = resolve_skill_metadata(validated_data.get("metadata"), None)
 
         with transaction.atomic():
             # `category` is read-only on the serializer, so it can never arrive in validated_data —

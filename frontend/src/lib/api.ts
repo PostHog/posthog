@@ -365,9 +365,9 @@ export function isAbortError(error: unknown): boolean {
     return (error as { name?: string } | null)?.name === 'AbortError'
 }
 
-export async function getJSONOrNull(response: Response): Promise<any> {
+export async function getJSONOrNull(response: Response, timing?: ApiRequestTimingRecorder): Promise<any> {
     try {
-        return await response.json()
+        return timing ? timing.parseJSON(await timing.readBody(response)) : await response.json()
     } catch (error) {
         if (isAbortError(error)) {
             throw error
@@ -7252,7 +7252,7 @@ async function isStaleSessionResponse(response: Response): Promise<boolean> {
     }
 }
 
-async function withRequestTiming<T>(
+export async function withRequestTiming<T>(
     options: ApiMethodOptions | undefined,
     request: (timing?: ApiRequestTimingRecorder) => Promise<T>
 ): Promise<T> {

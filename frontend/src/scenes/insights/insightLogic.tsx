@@ -33,7 +33,6 @@ import { objectsEqual } from 'lib/utils/objects'
 import { RetainedValues } from 'lib/utils/retainedValues'
 import { withBackLink } from 'scenes/analytics/analyticsBackLink'
 import { isDashboardFilterOverrideEmpty } from 'scenes/dashboard/dashboardFilterEmpty'
-import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { liveDashboardIds } from 'scenes/dashboard/liveDashboardIds'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
@@ -1279,11 +1278,15 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             // reload dashboards with updated insight
             // since filters on dashboard might be different from filters on insight
             // we need to trigger dashboard reload to pick up results for updated insight
-            savedInsight.dashboard_tiles?.forEach(({ dashboard_id }) =>
-                dashboardLogic
-                    .findMounted({ id: dashboard_id })
-                    ?.actions.loadDashboard({ action: DashboardLoadAction.Update })
-            )
+            if (savedInsight.dashboard_tiles?.length) {
+                // No dashboard logic can be mounted before its module loads, so a failed load has nothing to reload.
+                const dashboardModule = await import('scenes/dashboard/dashboardLogic').catch(() => null)
+                savedInsight.dashboard_tiles.forEach(({ dashboard_id }) =>
+                    dashboardModule?.dashboardLogic
+                        .findMounted({ id: dashboard_id })
+                        ?.actions.loadDashboard({ action: dashboardModule.DashboardLoadAction.Update })
+                )
+            }
 
             if (redirectToViewMode) {
                 if (!insightNumericId && dashboards?.length === 1) {

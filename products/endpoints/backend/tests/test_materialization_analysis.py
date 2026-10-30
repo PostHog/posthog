@@ -329,7 +329,7 @@ class TestDownstreamCTEClassifier(SimpleTestCase):
         assert plan.reject_reason is not None
         assert "scalar subquery" in plan.reject_reason
 
-    @parameterized.expand(["maxIf", "MAXIF", "sumIf", "SUMIF", "countIf", "COUNTIF"])
+    @parameterized.expand(["maxIf", "MAXIF", "sumIf", "SUMIF", "countIf", "COUNTIF", "groupArrayArrayIf"])
     def test_aggregation_shape_detects_combinator_regardless_of_case(self, fn):
         expr = self._get_cte(
             f"WITH base AS (SELECT 1 AS x, 1 AS c), agg AS (SELECT {fn}(x, c > 0) AS m FROM base) SELECT * FROM agg",

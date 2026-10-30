@@ -7,6 +7,7 @@ the team can review the draft before enabling it. Nothing about people is read.
 
 import re
 import json
+import secrets
 from collections import deque
 from collections.abc import Iterator
 from email.utils import parseaddr
@@ -232,7 +233,10 @@ class _Builder:
             return None
         conversion_type = self.campaign.get("conversion_type")
         window = _duration(self.campaign.get("conversion_window") or 0)
-        if conversion_type != "perform_event" or not self.campaign.get("conversion_event_name"):
+        if conversion_type == "perform_event" and not self.campaign.get("conversion_event_name"):
+            # New Customer.io automations have the goal switched on with no event until someone picks one.
+            return None
+        if conversion_type != "perform_event":
             self.note(
                 NoteLevel.UNSUPPORTED,
                 "The goal counts people entering or leaving a segment. Set a conversion goal on an event instead.",
@@ -586,7 +590,7 @@ class _Builder:
             inputs["secret_headers"] = {"value": secret_headers}
         if body_text:
             try:
-                inputs["body"] = {"value": json.loads(body_text), "templating": "liquid"}
+                inputs["body"] = {"value": _json_with_liquid(body_text), "templating": "liquid"}
             except ValueError:
                 # Liquid outside a JSON string, like `{% if %}` around a key, makes the stored body invalid JSON.
                 self.note(
@@ -605,7 +609,50 @@ class _Builder:
                 f"`{base['name']}` sets a journey attribute, which PostHog has no equivalent for. It was left out.",
             )
             return None
-        template = self._template(source, base)
+        properties = self._template_properties(self._template(source, base), base)
+        if not properties:
+            self.note(NoteLevel.NEEDS_INPUT, "Set the person properties this step updates.", base)
+        return {
+            **base,
+            "type": "function",
+            "config": {
+                "template_id": "template-posthog-update-person-properties",
+                "inputs": {
+                    "distinct_id": {"value": "{{ event.distinct_id }}", "templating": "liquid"},
+                    "set_properties": {"value": properties, "templating": "liquid"},
+                },
+            },
+        }
+
+    def _create_event(self, source: dict[str, Any], base: dict[str, Any]) -> dict[str, Any] | None:
+        event_name: Any = source.get("event_name")
+        # The editor stores the name as JSON, like `{"type": "static", "value": "signed_up"}`.
+        if isinstance(event_name, str) and event_name.lstrip().startswith("{"):
+            try:
+                event_name = json.loads(event_name)
+            except ValueError:
+                pass
+        if isinstance(event_name, dict):
+            event_name = event_name.get("value")
+        if not event_name:
+            self.note(NoteLevel.UNSUPPORTED, f"`{base['name']}` sends an event with no name, so it was left out.")
+            return None
+        inputs: dict[str, Any] = {
+            "event": {"value": self._liquid(str(event_name), base, "event name"), "templating": "liquid"},
+            "distinct_id": {"value": "{{ event.distinct_id }}", "templating": "liquid"},
+        }
+        if source.get("template_id") is not None:
+            properties = self._template_properties(self._template(source, base), base)
+            if properties:
+                inputs["properties"] = {"value": properties, "templating": "liquid"}
+        return {
+            **base,
+            "type": "function",
+            "config": {"template_id": "template-posthog-capture", "inputs": inputs},
+        }
+
+    def _template_properties(self, template: dict[str, Any], base: dict[str, Any]) -> dict[str, Any]:
+        """The `[{name, type, value}]` list that attribute update and create event steps keep in their template."""
         attributes: Any = []
         for raw in (template.get("body"), template.get("body_json")):
             if not raw:
@@ -627,36 +674,7 @@ class _Builder:
                 properties[str(attribute["name"])] = self._liquid(value or "", base, "property value")
             else:
                 properties[str(attribute["name"])] = value
-        if not properties:
-            self.note(NoteLevel.NEEDS_INPUT, "Set the person properties this step updates.", base)
-        return {
-            **base,
-            "type": "function",
-            "config": {
-                "template_id": "template-posthog-update-person-properties",
-                "inputs": {
-                    "distinct_id": {"value": "{{ event.distinct_id }}", "templating": "liquid"},
-                    "set_properties": {"value": properties, "templating": "liquid"},
-                },
-            },
-        }
-
-    def _create_event(self, source: dict[str, Any], base: dict[str, Any]) -> dict[str, Any] | None:
-        event_name = source.get("event_name")
-        if not event_name:
-            self.note(NoteLevel.UNSUPPORTED, f"`{base['name']}` sends an event with no name, so it was left out.")
-            return None
-        return {
-            **base,
-            "type": "function",
-            "config": {
-                "template_id": "template-posthog-capture",
-                "inputs": {
-                    "event": {"value": str(event_name)},
-                    "distinct_id": {"value": "{{ event.distinct_id }}", "templating": "liquid"},
-                },
-            },
-        }
+        return properties
 
     def _delay(self, action: dict[str, Any], seconds: Any) -> str:
         total = int(seconds or 0)
@@ -1001,3 +1019,37 @@ def _strip_comments(html: str) -> str:
         position = end + 3
     parts.append(html[position:])
     return "".join(parts)
+
+
+def _json_with_liquid(text: str) -> Any:
+    """Parses a JSON body whose strings hold Liquid, like `"{{ customer.name | default: "" }}"`.
+
+    Quotes inside a tag make the raw text invalid JSON, so each tag is swapped for a placeholder while parsing.
+    Liquid outside a string still fails to parse.
+    """
+    try:
+        return json.loads(text)
+    except ValueError:
+        pass
+    # A random marker, so text in the body itself can never read as a placeholder.
+    marker = f"liquid-{secrets.token_hex(8)}-"
+    tags: dict[str, str] = {}
+
+    def hold(match: re.Match[str]) -> str:
+        key = f"{marker}{len(tags)}"
+        tags[key] = match.group(0)
+        return key
+
+    parsed = json.loads(_LIQUID_TAG.sub(hold, text))
+    placeholder = re.compile(re.escape(marker) + r"\d+")
+
+    def restore(value: Any) -> Any:
+        if isinstance(value, str):
+            return placeholder.sub(lambda match: tags.get(match.group(0), match.group(0)), value)
+        if isinstance(value, list):
+            return [restore(item) for item in value]
+        if isinstance(value, dict):
+            return {restore(key): restore(item) for key, item in value.items()}
+        return value
+
+    return restore(parsed)

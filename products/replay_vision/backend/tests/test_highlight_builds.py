@@ -30,7 +30,7 @@ from products.replay_vision.backend.models.replay_observation import (
 )
 from products.replay_vision.backend.models.replay_observation_rank import RankCategory, ReplayObservationRank
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
-from products.replay_vision.backend.observation_ranks import NewRank, copy_team_ranks, record_ranks
+from products.replay_vision.backend.observation_ranks import NewRank, record_ranks
 from products.replay_vision.backend.tests.helpers import snapshot_for
 from products.replay_vision.backend.watch_rank import ANCHOR_VERSION
 
@@ -219,26 +219,6 @@ class TestHighlightBuilds(BaseTest):
         build_highlight_feed(child.id, ANCHOR_VERSION)
 
         assert ReplayHighlightFeedEntry.objects.for_team(self.team.id).filter(window_days=1).count() == 2
-
-    def test_copy_fills_a_missing_group_from_the_rank_json_once(self) -> None:
-        group = uuid.uuid4()
-        created_at = _NOW - timedelta(minutes=1)
-        observation = self._observation(
-            created_at,
-            watch_rank={"category": "struggle", "contrast": 0.7, "anchor_version": ANCHOR_VERSION, "group": str(group)},
-        )
-        self._observation(created_at, watch_rank={"category": "failure", "contrast": 0.7, "anchor_version": 99})
-
-        copied = copy_team_ranks(self.team.id, ANCHOR_VERSION, _NOW - timedelta(days=1))
-        again = copy_team_ranks(self.team.id, ANCHOR_VERSION, _NOW - timedelta(days=1))
-
-        rank = ReplayObservationRank.objects.for_team(self.team.id).get()
-        assert (copied, again) == (1, 0)
-        assert (rank.observation_id, rank.category, rank.feed_group_id) == (
-            observation.id,
-            RankCategory.STRUGGLE,
-            group,
-        )
 
     def test_a_stale_build_is_served_and_the_sweep_rebuilds_it_once(self) -> None:
         self._ranked(10, age=timedelta(hours=1))
