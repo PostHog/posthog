@@ -1041,6 +1041,17 @@ class UserAccessControl:
 
         return project_admin_check
 
+    def check_can_modify_access_levels_for_ref(self, ref: ObjectAccessRef) -> bool:
+        """`check_can_modify_access_levels_for_object` for an object held only as a reference."""
+        self._target_for_ref(ref)  # validates the team and parent before the creator shortcut
+        if ref.resource == "project":
+            return self.check_can_modify_access_levels_for_object(cast(Team, self._team))
+        return (
+            self._is_creator_id(ref.created_by_id)
+            or self.check_access_level_for_object(cast(Team, self._team), required_level="admin", explicit=True)
+            or self.check_access_level_for_ref(ref, required_level="manager", explicit=True)
+        )
+
     def get_access_source_for_object(
         self, obj: Model, resource: Optional[APIScopeObject] = None
     ) -> Optional[AccessSource]:
@@ -1806,13 +1817,18 @@ class UserAccessControl:
 
     def _target_for_ref(self, ref: ObjectAccessRef) -> _ObjectAccessTarget:
         parent = RESOURCE_FALLBACK_MAP.get(ref.resource)
-        if parent:
-            # The parent id comes from the model's foreign key, which a reference does not carry.
-            # Resolution without it skips the parent's rules, so it can return the wrong level.
+        if parent and ref.fallback_parent is None:
+            # The parent id comes from the model's foreign key. Resolution without it skips the
+            # parent's rules, so it can return the wrong level.
             raise ValueError(
-                f"An ObjectAccessRef cannot resolve `{ref.resource}`, which inherits access from "
-                f"`{parent}`. Check access on the model instance instead."
+                f"An ObjectAccessRef for `{ref.resource}`, which inherits access from `{parent}`, needs "
+                "`fallback_parent`. Set it, or check access on the model instance instead."
             )
+        if not parent and ref.fallback_parent is not None:
+            raise ValueError(f"`{ref.resource}` has no fallback parent, so `fallback_parent` must stay unset.")
+        # A stated type keeps a changed map from reading the parent id as another type's id.
+        if parent and ref.fallback_parent is not None and ref.fallback_parent.resource != parent:
+            raise ValueError(f"`{ref.resource}` falls back to `{parent}`, not `{ref.fallback_parent.resource}`.")
         # The rule lookups are scoped to self._team, so a reference checked without a team, or against
         # another team, would resolve against the wrong rules.
         if self._team is None:
@@ -1823,7 +1839,7 @@ class UserAccessControl:
             resource=ref.resource,
             object_id=ref.id,
             created_by_id=ref.created_by_id,
-            fallback_parent_id=None,
+            fallback_parent_id=ref.fallback_parent.id if ref.fallback_parent else None,
         )
 
     def _resolved_access_for_target(
@@ -1880,9 +1896,11 @@ class UserAccessControl:
         """`get_user_access_level` for an object the caller holds only as a reference."""
         return self._access_level_for_target(self._target_for_ref(ref), explicit=explicit)
 
-    def check_access_level_for_ref(self, ref: ObjectAccessRef, required_level: AccessControlLevel) -> bool:
+    def check_access_level_for_ref(
+        self, ref: ObjectAccessRef, required_level: AccessControlLevel, explicit: bool = False
+    ) -> bool:
         """`check_access_level_for_object` for an object the caller holds only as a reference."""
-        access_level = self.access_level_for_ref(ref)
+        access_level = self.access_level_for_ref(ref, explicit=explicit)
         if not access_level:
             return False
         return access_level_satisfied_for_resource(ref.resource, access_level, required_level)

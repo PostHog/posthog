@@ -13,11 +13,9 @@ async def test_usage_limited_selection_posts_the_credits_message_instead_of_a_pi
     event = {"channel": "C1", "ts": "1.2", "thread_ts": "1.0", "user": "U1", "text": "fix the bug"}
     inputs = PostHogCodeSlackMentionWorkflowInputs(event=event, integration_id=1, slack_team_id="T1", user_id=42)
     integration = MagicMock(team_id=7)
-    objects = MagicMock()
-    objects.select_related.return_value.aget = AsyncMock(return_value=integration)
 
     with (
-        patch("posthog.models.integration.Integration.objects", objects),
+        patch.object(repo_selection, "require_workspace_integration", return_value=integration),
         patch("posthog.models.integration.SlackIntegration"),
         patch.object(repo_selection, "Heartbeater", return_value=contextlib.nullcontext()),
         patch(

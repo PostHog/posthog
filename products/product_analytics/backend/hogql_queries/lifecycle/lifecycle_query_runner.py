@@ -195,8 +195,15 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
             resolved_date_range=ResolvedDateRangeResponse(
                 date_from=self.query_date_range.date_from(),
                 date_to=self.query_date_range.date_to(),
+                read_from=self.read_from,
             ),
         )
+
+    @property
+    def read_from(self) -> datetime:
+        # Keep equal to the lower bound in event_filter. Lifecycle reads the interval before the first one shown.
+        date_range = self.query_date_range
+        return date_range.align_with_interval(date_range.date_from()) - date_range.interval_relativedelta()
 
     def format_results(self, response: HogQLQueryResponse) -> list[dict[str, Any]]:
         """Format raw lifecycle HogQL response into status-grouped series.
@@ -363,6 +370,7 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
                 )
             )
         with self.timings.measure("date_range"):
+            # read_from reports this lower bound. Keep the two equal.
             event_filters.append(
                 parse_expr(
                     "{timestamp_field} >= {date_from_start_of_interval} - {one_interval_period}",

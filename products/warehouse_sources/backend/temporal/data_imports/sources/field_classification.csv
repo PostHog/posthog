@@ -435,6 +435,7 @@ Faire,api_key,,,,,faire
 FarosAi,,,,,,faros-ai
 Fastbill,,,,,,fastbill
 Fastly,api_key,,,,,fastly
+Fathom,,,,,,fathom
 Fauna,,,,,,fauna
 Featurebase,api_key,,,,,featurebase
 Feishu,,,,,,feishu
@@ -965,7 +966,7 @@ PlanetScalePostgres,connection_string host port database user password verify_se
 Planhat,api_key,,,,,planhat
 PlanningCenter,,,,,,planning-center
 PlatformSh,api_token platform,,,,,platform-sh
-Plausible,api_key site_id host,,,,,plausible
+Plausible,api_key site_id host,,,custom_property_keys,,plausible
 Plivo,auth_id auth_token,,,,,plivo
 Plunk,api_key base_url,,,,,plunk
 PluralsightFlow,workspace api_key,,,,,pluralsight-flow

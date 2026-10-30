@@ -43,6 +43,24 @@ describe('tool-search', () => {
             expect(searchToolsRegex(TOOLS, 'feature-flag').map((t) => t.name)).toEqual(['feature-flag-get-all'])
         })
 
+        it('puts a name match ahead of a tool that only mentions the term in prose', () => {
+            // `search persons-` reaches cohort tools through their descriptions. Catalog order
+            // listed them first, so the tools the search named came back below them.
+            const tools: SearchableTool[] = [
+                { name: 'cohorts-create', title: 'Create cohort', description: 'Build a cohort of persons-.' },
+                { name: 'persons-list', title: 'List persons', description: 'List people in the project.' },
+            ]
+
+            expect(searchToolsRegex(tools, 'persons-').map((t) => t.name)).toEqual(['persons-list', 'cohorts-create'])
+        })
+
+        it('keeps catalog order between two tools that match on the same field', () => {
+            expect(searchToolsRegex(TOOLS, 'dashboard-').map((t) => t.name)).toEqual([
+                'dashboard-create',
+                'dashboard-get-all',
+            ])
+        })
+
         it('throws on an invalid regex so callers can surface their own message', () => {
             expect(() => searchToolsRegex(TOOLS, '[invalid')).toThrow(/regular expression/i)
         })

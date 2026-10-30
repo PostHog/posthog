@@ -226,6 +226,8 @@ pub async fn write_flush(
         stats[index].written_jsonl_bytes += block.counts.jsonl_bytes;
         stats[index].max_written_event_bytes = block.counts.max_line_bytes;
         stats[index].url_fingerprints = std::mem::take(&mut block.url_fingerprints);
+        stats[index].surfacing.visited_url_fingerprints =
+            std::mem::take(&mut block.visited_url_fingerprints);
     }
     // Before the index is written: building the jobs counts each block's image URLs into its stats. A dropped block's
     // images are not stored, so the fetcher does not fetch them.

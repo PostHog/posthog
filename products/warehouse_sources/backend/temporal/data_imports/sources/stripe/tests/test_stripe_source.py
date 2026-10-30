@@ -1,7 +1,9 @@
+import shutil
 import functools
 import threading
 import contextvars
 from collections.abc import Callable
+from datetime import timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Optional, cast
@@ -2732,3 +2734,221 @@ class TestStripeNestedSweepResume:
 
         assert "starting_after" not in nested_params[0]
         assert [row["id"] for row in rows] == ["txn_1"]
+
+
+class _PipelineAroundTheSweep:
+    """Stands in for the pipeline and the resumable source manager around the Stripe source.
+
+    It holds the two behaviours the duplicate rows came from: a cursor commits only after the
+    table it covers is written, and an attempt that finds resume state appends to what earlier
+    attempts wrote, while an attempt that finds none overwrites the table.
+    """
+
+    def __init__(self) -> None:
+        self.table: list[dict] = []
+        self.committed: Optional[stripe_module.StripeResumeConfig] = None
+        self._staged: Optional[stripe_module.StripeResumeConfig] = None
+
+    def can_resume(self) -> bool:
+        return self.committed is not None
+
+    def load_state(self) -> Optional[stripe_module.StripeResumeConfig]:
+        return self.committed
+
+    def save_state(self, state: stripe_module.StripeResumeConfig) -> None:
+        self._staged = state
+
+    def clear_state(self) -> None:
+        self.committed = None
+        self._staged = None
+
+    def safe_point(self) -> None:
+        pass
+
+    def run_attempt(self, resolved: ParentTableRef, nested_method, interrupt_after_tables: Optional[int] = None):
+        resource = StripeNestedResource(
+            method=nested_method,
+            nested_parent_param="customer",
+            parent_id="id",
+            parent=StripeResource(method=MagicMock(side_effect=AssertionError("the listing must not be paged"))),
+            parent_name=CUSTOMER_RESOURCE_NAME,
+        )
+        webhooks = MagicMock(spec=WebhookSourceManager)
+        webhooks.webhook_enabled = mock.AsyncMock(return_value=False)
+        with (
+            patch.object(stripe_module, "StripeClient"),
+            patch.object(stripe_module, "STRIPE_CHUNK_SIZE", 1),
+            patch.object(
+                stripe_module, "_build_resources", return_value={CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME: resource}
+            ),
+            patch.object(stripe_module, "_resolve_warehouse_parent", return_value=resolved),
+        ):
+            response = stripe_module.stripe_source(
+                api_key="sk_test_123",
+                account_id=None,
+                endpoint=CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME,
+                db_incremental_field_last_value=None,
+                db_incremental_field_earliest_value=None,
+                logger=MagicMock(),
+                resumable_source_manager=cast(Any, self),
+                webhook_source_manager=webhooks,
+                api_version=STRIPE_API_VERSION_ACACIA,
+                team_id=1,
+                source_id="source-1",
+                use_warehouse_parent=True,
+            )
+            # The pipeline asks only after the source is built, which is the source's last chance
+            # to drop resume state it will not honour.
+            if not self.can_resume():
+                self.table = []
+            items = response.items()
+            for written, table in enumerate(items, start=1):
+                self.table.extend(table.to_pylist())
+                if self._staged is not None:
+                    self.committed, self._staged = self._staged, None
+                if interrupt_after_tables is not None and written >= interrupt_after_tables:
+                    items.close()
+                    return
+
+
+def _paging_nested_method():
+    """A nested list method that honours `starting_after`, as Stripe does, and records each call.
+
+    A resumed sweep re-enters the parent it was paginating with a cursor into that parent's own
+    pages, so a fake that ignored the cursor would duplicate a row the real API would not return.
+    """
+    calls: list[tuple[str, Optional[str]]] = []
+
+    def _nested(customer, params):
+        cursor = params.get("starting_after")
+        calls.append((customer, cursor))
+        return _list_object([] if cursor == f"cbt_{customer}" else [{"id": f"cbt_{customer}"}])
+
+    return _nested, calls
+
+
+class TestStripeWarehouseResumeAcrossParentVersions:
+    """A resumed `CustomerBalanceTransaction` run whose parent table committed since the last attempt.
+
+    The Customer schema is webhook-synced, so its Delta table gains a version every drain, and
+    each attempt of a long sweep pins whichever version is newest when it starts.
+    """
+
+    _CUSTOMERS = [{"id": "cus_1", "balance": -1}, {"id": "cus_2", "balance": -1}, {"id": "cus_3", "balance": -1}]
+
+    def _interrupted_run(self, tmp_path) -> tuple[_PipelineAroundTheSweep, str, ParentTableRef]:
+        uri = _write_customer_parent_table(tmp_path, self._CUSTOMERS)
+        pinned = ParentTableRef(uri=uri, version=deltalake.DeltaTable(uri).version())
+        pipeline = _PipelineAroundTheSweep()
+        nested_method, _ = _paging_nested_method()
+        pipeline.run_attempt(pinned, nested_method, interrupt_after_tables=1)
+        assert [row["id"] for row in pipeline.table] == ["cbt_cus_1"]
+        deltalake.write_deltalake(
+            uri,
+            pa.table({"id": [c["id"] for c in self._CUSTOMERS], "balance": [-1, -2, -1]}),
+            mode="overwrite",
+        )
+        return pipeline, uri, ParentTableRef(uri=uri, version=deltalake.DeltaTable(uri).version())
+
+    def test_the_resumed_attempt_continues_on_the_version_it_checkpointed_against(self, tmp_path):
+        pipeline, _uri, newest = self._interrupted_run(tmp_path)
+        nested_method, calls = _paging_nested_method()
+
+        pipeline.run_attempt(newest, nested_method)
+
+        assert [row["id"] for row in pipeline.table] == ["cbt_cus_1", "cbt_cus_2", "cbt_cus_3"]
+        assert calls == [("cus_1", "cbt_cus_1"), ("cus_2", None), ("cus_3", None)]
+
+    def test_a_checkpoint_too_old_to_read_restarts_as_a_fresh_attempt(self, tmp_path):
+        pipeline, _uri, newest = self._interrupted_run(tmp_path)
+        nested_method, calls = _paging_nested_method()
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent.MAX_SNAPSHOT_ROLLBACK",
+            timedelta(0),
+        ):
+            pipeline.run_attempt(newest, nested_method)
+
+        assert [row["id"] for row in pipeline.table] == ["cbt_cus_1", "cbt_cus_2", "cbt_cus_3"]
+        assert calls == [("cus_1", None), ("cus_2", None), ("cus_3", None)]
+
+    def test_a_rebuilt_parent_table_restarts_as_a_fresh_attempt(self, tmp_path):
+        pipeline, uri, _newest = self._interrupted_run(tmp_path)
+        shutil.rmtree(uri)
+        _write_customer_parent_table(tmp_path, self._CUSTOMERS)
+        deltalake.write_deltalake(uri, pa.table({"id": ["cus_4"], "balance": [-1]}), mode="append")
+        nested_method, calls = _paging_nested_method()
+
+        pipeline.run_attempt(ParentTableRef(uri=uri, version=deltalake.DeltaTable(uri).version()), nested_method)
+
+        assert sorted(row["id"] for row in pipeline.table) == ["cbt_cus_1", "cbt_cus_2", "cbt_cus_3", "cbt_cus_4"]
+        assert all(cursor is None for _customer, cursor in calls)
+
+    @pytest.mark.parametrize(
+        "parent_path,state",
+        [
+            ("warehouse", stripe_module.StripeResumeConfig(starting_after="cus_1")),
+            (
+                "warehouse",
+                stripe_module.StripeResumeConfig(
+                    warehouse_fragment_index=0,
+                    warehouse_row_offset=1,
+                    warehouse_table_uri="s3://elsewhere",
+                    warehouse_version=0,
+                ),
+            ),
+            (
+                "api",
+                stripe_module.StripeResumeConfig(
+                    warehouse_fragment_index=0,
+                    warehouse_row_offset=1,
+                    warehouse_table_uri="s3://elsewhere",
+                    warehouse_version=0,
+                ),
+            ),
+        ],
+        ids=["api_cursor_on_the_warehouse_path", "another_table", "warehouse_position_on_the_api_path"],
+    )
+    def test_resume_state_the_sweep_cannot_honour_is_dropped_before_the_pipeline_reads_it(
+        self, parent_path, state, tmp_path
+    ):
+        uri = _write_customer_parent_table(tmp_path, self._CUSTOMERS)
+        resolved = ParentTableRef(uri=uri, version=deltalake.DeltaTable(uri).version())
+        manager = MagicMock()
+        manager.can_resume.return_value = True
+        manager.load_state.return_value = state
+
+        reconciled, _table_id = stripe_module._reconcile_warehouse_resume(
+            CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME,
+            resolved if parent_path == "warehouse" else None,
+            manager,
+            MagicMock(),
+        )
+
+        manager.clear_state.assert_called_once()
+        assert reconciled == (resolved if parent_path == "warehouse" else None)
+
+    @pytest.mark.parametrize(
+        "endpoint,state",
+        [
+            (CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME, stripe_module.StripeResumeConfig(starting_after="cus_1")),
+            (
+                CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME,
+                stripe_module.StripeResumeConfig(
+                    warehouse_fragment_index=0,
+                    warehouse_row_offset=1,
+                    warehouse_table_uri="s3://x",
+                    warehouse_version=0,
+                ),
+            ),
+        ],
+        ids=["api_cursor_on_the_api_path", "unconverted_endpoint"],
+    )
+    def test_resume_state_the_sweep_honours_is_kept(self, endpoint, state):
+        manager = MagicMock()
+        manager.can_resume.return_value = True
+        manager.load_state.return_value = state
+
+        stripe_module._reconcile_warehouse_resume(endpoint, None, manager, MagicMock())
+
+        manager.clear_state.assert_not_called()

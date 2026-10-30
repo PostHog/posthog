@@ -14,9 +14,14 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.product_analytics.backend.facade.models import Insight
 from products.signals.backend.activity_summary.inputs import user_activity
-from products.signals.backend.activity_summary.logic import ActivitySummaryUpdate, UpdateStatus, update_activity_summary
+from products.signals.backend.activity_summary.logic import (
+    ActivitySummaryUpdate,
+    UpdateStatus,
+    build_summary_as_of,
+    update_activity_summary,
+)
 from products.signals.backend.activity_summary.prompt import PROMPT_VERSION
-from products.signals.backend.activity_summary.render import RENDER_VERSION, RenderLimits
+from products.signals.backend.activity_summary.render import RENDER_VERSION, Product, RenderLimits
 from products.signals.backend.models import UserActivitySummary, UserActivitySummaryVersion
 from products.signals.backend.test.test_activity_summary_render import FakeLLM
 
@@ -363,3 +368,32 @@ class TestUpdateActivitySummary(BaseTest):
 
         assert self._update(llm).status == UpdateStatus.SKIPPED_AI_NOT_APPROVED
         assert llm.requests == []
+
+    def test_a_build_as_of_a_past_date_reads_only_the_rows_before_it_and_writes_nothing(self) -> None:
+        self._changes(3, days_ago=11)
+        self._change("Weekly digest", days_ago=10.5, scope="SignalReport")
+        self._change("Funnel after as of", days_ago=9)
+        self._change("Funnel at as of", days_ago=10)
+        self._update(FakeLLM([ANSWER]))
+        stored = self._stored()
+        assert stored is not None
+        llm = FakeLLM([ANSWER])
+
+        with patch("products.signals.backend.activity_summary.logic.gateway_client", return_value=llm):
+            result = build_summary_as_of(
+                self.team.id,
+                self.user.id,
+                NOW - datetime.timedelta(days=10),
+                exclude_products=frozenset({Product.INBOX}),
+            )
+
+        assert result.status == UpdateStatus.OK
+        sent = json.dumps(llm.requests[0]["messages"])
+        assert "Funnel 2" in sent
+        assert "Funnel after as of" not in sent and "Funnel at as of" not in sent
+        assert "Weekly digest" not in sent
+        assert "Builds the signup funnel." not in sent
+        assert result.inputs_used is not None and result.inputs_used["drops"]["excluded_product"] == 1
+        after = self._stored()
+        assert after is not None and (after.version, after.updated_at) == (stored.version, stored.updated_at)
+        assert self._versions() == [1]
