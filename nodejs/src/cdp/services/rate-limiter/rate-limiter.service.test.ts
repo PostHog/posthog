@@ -216,21 +216,24 @@ describe('RateLimiterService', () => {
         })
 
         it.each([
-            ['a raise grants the new allowance minus what was spent', 1000, 970],
-            ['a cut keeps what was spent against the smaller allowance', 50, 20],
-        ])('%s', async (_case, newCapacity, expectedGrant) => {
+            ['a raise grants the new allowance minus what was spent', [1000], 970],
+            ['a cut clamps the pool to the smaller allowance', [50], 50],
+            ['switching back after a cut grants no allowance twice', [50, 100], 50],
+            ['a lower capacity after a raise clamps the pool for good', [1000, 100, 1000], 100],
+        ])('%s', async (_case, capacities, expectedGrant) => {
             const caps = (capacity: number): [Omit<ClaimRequest, 'requested'>, Omit<ClaimRequest, 'requested'>] => [
                 { key: KEY_A, capacity, refillPerSecond: 0 },
                 { key: KEY_B, capacity, refillPerSecond: 0 },
             ]
             await limiter.claimAllOrNothingPair(caps(100), 30)
+            for (const capacity of capacities.slice(0, -1)) {
+                await limiter.claimUpTo({ key: KEY_A, requested: 0, capacity, refillPerSecond: 0 })
+                await limiter.claimUpTo({ key: KEY_B, requested: 0, capacity, refillPerSecond: 0 })
+            }
+            const finalCaps = caps(capacities[capacities.length - 1])
 
-            expect(await limiter.claimAllOrNothingPair(caps(newCapacity), expectedGrant + 1)).toMatchObject({
-                granted: false,
-            })
-            expect(await limiter.claimAllOrNothingPair(caps(newCapacity), expectedGrant)).toMatchObject({
-                granted: true,
-            })
+            expect(await limiter.claimAllOrNothingPair(finalCaps, expectedGrant + 1)).toMatchObject({ granted: false })
+            expect(await limiter.claimAllOrNothingPair(finalCaps, expectedGrant)).toMatchObject({ granted: true })
         })
 
         it('consumes nothing on denial, so retries cannot starve the buckets', async () => {

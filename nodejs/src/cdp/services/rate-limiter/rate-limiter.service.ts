@@ -48,10 +48,13 @@ const claimLatency = new Histogram({
 //
 // Returns {granted, retryAfterMs, reserved}.
 //
-// `cap` is the capacity the pool was last written under. When the caller's capacity
-// differs (a team moved to another email tier), the pool moves by the same amount,
-// so the bucket keeps what was spent instead of what was left. Without that, a team
-// that used its old allowance waits a full refill period for the new one.
+// `cap` is the highest capacity the bucket has been claimed under. A caller with a
+// higher capacity (a team moved to a higher email tier) adds the difference to the
+// pool, so the bucket keeps what was spent instead of what was left. Without that, a
+// team that used its old allowance waits a full refill period for the new one. A
+// lower capacity only clamps the pool and never lowers `cap`. Workers with stale
+// configs can alternate between two capacities, and each switch back up would
+// otherwise grant the difference again.
 //
 // The reservation (ARGV[5] > 0), in plain terms: when the bucket says no, it also
 // hands the caller a time slot, like a ticket at a counter. The bucket remembers
@@ -78,6 +81,7 @@ local rawTs = existing[1]
 local rawPool = existing[2]
 local rawResv = existing[3]
 local rawCap = existing[4]
+local highestCap = capacity
 
 local available
 if rawTs == false then
@@ -94,8 +98,12 @@ else
     else
         currentTokens = tonumber(rawPool)
     end
-    if rawCap ~= false and tonumber(rawCap) ~= capacity then
-        currentTokens = math.max(0, currentTokens + capacity - tonumber(rawCap))
+    if rawCap ~= false then
+        if capacity > tonumber(rawCap) then
+            currentTokens = currentTokens + capacity - tonumber(rawCap)
+        else
+            highestCap = tonumber(rawCap)
+        end
     end
     available = math.min(capacity, currentTokens + (elapsedMs / 1000.0) * refillPerSecond)
 end
@@ -110,7 +118,7 @@ end
 local granted = math.floor(rawGranted)
 local tokensAfter = available - granted
 
-redis.call('hset', key, 'ts', now, 'pool', tokensAfter, 'cap', capacity)
+redis.call('hset', key, 'ts', now, 'pool', tokensAfter, 'cap', highestCap)
 redis.call('expire', key, ttlSeconds)
 
 if granted > 0 or reserveOnDenyMaxMs <= 0 or refillPerSecond <= 0 then
@@ -140,8 +148,8 @@ return {0, math.ceil(slotAt - now), 1}
 
 // Atomic all-or-nothing claim across two buckets. Same refill math as CLAIM_UP_TO_LUA per bucket,
 // but the claim succeeds only when BOTH buckets can cover the full request, and a denial writes
-// nothing at all — no partial consumption, no timestamp refresh. A capacity change moves the pool
-// by the same amount, as in CLAIM_UP_TO_LUA. Without that, a caller retrying a
+// nothing at all — no partial consumption, no timestamp refresh. A capacity above `cap` adds the
+// difference to the pool, as in CLAIM_UP_TO_LUA. Without that, a caller retrying a
 // multi-token claim would burn each bucket's partial refill on every attempt and could keep a
 // shared bucket empty without ever succeeding.
 //   KEYS[1..2]   = the two bucket hash keys
@@ -168,6 +176,7 @@ local requested = tonumber(ARGV[1])
 local reserveOnDenyMaxMs = tonumber(ARGV[8])
 
 local available = {}
+local highestCaps = {}
 local deniedIndex = 0
 local retryAfterMs = 0
 local horizonKnown = true
@@ -175,6 +184,7 @@ local slowRefill = 0
 for i = 1, 2 do
     local capacity = tonumber(ARGV[(i - 1) * 3 + 2])
     local refillPerSecond = tonumber(ARGV[(i - 1) * 3 + 3])
+    highestCaps[i] = capacity
     local existing = redis.call('hmget', KEYS[i], 'ts', 'pool', 'cap')
     local avail
     if existing[1] == false then
@@ -188,8 +198,12 @@ for i = 1, 2 do
         if existing[2] ~= false then
             currentTokens = tonumber(existing[2])
         end
-        if existing[3] ~= false and tonumber(existing[3]) ~= capacity then
-            currentTokens = math.max(0, currentTokens + capacity - tonumber(existing[3]))
+        if existing[3] ~= false then
+            if capacity > tonumber(existing[3]) then
+                currentTokens = currentTokens + capacity - tonumber(existing[3])
+            else
+                highestCaps[i] = tonumber(existing[3])
+            end
         end
         avail = math.min(capacity, currentTokens + (elapsedMs / 1000.0) * refillPerSecond)
     end
@@ -255,7 +269,7 @@ end
 
 for i = 1, 2 do
     local ttlSeconds = tonumber(ARGV[(i - 1) * 3 + 4])
-    redis.call('hset', KEYS[i], 'ts', now, 'pool', available[i] - requested, 'cap', tonumber(ARGV[(i - 1) * 3 + 2]))
+    redis.call('hset', KEYS[i], 'ts', now, 'pool', available[i] - requested, 'cap', highestCaps[i])
     redis.call('expire', KEYS[i], ttlSeconds)
 end
 
