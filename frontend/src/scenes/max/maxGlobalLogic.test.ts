@@ -9,6 +9,7 @@ import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import { AppContext } from '~/types'
 
 import { tasksLogic } from 'products/posthog_ai/frontend/logics/tasksLogic'
 
@@ -169,23 +170,32 @@ describe('maxGlobalLogic', () => {
 
     // The flag is the only thing that may expose the new posthog_ai surface — without the gate a stored
     // preference (or a missing default) would leak it to every user. Lock in: flag off collapses to legacy
-    // regardless of the stored mode; flag on passes the stored mode through.
+    // regardless of the stored mode; flag on passes the stored mode through. When the server sends its
+    // access decision, that decision replaces the flag: a denied user gets classic PostHog AI.
     describe('effectivePhaiView selector', () => {
         it.each([
-            { flagOn: false, mode: 'new', expected: 'legacy' },
-            { flagOn: false, mode: 'legacy', expected: 'legacy' },
-            { flagOn: true, mode: 'new', expected: 'new' },
-            { flagOn: true, mode: 'legacy', expected: 'legacy' },
+            { flagOn: false, gate: undefined, mode: 'new', expected: 'legacy' },
+            { flagOn: false, gate: undefined, mode: 'legacy', expected: 'legacy' },
+            { flagOn: true, gate: undefined, mode: 'new', expected: 'new' },
+            { flagOn: true, gate: undefined, mode: 'legacy', expected: 'legacy' },
+            { flagOn: true, gate: false, mode: 'new', expected: 'legacy' },
+            { flagOn: false, gate: true, mode: 'new', expected: 'new' },
         ] as const)(
-            'is $expected when sandbox flag is $flagOn and stored mode is $mode',
-            async ({ flagOn, mode, expected }) => {
-                featureFlagLogic.actions.setFeatureFlags(
-                    flagOn ? [FEATURE_FLAGS.PHAI_SANDBOX_MODE] : [],
-                    flagOn ? { [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: true } : {}
-                )
-                logic.actions.setPhaiViewMode(mode)
+            'is $expected when sandbox flag is $flagOn, access gate is $gate and stored mode is $mode',
+            async ({ flagOn, gate, mode, expected }) => {
+                const originalAppContext = window.POSTHOG_APP_CONTEXT
+                window.POSTHOG_APP_CONTEXT = { ...originalAppContext, posthog_ai_access: gate } as AppContext
+                try {
+                    featureFlagLogic.actions.setFeatureFlags(
+                        flagOn ? [FEATURE_FLAGS.PHAI_SANDBOX_MODE] : [],
+                        flagOn ? { [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: true } : {}
+                    )
+                    logic.actions.setPhaiViewMode(mode)
 
-                await expectLogic(logic).toMatchValues({ effectivePhaiView: expected })
+                    await expectLogic(logic).toMatchValues({ effectivePhaiView: expected })
+                } finally {
+                    window.POSTHOG_APP_CONTEXT = originalAppContext
+                }
             }
         )
     })

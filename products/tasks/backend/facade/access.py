@@ -5,7 +5,9 @@ from products.signals.backend.facade.metric_access import metric_context_reader 
 from products.tasks.backend.access import (
     DesktopAccessDecision,
     DesktopAccessResolutionError,
+    PostHogAIAccessDecision,
     get_desktop_access_decision,
+    get_posthog_ai_access_decision,
     has_loops_access,
 )
 from products.tasks.backend.facade.contracts import DesktopAccessReason
@@ -61,9 +63,11 @@ __all__ = [
     "DesktopAccessDecision",
     "DesktopAccessReason",
     "DesktopAccessResolutionError",
+    "PostHogAIAccessDecision",
     "code_access_required_response",
     "compute_quota_limit_response",
     "get_desktop_access_decision",
+    "get_posthog_ai_access_decision",
     "has_loops_access",
     "is_sandbox_run_request",
     "may_read_task_run_context",

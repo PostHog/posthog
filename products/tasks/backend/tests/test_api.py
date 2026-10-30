@@ -248,6 +248,13 @@ class BaseTaskAPITest(TestCase):
             ),
         )
         self.desktop_access_patcher.start()
+        for module in ("logic.services.code_usage_gate", "logic.services.warm", "facade.access"):
+            posthog_ai_access_patcher = patch(
+                f"products.tasks.backend.{module}.get_posthog_ai_access_decision",
+                return_value=tasks_access.PostHogAIAccessDecision.GRANDFATHERED,
+            )
+            posthog_ai_access_patcher.start()
+            self.addCleanup(posthog_ai_access_patcher.stop)
         self.set_tasks_feature_flag(True)
 
     def tearDown(self):

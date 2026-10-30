@@ -451,7 +451,7 @@ export const FEATURE_FLAGS = {
     PAYMENT_ENTRY_CONTACT_SUPPORT: 'payment-entry-contact-support', // owner: #team-billing, see `PaymentEntryModal.tsx`
     PHAI_PLAN_MODE: 'phai-plan-mode', // owner: #team-posthog-ai
     PHAI_QUILL: 'phai-quill', // owner: #team-posthog-ai, renders the PostHog AI chat thread in quill like PostHog Desktop; on with today-rail-nav too
-    PHAI_SANDBOX_MODE: 'phai-sandbox-mode', // owner: #team-posthog-ai, PostHog AI 2.0: the sandbox runtime and the task composer; without it the today-rail-nav chats use the legacy chat
+    PHAI_SANDBOX_MODE: 'phai-sandbox-mode', // owner: #team-posthog-ai, PostHog AI 2.0: the sandbox runtime and the task composer; without it the today-rail-nav chats use the legacy chat. The app reads the server's access gate in its place (featureFlagLogic)
     PHAI_SCENE_AUTO_OPEN: 'phai-scene-auto-open', // owner: #team-posthog-ai
     PHAI_TASKS: 'phai-tasks', // owner: #team-array
     PI_ACP: 'pi-acp', // owner: #team-agent-infrastructure, Pi runs write ACP and show on the web run surface

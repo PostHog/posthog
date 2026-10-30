@@ -11,7 +11,11 @@ from posthog.auth import OAuthAccessTokenAuthentication
 from posthog.permissions import get_authenticator_scopes
 from posthog.temporal.oauth import SANDBOX_OAUTH_APP_CLIENT_IDS
 
-from products.tasks.backend.access import DesktopAccessResolutionError, get_desktop_access_decision
+from products.tasks.backend.access import (
+    DesktopAccessResolutionError,
+    get_desktop_access_decision,
+    get_posthog_ai_access_decision,
+)
 from products.tasks.backend.facade.contracts import DesktopAccessReason
 from products.tasks.backend.logic.services.compute_quota import (
     COMPUTE_QUOTA_DENIAL_CODE,
@@ -19,6 +23,7 @@ from products.tasks.backend.logic.services.compute_quota import (
     organization_deactivated,
 )
 from products.tasks.backend.metrics import observe_code_usage_gate_check
+from products.tasks.backend.models import Task
 from products.tasks.backend.presentation.serializers import TaskRunErrorResponseSerializer
 
 if TYPE_CHECKING:
@@ -125,8 +130,11 @@ def code_access_required_response(
     organization: "Organization",
     *,
     task_id: str | UUID | None = None,
+    origin_product: str | None = None,
     fail_open_on_resolution_error: bool = False,
 ) -> Response | None:
+    """Also applies the PostHog AI 2.0 gate to PostHog AI tasks, so every sandbox entry point that
+    checks Desktop access checks that too. Pass `origin_product` when no task exists yet."""
     if _task_bound_internal_run(request, task_id):
         return None
 
@@ -151,7 +159,9 @@ def code_access_required_response(
         )
 
     if decision.allowed:
-        return None
+        return posthog_ai_access_required_response(
+            request, organization, task_id=task_id, origin_product=origin_product
+        )
 
     messages = {
         DesktopAccessReason.STARTUP_PLAN: (
@@ -176,6 +186,35 @@ def code_access_required_response(
         payload["reason"] = reason.value
     return Response(
         TaskRunErrorResponseSerializer(payload).data,
+        status=status.HTTP_403_FORBIDDEN,
+    )
+
+
+def posthog_ai_access_required_response(
+    request: Request,
+    organization: "Organization",
+    *,
+    task_id: str | UUID | None = None,
+    origin_product: str | None = None,
+) -> Response | None:
+    if origin_product is None and task_id is not None:
+        origin_product = (
+            Task.objects.filter(id=task_id, team__organization_id=organization.id)
+            .values_list("origin_product", flat=True)
+            .first()
+        )
+    if origin_product != Task.OriginProduct.POSTHOG_AI:
+        return None
+    if get_posthog_ai_access_decision(cast("User", request.user), organization).allowed:
+        return None
+    return Response(
+        TaskRunErrorResponseSerializer(
+            {
+                "type": "permission_denied",
+                "code": "task_unavailable",
+                "error": "This task isn't available to you.",
+            }
+        ).data,
         status=status.HTTP_403_FORBIDDEN,
     )
 

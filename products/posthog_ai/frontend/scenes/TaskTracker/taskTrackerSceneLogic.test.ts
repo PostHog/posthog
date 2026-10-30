@@ -107,6 +107,8 @@ describe('taskTrackerSceneLogic', () => {
             },
         })
         initKeaTests()
+        // Without Tasks access the scene sends `/tasks` URLs to classic PostHog AI.
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TASKS], { [FEATURE_FLAGS.TASKS]: true })
         toolEvents = toolStreamEventsLogic()
         toolEvents.mount()
         toolEvents.actions.registerToolListener('editor', {

@@ -26,6 +26,7 @@ from posthog.exceptions import QuotaLimitExceeded
 from posthog.models.team import Team
 from posthog.models.user import User
 
+from products.tasks.backend.access import get_posthog_ai_access_decision
 from products.tasks.backend.logic.services.compute_quota import organization_deactivated
 from products.tasks.backend.logic.services.workflow_dispatch import WorkflowDispatchOptions, enqueue_or_start_workflow
 from products.tasks.backend.models import Task, TaskRun
@@ -63,6 +64,12 @@ def _ai_credits_checker(team: Team, user: User) -> None:
         )
 
 
+def _posthog_ai_checker(team: Team, user: User) -> None:
+    if not get_posthog_ai_access_decision(user, team.organization).allowed:
+        raise PermissionDenied("Warming is not enabled for this user.")
+    _ai_credits_checker(team, user)
+
+
 class SandboxWarmer:
     """Idempotently warm a sandbox Run for an existing Task, enforcing the product's quota gate and a
     state-derived warm-pool cap, then dispatching the processing workflow after commit.
@@ -82,7 +89,7 @@ class SandboxWarmer:
     # origin: gated by the ``tasks-prewarm-sandbox`` flag at the endpoint, not an AI-credit budget).
     # Fail-closed: an origin absent from this registry cannot warm at all.
     ORIGIN_PRODUCT_QUOTA: dict[str, Callable[[Team, User], None] | None] = {
-        Task.OriginProduct.POSTHOG_AI: _ai_credits_checker,
+        Task.OriginProduct.POSTHOG_AI: _posthog_ai_checker,
         Task.OriginProduct.USER_CREATED: None,
         Task.OriginProduct.SIGNAL_REPORT: _ai_credits_checker,
     }

@@ -325,7 +325,6 @@ WARM_SANDBOX_FLAGS_BY_ORIGIN_PRODUCT: dict[str, str] = {
 # Origins that warm for every user, with no flag left to evaluate.
 WARM_SANDBOX_UNGATED_ORIGIN_PRODUCTS: frozenset[str] = frozenset(
     {
-        tasks_facade.TaskOriginProduct.POSTHOG_AI,
         tasks_facade.TaskOriginProduct.SIGNAL_REPORT,
     }
 )
@@ -885,7 +884,9 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 and validated_data.get("github_user_integration") is None
             )
             if not is_code_access_exempt and (
-                access_response := code_access_required_response(request, self.organization)
+                access_response := code_access_required_response(
+                    request, self.organization, origin_product=origin_product
+                )
             ):
                 return access_response
             if limit_response := usage_limit_response(request.user, self.team_id):
@@ -1712,6 +1713,8 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         """
         if origin_product in WARM_SANDBOX_UNGATED_ORIGIN_PRODUCTS:
             return True
+        if origin_product == tasks_facade.TaskOriginProduct.POSTHOG_AI:
+            return tasks_access.get_posthog_ai_access_decision(cast(User, self.request.user), self.organization).allowed
         flag = WARM_SANDBOX_FLAGS_BY_ORIGIN_PRODUCT.get(origin_product)
         if flag is None:
             return False
@@ -1777,7 +1780,9 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         code_access_allowed = False
         if origin_product == tasks_facade.TaskOriginProduct.SIGNAL_REPORT:
             code_access_allowed = code_access_required_response(request, self.organization) is None
-        elif access_response := code_access_required_response(request, self.organization):
+        elif access_response := code_access_required_response(
+            request, self.organization, origin_product=origin_product
+        ):
             return access_response
 
         user_id = self._user_id()
