@@ -2,6 +2,7 @@ import { matchesKey } from "@earendil-works/pi-tui";
 import { useApp, useInput } from "ink";
 import { type Dispatch, type SetStateAction, useRef, useState } from "react";
 import { type ActionsLine, actionsSheet, canRun } from "../actions";
+import { track } from "../analytics";
 import { readClipboardImage } from "../clipboard";
 import { type Composer, isAppKey, isTyping } from "../composer";
 import { messageOf } from "../errors";
@@ -106,6 +107,7 @@ export function useKeys({
     }
     clearNotice();
     const next = closeFocused(layout);
+    track("pane closed", { quit: next === "quit" });
     if (next === "quit") exit();
     else setLayout(next);
   };
@@ -122,6 +124,7 @@ export function useKeys({
     // Layout and chats are saved as they change, so quitting loses nothing.
     if (shortcut === "quit") return exit();
     if (shortcut === "reload") {
+      track("reloaded");
       // Set by cli.mjs, which owns the Vite server; absent when the app runs without it.
       (
         globalThis as { __posthogTuiReload?: () => void }
@@ -132,10 +135,10 @@ export function useKeys({
     if (search.open || settings.open) return;
     // Inside a split workspace a new chat joins it as another pane; elsewhere it takes the main view.
     if (shortcut === "newChat") {
+      const inSplit = activeWorkspace(layout).root.kind === "split";
+      track("chat opened", { via: "shortcut", in_split: inSplit });
       setLayout((current) =>
-        activeWorkspace(current).root.kind === "split"
-          ? splitFocused(current, "row")
-          : newChat(current),
+        inSplit ? splitFocused(current, "row") : newChat(current),
       );
       return;
     }
@@ -145,6 +148,7 @@ export function useKeys({
     }
     if (shortcut) {
       const direction = shortcut === "splitDown" ? "column" : "row";
+      track("pane split", { direction, via: "ctrl" });
       setLayout((current) => splitFocused(current, direction));
       return;
     }
@@ -201,6 +205,7 @@ export function useKeys({
   const onKey = (sequence: string): void => {
     const optionSplit = optionSplitFor(sequence);
     if (optionSplit && !search.open && !settings.open) {
+      track("pane split", { direction: optionSplit, via: "option" });
       setLayout((current) => splitFocused(current, optionSplit));
       return;
     }
@@ -216,6 +221,8 @@ export function useKeys({
     // A dropped file goes to the pane under the pointer, which takes focus, like a click would.
     const dropPane = droppedPath(sequence) ? paneAtDrop() : undefined;
     const paneId = dropPane ?? workspace.focusedPaneId;
+    if (droppedPath(sequence))
+      track("file dropped", { on_pane_under_pointer: dropPane !== undefined });
     if (
       dropPane &&
       (dropPane !== workspace.focusedPaneId || layout.focus === "sidebar")
@@ -259,6 +266,11 @@ export function useKeys({
       const turn = runningTurns.current.get(paneId);
       // The chat says "Cancelled" once the turn stops, so only a failed stop needs a notice.
       if (turn && control) {
+        track("turn stopped", {
+          pane_id: paneId,
+          task_id: turn.taskId,
+          run_id: turn.runId,
+        });
         control(turn.taskId, turn.runId)
           .abort()
           .catch((error: unknown) =>

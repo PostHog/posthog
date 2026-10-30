@@ -1,5 +1,6 @@
 import type { Task } from "@posthog/shared";
 import { type Dispatch, type SetStateAction, useEffect, useState } from "react";
+import { track } from "../analytics";
 import { messageOf } from "../errors";
 import { type LayoutState, openTask } from "../layout";
 import { editQuery, type SearchRow, searchRows } from "../search";
@@ -90,6 +91,7 @@ export function useSearch({
       if (key?.kind === "choose") {
         const row = rows?.[index];
         if (!row) return;
+        track("task searched", { query_chars: query.length, picked: index });
         setLayout((current) => openTask(current, row.taskId, row.title));
         setOpen(false);
         return;
