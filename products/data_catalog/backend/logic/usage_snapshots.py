@@ -1,13 +1,18 @@
 """Reads of the usage snapshots that the weekly scan writes."""
 
+import dataclasses
 from collections import Counter
 from collections.abc import Iterable
+from datetime import datetime
 from typing import Any
 from uuid import UUID
+
+from django.db import transaction
 
 import posthoganalytics
 from pydantic import TypeAdapter
 
+from posthog.dataclasses import frozen
 from posthog.models import Team, User
 
 from ..facade.contracts import (
@@ -89,6 +94,30 @@ def _count_outcomes(runs: Iterable[AdjustedRun]) -> FetchOutcomeCounts:
         missed=outcomes[FetchOutcome.MISSED],
         silent=outcomes[FetchOutcome.SILENT],
     )
+
+
+@frozen
+class UsageWindow:
+    start: datetime
+    end: datetime
+
+
+def usage_snapshot_window(team_id: int, snapshot_id: UUID) -> UsageWindow:
+    row = UsageSnapshot.objects.for_team(team_id).only("window_start", "window_end").get(id=snapshot_id)
+    return UsageWindow(start=row.window_start, end=row.window_end)
+
+
+def write_payload_sections(team_id: int, snapshot_id: UUID, **sections: Any) -> None:
+    """Replace the named payload sections and keep every other section.
+
+    The row lock makes a section write from one scan step safe against a concurrent write from
+    another step on the same snapshot.
+    """
+    with transaction.atomic():
+        row = UsageSnapshot.objects.for_team(team_id).select_for_update().get(id=snapshot_id)
+        payload = dataclasses.replace(payload_from_json(row.payload), **sections)
+        row.payload = payload_to_json(payload)
+        row.save(update_fields=["payload"])
 
 
 def _latest_done(team_id: int) -> UsageSnapshot | None:
