@@ -450,7 +450,8 @@ tools:
             For "what needs me", pass `view=for_you` with `sort=priority`. For the next fixable work across the project,
             pass `view=actionable` with `use_priority_preference=true`, `sort=priority`, and `limit=10`. For a personal
             ranked shortlist, such as "my top 10", call inbox-reports-for-me; the prioritizing-my-inbox skill presents
-            that list and falls back to these rows when it is not available. For the work this agent claimed, pass `assignee=me`.
+            that list and falls back to these rows when it is not available. For the work this agent claimed, pass
+            `assignee=me`.
 
             Without `limit`, a page holds up to 100 reports, each with its summary. Read a report's work log with
             inbox-report-artefacts-list before you act on it.
