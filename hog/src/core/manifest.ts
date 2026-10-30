@@ -7,6 +7,7 @@ interface OptionEntry {
     description: string
     takesValue: boolean
     choices?: readonly string[]
+    repeatable?: boolean
 }
 
 export interface ManifestEntry {
@@ -27,6 +28,7 @@ function describeOptions(options: Readonly<Record<string, OptionSpec>>): OptionE
         description: spec.description,
         takesValue: spec.type === 'string',
         choices: spec.type === 'string' ? spec.choices : undefined,
+        repeatable: spec.type === 'string' && spec.multiple === true ? true : undefined,
     }))
 }
 

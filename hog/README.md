@@ -29,6 +29,9 @@ The commands `posthog-cli` keeps under `exp` (`query`, `endpoints`, `logs`, `tas
 | `hog error-tracking release`              | Finds or creates the release for this build. `-o text` prints just its ID.                                              |
 | `hog error-tracking download <id/ref>`    | Downloads a symbol set from PostHog and unpacks it.                                                                     |
 | `hog error-tracking extract <file>`       | Unpacks a symbol set file.                                                                                              |
+| `hog endpoints list`, `get`, `open`       | List your endpoints, show one, or open it in PostHog.                                                                   |
+| `hog endpoints run [name]`                | Runs an endpoint, or the query in a local file with `--file`. `--var name=value` sets variables.                        |
+| `hog endpoints pull`, `diff`, `push`      | Keep endpoints as YAML files: pull them, see how they differ, and push changes. `diff` exits with code 1 on drift.      |
 | `hog schema pull`                         | Generates a typed SDK (TypeScript, Go or Python) from your event definitions, and records it in `posthog.json`.         |
 | `hog schema status`                       | Checks each generated SDK against PostHog. Exits with code 1 when one is missing or out of date.                        |
 | `hog config check`, `hog config schema`   | Check `posthog.json` against its schema, or print the schema.                                                           |
@@ -42,7 +45,6 @@ hog replaces posthog-cli once everything below is done.
 First, the commands that make hog a complete CLI:
 
 - [ ] `hog api skill` and `hog api agents-md`, which install PostHog agent skills and the AGENTS.md snippet.
-- [ ] `hog endpoints`: `list`, `get`, `open`, `run`, `push`, `pull` and `diff`.
 
 Then, once the commands above work:
 
@@ -87,6 +89,7 @@ Point `$schema` at the published schema to get validation in your editor:
 }
 ```
 
+`endpoints.dir` names the folder of endpoint files, so `hog endpoints pull`, `diff` and `push` work without a path.
 `hog schema pull` keeps its entries under `languages` in the snake case posthog-cli uses, so either CLI can regenerate an SDK the other set up.
 posthog-cli rewrites `posthog.json` with only `languages` when it pulls, so it drops the other settings. Restore them from version control after running it.
 

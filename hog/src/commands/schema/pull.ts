@@ -1,19 +1,10 @@
 import { defineCommand } from '@/core/command'
 import { updateConfig, type SchemaLanguage } from '@/core/config'
 import { EXIT_USAGE, HogError } from '@/core/errors'
+import { absolutePath, storedPath } from '@/core/paths'
 import { plural } from '@/core/text'
 
-import {
-    absolutePath,
-    chosenFile,
-    configRoot,
-    fetchDefinitions,
-    isLanguage,
-    LANGUAGE_INFO,
-    LANGUAGES,
-    storedPath,
-    type Language,
-} from './shared'
+import { chosenFile, configRoot, fetchDefinitions, isLanguage, LANGUAGE_INFO, LANGUAGES, type Language } from './shared'
 
 interface PulledLanguage {
     language: Language

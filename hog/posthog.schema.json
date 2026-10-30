@@ -65,6 +65,18 @@
             "additionalProperties": false,
             "description": "Settings for `hog error-tracking`."
         },
+        "endpoints": {
+            "description": "Settings for `hog endpoints`.",
+            "type": "object",
+            "properties": {
+                "dir": {
+                    "description": "The folder of endpoint YAML files, relative to posthog.json. `hog endpoints pull` writes there, and `push` and `diff` read it when no path is passed.",
+                    "type": "string",
+                    "minLength": 1
+                }
+            },
+            "additionalProperties": false
+        },
         "languages": {
             "description": "The typed SDKs `hog schema pull` generates, by language. posthog-cli reads the same entries.",
             "type": "object",

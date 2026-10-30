@@ -28,6 +28,9 @@ const LEGACY_HELP_GROUP = 'Not ported yet (each one prints the posthog-cli comma
 
 function toOption(name: string, spec: OptionSpec): Option {
     const option = new Option(optionFlags(name, spec), spec.description)
+    if (spec.type === 'string' && spec.multiple) {
+        option.argParser((value: string, previous: string[] | undefined) => [...(previous ?? []), value])
+    }
     return spec.type === 'string' && spec.choices ? option.choices(spec.choices) : option
 }
 

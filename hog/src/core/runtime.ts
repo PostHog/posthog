@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { access, mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { access, mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname } from 'node:path'
 
@@ -28,6 +28,10 @@ export interface Runtime {
     exists: (path: string) => Promise<boolean>
     readFile: (path: string) => Promise<string>
     isDirectory: (path: string) => Promise<boolean>
+    // The names of the files directly in a folder, sorted. Folders inside it are left out.
+    listFiles: (folder: string) => Promise<string[]>
+    // The files under `cwd` that match a glob pattern, as paths relative to it, sorted.
+    glob: (pattern: string, cwd: string) => Promise<string[]>
     // Writes a project file, such as a generated SDK, and creates the folders above it.
     writeFile: (path: string, contents: string) => Promise<void>
     writePrivateFile: (path: string, contents: string) => Promise<void>
@@ -89,6 +93,15 @@ export function processRuntime(): Runtime {
                 (stats) => stats.isDirectory(),
                 () => false
             ),
+        listFiles: async (folder) => {
+            const entries = await readdir(folder, { withFileTypes: true })
+            return entries
+                .filter((entry) => entry.isFile())
+                .map((entry) => entry.name)
+                .sort()
+        },
+        glob: async (pattern, cwd) =>
+            (await Array.fromAsync(new Bun.Glob(pattern).scan({ cwd, onlyFiles: true }))).sort(),
         writeFile: async (path, contents) => {
             await mkdir(dirname(path), { recursive: true })
             await writeFile(path, contents)
