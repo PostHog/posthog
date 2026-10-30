@@ -385,7 +385,15 @@ export function createCloud(
       connect: (tokens) => api.connectCodexUserIntegration(tokens),
       disconnect: () => api.disconnectCodexUserIntegration(),
     },
-    mcp: { installations: () => api.getMcpServerInstallations() },
+    mcp: {
+      installations: () => api.getMcpServerInstallations(),
+      install: (options) => api.installCustomMcpServer(options),
+      authorize: (installationId) =>
+        api.authorizeMcpInstallation({
+          installation_id: installationId,
+          install_source: "posthog-code",
+        }),
+    },
     chats: new PiChats(
       api,
       sendMessage,

@@ -46,7 +46,16 @@ import {
   workspaceOf,
 } from "../layout";
 import type { LocalAgent } from "../local";
-import { localMcpServers, type McpClient, mcpSheet } from "../mcp";
+import {
+  addMcpServer,
+  localMcpServers,
+  MCP_AUTHS,
+  type McpClient,
+  mcpAuthSheet,
+  mcpSheet,
+  mcpTextSheet,
+  reauthorizeMcpServer,
+} from "../mcp";
 import { parseSlash } from "../models";
 import { openUrl } from "../openUrl";
 import { type ChatPlace, loadPrefs, savePrefs } from "../prefs";
@@ -386,6 +395,29 @@ export function useSend({
         });
         openModal(paneId, sheet, (index) => {
           closeModal(paneId);
+          const stale = sheet.reauth.get(index);
+          if (stale) {
+            showNotice(
+              `Finish signing in to ${stale.display_name || stale.name} with your browser…`,
+            );
+            reauthorizeMcpServer(mcp, stale, openUrl).then(
+              (signedIn) =>
+                flashNotice(
+                  `${signedIn.display_name || signedIn.name} signed in again`,
+                  here,
+                ),
+              (error: unknown) =>
+                flashNotice(
+                  `Couldn't sign in again: ${messageOf(error)}`,
+                  here,
+                ),
+            );
+            return;
+          }
+          if (index === sheet.addServer) {
+            addServer(paneId);
+            return;
+          }
           if (index !== sheet.relayToggle) return;
           const relay = !loadPrefs().relayLocalMcp;
           savePrefs({ relayLocalMcp: relay });
@@ -401,6 +433,66 @@ export function useSend({
       (error: unknown) =>
         flashNotice(`Couldn't list MCP servers: ${messageOf(error)}`, here),
     );
+  };
+
+  // A typed answer, or a pick, on a sheet of its own; Esc ends the questions.
+  const askText = (paneId: string, sheet: Sheet): Promise<string> =>
+    new Promise((resolve, reject) =>
+      openModal(
+        paneId,
+        sheet,
+        (_, text = "") => resolve(text.trim()),
+        () => reject(new Error("cancelled")),
+      ),
+    );
+  const pickIndex = (paneId: string, sheet: Sheet): Promise<number> =>
+    new Promise((resolve, reject) =>
+      openModal(paneId, sheet, resolve, () => reject(new Error("cancelled"))),
+    );
+
+  // Adds a custom server to the account: its name, its URL, and how it signs in, one sheet each.
+  const addServer = async (paneId: string): Promise<void> => {
+    const here = { taskId: findPane(layout, paneId)?.taskId ?? null };
+    if (!mcp) return;
+    try {
+      const name = await askText(
+        paneId,
+        mcpTextSheet("Add an MCP server", "What is it called?", "Linear"),
+      );
+      if (!name) return;
+      const url = await askText(
+        paneId,
+        mcpTextSheet(
+          `Add ${name}`,
+          "Its MCP URL.",
+          "https://mcp.example.com/mcp",
+        ),
+      );
+      if (!url) return;
+      const auth = MCP_AUTHS[await pickIndex(paneId, mcpAuthSheet())].id;
+      const apiKey =
+        auth === "api_key"
+          ? await askText(
+              paneId,
+              mcpTextSheet(`Add ${name}`, "Its API key.", ""),
+            )
+          : undefined;
+      if (auth === "oauth")
+        showNotice(`Finish signing in to ${name} with your browser…`);
+      track("mcp server added", { auth });
+      const added = await addMcpServer(
+        mcp,
+        { name, url, auth, apiKey },
+        openUrl,
+      );
+      flashNotice(
+        `Added ${added.display_name || added.name}: new chats reach it`,
+        here,
+      );
+    } catch (error) {
+      if (messageOf(error) !== "cancelled")
+        flashNotice(`Couldn't add the server: ${messageOf(error)}`, here);
+    }
   };
 
   // A session's workspaces stay in its account's layout file, so signing out only resets what the screen holds.
@@ -584,7 +676,8 @@ export function useSend({
       return;
     }
     if (slash?.command === "mcp") {
-      openMcpSheet(paneId);
+      if (slash.args.trim() === "add") void addServer(paneId);
+      else openMcpSheet(paneId);
       return;
     }
     if (slash?.command === "login") {
