@@ -7,6 +7,7 @@ import api from 'lib/api'
 import { ActivityLogItem, userNameForLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { Experiment, FeatureFlagBasicType, FeatureFlagType } from '~/types'
 
 import { featureFlagsActivityRetrieve, featureFlagsRetrieve } from 'products/feature_flags/frontend/generated/api'
@@ -178,6 +179,9 @@ export const deletedFlagBannerLogic = kea<deletedFlagBannerLogicType>([
                             `api/projects/${values.currentProjectId}/feature_flags/${props.flagId}`,
                             { deleted: false }
                         )
+                        // Restore gives the flag a new tree entry. A delete from another tab or the API leaves the old entry in this tab's tree.
+                        deleteFromTree('feature_flag', String(props.flagId))
+                        refreshTreeItem('feature_flag', String(props.flagId))
                         // The response carries the restored key, not the one the delete renamed it to.
                         lemonToast.success(`${flag.key} has been restored`)
                         return flag
