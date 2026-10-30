@@ -138,7 +138,7 @@ def _with_source(modality: str, mime_type: str | None, value: object) -> MediaBl
         # and unwrapping nested prefixes would copy the payload once per level.
         header, value = value[len("data:") :].split(";base64,", 1)
         # A declared type beats a generic one in the data URI, as in the trace view.
-        if header and (mime_type is None or mime_type == _GENERIC_MIME_TYPE):
+        if header and (mime_type is None or mime_type.strip().lower() == _GENERIC_MIME_TYPE):
             mime_type = header
     if _REDACTED_RE.match(value) or value.startswith("data:"):
         return MediaBlock(modality=modality, mime_type=mime_type)
