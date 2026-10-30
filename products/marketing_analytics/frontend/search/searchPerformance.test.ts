@@ -2,7 +2,12 @@ import { dayjs } from 'lib/dayjs'
 
 import { ExternalDataSchemaStatus, ExternalDataSource, ExternalDataSourceSchema } from '~/types'
 
-import { searchPerformanceSource, searchPerformanceSourceNotice, selectedSearchSources } from './searchPerformance'
+import {
+    searchPerformanceSource,
+    searchPerformanceSourceNotice,
+    searchTermTablesToEnable,
+    selectedSearchSources,
+} from './searchPerformance'
 
 const schema = (name: string, shouldSync = true, synced = true): ExternalDataSourceSchema =>
     ({
@@ -102,20 +107,27 @@ describe('search performance sources', () => {
         ).toEqual(expected)
     })
 
+    const notice = (message: string, kind: string): object => ({ message: expect.stringContaining(message), kind })
+
     it.each([
-        ['disabled', { should_sync: false }, 'Enable keyword_stats'],
-        ['first sync with a materialized table', { last_synced_at: undefined }, 'first sync'],
-        ['failed', { status: ExternalDataSchemaStatus.Failed }, 'failed'],
-        ['paused', { status: ExternalDataSchemaStatus.Paused }, 'Syncing has stopped'],
-        ['billing limit', { status: 'Billing limits' as ExternalDataSchemaStatus }, 'billing limit'],
-        ['stale', { last_synced_at: dayjs('2025-02-10T12:00:00Z') }, 'out of date'],
-    ])('excludes %s tables and explains how to fix them', (_, overrides, message) => {
+        ['disabled', { should_sync: false }, notice('Enable keyword_stats', 'attention')],
+        ['first sync with a materialized table', { last_synced_at: undefined }, notice('first sync', 'syncing')],
+        ['failed', { status: ExternalDataSchemaStatus.Failed }, notice('failed', 'attention')],
+        ['paused', { status: ExternalDataSchemaStatus.Paused }, notice('Syncing has stopped', 'attention')],
+        [
+            'billing limit',
+            { status: 'Billing limits' as ExternalDataSchemaStatus },
+            notice('billing limit', 'attention'),
+        ],
+        ['stale', { last_synced_at: dayjs('2025-02-10T12:00:00Z') }, notice('out of date', 'attention')],
+        ['synced with no rows', { table: undefined, status: ExternalDataSchemaStatus.Completed }, null],
+    ])('excludes %s tables and explains how to fix them', (_, overrides, expected) => {
         const source = {
             source_type: 'GoogleAds',
             schemas: [schema('keyword'), { ...schema('keyword_stats'), ...overrides }],
         } as ExternalDataSource
         expect(searchPerformanceSource(source)).toBeNull()
-        expect(searchPerformanceSourceNotice(source)).toContain(message)
+        expect(searchPerformanceSourceNotice(source)).toEqual(expected)
     })
 
     it.each([
@@ -140,11 +152,102 @@ describe('search performance sources', () => {
             keywordTable: 'example.keyword',
             statsTable: 'example.keyword_stats',
         })
-        expect(searchPerformanceSourceNotice(source)).toContain(message)
-        expect(searchPerformanceSourceNotice(source)).toContain('Traffic data is available.')
+        expect(searchPerformanceSourceNotice(source)?.message).toContain(message)
+        expect(searchPerformanceSourceNotice(source)?.message).toContain('Traffic data is available.')
         expect(searchPerformanceSourceNotice(source, 'page')).toBeNull()
         source.schemas[2] = schema('keyword_placement_stats')
         expect(searchPerformanceSourceNotice(source)).toBeNull()
+    })
+
+    it.each([
+        [
+            'Search only',
+            [schema('campaign'), schema('search_term_stats')],
+            { sourceType: 'GoogleAds', statsTable: 'example.campaign', searchTermTable: 'example.search_term_stats' },
+        ],
+        [
+            'Performance Max only',
+            [schema('campaign'), schema('performance_max_search_term_stats')],
+            {
+                sourceType: 'GoogleAds',
+                statsTable: 'example.campaign',
+                performanceMaxSearchTermTable: 'example.performance_max_search_term_stats',
+            },
+        ],
+        [
+            'mixed',
+            [schema('campaign'), schema('search_term_stats'), schema('performance_max_search_term_stats')],
+            {
+                sourceType: 'GoogleAds',
+                statsTable: 'example.campaign',
+                searchTermTable: 'example.search_term_stats',
+                performanceMaxSearchTermTable: 'example.performance_max_search_term_stats',
+            },
+        ],
+        [
+            'mixed with Performance Max syncing',
+            [schema('campaign'), schema('search_term_stats'), schema('performance_max_search_term_stats', true, false)],
+            { sourceType: 'GoogleAds', statsTable: 'example.campaign', searchTermTable: 'example.search_term_stats' },
+        ],
+        ['no ready search term table', [schema('campaign'), schema('search_term_stats', false)], null],
+        ['no ready campaign table', [schema('campaign', false), schema('search_term_stats')], null],
+    ])('queries the ready search term tables for a %s account', (_, schemas, expected) => {
+        const source = { source_type: 'GoogleAds', schemas } as ExternalDataSource
+        expect(searchPerformanceSource(source, 'search_term')).toEqual(expected)
+    })
+
+    it.each([
+        ['missing', undefined, expect.stringContaining('Pull new schemas'), [], ''],
+        [
+            'disabled',
+            { should_sync: false },
+            expect.stringContaining('Enable the Performance Max search terms table'),
+            ['pmax-id'],
+            'Enable Performance Max search terms table',
+        ],
+        [
+            'syncing',
+            { last_synced_at: undefined },
+            expect.stringContaining('The Performance Max search terms table is syncing'),
+            [],
+            '',
+        ],
+        ['ready', {}, null, [], ''],
+        ['synced with no rows', { table: undefined, status: ExternalDataSchemaStatus.Completed }, null, [], ''],
+    ])(
+        'asks only for the tables an account needs when the Performance Max table is %s',
+        (_, overrides, message, enableSchemaIds, buttonLabel) => {
+            const schemas = [schema('campaign'), schema('search_term_stats', false)]
+            if (overrides) {
+                schemas.push({ ...schema('performance_max_search_term_stats'), id: 'pmax-id', ...overrides })
+            }
+            const source = { source_type: 'GoogleAds', schemas } as ExternalDataSource
+            const notice = searchPerformanceSourceNotice(source, 'search_term', false, ['PERFORMANCE_MAX', 'DISPLAY'])
+            expect(notice?.message ?? null).toEqual(message)
+            expect(notice?.message ?? '').not.toMatch(/search_term_stats/)
+            expect(searchTermTablesToEnable(source, ['PERFORMANCE_MAX', 'DISPLAY'])).toEqual({
+                schemaIds: enableSchemaIds,
+                buttonLabel,
+            })
+        }
+    )
+
+    it.each([
+        ['an unknown campaign mix', undefined, null],
+        [
+            'Search and Performance Max campaigns',
+            ['SEARCH', 'PERFORMANCE_MAX'],
+            "Enable the search terms table to see search terms from Search campaigns. Enabling it syncs the table's full history.\n" +
+                'The Performance Max search terms table for Performance Max campaigns isn\'t in this source yet. Click "Pull new schemas" in the source settings to add it.',
+        ],
+        ['no Search or Performance Max campaigns', ['DISPLAY'], expect.stringContaining('This account has none.')],
+    ])('explains search terms for %s', (_, channelTypes, message) => {
+        const source = {
+            source_type: 'GoogleAds',
+            schemas: [schema('campaign'), schema('search_term_stats', false)],
+        } as ExternalDataSource
+        const notice = searchPerformanceSourceNotice(source, 'search_term', false, channelTypes)
+        expect(notice?.message ?? null).toEqual(message)
     })
 
     it.each(['keyword', 'page'] as const)(
@@ -159,7 +262,7 @@ describe('search performance sources', () => {
                 ],
             } as ExternalDataSource
             expect(searchPerformanceSource(source, breakdown)).toBeNull()
-            expect(searchPerformanceSourceNotice(source, breakdown)).toContain('out of date')
+            expect(searchPerformanceSourceNotice(source, breakdown)?.message).toContain('out of date')
             expect(searchPerformanceSource(source, breakdown, true)).toEqual({
                 sourceType: 'GoogleSearchConsole',
                 statsTable: 'example.search_analytics_by_query_page',
@@ -168,7 +271,7 @@ describe('search performance sources', () => {
             source.schemas[2].last_synced_at = dayjs('2025-02-10T12:00:00Z')
             expect(searchPerformanceSource(source, breakdown)).toBeNull()
             expect(searchPerformanceSource(source, breakdown, true)).toBeNull()
-            expect(searchPerformanceSourceNotice(source, breakdown, true)).toContain('out of date')
+            expect(searchPerformanceSourceNotice(source, breakdown, true)?.message).toContain('out of date')
         }
     )
 

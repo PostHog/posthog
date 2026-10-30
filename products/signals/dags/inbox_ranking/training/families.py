@@ -21,6 +21,8 @@ from typing import Final, Literal
 from posthog.dataclasses import frozen
 
 from products.signals.backend.ranking.features import (
+    PAIR_BASE_FEATURE_SET,
+    PAIR_USER_HISTORY_FEATURE_SET,
     REPORT_EMBEDDINGS_FEATURE_SET,
     REPORT_EMBEDDINGS_PRIORITY_FEATURE_SET,
     REPORT_EMBEDDINGS_PRIORITY_SOURCES_FEATURE_SET,
@@ -35,6 +37,9 @@ from products.signals.backend.ranking.serving_manifest import DEFAULT_MODEL_KIND
 NN_MODEL_NAME = "nn_v3"
 NN_WITH_PRIO_MODEL_NAME = "nn_with_prio_v2"
 NN_WITH_PRIO_SOURCES_MODEL_NAME = "nn_with_prio_sources_v1"
+NN_PAIR_BASE_MODEL_NAME = "nn_pair_base_v1"
+NN_PAIR_USER_MODEL_NAME = "nn_pair_user_v1"
+PAIR_EXPERIMENT_EXPIRES = datetime.date(2026, 11, 25)
 # The Dagster code locations that train a family: `signals` on the main image, and `signals_ml` on
 # the image that carries torch.
 MAIN_LOCATION = "signals"
@@ -109,6 +114,10 @@ class ModelFamily:
 # `nn_with_prio_v2` is the same network with the report's priority levels as extra report inputs.
 # `nn_with_prio_sources_v1` is an experiment: `nn_with_prio_v2` plus the source products of the
 # report's signals as of the moment, graded against `nn_with_prio_v2`.
+# `nn_pair_base_v1` and `nn_pair_user_v1` are the user-history comparison at pair grain: one network,
+# one input shape, the same pairs and seeds, and the same reviewer flag. The base holds every
+# user-history input at zero, so `nn_pair_user_v1` against it is the uplift of the user's history
+# alone. Both are also read against the report-level `nn_with_prio_v2`.
 MODEL_FAMILIES: tuple[ModelFamily, ...] = (
     ModelFamily(
         name=NN_MODEL_NAME, feature_set=REPORT_EMBEDDINGS_FEATURE_SET, learner=ONNX_MODEL_KIND, location=ML_LOCATION
@@ -127,6 +136,29 @@ MODEL_FAMILIES: tuple[ModelFamily, ...] = (
         experiment=True,
         baseline=NN_WITH_PRIO_MODEL_NAME,
         expires=datetime.date(2026, 11, 11),
+    ),
+    ModelFamily(
+        name=NN_PAIR_BASE_MODEL_NAME,
+        feature_set=PAIR_BASE_FEATURE_SET,
+        learner=ONNX_MODEL_KIND,
+        location=ML_LOCATION,
+        experiment=True,
+        expires=PAIR_EXPERIMENT_EXPIRES,
+        grain=PAIR_GRAIN,
+        heads=PAIR_HEAD_NAMES,
+        reference=NN_WITH_PRIO_MODEL_NAME,
+    ),
+    ModelFamily(
+        name=NN_PAIR_USER_MODEL_NAME,
+        feature_set=PAIR_USER_HISTORY_FEATURE_SET,
+        learner=ONNX_MODEL_KIND,
+        location=ML_LOCATION,
+        experiment=True,
+        baseline=NN_PAIR_BASE_MODEL_NAME,
+        expires=PAIR_EXPERIMENT_EXPIRES,
+        grain=PAIR_GRAIN,
+        heads=PAIR_HEAD_NAMES,
+        reference=NN_WITH_PRIO_MODEL_NAME,
     ),
 )
 NN_FAMILY = next(family for family in MODEL_FAMILIES if family.name == NN_MODEL_NAME)
