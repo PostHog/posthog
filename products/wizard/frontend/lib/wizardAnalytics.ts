@@ -1,4 +1,4 @@
-import type { RunEnvironmentEnumApi, WizardRunApi } from './generated/api.schemas'
+import type { RunEnvironmentEnumApi, WizardRunApi } from '../generated/api.schemas'
 
 export function wizardEventProperties(
     projectId: number | string | null,

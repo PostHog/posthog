@@ -2,7 +2,7 @@ import { MakeLogicType, actions, events, kea, key, listeners, path, props, reduc
 
 import { getWizardRunsStreamRetrieveUrl, wizardRunsList } from '../generated/api'
 import type { WizardRunApi, WizardRunTaskApi, WizardRunTaskListApi } from '../generated/api.schemas'
-import { wizardRunIsActive } from '../wizardRunDisplay'
+import { wizardRunIsActive } from '../lib/wizardRunDisplay'
 
 const RUN_POLL_MS = 30_000
 

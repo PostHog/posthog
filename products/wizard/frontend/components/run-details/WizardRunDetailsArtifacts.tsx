@@ -13,9 +13,9 @@ import {
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
-import type { WizardRunApi, WizardRunArtifactApi, WizardRunGitDiffArtifactApi } from '../generated/api.schemas'
-import { formatArtifactSize } from '../wizardRunDisplay'
-import { WizardRunDiffStats } from './WizardRunDiffStats'
+import type { WizardRunApi, WizardRunArtifactApi, WizardRunGitDiffArtifactApi } from '../../generated/api.schemas'
+import { formatArtifactSize } from '../../lib/wizardRunDisplay'
+import { WizardRunDiffStats } from '../run-diff/WizardRunDiffStats'
 
 export function WizardRunDetailsArtifacts({
     run,
