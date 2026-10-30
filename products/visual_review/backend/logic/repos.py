@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from uuid import UUID
 
+from django.db.models import QuerySet
+
 from ..facade.contracts import UpdateRepoInput
 from ..models import Repo
 from . import errors
@@ -16,8 +18,8 @@ def get_repo(repo_id: UUID, team_id: int) -> Repo:
         raise errors.RepoNotFoundError(f"Repo {repo_id} not found") from e
 
 
-def list_repos_for_team(team_id: int) -> list[Repo]:
-    return list(Repo.objects.filter(team_id=team_id).order_by("-created_at"))
+def list_repos_for_team(team_id: int) -> QuerySet[Repo]:
+    return Repo.objects.filter(team_id=team_id).order_by("-created_at")
 
 
 def create_repo(team_id: int, repo_external_id: int, repo_full_name: str) -> Repo:
