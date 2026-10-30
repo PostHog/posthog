@@ -9228,6 +9228,9 @@ export namespace Schemas {
                         judge_method?:
                             | (("llm" | "decision") | null)
                             | undefined;
+                        reasoning_level?:
+                            | (("minimal" | "low" | "medium" | "high") | null)
+                            | undefined;
                     }
                   | {
                         /**
@@ -12513,6 +12516,7 @@ export namespace Schemas {
      * * `WooPayments` - WooPayments
      * * `Soniox` - Soniox
      * * `Nango` - Nango
+     * * `Fathom` - Fathom
      */
     export type ExternalDataSourceTypeEnum =
         | "Ashby"
@@ -13927,7 +13931,8 @@ export namespace Schemas {
         | "Beacons"
         | "WooPayments"
         | "Soniox"
-        | "Nango";
+        | "Nango"
+        | "Fathom";
     /**
      * * `web` - web
      * * `api` - api
@@ -15351,6 +15356,7 @@ export namespace Schemas {
          * * `WooPayments` - WooPayments
          * * `Soniox` - Soniox
          * * `Nango` - Nango
+         * * `Fathom` - Fathom
          */
         source_type: ExternalDataSourceTypeEnum;
         /**
@@ -19473,6 +19479,9 @@ export namespace Schemas {
             | {
                   prompt: string;
                   judge_method?: (("llm" | "decision") | null) | undefined;
+                  reasoning_level?:
+                      | (("minimal" | "low" | "medium" | "high") | null)
+                      | undefined;
               }
             | { source: string }
             | Partial<{ source: "user_messages" }>;

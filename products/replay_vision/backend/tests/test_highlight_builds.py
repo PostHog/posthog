@@ -5,11 +5,20 @@ from typing import Any
 import time_machine
 from posthog.test.base import BaseTest
 
+from django.utils import timezone
+
 from parameterized import parameterized
 
 from posthog.models import Team
 
-from products.replay_vision.backend.highlight_builds import BUILD_RETENTION, build_highlight_feed, rank_window
+from products.replay_vision.backend.highlight_builds import (
+    BUILD_RETENTION,
+    STALE_AFTER,
+    build_highlight_feed,
+    rank_window,
+    rebuild_changed_feeds,
+    stored_generation,
+)
 from products.replay_vision.backend.models.replay_highlight_feed import (
     ReplayHighlightFeedEntry,
     ReplayHighlightFeedState,
@@ -21,7 +30,7 @@ from products.replay_vision.backend.models.replay_observation import (
 )
 from products.replay_vision.backend.models.replay_observation_rank import RankCategory, ReplayObservationRank
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
-from products.replay_vision.backend.observation_ranks import NewRank, copy_team_ranks, record_ranks
+from products.replay_vision.backend.observation_ranks import NewRank, record_ranks
 from products.replay_vision.backend.tests.helpers import snapshot_for
 from products.replay_vision.backend.watch_rank import ANCHOR_VERSION
 
@@ -211,22 +220,25 @@ class TestHighlightBuilds(BaseTest):
 
         assert ReplayHighlightFeedEntry.objects.for_team(self.team.id).filter(window_days=1).count() == 2
 
-    def test_copy_fills_a_missing_group_from_the_rank_json_once(self) -> None:
-        group = uuid.uuid4()
-        created_at = _NOW - timedelta(minutes=1)
-        observation = self._observation(
-            created_at,
-            watch_rank={"category": "struggle", "contrast": 0.7, "anchor_version": ANCHOR_VERSION, "group": str(group)},
-        )
-        self._observation(created_at, watch_rank={"category": "failure", "contrast": 0.7, "anchor_version": 99})
+    def test_a_stale_build_is_served_and_the_sweep_rebuilds_it_once(self) -> None:
+        self._ranked(10, age=timedelta(hours=1))
+        first = build_highlight_feed(self.team.id, ANCHOR_VERSION)
 
-        copied = copy_team_ranks(self.team.id, ANCHOR_VERSION, _NOW - timedelta(days=1))
-        again = copy_team_ranks(self.team.id, ANCHOR_VERSION, _NOW - timedelta(days=1))
+        with time_machine.travel(_NOW + STALE_AFTER + timedelta(minutes=1), tick=False):
+            served = stored_generation(self.team.id, ANCHOR_VERSION, timezone.now())
+            built = [rebuild_changed_feeds(ANCHOR_VERSION), rebuild_changed_feeds(ANCHOR_VERSION)]
 
-        rank = ReplayObservationRank.objects.for_team(self.team.id).get()
-        assert (copied, again) == (1, 0)
-        assert (rank.observation_id, rank.category, rank.feed_group_id) == (
-            observation.id,
-            RankCategory.STRUGGLE,
-            group,
-        )
+        assert (first, served, built) == (1, 1, [1, 0])
+        assert ReplayHighlightFeedState.objects.for_team(self.team.id).get().generation == 2
+
+    def test_a_load_that_began_before_a_rebuild_stays_on_the_build_it_started_on(self) -> None:
+        self._ranked(10, age=timedelta(hours=1))
+
+        first = stored_generation(self.team.id, ANCHOR_VERSION, _NOW)
+        with time_machine.travel(_NOW + timedelta(minutes=10), tick=False):
+            build_highlight_feed(self.team.id, ANCHOR_VERSION, force=True)
+            later_page = stored_generation(self.team.id, ANCHOR_VERSION, _NOW)
+            new_load = stored_generation(self.team.id, ANCHOR_VERSION, timezone.now())
+
+        assert (first, later_page, new_load) == (1, 1, 2)
+        assert ReplayHighlightFeedEntry.objects.for_team(self.team.id).filter(generation=1).exists()

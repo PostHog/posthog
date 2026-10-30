@@ -262,7 +262,7 @@ def record_batch_duration(source: str, duration_ms: int) -> None:
     ).record(dt.timedelta(milliseconds=duration_ms))
 
 
-DeliveryOutcomeLabel = Literal["sent", "failed", "already_delivered", "busy", "no_transport"]
+DeliveryOutcomeLabel = Literal["sent", "failed", "misconfigured", "already_delivered", "busy", "no_transport"]
 
 _DELIVERIES_DESCRIPTION = "Transitions a delivery handled, by provider, delivery path and outcome"
 _DELIVERY_LAG_DESCRIPTION = "Delay between the check that decided a transition and the send that announced it"
@@ -292,7 +292,8 @@ def increment_deliveries(source: str, provider: str, path: str, outcome: Deliver
 
     `already_delivered` is a retry finding its send done, and `busy` a send that waits on another
     one holding the thread. Neither sent anything, so a rising `sent` with a flat `failed` is the
-    only reading that says alerts reach people.
+    only reading that says alerts reach people. `misconfigured` is a refusal only the destination's
+    owner can fix, so it stays out of `failed`, which measures the platform.
     """
     labels: Attributes = {"source": source, "provider": provider, "path": path, "outcome": outcome}
     try:
