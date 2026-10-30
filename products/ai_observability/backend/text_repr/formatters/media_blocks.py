@@ -9,6 +9,7 @@ _AUDIO_TYPES = frozenset({"audio", "input_audio"})
 _FILE_TYPES = frozenset({"document", "file", "input_file"})
 _GEMINI_DATA_KEYS = ("inline_data", "inlineData", "file_data", "fileData")
 _OTEL_TYPES = frozenset({"blob", "uri"})
+_GENERIC_MIME_TYPE = "application/octet-stream"
 _MIME_KEYS = ("mediaType", "mimeType", "mime_type", "media_type")
 _FILE_SOURCE_KEYS = ("file_data", "file_url", "data", "uri", "url")
 _LINK_SCHEMES = ("https://", "http://", "phaiblob://")
@@ -110,6 +111,7 @@ def _file_block(block: dict) -> MediaBlock:
     if isinstance(source, dict):
         # Anthropic document.
         mime_type, value = source.get("media_type"), source.get("data") or source.get("url")
+        filename = None
     else:
         file = block.get("file")
         # OpenAI chat nests the file, and the Responses API, Gemini and the Vercel AI SDK put it on the block.
@@ -119,7 +121,10 @@ def _file_block(block: dict) -> MediaBlock:
         value = next((fields[key] for key in _FILE_SOURCE_KEYS if fields.get(key)), None)
         if value is None and isinstance(file, str):
             value = file
+        filename = fields.get("filename")
     media = _with_source("file", mime_type if isinstance(mime_type, str) else None, value)
+    if media.mime_type is None and isinstance(filename, str) and filename.lower().endswith(".pdf"):
+        media = replace(media, mime_type="application/pdf")
     # The Vercel AI SDK sends images, audio and video as file parts too.
     modality = media.mime_type.split("/")[0] if media.mime_type else ""
     return replace(media, modality=modality) if modality in ("image", "audio", "video") else media
@@ -132,7 +137,9 @@ def _with_source(modality: str, mime_type: str | None, value: object) -> MediaBl
         # Unwrap one envelope only. Its payload is bytes or a wrapped pointer, never another data URI,
         # and unwrapping nested prefixes would copy the payload once per level.
         header, value = value[len("data:") :].split(";base64,", 1)
-        mime_type = header or mime_type
+        # A declared type beats a generic one in the data URI, as in the trace view.
+        if header and (mime_type is None or mime_type == _GENERIC_MIME_TYPE):
+            mime_type = header
     if _REDACTED_RE.match(value) or value.startswith("data:"):
         return MediaBlock(modality=modality, mime_type=mime_type)
     if value.startswith(_LINK_SCHEMES):

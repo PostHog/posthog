@@ -6,7 +6,7 @@ from unittest.mock import patch
 from posthog.storage.object_storage import ObjectStorageError
 from posthog.temporal.ai_observability.judge_images import MAX_ATTACHMENTS, JudgeImages
 
-from products.ai_observability.backend.llm.images import MAX_PDF_BYTES, AttachmentPart
+from products.ai_observability.backend.llm.images import MAX_IMAGE_BYTES, MAX_PDF_BYTES, AttachmentPart
 from products.ai_observability.backend.text_repr.formatters.media_blocks import MediaBlock, parse_media_block
 
 OBJECT_STORAGE = "products.ai_observability.backend.ai_blobs.object_storage"
@@ -120,10 +120,18 @@ class TestJudgeImagesContent:
                 id="pdf_inline_on_openai",
             ),
             pytest.param(
+                "gemini",
+                "gemini-3-flash",
+                "image%2Fgif",
+                "Not attached, this judge can't read their file type: 1.",
+                None,
+                id="format_rejected_by_provider",
+            ),
+            pytest.param(
                 "openrouter",
                 "any",
                 "application%2Fpdf",
-                "File 1: could not be attached.",
+                "Not attached, this judge can't read their file type: 1.",
                 None,
                 id="pdf_unsupported_provider",
             ),
@@ -159,9 +167,6 @@ class TestJudgeImagesContent:
             pytest.param("together_ai", "any", _pointer("a"), None, id="blob_missing_for_inline"),
             pytest.param(
                 "together_ai", "any", _pointer("a"), ObjectStorageError("head_object failed"), id="storage_error"
-            ),
-            pytest.param(
-                "gemini", "gemini-3-flash", _pointer("a", mime="image%2Fgif"), None, id="format_rejected_by_provider"
             ),
             pytest.param(
                 "gemini",
@@ -243,10 +248,36 @@ class TestJudgeImagesContent:
             patch(f"{OBJECT_STORAGE}.get_presigned_url", return_value="https://signed") as presign,
             patch(f"{OBJECT_STORAGE}.head_object_strict", return_value={"ContentLength": MAX_PDF_BYTES + 1}),
         ):
-            content = images.content(prompt, "anthropic", "claude-haiku-4-5")
+            # Gemini has no image byte limit, so only the PDF cap can reject this one.
+            content = images.content(prompt, "gemini", "gemini-3-flash")
 
         assert {"type": "text", "text": "File 1: not attached, too large."} in content
         presign.assert_not_called()
+
+    def test_attachments_the_judge_cannot_read_take_no_slot(self):
+        images = JudgeImages(team_id=7)
+        image = images.marker(_inline("aa"))
+        pdfs = " ".join(
+            images.marker(MediaBlock(modality="file", url=f"phaiblob://v1/sha256/{i:064x}?mime=application%2Fpdf"))
+            for i in range(MAX_ATTACHMENTS)
+        )
+
+        content = images.content(f"user: {image} {pdfs}", "openrouter", "openai/gpt-5-mini")
+
+        assert content[1:4] == [
+            {"type": "text", "text": "Image 1:"},
+            AttachmentPart(mime_type="image/png", data=base64.b64decode("aa" * 4)),
+            {"type": "text", "text": f"Not attached, this judge can't read their file type: {MAX_ATTACHMENTS}."},
+        ]
+
+    def test_an_inline_image_exactly_at_the_provider_limit_is_attached(self):
+        images = JudgeImages(team_id=7)
+        encoded = base64.b64encode(b"x" * MAX_IMAGE_BYTES["anthropic"]).decode()
+        prompt = f"user: {images.marker(MediaBlock(modality='image', mime_type='image/png', base64_data=encoded))}"
+
+        content = images.content(prompt, "anthropic", "claude-haiku-4-5")
+
+        assert content[1] == {"type": "text", "text": "Image 1:"}
 
     def test_skips_images_whose_marker_was_sampled_out_of_the_prompt(self):
         images = JudgeImages(team_id=7)

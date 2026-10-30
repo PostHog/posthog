@@ -123,8 +123,10 @@ class JudgeImages:
         if not images:
             return user_prompt
 
+        # Attachments this judge can't read take no slot, so they can't push out ones it can.
+        readable = [image for image in images if attachment_transport(provider, model, image.mime_type) is not None]
         # Keep the images referenced last: the newest input and the graded output, even when it repeats an old image.
-        ranked = sorted(images, key=lambda image: user_prompt.rfind(image.marker))
+        ranked = sorted(readable, key=lambda image: user_prompt.rfind(image.marker))
         attachments: dict[str, _Attachment] = {}
         inline_bytes = 0
         for image in reversed(ranked[-MAX_ATTACHMENTS:]):
@@ -140,16 +142,21 @@ class JudgeImages:
             if image.marker not in attachments:
                 continue
             attachment = attachments[image.marker]
-            outcomes[attachment.outcome] += 1
+            outcomes[f"{image.kind}_{attachment.outcome}"] += 1
             if attachment.part is None:
                 label = _NOT_ATTACHED_LABELS[attachment.outcome]
                 parts.append({"type": "text", "text": f"{image.label}: {label}."})
             else:
                 parts.extend([{"type": "text", "text": f"{image.label}:"}, attachment.part])
-        # One line, not one per image: it sits outside the transcript's text budget.
-        if over_limit := len(images) - len(attachments):
+        # One line each, not one per attachment: they sit outside the transcript's text budget.
+        if over_limit := len(readable) - len(attachments):
             outcomes["over_limit"] = over_limit
             parts.append({"type": "text", "text": f"Not attached, over the judge's attachment limit: {over_limit}."})
+        if unreadable := len(images) - len(readable):
+            outcomes["unreadable"] = unreadable
+            parts.append(
+                {"type": "text", "text": f"Not attached, this judge can't read their file type: {unreadable}."}
+            )
         parts.append({"type": "text", "text": user_prompt})
         logger.info("judge_images_attached", provider=provider, model=model, inline_bytes=inline_bytes, **outcomes)
         return parts
@@ -160,7 +167,8 @@ class JudgeImages:
             return _Attachment(outcome="unavailable")
         provider_limit = MAX_PDF_BYTES if image.kind == "file" else MAX_IMAGE_BYTES.get(provider)
         if image.pointer is None:
-            if len(image.base64_data or "") * 3 // 4 > min(inline_budget, provider_limit or inline_budget):
+            encoded = image.base64_data or ""
+            if len(encoded) * 3 // 4 - encoded[-2:].count("=") > min(inline_budget, provider_limit or inline_budget):
                 return _Attachment(outcome="too_large")
             try:
                 data = base64.b64decode(image.base64_data or "", validate=True)

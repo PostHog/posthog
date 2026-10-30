@@ -879,7 +879,7 @@ def call_llm_judge(
             # Handle the rejection outside the except: the provider's error can quote a presigned link, and
             # an active exception reaches the logs through capture_exception and chains onto a retry failure.
             if status is not None:
-                # A model without image input, or an image link the provider could not download.
+                # A model without image or PDF input, or a link the provider could not download.
                 # Grade the plain transcript rather than skip the run.
                 context = {
                     "evaluation_id": evaluation["id"],
@@ -887,10 +887,11 @@ def call_llm_judge(
                     "provider": provider,
                     "model": model,
                     "status": status,
+                    "sent_pdfs": any(isinstance(part, AttachmentPart) and part.is_pdf for part in content),
                 }
                 logger.warning("judge_images_rejected", **context)
                 if not is_byok:
-                    # On a PostHog key this can mean broken presigned links, so keep it visible.
+                    # On a PostHog key this can mean broken presigned links or a refused PDF, so keep it visible.
                     capture_exception(JudgeImagesRejectedError(f"Provider rejected judge images ({status})"), context)
                 response = client.complete(replace(request, messages=[{"role": "user", "content": user_prompt}]))
     except (DecisionEndpointBlockedError, ProviderConfigurationError) as e:
