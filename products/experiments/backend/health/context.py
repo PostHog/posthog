@@ -34,6 +34,7 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFlagChangeKind,
     ExperimentHealthMetricCompileErrorKind,
 )
+from products.experiments.backend.facade.enums import ExposuresPath
 from products.experiments.backend.health.delays import ENDED_FLAG_QUIET_PERIOD, LAST_CALLED_AT_LAG_DURATION
 from products.experiments.backend.hogql_queries.experiment_exposure_query_builder import ExposureSegmentDimension
 from products.experiments.backend.hogql_queries.experiment_query_builder import get_exposure_config_params_for_builder
@@ -326,9 +327,9 @@ class MetricCalculationFailure:
     retriable: bool
     # The effective definition now, in which the wording looks for the names that the message gives.
     definition: Mapping[str, Any]
-    # Whether the metric's query can't use precomputed exposures, because the metric reads a data warehouse table or a
-    # cohort that isn't calculated yet.
-    skips_precomputed_exposures: bool
+    # Where the query read the exposures. None for a failure stored before calculations stored it, and for a query that
+    # failed before it was built.
+    exposures_path: ExposuresPath | None
 
 
 @frozen
@@ -343,6 +344,8 @@ class LatestCalculation:
     failures: tuple[MetricCalculationFailure, ...]
     # The metrics of the experiment now whose result of this calculation the page shows.
     completed_count: int
+    # Where the queries of those results read the exposures, when there is a failure to compare them with.
+    completed_exposures_paths: frozenset[ExposuresPath]
 
 
 @frozen
@@ -366,16 +369,6 @@ class ExposureFilterWithoutColumn:
     key: str
     # Whether the filter comes from the project's test account filters and not from the exposure criteria.
     test_account: bool
-
-
-@frozen
-class ExposureReads:
-    """How the metric queries read the exposures, as far as the settings say."""
-
-    # Whether a metric query reads precomputed exposures, which apply the filters once, unless the failure says that it
-    # skips them. When a precompute fails, any query reads the events, but the stored failure doesn't say so.
-    precomputed: bool
-    filters_without_column: tuple[ExposureFilterWithoutColumn, ...]
 
 
 @frozen
@@ -533,9 +526,9 @@ class HealthContext:
     # None when not loaded or unknown. Only the health endpoints load it, and only for a launched experiment that
     # isn't archived.
     latest_calculation: LatestCalculation | None
-    # None when not loaded or unknown. Only the health endpoints load it, and only when the latest calculation has a
-    # failure.
-    exposure_reads: ExposureReads | None
+    # None when not loaded or unknown. Only the health endpoints load it, and only when no metric of the latest
+    # calculation completed and a failed query read the events.
+    exposure_filters_without_column: tuple[ExposureFilterWithoutColumn, ...] | None
 
 
 def parse_flag_state(
@@ -995,5 +988,5 @@ def load_health_context(
         excluded_variant_keys=frozenset(experiment.excluded_variants or []),
         metric_compiles=None,
         latest_calculation=None,
-        exposure_reads=None,
+        exposure_filters_without_column=None,
     )

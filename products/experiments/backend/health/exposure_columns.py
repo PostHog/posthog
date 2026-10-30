@@ -12,23 +12,17 @@ from posthog.hogql.property import property_to_expr
 from posthog.hogql.property_planner import PropertyAccessPlan, PropertyScope, PropertySourceKind, plan_property_access
 from posthog.hogql.resolver import resolve_types
 from posthog.hogql.transforms.property_types import build_property_swapper
-from posthog.hogql.visitor import TraversingVisitor
+from posthog.hogql.visitor import GetFieldsTraverser
 
 from posthog.exceptions_capture import capture_exception
 from posthog.schema_enums import MaterializationMode
 
-from products.experiments.backend.health.context import (
-    ExposureFilterPropertyType,
-    ExposureFilterWithoutColumn,
-    ExposureReads,
-)
+from products.experiments.backend.health.context import ExposureFilterPropertyType, ExposureFilterWithoutColumn
 from products.experiments.backend.hogql_queries.experiment_query_builder import get_exposure_config_params_for_builder
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     get_test_accounts_filter,
     normalize_to_exposure_criteria,
 )
-from products.experiments.backend.hogql_queries.precompute_policy import team_precompute_skip_reason
-from products.experiments.backend.metric_calculation.config import team_experiments_configs
 from products.experiments.backend.models.experiment import Experiment
 
 _FILTER_TYPES: dict[PropertyScope, ExposureFilterPropertyType] = {
@@ -40,39 +34,21 @@ _FILTER_TYPES: dict[PropertyScope, ExposureFilterPropertyType] = {
 _FLAG_KEY_PROPERTY = "$feature_flag"
 
 
-class _PropertyFields(TraversingVisitor):
-    def __init__(self) -> None:
-        super().__init__()
-        self.fields: list[ast.Field] = []
-
-    def visit_field(self, node: ast.Field) -> None:
-        self.fields.append(node)
-
-
-def load_exposure_reads(experiment: Experiment) -> ExposureReads | None:
-    """How the metric queries read the exposures, with the filters that a read of the events would apply. None when the
-    criteria don't parse or the lookup fails. Never raises."""
-    try:
-        criteria = normalize_to_exposure_criteria(experiment.exposure_criteria)
-    except pydantic.ValidationError:
-        return None
-    try:
-        return ExposureReads(
-            precomputed=_precomputes_exposures(experiment),
-            filters_without_column=_filters_without_column(experiment, criteria),
-        )
-    except Exception as error:
-        capture_exception(error)
-        return None
-
-
-def _precomputes_exposures(experiment: Experiment) -> bool:
-    """Whether a metric query on events reads the exposures from the table that a separate query fills, which applies
-    the exposure filters once. It follows the rules of `ExperimentQueryRunner` that don't depend on the metric."""
-    if experiment.feature_flag.aggregation_group_type_index is not None:
+def _reads_all_properties(plan: PropertyAccessPlan, context: HogQLContext) -> bool:
+    if plan.source.kind != PropertySourceKind.JSON:
         return False
-    config = team_experiments_configs([experiment.team_id])[experiment.team_id]
-    return team_precompute_skip_reason(experiment.team, config, experiment, experiment.exposure_criteria) is None
+    # Before the lazy persons table expands, the planner can't match the columns of the `person` table.
+    if plan.scope == PropertyScope.PERSON and plan.source.table_name is None:
+        metadata = context.property_metadata
+        return (
+            metadata is None
+            or context.modifiers.materializationMode == MaterializationMode.DISABLED
+            or metadata.materialized_column("person", "properties", plan.property_name) is None
+        )
+    # The planner calls a read of the native events table JSON, but each property there is a subcolumn of its own.
+    if plan.source.table_name == "events" and context.uses_new_events_schema():
+        return False
+    return True
 
 
 def _filters_without_column(
@@ -115,9 +91,7 @@ def _filters_without_column(
 
     found: dict[tuple[ExposureFilterPropertyType, str], ExposureFilterWithoutColumn] = {}
     for index, expr in enumerate(where.exprs):
-        visitor = _PropertyFields()
-        visitor.visit(expr)
-        for field in visitor.fields:
+        for field in GetFieldsTraverser(expr).fields:
             plan = plan_property_access(field, context)
             if plan is None or plan.property_name not in named_keys or plan.property_name == _FLAG_KEY_PROPERTY:
                 continue
@@ -132,18 +106,15 @@ def _filters_without_column(
     return tuple(found.values())
 
 
-def _reads_all_properties(plan: PropertyAccessPlan, context: HogQLContext) -> bool:
-    if plan.source.kind != PropertySourceKind.JSON:
-        return False
-    # Before the lazy persons table expands, the planner can't match the columns of the `person` table.
-    if plan.scope == PropertyScope.PERSON and plan.source.table_name is None:
-        metadata = context.property_metadata
-        return (
-            metadata is None
-            or context.modifiers.materializationMode == MaterializationMode.DISABLED
-            or metadata.materialized_column("person", "properties", plan.property_name) is None
-        )
-    # The planner calls a read of the native events table JSON, but each property there is a subcolumn of its own.
-    if plan.source.table_name == "events" and context.uses_new_events_schema():
-        return False
-    return True
+def load_filters_without_column(experiment: Experiment) -> tuple[ExposureFilterWithoutColumn, ...] | None:
+    """The filters of a query that reads the exposures from the events, for each property that the query reads from the
+    JSON of all the properties. None when the criteria don't parse or the lookup fails. Never raises."""
+    try:
+        criteria = normalize_to_exposure_criteria(experiment.exposure_criteria)
+    except pydantic.ValidationError:
+        return None
+    try:
+        return _filters_without_column(experiment, criteria)
+    except Exception as error:
+        capture_exception(error)
+        return None

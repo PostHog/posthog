@@ -14,10 +14,8 @@ from posthog.models.event.new_events_schema import events_route_scope
 from posthog.models.property import TableColumn
 from posthog.schema_enums import MaterializationMode
 
-from products.experiments.backend.health.context import ExposureReads
-from products.experiments.backend.health.exposure_columns import load_exposure_reads
+from products.experiments.backend.health.exposure_columns import load_filters_without_column
 from products.experiments.backend.models.experiment import Experiment
-from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 from ee.clickhouse.materialized_columns.columns import MaterializedColumn, MaterializedColumnDetails
@@ -46,16 +44,13 @@ def _filter(key: str, property_type: str, **rest: Any) -> dict[str, Any]:
 
 
 class TestLoadExposureReads(BaseTest):
-    def _experiment(
-        self, *, filter_test_accounts: bool = True, flag_filters: dict[str, Any] | None = None
-    ) -> Experiment:
+    def _experiment(self, *, filter_test_accounts: bool = True) -> Experiment:
         return Experiment.objects.create(
             team=self.team,
             name="Pricing page",
             feature_flag=FeatureFlag.objects.create(
-                team=self.team, key="pricing-page", created_by=self.user, filters=flag_filters or {}
+                team=self.team, key="pricing-page", created_by=self.user, filters={}
             ),
-            # Long enough for the team's precompute rules to apply.
             start_date=timezone.now() - timedelta(days=3),
             exposure_criteria={
                 "filterTestAccounts": filter_test_accounts,
@@ -179,35 +174,13 @@ class TestLoadExposureReads(BaseTest):
                 return_value=MATERIALIZED_COLUMNS,
             ),
         ):
-            reads = load_exposure_reads(experiment)
+            filters = load_filters_without_column(experiment)
 
-        assert reads is not None
+        assert filters is not None
         self.assertEqual(
-            [
-                f"{found.type}:{found.key}{' (test account)' if found.test_account else ''}"
-                for found in reads.filters_without_column
-            ],
+            [f"{found.type}:{found.key}{' (test account)' if found.test_account else ''}" for found in filters],
             expected,
         )
-
-    @parameterized.expand(
-        [
-            ("project_precomputes", True, {}, True),
-            ("project_does_not_precompute", False, {}, False),
-            ("experiment_counts_groups", True, {"aggregation_group_type_index": 0}, False),
-        ]
-    )
-    def test_says_whether_the_metric_queries_read_precomputed_exposures(
-        self, _name: str, precomputes: bool, flag_filters: dict[str, Any], expected: bool
-    ) -> None:
-        TeamExperimentsConfig.objects.update_or_create(
-            team=self.team, defaults={"experiment_precomputation_enabled": precomputes}
-        )
-
-        reads = load_exposure_reads(self._experiment(flag_filters=flag_filters))
-
-        assert reads is not None
-        self.assertEqual(reads.precomputed, expected)
 
     @parameterized.expand(
         [
@@ -226,14 +199,14 @@ class TestLoadExposureReads(BaseTest):
             (
                 "criteria_have_no_filters",
                 {"filterTestAccounts": False},
-                ExposureReads(precomputed=False, filters_without_column=()),
+                (),
             ),
         ]
     )
-    def test_reads_of_criteria_without_a_filter_to_name(
-        self, _name: str, exposure_criteria: dict[str, Any], expected: ExposureReads | None
+    def test_criteria_without_a_filter_to_name(
+        self, _name: str, exposure_criteria: dict[str, Any], expected: tuple[()] | None
     ) -> None:
         experiment = self._experiment()
         experiment.exposure_criteria = exposure_criteria
 
-        self.assertEqual(load_exposure_reads(experiment), expected)
+        self.assertEqual(load_filters_without_column(experiment), expected)

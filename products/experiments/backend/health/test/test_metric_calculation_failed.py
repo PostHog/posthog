@@ -12,7 +12,6 @@ from parameterized import parameterized
 from posthog.exceptions import ClickHouseClusterMemoryLimitExceeded
 from posthog.models.scoping import team_scope
 
-from products.cohorts.backend.models.cohort import Cohort
 from products.experiments.backend.facade.api import get_experiment_health
 from products.experiments.backend.facade.contracts import (
     ExperimentHealth,
@@ -24,10 +23,10 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthMetricCompileErrorKind,
     ExperimentHealthReaderAccess,
 )
+from products.experiments.backend.facade.enums import ExposuresPath
 from products.experiments.backend.health.checks.metric_calculation_failed import metric_calculation_failed
 from products.experiments.backend.health.context import (
     ExposureFilterWithoutColumn,
-    ExposureReads,
     LatestCalculation,
     MetricCalculationFailure,
     MetricCompileFailure,
@@ -38,7 +37,6 @@ from products.experiments.backend.health.test.factories import ENDED, RUNNING_CO
 from products.experiments.backend.metric_calculation.config import get_metric_calculation_config
 from products.experiments.backend.metric_calculation.results import MetricResultStore
 from products.experiments.backend.models.experiment import Experiment, ExperimentMetricsRecalculation
-from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 CODE = ExperimentHealthFindingCode.METRIC_CALCULATION_FAILED
@@ -51,8 +49,9 @@ NO_QUERIES = ExperimentHealthReaderAccess(
 FINISHED_AT = datetime(2026, 10, 26, 9, 30, tzinfo=UTC)
 OUT_OF_MEMORY = "This query ran out of memory before it could finish."
 PLAN_FILTER = ExposureFilterWithoutColumn(type="group", key="plan", test_account=False)
-READS_EVENTS = ExposureReads(precomputed=False, filters_without_column=(PLAN_FILTER,))
-READS_PRECOMPUTED = ExposureReads(precomputed=True, filters_without_column=(PLAN_FILTER,))
+DIRECT = ExposuresPath.DIRECT_SCAN
+PRECOMPUTED = ExposuresPath.PRECOMPUTED
+NO_CAUSE = (None, 'primary metric "Revenue" failed. Its query needed more memory than PostHog allows for one')
 CLICKHOUSE_MESSAGE = (
     "Code: 215. DB::Exception: Column `properties` is not under aggregate function and not in GROUP BY keys. "
     "In query SELECT properties FROM events"
@@ -67,7 +66,7 @@ def _failure(
     role: str = "primary",
     retriable: bool = True,
     can_quote_evaluation_rules: bool = False,
-    skips_precomputed_exposures: bool = False,
+    exposures_path: ExposuresPath | None = None,
 ) -> MetricCalculationFailure:
     return MetricCalculationFailure(
         metric_id=f"{role}-metric",
@@ -79,18 +78,23 @@ def _failure(
         can_quote_evaluation_rules=can_quote_evaluation_rules,
         retriable=retriable,
         definition={"kind": "ExperimentMetric", "metric_type": "mean"},
-        skips_precomputed_exposures=skips_precomputed_exposures,
+        exposures_path=exposures_path,
     )
 
 
+def _limited(exposures_path: ExposuresPath | None, role: str = "primary") -> MetricCalculationFailure:
+    return _failure(OUT_OF_MEMORY, error_type="out_of_memory", role=role, exposures_path=exposures_path)
+
+
 def _outcome(
-    *failures: MetricCalculationFailure, completed_count: int = 0, **changes: Any
+    *failures: MetricCalculationFailure, completed: tuple[ExposuresPath | None, ...] = (), **changes: Any
 ) -> ExperimentHealthFinding | CheckSkip | None:
     calculation = LatestCalculation(
-        metric_count=len(failures) + completed_count,
+        metric_count=len(failures) + len(completed),
         finished_at=FINISHED_AT,
         failures=failures,
-        completed_count=completed_count,
+        completed_count=len(completed),
+        completed_exposures_paths=frozenset(path for path in completed if path is not None),
     )
     return metric_calculation_failed(replace(RUNNING_CONTEXT, latest_calculation=calculation, **changes))
 
@@ -339,20 +343,17 @@ class TestMetricCalculationFailed(TestCase):
     @parameterized.expand(
         [
             (
-                "every_metric_reached_a_limit_with_an_exposure_filter_without_a_column",
-                (
-                    _failure(OUT_OF_MEMORY, error_type="out_of_memory"),
-                    _failure(OUT_OF_MEMORY, error_type="out_of_memory", role="secondary"),
-                ),
-                0,
-                READS_EVENTS,
+                "every_metric_read_the_events_and_reached_a_limit",
+                (_limited(DIRECT), _limited(DIRECT, "secondary")),
+                (),
+                (PLAN_FILTER,),
                 ("exposure_criteria", 'filter on the group property "plan", which makes each query read all group'),
             ),
             (
-                "one_metric_reached_a_limit_with_an_exposure_filter_without_a_column",
-                (_failure(OUT_OF_MEMORY, error_type="out_of_memory"),),
-                0,
-                READS_EVENTS,
+                "the_only_metric_read_the_events_and_reached_a_limit",
+                (_limited(DIRECT),),
+                (),
+                (PLAN_FILTER,),
                 (
                     "exposure_criteria",
                     'primary metric "Revenue" failed. Its query needed more memory than PostHog allows for one '
@@ -362,17 +363,16 @@ class TestMetricCalculationFailed(TestCase):
             (
                 "two_limits_and_two_filters_of_different_kinds",
                 (
-                    _failure(OUT_OF_MEMORY, error_type="out_of_memory"),
-                    _failure("Limit for rows or bytes to read exceeded", error_type="byte_limit", role="secondary"),
-                ),
-                0,
-                ExposureReads(
-                    precomputed=False,
-                    filters_without_column=(
-                        PLAN_FILTER,
-                        ExposureFilterWithoutColumn(type="event", key="$device", test_account=True),
+                    _limited(DIRECT),
+                    _failure(
+                        "Limit for rows or bytes to read exceeded",
+                        error_type="byte_limit",
+                        role="secondary",
+                        exposures_path=DIRECT,
                     ),
                 ),
+                (),
+                (PLAN_FILTER, ExposureFilterWithoutColumn(type="event", key="$device", test_account=True)),
                 (
                     "exposure_criteria",
                     "Every metric's query needed more resources than PostHog allows for one calculation. The likely "
@@ -382,74 +382,84 @@ class TestMetricCalculationFailed(TestCase):
                 ),
             ),
             (
-                "data_warehouse_metrics_read_the_events_in_a_project_that_precomputes",
-                (_failure(OUT_OF_MEMORY, error_type="out_of_memory", skips_precomputed_exposures=True),),
-                0,
-                READS_PRECOMPUTED,
-                ("exposure_criteria", 'filter on the group property "plan"'),
+                "one_query_read_precomputed_exposures",
+                (_limited(DIRECT), _limited(PRECOMPUTED, "secondary")),
+                (),
+                (PLAN_FILTER,),
+                NO_CAUSE,
             ),
             (
-                "another_metric_completed",
-                (_failure(OUT_OF_MEMORY, error_type="out_of_memory"),),
-                1,
-                READS_EVENTS,
-                ("metric", "while another metric of the experiment returned results. Simplify this metric"),
+                "every_query_read_precomputed_exposures",
+                (_limited(PRECOMPUTED), _limited(PRECOMPUTED, "secondary")),
+                (),
+                (PLAN_FILTER,),
+                NO_CAUSE,
             ),
             (
-                "another_metric_completed_with_precomputed_exposures",
-                (_failure(OUT_OF_MEMORY, error_type="out_of_memory"),),
-                1,
-                READS_PRECOMPUTED,
-                ("metric", "while another metric of the experiment returned results. Simplify this metric"),
+                "failures_do_not_say_where_they_read",
+                (_limited(None), _limited(None, "secondary")),
+                (),
+                (PLAN_FILTER,),
+                NO_CAUSE,
             ),
+            ("no_filter_reads_all_the_properties", (_limited(DIRECT), _limited(DIRECT, "secondary")), (), (), NO_CAUSE),
+            ("filters_could_not_be_read", (_limited(DIRECT), _limited(DIRECT, "secondary")), (), None, NO_CAUSE),
             (
-                "completed_metric_read_the_exposures_another_way",
-                (_failure(OUT_OF_MEMORY, error_type="out_of_memory", skips_precomputed_exposures=True),),
-                1,
-                READS_PRECOMPUTED,
-                (None, 'primary metric "Revenue" failed. Its query needed more memory than PostHog allows for one'),
-            ),
-            (
-                "metric_queries_read_precomputed_exposures",
-                (
-                    _failure(OUT_OF_MEMORY, error_type="out_of_memory"),
-                    _failure(OUT_OF_MEMORY, error_type="out_of_memory", role="secondary"),
-                ),
-                0,
-                READS_PRECOMPUTED,
-                (None, 'primary metric "Revenue" failed. Its query needed more memory than PostHog allows for one'),
-            ),
-            (
-                "every_metric_reached_a_limit_without_an_exposure_filter_without_a_column",
-                (
-                    _failure(OUT_OF_MEMORY, error_type="out_of_memory"),
-                    _failure(OUT_OF_MEMORY, error_type="out_of_memory", role="secondary"),
-                ),
-                0,
-                ExposureReads(precomputed=False, filters_without_column=()),
-                (None, 'primary metric "Revenue" failed. Its query needed more memory than PostHog allows for one'),
+                "a_metric_ran_out_of_the_workflow_time_without_a_stored_read",
+                (_limited(DIRECT), _limited(None, "secondary")),
+                (),
+                (PLAN_FILTER,),
+                ("exposure_criteria", 'filter on the group property "plan", which makes each query read all group'),
             ),
             (
                 "another_metric_failed_for_another_reason",
                 (
-                    _failure(OUT_OF_MEMORY, error_type="out_of_memory"),
-                    _failure("Queries are a little too busy right now.", error_type="rate_limited", role="secondary"),
+                    _limited(DIRECT),
+                    _failure(
+                        "Queries are a little too busy right now.",
+                        error_type="rate_limited",
+                        role="secondary",
+                        exposures_path=DIRECT,
+                    ),
                 ),
-                0,
-                READS_EVENTS,
-                (None, 'primary metric "Revenue" failed. Its query needed more memory than PostHog allows for one'),
+                (),
+                (PLAN_FILTER,),
+                NO_CAUSE,
             ),
+            (
+                "another_metric_completed_the_same_read_of_the_events",
+                (_limited(DIRECT),),
+                (DIRECT,),
+                (PLAN_FILTER,),
+                ("metric", "while another metric of the experiment returned results. Simplify this metric"),
+            ),
+            (
+                "another_metric_completed_the_same_read_of_precomputed_exposures",
+                (_limited(PRECOMPUTED),),
+                (PRECOMPUTED,),
+                None,
+                ("metric", "while another metric of the experiment returned results. Simplify this metric"),
+            ),
+            (
+                "completed_metric_read_the_exposures_another_way",
+                (_limited(DIRECT),),
+                (PRECOMPUTED,),
+                (PLAN_FILTER,),
+                NO_CAUSE,
+            ),
+            ("completed_result_does_not_say_where_it_read", (_limited(DIRECT),), (None,), (PLAN_FILTER,), NO_CAUSE),
+            ("failure_does_not_say_where_it_read", (_limited(None),), (DIRECT,), (PLAN_FILTER,), NO_CAUSE),
         ]
     )
     def test_names_the_cause_of_a_query_limit(
         self,
         _name: str,
         failures: tuple[MetricCalculationFailure, ...],
-        completed_count: int,
-        reads: ExposureReads,
+        completed: tuple[ExposuresPath | None, ...],
+        filters: tuple[ExposureFilterWithoutColumn, ...] | None,
         expected: tuple[str | None, str],
     ) -> None:
-        finding = _outcome(*failures, completed_count=completed_count, exposure_reads=reads)
+        finding = _outcome(*failures, completed=completed, exposure_filters_without_column=filters)
 
         assert isinstance(finding, ExperimentHealthFinding)
         reason, words = expected
@@ -460,7 +470,9 @@ class TestMetricCalculationFailed(TestCase):
         self.assertEqual(bool(finding.actions), names_the_filters)
 
     def test_waits_for_a_metric_that_the_experiment_calculates(self) -> None:
-        calculation = LatestCalculation(metric_count=0, finished_at=None, failures=(), completed_count=0)
+        calculation = LatestCalculation(
+            metric_count=0, finished_at=None, failures=(), completed_count=0, completed_exposures_paths=frozenset()
+        )
 
         outcome = metric_calculation_failed(
             replace(RUNNING_CONTEXT, latest_calculation=calculation, primary_metric_count=0, secondary_metric_count=0)
@@ -538,6 +550,7 @@ class TestMetricCalculationFailedFromStoredRuns(BaseTest):
         metric_errors: dict[str, dict[str, Any]] | None = None,
         failed_rows: tuple[str, ...] = (),
         completed_rows: tuple[str, ...] = (),
+        completed_read_precomputed: bool = False,
     ) -> None:
         with team_scope(self.team.id):
             query_to = created_at + timedelta(minutes=1)
@@ -569,7 +582,7 @@ class TestMetricCalculationFailedFromStoredRuns(BaseTest):
                         calculation_config,
                         window=query_to,
                         query_from=query_from,
-                        result={"variant_results": []},
+                        result={"variant_results": [], "is_precomputed": completed_read_precomputed},
                         query_id=None,
                     )
             terminal = status in (
@@ -612,7 +625,46 @@ class TestMetricCalculationFailedFromStoredRuns(BaseTest):
         self.assertNotIn("purchase_total", finding.detail + str(finding.evidence))
         self.assertIsNone(finding.evidence["metric_2_message"])
 
-    def _reach_a_read_limit(self, metric_uuids: tuple[str, ...], completed_rows: tuple[str, ...] = ()) -> None:
+    @parameterized.expand(
+        [
+            (
+                "every_metric_read_the_events",
+                (),
+                "direct_scan",
+                False,
+                ("exposure_criteria", 'filter on the group property "plan"'),
+            ),
+            (
+                "other_metrics_completed_the_same_read",
+                ("rejected", "secondary"),
+                "direct_scan",
+                False,
+                ("metric", "while other metrics of the experiment returned results"),
+            ),
+            (
+                "other_metrics_read_precomputed_exposures",
+                ("rejected", "secondary"),
+                "direct_scan",
+                True,
+                (None, "read more data than PostHog allows for one calculation"),
+            ),
+            (
+                "failures_stored_without_their_read",
+                (),
+                None,
+                False,
+                (None, "read more data than PostHog allows for one calculation"),
+            ),
+        ]
+    )
+    def test_names_the_cause_of_a_query_limit_from_the_stored_run(
+        self,
+        _name: str,
+        completed_rows: tuple[str, ...],
+        exposures_path: str | None,
+        completed_read_precomputed: bool,
+        expected: tuple[str | None, str],
+    ) -> None:
         self.experiment.exposure_criteria = {
             "exposure_config": {
                 "kind": "ExperimentEventExposureConfig",
@@ -623,29 +675,20 @@ class TestMetricCalculationFailedFromStoredRuns(BaseTest):
             }
         }
         self.experiment.save()
-        read_limit = {"step": "calculation", "message": "Query read too much data", "error_type": "byte_limit"}
+        read_limit = {
+            "step": "calculation",
+            "message": "Query read too much data",
+            "error_type": "byte_limit",
+            "exposures_path": exposures_path,
+        }
         self._run(
             status=ExperimentMetricsRecalculation.Status.FAILED,
             created_at=timezone.now() - timedelta(hours=2),
-            metric_errors=dict.fromkeys(metric_uuids, read_limit),
+            metric_errors={
+                uuid: read_limit for uuid in ("primary", "rejected", "secondary") if uuid not in completed_rows
+            },
             completed_rows=completed_rows,
-        )
-
-    @parameterized.expand(
-        [
-            ("every_metric_reached_a_limit", (), ("exposure_criteria", 'filter on the group property "plan"')),
-            (
-                "other_metrics_completed",
-                ("rejected", "secondary"),
-                ("metric", "while other metrics of the experiment returned results"),
-            ),
-        ]
-    )
-    def test_names_the_cause_of_a_query_limit_from_the_stored_run(
-        self, _name: str, completed_rows: tuple[str, ...], expected: tuple[str, str]
-    ) -> None:
-        self._reach_a_read_limit(
-            tuple(uuid for uuid in ("primary", "rejected", "secondary") if uuid not in completed_rows), completed_rows
+            completed_read_precomputed=completed_read_precomputed,
         )
 
         [finding] = [finding for finding in self._health().findings if finding.code == CODE]
@@ -653,29 +696,6 @@ class TestMetricCalculationFailedFromStoredRuns(BaseTest):
         reason, words = expected
         self.assertEqual(finding.reason, reason)
         self.assertIn(words, finding.detail)
-
-    @parameterized.expand(
-        [
-            ("cohort_not_calculated_yet", None, "exposure_criteria"),
-            ("cohort_calculated", 1, None),
-        ]
-    )
-    def test_a_metric_cohort_can_keep_a_query_from_precomputed_exposures(
-        self, _name: str, cohort_version: int | None, expected_reason: str | None
-    ) -> None:
-        TeamExperimentsConfig.objects.update_or_create(
-            team=self.team, defaults={"experiment_precomputation_enabled": True}
-        )
-        cohort = Cohort.objects.create(team=self.team, name="Buyers", version=cohort_version)
-        metric = _mean("primary")
-        metric["source"]["properties"] = [{"key": "id", "type": "cohort", "value": cohort.pk}]
-        self.experiment.metrics = [metric]
-        self.experiment.metrics_secondary = []
-        self._reach_a_read_limit(("primary",))
-
-        [finding] = [finding for finding in self._health().findings if finding.code == CODE]
-
-        self.assertEqual(finding.reason, expected_reason)
 
     @parameterized.expand(
         [

@@ -22,11 +22,11 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFindingSeverity,
     ExperimentHealthMetricCompileErrorKind,
 )
+from products.experiments.backend.facade.enums import ExposuresPath
 from products.experiments.backend.health.checks.events_received import joined
 from products.experiments.backend.health.checks.metric_cannot_compile import MetricCompileError, word_compile_error
 from products.experiments.backend.health.context import (
     ExposureFilterWithoutColumn,
-    ExposureReads,
     HealthContext,
     LatestCalculation,
     MetricCalculationFailure,
@@ -184,7 +184,7 @@ def metric_calculation_failed(ctx: HealthContext) -> CheckOutcome:
     ]
     if not worded:
         return not_applicable('Reported under "Invalid metric definitions"')
-    worded = _with_query_limit_cause(worded, calculation, ctx.exposure_reads)
+    worded = _with_query_limit_cause(worded, calculation, ctx.exposure_filters_without_column)
     worded.sort(key=lambda item: (item[0].role != "primary", item[1].kind not in _NEEDS_A_FIX))
     count = len(worded)
     exposure_filters = worded[0][1].exposure_filters
@@ -308,14 +308,16 @@ def _simpler(failure: MetricCalculationFailure) -> str:
 def _with_query_limit_cause(
     worded: list[tuple[MetricCalculationFailure, _Wording]],
     calculation: LatestCalculation,
-    reads: ExposureReads | None,
+    filters: tuple[ExposureFilterWithoutColumn, ...] | None,
 ) -> list[tuple[MetricCalculationFailure, _Wording]]:
     """The words of each failure that reached the read, memory or time limit of a query, with the cause that the rest
     of the calculation shows.
 
     Every metric's query reads the exposures. So when another metric of the calculation completed the same read, that
     read fits the limits, and the failing metric's own part of its query reached them. When every metric reached a
-    limit and each query applies a filter that reads all the properties, that filter is the likely cause.
+    limit and a query that read the events applies a filter that reads all the properties, that filter is the likely
+    cause, unless a query read precomputed exposures. A metric that ran out of the workflow's time stores no read, so
+    the other failures show the read.
     """
     limited = {
         failure.metric_id: wording.error
@@ -327,20 +329,18 @@ def _with_query_limit_cause(
     if calculation.completed_count:
         return [
             (failure, _metric_cause(failure, limited[failure.metric_id], calculation.completed_count))
-            if failure.metric_id in limited and _shares_exposure_read(failure, reads)
+            if failure.metric_id in limited and failure.exposures_path in calculation.completed_exposures_paths
             else (failure, wording)
             for failure, wording in worded
         ]
     if (
         limited
         and len(limited) == calculation.metric_count
-        and reads is not None
-        and reads.filters_without_column
-        and all(_applies_exposure_filters(failure, reads) for failure, _ in worded)
+        and filters
+        and {failure.exposures_path for failure, _ in worded} - {None} == {ExposuresPath.DIRECT_SCAN}
     ):
         # With one metric the words name it, as for a failure of the metric.
         every_metric = calculation.metric_count > 1
-        filters = reads.filters_without_column
         explanation = _exposure_explanation(set(limited.values()), filters, every_metric=every_metric)
         return [
             (
@@ -357,16 +357,6 @@ def _with_query_limit_cause(
             for failure, _ in worded
         ]
     return worded
-
-
-def _shares_exposure_read(failure: MetricCalculationFailure, reads: ExposureReads | None) -> bool:
-    """Whether a completed metric read the exposures as this metric did. In a project that precomputes exposures, it
-    can have read them precomputed while this metric reads the events."""
-    return not failure.skips_precomputed_exposures or (reads is not None and not reads.precomputed)
-
-
-def _applies_exposure_filters(failure: MetricCalculationFailure, reads: ExposureReads) -> bool:
-    return failure.skips_precomputed_exposures or not reads.precomputed
 
 
 def _metric_cause(failure: MetricCalculationFailure, limit: str, completed_count: int) -> _Wording:

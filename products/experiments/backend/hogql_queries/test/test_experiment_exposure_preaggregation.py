@@ -34,6 +34,7 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     ensure_precomputed,
 )
 from products.analytics_platform.backend.models import PreaggregationJob
+from products.experiments.backend.facade.enums import ExposuresPath
 from products.experiments.backend.hogql_queries.base_query_utils import experiment_window
 from products.experiments.backend.hogql_queries.experiment_exposures_query_runner import ExperimentExposuresQueryRunner
 from products.experiments.backend.hogql_queries.experiment_query_builder import (
@@ -925,12 +926,17 @@ class TestExperimentExposurePreaggregation(ExperimentQueryRunnerBaseTest):
                 "products.experiments.backend.hogql_queries.experiment_query_runner.capture_exception"
             ) as mock_capture,
         ):
-            result = self._run_experiment(experiment, metric)
+            runner = ExperimentQueryRunner(
+                query=ExperimentQuery(experiment_id=experiment.id, kind="ExperimentQuery", metric=metric),
+                team=self.team,
+            )
+            result = cast(ExperimentQueryResponse, runner.calculate())
 
         assert result.baseline is not None
         assert result.baseline.number_of_samples == 3
         assert result.variant_results is not None
         assert result.variant_results[0].number_of_samples == 3
+        assert runner.exposures_path == ExposuresPath.DIRECT_SCAN
 
         # The fallback keeps the query working, but the precomputation failure must still
         # be surfaced to error tracking rather than silently masked.
