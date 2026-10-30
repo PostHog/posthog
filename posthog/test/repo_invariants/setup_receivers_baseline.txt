@@ -64,6 +64,7 @@ model_activity:products.warehouse_suggestions.backend.activity_logging.handle_wa
 post_delete:ee.vercel.receivers.delete_experiment_experimentation_item
 post_delete:ee.vercel.receivers.delete_resource_experimentation_item
 post_delete:posthog.caching.organization_serializer_cache._connect_invalidation.<locals>.receiver_fn
+post_delete:posthog.caching.team_serializer_cache._connect_invalidation.<locals>.receiver_fn
 post_delete:posthog.models.event_ingestion_restriction_config.delete_redis_cache_with_config
 post_delete:posthog.models.file_system.file_system_mixin.FileSystemSyncMixin.__init_subclass__.<locals>._file_system_post_delete
 post_delete:posthog.models.file_system.file_system_view_log._drop_view_logs_when_file_deleted
@@ -141,6 +142,7 @@ post_save:ee.models.license.license_saved
 post_save:ee.vercel.receivers.sync_experiment_experimentation_item
 post_save:ee.vercel.receivers.sync_feature_flag_experimentation_item
 post_save:posthog.caching.organization_serializer_cache._connect_invalidation.<locals>.receiver_fn
+post_save:posthog.caching.team_serializer_cache._connect_invalidation.<locals>.receiver_fn
 post_save:posthog.models.activity_logging.activity_log.activity_log_created
 post_save:posthog.models.comment.comment.log_comment_activity
 post_save:posthog.models.comment.slack_thread.mirror_comment_reply_to_slack_on_create

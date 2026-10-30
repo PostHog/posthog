@@ -1,5 +1,5 @@
 import uuid
-from typing import Any
+from typing import Any, cast
 
 from posthog.test.base import BaseTest
 
@@ -39,6 +39,10 @@ class FakeTeamSerializer:
         raise AttributeError(name)
 
 
+def cached_context(serializer: FakeTeamSerializer, team: Team, user_id: int) -> dict[str, Any]:
+    return cached_team_app_context(cast(TeamSerializer, serializer), team, user_id)
+
+
 @override_settings(CACHES=LOCMEM_CACHE)
 class TestCachedTeamAppContext(SimpleTestCase):
     def setUp(self) -> None:
@@ -49,8 +53,8 @@ class TestCachedTeamAppContext(SimpleTestCase):
         first = FakeTeamSerializer("first")
         second = FakeTeamSerializer("second")
 
-        cached_team_app_context(first, self.team, user_id=1)
-        actual = cached_team_app_context(second, self.team, user_id=1)
+        cached_context(first, self.team, user_id=1)
+        actual = cached_context(second, self.team, user_id=1)
 
         assert second.builds == 0
         assert actual["name"] == "first"
@@ -66,11 +70,11 @@ class TestCachedTeamAppContext(SimpleTestCase):
         ]
     )
     def test_rebuilds_for(self, _name, change, second_user_id):
-        cached_team_app_context(FakeTeamSerializer("first"), self.team, user_id=1)
+        cached_context(FakeTeamSerializer("first"), self.team, user_id=1)
         change(self.team)
         second = FakeTeamSerializer("second")
 
-        actual = cached_team_app_context(second, self.team, user_id=second_user_id)
+        actual = cached_context(second, self.team, user_id=second_user_id)
 
         assert second.builds == 1
         assert actual["name"] == "second"
@@ -81,10 +85,10 @@ class TestCachedTeamAppContext(SimpleTestCase):
     def test_never_caches_a_team_without_events(self):
         # Ingestion sets ingested_event with raw SQL, so no signal would clear the entry.
         self.team.ingested_event = False
-        cached_team_app_context(FakeTeamSerializer("first"), self.team, user_id=1)
+        cached_context(FakeTeamSerializer("first"), self.team, user_id=1)
         second = FakeTeamSerializer("second")
 
-        cached_team_app_context(second, self.team, user_id=1)
+        cached_context(second, self.team, user_id=1)
 
         assert second.builds == 1
 
