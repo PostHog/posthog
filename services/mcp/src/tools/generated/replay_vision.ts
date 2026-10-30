@@ -373,13 +373,13 @@ const VisionGroupsListSchema = () => {
 
 const visionGroupsList = (): ToolBase<
     ReturnType<typeof VisionGroupsListSchema>,
-    WithAgentNote<Schemas.ClusterList[]>
+    WithAgentNote<Schemas.ClusterList>
 > => ({
     name: 'vision-groups-list',
     schema: VisionGroupsListSchema(),
     handler: async (context: Context, params: z.infer<ReturnType<typeof VisionGroupsListSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.ClusterList[]>({
+        const result = await context.api.request<Schemas.ClusterList>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/groups/`,
             query: {
@@ -1797,13 +1797,13 @@ const VisionThemesListSchema = () => {
 
 const visionThemesList = (): ToolBase<
     ReturnType<typeof VisionThemesListSchema>,
-    WithAgentNote<Schemas.ClusterList[]>
+    WithAgentNote<Schemas.ClusterList>
 > => ({
     name: 'vision-themes-list',
     schema: VisionThemesListSchema(),
     handler: async (context: Context, params: z.infer<ReturnType<typeof VisionThemesListSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.ClusterList[]>({
+        const result = await context.api.request<Schemas.ClusterList>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/themes/`,
             query: {

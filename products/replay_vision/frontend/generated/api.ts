@@ -325,8 +325,8 @@ export const visionGroupsList = async (
     projectId: string,
     params?: VisionGroupsListParams,
     options?: RequestInit
-): Promise<ClusterListApi[]> => {
-    return apiMutator<ClusterListApi[]>(getVisionGroupsListUrl(projectId, params), {
+): Promise<ClusterListApi> => {
+    return apiMutator<ClusterListApi>(getVisionGroupsListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -1783,8 +1783,8 @@ export const visionThemesList = async (
     projectId: string,
     params?: VisionThemesListParams,
     options?: RequestInit
-): Promise<ClusterListApi[]> => {
-    return apiMutator<ClusterListApi[]>(getVisionThemesListUrl(projectId, params), {
+): Promise<ClusterListApi> => {
+    return apiMutator<ClusterListApi>(getVisionThemesListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

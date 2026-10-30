@@ -142,6 +142,11 @@ def summarize_clusters(
         return ClusterPage(results=[], has_more=False)
     column = _MEMBER_COLUMN[kind]
     rows = _readable_ranks(kind, team_id, access, scanner_ids, scope)
+    # A pruned cluster's members keep its id, so they are left out before ranking rather than leaving a short page.
+    live = _CLUSTER_MODEL[kind].objects.for_team(team_id).filter(scanner_id__in=scanner_ids).values("id")
+    rows = rows.filter(
+        **{f"{column}__in": live}
+    )  # nosemgrep: semgrep.rules.security.orm-field-injection -- column comes from the fixed _MEMBER_COLUMN map, never from input
     if cluster_id is not None:
         rows = rows.filter(**{column: cluster_id})
     # Only growth ranks on the window before, so the other orders read the window alone.
@@ -181,30 +186,29 @@ def summarize_clusters(
         .values(
             "id",
             "scanner_id",
-            "created_at",
-            "last_member_at",
             *(["name"] if kind == ClusterKind.THEME else []),
             scanner_name=F("scanner__name"),
         )
     }
-    members = rows.filter(**{f"{column}__in": cluster_ids})
-    weeks = _recent_weeks(members, column, now)
+    members = rows.filter(
+        **{f"{column}__in": cluster_ids}
+    )  # nosemgrep: semgrep.rules.security.orm-field-injection -- column comes from the fixed _MEMBER_COLUMN map, never from input
+    activity = _activity(members, column, now)
     previous = (
         {row["cluster"]: row["previous_count"] for row in page}
         if order == ClusterOrder.GROWTH
         else _counts(members.filter(created_at__gte=window.previous_from, created_at__lt=window.date_from), column)
     )
     window_members = members.filter(created_at__gte=window.date_from, created_at__lt=window.date_to)
-    examples = _examples(window_members, column)
+    examples = _examples(team_id, window_members, column)
     variants = _variant_counts(window_members, column) if by_variant else {}
 
     results = []
     for row in page:
         cluster = clusters.get(row["cluster"])
-        # A pruned cluster's members keep its id, so a row can outlive its cluster.
-        if cluster is None:
+        cluster_activity = activity.get(row["cluster"])
+        if cluster is None or cluster_activity is None:
             continue
-        last_week, week_before = weeks.get(row["cluster"], (0, 0))
         example_ids, example_summary = examples.get(row["cluster"], ([], ""))
         results.append(
             ClusterSummary(
@@ -212,14 +216,7 @@ def summarize_clusters(
                 scanner_id=cluster["scanner_id"],
                 scanner_name=cluster["scanner_name"] or "",
                 name=cluster.get("name") or None,
-                status=cluster_status(
-                    now=now,
-                    # A backfill creates the cluster row after its first members, so the earlier time wins.
-                    first_member_at=min(cluster["created_at"], row["first_seen"]),
-                    last_member_at=cluster["last_member_at"],
-                    last_week=last_week,
-                    week_before=week_before,
-                ),
+                status=cluster_status(now=now, **cluster_activity),
                 observation_count=row["window_count"],
                 people_count=row["people"],
                 previous_observation_count=previous.get(row["cluster"], 0),
@@ -291,22 +288,29 @@ def _counts(members: QuerySet[ReplayObservationRank], column: str) -> dict[uuid.
     return {row["cluster"]: row["n"] for row in members.values(cluster=F(column)).annotate(n=Count("pk"))}
 
 
-def _recent_weeks(
-    members: QuerySet[ReplayObservationRank], column: str, now: datetime
-) -> dict[uuid.UUID, tuple[int, int]]:
+def _activity(members: QuerySet[ReplayObservationRank], column: str, now: datetime) -> dict[uuid.UUID, dict[str, Any]]:
+    """Each cluster's first and last member and its last two weeks, over the members the summary counts."""
     week_ago = now - timedelta(days=7)
-    rows = (
-        members.filter(created_at__gte=now - timedelta(days=14))
-        .values(cluster=F(column))
-        .annotate(
-            last_week=Count("pk", filter=Q(created_at__gte=week_ago)),
-            week_before=Count("pk", filter=Q(created_at__lt=week_ago)),
-        )
+    rows = members.values(cluster=F(column)).annotate(
+        first_member_at=Min("created_at"),
+        last_member_at=Max("created_at"),
+        last_week=Count("pk", filter=Q(created_at__gte=week_ago)),
+        week_before=Count("pk", filter=Q(created_at__gte=now - timedelta(days=14), created_at__lt=week_ago)),
     )
-    return {row["cluster"]: (row["last_week"], row["week_before"]) for row in rows}
+    return {
+        row["cluster"]: {
+            "first_member_at": row["first_member_at"],
+            "last_member_at": row["last_member_at"],
+            "last_week": row["last_week"],
+            "week_before": row["week_before"],
+        }
+        for row in rows
+    }
 
 
-def _examples(members: QuerySet[ReplayObservationRank], column: str) -> dict[uuid.UUID, tuple[list[uuid.UUID], str]]:
+def _examples(
+    team_id: int, members: QuerySet[ReplayObservationRank], column: str
+) -> dict[uuid.UUID, tuple[list[uuid.UUID], str]]:
     """Each cluster's highest-scoring members, and the best one's summary as the fallback label."""
     best = list(
         members.annotate(
@@ -321,9 +325,9 @@ def _examples(members: QuerySet[ReplayObservationRank], column: str) -> dict[uui
     )
     observations = {
         observation.id: observation
-        for observation in ReplayObservation.objects.filter(id__in=[observation_id for _, observation_id in best]).only(
-            "id", "status", "scanner_result", "scanner_snapshot", "error_reason"
-        )
+        for observation in ReplayObservation.objects.filter(
+            team_id=team_id, id__in=[observation_id for _, observation_id in best]
+        ).only("id", "status", "scanner_result", "scanner_snapshot", "error_reason")
     }
     examples: dict[uuid.UUID, tuple[list[uuid.UUID], str]] = {}
     for cluster, observation_id in best:

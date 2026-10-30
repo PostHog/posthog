@@ -4,7 +4,7 @@ from typing import Any
 
 from django.utils.timezone import now
 
-from drf_spectacular.utils import extend_schema, extend_schema_view
+from drf_spectacular.utils import extend_schema, extend_schema_serializer, extend_schema_view
 from rest_framework import serializers, viewsets
 from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.request import Request
@@ -158,6 +158,7 @@ class ClusterSerializer(serializers.Serializer):
     )
 
 
+@extend_schema_serializer(many=False)
 class ClusterListSerializer(serializers.Serializer):
     results = ClusterSerializer(many=True, help_text="Clusters with at least one member in the window.")
     has_more = serializers.BooleanField(help_text="Whether another page follows at `offset + limit`.")
