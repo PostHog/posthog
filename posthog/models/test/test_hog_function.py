@@ -539,6 +539,14 @@ class TestHogFunctionsBackgroundReloading(TestCase, QueryMatchingTest):
         original_bytecode = json.dumps(hog_function.filters["bytecode"])
         assert hog_function.filters.get("bytecode_error") is None
         assert "%@posthog.com%" in original_bytecode
+        managed = HogFunction.objects.create(
+            name="owned test filter",
+            type="destination",
+            team=self.team,
+            managed_by="example_product",
+            filters={"filter_test_accounts": True},
+        )
+        managed_filters = managed.filters
 
         # Update the cohort — the task should recompile with the new filter value
         cohort.filters = {
@@ -556,6 +564,8 @@ class TestHogFunctionsBackgroundReloading(TestCase, QueryMatchingTest):
         new_bytecode = json.dumps(hog_function.filters["bytecode"])
         assert "%@newdomain.com%" in new_bytecode
         assert "%@posthog.com%" not in new_bytecode
+        managed.refresh_from_db()
+        assert managed.filters == managed_filters
 
     def test_cohort_refresh_skips_unrelated_teams(self):
         cohort = Cohort.objects.create(

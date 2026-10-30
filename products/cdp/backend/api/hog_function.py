@@ -94,6 +94,10 @@ MAX_TRANSFORMATIONS_PER_TEAM = 20
 # events, so the enabled cap starts much lower.
 MAX_LOG_TRANSFORMATIONS_PER_TEAM = 5
 
+MANAGED_BY_ANOTHER_PRODUCT_ERROR = (
+    "This destination is managed by another product. Change it from that product instead."
+)
+
 # Per-type caps on *enabled* functions of types that run in the ingestion hot path
 MAX_ENABLED_FUNCTIONS_PER_TEAM_BY_TYPE = {
     HogFunctionType.TRANSFORMATION: MAX_TRANSFORMATIONS_PER_TEAM,
@@ -481,6 +485,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             "draft",
             "draft_updated_at",
             "base_updated_at",
+            "managed_by",
         ]
         read_only_fields = [
             "id",
@@ -494,6 +499,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             "version",
             "draft",
             "draft_updated_at",
+            "managed_by",
         ]
         extra_kwargs = {
             "hog": {
@@ -524,6 +530,9 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             },
             "draft_updated_at": {
                 "help_text": "When config was last staged for review, or null when nothing is staged.",
+            },
+            "managed_by": {
+                "help_text": "Key of the product that owns this function, or null. This API can't change an owned function.",
             },
         }
 
@@ -708,6 +717,11 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         )
 
         instance = cast(Optional[HogFunction], self.context.get("instance", self.instance))
+        managed_by: str | None = self.context.get("managed_by")
+        if isinstance(instance, HogFunction) and instance.managed_by != managed_by:
+            raise PermissionDenied(MANAGED_BY_ANOTHER_PRODUCT_ERROR)
+        if is_create and managed_by:
+            attrs["managed_by"] = managed_by
         current_filters = instance.filters if isinstance(instance, HogFunction) else {}
         proposed_filters = attrs.get("filters", current_filters)
         require_viewer_access_to_added_actions(
@@ -807,7 +821,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             if apply_limit:
                 # Count enabled and non-deleted functions of the same type
                 transformation_count = HogFunction.objects.filter(
-                    team=team, type=hog_type, deleted=False, enabled=True
+                    team=team, type=hog_type, deleted=False, enabled=True, managed_by__isnull=True
                 ).count()
 
                 if transformation_count >= enabled_cap:
@@ -979,7 +993,8 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         # Standard update
         res: HogFunction = super().update(instance, validated_data)
 
-        if res.enabled and res.status.get("state", 0) == HogFunctionState.DISABLED.value:
+        # Product reconciliation must not restart a destination the worker disabled.
+        if res.managed_by is None and res.enabled and res.status.get("state", 0) == HogFunctionState.DISABLED.value:
             res.set_function_status(HogFunctionState.DEGRADED.value)
 
         return res
@@ -1253,7 +1268,7 @@ class HogFunctionViewSet(
         )
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
-        queryset = queryset.exclude(type=HogFunctionType.WAREHOUSE_SOURCE_WEBHOOK.value)
+        queryset = queryset.exclude(type=HogFunctionType.WAREHOUSE_SOURCE_WEBHOOK.value).filter(managed_by__isnull=True)
 
         if not (self.action == "partial_update" and self.request.data.get("deleted") is False):
             # We only want to include deleted functions if we are un-deleting them
@@ -1921,7 +1936,11 @@ class HogFunctionViewSet(
             functions = {
                 str(f.id): f
                 for f in HogFunction.objects.filter(
-                    id__in=function_ids, team=team, type__in=TYPES_WITH_EXECUTION_ORDER, deleted=False
+                    id__in=function_ids,
+                    team=team,
+                    type__in=TYPES_WITH_EXECUTION_ORDER,
+                    deleted=False,
+                    managed_by__isnull=True,
                 )
             }
 
@@ -1977,9 +1996,9 @@ class HogFunctionViewSet(
                     function.save(update_fields=["execution_order", "updated_at"])
 
         # Get final ordered list in a single query
-        transformations = HogFunction.objects.filter(team=team, type=hog_type, deleted=False).order_by(
-            "execution_order"
-        )
+        transformations = HogFunction.objects.filter(
+            team=team, type=hog_type, deleted=False, managed_by__isnull=True
+        ).order_by("execution_order")
 
         serializer = self.get_serializer(transformations, many=True)
         return Response(serializer.data)

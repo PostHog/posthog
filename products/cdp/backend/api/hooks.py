@@ -134,6 +134,7 @@ class HookViewSet(
                 team_id=self.team_id,
                 template_id=template_zapier.id,
                 description__icontains=f"{instance.id}",
+                managed_by__isnull=True,
             )
 
             for fn in fns:
@@ -150,7 +151,7 @@ class HookViewSet(
             # Otherwise we try and delete the hog function by id
             try:
                 hog_function = HogFunction.objects.get(
-                    team_id=self.team_id, template_id=template_zapier.id, id=kwargs["pk"]
+                    team_id=self.team_id, template_id=template_zapier.id, id=kwargs["pk"], managed_by__isnull=True
                 )
                 hog_function.enabled = False
                 hog_function.deleted = True

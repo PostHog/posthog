@@ -7,7 +7,7 @@ from django.conf import settings
 from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_expr
-from posthog.hogql.property import action_to_expr, ast, property_to_expr
+from posthog.hogql.property import GROUP_KEY_PATTERN, action_to_expr, ast, property_to_expr
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 
 from posthog.dataclasses import frozen
@@ -31,6 +31,71 @@ DATA_WAREHOUSE_SOURCES = ("data-warehouse-table", "data-warehouse-view")
 # The warehouse consumer writes the row's table name under this key. Keep it equal to
 # DWH_SOURCE_TABLE_PROPERTY in nodejs/src/cdp/schema/hogflow.ts.
 WAREHOUSE_SOURCE_TABLE_PROPERTY = "$source_table"
+
+
+class FilterPropertyReferences(TraversingVisitor):
+    """Collect the person, event and group properties a filter expression reads, keyed by scope
+    ("event", "person", "group:<index>"). A None name means the expression reads the whole
+    properties object of that scope."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.references: dict[str, list[str | None]] = {}
+        self._lambda_scopes: list[set[str]] = []
+
+    def visit_lambda(self, node: ast.Lambda) -> None:
+        self._lambda_scopes.append(set(node.args))
+        try:
+            super().visit_lambda(node)
+        finally:
+            self._lambda_scopes.pop()
+
+    def visit_array_access(self, node: ast.ArrayAccess) -> None:
+        # properties['plan'] parses as an array access over the bare properties field, which would
+        # otherwise count as a read of the whole object.
+        keys: list[str | int] = []
+        base: ast.Expr = node
+        while isinstance(base, ast.ArrayAccess):
+            if not isinstance(base.property, ast.Constant) or not isinstance(base.property.value, str | int):
+                break
+            keys.insert(0, base.property.value)
+            base = base.array
+        if isinstance(base, ast.Field):
+            self.visit_field(ast.Field(chain=[*base.chain, *keys]))
+            return
+        super().visit_array_access(node)
+
+    def visit_field(self, node: ast.Field) -> None:
+        chain: list[str | int] = list(node.chain)
+        if chain and any(chain[0] in scope for scope in self._lambda_scopes):
+            return
+        if chain and chain[0] == "events":
+            chain = chain[1:]
+        root = chain[0] if chain else None
+        if isinstance(root, str):
+            if root == "elements_chain" or root.startswith("elements_chain_"):
+                chain = ["properties", "$elements_chain", *chain[1:]]
+            elif GROUP_KEY_PATTERN.fullmatch(root):
+                chain = ["properties", *chain]
+        if chain == ["pdi"]:
+            chain[0] = "person"
+        elif chain[:2] == ["pdi", "person"]:
+            chain = chain[1:]
+        scope: str | None = None
+        path: list[str | int] = []
+        if chain and chain[0] == "properties":
+            scope, path = "event", chain[1:]
+        elif chain and chain[0] == "person" and (len(chain) == 1 or chain[1] == "properties"):
+            scope, path = "person", chain[2:]
+        elif chain and isinstance(chain[0], str) and chain[0] in {f"group_{i}" for i in range(5)}:
+            if len(chain) == 1 or chain[1] == "properties":
+                scope, path = "group:" + chain[0].removeprefix("group_"), chain[2:]
+        if scope is not None:
+            name = ".".join(str(part) for part in path) if path else None
+            values = self.references.setdefault(scope, [])
+            if name not in values:
+                values.append(name)
+        super().visit_field(node)
 
 
 class _NestedPropertyKeyResolver(CloningVisitor):
@@ -503,6 +568,36 @@ def _internal_user_settings_url(team_id: int) -> str:
     return f"{site_url}/project/{team_id}/settings/project-customization#internal-user-filtering"
 
 
+class _LowerGroupKeyReferences(CloningVisitor):
+    """Rewrite `group_N.key` into the `$group_N` global. The runtime exposes a group's key only
+    as that global, so the field chain would read nothing."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._lambda_scopes: list[set[str]] = []
+
+    def visit_lambda(self, node: ast.Lambda) -> ast.Lambda:
+        self._lambda_scopes.append(set(node.args))
+        try:
+            return super().visit_lambda(node)
+        finally:
+            self._lambda_scopes.pop()
+
+    def visit_field(self, node: ast.Field) -> ast.Field:
+        field = super().visit_field(node)
+        root = field.chain[0] if field.chain else None
+        if (
+            len(field.chain) == 2
+            and isinstance(root, str)
+            and root.startswith("group_")
+            and "$" + root in FILTER_GLOBALS
+            and field.chain[1] == "key"
+            and not any(root in scope for scope in self._lambda_scopes)
+        ):
+            field.chain = ["$" + root]
+        return field
+
+
 class _LowerConstantMembership(CloningVisitor):
     """Rewrite `x IN (c1, c2, ...)` / `x NOT IN (...)` over constant literals into a coercing
     OR-of-EQ / AND-of-NotEq chain. The Hog VM evaluates the IN/NOT_IN opcode with strict equality
@@ -740,6 +835,13 @@ def compile_filters_bytecode(
         filters["bytecode_error"] = error_msg
 
     return filters
+
+
+def filter_property_references(filters: Optional[dict], team: Team) -> dict[str, list[str | None]]:
+    expr = _LowerGroupKeyReferences().visit(compile_filters_expr(filters, team))
+    references = FilterPropertyReferences()
+    references.visit(expr)
+    return references.references
 
 
 # Realtime Cohort helpers
