@@ -116,22 +116,21 @@ class TestExternalDataSchemaActivityLogging(ActivityLogTestHelper):
         )[0]
         schema = ExternalDataSchema.objects.get(id=schema_id)
 
-        with (
-            patch("products.warehouse_sources.backend.activity_logging.log_activity") as log_activity,
-            self.assertNumQueries(1),
-        ):
-            model_activity_signal.send(
-                sender=ExternalDataSchema,
-                scope="ExternalDataSchema",
-                before_update=None,
-                after_update=schema,
-                activity="updated",
-                user=self.user,
-            )
+        with patch("products.warehouse_sources.backend.activity_logging.log_activity") as log_activity:
+            for expected_queries in (1, 0):
+                with self.assertNumQueries(expected_queries):
+                    model_activity_signal.send(
+                        sender=ExternalDataSchema,
+                        scope="ExternalDataSchema",
+                        before_update=None,
+                        after_update=schema,
+                        activity="updated",
+                        user=self.user,
+                    )
 
-        assert log_activity.call_args.kwargs["organization_id"] == self.organization.id
-        context = log_activity.call_args.kwargs["detail"].context
-        assert (context.source_id, context.source_type) == (str(external_data_source["id"]), "Stripe")
+                assert log_activity.call_args.kwargs["organization_id"] == self.organization.id
+                context = log_activity.call_args.kwargs["detail"].context
+                assert (context.source_id, context.source_type) == (str(external_data_source["id"]), "Stripe")
 
     def test_external_data_schema_relationship_logging(self):
         external_data_source = self.create_external_data_source()

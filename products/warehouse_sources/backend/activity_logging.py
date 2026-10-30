@@ -30,12 +30,14 @@ class ExternalDataSchemaContext(ActivityContextBase):
 
 
 def _source_and_organization_id(schema: ExternalDataSchema) -> tuple[ExternalDataSource, UUID]:
-    if ExternalDataSchema.source.is_cached(schema) and ExternalDataSchema.team.is_cached(schema):
-        return schema.source, schema.team.organization_id
-    # Lazy loads read through `_base_manager` too, so this join finds the same rows the two lazy loads did.
-    source = ExternalDataSource._base_manager.select_related("team").get(pk=schema.source_id)
-    team = source.team if source.team_id == schema.team_id else schema.team
-    return source, team.organization_id
+    if not (ExternalDataSchema.source.is_cached(schema) and ExternalDataSchema.team.is_cached(schema)):
+        # Lazy loads read through `_base_manager` too, so this join finds the same rows the two lazy loads did.
+        source = ExternalDataSource._base_manager.select_related("team").get(pk=schema.source_id)
+        # Fill the relation caches so later saves of this instance skip the lookup.
+        schema.source = source
+        if source.team_id == schema.team_id:
+            schema.team = source.team
+    return schema.source, schema.team.organization_id
 
 
 @mutable_receiver(model_activity_signal, sender=ExternalDataSchema)
