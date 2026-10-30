@@ -10,16 +10,14 @@ import {
     signalsScoutConfigList,
     signalsScoutNotesCreate,
     signalsScoutNotesDestroy,
-    signalsScoutNotesList,
 } from 'products/signals/frontend/generated/api'
 import type { ScoutNoteApi, SignalScoutConfigApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { captureInboxReportAction, captureScoutAction } from '../inboxAnalytics'
-import { withPanelLoadTimeout } from '../utils/panelLoadTimeout'
 import { prettifyScoutSkillName, scoutDisplayName } from '../utils/scoutRunsWindow'
 import { withInboxWriteTimeout } from '../utils/writeTimeout'
 import { inboxReportDetailLogic } from './inboxReportDetailLogic'
-import { NOTES_FETCH_LIMIT } from './scoutNotesLogic'
+import { NOTES_FETCH_LIMIT, fetchScoutNotes } from './scoutNotesLogic'
 
 export interface ReportNotesLogicProps {
     reportId: string
@@ -176,26 +174,12 @@ export const reportNotesLogic = kea<reportNotesLogicType>([
         notes: [
             [] as ScoutNoteApi[],
             {
-                loadNotes: async (_payload: void, breakpoint) => {
-                    const teamId = teamLogic.values.currentTeamId
-                    if (!teamId) {
-                        return []
-                    }
-                    // A save reloads the notes, so the breakpoint on both paths stops an older read
-                    // answering for a newer one.
-                    const notes = await withPanelLoadTimeout('report_notes', (options) =>
-                        signalsScoutNotesList(
-                            String(teamId),
-                            { text: props.reportId, limit: NOTES_FETCH_LIMIT },
-                            options
-                        )
-                    ).catch((error: unknown) => {
-                        breakpoint()
-                        throw error
-                    })
-                    breakpoint()
-                    return notes
-                },
+                loadNotes: async (_payload: void, breakpoint) =>
+                    await fetchScoutNotes(
+                        'report_notes',
+                        { text: props.reportId, limit: NOTES_FETCH_LIMIT },
+                        breakpoint
+                    ),
             },
         ],
         scoutConfigs: [
@@ -356,7 +340,6 @@ export const reportNotesLogic = kea<reportNotesLogicType>([
                 return
             }
             const skillName = values.notes.find((note) => note.id === noteId)?.skill_name
-            // Optimistic: `retiredNoteIds` marks the entry inactive at once; a failed delete undoes it.
             try {
                 await withInboxWriteTimeout('retire_note', (options) =>
                     signalsScoutNotesDestroy(String(teamId), noteId, options)
