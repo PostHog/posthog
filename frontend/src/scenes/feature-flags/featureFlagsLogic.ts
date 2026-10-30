@@ -195,8 +195,7 @@ export interface FlagLogicProps {
 
 type FlagsUpdatingState = Record<number, boolean>
 
-// Shared by the updateFeatureFlag and updateFeatureFlagArchived reducer cases, which track the
-// per-row spinner identically.
+// Shared by the per-row write loaders (update, archive, restore), which track the per-row spinner identically.
 const markFlagUpdating = (state: FlagsUpdatingState, { id }: { id: number }): FlagsUpdatingState => ({
     ...state,
     [id]: true,
