@@ -906,6 +906,23 @@ describe('insightVizDataLogic', () => {
 
             expect((builtInsightVizDataLogic.values.querySource as TrendsQuery).interval).toBe(expectedInterval)
         })
+
+        it.each([
+            [BaseMathType.WeeklyActiveUsers, '-1dStart', '-1dEnd', 'day'],
+            [BaseMathType.MonthlyActiveUsers, '-1h', null, 'day'],
+            [BaseMathType.WeeklyActiveUsers, '2020-01-01', '2024-01-01', 'week'],
+            [BaseMathType.MonthlyActiveUsers, '2020-01-01', '2024-01-01', 'month'],
+        ])('keeps %s off unsupported intervals for range %s..%s', async (math, dateFrom, dateTo, expectedInterval) => {
+            builtInsightVizDataLogic.actions.updateQuerySource({
+                series: [{ kind: NodeKind.EventsNode, event: '$pageview', math }],
+            } as Partial<TrendsQuery>)
+
+            await expectLogic(builtInsightDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateDateRange({ date_from: dateFrom, date_to: dateTo }, true)
+            }).toFinishAllListeners()
+
+            expect((builtInsightVizDataLogic.values.querySource as TrendsQuery).interval).toBe(expectedInterval)
+        })
     })
 
     describe('zoomDateRange', () => {
