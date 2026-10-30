@@ -230,35 +230,28 @@ class TestResaveCohortsCommandSingleTeam(BaseTest):
         for sql in cohort_selects:
             assert 'posthog_team"."event_names"' not in sql
 
-    def test_resave_legacy_groups_cohort_derives_filters_and_condition_type(self):
-        team: Team = self.team
-        cohort = Cohort.objects.create(
-            team=team,
-            name="legacy_groups_cohort",
-            groups=[
-                {
-                    "properties": [
-                        {
-                            "key": "email",
-                            "value": "is_set",
-                            "operator": "is_set",
-                            "type": "person",
-                        }
-                    ]
-                }
-            ],
-            filters=None,
-        )
-        assert cohort.filters is None
-        assert cohort.condition_type is None
+    @parameterized.expand(
+        [
+            (
+                "list_properties",
+                [{"properties": [{"key": "email", "value": "is_set", "operator": "is_set", "type": "person"}]}],
+                ("email", "is_set", "is_set"),
+            ),
+            # Old dict-style groups carry no operator, which filters validation requires.
+            ("dict_properties", [{"properties": {"email": "a@example.com"}}], ("email", "exact", "a@example.com")),
+        ]
+    )
+    def test_resave_legacy_groups_cohort_derives_filters_and_condition_type(
+        self, _name: str, groups: list[dict], expected_leaf: tuple[str, str, str]
+    ) -> None:
+        cohort = Cohort.objects.create(team=self.team, name="legacy_groups_cohort", groups=groups, filters=None)
 
-        call_command("resave_cohorts", team_id=[team.id])
+        call_command("resave_cohorts", team_id=[self.team.id])
 
-        cohort.refresh_from_db()
+        cohort = Cohort.objects.get(pk=cohort.pk)
         assert cohort.filters is not None
-        assert "properties" in cohort.filters
         leaf = cohort.filters["properties"]["values"][0]["values"][0]
-        assert (leaf["key"], leaf["type"], leaf["operator"]) == ("email", "person", "is_set")
+        assert (leaf["key"], leaf["operator"], leaf["value"]) == expected_leaf
         assert cohort.condition_type == {
             "person_properties": True,
             "behavioral": False,

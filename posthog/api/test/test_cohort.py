@@ -214,28 +214,26 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
             self.user,
             "cohort created",
             {
-                "filters": {
-                    "type": "OR",
-                    "values": [
-                        {
-                            "type": "AND",
-                            "values": [{"key": "team_id", "value": "5", "type": "person"}],
-                        }
-                    ],
-                },
+                "filters": ANY,
                 "name_length": 8,
                 "deleted": False,
                 "is_static": False,
-                # The legacy `groups` payload leaves `filters` empty, so neither classification
-                # is computed for it.
-                "cohort_type": None,
-                "condition_type": None,
+                "cohort_type": "realtime",
+                "condition_type": {
+                    "person_properties": True,
+                    "behavioral": False,
+                    "lifecycle": False,
+                    "cohorts": False,
+                },
                 "realtime_enabled": False,
                 "realtime_level": "off",
             },
             team=ANY,
             request=ANY,
         )
+
+        leaf = patch_capture.call_args[0][2]["filters"]["values"][0]["values"][0]
+        self.assertEqual((leaf["key"], leaf["operator"], leaf["value"]), ("team_id", "exact", "5"))
 
         with self.capture_queries_startswith("INSERT INTO cohortpeople") as insert_statements:
             response = self.client.patch(
@@ -264,20 +262,17 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
             self.user,
             "cohort updated",
             {
-                "filters": {
-                    "type": "OR",
-                    "values": [
-                        {
-                            "type": "AND",
-                            "values": [{"key": "team_id", "value": "6", "type": "person"}],
-                        }
-                    ],
-                },
+                "filters": ANY,
                 "name_length": 9,
                 "deleted": False,
                 "is_static": False,
-                "cohort_type": None,
-                "condition_type": None,
+                "cohort_type": "realtime",
+                "condition_type": {
+                    "person_properties": True,
+                    "behavioral": False,
+                    "lifecycle": False,
+                    "cohorts": False,
+                },
                 "realtime_enabled": False,
                 "realtime_level": "off",
                 "updated_by_creator": True,
@@ -285,6 +280,9 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
             team=ANY,
             request=ANY,
         )
+
+        leaf = patch_capture.call_args[0][2]["filters"]["values"][0]["values"][0]
+        self.assertEqual((leaf["key"], leaf["operator"], leaf["value"]), ("team_id", "exact", "6"))
 
     @parameterized.expand(
         [
@@ -571,8 +569,7 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
         )
         self.assertEqual(response.status_code, 201, response.content)
         cohort = Cohort.objects.get(pk=response.json()["id"])
-        self.assertIsNotNone(cohort.filters)
-        self.assertIn("properties", cohort.filters)
+        assert cohort.filters is not None
         leaf = cohort.filters["properties"]["values"][0]["values"][0]
         self.assertEqual((leaf["key"], leaf["type"], leaf["operator"]), ("email", "person", "is_set"))
         self.assertEqual(
@@ -623,22 +620,30 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
         )
         self.assertEqual(patch_res.status_code, 200, patch_res.content)
         cohort = Cohort.objects.get(pk=cohort_id)
+        assert cohort.filters is not None
         leaf = cohort.filters["properties"]["values"][0]["values"][0]
         self.assertEqual(
             (leaf["key"], leaf["type"], leaf["operator"], leaf["value"]), ("name", "person", "exact", "Alice")
         )
 
-    @patch("posthog.api.cohort.legacy_groups_to_filters", return_value=None)
-    def test_create_cohort_with_invalid_legacy_groups_returns_400(self, mock_legacy_groups_to_filters):
+    @parameterized.expand(
+        [
+            # Passes validate_groups, but the behavioral leaf has no time window, so conversion fails.
+            (
+                "unconvertible_behavioral",
+                {"event_type": "events", "key": "$pageview", "value": "performed_event", "type": "behavioral"},
+            ),
+            # Converts, but the filters schema rejects it, as it does when sent as `filters`.
+            ("hogql_leaf", {"type": "hogql", "key": "1 = 1"}),
+        ]
+    )
+    def test_create_cohort_with_invalid_legacy_groups_returns_400(self, _name: str, leaf: dict) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/cohorts",
-            data={
-                "name": "Malformed legacy group cohort",
-                "groups": [{"properties": [{"key": "email", "value": "test@example.com"}]}],
-            },
+            data={"name": "Malformed legacy group cohort", "groups": [{"properties": [leaf]}]},
         )
         self.assertEqual(response.status_code, 400, response.content)
-        self.assertEqual(response.json()["attr"], "groups")
+        self.assertFalse(Cohort.objects.filter(team=self.team, name="Malformed legacy group cohort").exists())
 
     def test_patch_cohort_used_in_flag_rejects_behavioral_groups(self):
         def cohort_filter(cohort_id: int) -> dict[str, Any]:
@@ -663,18 +668,7 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
             created_by=self.user,
         )
 
-        behavioral_groups = [
-            {
-                "properties": [
-                    {
-                        "event_type": "events",
-                        "key": "$pageview",
-                        "value": "performed_event",
-                        "type": "behavioral",
-                    }
-                ]
-            }
-        ]
+        behavioral_groups = [{"event_id": "$pageview", "days": 7}]
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/cohorts/{cohort.pk}",
@@ -2928,28 +2922,19 @@ email@example.org,
                                         "end_date": None,
                                         "event_id": None,
                                         "action_id": None,
-                                        "properties": [
-                                            {
-                                                "key": "prop",
-                                                "type": "person",
-                                                "value": "5",
-                                            }
-                                        ],
+                                        "properties": {"prop": "5"},
                                         "start_date": None,
                                         "count_operator": None,
                                     }
                                 ],
-                                "after": [
-                                    {
-                                        "properties": [
-                                            {
-                                                "key": "prop",
-                                                "type": "person",
-                                                "value": "6",
-                                            }
-                                        ]
-                                    }
-                                ],
+                                "after": [{"properties": {"prop": "6"}}],
+                            },
+                            {
+                                "type": "Cohort",
+                                "action": "changed",
+                                "field": "filters",
+                                "before": mock.ANY,
+                                "after": mock.ANY,
                             },
                         ],
                         "trigger": None,

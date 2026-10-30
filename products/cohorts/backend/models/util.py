@@ -170,6 +170,17 @@ COHORT_STATS_COLLECTION_DELAY_SECONDS = 60  # Short delay to allow query_log to 
 logger = structlog.get_logger(__name__)
 
 
+def _default_missing_operators(node: dict) -> None:
+    # Legacy person properties often omit `operator`, which every evaluator reads as exact.
+    # Filters validation requires it for person filters, so set it explicitly.
+    if node.get("type") in ("AND", "OR"):
+        for child in node.get("values") or []:
+            if isinstance(child, dict):
+                _default_missing_operators(child)
+    elif node.get("type") in ("person", "person_metadata") and node.get("operator") is None:
+        node["operator"] = "exact"
+
+
 def legacy_groups_to_filters(groups: list[dict] | None) -> dict | None:
     """Convert legacy cohort groups into filters format with deepcopy protection."""
     if not groups:
@@ -178,7 +189,13 @@ def legacy_groups_to_filters(groups: list[dict] | None) -> dict | None:
         dummy_cohort = Cohort(filters=None, groups=copy.deepcopy(groups))
         prop_group = dummy_cohort.properties
         if prop_group and prop_group.values:
-            return {"properties": prop_group.to_dict()}
+            properties = prop_group.to_dict()
+            # parse_property_group_data swallows an invalid group into an empty one, so reject any
+            # empty group rather than store filters that match nobody.
+            if not all(properties.get("values") or []):
+                return None
+            _default_missing_operators(properties)
+            return {"properties": properties}
     except Exception:
         logger.warning("cohort_legacy_groups_conversion_failed", exc_info=True)
     return None

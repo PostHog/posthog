@@ -1718,8 +1718,8 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
                     {"groups": "The provided legacy groups could not be converted to cohort filters."}
                 )
 
-            attrs["filters"] = derived_filters
-            self._validate_feature_flag_constraints(derived_filters, cohort_will_be_static=False)
+            # Same schema and feature-flag checks as the `filters` field.
+            attrs["filters"] = self.validate_filters(derived_filters)
 
         parsed_csv = self._parse_csv_upload(attrs)
         if parsed_csv is not None:
