@@ -189,6 +189,16 @@ describe("transcriptFrom turn state", () => {
   });
 });
 
+describe("transcriptFrom last turn", () => {
+  it("reports how long a finished turn took and when it ended", () => {
+    expect(transcriptFrom("pi", PI_LOG).lastTurn).toEqual({
+      durationMs: 5000,
+      endedAt: 6000,
+    });
+    expect(transcriptFrom("pi", PI_LOG.slice(0, -1)).lastTurn).toBeNull();
+  });
+});
+
 describe("withPending", () => {
   const user = (text: string) => ({ kind: "user" as const, id: text, text });
   const reply = { kind: "assistant" as const, id: "a", text: "Done" };
