@@ -18,6 +18,7 @@ from rest_framework.response import Response
 
 from posthog.api.documentation import extend_schema
 from posthog.api.mixins import ValidatedRequest, validated_request
+from posthog.api.pagination import PageLinksSerializer, page_link
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
@@ -109,7 +110,7 @@ class ScoreDefinitionVersionSerializer(serializers.ModelSerializer):
 
 
 @extend_schema_serializer(many=False)
-class ScoreDefinitionVersionPageSerializer(serializers.Serializer):
+class ScoreDefinitionVersionPageSerializer(PageLinksSerializer):
     count = serializers.IntegerField(help_text="Total immutable versions for this scorer.")
     next_cursor = serializers.CharField(allow_null=True, help_text="Continuation cursor, or null on the last page.")
     results = ScoreDefinitionVersionSerializer(many=True, help_text="Versions on this page, newest first.")
@@ -479,7 +480,9 @@ class ScoreDefinitionViewSet(
     def versions(self, request: ValidatedRequest, **kwargs: object) -> Response:
         definition = self.get_object()
         page = _score_definition_version_page(definition, **request.validated_query_data)
-        return Response(ScoreDefinitionVersionPageSerializer(page).data)
+        data = ScoreDefinitionVersionPageSerializer(page).data
+        data["next"] = page_link(request, "cursor", page.next_cursor)
+        return Response(data)
 
     @validated_request(
         query_serializer=EmptyQuerySerializer,
