@@ -18,6 +18,7 @@ from posthog.admin.admins.organization_admin import OrganizationAdmin
 from posthog.admin.admins.project_admin import ProjectAdmin
 from posthog.admin.authorization import DELETION_AUTHORIZED_GROUP
 from posthog.models import Organization, Project
+from posthog.models.organization import tombstone_organization_record
 
 
 def _attach_messages(request) -> None:
@@ -119,6 +120,15 @@ class TestOrganizationAdminTriggerDeletion(BaseTest):
         mock_start.assert_called_once()
         self.organization.refresh_from_db()
         self.assertTrue(self.organization.is_pending_deletion)
+
+    def test_staff_cannot_erase_a_tombstone(self):
+        tombstone_organization_record(str(self.organization.pk))
+        tombstone = Organization.objects_including_soft_deleted.get(pk=self.organization.pk)
+        request = self.factory.get("/admin/posthog/organization/")
+        request.user = self.user
+
+        self.assertFalse(self.admin.has_delete_permission(request, tombstone))
+        self.assertNotIn("delete_selected", self.admin.get_actions(request))
 
     def test_trigger_deletion_display_has_no_inline_onclick_and_carries_csp_nonce(self):
         # Admin pages serve a CSP with no unsafe-inline/unsafe-hashes on script-src, which

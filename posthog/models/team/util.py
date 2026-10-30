@@ -376,12 +376,6 @@ def delete_project_record(project_id: int) -> None:
     Project.objects.filter(id=project_id).delete()
 
 
-def delete_organization_record(organization_id: str) -> None:
-    from posthog.models.organization import Organization
-
-    Organization.objects.filter(id=organization_id).delete()
-
-
 can_enable_actor_on_events = False
 
 

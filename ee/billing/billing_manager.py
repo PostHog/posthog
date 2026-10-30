@@ -471,7 +471,7 @@ class BillingManager:
         }
         previous_retention_months = organization_events_retention_months(organization)
         organization.available_product_features = available_product_features
-        organization.save()
+        organization.save(update_fields=["available_product_features"])
 
         if (
             available_product_features
@@ -700,13 +700,13 @@ class BillingManager:
         """
         Ensure the relevant organization details are up-to-date locally
         """
-        org_modified = False
+        modified_fields: list[str] = []
 
         data = billing_status["customer"]
 
         if data.get("customer_id") and organization.customer_id != data["customer_id"]:
             organization.customer_id = data["customer_id"]
-            org_modified = True
+            modified_fields.append("customer_id")
 
         should_update_org_billing_quotas = False
 
@@ -745,7 +745,7 @@ class BillingManager:
             usage_changed = set_org_usage_summary(organization, new_usage=usage_info)
 
             if usage_changed:
-                org_modified = True
+                modified_fields.append("usage")
 
             should_update_org_billing_quotas = usage_changed or had_quota_limiting_markers
 
@@ -764,12 +764,12 @@ class BillingManager:
             previous_retention_months = organization_events_retention_months(organization)
             organization.available_product_features = data["available_product_features"]
             events_retention_changed = organization_events_retention_months(organization) != previous_retention_months
-            org_modified = True
+            modified_fields.append("available_product_features")
 
         never_drop_data = cast(bool | None, data.get("never_drop_data"))
         if never_drop_data != organization.never_drop_data:
             organization.never_drop_data = never_drop_data
-            org_modified = True
+            modified_fields.append("never_drop_data")
 
         # A missing key (partial or error-path response) must not reset a known value to unknown.
         if "has_active_subscription" in data:
@@ -780,7 +780,7 @@ class BillingManager:
                 has_active_subscription = True
             if has_active_subscription != organization.has_active_subscription:
                 organization.has_active_subscription = has_active_subscription
-                org_modified = True
+                modified_fields.append("has_active_subscription")
 
         customer_trust_scores = data.get("customer_trust_scores", {})
 
@@ -805,10 +805,11 @@ class BillingManager:
             }
             if updated_customer_trust_scores != current_customer_trust_scores:
                 organization.customer_trust_scores = updated_customer_trust_scores
-                org_modified = True
+                modified_fields.append("customer_trust_scores")
 
-        if org_modified:
-            organization.save()
+        # update_fields keeps a stale instance from writing its other columns back, e.g. over a tombstone.
+        if modified_fields:
+            organization.save(update_fields=modified_fields)
 
         if events_retention_changed:
             reconcile_organization_events_retention(organization)

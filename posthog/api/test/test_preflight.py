@@ -347,6 +347,16 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["can_create_org"] is True
 
+    @pytest.mark.skip_on_multitenancy
+    def test_can_create_org_when_the_only_org_is_a_tombstone(self):
+        Organization.objects.all().delete()
+        Organization.objects.create(name="ghost org", is_active=False, is_pending_deletion=True, deleted=True)
+
+        response = self.client.get("/_preflight/")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["can_create_org"] is True
+        assert response.json()["initiated"] is False
+
     @pytest.mark.ee
     @pytest.mark.skip_on_multitenancy
     def test_can_create_org_with_multi_org(self):

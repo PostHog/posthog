@@ -21,7 +21,7 @@ from rest_framework.exceptions import NotAuthenticated
 
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.models.oauth import OAuthApplication
-from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.organization import Organization, OrganizationMembership, tombstone_organization_record
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
@@ -571,6 +571,24 @@ class TestBillingManager(BaseTest):
             {"key": "logs_retention_30d", "name": "30-day logs retention"}
         ]
         assert self.team.logs_settings == {"retention_days": 30}
+
+    def test_update_org_details_on_a_stale_instance_keeps_the_tombstone(self):
+        organization = Organization.objects.get(id=self.organization.id)
+        tombstone_organization_record(str(organization.id))
+        license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123",
+            plan="enterprise",
+            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
+        )
+
+        BillingManager(license).update_org_details(
+            organization, cast(BillingStatus, {"customer": {"never_drop_data": True}})
+        )
+
+        tombstone = Organization.objects_including_soft_deleted.get(id=organization.id)
+        assert tombstone.deleted
+        assert tombstone.name == ""
+        assert tombstone.is_active is False
 
     @patch("ee.billing.billing_manager.http_session.get")
     def test_update_available_product_features_resets_revoked_logs_retention(self, mock_get: MagicMock):

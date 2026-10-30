@@ -1,4 +1,5 @@
 import sys
+import uuid
 from datetime import datetime, timedelta
 from functools import cache as functools_cache
 from typing import TYPE_CHECKING, Any, Literal, Optional, TypedDict, Union
@@ -6,7 +7,7 @@ from typing import TYPE_CHECKING, Any, Literal, Optional, TypedDict, Union
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.core.cache import cache
-from django.db import IntegrityError, models, transaction
+from django.db import IntegrityError, connection, models, transaction
 from django.db.models.query import QuerySet
 from django.db.models.query_utils import Q
 from django.db.models.signals import post_save
@@ -24,7 +25,14 @@ from posthog.constants import INVITE_DAYS_VALIDITY, MAX_SLUG_LENGTH, AvailableFe
 from posthog.dataclasses import frozen
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.personal_api_key import PersonalAPIKey
-from posthog.models.utils import LowercaseSlugField, UUIDTModel, create_with_slug, generate_slug_candidates, sane_repr
+from posthog.models.utils import (
+    DeletedMetaFields,
+    LowercaseSlugField,
+    UUIDTModel,
+    create_with_slug,
+    generate_slug_candidates,
+    sane_repr,
+)
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
@@ -105,6 +113,9 @@ def _enterprise_only_feature_keys() -> frozenset[str]:
 
 
 class OrganizationManager(models.Manager):
+    def get_queryset(self):
+        return super().get_queryset().exclude(deleted=True)
+
     def create(self, *args: Any, **kwargs: Any):
         # Set default_anonymize_ips based on deployment if not explicitly provided
         if "default_anonymize_ips" not in kwargs:
@@ -162,14 +173,20 @@ def default_is_ai_training_opted_in():
     return getattr(settings, "CLOUD_DEPLOYMENT", None) != "EU"
 
 
-class Organization(ModelActivityMixin, UUIDTModel):
+# nosemgrep: no-new-uuidt-models -- an existing model, and its stored ids cannot change.
+class Organization(ModelActivityMixin, DeletedMetaFields, UUIDTModel):
     class Meta:
         indexes = [
             models.Index(
                 fields=["id"],
                 condition=Q(is_active=False),
                 name="org_inactive_id_idx",
-            )
+            ),
+            models.Index(
+                fields=["id"],
+                condition=Q(deleted=True),
+                name="org_deleted_id_idx",
+            ),
         ]
         constraints = [
             models.UniqueConstraint(
@@ -207,6 +224,7 @@ class Organization(ModelActivityMixin, UUIDTModel):
             "Suspected PostHog Desktop abuse. Contact PostHog support if you think this is a mistake.",
             "Desktop abuse",
         )
+        DELETED = "This organization has been deleted.", "Deleted"
 
     members = models.ManyToManyField(
         "posthog.User",
@@ -369,6 +387,8 @@ class Organization(ModelActivityMixin, UUIDTModel):
     )  # DEPRECATED in favor of `OrganizationDomain` model; previously used to allow self-serve account creation based on social login (#5111)
 
     objects: OrganizationManager = OrganizationManager()
+    # Declared second, so `objects` stays the default manager.
+    objects_including_soft_deleted: models.Manager["Organization"] = models.Manager()
 
     is_platform = models.BooleanField(default=False, null=True, blank=True)
 
@@ -376,6 +396,23 @@ class Organization(ModelActivityMixin, UUIDTModel):
         return self.name
 
     __repr__ = sane_repr("name")
+
+    @classmethod
+    def tombstone(cls, organization_id: str, *, customer_id: str | None) -> "Organization":
+        # The name is dropped: it can contain personal data, so the tombstone must not retain it.
+        return cls(
+            id=organization_id,
+            name="",
+            deleted=True,
+            deleted_at=timezone.now(),
+            is_active=False,
+            is_not_active_reason=cls.DeactivationReason.DELETED,
+            is_pending_deletion=True,
+            customer_id=customer_id,
+            # Dead orgs must not authorize AI processing of archived payloads queued before deletion.
+            is_ai_data_processing_approved=False,
+            is_ai_training_opted_in=False,
+        )
 
     @classmethod
     def from_db(cls, db: Any, field_names: Any, values: Any) -> "Organization":
@@ -788,6 +825,48 @@ def _start_billing_active_sync_workflow(organization_id: str) -> None:
     except Exception:
         # The nightly reconciliation realigns billing; never fail the org save.
         logger.warning("billing_active_state_sync_dispatch_failed", organization_id=organization_id, exc_info=True)
+
+
+def tombstone_organization_record(organization_id: str) -> None:
+    """Cascade-delete the Organization row, then re-insert a minimal deleted marker.
+
+    Only the cascade removes every current and future org-scoped child row; the tombstone keeps
+    id/created_at/customer_id. bulk_create fires no signals, so the deletion workflow's billing
+    activity is the real-time flag path.
+
+    FOR UPDATE only serializes against writers that lock this row, like delete_team_records does
+    for teams. A child insert from another transaction that commits after this one still passes its
+    deferred FK check against the tombstone; User.join re-checks deletion state to cover memberships.
+    """
+    with transaction.atomic():
+        # nosemgrep: hot-parent-row-select-for-update -- Organization deletion must block concurrent child inserts.
+        original = (
+            Organization.objects_including_soft_deleted.select_for_update()
+            .filter(id=organization_id)
+            .values("created_at", "customer_id", "deleted")
+            .first()
+        )
+        if original is None or original["deleted"]:
+            return
+        Organization.objects_including_soft_deleted.filter(id=organization_id).delete()
+        # A child row the cascade missed would pass the commit-time FK check against the tombstone's reused pk.
+        connection.check_constraints()
+        tombstone = Organization.tombstone(organization_id, customer_id=original["customer_id"])
+        # Frees the original slug for reuse, exactly like the hard delete did. A user-created org
+        # can legitimately own the first candidate, so fall back to suffixed ones on collision.
+        for candidate in generate_slug_candidates(f"deleted-{uuid.UUID(str(organization_id)).hex}"):
+            tombstone.slug = candidate
+            try:
+                with transaction.atomic():
+                    Organization.objects_including_soft_deleted.bulk_create([tombstone])
+                break
+            except IntegrityError:
+                continue
+        else:
+            # Rolls back the whole block, so the retried activity starts from the live row again.
+            raise RuntimeError(f"Could not allocate a tombstone slug for organization {organization_id}")
+        # update() bypasses auto_now_add, pinning the original creation time.
+        Organization.objects_including_soft_deleted.filter(id=organization_id).update(created_at=original["created_at"])
 
 
 class OrganizationAITerms(Organization):

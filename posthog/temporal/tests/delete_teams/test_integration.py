@@ -74,14 +74,16 @@ def _activities_with_stubs() -> list:
 
 
 def _bootstrap_tenant() -> tuple[str, int]:
-    org, _, team = Organization.objects.bootstrap(None)
+    org, _, team = Organization.objects.bootstrap(None, name="doomed org")
     EarlyAccessFeature.objects.create(team=team, name="to-be-deleted", stage="concept")
     return str(org.id), team.id
 
 
-def _tenant_state(org_id: str, team_id: int) -> dict[str, bool]:
+def _tenant_state(org_id: str, team_id: int) -> dict[str, bool | None]:
+    org = Organization.objects_including_soft_deleted.filter(id=org_id).first()
     return {
-        "org": Organization.objects.filter(id=org_id).exists(),
+        "org": org is not None,
+        "org_deleted": None if org is None else bool(org.deleted),
         "team": Team.objects.filter(id=team_id).exists(),
         "early_access_feature": EarlyAccessFeature.objects.filter(team_id=team_id).exists(),
         "async_deletion": AsyncDeletion.objects.filter(deletion_type=DeletionType.Team, team_id=team_id).exists(),
@@ -103,9 +105,18 @@ async def _execute(workflow, inputs) -> None:
 
 async def test_organization_workflow_deletes_real_rows():
     org_id, team_id = await sync_to_async(_bootstrap_tenant)()
+    original_created_at = await sync_to_async(
+        lambda: Organization.objects.values_list("created_at", flat=True).get(id=org_id)
+    )()
 
     before = await sync_to_async(_tenant_state)(org_id, team_id)
-    assert before == {"org": True, "team": True, "early_access_feature": True, "async_deletion": False}
+    assert before == {
+        "org": True,
+        "org_deleted": False,
+        "team": True,
+        "early_access_feature": True,
+        "async_deletion": False,
+    }
 
     await _execute(
         DeleteOrganizationWorkflow.run,
@@ -119,4 +130,19 @@ async def test_organization_workflow_deletes_real_rows():
     )
 
     after = await sync_to_async(_tenant_state)(org_id, team_id)
-    assert after == {"org": False, "team": False, "early_access_feature": False, "async_deletion": True}
+    assert after == {
+        "org": True,
+        "org_deleted": True,
+        "team": False,
+        "early_access_feature": False,
+        "async_deletion": True,
+    }
+
+    tombstone = await sync_to_async(Organization.objects_including_soft_deleted.get)(id=org_id)
+    assert tombstone.name == ""
+    assert tombstone.slug == f"deleted-{tombstone.id.hex}"
+    assert tombstone.is_active is False
+    assert tombstone.is_not_active_reason == Organization.DeactivationReason.DELETED
+    assert tombstone.is_pending_deletion is True
+    assert tombstone.deleted_at is not None
+    assert tombstone.created_at == original_created_at
