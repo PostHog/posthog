@@ -106,6 +106,12 @@ metrics and CloudWatch ElastiCache metrics.
 - Backs: per-(token, distinct_id) sliding-window rate limiter
 - Falls back to primary Redis when URL is unset
 - Optional read replica: `GLOBAL_RATE_LIMIT_REDIS_READER_URL`
+- Sharding: `GLOBAL_RATE_LIMIT_REDIS_SHARDS` (default `1`, max `2`). At `2`, the per-(token, distinct_id) limiter hashes its keys across `GLOBAL_RATE_LIMIT_REDIS_URL` and a second cluster at `GLOBAL_RATE_LIMIT_REDIS_SHARD_1_URL` (optional replica: `GLOBAL_RATE_LIMIT_REDIS_SHARD_1_READER_URL`)
+  - Capture ignores the shard 1 URLs while the count is `1`. A count of `2` without both writer URLs fails startup
+  - The AI byte limiter always uses the first cluster
+  - A change to the shard count moves most keys to a different cluster, so limits are briefly lenient after the rollout
+  - `global_rate_limiter_read_failing_seconds{redis_idx}` shows read failures per cluster: `0` is the first cluster, `1` is shard 1
+  - Before you blame one cluster, check the shard count of the deployment. With two shards, check CloudWatch for both clusters
 - Toggle: `GLOBAL_RATE_LIMIT_ENABLED` (may be off in some envs during rollout)
 - Metrics: `global_rate_limiter_*` (direct), `capture_events_rerouted_overflow{reason="rate_limited"}` (proxy signal)
 - `global_rate_limiter_window_seconds{scope}` publishes each process's window. capture-analytics and capture-ai share the AI byte budget, so if they disagree on this gauge the shared budget has split
