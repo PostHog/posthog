@@ -1032,20 +1032,36 @@ class TestBillingManager(BaseTest):
         assert self.organization.usage is not None
         assert self.organization.usage["events"]["todays_usage"] == 25
 
+    @parameterized.expand(
+        [
+            ("activate_trial", {"type": "autosubscribe", "target": "boost"}, 6, None),
+            ("cancel_trial", {}, None, 6),
+            ("switch_plan", {"from_product_key": "boost", "to_product_key": "scale"}, 6, None),
+        ]
+    )
     @patch("ee.billing.billing_manager.http_session.get")
     @patch("ee.billing.billing_manager.http_session.post")
-    def test_activate_trial_skips_a_status_queued_before_the_trial(self, mock_post: MagicMock, mock_get: MagicMock):
+    def test_plan_change_skips_a_status_queued_before_it(
+        self,
+        manager_method: str,
+        data: dict[str, Any],
+        limit_before: int | None,
+        limit_after: int | None,
+        mock_post: MagicMock,
+        mock_get: MagicMock,
+    ):
         license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
             key="key123::key123",
             plan="enterprise",
             valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
         )
 
+        def features(projects_limit: int | None) -> list[dict[str, Any]]:
+            return [{"key": "organizations_projects", "name": "Projects", "limit": projects_limit}]
+
         def status(computed_at: str, projects_limit: int | None) -> BillingStatus:
             billing_status = cast(dict[str, Any], self._billing_status(computed_at, events_usage=500))
-            billing_status["customer"]["available_product_features"] = [
-                {"key": "organizations_projects", "name": "Projects", "limit": projects_limit}
-            ]
+            billing_status["customer"]["available_product_features"] = features(projects_limit)
             return cast(BillingStatus, billing_status)
 
         organization = self.organization
@@ -1054,21 +1070,19 @@ class TestBillingManager(BaseTest):
             "recordings": {"usage": 0, "limit": None, "todays_usage": 0},
             "period": ["2026-08-01T00:00:00Z", "2026-09-01T00:00:00Z"],
         }
-        organization.available_product_features = [{"key": "organizations_projects", "name": "Projects", "limit": 6}]
+        organization.available_product_features = features(limit_before)
         organization.save()
         mock_post.return_value.status_code = 200
         mock_post.return_value.json.return_value = {}
         mock_get.return_value.status_code = 200
-        mock_get.return_value.json.return_value = status("2026-08-03T00:00:00Z", projects_limit=None)
+        mock_get.return_value.json.return_value = status("2026-08-03T00:00:00Z", projects_limit=limit_after)
 
         manager = BillingManager(license)
-        manager.activate_trial(organization, {"type": "autosubscribe", "target": "boost"})
-        manager.update_org_details(organization, status("2026-08-02T00:00:00Z", projects_limit=6))
+        getattr(manager, manager_method)(organization, data)
+        manager.update_org_details(organization, status("2026-08-02T00:00:00Z", projects_limit=limit_before))
 
         organization.refresh_from_db()
-        assert organization.available_product_features == [
-            {"key": "organizations_projects", "name": "Projects", "limit": None}
-        ]
+        assert organization.available_product_features == features(limit_after)
         assert organization.usage is not None
         assert organization.usage["billing_status_computed_at"] == "2026-08-03T00:00:00+00:00"
 

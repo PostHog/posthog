@@ -1222,7 +1222,8 @@ class BillingManager:
         )
 
         handle_billing_service_error(res)
-        self.update_available_product_features(organization)
+        # A full status carries `computed_at`, so a status queued before the plan switch can't roll it back.
+        self.get_billing(organization)
 
         return res.json()
 
