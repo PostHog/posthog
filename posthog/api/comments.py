@@ -1229,6 +1229,27 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
             return ""
         return channel.get("name") or ""
 
+    @staticmethod
+    def _existing_mirror_response(slack_thread: CommentSlackThread, channel_id: str) -> Response | None:
+        """Answer a send for a discussion that already has a mirror row, without calling Slack.
+
+        A posted mirror is idempotent: the same channel returns the mapping with no re-post, and
+        another channel is a 400 that names the existing one. A reservation with no posted root is
+        a send still in flight (409) until STALE_SLACK_RESERVATION_GRACE passes. After that it is a
+        crashed send, and None tells the caller to adopt it. send_to_slack calls this before the
+        channel lookup too, so a re-send spends no Slack call and no lookup budget.
+        """
+        if slack_thread.slack_thread_ts:
+            if slack_thread.slack_channel_id != channel_id:
+                raise exceptions.ValidationError(
+                    "This discussion is already mirrored to Slack channel "
+                    f"{slack_thread.slack_channel_id} — a discussion can only sync to one thread"
+                )
+            return Response(CommentSlackThreadSerializer(slack_thread).data)
+        if timezone.now() - slack_thread.created_at < STALE_SLACK_RESERVATION_GRACE:
+            raise Conflict("This discussion is already being sent to Slack — try again shortly")
+        return None
+
     @extend_schema(
         request=SendCommentToSlackSerializer,
         responses=CommentSlackThreadSerializer,
@@ -1259,6 +1280,8 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
             raise exceptions.ValidationError("Replay Vision observation notes cannot be sent to Slack")
         is_ticket_discussion = comment.scope in TICKET_COMMENT_SCOPES
         if is_ticket_discussion:
+            if is_scout_sandbox_request(request):
+                raise exceptions.PermissionDenied("Scouts can't send ticket discussions to Slack.")
             _require_ticket_editor_access(
                 team_id=self.team_id, item_id=comment.item_id, user_access_control=self.user_access_control
             )
@@ -1272,6 +1295,10 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
             integration = IntegrationManager.slack.oauth.get(team.id, integration_id)
         except IntegrationNotFound:
             raise exceptions.ValidationError("Slack integration not found")
+
+        existing = CommentSlackThread.objects.for_team(team.id).filter(source_comment=comment).first()
+        if existing is not None and (response := self._existing_mirror_response(existing, channel_id)):
+            return response
 
         channel_name = self._resolve_slack_channel_name(
             integration, channel_id, cast(User, request.user), workspace_only=is_ticket_discussion
@@ -1294,17 +1321,8 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
             },
         )
         if not created:
-            if slack_thread.slack_thread_ts:
-                if slack_thread.slack_channel_id != channel_id:
-                    raise exceptions.ValidationError(
-                        "This discussion is already mirrored to Slack channel "
-                        f"{slack_thread.slack_channel_id} — a discussion can only sync to one thread"
-                    )
-                # Idempotent: already mirrored to this channel — return the mapping, no re-post.
-                return Response(CommentSlackThreadSerializer(slack_thread).data)
-            if timezone.now() - slack_thread.created_at < STALE_SLACK_RESERVATION_GRACE:
-                # Another request holds the reservation and its root post is still in flight.
-                raise Conflict("This discussion is already being sent to Slack — try again shortly")
+            if response := self._existing_mirror_response(slack_thread, channel_id):
+                return response
             # A reservation this old with no root message is a crashed send that would otherwise
             # block the discussion forever. Adopt it and retry the post; resetting created_at
             # re-bounds the reply backfill to this attempt.
