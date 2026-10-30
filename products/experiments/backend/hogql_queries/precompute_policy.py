@@ -215,6 +215,14 @@ class MetricEventsPrecomputePlan:
         return self.metric_skip_reason is None and self.team_skip_reason is None
 
 
+def metric_events_metric_skip_reason(metric_events: "MetricEventsPrecompute") -> Optional[str]:
+    """The metric and flag rules of the plan. The query runner checks the team gates separately, once."""
+    # The build INSERT references $group_N, which INSERT ... SELECT can't resolve.
+    if metric_events.group_type_index is not None:
+        return "group_aggregation"
+    return metric_events.ineligibility_reason()
+
+
 def metric_events_precompute_plan(
     config: TeamExperimentsConfig, metric_events: "MetricEventsPrecompute"
 ) -> MetricEventsPrecomputePlan:
@@ -223,10 +231,7 @@ def metric_events_precompute_plan(
     recalculation routing. The metric rules run first, so a metric the table cannot serve skips
     the team gates and their cohort query.
     """
-    # The build INSERT references $group_N, which INSERT ... SELECT can't resolve.
-    if metric_events.group_type_index is not None:
-        return MetricEventsPrecomputePlan(metric_skip_reason="group_aggregation")
-    metric_skip_reason = metric_events.ineligibility_reason()
+    metric_skip_reason = metric_events_metric_skip_reason(metric_events)
     if metric_skip_reason is not None:
         return MetricEventsPrecomputePlan(metric_skip_reason=metric_skip_reason)
     experiment = metric_events.experiment

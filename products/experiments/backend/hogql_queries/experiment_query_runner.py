@@ -64,6 +64,7 @@ from products.experiments.backend.hogql_queries.precompute_policy import (
     BLOCKING_PRECOMPUTE_SKIP_REASONS,
     MetricEventsPrecomputePlan,
     ensure_exposures_precomputed,
+    metric_events_metric_skip_reason,
     metric_events_precompute_plan,
     team_precompute_skip_reason,
 )
@@ -290,11 +291,9 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         return metric_events_precompute_plan(self._team_experiments_config, self._metric_events_precompute)
 
     def _builds_metric_events(self) -> bool:
-        if self.query.precomputation_mode == PrecomputationMode.DIRECT:
-            return False
-        if self.query.precomputation_mode == PrecomputationMode.PRECOMPUTED:
-            return self.metric_events_precompute_plan.metric_skip_reason is None
-        return self.metric_events_precompute_plan.reads_precomputed
+        # The caller already passed _should_precompute, which applies the team gates of the plan and the
+        # precomputation_mode override, so only the metric rules are left. Their cohort query then runs once.
+        return metric_events_metric_skip_reason(self._metric_events_precompute) is None
 
     def _metric_events_ineligibility_reason(self) -> Optional[str]:
         return self._metric_events_precompute.ineligibility_reason()
