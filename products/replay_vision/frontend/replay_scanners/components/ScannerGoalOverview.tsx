@@ -116,6 +116,8 @@ function OverviewSection({
 
 /** One kind of filter on the drafted scanner, with the values it holds. */
 export interface EligibleFilterGroup {
+    /** Unique within one scanner's groups, because two page filters share the label "Page". */
+    key: string
     label: string
     values: string[]
 }
@@ -216,6 +218,7 @@ function topLevelPropertyGroups(scanner: ReplayScanner): EligibleFilterGroup[] {
         byKind.set(singular, group)
     }
     return [...byKind.values()].map(({ singular, plural, values }) => ({
+        key: `property:${singular}`,
         label: pluralize(values.length, singular, plural, false),
         values,
     }))
@@ -234,17 +237,23 @@ export function eligibleFilterGroups(
     scanner: ReplayScanner,
     { experimentName, cohortNames }: { experimentName?: string; cohortNames?: Record<string, string> } = {}
 ): EligibleFilterGroup[] {
-    const kinds: [singular: string, plural: string, values: string[]][] = [
-        ['Experiment', 'Experiments', experimentValues(scanner, experimentName)],
-        ...pageValueLists(scanner).map((values): [string, string, string[]] => ['Page', 'Pages', values]),
-        ['Event', 'Events', namedQueryEntities(scanner, 'events')],
-        ['Action', 'Actions', namedQueryEntities(scanner, 'actions')],
-        ['Cohort', 'Cohorts', cohortValues(scanner, cohortNames)],
+    const kinds: [key: string, singular: string, plural: string, values: string[]][] = [
+        ['experiment', 'Experiment', 'Experiments', experimentValues(scanner, experimentName)],
+        ...pageValueLists(scanner).map((values, index): [string, string, string, string[]] => [
+            `page:${index}`,
+            'Page',
+            'Pages',
+            values,
+        ]),
+        ['event', 'Event', 'Events', namedQueryEntities(scanner, 'events')],
+        ['action', 'Action', 'Actions', namedQueryEntities(scanner, 'actions')],
+        ['cohort', 'Cohort', 'Cohorts', cohortValues(scanner, cohortNames)],
     ]
     return [
         ...kinds
-            .filter(([, , values]) => values.length > 0)
-            .map(([singular, plural, values]) => ({
+            .filter(([, , , values]) => values.length > 0)
+            .map(([key, singular, plural, values]) => ({
+                key,
                 label: pluralize(values.length, singular, plural, false),
                 values,
             })),
@@ -368,7 +377,7 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
                 {filterGroups.length > 0 ? (
                     <div className="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-x-3 gap-y-1 text-sm">
                         {filterGroups.map((group) => (
-                            <StatRow key={group.label} label={group.label}>
+                            <StatRow key={group.key} label={group.label}>
                                 <span className="flex flex-wrap gap-1">
                                     {group.values.map((value) => (
                                         <LemonSnack key={value} wrap>

@@ -77,7 +77,7 @@ export function ReplayFiltersScannerPopover({ handoff }: { handoff: ScannerHando
                     {filterGroups.length > 0 ? (
                         filterGroups.flatMap((group) =>
                             group.values.map((value) => (
-                                <LemonTag key={`${group.label}:${value}`} type="default">
+                                <LemonTag key={`${group.key}:${value}`} type="default">
                                     {group.label}: {value}
                                 </LemonTag>
                             ))
