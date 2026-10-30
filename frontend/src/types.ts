@@ -2696,8 +2696,7 @@ export interface InsightModel<R extends Node<Record<string, any>> = Node<Record<
     is_sample: boolean
     /**
      * @deprecated Session responses omit it, so read membership with `liveDashboardIds(insight.dashboard_tiles)`.
-     * The app never sends it. On an unsaved insight it holds the dashboards to place the insight on once
-     * `insightsApi.create` saves it.
+     * The app never sends it: on an unsaved insight it holds the dashboards to place the saved insight on.
      */
     dashboards?: number[]
     dashboard_tiles: DashboardTileBasicType[] | null
