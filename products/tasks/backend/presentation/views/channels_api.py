@@ -38,6 +38,7 @@ from products.tasks.backend.presentation.serializers import (
     ChannelFeedMessageWriteSerializer,
     ChannelInstructionsSerializer,
     ChannelInstructionsWriteSerializer,
+    ChannelListResponseSerializer,
     ChannelMembersWriteSerializer,
     ChannelSerializer,
     ChannelSetupResponseSerializer,
@@ -136,7 +137,12 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return authenticator.access_token.sandbox_task_id
 
     @extend_schema(
-        responses={200: OpenApiResponse(response=ChannelSerializer(many=True), description="List of channels")},
+        responses={
+            200: OpenApiResponse(
+                response=ChannelListResponseSerializer,
+                description="An array of channels without limit, or a page of channels with limit",
+            )
+        },
         summary="List channels",
         description=(
             "List channels the requester can access, sorted by name and ID. "

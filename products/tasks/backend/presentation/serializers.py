@@ -2470,6 +2470,22 @@ class ChannelSerializer(DataclassSerializer):
         ]
 
 
+class ChannelPageSerializer(serializers.Serializer):
+    count = serializers.IntegerField(help_text="Number of channels the requester can access.")
+    next = serializers.URLField(allow_null=True, help_text="URL of the next page, or null on the last page.")
+    previous = serializers.URLField(allow_null=True, help_text="URL of the previous page, or null on the first page.")
+    results = ChannelSerializer(many=True, help_text="Channels on this page.")
+
+
+# The channel list is an array without `limit` and a page with `limit`, so its schema is one of the two.
+ChannelListResponseSerializer = PolymorphicProxySerializer(
+    component_name="ChannelListResponse",
+    serializers=[ChannelSerializer(many=True), ChannelPageSerializer],
+    resource_type_field_name=None,
+    many=False,
+)
+
+
 class ChannelContributorsSerializer(DataclassSerializer):
     """The people who own at least one task or canvas in a channel."""
 
