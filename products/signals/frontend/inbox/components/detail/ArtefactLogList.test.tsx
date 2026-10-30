@@ -69,10 +69,10 @@ describe('ArtefactLogList', () => {
             />
         )
 
-        expect(screen.getByText('Scout note left')).toBeInTheDocument()
+        expect(screen.getByText('Note left for the scouts')).toBeInTheDocument()
         expect(screen.queryByText('scout_note_left')).not.toBeInTheDocument()
         expect(screen.getByText('Focus on the new checkout flow.')).toBeInTheDocument()
-        expect(screen.getByText('For signals-scout-web-analytics')).toBeInTheDocument()
+        expect(screen.getByText('For Web analytics')).toBeInTheDocument()
     })
 
     it('labels an inconclusive check result and explains why', () => {
