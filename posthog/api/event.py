@@ -17,7 +17,6 @@ from opentelemetry import trace
 from prometheus_client import Counter
 from rest_framework import mixins, request, response, serializers, viewsets
 from rest_framework.exceptions import NotFound
-from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.renderers import BaseRenderer
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
@@ -30,6 +29,7 @@ from posthog.hogql.property_utils import create_property_conditions
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.api.documentation import PropertiesSerializer, extend_schema
+from posthog.api.pagination import BoundedLimitOffsetPagination
 from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
@@ -149,7 +149,7 @@ class EventPropertyValuesResponseSerializer(serializers.Serializer):
     )
 
 
-class UncountedLimitOffsetPagination(LimitOffsetPagination):
+class UncountedLimitOffsetPagination(BoundedLimitOffsetPagination):
     """
     the events api works with the default LimitOffsetPagination, but the
     results don't have a count, so we need to override the pagination class

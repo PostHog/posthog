@@ -26,7 +26,6 @@ from opentelemetry import trace
 from prometheus_client import Counter
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.exceptions import APIException, MethodNotAllowed, NotFound, ValidationError
-from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.parsers import JSONParser
 from rest_framework.renderers import BaseRenderer
 from rest_framework.response import Response
@@ -42,6 +41,7 @@ from posthog.api.capture import CaptureInternalError, capture_internal
 from posthog.api.documentation import PersonPropertiesSerializer
 from posthog.api.fields import CoercedStringListField
 from posthog.api.mixins import ValidatedRequest, validated_request
+from posthog.api.pagination import BoundedLimitOffsetPagination
 from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action, paging_params, parse_actor_property_filters
@@ -156,7 +156,7 @@ API_PERSON_LIST_SEARCH_COUNTER = Counter(
 )
 
 
-class PersonLimitOffsetPagination(LimitOffsetPagination):
+class PersonLimitOffsetPagination(BoundedLimitOffsetPagination):
     def get_paginated_response_schema(self, schema):
         return {
             "type": "object",
@@ -410,7 +410,7 @@ class DeletionStatusQueryParamsSerializer(serializers.Serializer):
     person_uuid = serializers.UUIDField(required=False)
 
 
-class DeletionStatusPagination(LimitOffsetPagination):
+class DeletionStatusPagination(BoundedLimitOffsetPagination):
     default_limit = 100
 
 
