@@ -10054,7 +10054,7 @@ export namespace Schemas {
          */
         subcode: string | null;
         /**
-         * A stable qualifier below the subcode: where a sample ratio mismatch is located ('library', 'page'), what leaves nobody exposed ('test_account_filter'), or why a check could not read what it needs ('no_history_access'). Null when the finding names none.
+         * A stable qualifier below the subcode: where a sample ratio mismatch is located ('library', 'page'), what leaves nobody exposed ('test_account_filter'), what made a metric reach a query limit ('metric', 'exposure_criteria'), or why a check could not read what it needs ('no_history_access'). Null when the finding names none.
          */
         reason: string | null;
         /**
