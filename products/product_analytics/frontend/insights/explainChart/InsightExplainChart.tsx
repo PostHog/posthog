@@ -17,7 +17,6 @@ const EVIDENCE_CHARTS: StoryEvidenceCharts = {
     canShow: (item) => !!item.chart || !!item.query,
     prefetch: () => {},
     render: (item) => <ExplainChartEvidenceChart item={item} />,
-    // pinned: analytics event name, renaming breaks dashboards
     onShow: () => posthog.capture('explain chart evidence chart shown'),
 }
 
@@ -44,7 +43,6 @@ export function InsightExplainChart({ insightProps, renderChart }: InsightExplai
                 evidenceCharts={EVIDENCE_CHARTS}
                 chapterAction={(page, step) => <ExplainChartFollowUp onClick={() => askFollowUp(page, step)} />}
                 onPageChange={({ index, fromIndex, source }) =>
-                    // pinned: analytics event name, renaming breaks dashboards
                     posthog.capture('explain chart page viewed', {
                         page_index: index,
                         from_page_index: fromIndex,

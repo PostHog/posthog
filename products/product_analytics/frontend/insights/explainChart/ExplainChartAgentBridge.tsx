@@ -16,7 +16,6 @@ import { explainChartLogic } from './explainChartLogic'
 
 export function ExplainChartAgentBridge({ insightProps }: { insightProps: InsightLogicProps }): null {
     useMountedLogic(explainChartLogic(insightProps))
-    // Closing the panel would otherwise drop the chat this explanation came from.
     useMountedLogic(runnerPanelLogic({ panelId: MAX_SIDE_PANEL_ID }))
     const { explainAvailable, followUpContext } = useValues(explainChartLogic(insightProps))
     const { explainChartToolCompleted } = useActions(explainChartLogic(insightProps))

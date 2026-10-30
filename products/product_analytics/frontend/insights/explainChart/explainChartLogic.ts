@@ -246,11 +246,9 @@ export const explainChartLogic: LogicWrapper<explainChartLogicType> = kea<explai
                 queryChanged: boolean
             ): boolean =>
                 !!featureFlags[FEATURE_FLAGS.EXPLAIN_CHART] &&
-                // Only the PostHog AI sandbox agent can call explain-chart.
                 effectivePhaiView === 'new' &&
                 isTrends &&
                 isOverTime(display) &&
-                // explain-chart reads the saved insight, so the chart on screen has to be that insight.
                 !!insight.short_id &&
                 !queryChanged &&
                 !props.filtersOverride &&
@@ -285,7 +283,6 @@ export const explainChartLogic: LogicWrapper<explainChartLogicType> = kea<explai
             actions.startInvestigation()
         },
         startInvestigation: () => {
-            // pinned: analytics event name, renaming breaks dashboards
             posthog.capture('explain chart investigation started')
             actions.openSidePanel(SidePanelTab.Max, autoRunMaxPrompt(values.investigationPrompt))
             cache.disposables.add(() => {
@@ -314,13 +311,11 @@ export const explainChartLogic: LogicWrapper<explainChartLogicType> = kea<explai
             }
         },
         askFollowUp: ({ page, step }) => {
-            // pinned: analytics event name, renaming breaks dashboards
             posthog.capture('explain chart follow-up opened', { page_index: step })
             actions.setFollowUpContext(followUpContextFor(values.insight, page, step))
             actions.openSidePanel(SidePanelTab.Max)
         },
         receiveStory: ({ story }) => {
-            // pinned: analytics event name, renaming breaks dashboards
             posthog.capture('explain chart story shown', { chapters: story.chapters.length })
         },
         saveInsightSuccess: () => {
@@ -329,7 +324,6 @@ export const explainChartLogic: LogicWrapper<explainChartLogicType> = kea<explai
     })),
 ])
 
-// The displays explain-chart accepts, less the cumulative line: its running totals hide changes in activity.
 const EXPLAINABLE_DISPLAYS: ChartDisplayType[] = [
     ChartDisplayType.ActionsLineGraph,
     ChartDisplayType.ActionsBar,
