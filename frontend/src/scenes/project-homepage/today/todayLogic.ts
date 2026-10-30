@@ -207,6 +207,7 @@ export interface todayLogicValues {
     reportsBroken: boolean
     reportsFailed: boolean
     returnFocusReportId: string | null
+    showFeed: boolean
     shownReportIds: string[]
     topReports: TodayReports | null
     topReportsLoading: boolean
@@ -414,6 +415,7 @@ export interface todayLogicMeta {
         ) => boolean
         forYouCanShowLess: (forYouRows: TodayForYouRows, listExpanded: Record<TodayList, boolean>) => boolean
         isNewProject: (currentTeam: TeamPublicType | TeamType | null, useSampleData: boolean) => boolean
+        showFeed: (featureFlags: FeatureFlagsSet, useSampleData: boolean, isNewProject: boolean) => boolean
         exploreItems: (currentTeam: TeamPublicType | TeamType | null) => TodayExploreItem[]
         reportPreviews: (
             reports: SignalReport[],
@@ -765,6 +767,11 @@ export const todayLogic = kea<todayLogicType>([
             (s) => [s.currentTeam, s.useSampleData],
             (currentTeam: TeamPublicType | TeamType | null, useSampleData: boolean): boolean =>
                 !useSampleData && currentTeam?.ingested_event === false,
+        ],
+        showFeed: [
+            (s) => [s.featureFlags, s.useSampleData, s.isNewProject],
+            (featureFlags: FeatureFlagsSet, useSampleData: boolean, isNewProject: boolean): boolean =>
+                !!featureFlags[FEATURE_FLAGS.TODAY_FEED] && !useSampleData && !isNewProject,
         ],
         exploreItems: [
             (s) => [s.currentTeam],

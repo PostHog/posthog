@@ -31,6 +31,7 @@ interface TodayRowProps {
     onOpen?: () => void
     expansion?: TodayRowExpansion
     actions?: ReactNode
+    aside?: ReactNode
     doneActions?: ReactNode
     done?: boolean
     reportId?: string
@@ -47,6 +48,7 @@ export function TodayRow({
     onOpen,
     expansion,
     actions,
+    aside,
     doneActions,
     done,
     reportId,
@@ -102,6 +104,7 @@ export function TodayRow({
                 </p>
             </div>
             <div className="TodayRow__end">
+                {aside}
                 {actions && !done && !expanded && <div className="TodayRow__actions">{actions}</div>}
                 {doneActions && done && <div className="TodayRow__undo">{doneActions}</div>}
                 {expansion ? (
