@@ -38,11 +38,29 @@ export const WithThumbsFeedback: Story = {
 
 export const WithGitBranch: Story = {
     ...wide,
-    args: { git: { branch: 'feat/billing-answers', repo: 'acme/support-bot' } },
+    args: { git: { branch: 'feat/billing-answers', repo: 'acme/support-bot', pullRequest: null } },
 }
 export const NarrowWithLongGitBranch: Story = {
     decorators: [withWidth(420)],
     args: {
-        git: { branch: 'carol/feat-answer-billing-questions-with-invoice-history-and-seat-changes', repo: null },
+        git: {
+            branch: 'carol/feat-answer-billing-questions-with-invoice-history-and-seat-changes',
+            repo: null,
+            pullRequest: null,
+        },
+    },
+}
+export const WithGitPullRequest: Story = {
+    ...wide,
+    args: {
+        git: {
+            branch: 'feat/billing-answers',
+            repo: 'acme/support-bot',
+            pullRequest: {
+                number: 42,
+                title: 'Answer billing questions',
+                href: '/engineering-analytics/repos/acme/support-bot/pull-requests/42',
+            },
+        },
     },
 }
