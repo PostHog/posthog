@@ -125,10 +125,7 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2026-04-30',
         pageUrl: urls.eventDefinition(MOCK_EVENT_DEFINITION.id),
-        // The full DefinitionView mounts EventDefinitionProperties and a matching-events table, which
-        // keep their loaders spinning because we don't mock every downstream endpoint. The event story
-        // exists to capture the metadata row (Status + Primary property) and the usage section, so
-        // don't block on loaders that are intentionally never going to settle.
+        // The event page's properties and matching-events loaders never settle because their endpoints are not mocked.
         testOptions: {
             waitForLoadersToDisappear: false,
             viewportWidths: ['narrow', 'medium', 'wide', 'superwide'],
