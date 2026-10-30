@@ -180,6 +180,7 @@ describe('hog-charts canvas-renderer', () => {
             { name: 'defaults to the standard width', stroke: undefined, lineWidth: 2, strokes: 1 },
             { name: 'uses stroke.width', stroke: { width: 5 }, lineWidth: 5, strokes: 1 },
             { name: 'draws nothing for a zero width', stroke: { width: 0 }, lineWidth: 0, strokes: 0 },
+            { name: 'draws nothing for a NaN width', stroke: { width: NaN }, lineWidth: 0, strokes: 0 },
         ])('$name', ({ stroke, lineWidth, strokes }) => {
             const ctx = mockCanvasContext()
             drawLine(makeDrawContext(ctx, ['a', 'b']), makeSeries({ key: 's1', data: [10, 90], stroke }))
@@ -1245,10 +1246,12 @@ describe('hog-charts canvas-renderer', () => {
     })
 
     describe('drawLineSeriesLayer — yFloor', () => {
+        // A NaN width draws no line, so its fill rests on the baseline itself rather than vanishing.
         it.each([
-            { name: 'the default stroke', stroke: undefined, expectedY: 367 },
-            { name: 'a 10px stroke', stroke: { width: 10 }, expectedY: 363 },
-        ])('rests $name on the x-axis line at y=$expectedY', ({ stroke, expectedY }) => {
+            { name: 'the default stroke', stroke: undefined, fill: undefined, expectedY: 367 },
+            { name: 'a 10px stroke', stroke: { width: 10 }, fill: undefined, expectedY: 363 },
+            { name: 'the fill of a NaN-width stroke', stroke: { width: NaN }, fill: {}, expectedY: 368 },
+        ])('rests $name on the x-axis line at y=$expectedY', ({ stroke, fill, expectedY }) => {
             const ctx = mockCanvasContext()
             const labels = ['a', 'b']
             const xScale = scalePoint<string>().domain(labels).range([48, 784]).padding(0)
@@ -1257,7 +1260,7 @@ describe('hog-charts canvas-renderer', () => {
                 ctx,
                 dimensions,
                 labels,
-                series: [makeSeries({ key: 's1', data: [0, 0], stroke })],
+                series: [makeSeries({ key: 's1', data: [0, 0], stroke, fill })],
                 xScale,
                 resolveYScale: () => yScale,
                 yFloor: 367,

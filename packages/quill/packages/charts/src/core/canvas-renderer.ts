@@ -22,22 +22,28 @@ export interface DrawContext {
     /** Smooth the line/area with monotone-cubic interpolation instead of straight segments. */
     smooth?: boolean
     /** Largest drawable y (px) for line/area strokes. Charts drawing an x-axis line pass the
-     *  baseline minus half their stroke width, so a baseline-hugging stroke rests exactly on the
-     *  axis line instead of straddling it. Pure draw-time clamp — scales and ticks are untouched. */
+     *  baseline minus half the default stroke width, and `drawLineSeriesLayer` raises it per series
+     *  for a wider stroke, so a baseline-hugging stroke rests exactly on the axis line instead of
+     *  straddling it. Pure draw-time clamp — scales and ticks are untouched. */
     yFloor?: number
 }
 
-/** Stroke width of series lines. Half of it is the stroke's overhang past a point, which the
+/** Default stroke width of series lines. Half of it is the stroke's overhang past a point, which the
  *  `yFloor`/left-clip callers use to keep strokes flush against drawn axis lines. */
 export const LINE_STROKE_WIDTH = 2
+
+/** The series' stroke width: the default when unset, 0 (no line) for a NaN or negative width. */
+function lineStrokeWidth(series: ResolvedSeries): number {
+    return Math.max(0, series.stroke?.width ?? LINE_STROKE_WIDTH) || 0
+}
 
 /** Dot radius for a point with no line through it, e.g. a series with one value. */
 const ISOLATED_POINT_RADIUS = 3
 
 export function drawLine(drawCtx: DrawContext, series: ResolvedSeries, yValues?: number[]): void {
     const data = yValues ?? series.data
-    const width = series.stroke?.width ?? LINE_STROKE_WIDTH
-    if (data.length === 0 || !(width > 0)) {
+    const width = lineStrokeWidth(series)
+    if (data.length === 0 || width === 0) {
         return
     }
 
@@ -1050,7 +1056,7 @@ export function drawLineSeriesLayer(options: LineSeriesLayerOptions): void {
     const visible = series.filter((s) => !s.visibility?.excluded)
     // `yFloor` is set for the default stroke; a wider stroke rests higher so it still sits on the axis.
     const floorFor = (s: ResolvedSeries): number | undefined =>
-        yFloor == null ? undefined : yFloor - ((s.stroke?.width ?? LINE_STROKE_WIDTH) - LINE_STROKE_WIDTH) / 2
+        yFloor == null ? undefined : yFloor - (lineStrokeWidth(s) - LINE_STROKE_WIDTH) / 2
 
     const paintArea = (s: ResolvedSeries): void => {
         if (!shouldFill(s)) {
