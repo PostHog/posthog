@@ -114,6 +114,10 @@ DOCS_REPLIES: dict[knowledge_writer_contracts.IntakeStatus, CommandOutcome] = {
         accepted=False,
         message="The knowledge writer is already updating that docs section. Try again once its pull request is up.",
     ),
+    "docs_in_source_repo": CommandOutcome(
+        accepted=False,
+        message="Those docs pages live in this repository, so update them in this pull request.",
+    ),
     "unconfigured": CommandOutcome(accepted=False, message="The knowledge writer isn't set up."),
     "no_docs": CommandOutcome(accepted=False, message="The knowledge writer found no docs to change."),
 }
