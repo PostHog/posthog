@@ -363,63 +363,6 @@ SQL
     }
   }
 
-  table "logs_billing_metrics" {
-    order_by     = ["team_id", "time_bucket", "service_name"]
-    partition_by = "toYYYYMM(time_bucket)"
-    settings = {
-      deduplicate_merge_projection_mode = "rebuild"
-      index_granularity                 = "8192"
-    }
-    column "team_id" {
-      type = "Int32"
-    }
-    column "time_bucket" {
-      type = "DateTime64(0)"
-    }
-    column "service_name" {
-      type = "LowCardinality(String)"
-    }
-    column "bytes_uncompressed" {
-      type = "SimpleAggregateFunction(sum, UInt64)"
-    }
-    column "bytes_compressed" {
-      type = "SimpleAggregateFunction(sum, UInt64)"
-    }
-    column "record_count" {
-      type = "SimpleAggregateFunction(sum, UInt64)"
-    }
-    engine "replicated_aggregating_merge_tree" {
-      zoo_path     = "/clickhouse/tables/logs/{shard}/logs_billing_metrics"
-      replica_name = "{replica}"
-    }
-  }
-
-  table "logs_billing_metrics_distributed" {
-    column "team_id" {
-      type = "Int32"
-    }
-    column "time_bucket" {
-      type = "DateTime64(0)"
-    }
-    column "service_name" {
-      type = "LowCardinality(String)"
-    }
-    column "bytes_uncompressed" {
-      type = "SimpleAggregateFunction(sum, UInt64)"
-    }
-    column "bytes_compressed" {
-      type = "SimpleAggregateFunction(sum, UInt64)"
-    }
-    column "record_count" {
-      type = "SimpleAggregateFunction(sum, UInt64)"
-    }
-    engine "distributed" {
-      cluster_name    = "logs"
-      remote_database = "posthog"
-      remote_table    = "logs_billing_metrics"
-    }
-  }
-
   table "logs_distributed" {
     column "time_bucket" {
       type         = "DateTime"
@@ -3554,51 +3497,6 @@ SQL
       cluster_name    = "ops"
       remote_database = "posthog"
       remote_table    = "query_log_archive_v3_buffer"
-    }
-  }
-
-  materialized_view "kafka_logs_avro_billing_metrics_mv" {
-    to_table = "posthog.logs_billing_metrics"
-    query    = <<SQL
-SELECT
-  team_id,
-  time_bucket,
-  service_name,
-  sumSimpleState(floor(_bytes_uncompressed / _record_count)) AS bytes_uncompressed,
-  sumSimpleState(floor(_bytes_compressed / _record_count)) AS bytes_compressed,
-  sumSimpleState(1) AS record_count
-FROM
-  (
-    SELECT
-      team_id,
-      toStartOfInterval(timestamp, toIntervalMinute(1)) AS time_bucket,
-      service_name AS service_name,
-      _record_count,
-      _bytes_uncompressed,
-      _bytes_compressed
-    FROM posthog.logs34
-  )
-GROUP BY
-  team_id, time_bucket, service_name
-SQL
-
-    column "team_id" {
-      type = "Int32"
-    }
-    column "time_bucket" {
-      type = "DateTime"
-    }
-    column "service_name" {
-      type = "LowCardinality(String)"
-    }
-    column "bytes_uncompressed" {
-      type = "SimpleAggregateFunction(sum, Float64)"
-    }
-    column "bytes_compressed" {
-      type = "SimpleAggregateFunction(sum, Float64)"
-    }
-    column "record_count" {
-      type = "SimpleAggregateFunction(sum, UInt64)"
     }
   }
 

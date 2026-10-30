@@ -4307,34 +4307,6 @@
   
   '''
 # ---
-# name: test_create_table_query[logs_billing_metrics]
-  '''
-  
-  CREATE TABLE IF NOT EXISTS posthog_test.logs_billing_metrics
-  (
-      `team_id` Int32,
-      `time_bucket` DateTime64(0),
-      `service_name` LowCardinality(String),
-      `bytes_uncompressed` SimpleAggregateFunction(sum, UInt64),
-      `bytes_compressed` SimpleAggregateFunction(sum, UInt64),
-      `record_count` SimpleAggregateFunction(sum, UInt64)
-  )
-  ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.logs_billing_metrics', '{replica}-{shard}')
-  PARTITION BY toYYYYMM(time_bucket)
-  ORDER BY (team_id, time_bucket, service_name)
-  SETTINGS
-      deduplicate_merge_projection_mode = 'rebuild',
-      index_granularity = 8192
-  
-  '''
-# ---
-# name: test_create_table_query[logs_billing_metrics_distributed]
-  '''
-  
-  CREATE TABLE IF NOT EXISTS posthog_test.logs_billing_metrics_distributed AS posthog_test.logs_billing_metrics ENGINE = Distributed('posthog_single_shard', 'posthog_test', 'logs_billing_metrics')
-  
-  '''
-# ---
 # name: test_create_table_query[logs_distributed]
   '''
   
@@ -12433,27 +12405,6 @@
       ttl_only_drop_parts = 1,
       add_minmax_index_for_numeric_columns = 1,
       map_serialization_version = 'with_buckets'
-  
-  '''
-# ---
-# name: test_create_table_query_replicated_and_storage[logs_billing_metrics]
-  '''
-  
-  CREATE TABLE IF NOT EXISTS posthog_test.logs_billing_metrics
-  (
-      `team_id` Int32,
-      `time_bucket` DateTime64(0),
-      `service_name` LowCardinality(String),
-      `bytes_uncompressed` SimpleAggregateFunction(sum, UInt64),
-      `bytes_compressed` SimpleAggregateFunction(sum, UInt64),
-      `record_count` SimpleAggregateFunction(sum, UInt64)
-  )
-  ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.logs_billing_metrics', '{replica}-{shard}')
-  PARTITION BY toYYYYMM(time_bucket)
-  ORDER BY (team_id, time_bucket, service_name)
-  SETTINGS
-      deduplicate_merge_projection_mode = 'rebuild',
-      index_granularity = 8192
   
   '''
 # ---
