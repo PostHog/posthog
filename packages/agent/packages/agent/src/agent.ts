@@ -254,9 +254,6 @@ export class Agent {
       enricherEnabled: this.enricherEnabled,
       claudeGatewayEnv,
       claudeMachineAuth: claudeSubscription ? machineClaudeAuth() : undefined,
-      claudeModelsGatewayUrl: claudeSubscription
-        ? this.posthogAPI?.getLlmGatewayUrl()
-        : undefined,
       contextWiki: options.contextWiki,
       codexOptions:
         options.adapter === "codex" && (codexSubscription || gatewayConfig)

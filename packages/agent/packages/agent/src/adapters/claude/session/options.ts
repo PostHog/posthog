@@ -115,7 +115,6 @@ export interface BuildOptionsParams {
   onProcessExited?: (pid: number) => void;
   onStartupOutput?: (stdout: Readable) => void;
   effort?: EffortLevel;
-  contextWindow?: "200k" | "1m";
   enrichmentDeps?: FileEnrichmentDeps;
   enrichedReadCache?: EnrichedReadCache;
   /** Records PostHog product usage from MCP exec calls (deduped, session-wide). */
@@ -751,8 +750,7 @@ export function buildSessionOptions(params: BuildOptionsParams): Options {
 
   const options: Options = {
     ...params.userProvidedOptions,
-    betas:
-      params.contextWindow === "200k" ? undefined : ["context-1m-2025-08-07"],
+    betas: ["context-1m-2025-08-07"],
     systemPrompt: params.systemPrompt ?? buildSystemPrompt(),
     settingSources: params.userProvidedOptions?.settingSources ?? [
       "user",

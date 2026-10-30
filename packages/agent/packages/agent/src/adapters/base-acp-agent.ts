@@ -28,7 +28,6 @@ import {
   fetchGatewayModels,
   formatGatewayModelName,
   type GatewayModel,
-  isAnthropicModel,
   isClaudeAdapterModel,
   isClaudeAdapterModelId,
   isServedModelId,
@@ -163,11 +162,7 @@ export abstract class BaseAcpAgent implements Agent {
         : undefined,
     );
 
-    const adapterModels = this.gatewayModels.filter(
-      (model) =>
-        isClaudeAdapterModel(model) &&
-        (!this.usesMachineAuth() || isAnthropicModel(model)),
-    );
+    const adapterModels = this.gatewayModels.filter(isClaudeAdapterModel);
 
     const options = adapterModels
       .map((model) => ({
