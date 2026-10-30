@@ -296,6 +296,34 @@ describe("applyUpdate", () => {
     });
   });
 
+  // A watch opened with a resume count replays the stream's leaf from its start, and the engine counts the replay
+  // as new entries; the view keeps only the ones it has not seen, so a reply read mid-stream is not doubled.
+  it("drops replayed entries the view already holds, by their stream id", () => {
+    const stamped = (id: string): StoredLogEntry => ({
+      ...entry(id),
+      event_id: `s-${id}`,
+    });
+    const view = updates(
+      {
+        kind: "snapshot",
+        newEntries: [stamped("a"), stamped("b")],
+        totalEntryCount: 2,
+      },
+      { kind: "logs", newEntries: [stamped("c")], totalEntryCount: 3 },
+      {
+        kind: "logs",
+        newEntries: [stamped("a"), stamped("b"), stamped("c"), stamped("d")],
+        totalEntryCount: 7,
+      },
+      {
+        kind: "logs",
+        newEntries: [entry("x"), entry("x")],
+        totalEntryCount: 9,
+      },
+    );
+    expect(ids(view)).toEqual(["a", "b", "c", "d", "x", "x"]);
+  });
+
   it("tracks status changes and stream errors", () => {
     const view = updates(
       {

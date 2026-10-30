@@ -128,11 +128,14 @@ export function applyUpdate(
         runError: update.errorMessage ?? view.runError,
         error: null,
       };
-    case "logs":
-      return {
-        ...view,
-        entries: [...view.entries, ...stamped(update.newEntries)],
-      };
+    case "logs": {
+      // A watch resumed by entry count replays the stream from its start, and the engine counts the replay as new.
+      const held = new Set(view.entries.map((entry) => entry.event_id));
+      const fresh = update.newEntries.filter(
+        (entry) => !entry.event_id || !held.has(entry.event_id),
+      );
+      return { ...view, entries: [...view.entries, ...stamped(fresh)] };
+    }
     case "status":
       return {
         ...view,
