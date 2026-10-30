@@ -87,8 +87,17 @@ export function initMobileTelemetry(apiKey: string, host: string, logRequest: Lo
 function ensureTelemetry(): boolean {
     if (requestDuration) return true
     if (!telemetryConfig) return false
+    try {
+        startTelemetry(telemetryConfig)
+        return true
+    } catch {
+        // A bad export host disables telemetry for this process instead of failing every API request.
+        telemetryConfig = undefined
+        return false
+    }
+}
 
-    const { apiKey, host } = telemetryConfig
+function startTelemetry({ apiKey, host }: { apiKey: string; host: string }): void {
     const headers = { Authorization: `Bearer ${apiKey}` }
     const resource = resourceFromAttributes({ 'service.name': INSTRUMENTATION_NAME })
     const traces = new OTLPTraceExporter({ url: `${host.replace(/\/$/, '')}/i/v1/traces`, headers })
@@ -120,7 +129,17 @@ function ensureTelemetry(): boolean {
             void meterProvider.forceFlush()
         }
     })
-    return true
+}
+
+// Telemetry must never change the result of the request it measures.
+function recordSafely(record: () => void): void {
+    try {
+        record()
+    } catch {}
+}
+
+function isCancelled(error: unknown): boolean {
+    return error instanceof Error && error.name === 'AbortError'
 }
 
 export async function instrumentApiRequest(
@@ -135,40 +154,47 @@ export async function instrumentApiRequest(
     const span = requestTracer.startSpan(`${method.toUpperCase()} ${route}`, { kind: SpanKind.CLIENT, attributes })
     const spanContext = span.spanContext()
     const traceparent = `00-${spanContext.traceId}-${spanContext.spanId}-${(spanContext.traceFlags ?? 0).toString(16).padStart(2, '0')}`
+    const traceIds = { trace_id: spanContext.traceId, span_id: spanContext.spanId }
     const startedAt = Date.now()
     try {
         const result = await request(traceparent)
-        const status = result.status
-        const durationMs = Date.now() - startedAt
-        span.setAttribute('http.response.status_code', status)
-        if (status >= 500) span.setStatus({ code: SpanStatusCode.ERROR })
-        requestDuration?.record(durationMs / 1000, { ...attributes, 'http.response.status_code': status })
-        if (status >= 500 || durationMs >= SLOW_REQUEST_MS) {
-            log?.(status >= 500 ? 'error' : 'warn', 'Mobile API request completed', {
-                ...attributes,
-                'http.response.status_code': status,
-                duration_ms: durationMs,
-                trace_id: spanContext.traceId,
-                span_id: spanContext.spanId,
-            })
-        }
+        recordSafely(() => {
+            const status = result.status
+            const durationMs = Date.now() - startedAt
+            span.setAttribute('http.response.status_code', status)
+            if (status >= 500) span.setStatus({ code: SpanStatusCode.ERROR })
+            requestDuration?.record(durationMs / 1000, { ...attributes, 'http.response.status_code': status })
+            if (status >= 500 || durationMs >= SLOW_REQUEST_MS) {
+                log?.(status >= 500 ? 'error' : 'warn', 'Mobile API request completed', {
+                    ...attributes,
+                    'http.response.status_code': status,
+                    duration_ms: durationMs,
+                    ...traceIds,
+                })
+            }
+        })
         return result
     } catch (error) {
-        const durationMs = Date.now() - startedAt
-        const candidateErrorType = error instanceof Error ? error.name : ''
-        const errorType = /^[A-Za-z][A-Za-z0-9]{0,39}$/.test(candidateErrorType) ? candidateErrorType : 'NetworkError'
-        span.setAttribute('error.type', errorType)
-        span.setStatus({ code: SpanStatusCode.ERROR })
-        requestDuration?.record(durationMs / 1000, { ...attributes, 'error.type': errorType })
-        log?.('error', 'Mobile API request failed', {
-            ...attributes,
-            duration_ms: durationMs,
-            'error.type': errorType,
-            trace_id: spanContext.traceId,
-            span_id: spanContext.spanId,
-        })
+        if (!isCancelled(error)) {
+            recordSafely(() => {
+                const durationMs = Date.now() - startedAt
+                const candidateErrorType = error instanceof Error ? error.name : ''
+                const errorType = /^[A-Za-z][A-Za-z0-9]{0,39}$/.test(candidateErrorType)
+                    ? candidateErrorType
+                    : 'NetworkError'
+                span.setAttribute('error.type', errorType)
+                span.setStatus({ code: SpanStatusCode.ERROR })
+                requestDuration?.record(durationMs / 1000, { ...attributes, 'error.type': errorType })
+                log?.('error', 'Mobile API request failed', {
+                    ...attributes,
+                    duration_ms: durationMs,
+                    'error.type': errorType,
+                    ...traceIds,
+                })
+            })
+        }
         throw error
     } finally {
-        span.end()
+        recordSafely(() => span.end())
     }
 }
