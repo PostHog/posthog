@@ -339,6 +339,61 @@ class TestRenderCommunitySkillFiles:
 
 
 class TestPublishableSize:
+    @pytest.mark.parametrize("content", ["x" * (256 * 1024 + 1), "é" * (128 * 1024) + "x", "\r\n" * (128 * 1024 + 1)])
+    def test_rejects_bundled_files_over_the_community_catalog_limit(self, content: str) -> None:
+        with pytest.raises(CommunitySkillPublishValidationError, match="256 KiB"):
+            render_community_skill_files(
+                slug="make-pr",
+                name="n",
+                description="d",
+                body="b",
+                files=[{"path": "references/guide.md", "content": content}],
+            )
+
+    @pytest.mark.parametrize(
+        "body",
+        [
+            "x" * (256 * 1024 + 1),
+            "é" * (128 * 1024) + "x",
+            "x\r\n" * (128 * 1024 - 1) + "xxx",
+            "x\r" * (128 * 1024 - 1) + "xxx",
+        ],
+        ids=["ascii", "utf8", "crlf", "cr"],
+    )
+    def test_rejects_body_and_files_over_the_community_catalog_total(self, body: str) -> None:
+        with pytest.raises(CommunitySkillPublishValidationError, match="1 MiB"):
+            render_community_skill_files(
+                slug="make-pr",
+                name="n",
+                description="d",
+                body=body,
+                files=[{"path": f"references/{index}.md", "content": "x" * (256 * 1024)} for index in range(3)],
+            )
+
+    @pytest.mark.parametrize(
+        "body,content,file_count",
+        [
+            ("b", "x" * (256 * 1024), 1),
+            ("b", "é" * (128 * 1024), 1),
+            ("x" * (300 * 1024), "", 0),
+            ("x" * (256 * 1024), "x" * (256 * 1024), 3),
+            (" \n" + "x" * (256 * 1024) + "\n ", "x" * (256 * 1024), 3),
+            ("x\r\n" * (128 * 1024 - 1) + "xx", "x" * (256 * 1024), 3),
+        ],
+        ids=["file-boundary", "utf8-file-boundary", "large-body", "total-boundary", "body-whitespace", "body-crlf"],
+    )
+    def test_renders_skills_within_community_catalog_limits(self, body: str, content: str, file_count: int) -> None:
+        rendered = render_community_skill_files(
+            slug="make-pr",
+            name="n",
+            description="d",
+            body=body,
+            files=[{"path": f"references/{index}.md", "content": content} for index in range(file_count)],
+        )
+
+        assert _parse(rendered[0].content)[1] == body.strip()
+        assert [file.content for file in rendered[1:]] == [content] * file_count
+
     @parameterized.expand(
         [
             # Ingest's own per-entry caps: breaching one drops the whole entry, so the pull request
@@ -346,8 +401,6 @@ class TestPublishableSize:
             ("body over the catalog cap", "x" * (MAX_SKILL_BODY_BYTES + 1), 1, 10),
             ("more files than the catalog takes", "b", MAX_SKILL_FILE_COUNT + 1, 10),
             ("one file over the catalog cap", "b", 1, MAX_SKILL_FILE_BYTES + 1),
-            # GitHub's cap on a single create-tree request, which inlines every file's content.
-            ("files summing over the tree cap", "b", 6, MAX_SKILL_FILE_BYTES),
         ]
     )
     def test_rejects_a_skill_no_publish_could_survive(
@@ -370,33 +423,26 @@ class TestPublishableSize:
         # measuring the fields the files came from instead of the files themselves leaves the
         # difference between them unbounded.
         files = [
-            {"path": f"references/{index}.md", "content": "x" * MAX_SKILL_FILE_BYTES, "content_type": "text/markdown"}
+            {"path": f"references/{index}.md", "content": "\x01" * 200_000, "content_type": "text/markdown"}
             for index in range(4)
         ]
-        fields: dict[str, Any] = {"slug": "make-pr", "name": "n", "description": "d", "body": "x" * 990_000}
+        fields: dict[str, Any] = {"slug": "make-pr", "name": "n", "description": "d", "body": "b"}
 
         render_community_skill_files(**fields, files=files)
 
-        with pytest.raises(CommunitySkillPublishError):
+        with pytest.raises(CommunitySkillPublishValidationError, match="5 MB"):
             render_community_skill_files(**fields, files=files, tags=["t" * MAX_TAG_LENGTH] * 4000)
 
     def test_rejects_a_skill_whose_encoded_payload_blows_the_tree_cap(self) -> None:
-        # 3 MB of newlines clears every raw-byte check, and doubles once escaped into the single JSON
-        # body the tree write inlines it in. Counted raw, this publishes and then fails against
-        # GitHub with a 502 the publisher can do nothing with.
-        with pytest.raises(CommunitySkillPublishError):
+        with pytest.raises(CommunitySkillPublishValidationError, match="5 MB"):
             render_community_skill_files(
                 slug="make-pr",
                 name="n",
                 description="d",
                 body="b",
                 files=[
-                    {
-                        "path": f"references/{index}.md",
-                        "content": "\n" * MAX_SKILL_FILE_BYTES,
-                        "content_type": "text/markdown",
-                    }
-                    for index in range(3)
+                    {"path": f"references/{index}.md", "content": "\x01" * 250_000, "content_type": "text/markdown"}
+                    for index in range(4)
                 ],
             )
 
@@ -545,7 +591,22 @@ class TestPublishSkillToCommunity:
                 files=[{"path": "references/playbook.md", "content": "hints", "content_type": "text/markdown"}],
             )
 
-    def test_a_skill_that_cannot_be_published_is_rejected_before_the_publisher_is_acquired(self) -> None:
+    @pytest.mark.parametrize(
+        "description,body,files",
+        [
+            ("", "body", []),
+            ("d", "body", [{"path": "references/guide.md", "content": "x" * (300 * 1024)}]),
+            (
+                "d",
+                "body",
+                [{"path": f"references/{index}.md", "content": "x" * (220 * 1024)} for index in range(5)],
+            ),
+        ],
+        ids=["missing-description", "catalog-file-limit", "catalog-total-limit"],
+    )
+    def test_a_skill_that_cannot_be_published_is_rejected_before_the_publisher_is_acquired(
+        self, description: str, body: str, files: list[dict[str, str]]
+    ) -> None:
         # Acquiring the publisher talks to GitHub, so a skill that fails rendering used to come back
         # as 502 or 503 whenever the App was down or unconfigured — advice to retry, for a publish
         # that can only succeed once the publisher edits the skill.
@@ -555,7 +616,7 @@ class TestPublishSkillToCommunity:
         ):
             with pytest.raises(CommunitySkillPublishValidationError):
                 publish_skill_to_community(
-                    slug="make-pr", publisher_id=TEAM_A, name="Make PR", description="", body="body"
+                    slug="make-pr", publisher_id=TEAM_A, name="Make PR", description=description, body=body, files=files
                 )
 
     def test_commits_every_file_in_one_commit(self) -> None:
