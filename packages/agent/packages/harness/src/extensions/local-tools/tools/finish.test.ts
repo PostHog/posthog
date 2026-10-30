@@ -9,7 +9,13 @@ vi.mock("../signed-commit-artefacts", async (importOriginal) => ({
 
 import { enabledLocalTools } from "../index";
 import type { LocalToolCtx, LocalToolGateMeta } from "../registry";
-import { FINISH_TOOL_NAME, finishSchema, finishTool } from "./finish";
+import {
+  buildFinishRunUpdate,
+  FINISH_REPORT_MAX_CHARS,
+  FINISH_TOOL_NAME,
+  finishSchema,
+  finishTool,
+} from "./finish";
 
 describe("finish tool", () => {
   const requestFinish = async (): Promise<void> => {};
@@ -205,6 +211,14 @@ describe("finish tool", () => {
       expect.any(AbortSignal),
     );
     expect(result.isError).toBeUndefined();
+  });
+
+  it("cuts a long report without splitting a surrogate pair", () => {
+    const report = `${"a".repeat(FINISH_REPORT_MAX_CHARS - 1)}😀😀`;
+    const finalMessage = buildFinishRunUpdate("completed", undefined, report)
+      .output?.final_message as string;
+    expect(finalMessage).toBe(`${"a".repeat(FINISH_REPORT_MAX_CHARS - 1)}😀`);
+    expect(finalMessage.isWellFormed()).toBe(true);
   });
 
   it("errors when requestFinish is unavailable", async () => {

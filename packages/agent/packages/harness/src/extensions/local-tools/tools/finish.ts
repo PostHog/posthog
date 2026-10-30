@@ -55,7 +55,14 @@ export function buildFinishRunUpdate(
     // The relay saves the final message only when the turn ends, and `finish`
     // ends the run before that, so the report travels with the status change.
     ...(report
-      ? { output: { final_message: report.slice(0, FINISH_REPORT_MAX_CHARS) } }
+      ? {
+          output: {
+            // Cut by code point: a split surrogate pair makes Postgres reject the JSONB write.
+            final_message: Array.from(report)
+              .slice(0, FINISH_REPORT_MAX_CHARS)
+              .join(""),
+          },
+        }
       : {}),
   };
 }
