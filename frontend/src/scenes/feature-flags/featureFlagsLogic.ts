@@ -16,6 +16,7 @@ import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
+import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { ActivityScope, Breadcrumb, FeatureFlagType } from '~/types'
 
 import {
@@ -618,6 +619,9 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                             `api/projects/${values.currentProjectId}/feature_flags/${id}`,
                             { deleted: false }
                         )
+                        // Restore gives the flag a new tree entry. A delete from another tab or the API leaves the old entry in this tab's tree.
+                        deleteFromTree('feature_flag', String(id))
+                        refreshTreeItem('feature_flag', String(id))
                         // The response carries the restored key, not the one the delete renamed it to.
                         lemonToast.success(`${response.key} has been restored`)
                         const updatedFlags = values.featureFlags.results.map((flag) =>

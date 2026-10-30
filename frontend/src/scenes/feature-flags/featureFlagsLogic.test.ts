@@ -22,6 +22,7 @@ import {
 import { urls } from 'scenes/urls'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
+import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { FeatureFlagType } from '~/types'
@@ -30,6 +31,11 @@ jest.mock('scenes/approvals/ApprovalRequiredBanner', () => ({
     showApprovalRequiredToast: jest.fn(),
 }))
 jest.mock('posthog-js')
+jest.mock('~/layout/panel-layout/ProjectTree/projectTreeLogic', () => ({
+    ...jest.requireActual('~/layout/panel-layout/ProjectTree/projectTreeLogic'),
+    deleteFromTree: jest.fn(),
+    refreshTreeItem: jest.fn(),
+}))
 
 function capturesOf(event: string): any[][] {
     return (posthog.capture as jest.Mock).mock.calls.filter(([name]) => name === event)
@@ -545,6 +551,8 @@ describe('restoreFeatureFlag', () => {
         expect(restoreBodies).toEqual([{ deleted: false }])
         expect(logic.values.displayedFlags).toEqual([])
         expect(logic.values.featureFlagsUpdating[1]).toBeUndefined()
+        expect(deleteFromTree).toHaveBeenCalledWith('feature_flag', '1')
+        expect(refreshTreeItem).toHaveBeenCalledWith('feature_flag', '1')
     })
 })
 
