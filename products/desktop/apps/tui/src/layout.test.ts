@@ -9,13 +9,16 @@ import {
   assignTask,
   closeFocused,
   cycleFocus,
+  expandPane,
   focusPane,
   initialLayout,
+  type LayoutNode,
   type LayoutState,
   loadLayout,
   newChat,
   newChatIn,
   openTask,
+  optimizeWorkspace,
   paneIds,
   saveLayout,
   splitFocused,
@@ -244,6 +247,63 @@ describe("layout", () => {
 
     expect(state.workspaces.map((w) => w.id)).toEqual(["s", "b"]);
     expect(state.activeWorkspaceId).toBe("b");
+  });
+
+  describe("optimizeWorkspace", () => {
+    // The shape of a tree, with each pane named by its task.
+    const shape = (node: LayoutNode): unknown =>
+      node.kind === "pane"
+        ? node.taskId
+        : { [node.direction]: node.children.map(shape) };
+    // Splits the focused pane and opens a task in the new one, as Ctrl+\\ and a pick would.
+    const split = (
+      state: LayoutState,
+      direction: "row" | "column",
+      taskId: string,
+    ): LayoutState => openTask(splitFocused(state, direction), taskId);
+    const a = openTask(initialLayout(), "a");
+
+    it.each([
+      [
+        "a row split again along the row",
+        split(split(a, "row", "b"), "row", "c"),
+        { row: ["a", "b", "c"] },
+      ],
+      [
+        "a column split again down the column",
+        split(split(a, "column", "b"), "column", "c"),
+        { column: ["a", "b", "c"] },
+      ],
+      [
+        "only the nested row of rows in a stack",
+        split(split(split(a, "row", "b"), "row", "c"), "column", "d"),
+        { row: ["a", "b", { column: ["c", "d"] }] },
+      ],
+    ])("evens out %s", (_, state, even) => {
+      const workspace = activeWorkspace(state);
+      const optimized = optimizeWorkspace(state, workspace.id);
+      expect(optimized && shape(activeWorkspace(optimized).root)).toEqual(even);
+    });
+
+    it("leaves panes that are already even alone", () => {
+      const state = split(split(a, "row", "b"), "column", "c");
+      expect(optimizeWorkspace(state, activeWorkspace(state).id)).toBeNull();
+    });
+  });
+
+  it("expands a split pane's task into the main view and keeps the split", () => {
+    const state = openTask(
+      splitFocused(openTask(initialLayout(), "a"), "row"),
+      "b",
+    );
+    const workspace = activeWorkspace(state);
+    const expanded = expandPane(state, workspace.focusedPaneId);
+
+    expect(activeWorkspace(expanded).root).toMatchObject({
+      kind: "pane",
+      taskId: "b",
+    });
+    expect(expanded.workspaces).toContainEqual(workspace);
   });
 
   it("restores a saved layout and falls back to a fresh one when the file is unreadable", () => {

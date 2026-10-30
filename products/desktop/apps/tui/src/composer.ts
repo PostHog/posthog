@@ -68,6 +68,14 @@ export const SLASH_COMMANDS = [
   { name: "new", description: "Start a new chat" },
   { name: "rename", description: "Rename this chat" },
   { name: "rename-workspace", description: "Rename this workspace" },
+  {
+    name: "optimize",
+    description: "Even out the widths of this workspace's panes",
+  },
+  {
+    name: "expand",
+    description: "Open this chat full width, as All tasks does",
+  },
   { name: "search", description: "Search your tasks" },
   { name: "clear", description: "Clear this local chat's conversation" },
   { name: "local", description: "Run new chats in this pane on this machine" },
