@@ -10,6 +10,18 @@
     "posthog-tui.mjs",
     "dist"
   ],
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/PostHog/posthog.git",
+    "directory": "products/desktop/apps/tui"
+  },
+  "license": "MIT",
   "scripts": {
     "dev": "node cli.mjs",
     "build": "node scripts/build.mjs",
