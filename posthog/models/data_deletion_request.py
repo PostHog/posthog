@@ -127,6 +127,7 @@ def compile_hogql_predicate(obj, use_new_events_schema: bool = False, hogql_tabl
         # A deletion predicate must match rows regardless of retention; the events-retention floor would otherwise
         # narrow an events sub-query here and leave events older than the window un-deleted.
         apply_events_retention_floor=False,
+        rewrite_flag_calls_to_flag_evaluations=False,
     )
     try:
         sql = translate_hogql(

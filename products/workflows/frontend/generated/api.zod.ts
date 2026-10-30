@@ -3514,7 +3514,9 @@ export const WorkflowImportsCreateBody = /* @__PURE__ */ zod.object({
     snippets: zod
         .record(zod.string(), zod.string())
         .optional()
-        .describe('Customer.io snippet name to its content, inlined where a message uses `{% snippet \"name\" %}`.'),
+        .describe(
+            'Customer.io snippet name to its content, inlined where a message uses `{{ snippets.name }}`. When PostHog reads the message content with a stored Customer.io App API key, it reads the snippets too.'
+        ),
     segment_cohorts: zod
         .record(zod.string(), zod.number())
         .optional()

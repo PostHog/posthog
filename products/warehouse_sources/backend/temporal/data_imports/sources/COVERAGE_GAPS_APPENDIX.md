@@ -9332,14 +9332,14 @@ Note: Persona's own repo note (products/warehouse_sources/backend/temporal/data_
 
 ## Personio — **thin**
 
-Today (7): `absence_periods`, `attendance_periods`, `cost_centers`, `persons`, `recruiting_categories`, `recruiting_jobs`, `salary_bands`
+Today (11): `absence_periods`, `absence_types`, `attendance_periods`, `compensations`, `cost_centers`, `employments`, `org_units`, `persons`, `recruiting_categories`, `recruiting_jobs`, `salary_bands`
 
 Diffed against: <https://developer.personio.de/llms.txt>
 
-- [ ] `GET /v2/persons/{person_id}/employments` — employment records for the persons already synced - contract type, dates, job reference; the core HR fact table (high)
-- [ ] `GET /v2/absence-types` — lookup resolving the absence type on every absence period already synced (high)
-- [ ] `GET /v2/compensations` — salary, hourly, bonus and recurring compensation - the payroll dataset (high)
-- [ ] `GET /v2/org-units` — department/team hierarchy lookup for grouping persons, absences and attendance (high)
+- [x] `GET /v2/persons/{person_id}/employments` — employment records for the persons already synced - contract type, dates, job reference; the core HR fact table (high)
+- [x] `GET /v2/absence-types` — lookup resolving the absence type on every absence period already synced (high)
+- [x] `GET /v2/compensations` — salary, hourly, bonus and recurring compensation - the payroll dataset (high)
+- [x] `GET /v2/org-units` — department/team hierarchy lookup for grouping persons, absences and attendance (high)
 - [x] `GET /v2/cost-centers` — cost center lookup for allocating attendance and compensation to finance dimensions (medium)
 - [x] `GET /v2/salary-bands` — salary band ranges (min/max/mid, currency) and the workplaces they apply to (medium)
 - [ ] `GET /v2/legal-entities` — legal entity lookup for multi-entity headcount and payroll splits (medium)
@@ -9448,15 +9448,15 @@ Note: The synced alerts table maps to GET /actions. Every high-value gap is a pe
 
 ## Pipedrive — gaps
 
-Today (13): `activities`, `deal_fields`, `deals`, `leads`, `notes`, `organization_fields`, `organizations`, `person_fields`, `persons`, `pipelines`, `products`, `stages`, `users`
+Today (17): `activities`, `activity_types`, `deal_changelog`, `deal_fields`, `deal_products`, `deals`, `lead_labels`, `leads`, `notes`, `organization_fields`, `organizations`, `person_fields`, `persons`, `pipelines`, `products`, `stages`, `users`
 
 Diffed against: <https://developers.pipedrive.com/docs/api/v2/openapi.yaml>
 
-- [ ] `GET /deals/{id}/products (v2) and /deals/products` — deal line items - product, quantity, price, discount per deal; without them revenue can only be read as a single deal-level number (high)
+- [x] `GET /deals/{id}/products (v2) and /deals/products` — deal line items - product, quantity, price, discount per deal; without them revenue can only be read as a single deal-level number (high). Added as `deal_products`, read through the batched `/deals/products` for every active and archived deal.
 - [ ] `GET /deals/archived (v2)` — /deals excludes archived deals, so the synced deals table silently loses closed/archived pipeline history (high)
-- [ ] `GET /activityTypes (v1)` — lookup resolving the type key on every synced activity row (high)
-- [ ] `GET /deals/{id}/flow and /deals/{id}/changelog (v1)` — per-field change history including stage moves - required for stage-transition, velocity and win-rate-over-time analysis (high)
-- [ ] `GET /leadLabels (v1)` — lookup resolving the label IDs carried on the leads we already sync (high)
+- [x] `GET /activityTypes (v1)` — lookup resolving the type key on every synced activity row (high). Added as `activity_types`.
+- [x] `GET /deals/{id}/flow and /deals/{id}/changelog (v1)` — per-field change history including stage moves - required for stage-transition, velocity and win-rate-over-time analysis (high). Added as `deal_changelog`, read for every active and archived deal. `/deals/{id}/flow` skipped: it is a mixed timeline of activities, notes, files and field changes that the changelog and existing tables already cover.
+- [x] `GET /leadLabels (v1)` — lookup resolving the label IDs carried on the leads we already sync (high). Added as `lead_labels`.
 - [ ] `GET /leadSources (v1)` — lookup resolving lead source values for attribution (medium)
 - [ ] `GET /currencies (v1)` — currency lookup for multi-currency deal and product values (medium)
 - [ ] `GET /pipelines/{id}/conversion_statistics and /movement_statistics (v1)` — Pipedrive's own funnel conversion and stage-movement metrics per pipeline (medium)
@@ -9838,10 +9838,10 @@ Today (5): `audit_logs`, `deployments`, `resources`, `stack_updates`, `stacks`
 
 Diffed against: <https://www.pulumi.com/docs/reference/cloud-rest-api/>
 
-- [ ] `GET /api/orgs/{orgName}/policyresults/violationsv2 (also /policyresults/issues)` — policy violations per resource/stack - the compliance dataset users report on (high)
-- [ ] `GET /api/orgs/{orgName}/resources/summary` — resources under management, the org's headline usage/billing metric (high)
-- [ ] `GET /api/orgs/{orgName}/members` — org membership lookup that resolves the user logins appearing on stack updates and audit logs (high)
-- [ ] `GET /api/stacks/{orgName}/{projectName}/{stackName}/tags` — stack tags (environment, owner, cost centre) - the lookup that makes stack and update data groupable (high)
+- [x] `GET /api/orgs/{orgName}/policyresults/violationsv2 (also /policyresults/issues)` — policy violations per resource/stack - the compliance dataset users report on (high)
+- [x] `GET /api/orgs/{orgName}/resources/summary` — resources under management, the org's headline usage/billing metric (high)
+- [x] `GET /api/orgs/{orgName}/members` — org membership lookup that resolves the user logins appearing on stack updates and audit logs (high)
+- [x] `GET /api/stacks/{orgName}/{projectName}/{stackName}/tags` — stack tags (environment, owner, cost centre) - the lookup that makes stack and update data groupable (high)
 - [ ] `GET /api/orgs/{orgName}/teams (and /teams/{teamName})` — team lookup for ownership and access reporting on stacks (medium)
 - [ ] `GET /api/orgs/{orgName}/policyresults/policies` — policy definitions lookup that names the policies referenced by violations (medium)
 - [ ] `GET /api/orgs/{orgName}/policyresults/compliance` — aggregated compliance posture over time (medium)

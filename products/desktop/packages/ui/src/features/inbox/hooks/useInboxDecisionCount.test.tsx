@@ -4,11 +4,11 @@ import { renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mockGetSignalReports = vi.hoisted(() => vi.fn());
+const mockGetSectionCounts = vi.hoisted(() => vi.fn());
 
 vi.mock("@posthog/ui/features/auth/authClient", () => ({
   useOptionalAuthenticatedClient: () => ({
-    getSignalReports: mockGetSignalReports,
+    getSignalReportSectionCounts: mockGetSectionCounts,
   }),
 }));
 vi.mock("@posthog/ui/features/auth/useCurrentUser", () => ({
@@ -47,26 +47,24 @@ function renderCount(enabled: boolean) {
 describe("useInboxDecisionCount", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockGetSignalReports.mockResolvedValue({ count: 7, results: [] });
+    mockGetSectionCounts.mockResolvedValue({ pull_requests: 3, reports: 4 });
   });
 
-  it("loads only a one-row server count for the navigation badge", async () => {
+  it("sums the server's ready counts for the navigation badge", async () => {
     const { result } = renderCount(true);
 
     await waitFor(() => expect(result.current).toBe(7));
-    expect(mockGetSignalReports).toHaveBeenCalledOnce();
-    expect(mockGetSignalReports).toHaveBeenCalledWith(
+    expect(mockGetSectionCounts).toHaveBeenCalledOnce();
+    expect(mockGetSectionCounts).toHaveBeenCalledWith(
       expect.objectContaining({
-        count_only: true,
         priority: undefined,
         source_product: undefined,
-        status: "ready",
       }),
     );
   });
 
   it("does not request a count when the navigation item is unavailable", () => {
     expect(renderCount(false).result.current).toBe(0);
-    expect(mockGetSignalReports).not.toHaveBeenCalled();
+    expect(mockGetSectionCounts).not.toHaveBeenCalled();
   });
 });

@@ -8,8 +8,10 @@ from django.db import OperationalError
 
 from parameterized import parameterized
 
+from products.signals.backend.implementation_pr import report_ids_for_implementation_pr
 from products.signals.backend.implementation_pr_cache import live_implementation_pr_flags
 from products.signals.backend.models import (
+    SignalActorKind,
     SignalReport,
     SignalReportArtefact,
     SignalReportAssignment,
@@ -96,6 +98,12 @@ class TestImplementationPrCache(BaseTest):
         task, _ = self._task(with_pr=True)
         SignalReportTask.objects.create(team=self.team, report=self.report, task=task, relationship="implementation")
 
+    def _link_task_assignment(self) -> None:
+        task, _ = self._task(with_pr=True)
+        SignalReportAssignment.all_teams.create(
+            team=self.team, report=self.report, actor_kind=SignalActorKind.TASK, actor_task_id=task.id
+        )
+
     @parameterized.expand(
         [
             ("assignment", "_link_assignment"),
@@ -113,6 +121,30 @@ class TestImplementationPrCache(BaseTest):
         cached, live = self._cached_and_live()
         assert live == (True, True)
         assert cached == live
+
+    @parameterized.expand(
+        [
+            ("assignment", "_link_assignment"),
+            ("pull_request_artefact", "_link_pull_request"),
+            ("task_run_artefact", "_link_task_run_artefact"),
+            ("legacy_report_task", "_link_legacy_report_task"),
+            ("task_assignment", "_link_task_assignment"),
+        ]
+    )
+    def test_each_link_source_resolves_the_report_for_its_pull_request(self, _name: str, link: str) -> None:
+        getattr(self, link)()
+
+        assert report_ids_for_implementation_pr(team_id=self.team.id, repository="Example/App", pr_number=7) == [
+            str(self.report.id)
+        ]
+        assert report_ids_for_implementation_pr(team_id=self.team.id, repository="example/app", pr_number=8) == []
+
+    def test_a_team_without_reports_skips_the_task_run_scan(self) -> None:
+        self._task(with_pr=True)
+        self.report.delete()
+
+        with self.assertNumQueries(1):
+            assert report_ids_for_implementation_pr(team_id=self.team.id, repository="example/app", pr_number=7) == []
 
     def test_a_merged_pull_request_stops_counting_as_active(self) -> None:
         with self.captureOnCommitCallbacks(execute=True):

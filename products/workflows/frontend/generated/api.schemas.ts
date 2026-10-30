@@ -2709,7 +2709,7 @@ export interface EmailDraftApi {
 }
 
 /**
- * Customer.io snippet name to its content, inlined where a message uses `{% snippet "name" %}`.
+ * Customer.io snippet name to its content, inlined where a message uses `{{ snippets.name }}`. When PostHog reads the message content with a stored Customer.io App API key, it reads the snippets too.
  */
 export type WorkflowImportRequestApiSnippets = { [key: string]: string }
 
@@ -2773,7 +2773,7 @@ export interface WorkflowImportRequestApi {
     source: ImportProviderKeyEnumApi
     /** The automations to import, at most 50. People are never read from these objects. */
     campaigns: CustomerioCampaignApi[]
-    /** Customer.io snippet name to its content, inlined where a message uses `{% snippet "name" %}`. */
+    /** Customer.io snippet name to its content, inlined where a message uses `{{ snippets.name }}`. When PostHog reads the message content with a stored Customer.io App API key, it reads the snippets too. */
     snippets?: WorkflowImportRequestApiSnippets
     /** Customer.io segment id to the PostHog cohort that replaces it. Segment triggers and segment conditions with no cohort here are left for the team to set. */
     segment_cohorts?: WorkflowImportRequestApiSegmentCohorts
