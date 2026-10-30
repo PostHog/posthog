@@ -1,125 +1,103 @@
-//! Canvas frames. posthog-js records a canvas as one frame shape only: clear the canvas, then draw one encoded image
-//! of it. The frame's image moves out of the block like an inline image. Every other canvas command stays as it is.
+//! Canvas mutations. posthog-js draws each canvas frame as an encoded `ImageBitmap(Blob(ArrayBuffer))`, and rrweb's
+//! command recorder also passes buffers, `ImageData` and typed arrays of pixels. A data URI in an `HTMLImageElement`
+//! `src` moves out with the data URI scan, and a remote `src` holds no image bytes, so it stays.
 
 use crate::bytescan::{self as scan, Span};
 
+const INCREMENTAL_SNAPSHOT: u8 = 3;
 const CANVAS_MUTATION: u8 = 9;
-const CONTEXT_2D: f64 = 0.0;
-const FRAME_MIMES: &[&str] = &["image/webp", "image/png", "image/jpeg"];
+/// Typed arrays whose numbers can be pixels, as in `ImageData` or WebGL's `texImage2D`: the set the text scrub drops.
+const PIXEL_ARRAYS: &[&str] = &["Uint8Array", "Uint8ClampedArray"];
 
-/// The values of `keys` in the object at `span`. `None` when it is not an object, or a key is escaped or repeated.
-fn members<const N: usize>(
-    bytes: &[u8],
-    span: Span,
-    keys: [&[u8]; N],
-) -> Option<[Option<Span>; N]> {
-    let mut found = [None; N];
-    for entry in scan::object_entries(bytes, span).ok()? {
-        let entry = entry.ok()?;
-        if entry.key_escaped {
-            return None;
-        }
-        let key = &bytes[entry.key.0..entry.key.1];
-        if let Some(index) = keys.iter().position(|&k| k == key) {
-            if found[index].replace(entry.value).is_some() {
-                return None;
-            }
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CanvasImage {
+    Base64(Span),
+    /// The first argument of an `ImageData`, or the numbers of a typed array that can hold pixels.
+    Pixels(Span),
+}
+
+impl CanvasImage {
+    pub fn span(self) -> Span {
+        match self {
+            CanvasImage::Base64(span) | CanvasImage::Pixels(span) => span,
         }
     }
-    Some(found)
 }
 
-/// The items of the array at `span`, when it has at most `max`.
-fn items(bytes: &[u8], span: Span, max: usize) -> Option<Vec<Span>> {
-    let mut items = Vec::new();
-    for item in scan::array_items(bytes, span).ok()? {
-        if items.len() == max {
-            return None;
-        }
-        items.push(item.ok()?);
-    }
-    Some(items)
+fn is_text(bytes: &[u8], span: Span, text: &str) -> bool {
+    scan::is_string(bytes, span) && scan::unescape(bytes, span).is_ok_and(|v| v == text)
 }
 
-fn is_text(bytes: &[u8], span: Option<Span>, text: &str) -> bool {
-    span.filter(|&s| scan::is_string(bytes, s))
-        .is_some_and(|s| scan::unescape(bytes, s).is_ok_and(|v| v == text))
+fn is_container(bytes: &[u8], span: Span) -> bool {
+    scan::is_array(bytes, span) || scan::is_object(bytes, span)
 }
 
-fn is_number(bytes: &[u8], span: Span) -> bool {
-    scan::parse_number(bytes, span).is_some_and(f64::is_finite)
-}
-
-fn is_u32(bytes: &[u8], span: Option<Span>) -> bool {
-    span.and_then(|s| scan::parse_number(bytes, s))
-        .is_some_and(|n| n.fract() == 0.0 && (0.0..=f64::from(u32::MAX)).contains(&n))
-}
-
-fn command(bytes: &[u8], span: Span, property: &str, max_args: usize) -> Option<Vec<Span>> {
-    let [name, args] = members(bytes, span, [b"property", b"args"])?;
-    is_text(bytes, name, property).then_some(())?;
-    items(bytes, args?, max_args)
-}
-
-/// The base64 string of a posthog-js snapshot frame and its mime type, matched as v3 `canvas.rs` matches it:
-/// `{id, type: 2D, commands: [clearRect(4 numbers), drawImage(ImageBitmap(Blob(ArrayBuffer)), 2 or 4 numbers)]}`.
-pub fn frame_image(
+/// In byte order. The walk keeps its own stack, so no depth of nested arguments can overflow the call stack.
+pub fn canvas_images(
     bytes: &[u8],
     kind: Option<u8>,
     source: Option<u8>,
     data: Span,
-) -> Option<(&'static str, Span)> {
-    if kind != Some(3) || source != Some(CANVAS_MUTATION) {
-        return None;
+) -> Vec<CanvasImage> {
+    let mut images = Vec::new();
+    if kind != Some(INCREMENTAL_SNAPSHOT) || source != Some(CANVAS_MUTATION) {
+        return images;
     }
-    let [id, context, commands, width, height] = members(
-        bytes,
-        data,
-        [
-            b"id",
-            b"type",
-            b"commands",
-            b"displayWidth",
-            b"displayHeight",
-        ],
-    )?;
-    if !is_u32(bytes, id)
-        || context.and_then(|c| scan::parse_number(bytes, c)) != Some(CONTEXT_2D)
-        || [width, height]
-            .into_iter()
-            .flatten()
-            .any(|v| !is_number(bytes, v))
-    {
-        return None;
+    let mut values = vec![data];
+    while let Some(value) = values.pop() {
+        if scan::is_array(bytes, value) {
+            values.extend(
+                scan::array_items(bytes, value)
+                    .into_iter()
+                    .flatten()
+                    .flatten()
+                    .filter(|&item| is_container(bytes, item)),
+            );
+        } else if scan::is_object(bytes, value) {
+            visit_object(bytes, value, &mut images, &mut values);
+        }
     }
-    let [clear, draw] = items(bytes, commands?, 2)?[..] else {
-        return None;
+    images.sort_unstable_by_key(|image| image.span().0);
+    images
+}
+
+fn visit_object(bytes: &[u8], object: Span, images: &mut Vec<CanvasImage>, values: &mut Vec<Span>) {
+    let entries: Vec<scan::Entry> = scan::object_entries(bytes, object)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .collect();
+    // Each copy of a repeated `rr_type` counts, so the walk covers the one the player reads.
+    let has_type = |names: &[&str]| {
+        entries.iter().any(|entry| {
+            &bytes[entry.key.0..entry.key.1] == b"rr_type"
+                && names.iter().any(|name| is_text(bytes, entry.value, name))
+        })
     };
-    let clear = command(bytes, clear, "clearRect", 4)?;
-    if clear.len() != 4 || !clear.iter().all(|&a| is_number(bytes, a)) {
-        return None;
+    let image_data = has_type(&["ImageData"]);
+    let pixel_array = has_type(PIXEL_ARRAYS);
+    for entry in &entries {
+        match &bytes[entry.key.0..entry.key.1] {
+            b"base64" if scan::is_string(bytes, entry.value) => {
+                images.push(CanvasImage::Base64(entry.value))
+            }
+            b"args" if (image_data || pixel_array) && scan::is_array(bytes, entry.value) => {
+                let mut args = scan::array_items(bytes, entry.value)
+                    .into_iter()
+                    .flatten()
+                    .flatten();
+                if let Some(first) = args.next() {
+                    if scan::is_array(bytes, first) || (image_data && scan::is_object(bytes, first))
+                    {
+                        images.push(CanvasImage::Pixels(first));
+                    } else if is_container(bytes, first) {
+                        values.push(first);
+                    }
+                }
+                values.extend(args.filter(|&arg| is_container(bytes, arg)));
+            }
+            _ if is_container(bytes, entry.value) => values.push(entry.value),
+            _ => {}
+        }
     }
-    // posthog-js before 1.391 drew at the origin without a size, so `[bitmap, x, y]`.
-    let draw = command(bytes, draw, "drawImage", 5)?;
-    if !matches!(draw.len(), 3 | 5) || !draw[1..].iter().all(|&a| is_number(bytes, a)) {
-        return None;
-    }
-    let [bitmap_type, bitmap_args] = members(bytes, draw[0], [b"rr_type", b"args"])?;
-    let [blob] = items(bytes, bitmap_args?, 1)?[..] else {
-        return None;
-    };
-    if !is_text(bytes, bitmap_type, "ImageBitmap") {
-        return None;
-    }
-    let [blob_type, mime, blob_data] = members(bytes, blob, [b"rr_type", b"type", b"data"])?;
-    let mime = FRAME_MIMES.iter().find(|&&m| is_text(bytes, mime, m))?;
-    let [buffer] = items(bytes, blob_data?, 1)?[..] else {
-        return None;
-    };
-    if !is_text(bytes, blob_type, "Blob") {
-        return None;
-    }
-    let [buffer_type, base64] = members(bytes, buffer, [b"rr_type", b"base64"])?;
-    let base64 = base64.filter(|&b| scan::is_string(bytes, b))?;
-    is_text(bytes, buffer_type, "ArrayBuffer").then_some((mime, base64))
 }

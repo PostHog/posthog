@@ -9,8 +9,8 @@ use crate::bytescan::{self as scan, Span};
 use crate::compression;
 use serde::de::IgnoredAny;
 
-use super::canvas;
-use super::images::{extract_images, ImageSink};
+use super::canvas::{self, CanvasImage};
+use super::images::{extract_images, Declined, ImageSink};
 use super::message::{canonicalize_keys, Event, Message};
 
 const FULL_SNAPSHOT: u8 = 2;
@@ -460,19 +460,20 @@ fn stored_event(inner: &[u8], event: &Event, sink: &mut ImageSink<'_>) -> Option
         Expansion::Decoded(fields) => Some(expanded(inner, event, fields, sink)),
         Expansion::Plain => {
             let mut output = Output::new(inner, event.span);
-            let frame = event
-                .data
-                .and_then(|data| canvas::frame_image(inner, event.kind, event.source, data));
-            if let Some((_, span)) = frame {
-                let payload = scan::unescape(inner, span).ok();
-                match payload.and_then(|p| sink.take(p.as_bytes())) {
-                    Some(reference) => {
-                        let mut quoted = Vec::with_capacity(reference.len() + 2);
-                        scan::write_json_string(&reference, &mut quoted);
-                        output.replace(span, &quoted, sink);
-                    }
-                    None => sink.left_inline += 1,
-                }
+            let images = event.data.map_or_else(Vec::new, |data| {
+                canvas::canvas_images(inner, event.kind, event.source, data)
+            });
+            for image in images {
+                let replacement = match image {
+                    CanvasImage::Base64(span) => match scan::unescape(inner, span) {
+                        Ok(payload) => sink.take_base64(payload.as_bytes()),
+                        Err(_) => sink.decline(Declined::Undecodable),
+                    },
+                    CanvasImage::Pixels(_) => sink.decline(Declined::Unsupported),
+                };
+                let mut quoted = Vec::with_capacity(replacement.len() + 2);
+                scan::write_json_string(&replacement, &mut quoted);
+                output.replace(image.span(), &quoted, sink);
             }
             output.scan_to(event.span.1, sink);
             output.out
@@ -825,59 +826,131 @@ mod tests {
     }
 
     #[test]
-    fn moves_only_the_posthog_js_canvas_frame() {
-        let frame = |draw_args: Value| {
-            json!({"type": 3, "timestamp": 1, "data": {"source": 9, "id": 4, "type": 0, "commands": [
-                {"property": "clearRect", "args": [0, 0, 8, 8]},
-                {"property": "drawImage", "args": draw_args},
-            ]}})
-        };
-        // posthog-js encodes the frame in the type the blob names.
-        let bitmap = |mime: &str, buffer: &str| {
-            let bytes: &[u8] = match mime {
-                "image/webp" => b"RIFF\x00\x00\x00\x00WEBPframe",
-                "image/gif" => b"GIF89aframe",
-                _ => b"\x89PNG\r\n\x1a\nframe",
-            };
-            json!({"rr_type": "ImageBitmap", "args": [{"rr_type": "Blob", "type": mime,
-                "data": [{"rr_type": buffer, "base64": STANDARD.encode(bytes)}]}]})
-        };
+    fn moves_every_canvas_image_out_or_declines_it() {
+        enum Outcome {
+            Stored(&'static str),
+            Marker(Declined),
+            Kept,
+        }
+        let png = b"\x89PNG\r\n\x1a\nframe".as_slice();
+        let buffer =
+            |bytes: &[u8]| json!({"rr_type": "ArrayBuffer", "base64": STANDARD.encode(bytes)});
+        let bitmap = |mime: &str, bytes: &[u8]| json!({"rr_type": "ImageBitmap", "args": [{"rr_type": "Blob", "type": mime, "data": [buffer(bytes)]}]});
+        let commands = |commands: Value| json!({"type": 3, "timestamp": 1, "data": {"source": 9, "id": 4, "type": 0, "commands": commands}});
+        let webgl = |property: &str, args: Value| json!({"type": 3, "timestamp": 1, "data": {"source": 9, "id": 5, "type": 1, "property": property, "args": args}});
+        let draw =
+            |image: Value| commands(json!([{"property": "drawImage", "args": [image, 0, 0]}]));
+        let blob = "/args/0/data/0/base64";
         let cases = [
+            // posthog-js's frame.
             (
-                frame(json!([bitmap("image/webp", "ArrayBuffer"), 0, 0, 8, 8])),
-                true,
+                commands(json!([{"property": "clearRect", "args": [0, 0, 8, 8]},
+                    {"property": "drawImage", "args": [bitmap("image/webp", b"RIFF\x00\x00\x00\x00WEBPframe"), 0, 0, 8, 8]}])),
+                format!("/data/commands/1/args/0{blob}"),
+                Outcome::Stored("image/webp"),
             ),
             (
-                frame(json!([bitmap("image/png", "ArrayBuffer"), 0, 0])),
-                true,
+                commands(json!([{"property": "fillRect", "args": [0, 0, 1, 1]},
+                    {"property": "drawImage", "args": [bitmap("image/gif", b"GIF89aframe"), 0, 0]}])),
+                format!("/data/commands/1/args/0{blob}"),
+                Outcome::Stored("image/gif"),
+            ),
+            // One command without a list, in a WebGL context.
+            (
+                webgl(
+                    "texImage2D",
+                    json!([3553, 0, 6408, 6408, 5121, bitmap("image/png", png)]),
+                ),
+                format!("/data/args/5{blob}"),
+                Outcome::Stored("image/png"),
             ),
             (
-                frame(json!([bitmap("image/gif", "ArrayBuffer"), 0, 0])),
-                false,
+                draw(
+                    json!({"rr_type": "HTMLImageElement", "src": format!("data:image/png;base64,{}", STANDARD.encode(png))}),
+                ),
+                "/data/commands/0/args/0/src".to_owned(),
+                Outcome::Stored("image/png"),
             ),
             (
-                frame(json!([bitmap("image/png", "Uint8Array"), 0, 0])),
-                false,
+                draw(bitmap("image/bmp", b"BMbitmap")),
+                format!("/data/commands/0/args/0{blob}"),
+                Outcome::Marker(Declined::Unsupported),
             ),
-            (frame(json!([bitmap("image/png", "ArrayBuffer"), 0])), false),
             (
-                json!({"type": 3, "timestamp": 1, "data": {"source": 9, "id": 4, "type": 0, "commands": [
-                    {"property": "putImageData", "args": [{"rr_type": "ArrayBuffer", "base64": STANDARD.encode(b"pixels")}, 0, 0]},
-                ]}}),
-                false,
+                draw(bitmap(
+                    "image/avif",
+                    b"\x00\x00\x00\x1cftypavif\x00\x00\x00\x00avifmif1miaf",
+                )),
+                format!("/data/commands/0/args/0{blob}"),
+                Outcome::Marker(Declined::Avif),
+            ),
+            (
+                draw(
+                    json!({"rr_type": "ImageBitmap", "args": [{"rr_type": "Blob", "type": "image/png",
+                    "data": [{"rr_type": "ArrayBuffer", "base64": "A"}]}]}),
+                ),
+                format!("/data/commands/0/args/0{blob}"),
+                Outcome::Marker(Declined::Undecodable),
+            ),
+            (
+                commands(
+                    json!([{"property": "putImageData", "args": [{"rr_type": "ImageData",
+                    "args": [{"rr_type": "Uint8ClampedArray", "args": [[255, 0, 0, 255]]}, 1, 1]}, 0, 0]}]),
+                ),
+                "/data/commands/0/args/0/args/0".to_owned(),
+                Outcome::Marker(Declined::Unsupported),
+            ),
+            (
+                webgl(
+                    "texImage2D",
+                    json!([3553, 0, 6408, 1, 1, 0, 6408, 5121, {"rr_type": "Uint8Array", "args": [[255, 0, 0, 255]]}]),
+                ),
+                "/data/args/8/args/0".to_owned(),
+                Outcome::Marker(Declined::Unsupported),
+            ),
+            (
+                webgl("bufferData", json!([34962, buffer(b"vertices"), 35044])),
+                "/data/args/1/base64".to_owned(),
+                Outcome::Marker(Declined::Unsupported),
+            ),
+            (
+                draw(json!({"rr_type": "HTMLImageElement", "src": "https://example.com/a.png"})),
+                String::new(),
+                Outcome::Kept,
+            ),
+            (
+                webgl(
+                    "uniform4fv",
+                    json!([{"rr_type": "WebGLUniformLocation", "index": 0},
+                    {"rr_type": "Float32Array", "args": [[0.5, 0.5, 0.5, 1]]}]),
+                ),
+                String::new(),
+                Outcome::Kept,
             ),
         ];
-        for (event, moved) in cases {
+        for (event, pointer, outcome) in cases {
             let message = message_with(json!([event]));
             let mut sink = sink();
-            let stored = extract_event_images(&message.inner, &message.events[0], &mut sink);
-            assert_eq!(stored.is_some(), moved, "{event}");
-            if let Some(stored) = stored {
-                let stored: Value = serde_json::from_slice(&stored).unwrap();
-                let blob = &stored["data"]["commands"][1]["args"][0]["args"][0];
-                assert_eq!(blob["data"][0]["base64"], sink.images[0].reference.as_str());
-                assert_eq!(blob["type"], sink.images[0].mime.as_str());
-            }
+            let stored = extract_event_images(&message.inner, &message.events[0], &mut sink)
+                .map(|stored| serde_json::from_slice::<Value>(&stored).unwrap());
+            let replacement = match outcome {
+                Outcome::Kept => {
+                    assert_eq!(stored, None, "{event}");
+                    continue;
+                }
+                Outcome::Stored(mime) => {
+                    assert_eq!(sink.images.len(), 1, "{event}");
+                    assert_eq!(sink.images[0].mime, mime, "{event}");
+                    sink.images[0].reference.clone()
+                }
+                Outcome::Marker(reason) => {
+                    assert!(sink.images.is_empty(), "{event}");
+                    reason.marker().to_owned()
+                }
+            };
+            let mut expected = event.clone();
+            *expected.pointer_mut(&pointer).unwrap() = json!(replacement);
+            assert_eq!(stored, Some(expected), "{event}");
         }
     }
 }

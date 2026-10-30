@@ -15,7 +15,9 @@ use aho_corasick::{AhoCorasick, AhoCorasickKind, MatchKind};
 use metrics::counter;
 use replay_core_v4::bytescan::{unescape, write_json_string};
 use replay_core_v4::inspect::dom::{for_each_srcset_candidate, Srcset};
-use replay_core_v4::scan::images::{extract_images, ImageLimits, ImageSink, AVIF_MARKER};
+use replay_core_v4::scan::images::{
+    extract_images, Declined, ImageLimits, ImageSink, DECLINED_PREFIX,
+};
 use replay_core_v4::seal::{image_content_key, image_url_key};
 use replay_core_v4::url_policy::is_remote;
 
@@ -157,7 +159,8 @@ pub struct UrlRewrite {
 pub struct PassCounters {
     srcset_rewrites: BTreeMap<&'static str, u64>,
     url_rewrites: BTreeMap<(&'static str, &'static str), u64>,
-    pub removed_avif: u64,
+    /// Indexed by [`Declined`].
+    pub removed_images: [u64; Declined::ALL.len()],
 }
 
 impl PassCounters {
@@ -174,8 +177,10 @@ impl PassCounters {
             )
             .increment(count);
         }
-        counter!("ai_research_v4_recorder_removed_images_total", "format" => "avif")
-            .increment(self.removed_avif);
+        for (reason, &count) in Declined::ALL.iter().zip(&self.removed_images) {
+            counter!("ai_research_v4_recorder_removed_images_total", "reason" => reason.label())
+                .increment(count);
+        }
     }
 }
 
@@ -547,7 +552,7 @@ fn rebuilt_srcset(
         }
     };
     for_each_srcset_candidate(text, |url, descriptors| {
-        if url == AVIF_MARKER {
+        if url.starts_with(DECLINED_PREFIX) {
             removed = true;
         } else if !is_remote(url) {
             keep(url, descriptors);
