@@ -367,6 +367,14 @@ class DataWarehouseSavedQuerySerializer(
         if sync_frequency not in (None, "never"):
             raise serializers.ValidationError("Views that run raw Trino SQL cannot be materialized yet.")
         client_types = self.context["request"].data.get("types", [])
+        if not isinstance(client_types, list) or any(
+            not isinstance(item, list | tuple)
+            or len(item) != 2
+            or not isinstance(item[0], str)
+            or not isinstance(item[1], str)
+            for item in client_types
+        ):
+            raise serializers.ValidationError('"types" must be a list of [column name, column type] string pairs.')
         if len(client_types) == 0:
             raise serializers.ValidationError("Run the query in the SQL editor before saving it as a view.")
         return _columns_from_client_types(client_types)

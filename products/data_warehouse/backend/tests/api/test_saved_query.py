@@ -214,10 +214,12 @@ class TestSavedQuery(APIBaseTest):
             ("not_select", "SHOW SCHEMAS", True, [["x", "Int64"]], "read-only SELECT"),
             ("flag_off", "SELECT 1 AS x", False, [["x", "Int64"]], "not enabled"),
             ("no_types", "SELECT 1 AS x", True, [], "Run the query"),
+            ("null_types", "SELECT 1 AS x", True, None, "must be a list"),
+            ("short_pair", "SELECT 1 AS x", True, [["x"]], "must be a list"),
         ]
     )
     def test_create_raw_managed_trino_view_refused(
-        self, _case: str, sql: str, flag_enabled: bool, types: list[list[str]], expected_detail: str
+        self, _case: str, sql: str, flag_enabled: bool, types: list[list[str]] | None, expected_detail: str
     ) -> None:
         with patch("posthoganalytics.feature_enabled", return_value=flag_enabled):
             response = self.client.post(
