@@ -68,6 +68,7 @@ describe('hog', () => {
     test.each([
         ['login', 'Did you mean `hog auth login`?'],
         ['sourcemap', '`sourcemap` is `hog error-tracking inject|upload|process` in hog.'],
+        ['exp', '`exp` is `hog query|endpoints|schema` in hog.'],
     ])('a command that moved, like %s, points to its new name', async (name, message) => {
         const result = await runHog([name, 'upload'])
         expect(result.exitCode).toBe(2)
