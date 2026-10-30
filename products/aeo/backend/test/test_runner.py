@@ -1,5 +1,7 @@
+import uuid
 import datetime as dt
 import threading
+from concurrent.futures import ThreadPoolExecutor, wait
 from typing import NoReturn
 
 import pytest
@@ -11,7 +13,7 @@ from posthog.models.organization import Organization
 from posthog.models.team import Team
 
 from products.aeo.backend import runner
-from products.aeo.backend.engines import CitationCheck
+from products.aeo.backend.engines import CitationCheck, build_check_fields
 from products.aeo.backend.models import AEOCitationCheck, AEOPrompt
 from products.aeo.backend.runner import run_citation_checks, select_prompts
 from products.aeo.backend.seeding import PromptCandidate, upsert_prompts
@@ -234,12 +236,12 @@ def test_an_interrupted_run_does_not_start_the_queued_prompts(team: Team, settin
     upsert_prompts(team, [PromptCandidate(text=f"q{i}?", source="imported", topic="t") for i in range(5)])
     engine = _BlockingEngine(workers=2)
 
-    def interrupt_once_every_worker_is_busy(futures: object) -> NoReturn:
+    def interrupt_once_every_worker_is_busy(*args: object, **kwargs: object) -> NoReturn:
         # Stands in for a Celery soft time limit landing while the run waits on its workers.
         engine.all_workers_busy.wait(timeout=5)
         raise KeyboardInterrupt
 
-    monkeypatch.setattr(runner, "as_completed", interrupt_once_every_worker_is_busy)
+    monkeypatch.setattr(runner, "wait", interrupt_once_every_worker_is_busy)
 
     with pytest.raises(KeyboardInterrupt):
         run_citation_checks(team, engines=[engine])
@@ -249,3 +251,41 @@ def test_an_interrupted_run_does_not_start_the_queued_prompts(team: Team, settin
 
     assert len(engine.prompts) == 2
     assert len(set(engine.prompts)) == 2
+
+
+def test_dropping_the_queue_leaves_only_running_checks_to_drain() -> None:
+    pool = ThreadPoolExecutor(max_workers=1)
+    gate = threading.Event()
+    running = pool.submit(gate.wait, 5)
+    queued = [pool.submit(lambda: None) for _ in range(2)]
+
+    remaining = runner._drop_queued(pool, {running, *queued})
+    gate.set()
+    finished, still_pending = wait(remaining, timeout=5)
+
+    assert remaining == {running}
+    assert all(future.cancelled() for future in queued)
+    assert (finished, still_pending) == ({running}, set())
+
+
+def test_a_prompt_recorded_by_another_run_is_not_recorded_twice(team: Team) -> None:
+    upsert_prompts(team, [PromptCandidate(text="q0?", source="imported")])
+    prompt = AEOPrompt.objects.for_team(team.id).get()
+    checked_before = timezone.now() - dt.timedelta(hours=1)
+    fields = [
+        build_check_fields(
+            check=CitationCheck(engine="stub-engine", model="stub", cited_urls=["https://posthog.com/docs"]),
+            run_id=str(uuid.uuid4()),
+            prompt_id=str(prompt.id),
+            prompt_text=prompt.prompt,
+            prompt_source=prompt.prompt_source,
+            prompt_hash=prompt.prompt_hash,
+            target_domains=["posthog.com"],
+        )
+    ]
+
+    first = runner._record_prompt_checks(team, team.id, "run-a", prompt, fields, checked_before)
+    second = runner._record_prompt_checks(team, team.id, "run-b", prompt, fields, checked_before)
+
+    assert (first, second) == ("written", "superseded")
+    assert AEOCitationCheck.objects.for_team(team.id).count() == 1

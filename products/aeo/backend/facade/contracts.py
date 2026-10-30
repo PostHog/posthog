@@ -24,6 +24,8 @@ class CitationRunSummary:
     rows_written: int
     write_failures: int
     error: str | None = None
+    # Answered prompts dropped because a later run had already recorded them.
+    superseded: int = 0
 
 
 @frozen
