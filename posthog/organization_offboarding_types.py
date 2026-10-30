@@ -9,5 +9,5 @@ class OffboardingResource:
     name: str
     team_id: int
     project_name: str
-    password_required: bool = False
+    password_protected: bool = False
     url: str | None = None

@@ -511,7 +511,7 @@ export interface MemberOffboardingResourceApi {
     /** Name of the project containing the resource. */
     project_name: string
     /** Whether all active public links require a password. */
-    password_required: boolean
+    password_protected: boolean
     /**
      * Project-scoped path to open the resource in PostHog.
      * @nullable

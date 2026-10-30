@@ -186,7 +186,7 @@ export function MemberOffboardingModal(): JSX.Element {
                                                       aria-label={`Public sharing for ${resource.name}`}
                                                       data-attr="offboarding-disable-dashboard"
                                                   />
-                                                  {resource.password_required && (
+                                                  {resource.password_protected && (
                                                       <Tooltip title="Password protected">
                                                           <span
                                                               className="flex text-secondary"

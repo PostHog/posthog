@@ -32,7 +32,6 @@ PUBLIC_RESOURCE_KINDS = (
 
 class OrganizationOffboarding:
     def __init__(self, membership: OrganizationMembership) -> None:
-        self.membership = membership
         self.organization_id = str(membership.organization_id)
         self.user_id = membership.user_id
 
@@ -98,7 +97,7 @@ class OrganizationOffboarding:
                     name=name or f"Untitled {kind}",
                     team_id=configuration.team_id,
                     project_name=configuration.team.name,
-                    password_required=not configuration.has_unprotected_link,
+                    password_protected=not configuration.has_unprotected_link,
                     url=f"/project/{configuration.team_id}/{resource_kind.url_path}/{quote(str(identifier), safe='')}",
                 ),
             )
