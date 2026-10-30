@@ -507,16 +507,15 @@ class PluginLogEntry:
     instance_id: UUID
 
 
-def fetch_plugin_log_entries(
+def _plugin_log_entries_conditions(
     *,
-    team_id: Optional[int] = None,
-    plugin_config_id: Optional[int] = None,
-    after: Optional[datetime.datetime] = None,
-    before: Optional[datetime.datetime] = None,
-    search: Optional[str] = None,
-    limit: Optional[int] = None,
-    type_filter: Optional[list[PluginLogEntryType]] = None,
-) -> list[PluginLogEntry]:
+    team_id: Optional[int],
+    plugin_config_id: Optional[int],
+    after: Optional[datetime.datetime],
+    before: Optional[datetime.datetime],
+    search: Optional[str],
+    type_filter: Optional[list[PluginLogEntryType]],
+) -> tuple[str, dict[str, Any]]:
     if type_filter is None:
         type_filter = []
     clickhouse_where_parts: list[str] = []
@@ -539,11 +538,61 @@ def fetch_plugin_log_entries(
     if len(type_filter) > 0:
         clickhouse_where_parts.append("type in %(types)s")
         clickhouse_kwargs["types"] = type_filter
+    return " AND ".join(clickhouse_where_parts), clickhouse_kwargs
+
+
+def fetch_plugin_log_entries(
+    *,
+    team_id: Optional[int] = None,
+    plugin_config_id: Optional[int] = None,
+    after: Optional[datetime.datetime] = None,
+    before: Optional[datetime.datetime] = None,
+    search: Optional[str] = None,
+    limit: Optional[int] = None,
+    offset: int = 0,
+    type_filter: Optional[list[PluginLogEntryType]] = None,
+) -> list[PluginLogEntry]:
+    where, clickhouse_kwargs = _plugin_log_entries_conditions(
+        team_id=team_id,
+        plugin_config_id=plugin_config_id,
+        after=after,
+        before=before,
+        search=search,
+        type_filter=type_filter,
+    )
+    clickhouse_kwargs = {**clickhouse_kwargs, "offset": offset}
+    limit_clause = ""
+    if limit:
+        limit_clause = "LIMIT %(limit)s"
+        clickhouse_kwargs["limit"] = limit
+    # Entries can share a timestamp. The id gives them the same order in every query, so a page
+    # boundary between them cannot skip or repeat an entry.
     clickhouse_query = f"""
         SELECT id, team_id, plugin_id, plugin_config_id, timestamp, source, type, message, instance_id FROM plugin_log_entries
-        WHERE {" AND ".join(clickhouse_where_parts)} ORDER BY timestamp DESC {f"LIMIT {limit}" if limit else ""}
+        WHERE {where} ORDER BY timestamp DESC, id {limit_clause} OFFSET %(offset)s
     """
     return [PluginLogEntry(*result) for result in cast(list, sync_execute(clickhouse_query, clickhouse_kwargs))]
+
+
+def count_plugin_log_entries(
+    *,
+    team_id: Optional[int] = None,
+    plugin_config_id: Optional[int] = None,
+    after: Optional[datetime.datetime] = None,
+    before: Optional[datetime.datetime] = None,
+    search: Optional[str] = None,
+    type_filter: Optional[list[PluginLogEntryType]] = None,
+) -> int:
+    where, clickhouse_kwargs = _plugin_log_entries_conditions(
+        team_id=team_id,
+        plugin_config_id=plugin_config_id,
+        after=after,
+        before=before,
+        search=search,
+        type_filter=type_filter,
+    )
+    rows = cast(list, sync_execute(f"SELECT count() FROM plugin_log_entries WHERE {where}", clickhouse_kwargs))
+    return int(rows[0][0])
 
 
 @receiver(models.signals.post_save, sender=Organization)
