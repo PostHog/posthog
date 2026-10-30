@@ -26,7 +26,7 @@ describe('toolbar shims', () => {
             [
                 'featureFlagSummaryLogic',
                 featureFlagSummaryLogic({ flagKey: 'my-flag' }),
-                { summary: null, flagLoading: false },
+                { summary: null, flagLoading: false, flagLoadFailed: false },
             ],
         ])('%s provides expected defaults', (_name, logic, expected) => {
             logic.mount()

@@ -9,10 +9,13 @@ import { pluralize } from 'lib/utils/strings'
 import { featureFlagSummaryLogic } from 'products/feature_flags/frontend/featureFlagSummaryLogic'
 
 export function FeatureFlagPopoverInfo({ flagKey }: { flagKey: string }): JSX.Element {
-    const { summary, flagLoading } = useValues(featureFlagSummaryLogic({ flagKey }))
+    const { summary, flagLoading, flagLoadFailed } = useValues(featureFlagSummaryLogic({ flagKey }))
 
     if (flagLoading) {
         return <Spinner />
+    }
+    if (flagLoadFailed) {
+        return <span className="text-secondary">Could not load this flag. Try again in a moment.</span>
     }
     if (!summary) {
         return <span className="text-secondary">No flag with this key in this project</span>

@@ -1,4 +1,4 @@
-import { MakeLogicType, afterMount, connect, kea, key, path, props, selectors } from 'kea'
+import { MakeLogicType, afterMount, connect, kea, key, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { RetainedValues } from 'lib/utils/retainedValues'
@@ -36,6 +36,7 @@ export interface FeatureFlagSummary {
 export interface featureFlagSummaryLogicValues {
     currentProjectId: number | null // projectLogic
     flag: FeatureFlagApi | null
+    flagLoadFailed: boolean
     flagLoading: boolean
     summary: FeatureFlagSummary | null
 }
@@ -104,6 +105,16 @@ export const featureFlagSummaryLogic = kea<featureFlagSummaryLogicType>([
             },
         ],
     })),
+    reducers({
+        flagLoadFailed: [
+            false,
+            {
+                loadFlag: () => false,
+                loadFlagSuccess: () => false,
+                loadFlagFailure: () => true,
+            },
+        ],
+    }),
     selectors({
         summary: [
             (s) => [s.flag],

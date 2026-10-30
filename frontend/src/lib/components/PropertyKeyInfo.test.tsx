@@ -67,10 +67,19 @@ describe('PropertyKeyInfo', () => {
             ['Release conditions', 'Variants'],
         ],
         ['says so when no flag has the key', [], ['No flag with this key in this project'], ['Status']],
+        [
+            'says the lookup failed when the request fails',
+            null,
+            ['Could not load this flag. Try again in a moment.'],
+            ['No flag with this key in this project'],
+        ],
     ])('flag overview %s', async (_name, flags, shown, hidden) => {
         useMocks({
             get: {
                 '/api/projects/:team_id/feature_flags/': ({ request }) => {
+                    if (!flags) {
+                        return [500, {}]
+                    }
                     const wantsArchived = new URL(request.url).searchParams.get('archived') === 'true'
                     const results = flags.filter((flag) => flag.archived === wantsArchived)
                     return [200, { count: results.length, results }]
