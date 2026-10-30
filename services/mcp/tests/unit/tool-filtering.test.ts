@@ -1062,16 +1062,10 @@ describe('Tool Filtering - Feature Flags', () => {
         expect(on).toContain('accounts-meetings-list')
     })
 
-    it('keeps workflow disable hidden until backend draft routing is enabled', () => {
-        const hidden = getToolsForFeatures({ features: ['workflows'] })
-        expect(hidden).not.toContain('workflows-disable')
-        expect(hidden).toContain('workflows-enable')
-
-        const enabled = getToolsForFeatures({
-            features: ['workflows'],
-            featureFlags: { 'workflows-mcp-disable': true },
-        })
-        expect(enabled).toContain('workflows-disable')
+    it('includes workflow disable when the workflows feature is enabled', () => {
+        const tools = getToolsForFeatures({ features: ['workflows'] })
+        expect(tools).toContain('workflows-disable')
+        expect(tools).toContain('workflows-enable')
     })
 
     it('revamped-py-notebooks flag swaps the notebook surface without duplicates', () => {
@@ -1133,7 +1127,6 @@ describe('Tool Filtering - Feature Flags', () => {
             'llm-analytics-tags',
             'workflows-destination-suggestion',
             'marketing-analytics-conversion-setup-ai',
-            'workflows-mcp-disable',
             'insight-data-checks',
             'logs-agent-tools',
             'workflows-transactional-email-api',
