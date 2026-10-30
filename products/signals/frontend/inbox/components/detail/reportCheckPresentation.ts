@@ -375,16 +375,17 @@ const CHECK_CANCELLED_REASONS: Record<string, string> = {
  * The entry written when a check is attached. A check on an open report has no date to give yet,
  * so it says what starts the clock instead of naming a day it cannot keep.
  */
-export function checkScheduledEntry(content: CheckScheduledContent): CheckLifecycleEntry {
+export function checkScheduledEntry(content: CheckScheduledContent, monitoringEnabled = false): CheckLifecycleEntry {
     const lane = laneRunsIt(content.kind, content.skill_name)
     const runs = content.runs && content.runs > 1 ? `${content.runs} runs` : null
 
     if (content.arms_on_resolve) {
+        const trigger = monitoringEnabled ? 'monitoring starts' : 'this report is resolved'
         const start = content.soak_minutes
-            ? `${content.kind === 'metric_threshold' ? 'At least' : 'Starts'} ${soakLabel(content.soak_minutes)} after this report is resolved`
-            : 'Starts when this report is resolved'
+            ? `${content.kind === 'metric_threshold' ? 'At least' : 'Starts'} ${soakLabel(content.soak_minutes)} after ${trigger}`
+            : `Starts when ${trigger}`
         return {
-            tag: { label: 'Waiting for resolve', type: 'muted' },
+            tag: { label: monitoringEnabled ? 'Runs during monitoring' : 'Waiting for resolve', type: 'muted' },
             detail: joinDetail([
                 start,
                 content.kind === 'metric_threshold' ? 'Waits for a full query window' : null,
@@ -426,7 +427,10 @@ export function checkCancelledEntry(content: CheckCancelledContent): CheckLifecy
 }
 
 /** Which builder reads each lifecycle entry, so the renderer needs one arm rather than three. */
-export const CHECK_LIFECYCLE_ENTRIES: Record<string, (content: CheckLifecycleContent) => CheckLifecycleEntry> = {
+export const CHECK_LIFECYCLE_ENTRIES: Record<
+    string,
+    (content: CheckLifecycleContent, monitoringEnabled?: boolean) => CheckLifecycleEntry
+> = {
     check_scheduled: checkScheduledEntry,
     check_expired: checkExpiredEntry,
     check_cancelled: checkCancelledEntry,

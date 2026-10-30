@@ -351,15 +351,18 @@ describe('reportCheckPresentation', () => {
     })
 
     describe('lifecycle log entries', () => {
-        it('gives a dated check its run date and the scout that answers it', () => {
+        it.each([false, true])('gives a dated check its run date with monitoring enabled: %s', (monitoringEnabled) => {
             expect(
-                checkScheduledEntry({
-                    kind: 'agent',
-                    next_run_at: '2026-09-27T09:00:00Z',
-                    arms_on_resolve: false,
-                    skill_name: 'signals-scout-error-tracking',
-                    runs: 2,
-                })
+                checkScheduledEntry(
+                    {
+                        kind: 'agent',
+                        next_run_at: '2026-09-27T09:00:00Z',
+                        arms_on_resolve: false,
+                        skill_name: 'signals-scout-error-tracking',
+                        runs: 2,
+                    },
+                    monitoringEnabled
+                )
             ).toEqual({
                 tag: { label: 'Runs Sep 27', type: 'primary' },
                 detail: 'Error tracking scout runs it · 2 runs',
@@ -388,6 +391,19 @@ describe('reportCheckPresentation', () => {
                 })
             }
         )
+
+        it.each([
+            ['metric_threshold', 480, 'At least 8 hours after monitoring starts · Waits for a full query window'],
+            ['metric_threshold', 720, 'At least 12 hours after monitoring starts · Waits for a full query window'],
+            ['metric_threshold', 0, 'Starts when monitoring starts · Waits for a full query window'],
+            ['agent', 480, 'Starts 8 hours after monitoring starts · The follow-up scout runs it'],
+            ['agent', 0, 'Starts when monitoring starts · The follow-up scout runs it'],
+        ])('describes a pending %s check during monitoring with a %i minute soak', (kind, soakMinutes, detail) => {
+            expect(checkScheduledEntry({ kind, arms_on_resolve: true, soak_minutes: soakMinutes }, true)).toEqual({
+                tag: { label: 'Runs during monitoring', type: 'muted' },
+                detail,
+            })
+        })
 
         it('separates a check that never ran from one that ran and never settled', () => {
             expect(checkExpiredEntry({}).tag.label).toEqual('Never ran')
