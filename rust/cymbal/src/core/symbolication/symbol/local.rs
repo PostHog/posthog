@@ -46,7 +46,7 @@ const FRAME_EXPIRY_FALLBACK_SECONDS: u64 = 300;
 #[derive(Clone)]
 pub struct LocalSymbolResolver {
     catalog: Arc<Catalog>,
-    cache: Cache<RawFrameId, Vec<ErrorTrackingStackFrame>>,
+    cache: Cache<RawFrameId, CachedFrames>,
     // (team_id, sorted truncated refs) -> latest release id, including None results. Without
     // this, every exception with symbol-set refs costs one Postgres query per resolve, even
     // when frame resolution itself is fully served from the frame cache above. Refs are
@@ -54,40 +54,47 @@ pub struct LocalSymbolResolver {
     // negative cache in the Saving layer.
     release_id_cache: Cache<(TeamId, Vec<String>), Option<Uuid>>,
     pool: PgPool,
-    ttl_policy: FrameResultTtlPolicy,
+    base_ttl_policy: FrameResultTtlPolicy,
     // Lines of pre/post source context to attach per resolved frame.
     context_lines: usize,
     skip_unchanged_rewrites: bool,
 }
 
-impl Expiry<RawFrameId, Vec<ErrorTrackingStackFrame>> for FrameResultTtlPolicy {
+// Each entry carries the per-frame policy that judged its Postgres freshness, so the
+// in-memory expiry and the stored-row freshness check cannot disagree.
+#[derive(Clone)]
+struct CachedFrames {
+    records: Vec<ErrorTrackingStackFrame>,
+    ttl_policy: FrameResultTtlPolicy,
+}
+
+struct FrameCacheExpiry;
+
+impl Expiry<RawFrameId, CachedFrames> for FrameCacheExpiry {
     fn expire_after_create(
         &self,
         key: &RawFrameId,
-        value: &Vec<ErrorTrackingStackFrame>,
+        value: &CachedFrames,
         _created_at: Instant,
     ) -> Option<Duration> {
-        Some(expiration_duration(self, key, value))
+        Some(expiration_duration(key, value))
     }
 
     fn expire_after_update(
         &self,
         key: &RawFrameId,
-        value: &Vec<ErrorTrackingStackFrame>,
+        value: &CachedFrames,
         _updated_at: Instant,
         _duration_until_expiry: Option<Duration>,
     ) -> Option<Duration> {
-        Some(expiration_duration(self, key, value))
+        Some(expiration_duration(key, value))
     }
 }
 
-fn expiration_duration(
-    policy: &FrameResultTtlPolicy,
-    key: &RawFrameId,
-    value: &[ErrorTrackingStackFrame],
-) -> Duration {
-    policy
-        .ttl_for_records(key, value)
+fn expiration_duration(key: &RawFrameId, value: &CachedFrames) -> Duration {
+    value
+        .ttl_policy
+        .ttl_for_records(key, &value.records)
         .to_std()
         .unwrap_or_else(|err| {
             tracing::warn!(error = %err, "invalid frame cache ttl, using fallback");
@@ -97,12 +104,12 @@ fn expiration_duration(
 
 impl LocalSymbolResolver {
     pub fn new(config: &ResolverConfig, catalog: Arc<Catalog>, pool: PgPool) -> Self {
-        let ttl_policy = FrameResultTtlPolicy::new(
+        let base_ttl_policy = FrameResultTtlPolicy::new(
             chrono::Duration::seconds(config.frame_resolved_ttl_seconds as i64),
             chrono::Duration::seconds(config.frame_unresolved_ttl_seconds as i64),
         );
         let cache = CacheBuilder::new(config.frame_cache_size)
-            .expire_after(ttl_policy)
+            .expire_after(FrameCacheExpiry)
             .build();
 
         let release_id_cache = CacheBuilder::new(config.release_id_cache_max_bytes)
@@ -122,7 +129,7 @@ impl LocalSymbolResolver {
             pool,
             cache,
             release_id_cache,
-            ttl_policy,
+            base_ttl_policy,
             context_lines: config.context_line_count,
             skip_unchanged_rewrites: config.skip_unchanged_frame_rewrites,
         }
@@ -138,12 +145,19 @@ impl LocalSymbolResolver {
             metrics::counter!(SUSPICIOUS_FRAMES_DETECTED, "frame_type" => "raw").increment(1);
         }
         let raw_id = frame.raw_id(team_id, debug_images);
+        let ttl_policy = self.base_ttl_policy.for_frame(frame);
         let mut cache_miss = false;
-        let frames = self
+        let cached = self
             .cache
             .try_get_with(raw_id.clone(), async {
                 cache_miss = true;
-                self.resolve_impl(frame, raw_id.clone(), debug_images).await
+                let records = self
+                    .resolve_impl(frame, raw_id.clone(), debug_images, ttl_policy)
+                    .await?;
+                Ok::<_, UnhandledError>(CachedFrames {
+                    records,
+                    ttl_policy,
+                })
             })
             .await
             .map_err(|e| UnhandledError::Other(e.to_string()))?;
@@ -154,7 +168,7 @@ impl LocalSymbolResolver {
             metrics::counter!(FRAME_CACHE_HITS).increment(1);
         }
 
-        Ok(frames.into_iter().map(|f| f.contents).collect())
+        Ok(cached.records.into_iter().map(|f| f.contents).collect())
     }
 
     async fn resolve_impl(
@@ -162,9 +176,10 @@ impl LocalSymbolResolver {
         frame: &RawFrame,
         raw_id: RawFrameId,
         debug_images: &[DebugImage],
+        ttl_policy: FrameResultTtlPolicy,
     ) -> Result<Vec<ErrorTrackingStackFrame>, UnhandledError> {
         let stored =
-            ErrorTrackingStackFrame::load_snapshot(&self.pool, &raw_id, self.ttl_policy).await?;
+            ErrorTrackingStackFrame::load_snapshot(&self.pool, &raw_id, ttl_policy).await?;
         if stored.fresh {
             metrics::counter!(FRAME_DB_HITS).increment(1);
             return Ok(stored.records);
@@ -209,13 +224,18 @@ impl LocalSymbolResolver {
         let persisted = self.skip_unchanged_rewrites
             && write_outcome == FrameWriteOutcome::Unchanged
             && self
-                .persist_unchanged_snapshot(&raw_id, &stored.records, records.len() as u64)
+                .persist_unchanged_snapshot(
+                    &raw_id,
+                    &stored.records,
+                    records.len() as u64,
+                    ttl_policy,
+                )
                 .await?;
 
         if !persisted {
             let refresh_if_older_than = self
                 .skip_unchanged_rewrites
-                .then(|| Utc::now() - self.ttl_policy.refresh_age(&raw_id, &stored.records));
+                .then(|| Utc::now() - ttl_policy.refresh_age(&raw_id, &stored.records));
             for record in &records {
                 let rows_affected = match record
                     .save_with_refresh_guard(&self.pool, refresh_if_older_than)
@@ -251,6 +271,7 @@ impl LocalSymbolResolver {
         raw_id: &RawFrameId,
         stored: &[ErrorTrackingStackFrame],
         part_count: u64,
+        ttl_policy: FrameResultTtlPolicy,
     ) -> Result<bool, UnhandledError> {
         // The per-part upsert loop is not transactional, so a racing writer can
         // leave a multi-part snapshot half written. A timestamp-only refresh
@@ -262,7 +283,7 @@ impl LocalSymbolResolver {
         }
 
         let now = Utc::now();
-        if !unchanged_snapshot_needs_refresh(&self.ttl_policy, raw_id, stored, now) {
+        if !unchanged_snapshot_needs_refresh(&ttl_policy, raw_id, stored, now) {
             record_frame_write(FrameWriteOutcome::Skipped, 0);
             return Ok(true);
         }
@@ -386,6 +407,7 @@ mod test {
         core::config::ResolverConfig,
         core::types::Stacktrace,
         frames::RawFrame,
+        langs::{hermes::RawHermesFrame, CommonFrameMetadata},
         symbolication::symbol::records::ErrorTrackingStackFrame,
         symbolication::symbol::{local::LocalSymbolResolver, SymbolResolver},
         symbolication::symbol_store::{
@@ -593,7 +615,7 @@ mod test {
 
         // get the frame
         let frame_id = frame.raw_id(0, &[]);
-        let frame = ErrorTrackingStackFrame::load_all(&pool, &frame_id, resolver.ttl_policy)
+        let frame = ErrorTrackingStackFrame::load_all(&pool, &frame_id, resolver.base_ttl_policy)
             .await
             .unwrap()
             .pop()
@@ -681,6 +703,54 @@ mod test {
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].0, id_1);
         assert!(rows[0].1 > created_1);
+    }
+
+    #[sqlx::test(migrations = "./tests/test_migrations")]
+    pub async fn hermes_frame_without_chunk_id_keeps_its_failure_for_the_resolved_ttl(
+        pool: PgPool,
+    ) {
+        let (mut config, catalog, _server) = setup_test_context(pool.clone(), |_, cl| cl).await;
+        config.frame_unresolved_ttl_seconds = 0;
+        let resolver = LocalSymbolResolver::new(&config, Arc::new(catalog), pool.clone());
+
+        for (chunk_id, expect_long_ttl) in [(None, true), (Some("never-uploaded"), false)] {
+            let frame = RawFrame::Hermes(RawHermesFrame {
+                column: Some(1000),
+                source: "index.android.bundle".to_string(),
+                fn_name: "anonymous".to_string(),
+                chunk_id: chunk_id.map(str::to_string),
+                meta: CommonFrameMetadata::default(),
+            });
+            let raw_id = frame.raw_id(0, &[]);
+            let created_at = || async {
+                sqlx::query_scalar::<_, chrono::DateTime<chrono::Utc>>(
+                    "SELECT created_at FROM posthog_errortrackingstackframe WHERE raw_id = $1",
+                )
+                .bind(&raw_id.hash_id)
+                .fetch_one(&pool)
+                .await
+                .unwrap()
+            };
+
+            let resolved = resolver.resolve_raw_frame(0, &frame, &[]).await.unwrap();
+            assert!(!resolved[0].resolved, "{chunk_id:?}");
+            resolver.cache.run_pending_tasks().await;
+            assert_eq!(
+                resolver.cache.contains_key(&raw_id),
+                expect_long_ttl,
+                "{chunk_id:?}"
+            );
+
+            let first_write = created_at().await;
+            resolver.cache.invalidate_all();
+            resolver.cache.run_pending_tasks().await;
+            resolver.resolve_raw_frame(0, &frame, &[]).await.unwrap();
+            assert_eq!(
+                created_at().await == first_write,
+                expect_long_ttl,
+                "{chunk_id:?}"
+            );
+        }
     }
 
     async fn insert_release(pool: &PgPool, team_id: i32, days_ago: i32) -> Uuid {

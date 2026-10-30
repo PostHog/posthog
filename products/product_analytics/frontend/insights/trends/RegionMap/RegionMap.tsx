@@ -52,7 +52,7 @@ function useRegionMapTooltip(showPersonsModal: boolean): React.RefObject<HTMLDiv
     const containerRef = useRef<HTMLDivElement>(null)
     const { getTooltip, showTooltip, hideTooltip, positionTooltipAt, resetTooltipPosition, measureTooltip } =
         useInsightTooltip()
-    const groupTypeLabel = aggregationLabel(series?.[0].math_group_type_index).plural
+    const groupTypeLabel = aggregationLabel(series?.[0]?.math_group_type_index).plural
 
     useEffect(() => {
         if (!isTooltipShown || !currentTooltip || !tooltipCoordinates) {

@@ -11,6 +11,7 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.exceptions_capture import capture_exception
+from posthog.integrations import IntegrationRecord
 from posthog.models.integration import Integration
 from posthog.models.organization_integration import OrganizationIntegration
 from posthog.permissions import OrganizationAdminWritePermissions
@@ -159,20 +160,14 @@ class OrganizationIntegrationViewSet(
             if not Team.objects.filter(pk=tid, organization=org).exists():
                 return Response({"detail": f"Project {tid} does not belong to this organization."}, status=400)
 
-        from posthog.models.integration import Integration as TeamIntegration
-
         from ee.vercel.client import VercelAPIClient
+        from ee.vercel.integration import get_or_create_connectable_resource
 
         teams_by_id: dict[int, Team] = {}
-        resources: dict[int, TeamIntegration] = {}
+        resources: dict[int, IntegrationRecord] = {}
         for tid in {production_id, preview_id, development_id}:
             teams_by_id[tid] = Team.objects.get(pk=tid, organization=org)
-            resources[tid], _ = TeamIntegration.objects.get_or_create(
-                team=teams_by_id[tid],
-                kind=TeamIntegration.IntegrationKind.VERCEL,
-                integration_id=str(tid),
-                defaults={"config": {"type": "connectable"}},
-            )
+            resources[tid], _ = get_or_create_connectable_resource(teams_by_id[tid])
 
         integration.config["environment_mapping"] = {
             "production": production_id,
@@ -196,7 +191,7 @@ class OrganizationIntegrationViewSet(
             client = VercelAPIClient(bearer_token=access_token)
             client.import_resource(
                 integration_config_id=integration.integration_id,
-                resource_id=str(production_resource.pk),
+                resource_id=str(production_resource.id),
                 product_id="posthog",
                 name=production_team.name,
                 secrets=secrets,

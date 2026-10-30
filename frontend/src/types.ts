@@ -120,7 +120,7 @@ import { CyclotronInputType } from 'products/workflows/frontend/Workflows/hogflo
 import type { HogFlow } from 'products/workflows/frontend/Workflows/hogflows/types'
 
 import { PluginConfigSchema } from './legacy-plugin-scaffold'
-import { InferredSelector } from './toolbar/product-tours/elementInference'
+import { InferredSelector } from './toolbar/shared/product-tours/elementInference'
 
 export enum ConversionRateInputType {
     MANUAL = 'manual',
@@ -442,6 +442,8 @@ export interface UserType extends UserBaseType {
     onboarding_delegated_to_organization_id?: string | null
     onboarding_delegation_accepted_at?: string | null
     is_organization_first_user?: boolean
+    /** How many personal API keys this user may hold, from the `personal_api_keys` entitlement. */
+    personal_api_keys_limit?: number
     pending_invites?: PendingInviteForCurrentUser[]
 }
 
@@ -1039,7 +1041,7 @@ export const TOOLBAR_USER_INTENTS = [
     'edit-product-tour',
     'preview-product-tour',
 ] as const satisfies readonly ToolbarUserIntent[]
-export type ToolbarSource = 'url' | 'localstorage'
+export type ToolbarSource = 'url' | 'localstorage' | 'extension'
 export type ToolbarVersion = 'toolbar'
 
 export type ExperimentIdType = number | 'new' | 'web'
@@ -1647,6 +1649,7 @@ export interface RecordingUniversalFilters {
     filter_test_accounts?: boolean
     filter_group: UniversalFiltersGroup
     session_ids?: string[]
+    person_uuid?: string
     order?: RecordingsQuery['order']
     order_direction?: RecordingsQuery['order_direction']
     limit?: RecordingsQuery['limit']
@@ -2509,6 +2512,8 @@ export interface BillingType {
     billing_plan: BillingPlan | null
     startup_program_label?: StartupProgramLabel | null
     startup_program_label_previous?: StartupProgramLabel | null
+    /** False when the YC credits do not renew, for example after a YC program block */
+    startup_program_credits_renew?: boolean
     is_annual_plan_customer?: boolean | null
     account_owner?: {
         email?: string
@@ -3579,9 +3584,6 @@ export interface TrendAPIResponse<ResultType = TrendResult[]> {
 }
 
 export interface TrendResult {
-    /** Series entity. `null` for formula results, which aren't backed by a single entity. */
-    action: ActionFilter | null
-    actions?: ActionFilter[]
     count: number
     data: number[]
     days: string[]
@@ -3595,10 +3597,8 @@ export interface TrendResult {
     compare?: boolean
     persons_urls?: { url: string }[]
     persons?: Person
-    filter?: TrendsFilterType
-    /** Series order set by the query runner: the action order for plain series, or the
-     * formula index for formula results (uniform across a formula's breakdown rows).
-     * Unlike `action.order`, this is always populated — formula results carry `action: null`. */
+    /** Series order set by the query runner: the series index for plain series, or the
+     * formula index for formula results (uniform across a formula's breakdown rows). */
     order?: number
     /** Slope graph only: whether the last bucket is the current, still-accumulating period. Set by
      * SlopeGraphTrendsQueryRunner so the insight and MCP dash the provisional end identically. */
@@ -5337,6 +5337,10 @@ export interface TiledIconModuleProps {
 export type EventOrPropType = EventDefinition & PropertyDefinition
 
 export interface AppContext {
+    /** The page left out the user's data, and the app fetches it at boot. See lib/utils/deferredAppContext. */
+    deferred?: boolean
+    /** The user's variant in the deferred app context experiment. Absent outside the experiment. */
+    deferred_app_context_variant?: string
     run_mode?: 'US' | 'EU' | 'DEV' | 'E2E' | 'LOCAL' | 'HOBBY'
     current_user: UserType | null
     current_project: ProjectType | null
@@ -5474,7 +5478,6 @@ export type GraphDataset = Partial<
         | 'breakdown_value'
         | 'persons_urls'
         | 'persons'
-        | 'filter'
     >
 > & {
     /** Used in filtering out visibility of datasets. Set internally by chart.js */
@@ -6192,6 +6195,7 @@ export enum ActivityScope {
     CROSS_PROJECT_DASHBOARD = 'CrossProjectDashboard',
     REPLAY = 'Replay',
     REPLAY_SCANNER = 'ReplayScanner',
+    REPLAY_OBSERVATION = 'ReplayObservation',
     VISION_ALERT_CONFIGURATION = 'VisionAlertConfiguration',
     // TODO: doh! we don't need replay and recording
     RECORDING = 'recording',
@@ -6337,9 +6341,6 @@ export interface DataModelingEdge {
     id: string
     source_id: string
     target_id: string
-    properties: Record<string, unknown>
-    created_at: string
-    updated_at: string
 }
 
 export type DataModelingSyncInterval = '15min' | '30min' | '1hour' | '6hour' | '12hour' | '24hour' | '7day' | '30day'

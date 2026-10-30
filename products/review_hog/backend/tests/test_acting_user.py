@@ -14,7 +14,7 @@ from products.review_hog.backend.models import (
 )
 from products.review_hog.backend.reviewer.progress import run_outcome_markers
 from products.review_hog.backend.temporal.activities import ResolveActingUserInput, _resolve_acting_user
-from products.review_hog.backend.temporal.types import TRIGGER_AUTOMATIC, TRIGGER_LABEL, TRIGGER_MANUAL
+from products.review_hog.backend.temporal.types import TRIGGER_AUTOMATIC, TRIGGER_MANUAL, TRIGGER_STAMPHOG
 
 _SELF = "SELF"
 
@@ -48,7 +48,6 @@ class TestResolveActingUser(BaseTest):
         result = _resolve_acting_user(
             ResolveActingUserInput(team_id=self.team.id, author_login="octocat", override_user_id=None)
         )
-        assert result.review_labeled_prs is True
         assert result.review_inbox_prs is False
         assert result.urgency_threshold == "consider"
         assert result.resolve_comments is False
@@ -67,7 +66,7 @@ class TestResolveActingUser(BaseTest):
                 team_id=self.team.id,
                 author_login="ghost",
                 override_user_id=None,
-                trigger_source=TRIGGER_LABEL,
+                trigger_source=TRIGGER_STAMPHOG,
                 default_user_id=self.user.id,
             )
         )
@@ -201,21 +200,21 @@ class TestResolveActingUser(BaseTest):
         assert result.resolve_comments is True
         assert result.celebrate_clean_reviews is False
 
-    def test_label_trigger_falls_back_to_the_run_user(self) -> None:
-        # Unmapped author on a labeled PR → the run user the trigger already resolved, passed
-        # through as default_user_id so acting and sandbox identity can never drift.
+    def test_stamphog_handoff_falls_back_to_the_run_user(self) -> None:
+        # Unmapped author → the run user the trigger already resolved, passed through as
+        # default_user_id so acting and sandbox identity can never drift.
         result = _resolve_acting_user(
             ResolveActingUserInput(
                 team_id=self.team.id,
                 author_login="ghost",
                 override_user_id=None,
-                trigger_source=TRIGGER_LABEL,
+                trigger_source=TRIGGER_STAMPHOG,
                 default_user_id=self.user.id,
             )
         )
         assert (result.acting_user_id, result.resolved_from) == (self.user.id, "default")
 
-    def test_non_label_triggers_keep_the_author_only_contract(self) -> None:
+    def test_other_triggers_keep_the_author_only_contract(self) -> None:
         result = _resolve_acting_user(
             ResolveActingUserInput(
                 team_id=self.team.id,
@@ -236,7 +235,7 @@ class TestResolveActingUser(BaseTest):
         )
         as_author = _resolve_acting_user(
             ResolveActingUserInput(
-                team_id=self.team.id, author_login="octocat", override_user_id=None, trigger_source=TRIGGER_LABEL
+                team_id=self.team.id, author_login="octocat", override_user_id=None, trigger_source=TRIGGER_STAMPHOG
             )
         )
         assert as_author.resolved_from == "author"
@@ -248,12 +247,11 @@ class TestResolveActingUser(BaseTest):
                 team_id=self.team.id,
                 author_login="ghost",
                 override_user_id=None,
-                trigger_source=TRIGGER_LABEL,
+                trigger_source=TRIGGER_STAMPHOG,
                 default_user_id=self.user.id,
             )
         )
         assert (as_default.acting_user_id, as_default.resolved_from) == (self.user.id, "default")
-        assert as_default.review_labeled_prs is True
         assert as_default.resolve_comments is False
         # Same borrowed-user protection: the run user's own media preference never shapes
         # someone else's PR.
@@ -271,7 +269,7 @@ class TestResolveActingUser(BaseTest):
         )
         as_author = _resolve_acting_user(
             ResolveActingUserInput(
-                team_id=self.team.id, author_login="octocat", override_user_id=None, trigger_source=TRIGGER_LABEL
+                team_id=self.team.id, author_login="octocat", override_user_id=None, trigger_source=TRIGGER_STAMPHOG
             )
         )
         assert (as_author.resolved_from, as_author.urgency_threshold) == ("author", "must_fix")
@@ -282,14 +280,17 @@ class TestResolveActingUser(BaseTest):
                 team_id=self.team.id,
                 author_login="octocat",
                 override_user_id=self.user.id,
-                trigger_source=TRIGGER_LABEL,
+                trigger_source=TRIGGER_STAMPHOG,
             )
         )
         assert as_author_override.celebrate_clean_reviews is False
         # ...while an override by someone else (a UI requester on a teammate's PR) does not.
         as_override = _resolve_acting_user(
             ResolveActingUserInput(
-                team_id=self.team.id, author_login="ghost", override_user_id=self.user.id, trigger_source=TRIGGER_LABEL
+                team_id=self.team.id,
+                author_login="ghost",
+                override_user_id=self.user.id,
+                trigger_source=TRIGGER_STAMPHOG,
             )
         )
         assert (as_override.resolved_from, as_override.urgency_threshold) == ("override", "must_fix")
@@ -299,7 +300,7 @@ class TestResolveActingUser(BaseTest):
                 team_id=self.team.id,
                 author_login="ghost",
                 override_user_id=None,
-                trigger_source=TRIGGER_LABEL,
+                trigger_source=TRIGGER_STAMPHOG,
                 default_user_id=self.user.id,
             )
         )

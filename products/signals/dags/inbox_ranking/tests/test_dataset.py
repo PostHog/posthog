@@ -25,6 +25,7 @@ from products.signals.backend.report_embeddings import EMBEDDING_RENDERING_TITLE
 from products.signals.dags.inbox_ranking import common
 from products.signals.dags.inbox_ranking.dataset import dag, queries
 from products.signals.dags.inbox_ranking.dataset.dag import (
+    ACTIVITY_SUMMARY_VECTORS_SCHEMA,
     EMBEDDINGS_SCHEMA,
     LABELS_SCHEMA,
     MODEL_DATA_SCHEMA,
@@ -33,6 +34,7 @@ from products.signals.dags.inbox_ranking.dataset.dag import (
     assemble_model_rows,
     assemble_user_interaction_rows,
     label_provenance_ok,
+    merge_activity_summary_vectors,
 )
 from products.signals.dags.inbox_ranking.dataset.queries import (
     IMPRESSIONS_SQL,
@@ -541,6 +543,7 @@ class TestSpineInclusion(BaseTest):
         promoted = self._report(SignalReport.Status.POTENTIAL, promoted_at=BEFORE_CUTOFF)
         born_visible = self._report(SignalReport.Status.READY)
         monitoring = self._report(SignalReport.Status.MONITORING)
+        closed = self._report(SignalReport.Status.CLOSED)
         promoted_after_cutoff = self._report(SignalReport.Status.READY, promoted_at=AFTER_SNAPSHOT_END)
         self._report(SignalReport.Status.POTENTIAL)
         self._report(SignalReport.Status.SUPPRESSED)
@@ -551,7 +554,7 @@ class TestSpineInclusion(BaseTest):
             for report_id in SignalReport.objects.filter(spine_report_filter(SNAPSHOT_END)).values_list("id", flat=True)
         }
 
-        assert in_spine == {promoted, born_visible, monitoring}
+        assert in_spine == {promoted, born_visible, monitoring, closed}
         assert promoted_after_cutoff not in in_spine
         assert created_after_cutoff not in in_spine
 
@@ -1250,7 +1253,13 @@ def test_an_empty_result_still_writes_the_full_schema(monkeypatch, asset):
 
 
 @pytest.mark.parametrize(
-    "asset", [dag.inbox_report_embeddings, dag.inbox_report_title_embeddings, dag.inbox_signal_embeddings]
+    "asset",
+    [
+        dag.inbox_report_embeddings,
+        dag.inbox_report_title_embeddings,
+        dag.inbox_signal_embeddings,
+        dag.inbox_activity_summary_vectors,
+    ],
 )
 @pytest.mark.parametrize("consent_team_ids", [frozenset({2, 7}), frozenset()])
 def test_embeddings_are_read_only_for_teams_opted_in_to_ai_training(monkeypatch, asset, consent_team_ids):
@@ -1261,6 +1270,71 @@ def test_embeddings_are_read_only_for_teams_opted_in_to_ai_training(monkeypatch,
     else:
         assert "params" not in written
     assert written["table"].num_rows == 0
+
+
+def test_activity_summary_vectors_read_the_day_and_parse_the_user_from_the_document_id(monkeypatch):
+    generated_at = datetime.datetime(2026, 7, 29, 23, 50)
+    written = _run_embeddings_asset(
+        monkeypatch,
+        dag.inbox_activity_summary_vectors,
+        [
+            (2, "41:2026-07-29", generated_at, [0.5, 0.25], datetime.datetime(2026, 7, 30, 0, 5), 6, 7, "m", "live"),
+            (2, "not-a-user:2026-07-29", generated_at, [0.1], generated_at, 6, 7, "m", "backfill"),
+        ],
+    )
+
+    assert (written["params"]["window_start"], written["params"]["window_end"]) == (
+        datetime.datetime(2026, 7, 29),
+        datetime.datetime(2026, 7, 30),
+    )
+    assert written["params"]["document_types"] == ["activity_summary"]
+    assert written["key"] == common.partition_object_key(
+        "inbox_ranking", "inbox_activity_summary_vectors", SNAPSHOT_DATE.isoformat()
+    )
+    assert written["table"].schema == ACTIVITY_SUMMARY_VECTORS_SCHEMA
+    assert written["table"].to_pylist() == [
+        {
+            "team_id": 2,
+            "user_id": 41,
+            "document_id": "41:2026-07-29",
+            "generated_date": SNAPSHOT_DATE,
+            "generated_at": generated_at.replace(tzinfo=datetime.UTC),
+            "embedding_small": [0.5, 0.25],
+            "embedding_inserted_at": datetime.datetime(2026, 7, 30, 0, 5, tzinfo=datetime.UTC),
+            "prompt_version": 6,
+            "render_version": 7,
+            "model": "m",
+            "source": "live",
+        }
+    ]
+
+
+def test_an_activity_vectors_re_run_keeps_expired_rows_and_drops_teams_without_consent():
+    def vectors(rows: list[tuple[int, str, float]]) -> pa.Table:
+        return pa.Table.from_pylist(
+            [
+                {
+                    "team_id": team_id,
+                    "user_id": int(document_id.split(":")[0]),
+                    "document_id": document_id,
+                    "generated_date": SNAPSHOT_DATE,
+                    "embedding_small": [value],
+                }
+                for team_id, document_id, value in rows
+            ],
+            schema=ACTIVITY_SUMMARY_VECTORS_SCHEMA,
+        )
+
+    existing = vectors([(2, "1:2026-07-29", 0.1), (2, "2:2026-07-29", 0.2), (7, "3:2026-07-29", 0.3)])
+    fresh = vectors([(2, "1:2026-07-29", 0.9), (2, "4:2026-07-29", 0.4)])
+
+    merged = merge_activity_summary_vectors(existing, fresh, frozenset({2}))
+
+    assert sorted(zip(merged.column("document_id").to_pylist(), merged.column("embedding_small").to_pylist())) == [
+        ("1:2026-07-29", [pytest.approx(0.9)]),
+        ("2:2026-07-29", [pytest.approx(0.2)]),
+        ("4:2026-07-29", [pytest.approx(0.4)]),
+    ]
 
 
 def test_the_leaf_snapshots_run_in_the_job_without_feeding_the_join():
@@ -1275,7 +1349,9 @@ def test_the_leaf_snapshots_run_in_the_job_without_feeding_the_join():
             dag.inbox_report_reviewers,
             dag.inbox_user_report_interactions,
             dag.inbox_project_vectors,
+            dag.inbox_user_vectors,
             dag.inbox_engagement_export,
+            dag.inbox_activity_summary_vectors,
         ]
     )
     model_data_deps = {key.path[-1] for key in dag.inbox_report_model_data.keys_by_input_name.values()}
@@ -1284,7 +1360,9 @@ def test_the_leaf_snapshots_run_in_the_job_without_feeding_the_join():
         dag.REVIEWERS_TABLE,
         dag.USER_INTERACTIONS_TABLE,
         dag.PROJECT_VECTORS_TABLE,
+        dag.USER_VECTORS_TABLE,
         dag.ENGAGEMENT_EXPORT,
+        dag.ACTIVITY_SUMMARY_VECTORS_TABLE,
     ):
         assert dagster.AssetKey(leaf) in selection
         assert leaf not in model_data_deps

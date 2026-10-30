@@ -70,12 +70,6 @@ export interface PropertyFiltersProps {
     addFilterDocLink?: string
     operatorAllowlist?: OperatorValueSelectProps['operatorAllowlist']
     hogQLGlobals?: Record<string, any>
-    /**
-     * `'input'` renders the replay-style input-box add-filter trigger; `'button'`
-     * (the default) renders a button. Only has an effect on the rebuild menu
-     * (`TAXONOMIC_FILTER_MENU_REBUILD`).
-     */
-    triggerVariant?: 'button' | 'input'
     staticValueOptions?: PropertyFilterInternalProps['staticValueOptions']
     renderOperatorValueSelect?: PropertyFilterInternalProps['renderOperatorValueSelect']
     /** Override inferred property definitions for contexts where one event key is polymorphic. */
@@ -89,6 +83,8 @@ export interface PropertyFiltersProps {
     addFilterSuffix?: ((addFilter: (property: AnyPropertyFilter) => void) => JSX.Element) | null
     addFilterDivider?: boolean
     framedRows?: boolean
+    filterHeader?: React.ReactNode
+    onFilterOpen?: () => void
     renderControls?: (controls: {
         addFilter: React.ReactNode
         activeFilters: JSX.Element[]
@@ -134,7 +130,6 @@ export function PropertyFilters({
     addFilterDocLink,
     operatorAllowlist,
     hogQLGlobals,
-    triggerVariant = 'button',
     staticValueOptions,
     renderOperatorValueSelect,
     propertyDefinitionsOverride,
@@ -145,6 +140,8 @@ export function PropertyFilters({
     addFilterDivider = false,
     framedRows = false,
     renderControls,
+    onFilterOpen,
+    filterHeader,
 }: PropertyFiltersProps): JSX.Element {
     const logicProps = { propertyFilters, onChange, pageKey, sendAllKeyUpdates }
     const { filters, filtersWithNew, filterIds, filterIdsWithNew } = useValues(propertyFilterLogic(logicProps))
@@ -182,6 +179,8 @@ export function PropertyFilters({
                     index === displayedFilters.length - 1 &&
                     filters.length > 0 && <LemonDivider className="my-1 w-full" />}
                 <FilterRow
+                    onOpen={onFilterOpen}
+                    header={filterHeader}
                     item={item}
                     index={index}
                     totalCount={displayedFilters.length - 1} // empty state
@@ -252,7 +251,6 @@ export function PropertyFilters({
                                 editable={editable}
                                 operatorAllowlist={operatorAllowlist}
                                 hogQLGlobals={hogQLGlobals}
-                                triggerVariant={triggerVariant}
                                 staticValueOptions={staticValueOptions}
                                 renderOperatorValueSelect={renderOperatorValueSelect}
                                 propertyDefinitionsOverride={propertyDefinitionsOverride}
