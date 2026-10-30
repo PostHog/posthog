@@ -644,6 +644,10 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(response["results"]), 51)
         self.assertFalse(response["hasMore"])
 
+    @parameterized.expand([("string", "abc"), ("negative", -1)])
+    def test_logs_query_rejects_a_bad_limit(self, _name: str, limit: str | int) -> None:
+        self._make_logs_api_request({"limit": limit}, expected_status=status.HTTP_400_BAD_REQUEST)
+
     @time_machine.travel("2025-12-16T10:33:00Z", tick=False)
     def test_logs_slicing(self):
         # should slice the query, only return 100 results first time, then get the rest

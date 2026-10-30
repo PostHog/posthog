@@ -399,6 +399,11 @@ class _LogsQueryBodySerializer(serializers.Serializer):
     sessionId = _session_scope_field("results")
 
 
+class _LogsQueryPagingSerializer(serializers.Serializer):
+    # Validates only the paging keys of a raw query body; the other keys pass through untouched.
+    limit = serializers.IntegerField(required=False, allow_null=True, min_value=1, help_text="Max results.")
+
+
 class _LogsQueryRequestSerializer(serializers.Serializer):
     query = _LogsQueryBodySerializer(help_text="The logs query to execute.")
 
@@ -1603,7 +1608,9 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             except (KeyError, ValueError, json.JSONDecodeError):
                 pass  # Invalid cursor format, continue with original date range
 
-        limit = query_data.get("limit")
+        paging = _LogsQueryPagingSerializer(data=query_data)
+        paging.is_valid(raise_exception=True)
+        limit = paging.validated_data.get("limit")
         requested_limit = min(1000 if limit is None else limit, 2000)
         logs_query_params = {
             "dateRange": date_range,
