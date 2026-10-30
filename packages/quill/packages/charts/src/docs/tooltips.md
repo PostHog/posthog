@@ -16,8 +16,8 @@ Other charts, such as scatter and pie, provide specialized tooltips; check their
 
 ## Formatting without a render prop
 
-`config.tooltip` also forwards `valueFormatter`, `labelFormatter`, `showTotal`, `totalLabel`, `totalFormatter`, and `sortedByValue` into `DefaultTooltip`.
-Prefer this for "format each row" and "add a total" cases (SQL insights pass per-column formatters this way).
+`config.tooltip` also forwards `valueFormatter`, `labelFormatter`, `labelRenderer`, `showHeader`, `showTotal`, `totalLabel`, `totalFormatter`, `sortedByValue`, and `hideZeroRows` into `DefaultTooltip`.
+Prefer this for "format each row", "hide empty rows" and "add a total" cases (SQL insights pass per-column formatters this way).
 A render prop, if given, owns the content and these fields are ignored.
 
 ## `DefaultTooltip` props

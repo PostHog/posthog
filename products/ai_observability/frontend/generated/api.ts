@@ -16,6 +16,7 @@ import type {
     AiObservabilityOfflineExperimentsResultCellsRetrieveParams,
     AiObservabilityOfflineExperimentsScorerSummariesListParams,
     AiObservabilityOfflineScorersHistoryListParams,
+    AiObservabilityTracesClustersRetrieveParams,
     AiObservabilityTracesFeedbackRetrieveParams,
     AiObservabilityTracesNodesRetrieveParams,
     AiObservabilityTracesRetrieveParams,
@@ -152,6 +153,7 @@ import type {
     TextReprRequestApi,
     TextReprResponseApi,
     TraceApi,
+    TraceClustersApi,
     TraceEvaluationResultsApi,
     TraceFeedbackApi,
     TraceNodeDetailApi,
@@ -689,6 +691,41 @@ export const aiObservabilityTracesRetrieve = async (
     })
 }
 
+export const getAiObservabilityTracesClustersRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params: AiObservabilityTracesClustersRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/ai_observability/traces/${id}/clusters/?${stringifiedParams}`
+        : `/api/projects/${projectId}/ai_observability/traces/${id}/clusters/`
+}
+
+/**
+ * The clusters that list this trace, from the newest scheduled run of each clustering job that lists it.
+ */
+export const aiObservabilityTracesClustersRetrieve = async (
+    projectId: string,
+    id: string,
+    params: AiObservabilityTracesClustersRetrieveParams,
+    options?: RequestInit
+): Promise<TraceClustersApi> => {
+    return apiMutator<TraceClustersApi>(getAiObservabilityTracesClustersRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getAiObservabilityTracesEvaluationsRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/ai_observability/traces/${id}/evaluations/`
 }
@@ -729,7 +766,7 @@ export const getAiObservabilityTracesFeedbackRetrieveUrl = (
 }
 
 /**
- * End-user feedback on a trace: the scores and the comments its feedback events carry, each with the step it targets.
+ * End-user feedback on a trace: scores and comments from its feedback events, survey responses linked to it, and surveys shown but not answered.
  */
 export const aiObservabilityTracesFeedbackRetrieve = async (
     projectId: string,

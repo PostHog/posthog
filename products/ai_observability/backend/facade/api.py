@@ -3,7 +3,16 @@ from datetime import date, datetime
 
 from posthog.schema import HogQLPropertyFilter
 
+from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
+
+from products.surveys.backend.facade.api import (
+    LinkedSurveyAnswer,
+    LinkedSurveyResponse,
+    LinkedSurveyResponses,
+    SurveyRef,
+    get_survey_responses_linked_to,
+)
 
 from ..logic.evaluations.evaluation_metas import load_evaluation_meta, load_evaluation_metas
 from ..logic.evaluations.overview import evaluation_result, group_by_evaluation, overview_totals, pass_rate_overview
@@ -16,6 +25,8 @@ from ..logic.evaluations.period import (
 )
 from ..logic.evaluations.runs import RunOutcome, load_runs
 from ..logic.evaluations.score_distribution import load_score_distribution, score_buckets
+from ..logic.traces.cluster_queries import ClusterRunWindow, can_read_clusters, load_cluster_runs
+from ..logic.traces.clusters import ClusterMemberships, TraceCluster
 from ..logic.traces.evaluation_result import EvaluationResult
 from ..logic.traces.evaluation_result_queries import load_evaluation_results, load_output_configs
 from ..logic.traces.evaluation_summary import EvaluationSummary
@@ -35,6 +46,7 @@ from ..logic.traces.summary import (
 )
 from ..logic.traces.summary_generation import generate_summary
 from ..logic.traces.summary_store import fail_abandoned_summary, request_summary, viewer_summary
+from ..logic.traces.survey_feedback import THUMBS_UP, answer_kind, count_thumbs, survey_window
 from ..logic.traces.timeline import TimelineRow
 from ..logic.traces.trace import Trace
 from ..logic.traces.trace_queries import (
@@ -265,17 +277,79 @@ def _to_evaluation_result(result: EvaluationResult) -> contracts.TraceEvaluation
     )
 
 
+def is_usable_trace_start(created_at: datetime) -> bool:
+    try:
+        ClusterRunWindow.for_trace(created_at)
+    except OverflowError:
+        return False
+    return True
+
+
+def get_trace_clusters(team: Team, user: User | None, trace_id: str, created_at: datetime) -> contracts.TraceClusters:
+    if not can_read_clusters(team, user):
+        return contracts.TraceClusters(clusters=[])
+    runs = load_cluster_runs(team, user, trace_id, ClusterRunWindow.for_trace(created_at))
+    return contracts.TraceClusters(
+        clusters=[_to_trace_cluster(cluster) for cluster in ClusterMemberships.of(trace_id, runs).clusters]
+    )
+
+
+def _to_trace_cluster(cluster: TraceCluster) -> contracts.TraceCluster:
+    return contracts.TraceCluster(
+        run_id=cluster.run_id,
+        run_at=cluster.run_at,
+        job_id=cluster.job_id,
+        job_name=cluster.job_name,
+        cluster_id=cluster.cluster_id,
+        title=cluster.title,
+        description=cluster.description,
+        is_outlier=cluster.is_outlier,
+    )
+
+
+NO_LINKED_SURVEYS = LinkedSurveyResponses(responses=(), unanswered=())
+
+
 def get_trace_feedback(
-    team: Team, user: User | None, trace_id: str, timestamp_hint: datetime | None
+    team: Team, user: User | None, trace_id: str, timestamp_hint: datetime | None, *, include_surveys: bool
 ) -> contracts.TraceFeedback:
-    """End-user feedback on a trace. An unknown trace has none."""
-    feedback = TraceFeedback(trace_id, load_trace_feedback_rows(team, user, trace_id, timestamp_hint))
+    """End-user feedback on a trace, from its feedback events and the survey responses linked to it. An unknown trace
+    has none. Survey responses are read only with `include_surveys`, and a failed survey read leaves them out."""
+    rows = load_trace_feedback_rows(team, user, trace_id, timestamp_hint)
+    feedback = TraceFeedback(trace_id, rows)
+    survey_responses_status: contracts.TraceSurveyResponsesStatus = "ok" if include_surveys else "not_permitted"
+    linked = NO_LINKED_SURVEYS
+    window = survey_window(rows, timestamp_hint)
+    if include_surveys and window is not None:
+        try:
+            linked = get_survey_responses_linked_to(
+                team, user, property_name="$ai_trace_id", property_value=trace_id, since=window.start, until=window.end
+            )
+        except Exception as error:
+            # Survey responses are one feedback source among several, so their failure must not hide the others.
+            capture_exception(error)
+            survey_responses_status = "failed"
+    survey_responses = linked.responses
+    thumbs = count_thumbs(survey_responses)
     scores = [_to_feedback_score(score) for score in feedback.scores]
-    responses = [_to_feedback_text(text) for text in feedback.texts]
+    responses: list[contracts.TraceFeedbackText | contracts.TraceSurveyResponse] = sorted(
+        [
+            *(_to_feedback_text(text) for text in feedback.texts),
+            *(_to_survey_response(response, trace_id) for response in survey_responses),
+        ],
+        key=lambda response: response.timestamp,
+    )
     return contracts.TraceFeedback(
         scores=scores,
         responses=responses,
-        summary=contracts.TraceFeedbackSummary(total=len(scores) + len(responses)),
+        unanswered=[
+            contracts.TraceUnansweredSurvey(survey=_to_survey(survey.survey), timestamp=survey.shown_at)
+            for survey in linked.unanswered
+        ],
+        survey_responses_status=survey_responses_status,
+        summary=contracts.TraceFeedbackSummary(
+            total=len(scores) + len(responses), thumbs_up=thumbs.up, thumbs_down=thumbs.down
+        ),
     )
 
 
@@ -289,6 +363,45 @@ def _to_feedback_text(text: FeedbackText) -> contracts.TraceFeedbackText:
     return contracts.TraceFeedbackText(
         kind="text", id=text.id, text=text.text, node_id=text.node_id, timestamp=text.timestamp
     )
+
+
+def _to_survey(survey: SurveyRef) -> contracts.TraceSurvey:
+    return contracts.TraceSurvey(id=survey.id, name=survey.name)
+
+
+def _to_survey_response(response: LinkedSurveyResponse, trace_id: str) -> contracts.TraceSurveyResponse:
+    return contracts.TraceSurveyResponse(
+        kind="survey",
+        id=response.submission_id,
+        node_id=trace_id,
+        timestamp=response.submitted_at,
+        survey=_to_survey(response.survey),
+        answers=[_to_survey_answer(answer) for answer in response.answers],
+        complete=response.complete,
+        unavailable=response.unavailable,
+    )
+
+
+def _to_survey_answer(answer: LinkedSurveyAnswer) -> contracts.TraceSurveyAnswer:
+    question = answer.question_text
+    values = list(answer.value) if isinstance(answer.value, tuple) else [answer.value]
+    match answer_kind(answer):
+        case "thumbs":
+            return contracts.TraceThumbsAnswer(kind="thumbs", question=question, up=answer.value == THUMBS_UP)
+        case "rating":
+            rating = answer.rating
+            return contracts.TraceRatingAnswer(
+                kind="rating",
+                question=question,
+                value=", ".join(values),
+                scale=rating.scale if rating else None,
+                lower_label=rating.lower_bound_label if rating else None,
+                upper_label=rating.upper_bound_label if rating else None,
+            )
+        case "choice":
+            return contracts.TraceChoiceAnswer(kind="choice", question=question, choices=values)
+        case "text":
+            return contracts.TraceTextAnswer(kind="text", question=question, text=", ".join(values))
 
 
 def _to_evaluation_summary(summary: EvaluationSummary) -> contracts.TraceEvaluationSummary:

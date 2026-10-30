@@ -7,6 +7,7 @@ import type {
     TraceSummaryContentApi,
     TraceTimelineRowApi,
 } from '../../generated/api.schemas'
+import type { ClusterChipItem, TraceClustersChipProps } from './components/TraceClustersChip'
 import { SampleNodeDetail, SampleTraceFixture } from './sampleFixtures/sampleTraceFixture'
 import {
     ConversationTurn,
@@ -424,7 +425,7 @@ export const FIXTURE_STEP_FEEDBACK: StepFeedback = {
         feedbackScore('score-latency', 'latency_ok', 'true', 19),
         feedbackScore('score-unnamed', null, '{"stars":3}', 20),
     ],
-    textCount: 1,
+    responseCount: 1,
 }
 
 const answerStep = { id: 'gen-answer', name: 'draft-answer' }
@@ -457,6 +458,86 @@ export const FIXTURE_FEEDBACK_MODE: Extract<FeedbackModeState, { status: 'ready'
             focused: true,
         },
     ],
+    unanswered: [],
+    surveysFailed: false,
+}
+
+const answerQuality = { id: '0192f2a4-5c1e-7000-8000-00000000a001', name: 'Answer quality' }
+
+export const FIXTURE_FEEDBACK_MODE_WITH_SURVEYS: Extract<FeedbackModeState, { status: 'ready' }> = {
+    status: 'ready',
+    scores: FIXTURE_FEEDBACK_MODE.scores.map((row) => ({ ...row, focused: false })),
+    responses: [
+        { ...FIXTURE_FEEDBACK_MODE.responses[0], focused: false },
+        {
+            kind: 'survey',
+            id: 'submission-full',
+            nodeId: 'trace-1',
+            timestamp: '2026-09-01T10:25:00Z',
+            survey: answerQuality,
+            answers: [
+                { kind: 'thumbs', question: 'Was this answer useful?', up: true },
+                {
+                    kind: 'rating',
+                    question: 'How good was it?',
+                    value: '4',
+                    scale: 5,
+                    lowerLabel: 'Bad',
+                    upperLabel: 'Great',
+                },
+                { kind: 'choice', question: 'What could be better?', choices: ['Accuracy', 'Tone'] },
+                { kind: 'text', question: 'Anything else?', text: 'Shorter answers, please.' },
+            ],
+            complete: true,
+            unavailable: null,
+            step: null,
+            focused: false,
+        },
+        {
+            kind: 'survey',
+            id: 'submission-partial',
+            nodeId: 'trace-1',
+            timestamp: '2026-09-01T10:26:00Z',
+            survey: answerQuality,
+            answers: [{ kind: 'thumbs', question: 'Was this answer useful?', up: false }],
+            complete: false,
+            unavailable: null,
+            step: null,
+            focused: false,
+        },
+        {
+            kind: 'survey',
+            id: 'submission-deleted',
+            nodeId: 'trace-1',
+            timestamp: '2026-09-01T10:27:00Z',
+            survey: { id: '0192f2a4-5c1e-7000-8000-00000000a002', name: null },
+            answers: [],
+            complete: true,
+            unavailable: 'survey_not_found',
+            step: null,
+            focused: false,
+        },
+        {
+            kind: 'survey',
+            id: 'submission-empty',
+            nodeId: 'trace-1',
+            timestamp: '2026-09-01T10:28:00Z',
+            survey: { id: '0192f2a4-5c1e-7000-8000-00000000a003', name: 'Draft survey' },
+            answers: [],
+            complete: true,
+            unavailable: 'no_questions',
+            step: null,
+            focused: false,
+        },
+    ],
+    unanswered: [
+        {
+            survey: { id: '0192f2a4-5c1e-7000-8000-00000000a004', name: 'Follow-up' },
+            timestamp: '2026-09-01T10:29:00Z',
+        },
+        { survey: { id: '0192f2a4-5c1e-7000-8000-00000000a005', name: null }, timestamp: '2026-09-01T10:30:00Z' },
+    ],
+    surveysFailed: false,
 }
 
 export const FIXTURE_SUMMARY: TraceSummaryContentApi = {
@@ -484,4 +565,37 @@ export function withWidth(px: number): Decorator {
             <Story />
         </div>
     )
+}
+
+export const FIXTURE_CLUSTER: ClusterChipItem = {
+    label: 'Billing questions',
+    description: 'Users ask why an invoice changed after adding seats.',
+    jobName: 'Support conversations',
+    isOutlier: false,
+    runAt: '2026-09-02T03:40:00Z',
+    href: '/ai-observability/clusters/1_trace_20260902_030000/3',
+}
+
+export const FIXTURE_OUTLIER_CLUSTER: ClusterChipItem = {
+    label: 'Outliers',
+    description: null,
+    jobName: 'Agent runs',
+    isOutlier: true,
+    runAt: '2026-09-01T03:40:00Z',
+    href: '/ai-observability/clusters/1_trace_20260901_030000/-1',
+}
+
+export const FIXTURE_CLUSTERS_CHIP: TraceClustersChipProps = {
+    first: FIXTURE_CLUSTER,
+    others: [
+        FIXTURE_OUTLIER_CLUSTER,
+        {
+            label: 'Refund requests',
+            description: 'Users ask for money back on an annual plan.',
+            jobName: null,
+            isOutlier: false,
+            runAt: '2026-09-02T04:40:00Z',
+            href: '/ai-observability/clusters/1_trace_20260902_040000/5',
+        },
+    ],
 }
