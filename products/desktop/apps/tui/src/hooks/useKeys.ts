@@ -170,7 +170,12 @@ export function useKeys({
       return;
     }
     if (!sidebarFocused) {
-      if (navigating && (key.upArrow || key.downArrow)) {
+      // A sheet open on the pane takes the arrows, which also reach it through the raw key stream.
+      if (
+        navigating &&
+        (key.upArrow || key.downArrow) &&
+        !modalFor(workspace.focusedPaneId)
+      ) {
         navigate(key.downArrow ? 1 : -1);
       }
       if (key.pageUp) scrollPane(workspace.focusedPaneId, -10);
