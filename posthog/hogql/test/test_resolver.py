@@ -188,7 +188,7 @@ class TestInheritedCtes(SimpleTestCase):
             scopes.append(parent.type)
         resolved = resolve_types(parse_select(query), context, "clickhouse", scopes=scopes)
         assert isinstance(resolved.type, ast.SelectQueryType)
-        assert isinstance(resolved.type.columns["value"].resolve_constant_type(), expected_type)
+        assert isinstance(resolved.type.columns["value"].resolve_constant_type(context), expected_type)
 
 
 class TestResolver(BaseTest):
