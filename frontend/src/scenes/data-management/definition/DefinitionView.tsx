@@ -54,6 +54,8 @@ import {
 } from '~/types'
 
 import { getEventDefinitionIcon, getPropertyDefinitionIcon } from '../events/DefinitionHeader'
+import { PropertyDefinitionUsage } from './usage/PropertyDefinitionUsage'
+import { propertyUsageEntry } from './usage/propertyUsageEntry'
 
 const DEFINITIONS_DOCS_URL = 'https://posthog.com/docs/data/events#managing-event-definitions'
 
@@ -180,6 +182,7 @@ export function DefinitionView(rawProps: DefinitionLogicProps): JSX.Element {
     const statusProps = getStatusProps(isProperty)
 
     const isVirtual = 'virtual' in definition && !!definition.virtual
+    const usageEntry = isProperty ? propertyUsageEntry(definition as PropertyDefinition) : null
     // Resolve label and description from the same taxonomy group the definition came from, so they can't disagree
     const virtualProperty = isVirtual ? getVirtualPropertyDefinition(definition.id) : null
     const propertyLabelGroup = virtualProperty?.group ?? TaxonomicFilterGroupType.EventProperties
@@ -489,6 +492,8 @@ export function DefinitionView(rawProps: DefinitionLogicProps): JSX.Element {
             </div>
 
             <SceneDivider />
+
+            {usageEntry && <PropertyDefinitionUsage entry={usageEntry} />}
 
             {isEvent && definition.id !== 'new' && (
                 <>
