@@ -16,7 +16,7 @@ import {
 } from "../models";
 import type { Sheet } from "../sheet";
 import { indicatorFor } from "../sidebar";
-import type { StartingOptions } from "../starting";
+import { type HeldPick, heldPick, type StartingOptions } from "../starting";
 import type { Notice } from "./useNotice";
 
 export interface Models {
@@ -89,6 +89,13 @@ export function useModels({
   );
   // Keyed by task and run: every local chat's run id is "local".
   const synced = useRef(new Set<string>());
+
+  // The pane's held picks, less any the chat's agent cannot start on.
+  const held = (paneId: string, starting = startingFor(paneId)): HeldPick =>
+    heldPick(
+      { model: heldModels.get(paneId), effort: heldEfforts.get(paneId) },
+      starting,
+    );
 
   // What the run says it is on, which can differ from what it was started with.
   const readRun = async (taskId: string, live: PiControl): Promise<void> => {
@@ -165,15 +172,15 @@ export function useModels({
       starting.model?.provider === "posthog" && knownModels.current
         ? knownModels.current
         : starting.models;
-    const held =
-      heldModels.get(paneId) ??
+    const current =
+      held(paneId, starting).model ??
       (task ? taskModels.get(task.id) : starting.model) ??
       undefined;
     openModal(
       paneId,
       modelSheet(
         available,
-        held ?? null,
+        current ?? null,
         "Applies once this chat's run starts.",
       ),
       (index) =>
@@ -220,7 +227,8 @@ export function useModels({
       return;
     }
     const starting = startingFor(paneId);
-    const model = heldModels.get(paneId) ?? starting.model;
+    const picks = held(paneId, starting);
+    const model = picks.model ?? starting.model;
     const available =
       starting.model?.provider === "posthog" && knownEfforts.current
         ? knownEfforts.current
@@ -231,14 +239,14 @@ export function useModels({
       flashNotice("This model has no effort setting", { paneId });
       return;
     }
-    const held =
-      heldEfforts.get(paneId) ??
+    const current =
+      picks.effort ??
       (task ? taskEfforts.get(task.id) : (starting.effort ?? undefined));
     openModal(
       paneId,
       effortSheet(
         available,
-        held ?? null,
+        current ?? null,
         "Applies once this chat's run starts.",
       ),
       (index) =>
@@ -287,8 +295,7 @@ export function useModels({
     if (synced.current.has(key)) return;
     synced.current.add(key);
     const live = control(taskId, runId);
-    const model = heldModels.get(paneId);
-    const effort = heldEfforts.get(paneId);
+    const { model, effort } = held(paneId);
     const applyHeld = async (): Promise<void> => {
       try {
         // The model goes first, because switching it can move the effort.
@@ -308,15 +315,19 @@ export function useModels({
   };
 
   const onChatStarted = (paneId: string, taskId: string): void => {
-    const model = heldModels.get(paneId) ?? startingFor(paneId).model;
+    const starting = startingFor(paneId);
+    const model = held(paneId, starting).model ?? starting.model;
     if (model) setTaskModels((models) => new Map(models).set(taskId, model));
   };
 
   // What a pane's new chat should start on, from its held picks.
-  const pickFor = (paneId: string): StartPick => ({
-    ...(heldModels.get(paneId) && { model: heldModels.get(paneId)?.id }),
-    ...(heldEfforts.get(paneId) && { effort: heldEfforts.get(paneId) }),
-  });
+  const pickFor = (paneId: string): StartPick => {
+    const picks = held(paneId);
+    return {
+      ...(picks.model && { model: picks.model.id }),
+      ...(picks.effort && { effort: picks.effort }),
+    };
+  };
 
   const compact = (
     paneId: string,
@@ -348,17 +359,16 @@ export function useModels({
     onRunLive,
     onChatStarted,
     // A chat with no task yet shows the model its run will start on. Its effort shows once the run reports it.
-    modelLabel: (paneId, taskId) =>
-      modelWithEffort(
-        heldModels.get(paneId)?.name ??
-          (taskId
-            ? taskModels.get(taskId)?.name
-            : startingFor(paneId).model?.name),
-        heldEfforts.get(paneId) ??
-          (taskId
-            ? taskEfforts.get(taskId)
-            : (startingFor(paneId).effort ?? undefined)),
-      ),
+    modelLabel: (paneId, taskId) => {
+      const starting = startingFor(paneId);
+      const picks = held(paneId, starting);
+      return modelWithEffort(
+        picks.model?.name ??
+          (taskId ? taskModels.get(taskId)?.name : starting.model?.name),
+        picks.effort ??
+          (taskId ? taskEfforts.get(taskId) : (starting.effort ?? undefined)),
+      );
+    },
     pickFor,
   };
 }

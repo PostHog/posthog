@@ -93,3 +93,22 @@ export function claudeSettings(): ClaudeSettings {
     return {};
   }
 }
+
+export interface HeldPick {
+  model?: ModelChoice;
+  effort?: Effort;
+}
+
+// A pick held on a pane counts only while the chat it starts can run it; a /billing change drops the rest.
+export function heldPick(held: HeldPick, starting: StartingOptions): HeldPick {
+  const model = starting.models.find(
+    (entry) =>
+      entry.provider === held.model?.provider && entry.id === held.model.id,
+  );
+  const on = model ?? starting.model;
+  const effort =
+    held.effort && on && starting.efforts(on).includes(held.effort)
+      ? held.effort
+      : undefined;
+  return { ...(model && { model }), ...(effort && { effort }) };
+}

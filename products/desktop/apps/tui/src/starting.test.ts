@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { startingOptions } from "./starting";
+import { heldPick, startingOptions } from "./starting";
 
 describe("startingOptions", () => {
   it("offers pi's catalog on PostHog billing, starting on the harness default", () => {
@@ -39,5 +39,29 @@ describe("startingOptions", () => {
     expect(startingOptions("chatgpt", "cloud", {}).model?.provider).toBe(
       "codex",
     );
+  });
+
+  it("drops a held pick the billing cannot start, keeping one it can", () => {
+    const sol = { provider: "posthog", id: "gpt-6-sol", name: "Sol 6" };
+    const anthropic = startingOptions("anthropic", "local", {});
+    // The model goes, but the effort fits the plan's default model, so it stays.
+    expect(heldPick({ model: sol, effort: "high" }, anthropic)).toEqual({
+      effort: "high",
+    });
+    const opus = {
+      provider: "claude",
+      id: "claude-opus-5-5",
+      name: "Opus 5.5",
+    };
+    expect(heldPick({ model: opus, effort: "high" }, anthropic)).toEqual({
+      model: opus,
+      effort: "high",
+    });
+    expect(heldPick({ effort: "high" }, anthropic)).toEqual({
+      effort:
+        anthropic.model && anthropic.efforts(anthropic.model).includes("high")
+          ? "high"
+          : undefined,
+    });
   });
 });
