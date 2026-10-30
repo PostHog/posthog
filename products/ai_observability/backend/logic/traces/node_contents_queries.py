@@ -3,6 +3,7 @@ from datetime import datetime
 
 from posthog.hogql import ast
 
+from posthog.clickhouse.client.connection import Workload
 from posthog.models import Team, User
 
 from .trace_queries import (
@@ -39,7 +40,13 @@ def _nodes_query(event_uuids: Sequence[str]) -> ast.SelectQuery:
 
 
 def load_trace_nodes(
-    team: Team, user: User | None, trace_id: str, node_ids: Sequence[str], timestamp_hint: datetime | None
+    team: Team,
+    user: User | None,
+    trace_id: str,
+    node_ids: Sequence[str],
+    timestamp_hint: datetime | None,
+    *,
+    workload: Workload = Workload.DEFAULT,
 ) -> list[TraceNodeRow]:
     """The content of each node of this trace in `node_ids`, in that order, skipping ids it does not hold.
 
@@ -57,6 +64,7 @@ def load_trace_nodes(
         trace_id,
         timestamp_hint,
         widen_unhinted=False,
+        workload=workload,
     )
     rows = {row.uuid: row for row in map(_trace_node_row, results)}
     return [rows[event_uuid] for event_uuid in event_uuids if event_uuid in rows]
