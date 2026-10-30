@@ -927,8 +927,13 @@ def _convert_boolean_literal(value: object) -> bool | None:
         return value
     if isinstance(value, int) and value in (0, 1):
         return bool(value)
-    if isinstance(value, str) and value.lower() in {"true", "false"}:
-        return value.lower() == "true"
+    # Match ClickHouse's SerializationBool::tryDeserializeAllVariants so aliases keep Boolean comparisons.
+    if isinstance(value, str):
+        normalized = value.lower()
+        if normalized in {"true", "1", "t", "y", "yes", "on", "enable", "enabled"}:
+            return True
+        if normalized in {"false", "0", "f", "n", "no", "off", "disable", "disabled"}:
+            return False
     return None
 
 

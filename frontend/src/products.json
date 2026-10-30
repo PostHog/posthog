@@ -42,6 +42,7 @@
             "type": "llm_prompts",
             "intents": ["llm_prompts"]
         },
+        { "path": "Platform alerts", "category": "Unreleased", "iconType": "inbox", "type": null, "intents": [] },
         {
             "path": "Application observability",
             "category": "Monitoring",
