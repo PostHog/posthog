@@ -8,6 +8,7 @@ from django.test import override_settings
 
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.test import APIClient
 
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.user import User
@@ -57,7 +58,11 @@ class TestPostHogSupportAPI(APIBaseTest):
         self.client.force_login(self.user)
         assert self.client.get(f"{self.base}/drafts/{draft['id']}/").status_code == status.HTTP_200_OK
         assert self.client.post(claim_url).status_code == status.HTTP_204_NO_CONTENT
-        assert self.client.post(claim_url).status_code == status.HTTP_404_NOT_FOUND
+        assert self.client.post(claim_url).status_code == status.HTTP_204_NO_CONTENT
+        other_tab = APIClient()
+        other_tab.force_login(self.user)
+        assert other_tab.post(claim_url).status_code == status.HTTP_404_NOT_FOUND
+        assert other_tab.get(f"{self.base}/drafts/{draft['id']}/").status_code == status.HTTP_404_NOT_FOUND
 
     def test_drafts_are_private_to_the_user_who_owns_them(self) -> None:
         draft_id = self.client.post(f"{self.base}/drafts/", DRAFT_BODY, format="json").json()["id"]
@@ -127,16 +132,21 @@ class TestPostHogSupportAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("missing_ticket", 404, {}, status.HTTP_404_NOT_FOUND),
-            ("another_persons_ticket", 403, {"error": "Forbidden"}, status.HTTP_404_NOT_FOUND),
-            ("identity_rejected", 403, {"error": "Identity verification failed"}, 503),
+            ("missing_ticket", 404, 200, status.HTTP_404_NOT_FOUND),
+            ("another_persons_ticket", 403, 200, status.HTTP_404_NOT_FOUND),
+            ("identity_rejected", 403, 403, 503),
         ]
     )
     @patch("products.conversations.backend.services.posthog_support.requests.get")
     def test_ticket_refusals_separate_not_found_from_a_broken_identity(
-        self, _name: str, widget_status: int, widget_body: dict, expected_status: int, mock_get: MagicMock
+        self, _name: str, thread_status: int, list_status: int, expected_status: int, mock_get: MagicMock
     ) -> None:
-        mock_get.return_value = _widget_response(widget_status, widget_body)
+        mock_get.side_effect = [
+            _widget_response(thread_status, {"error": "Forbidden"}),
+            _widget_response(
+                list_status, {"count": 0, "results": []} if list_status == 200 else {"error": "Forbidden"}
+            ),
+        ]
 
         with override_instance_config("CONVERSATIONS_HMAC_SIGNING_SECRET", "secret"):
             response = self.client.get(f"{self.base}/tickets/{uuid.uuid4()}/messages/")

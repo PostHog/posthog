@@ -41,9 +41,10 @@ tools:
         enabled: true
         title: Read a PostHog support ticket
         description: >
-            Return the messages on one of the person's PostHog support tickets, oldest first. author_type support is a
-            PostHog support engineer, customer is the person. Replying from here is not available: send the person to
-            the ticket in PostHog to reply.
+            Return the messages on one of the person's PostHog support tickets, oldest first. When has_more is true, call
+            again with after set to the last message's created_at to read newer ones. author_type support is a PostHog
+            support engineer, customer is the person. Replying from here is not available: send the person to the ticket
+            in PostHog to reply.
         feature_flag: mcp-posthog-support-tickets
     posthog-support-tickets-list:
         operation: posthog_support_tickets_retrieve

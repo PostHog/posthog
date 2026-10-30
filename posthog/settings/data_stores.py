@@ -782,6 +782,12 @@ CACHES["metrics_variable_options"] = {
     "LOCATION": REDIS_URL,
 }
 
+# PostHog support drafts enforce a per-user cap and single-use claims, so they must read what they wrote.
+CACHES["posthog_support_drafts"] = {
+    **CACHES["default"],
+    "LOCATION": REDIS_URL,
+}
+
 # Dedicated cache for the feature flags service (if configured)
 # Django only writes to this cache (never reads), so no reader URL needed
 if FLAGS_REDIS_URL:
@@ -849,6 +855,7 @@ if TEST:
     CACHES["ingress_dedup"] = CACHES["default"]
     CACHES["task_artifact_preview"] = CACHES["default"]
     CACHES["metrics_variable_options"] = CACHES["default"]
+    CACHES["posthog_support_drafts"] = CACHES["default"]
 
 # Cache timeout for materialized columns metadata (in seconds)
 MATERIALIZED_COLUMNS_CACHE_TIMEOUT: int = get_from_env("MATERIALIZED_COLUMNS_CACHE_TIMEOUT", 900, type_cast=int)

@@ -104,8 +104,6 @@ function messagePreviewProperties(message?: string): Record<string, any> {
     }
 }
 
-/** Claim an agent's draft before sending it. Each draft can be claimed once, so a review link open in
- * two tabs files one ticket. Returns false when the send must stop. */
 async function claimAgentDraft({ ai_draft_id, message, kind }: SupportFormFields): Promise<boolean> {
     if (!ai_draft_id) {
         return true
@@ -113,7 +111,11 @@ async function claimAgentDraft({ ai_draft_id, message, kind }: SupportFormFields
     try {
         await posthogSupportDraftsClaimCreate(String(ApiConfig.getCurrentProjectId()), ai_draft_id)
         return true
-    } catch {
+    } catch (e) {
+        if ((e as { status?: number }).status !== 404) {
+            lemonToast.error("Couldn't reach PostHog. Your ticket wasn't sent, so try again in a moment.")
+            return false
+        }
         captureSupportTicketBlocked({ surface: 'support_form', reason: 'draft_already_sent', message, kind })
         lemonToast.error('This draft was already sent or has expired. Check your tickets for it.')
         return false
@@ -616,8 +618,6 @@ export const supportLogic = kea<supportLogicType>([
             if (!(await claimAgentDraft(formValues))) {
                 return
             }
-            // Claimed now, so a retry after a failed send goes out as an ordinary ticket
-            actions.setSendSupportRequestValue('ai_draft_id', null)
             try {
                 const response = await posthog.conversations!.sendMessage(
                     outgoingMessage,

@@ -14,7 +14,7 @@ from dataclasses import asdict
 from typing import Any
 
 from django.conf import settings
-from django.core.cache import cache
+from django.core.cache import cache, caches
 from django.db import models
 
 import requests
@@ -41,9 +41,9 @@ UNREACHABLE_MESSAGE = "PostHog support could not be reached. Try again shortly."
 # Every read spends the support project's shared widget budget, which the in-app support panel
 # also polls from, so repeat reads from an agent are served from here instead.
 READ_CACHE_SECONDS = 60
-# The widget's own message when it refuses a ticket the identity does not own. Any other refusal
-# means the identity itself failed verification.
-_NOT_OWNER_ERROR = "Forbidden"
+# The support widget rejects longer messages, and the web app adds the ticket context on send.
+TICKET_MESSAGE_MAX_LENGTH = 10_000
+TICKET_CONTEXT_ALLOWANCE = 500
 
 
 class FilingReason(models.TextChoices):
@@ -68,6 +68,10 @@ class TooManyOpenDrafts(Exception):
 
 
 class DraftCreateInProgress(Exception):
+    pass
+
+
+class _WidgetRefused(Exception):
     pass
 
 
@@ -179,13 +183,13 @@ class PostHogSupportClient:
         params: dict[str, Any] = {**self._params, "limit": limit, "offset": offset}
         if status:
             params["status"] = status
-        # A list call is only refused when the identity fails verification, which is a setup problem.
-        data = self._get(
-            "/api/conversations/v1/widget/tickets",
-            params,
-            cache_key=f"tickets:{status}:{limit}:{offset}",
-            on_not_owner=PostHogSupportUnavailable,
-        )
+        try:
+            data = self._get(
+                "/api/conversations/v1/widget/tickets", params, cache_key=f"tickets:{status}:{limit}:{offset}"
+            )
+        except _WidgetRefused as e:
+            # A list call is only refused when the identity fails verification, which is a setup problem.
+            raise PostHogSupportUnavailable(UNREACHABLE_MESSAGE) from e
         return SupportTicketPage(
             count=data.get("count", 0),
             results=[
@@ -203,15 +207,18 @@ class PostHogSupportClient:
             ],
         )
 
-    def get_thread(self, ticket_id: str) -> SupportTicketThread:
-        # The widget refuses a ticket the identity does not own. Report that as not found, so a
-        # caller cannot probe for other people's ticket ids.
-        data = self._get(
-            f"/api/conversations/v1/widget/messages/{ticket_id}",
-            self._params,
-            cache_key=f"messages:{ticket_id}",
-            on_not_owner=PostHogSupportTicketNotFound,
-        )
+    def get_thread(self, ticket_id: str, *, after: str | None = None) -> SupportTicketThread:
+        params = {**self._params, **({"after": after} if after else {})}
+        try:
+            data = self._get(
+                f"/api/conversations/v1/widget/messages/{ticket_id}", params, cache_key=f"messages:{ticket_id}:{after}"
+            )
+        except _WidgetRefused as e:
+            # The widget gives the same refusal for a ticket the identity does not own and for an
+            # identity that fails verification. A list call fails only in the second case. Report the
+            # first as not found, so a caller cannot probe for other people's ticket ids.
+            self.list_tickets(status=None, limit=1, offset=0)
+            raise PostHogSupportTicketNotFound(UNREACHABLE_MESSAGE) from e
         return SupportTicketThread(
             ticket_id=data["ticket_id"],
             ticket_status=data["ticket_status"],
@@ -228,9 +235,7 @@ class PostHogSupportClient:
             has_more=bool(data.get("has_more")),
         )
 
-    def _get(
-        self, path: str, params: dict[str, Any], *, cache_key: str, on_not_owner: type[Exception]
-    ) -> dict[str, Any]:
+    def _get(self, path: str, params: dict[str, Any], *, cache_key: str) -> dict[str, Any]:
         full_cache_key = f"posthog_support_read:{self._distinct_id}:{cache_key}"
         cached = cache.get(full_cache_key)
         if cached is not None:
@@ -244,16 +249,12 @@ class PostHogSupportClient:
                 timeout=WIDGET_REQUEST_TIMEOUT_SECONDS,
             )
         except requests.RequestException as e:
-            logger.warning("posthog_support_widget_request_failed", path=path, error=str(e))
+            # The exception text holds the full URL, and the query carries the signed identity.
+            logger.warning("posthog_support_widget_request_failed", path=path, error_type=type(e).__name__)
             raise PostHogSupportUnavailable(UNREACHABLE_MESSAGE) from e
 
-        if response.status_code == 404:
-            raise on_not_owner(UNREACHABLE_MESSAGE)
-        if response.status_code == 403:
-            if _widget_error(response) == _NOT_OWNER_ERROR:
-                raise on_not_owner(UNREACHABLE_MESSAGE)
-            logger.warning("posthog_support_identity_rejected", path=path, error=_widget_error(response))
-            raise PostHogSupportUnavailable(UNREACHABLE_MESSAGE)
+        if response.status_code in (403, 404):
+            raise _WidgetRefused()
         if not response.ok:
             logger.warning("posthog_support_widget_bad_status", path=path, status=response.status_code)
             raise PostHogSupportUnavailable(UNREACHABLE_MESSAGE)
@@ -262,35 +263,33 @@ class PostHogSupportClient:
         return data
 
 
-def _widget_error(response: requests.Response) -> str | None:
-    try:
-        return response.json().get("error")
-    except ValueError:
-        return None
-
-
 class SupportDraftStore:
     """Short-lived, per-user drafts of tickets an agent prepared for a person to review and send."""
 
     def __init__(self, user_id: int) -> None:
         self._user_id = user_id
+        self._cache = caches["posthog_support_drafts"]
 
     def create(self, *, message: str, filing_reason: FilingReason, agent_name: str | None) -> SupportTicketDraft:
         # The cap check and the index write must not interleave, or parallel calls each pass the
         # check and the last index write drops the others' drafts from the count.
         lock_key = f"posthog_support_drafts_lock:{self._user_id}"
-        if not cache.add(lock_key, 1, timeout=10):
+        if not self._cache.add(lock_key, 1, timeout=10):
             raise DraftCreateInProgress()
         try:
             return self._create(message=message, filing_reason=filing_reason, agent_name=agent_name)
         finally:
-            cache.delete(lock_key)
+            self._cache.delete(lock_key)
 
     def _create(self, *, message: str, filing_reason: FilingReason, agent_name: str | None) -> SupportTicketDraft:
-        # The index can name drafts that were sent, discarded or expired. Only live ones count.
-        indexed = cache.get(self._index_key()) or []
-        live = cache.get_many([self._key(draft_id) for draft_id in indexed])
-        open_ids = [draft_id for draft_id in indexed if self._key(draft_id) in live]
+        # The index can name drafts that were sent, discarded or expired. Only unclaimed live ones count.
+        indexed = self._cache.get(self._index_key()) or []
+        found = self._cache.get_many(
+            [self._key(draft_id) for draft_id in indexed] + [self._claim_key(draft_id) for draft_id in indexed]
+        )
+        open_ids = [
+            draft_id for draft_id in indexed if self._key(draft_id) in found and self._claim_key(draft_id) not in found
+        ]
         if len(open_ids) >= MAX_OPEN_DRAFTS_PER_USER:
             raise TooManyOpenDrafts()
 
@@ -301,15 +300,18 @@ class SupportDraftStore:
             agent_name=agent_name,
             expires_at=int(time.time()) + DRAFT_TTL_SECONDS,
         )
-        cache.set_many(
+        self._cache.set_many(
             {self._key(draft.id): asdict(draft), self._index_key(): [*open_ids, draft.id]}, DRAFT_TTL_SECONDS
         )
         return draft
 
-    def get(self, draft_id: str) -> SupportTicketDraft | None:
+    def get(self, draft_id: str, *, claimant: str | None = None) -> SupportTicketDraft | None:
+        """A draft nobody claimed yet, or one this claimant claimed."""
         # Stored as a plain dict, so a draft written before a deploy still loads after it.
-        stored = cache.get(self._key(draft_id))
-        if stored is None:
+        found = self._cache.get_many([self._key(draft_id), self._claim_key(draft_id)])
+        stored = found.get(self._key(draft_id))
+        claimed_by = found.get(self._claim_key(draft_id))
+        if stored is None or (claimed_by is not None and claimed_by != claimant):
             return None
         return SupportTicketDraft(
             id=stored["id"],
@@ -319,9 +321,22 @@ class SupportDraftStore:
             expires_at=stored["expires_at"],
         )
 
+    def claim(self, draft_id: str, claimant: str) -> bool:
+        """Reserve a draft for one browser session to send. The same session can claim again, so a
+        retry after a lost response still works, but no other session can."""
+        if self.get(draft_id, claimant=claimant) is None:
+            return False
+        return bool(self._cache.add(self._claim_key(draft_id), claimant, DRAFT_TTL_SECONDS)) or (
+            self._cache.get(self._claim_key(draft_id)) == claimant
+        )
+
     def delete(self, draft_id: str) -> bool:
-        """Remove a draft. Atomic, so exactly one of two concurrent callers gets True."""
-        return bool(cache.delete(self._key(draft_id)))
+        deleted = bool(self._cache.delete(self._key(draft_id)))
+        self._cache.delete(self._claim_key(draft_id))
+        return deleted
+
+    def _claim_key(self, draft_id: str) -> str:
+        return f"posthog_support_draft_claim:{self._user_id}:{draft_id}"
 
     def _index_key(self) -> str:
         return f"posthog_support_drafts:{self._user_id}"

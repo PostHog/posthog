@@ -32,6 +32,7 @@ import type {
     PostHogSupportDraftCreateApi,
     PostHogSupportThreadApi,
     PostHogSupportTicketListApi,
+    PosthogSupportTicketsMessagesRetrieveParams,
     PosthogSupportTicketsRetrieveParams,
     SigningSecretApi,
     TicketApi,
@@ -734,7 +735,7 @@ export const getPosthogSupportDraftsClaimCreateUrl = (projectId: string, draftId
 }
 
 /**
- * Called by the web app right before it sends the person's ticket. Each draft can be claimed once, so a review link opened twice cannot file the same ticket twice. Browser sessions only.
+ * Called by the web app right before it sends the person's ticket. One browser session can claim a draft, and can claim it again to retry, so a review link opened elsewhere cannot file it twice. Browser sessions only.
  * @summary Claim a draft for the person to send
  */
 export const posthogSupportDraftsClaimCreate = async (
@@ -801,8 +802,24 @@ export const posthogSupportTicketsRetrieve = async (
     })
 }
 
-export const getPosthogSupportTicketsMessagesRetrieveUrl = (projectId: string, ticketId: string) => {
-    return `/api/projects/${projectId}/posthog_support/tickets/${ticketId}/messages/`
+export const getPosthogSupportTicketsMessagesRetrieveUrl = (
+    projectId: string,
+    ticketId: string,
+    params?: PosthogSupportTicketsMessagesRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/posthog_support/tickets/${ticketId}/messages/?${stringifiedParams}`
+        : `/api/projects/${projectId}/posthog_support/tickets/${ticketId}/messages/`
 }
 
 /**
@@ -812,10 +829,14 @@ export const getPosthogSupportTicketsMessagesRetrieveUrl = (projectId: string, t
 export const posthogSupportTicketsMessagesRetrieve = async (
     projectId: string,
     ticketId: string,
+    params?: PosthogSupportTicketsMessagesRetrieveParams,
     options?: RequestInit
 ): Promise<PostHogSupportThreadApi> => {
-    return apiMutator<PostHogSupportThreadApi>(getPosthogSupportTicketsMessagesRetrieveUrl(projectId, ticketId), {
-        ...options,
-        method: 'GET',
-    })
+    return apiMutator<PostHogSupportThreadApi>(
+        getPosthogSupportTicketsMessagesRetrieveUrl(projectId, ticketId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }

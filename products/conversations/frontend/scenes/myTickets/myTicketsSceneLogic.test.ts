@@ -85,8 +85,8 @@ describe('myTicketsSceneLogic', () => {
         })
         expect(supportLogic.values.sendSupportRequest.ticket_context).toContain('Claude Code')
         expect(router.values.searchParams).not.toHaveProperty('support_draft')
+        expect(sceneLogic.values.isReviewingDraft).toBe(true)
 
-        // The person may leave the scene before sending, so claiming the draft can't depend on it.
         sceneLogic.unmount()
         await supportLogic.asyncActions.submitSupportTicket({
             ...supportLogic.values.sendSupportRequest,
@@ -95,5 +95,23 @@ describe('myTicketsSceneLogic', () => {
 
         expect(claimed).toHaveBeenCalledWith('draft-1')
         expect((posthog as any).conversations.sendMessage).toHaveBeenCalled()
+    })
+
+    it('keeps the draft link when the draft fails to load for a reason other than a missing draft', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:team_id/posthog_support/drafts/:draft_id/': () => [503, { detail: 'Unavailable' }],
+            },
+        })
+        const sceneLogic = myTicketsSceneLogic.build()
+        sceneLogic.mount()
+
+        router.actions.push(urls.myTickets(), { support_draft: 'draft-1' })
+        await expectLogic(sceneLogic).toFinishAllListeners()
+
+        expect(router.values.searchParams).toHaveProperty('support_draft', 'draft-1')
+        expect(sceneLogic.values.isReviewingDraft).toBe(false)
+
+        sceneLogic.unmount()
     })
 })

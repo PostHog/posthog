@@ -27,6 +27,8 @@ from posthog.rate_limit import PostHogSupportDraftCreateThrottle, PostHogSupport
 from products.conversations.backend.models.constants import TicketStatus
 from products.conversations.backend.permissions import SessionAuthenticationOnly
 from products.conversations.backend.services.posthog_support import (
+    TICKET_CONTEXT_ALLOWANCE,
+    TICKET_MESSAGE_MAX_LENGTH,
     DraftCreateInProgress,
     FilingReason,
     PostHogSupportClient,
@@ -89,12 +91,21 @@ class PostHogSupportThreadSerializer(serializers.Serializer):
     ticket_id = serializers.CharField(help_text="Ticket id.")
     ticket_status = serializers.ChoiceField(choices=TicketStatus.choices, help_text="Current ticket status.")
     messages = PostHogSupportMessageSerializer(many=True, help_text="Messages in the thread, oldest first.")
-    has_more = serializers.BooleanField(help_text="True when the thread has more messages than were returned.")
+    has_more = serializers.BooleanField(
+        help_text="True when the thread has more messages. Pass the last message's created_at as after to read them."
+    )
+
+
+class PostHogSupportThreadQuerySerializer(serializers.Serializer):
+    after = serializers.DateTimeField(
+        required=False,
+        help_text="Only return messages sent after this ISO 8601 time. Use it to page through a long thread.",
+    )
 
 
 class PostHogSupportDraftCreateSerializer(serializers.Serializer):
     customer_words = serializers.CharField(
-        max_length=4000,
+        max_length=2000,
         help_text=(
             "The person's own description of the problem, quoted verbatim from what they wrote. "
             "Do not paraphrase it, and do not add your own diagnosis."
@@ -110,7 +121,7 @@ class PostHogSupportDraftCreateSerializer(serializers.Serializer):
         ),
     )
     details = serializers.CharField(
-        max_length=8000,
+        max_length=5000,
         required=False,
         allow_blank=True,
         help_text=(
@@ -120,7 +131,7 @@ class PostHogSupportDraftCreateSerializer(serializers.Serializer):
         ),
     )
     already_tried = serializers.CharField(
-        max_length=4000,
+        max_length=2000,
         required=False,
         allow_blank=True,
         help_text="What the person and you already checked or tried, so support can judge the investigation.",
@@ -131,6 +142,15 @@ class PostHogSupportDraftCreateSerializer(serializers.Serializer):
         allow_blank=True,
         help_text="Name of the agent or client drafting the ticket, for example Claude Code or Codex.",
     )
+
+    def validate(self, data: dict[str, Any]) -> dict[str, Any]:
+        message = compose_draft_message(
+            customer_words=data["customer_words"], details=data.get("details"), already_tried=data.get("already_tried")
+        )
+        if len(message) > TICKET_MESSAGE_MAX_LENGTH - TICKET_CONTEXT_ALLOWANCE:
+            raise serializers.ValidationError("The draft is too long for a support ticket. Shorten the details.")
+        data["message"] = message
+        return data
 
 
 class PostHogSupportDraftSerializer(serializers.Serializer):
@@ -151,6 +171,10 @@ class PostHogSupportDraftSerializer(serializers.Serializer):
 
 class _SendFromWebAppOnly(SessionAuthenticationOnly):
     message = "Only the person can send a support ticket, from the PostHog web app."
+
+
+def _claimant(request: ValidatedRequest) -> str | None:
+    return request.session.session_key if hasattr(request, "session") else None
 
 
 def _draft_not_found() -> Response:
@@ -215,6 +239,7 @@ class PostHogSupportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return Response(PostHogSupportTicketListSerializer(page).data)
 
     @validated_request(
+        query_serializer=PostHogSupportThreadQuerySerializer,
         responses={
             200: OpenApiResponse(response=PostHogSupportThreadSerializer),
             404: OpenApiResponse(response=PostHogSupportErrorSerializer),
@@ -226,7 +251,8 @@ class PostHogSupportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @action(methods=["GET"], detail=False, url_path=r"tickets/(?P<ticket_id>[0-9a-f-]{36})/messages")
     def ticket_messages(self, request: ValidatedRequest, ticket_id: str, *args: Any, **kwargs: Any) -> Response:
         try:
-            thread = self._client().get_thread(ticket_id)
+            after = request.validated_query_data.get("after")
+            thread = self._client().get_thread(ticket_id, after=after.isoformat() if after else None)
         except PostHogSupportTicketNotFound:
             return Response({"detail": "Ticket not found."}, status=status.HTTP_404_NOT_FOUND)
         except PostHogSupportUnavailable as e:
@@ -250,11 +276,7 @@ class PostHogSupportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         data = request.validated_data
         try:
             draft = self._draft_store().create(
-                message=compose_draft_message(
-                    customer_words=data["customer_words"],
-                    details=data.get("details"),
-                    already_tried=data.get("already_tried"),
-                ),
+                message=data["message"],
                 filing_reason=data["filing_reason"],
                 agent_name=data.get("agent_name") or None,
             )
@@ -294,7 +316,7 @@ class PostHogSupportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     @action(methods=["GET"], detail=False, url_path=r"drafts/(?P<draft_id>[0-9a-f-]{36})")
     def retrieve_draft(self, request: ValidatedRequest, draft_id: str, *args: Any, **kwargs: Any) -> Response:
-        draft = self._draft_store().get(draft_id)
+        draft = self._draft_store().get(draft_id, claimant=_claimant(request))
         if draft is None:
             return _draft_not_found()
         return self._draft_response(draft)
@@ -319,8 +341,9 @@ class PostHogSupportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         },
         summary="Claim a draft for the person to send",
         description=(
-            "Called by the web app right before it sends the person's ticket. Each draft can be claimed once, "
-            "so a review link opened twice cannot file the same ticket twice. Browser sessions only."
+            "Called by the web app right before it sends the person's ticket. One browser session can claim a "
+            "draft, and can claim it again to retry, so a review link opened elsewhere cannot file it twice. "
+            "Browser sessions only."
         ),
     )
     @action(
@@ -332,8 +355,9 @@ class PostHogSupportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     def claim_draft(self, request: ValidatedRequest, draft_id: str, *args: Any, **kwargs: Any) -> Response:
         store = self._draft_store()
-        draft = store.get(draft_id)
-        if draft is None or not store.delete(draft_id):
+        claimant = _claimant(request)
+        draft = store.get(draft_id, claimant=claimant)
+        if draft is None or claimant is None or not store.claim(draft_id, claimant):
             return _draft_not_found()
         # The ticket context carries the draft id, which joins this event to the ticket support receives.
         report_user_action(

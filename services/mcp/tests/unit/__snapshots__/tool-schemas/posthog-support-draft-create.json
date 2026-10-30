@@ -8,17 +8,17 @@
         },
         "already_tried": {
             "description": "What the person and you already checked or tried, so support can judge the investigation.",
-            "maxLength": 4000,
+            "maxLength": 2000,
             "type": "string"
         },
         "customer_words": {
             "description": "The person's own description of the problem, quoted verbatim from what they wrote. Do not paraphrase it, and do not add your own diagnosis.",
-            "maxLength": 4000,
+            "maxLength": 2000,
             "type": "string"
         },
         "details": {
             "description": "Facts the person gave or that you observed directly: exact error text, URLs, event and property names, the insight, flag or other object involved, SDK and version, when it started, and what they expected to happen. No guesses or conclusions.",
-            "maxLength": 8000,
+            "maxLength": 5000,
             "type": "string"
         },
         "filing_reason": {

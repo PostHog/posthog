@@ -20,11 +20,11 @@ export const PosthogSupportDraftsCreateParams = () => zod.object({
         ),
 })
 
-export const posthogSupportDraftsCreateBodyCustomerWordsMax = 4000
+export const posthogSupportDraftsCreateBodyCustomerWordsMax = 2000
 
-export const posthogSupportDraftsCreateBodyDetailsMax = 8000
+export const posthogSupportDraftsCreateBodyDetailsMax = 5000
 
-export const posthogSupportDraftsCreateBodyAlreadyTriedMax = 4000
+export const posthogSupportDraftsCreateBodyAlreadyTriedMax = 2000
 
 export const posthogSupportDraftsCreateBodyAgentNameMax = 100
 
@@ -128,4 +128,11 @@ export const PosthogSupportTicketsMessagesRetrieveParams = () => zod.object({
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
     ticket_id: zod.string().regex(posthogSupportTicketsMessagesRetrievePathTicketIdRegExp),
+})
+
+export const PosthogSupportTicketsMessagesRetrieveQueryParams = () => zod.object({
+    after: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe('Only return messages sent after this ISO 8601 time. Use it to page through a long thread.'),
 })

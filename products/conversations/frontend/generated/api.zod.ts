@@ -671,11 +671,11 @@ export const ConversationsZendeskImportsCreateBody = /* @__PURE__ */ zod.object(
  * Saves a draft ticket to PostHog support. It does not send it. The person opens review_url, checks and edits the ticket, and sends it from the PostHog web app.
  * @summary Draft a PostHog support ticket for the person to send
  */
-export const posthogSupportDraftsCreateBodyCustomerWordsMax = 4000
+export const posthogSupportDraftsCreateBodyCustomerWordsMax = 2000
 
-export const posthogSupportDraftsCreateBodyDetailsMax = 8000
+export const posthogSupportDraftsCreateBodyDetailsMax = 5000
 
-export const posthogSupportDraftsCreateBodyAlreadyTriedMax = 4000
+export const posthogSupportDraftsCreateBodyAlreadyTriedMax = 2000
 
 export const posthogSupportDraftsCreateBodyAgentNameMax = 100
 

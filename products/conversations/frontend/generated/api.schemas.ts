@@ -1082,7 +1082,7 @@ export const FilingReasonEnumApi = {
 export interface PostHogSupportDraftCreateApi {
     /**
      * The person's own description of the problem, quoted verbatim from what they wrote. Do not paraphrase it, and do not add your own diagnosis.
-     * @maxLength 4000
+     * @maxLength 2000
      */
     customer_words: string
     /** Why a human should look at this. Draft only when the person asked for support, the problem involves account, billing or data only PostHog can see, there is a reproducible error you confirmed but cannot explain, or the person disagrees with your answer. Your own conclusion that it is a PostHog bug is not a reason.
@@ -1094,12 +1094,12 @@ export interface PostHogSupportDraftCreateApi {
     filing_reason: FilingReasonEnumApi
     /**
      * Facts the person gave or that you observed directly: exact error text, URLs, event and property names, the insight, flag or other object involved, SDK and version, when it started, and what they expected to happen. No guesses or conclusions.
-     * @maxLength 8000
+     * @maxLength 5000
      */
     details?: string
     /**
      * What the person and you already checked or tried, so support can judge the investigation.
-     * @maxLength 4000
+     * @maxLength 2000
      */
     already_tried?: string
     /**
@@ -1210,7 +1210,7 @@ export interface PostHogSupportThreadApi {
     ticket_status: TicketStatusEnumApi
     /** Messages in the thread, oldest first. */
     messages: PostHogSupportMessageApi[]
-    /** True when the thread has more messages than were returned. */
+    /** True when the thread has more messages. Pass the last message's created_at as after to read them. */
     has_more: boolean
 }
 
@@ -1387,3 +1387,10 @@ export const PosthogSupportTicketsRetrieveStatus = {
     OnHold: 'on_hold',
     Resolved: 'resolved',
 } as const
+
+export type PosthogSupportTicketsMessagesRetrieveParams = {
+    /**
+     * Only return messages sent after this ISO 8601 time. Use it to page through a long thread.
+     */
+    after?: string
+}
