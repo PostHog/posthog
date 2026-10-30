@@ -213,9 +213,12 @@ def test_hogql_predicate_subquery_is_team_scoped(db):
     [
         "SELECT distinct_id FROM events WHERE event = '$feature_flag_called' "
         "AND properties.$feature_flag = 'probe-flag' AND timestamp >= now() - INTERVAL 7 DAY",
+        "distinct_id IN (SELECT distinct_id FROM events WHERE event IN ('$pageview', '$feature_flag_called') "
+        "AND timestamp >= now() - INTERVAL 7 DAY)",
         "SELECT e.distinct_id FROM events AS e JOIN (SELECT 'probe' AS id) AS d "
         "ON e.distinct_id = d.id WHERE event = '$feature_flag_called'",
     ],
+    ids=["only_flag_calls", "flag_calls_with_other_events", "flag_calls_behind_a_join"],
 )
 @pytest.mark.parametrize("through_a_view", [False, True])
 def test_compile_hogql_predicate_keeps_a_flag_call_subquery_on_events(team, flag_calls, through_a_view):
@@ -238,7 +241,9 @@ def test_compile_hogql_predicate_keeps_a_flag_call_subquery_on_events(team, flag
 
     with patch(
         "posthog.hogql.database.database.feature_enabled_or_false",
-        side_effect=lambda key, *args, **kwargs: key == "hogql-flag-calls-from-flag-evaluations",
+        side_effect=lambda key, *args, **kwargs: (
+            key in {"hogql-flag-calls-from-flag-evaluations", "hogql-flag-calls-union"}
+        ),
     ):
         sql, _ = compile_hogql_predicate(request)
 

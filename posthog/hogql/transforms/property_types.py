@@ -6,13 +6,9 @@ from posthog.hogql.constants import EXCEPTION_STRING_ARRAY_PROPERTIES, is_virtua
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import BooleanDatabaseField, DateTimeDatabaseField, StringJSONDatabaseField
 from posthog.hogql.database.s3_table import S3Table
-from posthog.hogql.database.schema.events import (
-    EVENTS_TABLE_TYPES,
-    EventsGroupSubTable,
-    EventsPersonSubTable,
-    EventsTable,
-)
-from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsPersonSubTable, FlagEvaluationsTable
+from posthog.hogql.database.schema.events import EVENTS_TABLE_TYPES, EventsGroupSubTable, EventsPersonSubTable
+from posthog.hogql.database.schema.events_with_flag_calls import EVENT_ROW_TABLES
+from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsPersonSubTable
 from posthog.hogql.database.schema.groups import GroupsTable
 from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
 from posthog.hogql.escape_sql import escape_hogql_identifier
@@ -117,7 +113,7 @@ class PropertyFinder(TraversingVisitor):
                     self.person_properties.add(property_name)
                 elif isinstance(resolved_table, EventsGroupSubTable):
                     pass  # group properties are handled above via GroupsTable
-                elif isinstance(resolved_table, EventsTable | FlagEvaluationsTable):
+                elif isinstance(resolved_table, EVENT_ROW_TABLES):
                     self.event_properties.add(property_name)
 
     def visit_field(self, node: ast.Field):
@@ -136,6 +132,14 @@ class ToTimeZoneParts:
     swapped: bool
 
 
+# ClickHouse string-parsing conversions (toFloat64OrZero, toInt64OrZero,
+# toFloat64OrDefault, toInt64OrDefault) require a String first argument and raise
+# ILLEGAL_TYPE_OF_ARGUMENT on numeric input. When a user explicitly wraps a
+# Numeric-typed property in one of these, we must not auto-convert the property
+# to Float, the raw String value has to flow through for the parser to work.
+STRING_INPUT_CONVERSIONS = frozenset({"toFloatOrZero", "toIntOrZero", "toFloatOrDefault", "toIntOrDefault"})
+
+
 class PropertySwapper(CloningVisitor):
     _RANGE_OPS: set[str] = {
         ast.CompareOperationOp.Gt,
@@ -143,13 +147,6 @@ class PropertySwapper(CloningVisitor):
         ast.CompareOperationOp.Lt,
         ast.CompareOperationOp.LtEq,
     }
-
-    # ClickHouse string-parsing conversions (toFloat64OrZero, toInt64OrZero,
-    # toFloat64OrDefault, toInt64OrDefault) require a String first argument and raise
-    # ILLEGAL_TYPE_OF_ARGUMENT on numeric input. When a user explicitly wraps a
-    # Numeric-typed property in one of these, we must not auto-convert the property
-    # to Float, the raw String value has to flow through for the parser to work.
-    _STRING_INPUT_CONVERSIONS: set[str] = {"toFloatOrZero", "toIntOrZero", "toFloatOrDefault", "toIntOrDefault"}
 
     # ClickHouse array-membership functions whose first argument must be an array. Users write these
     # against exception properties (e.g. hasAny(properties.$exception_values, [...])), but those
@@ -247,7 +244,7 @@ class PropertySwapper(CloningVisitor):
         # string. Re-evaluated per call, so nested non-parsing calls (e.g.
         # toFloatOrZero(toString(prop))) correctly reset the flag.
         saved_suppress = self._suppress_numeric_conversion
-        self._suppress_numeric_conversion = node.name in self._STRING_INPUT_CONVERSIONS
+        self._suppress_numeric_conversion = node.name in STRING_INPUT_CONVERSIONS
 
         self._inside_call_depth += 1
         try:
@@ -286,7 +283,7 @@ class PropertySwapper(CloningVisitor):
         table_type = type.field_type.table_type
         if not isinstance(table_type, ast.BaseTableType):
             return False
-        return isinstance(table_type.resolve_database_table(self.context), EventsTable | FlagEvaluationsTable)
+        return isinstance(table_type.resolve_database_table(self.context), EVENT_ROW_TABLES)
 
     @staticmethod
     def _extract_string_array(field: ast.Expr) -> ast.Call:
@@ -719,7 +716,7 @@ class PropertySwapper(CloningVisitor):
                 if isinstance(resolved_table, EventsPersonSubTable | FlagEvaluationsPersonSubTable):
                     if property_name in self.person_properties:
                         return self._convert_string_property_to_type(node, "person", property_name)
-                elif isinstance(resolved_table, EventsTable | FlagEvaluationsTable):
+                elif isinstance(resolved_table, EVENT_ROW_TABLES):
                     if property_name in self.event_properties:
                         return self._convert_string_property_to_type(node, "event", property_name)
         if isinstance(type, ast.PropertyType) and type.field_type.name == "person_properties" and len(type.chain) == 1:

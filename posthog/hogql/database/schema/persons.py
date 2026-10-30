@@ -24,7 +24,11 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.database.schema.persons_pdi import PersonsPDITable
 from posthog.hogql.database.schema.persons_revenue_analytics import PersonsRevenueAnalyticsTable
-from posthog.hogql.database.schema.util.where_clause_extractor import WhereClauseExtractor, top_level_conjuncts
+from posthog.hogql.database.schema.util.where_clause_extractor import (
+    WhereClauseExtractor,
+    is_nondeterministic_function,
+    top_level_conjuncts,
+)
 from posthog.hogql.errors import ResolutionError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
@@ -267,10 +271,6 @@ def select_from_persons_table(
     return select
 
 
-# These return different values in the subquery and in the outer query.
-_NONDETERMINISTIC_FUNCTIONS = frozenset({"rand", "rownumberinblock", "rownumberinallblocks", "nowinblock"})
-
-
 class _CopyableConjunctVisitor(TraversingVisitor):
     def __init__(self, table_type: ast.Type):
         super().__init__()
@@ -293,7 +293,7 @@ class _CopyableConjunctVisitor(TraversingVisitor):
         self.copyable = False
 
     def visit_call(self, node: ast.Call):
-        if node.name.lower() in _NONDETERMINISTIC_FUNCTIONS:
+        if is_nondeterministic_function(node.name):
             self.copyable = False
         super().visit_call(node)
 
