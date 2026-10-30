@@ -66,11 +66,17 @@ describe('TimeSeriesLineChart', () => {
                 },
                 [null, 0, null],
             ],
-        ])('%s', (_, config, expectedFractions) => {
+            [
+                'spans the labels that parse',
+                { xScale: 'time' as const },
+                [null, 0, 1],
+                ['not a date', '2026-03-01T01:00:00Z', '2026-03-01T04:00:00Z'],
+            ],
+        ])('%s', (_, config, expectedFractions, labels = TIME_LABELS) => {
             let fractions: (number | null)[] = []
             function Measure(): null {
                 const { scales, dimensions } = useChartLayout()
-                fractions = TIME_LABELS.map((label) => {
+                fractions = labels.map((label) => {
                     const x = scales.x(label)
                     return x == null ? null : (x - dimensions.plotLeft) / dimensions.plotWidth
                 })
@@ -79,7 +85,7 @@ describe('TimeSeriesLineChart', () => {
             renderChart(
                 <TimeSeriesLineChart
                     series={[{ key: 'a', label: 'A', data: [1, 2, 3] }]}
-                    labels={TIME_LABELS}
+                    labels={labels}
                     theme={THEME}
                     config={config}
                 >
@@ -87,6 +93,21 @@ describe('TimeSeriesLineChart', () => {
                 </TimeSeriesLineChart>
             )
             expect(fractions).toEqual(expectedFractions)
+        })
+
+        // At even spacing the cursor for index 2 would land nearer the 10:00 point.
+        it('hovers a label where a time scale draws it', async () => {
+            const labels = ['00', '01', '02', '10'].map((h) => `2026-03-01T${h}:00:00Z`)
+            const { chart } = renderChart(
+                <TimeSeriesLineChart
+                    series={[{ key: 'a', label: 'A', data: [1, 2, 3, 4] }]}
+                    labels={labels}
+                    theme={THEME}
+                    config={{ xScale: 'time' }}
+                />
+            )
+            chart.hoverAtIndex(2)
+            expect((await chart.waitForTooltip()).dataIndex).toBe(2)
         })
 
         it('hides x-axis ticks when xAxis.hide is true', () => {

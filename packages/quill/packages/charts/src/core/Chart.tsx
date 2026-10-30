@@ -19,7 +19,14 @@ import {
 } from './canvas-renderer'
 import { ChartHoverContext, ChartLayoutContext } from './chart-context'
 import type { ChartHoverContextValue, ChartLayoutContextValue } from './chart-context'
-import { ChartShell, countVisibleSeries, useCanvasBounds, useColoredSeries } from './chart-shell'
+import {
+    ChartShell,
+    type ChartWrapperElement,
+    countVisibleSeries,
+    useCanvasBounds,
+    useColoredSeries,
+    X_FOR_INDEX,
+} from './chart-shell'
 import { useChartCanvas } from './hooks/useChartCanvas'
 import { useChartDraw } from './hooks/useChartDraw'
 import { useChartInteraction } from './hooks/useChartInteraction'
@@ -397,6 +404,17 @@ export function Chart<Meta = unknown>({
         drawHoverRef.current,
     ])
 
+    useLayoutEffect(() => {
+        const wrapper = wrapperRef.current as ChartWrapperElement | null
+        if (wrapper) {
+            // Bar charts keep the even grid, which lands inside a band rather than on its center.
+            wrapper[X_FOR_INDEX] =
+                scales && !scales.extent && axisOrientation === 'vertical'
+                    ? (index) => scales.x(labels[index])
+                    : undefined
+        }
+    }, [wrapperRef, scales, labels, axisOrientation])
+
     useChartDraw({
         ctx,
         overlayCtx,
@@ -433,8 +451,8 @@ export function Chart<Meta = unknown>({
     const stablePositionValue = useStableResolveValue(resolvePositionValue ?? resolveValue)
 
     const axisValue = useMemo(
-        () => ({ orientation: axisOrientation, xTickFormatter, isPercent }),
-        [axisOrientation, xTickFormatter, isPercent]
+        () => ({ orientation: axisOrientation, xTickFormatter, xTickLabels: xTickLabels ?? labels, isPercent }),
+        [axisOrientation, xTickFormatter, xTickLabels, labels, isPercent]
     )
     const axisColor = theme.axisColor ?? DEFAULT_AXIS_COLOR
 

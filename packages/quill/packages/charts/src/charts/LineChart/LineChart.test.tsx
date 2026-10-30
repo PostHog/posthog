@@ -3,7 +3,7 @@ import { fireEvent } from '@testing-library/react'
 import type { ChartTheme, Series } from '../../core/types'
 import { ReferenceLine } from '../../overlays/ReferenceLine'
 import { dimensions as testDimensions, getChart, rawDrag, renderChart } from '../../testing'
-import { LineChart } from './LineChart'
+import { LineChart, lineConnects } from './LineChart'
 
 function legendButtons(container: HTMLElement): HTMLButtonElement[] {
     const legend = container.querySelector('[data-attr="hog-chart-line-legend"]')
@@ -32,6 +32,17 @@ describe('LineChart', () => {
     ] as const)('renders without throwing in %s', (_, series, config) => {
         const { chart } = renderChart(<LineChart series={series} labels={LABELS} theme={THEME} config={config} />)
         expect(chart.seriesCount).toBeGreaterThan(0)
+    })
+
+    // Hours 0, 1 and 4: the second gap is three hours wide.
+    it.each([
+        ['joins every gap for true', true, [true, true]],
+        ['joins gaps up to a span in ms', 2 * 3_600_000, [true, false]],
+        ['joins a gap within the span', 3 * 3_600_000, [true, true]],
+    ] as const)('lineConnects %s', (_, connectNulls, expected) => {
+        const labels = ['2026-01-01T00:00:00Z', '2026-01-01T01:00:00Z', '2026-01-01T04:00:00Z']
+        const connects = lineConnects(connectNulls, Date.parse, labels)
+        expect([connects?.(0, 1), connects?.(1, 2)]).toEqual(expected)
     })
 
     it('renders empty state without crashing', () => {

@@ -38,6 +38,7 @@ export function makeOverlayContext(scales: ChartScales, overrides: OverlayContex
         axis: {
             orientation: overrides.axisOrientation ?? 'vertical',
             xTickFormatter: overrides.xTickFormatter,
+            xTickLabels: overrides.labels ?? [],
             isPercent: overrides.isPercent ?? false,
         },
         hoverIndex: overrides.hoverIndex ?? -1,

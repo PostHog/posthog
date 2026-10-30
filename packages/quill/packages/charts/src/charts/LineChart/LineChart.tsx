@@ -40,14 +40,13 @@ import type {
     Series,
     TooltipContext,
 } from '../../core/types'
+import { labelTimeExtent } from '../../utils/dates'
 import { closestHoverSeriesKey } from './closest-hover-series'
 
 // Brand for the private ChartScales._private slot used by LineChart. The base Chart
 // and other chart types treat this as opaque; LineChart's drawStatic narrows back to it.
 interface LineChartPrivate {
     __lineChart: ScaleSet
-    /** Label → x pixel: the point scale, or the time mapping when `timeScale` is set. */
-    xPosition: (label: string) => number | undefined
 }
 
 export interface LineChartProps<Meta = unknown> {
@@ -169,10 +168,7 @@ function LineChartInner<Meta = unknown>({
             const xPosition = timeScale
                 ? createTimeXPosition(timeScale, scaleLabels, dimensions)
                 : (label: string) => d3Scales.x(label)
-            const lineChartPrivate: LineChartPrivate = {
-                __lineChart: d3Scales,
-                xPosition,
-            }
+            const lineChartPrivate: LineChartPrivate = { __lineChart: d3Scales }
 
             return {
                 x: xPosition,
@@ -187,9 +183,8 @@ function LineChartInner<Meta = unknown>({
 
     const drawStatic = useCallback(
         ({ ctx, dimensions, scales, series: coloredSeries, labels: drawLabels, theme }: ChartDrawArgs) => {
-            const linePrivate = scales._private as LineChartPrivate | undefined
-            const d3Scales = linePrivate?.__lineChart
-            if (!linePrivate || !d3Scales) {
+            const d3Scales = (scales._private as LineChartPrivate | undefined)?.__lineChart
+            if (!d3Scales) {
                 return
             }
 
@@ -201,7 +196,7 @@ function LineChartInner<Meta = unknown>({
             const baseDrawCtx: DrawContext = {
                 ctx,
                 dimensions,
-                xScale: linePrivate.xPosition,
+                xScale: scales.x,
                 yScale: d3Scales.y,
                 labels: drawLabels,
             }
@@ -224,7 +219,7 @@ function LineChartInner<Meta = unknown>({
                 dimensions,
                 labels: drawLabels,
                 series: coloredSeries,
-                xScale: linePrivate.xPosition,
+                xScale: scales.x,
                 resolveYScale,
                 yValuesFor: (s) => stackedData?.get(s.key)?.top,
                 bottomFor: (s) => s.fill?.lowerData ?? stackedData?.get(s.key)?.bottom,
@@ -326,14 +321,14 @@ function LineChartInner<Meta = unknown>({
     )
 }
 
-/** Maps a label to its x pixel by time across `domain`, defaulting to the first and last label's
+/** Maps a label to its x pixel by time across `domain`, defaulting to the earliest and latest label
  *  times. A label outside the domain, or one that does not parse, has no position. */
 function createTimeXPosition(
     { parse, domain }: NonNullable<LineChartConfig['timeScale']>,
     labels: string[],
     dimensions: ChartDimensions
 ): (label: string) => number | undefined {
-    const [from, to] = domain ?? [parse(labels[0] ?? ''), parse(labels[labels.length - 1] ?? '')]
+    const [from, to] = domain ?? labelTimeExtent(labels, parse)
     const span = to - from
     return (label) => {
         const t = parse(label)
@@ -348,7 +343,7 @@ function createTimeXPosition(
 
 /** The renderer's `connects` for `connectNulls`: neighbors only by default, every gap for `true`, and
  *  on a time scale gaps up to a number of milliseconds. */
-function lineConnects(
+export function lineConnects(
     connectNulls: LineChartConfig['connectNulls'],
     parse: ((label: string) => number) | undefined,
     labels: string[]

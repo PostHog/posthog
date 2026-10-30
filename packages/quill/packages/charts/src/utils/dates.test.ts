@@ -421,6 +421,11 @@ describe('buildTimeTickLabels', () => {
             ['2026-03-01T00:00:00Z', '2026-03-02T12:00:00Z', 'day', 'America/New_York'],
             ['2026-03-01T05:00:00.000Z', '2026-03-02T05:00:00.000Z'],
         ],
+        [
+            'returns no ticks for an unknown timezone',
+            ['2026-03-01T00:00:00Z', '2026-03-02T00:00:00Z', 'day', 'Not/AZone'],
+            [],
+        ],
     ] as const)('%s', (_, [from, to, interval, timezone], expected) => {
         expect(buildTimeTickLabels(Date.parse(from), Date.parse(to), interval, timezone)).toEqual(expected)
     })

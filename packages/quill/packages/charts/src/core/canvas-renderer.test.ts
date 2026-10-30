@@ -196,12 +196,15 @@ describe('hog-charts canvas-renderer', () => {
     })
 
     describe('drawLine — connects with partial strokes', () => {
-        it('bridges a gap that falls on a partial dash boundary', () => {
+        it.each([
+            { smooth: false, segment: 'lineTo' as const },
+            { smooth: true, segment: 'bezierCurveTo' as const },
+        ])('bridges a gap that falls on a partial dash boundary (smooth: $smooth)', ({ smooth, segment }) => {
             const ctx = mockCanvasContext()
             const series = makeSeries({ key: 's1', data: [10, 50, 30], stroke: { partial: { fromIndex: 2 } } })
             const drawCtx = makeDrawContextWithGaps(ctx, ['a', 'b', 'c'], new Set([50]))
-            drawLine({ ...drawCtx, connects: () => true }, series)
-            expect(ctx.lineTo).toHaveBeenCalledTimes(1)
+            drawLine({ ...drawCtx, smooth, connects: () => true }, series)
+            expect(ctx[segment]).toHaveBeenCalledTimes(1)
         })
 
         it('skips the fractional tail when the final segment is not connected', () => {
@@ -573,6 +576,25 @@ describe('hog-charts canvas-renderer', () => {
             // Last two lineTo calls should be at the baseline
             expect(lineToArgs[lineToArgs.length - 1]).toBe(baseline)
             expect(lineToArgs[lineToArgs.length - 2]).toBe(baseline)
+        })
+    })
+
+    describe('drawArea — connects', () => {
+        it.each([
+            { name: 'breaks the fill at a gap by default', gaps: [50], connects: undefined, fills: 2 },
+            { name: 'bridges a gap that connects allows', gaps: [50], connects: () => true, fills: 1 },
+            {
+                name: 'breaks the fill where connects refuses a pair',
+                gaps: [],
+                connects: (from: number) => from !== 1,
+                fills: 2,
+            },
+        ])('$name', ({ gaps, connects, fills }) => {
+            const ctx = mockCanvasContext()
+            const series = makeSeries({ key: 's1', data: [10, 20, 50, 30, 40], fill: {} })
+            const labels = ['a', 'b', 'c', 'd', 'e']
+            drawArea({ ...makeDrawContextWithGaps(ctx, labels, new Set(gaps)), connects }, series)
+            expect(ctx.fill).toHaveBeenCalledTimes(fills)
         })
     })
 

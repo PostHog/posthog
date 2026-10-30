@@ -521,7 +521,8 @@ export interface LineChartConfig extends ChartConfig {
     percentStackView?: boolean
     /** Place each label at its time instead of evenly by index, so uneven spacing and gaps in time
      *  show. `parse` returns a label's epoch milliseconds. `domain` sets the axis span in epoch
-     *  milliseconds and defaults to the first and last label; points outside it are not drawn. */
+     *  milliseconds and defaults to the earliest and latest label; points outside it are not drawn.
+     *  The labels must be in ascending time order. Memoize the object: a new one rebuilds the scales. */
     timeScale?: { parse: (label: string) => number; domain?: readonly [number, number] }
     /** Draw lines and areas across missing (non-finite) values instead of breaking them. With
      *  `timeScale`, a number bridges only gaps up to that many milliseconds between drawn points and
