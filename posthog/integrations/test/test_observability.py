@@ -49,7 +49,7 @@ class TestIntegrationsSdkMetrics(BaseTest):
                 "github",
                 "oauth",
                 "ok",
-                lambda s: IntegrationManager.github.oauth.get(s.team_id, s.id),
+                lambda s: IntegrationManager.github.oauth.get(s.team_id, s.github_id),
             ),
             (
                 "get_not_found",
@@ -60,7 +60,15 @@ class TestIntegrationsSdkMetrics(BaseTest):
                 "not_found",
                 lambda s: IntegrationManager.github.oauth.get(s.team_id, 0),
             ),
-            ("get_any_kind", "get", "any", "multi", "any", "ok", lambda s: IntegrationManager.any.get(s.team_id, s.id)),
+            (
+                "get_any_kind",
+                "get",
+                "any",
+                "multi",
+                "any",
+                "ok",
+                lambda s: IntegrationManager.any.get(s.team_id, s.github_id),
+            ),
             (
                 "list_kind_any_auth",
                 "list",
@@ -122,7 +130,7 @@ class TestIntegrationsSdkMetrics(BaseTest):
                 "github",
                 "oauth",
                 "ok",
-                lambda s: IntegrationManager.github.oauth.update(s.team_id, s.id, config_patch={"a": 1}),
+                lambda s: IntegrationManager.github.oauth.update(s.team_id, s.github_id, config_patch={"a": 1}),
             ),
             (
                 "update_not_found",
@@ -140,7 +148,7 @@ class TestIntegrationsSdkMetrics(BaseTest):
                 "github",
                 "oauth",
                 "ok",
-                lambda s: IntegrationManager.github.oauth.delete(s.team_id, s.id),
+                lambda s: IntegrationManager.github.oauth.delete(s.team_id, s.github_id),
             ),
             (
                 "source_get_not_found",
@@ -149,7 +157,7 @@ class TestIntegrationsSdkMetrics(BaseTest):
                 "ably",
                 "any",
                 "not_found",
-                lambda s: IntegrationManager.source("ably").any.get(s.team_id, s.id),
+                lambda s: IntegrationManager.source("ably").any.get(s.team_id, s.github_id),
             ),
         ]
     )
