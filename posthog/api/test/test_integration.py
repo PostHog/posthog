@@ -7047,6 +7047,13 @@ class TestSlackPostHogCodeKindDeprecated:
         serializer.is_valid()
         assert "kind" not in serializer.errors
 
+    def test_validate_kind_rejects_whitespace_padded_kind(self):
+        # PersonalConnectionRecentAuthPermission compares the raw kind, so a trimmed kind would bypass it.
+        serializer = IntegrationSerializer(data={"kind": "posthog ", "config": {}})
+
+        assert not serializer.is_valid()
+        assert "kind" in serializer.errors
+
 
 class TestGitHubIntegrationListStatusFields:
     @pytest.fixture(autouse=True)
@@ -8308,7 +8315,9 @@ class TestWarehouseSourceIntegrationKind(APIBaseTest):
         self.organization_membership.save()
         row = self._credentials_row(kind, auth_type)
         if referenced:
-            self._source_pointing_at(row, key="credentials_integration_id")
+            source = self._source_pointing_at(row, key="credentials_integration_id")
+            source.prefix = "private_source_prefix"
+            source.save(update_fields=["prefix"])
 
         response = self.client.delete(f"/api/projects/{self.team.id}/integrations/{row.id}/")
 
@@ -8317,7 +8326,11 @@ class TestWarehouseSourceIntegrationKind(APIBaseTest):
             expected_status != 204
         )
         if referenced:
-            assert "data warehouse sources" in json.dumps(response.json())
+            detail = json.dumps(response.json())
+            assert "data warehouse sources: 1" in detail
+            assert "private_source_prefix" not in detail
+            assert str(source.source_type) not in detail
+            assert str(source.id) not in detail
 
     @parameterized.expand([("before_the_usage_check", "usages"), ("during_the_teardown", "delete")])
     def test_destroy_of_a_row_that_a_concurrent_request_deleted(self, _name: str, gone_at: str) -> None:

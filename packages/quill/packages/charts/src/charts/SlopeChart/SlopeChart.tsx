@@ -4,6 +4,7 @@ import { ChartLegend } from '../../components/Legend/ChartLegend'
 import { useChartLegend } from '../../components/Legend/useChartLegend'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
 import { applyMarginOverride } from '../../core/hooks/useChartMargins'
+import { useResolvedChartTheme } from '../../core/theme'
 import type {
     ChartConfig,
     ChartLegendConfig,
@@ -66,7 +67,8 @@ export interface SlopeChartProps<Meta = SlopeSeriesMeta> {
     series: Series<Meta>[]
     labels: string[]
     config?: SlopeChartConfig
-    theme: ChartTheme
+    /** Defaults to the nearest `ChartThemeProvider`, then the quill CSS vars. */
+    theme?: ChartTheme
     tooltip?: (ctx: TooltipContext<Meta>) => React.ReactNode
     onPointClick?: (data: PointClickData<Meta>) => void
     className?: string
@@ -92,7 +94,7 @@ function SlopeChartInner<Meta = SlopeSeriesMeta>({
     series,
     labels,
     config,
-    theme,
+    theme: themeProp,
     tooltip,
     onPointClick,
     className,
@@ -100,6 +102,7 @@ function SlopeChartInner<Meta = SlopeSeriesMeta>({
     children,
     onError,
 }: SlopeChartProps<Meta>): React.ReactElement {
+    const theme = useResolvedChartTheme(themeProp)
     const {
         showSeriesLabels = true,
         showStartLabels = true,

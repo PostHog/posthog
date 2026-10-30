@@ -298,6 +298,17 @@ class ExperimentQueryBuilder:
         """
         return self._exposure_query_builder().timeseries_query()
 
+    def get_exposure_segments_query(self, top_values: int) -> ast.SelectQuery:
+        """
+        Persons or groups by variant and by the SDK library and the page of their first exposure. Columns:
+        dimension, segment, variant, exposed_count. It scans the events, also when precomputed exposures exist.
+        """
+        return self._exposure_query_builder().segments_query(top_values)
+
+    def get_exposed_count_query(self) -> ast.SelectQuery:
+        """The persons or groups exposed, in one row. Column: exposed_count."""
+        return self._exposure_query_builder().exposed_count_query()
+
     def get_daily_exposures_from_precomputed(self, job_ids: list[str]) -> ast.SelectQuery:
         """
         Reads from the precomputed table and aggregates into day/variant/count.

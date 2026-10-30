@@ -135,12 +135,17 @@ class SourceInputsStore:
         update, so that the source row gets one write. The connection fields go to the credentials row
         now (behind the dual-write flag), before the caller saves the source. The staged inputs keep the
         stored reference to that row when ``inputs`` has none, and get a reference when the copy creates
-        the row. ``shared_credentials`` decides what an edit of a row that other objects use does.
+        the row. Inputs without connection fields keep no reference. ``shared_credentials`` decides what an
+        edit of a row that other objects use does.
         """
-        staged = mirror_connection_fields(
-            source, _with_stored_reference(source, inputs), shared_credentials=shared_credentials
-        )
-        _stage(source, staged)
+        if not _has_connection_fields(source.source_type, inputs):
+            # The write removes the typed-in credentials (a select switched to its OAuth option, or a managed
+            # source that now gets its credentials elsewhere). A kept reference would leave the source a user
+            # of its old row, so the row could not be deleted.
+            _stage(source, {key: value for key, value in inputs.items() if key != CREDENTIALS_REFERENCE_KEY})
+            return
+        staged = mirror_connection_fields(source, inputs, shared_credentials=shared_credentials)
+        _stage(source, _with_stored_reference(source, staged))
 
     @staticmethod
     def save(
@@ -215,7 +220,8 @@ def _stage(source: ExternalDataSource, inputs: Mapping[str, Any]) -> None:
 
 def _with_stored_reference(source: ExternalDataSource, inputs: Mapping[str, Any]) -> Mapping[str, Any]:
     # Many writers build the inputs from a parsed config, which has no reference key. The stored value
-    # decides the row, so such a write cannot drop the reference and make a second row.
+    # decides the row, so such a write cannot drop the reference and make a second row. The copy reads
+    # the value from the database; this covers a write that skips the copy (for example, the flag is off).
     if CREDENTIALS_REFERENCE_KEY in inputs:
         return inputs
     try:
@@ -250,6 +256,14 @@ def _split(source_type: str, inputs: Mapping[str, Any]) -> "SplitJobInputs":
     )
 
     return split_job_inputs(ExternalDataSourceType(source_type), inputs)
+
+
+def _has_connection_fields(source_type: str, inputs: Mapping[str, Any]) -> bool:
+    try:
+        return bool(_split(source_type, inputs).connection)
+    except ValueError:
+        # An unknown source type: keep the reference, because nothing can tell what its inputs hold.
+        return True
 
 
 def _has_runtime_prefix(key: str) -> bool:

@@ -24,9 +24,11 @@ from posthog.models.user import User
 from posthog.test.persons import create_person
 
 from products.experiments.backend.facade import api, count_running_experiments_on_feature_flag_called, create_experiment
+from products.experiments.backend.facade.change_signals import connect_experiment_changed, experiment_changed
 from products.experiments.backend.facade.contracts import (
     CreateExperimentInput,
     EndedExperiment,
+    ExperimentChanged,
     ExperimentValidationError,
     StoredPrimaryResult,
 )
@@ -304,6 +306,51 @@ class TestHighlightFacts(BaseTest):
         )
 
         assert [(e.name, e.flag_key) for e in found] == [(name, listed[name]) for name in expected]
+
+
+@time_machine.travel("2026-10-28T12:00:00Z", tick=False)
+class TestConnectExperimentChanged(BaseTest):
+    def test_receiver_gets_every_save_and_delete_inside_the_transaction(self) -> None:
+        received: list[ExperimentChanged] = []
+
+        def receiver(*, change: ExperimentChanged, **kwargs: object) -> None:
+            received.append(change)
+
+        connect_experiment_changed(receiver, dispatch_uid="test_connect_experiment_changed")
+        self.addCleanup(experiment_changed.disconnect, dispatch_uid="test_connect_experiment_changed")
+
+        flag = FeatureFlag.objects.create(team=self.team, key="checkout-flag", created_by=self.user)
+        experiment = Experiment.objects.create(
+            team=self.team, name="Checkout", description="Shorter checkout", feature_flag=flag
+        )
+        experiment_id = experiment.id
+        experiment.deleted = True
+        experiment.save()
+        experiment.deleted = False
+        experiment.archived = True
+        experiment.save()
+        experiment.delete()
+
+        def change(*, created: bool, deleted: bool, archived: bool) -> ExperimentChanged:
+            return ExperimentChanged(
+                team_id=self.team.id,
+                experiment_id=experiment_id,
+                created=created,
+                deleted=deleted,
+                name="Checkout",
+                description="Shorter checkout",
+                archived=archived,
+                created_at=timezone.now(),
+                updated_at=timezone.now(),
+            )
+
+        # BaseTest never commits, so a receiver deferred to the commit would leave this list empty.
+        assert received == [
+            change(created=True, deleted=False, archived=False),
+            change(created=False, deleted=True, archived=False),
+            change(created=False, deleted=False, archived=True),
+            change(created=False, deleted=True, archived=True),
+        ]
 
 
 class TestCountEnrolledPeople(ClickhouseTestMixin, BaseTest):
