@@ -219,7 +219,11 @@ export class Telemetry {
             .digest('hex')
         let cache: Record<string, CachedIdentity> = {}
         try {
-            cache = JSON.parse(await this.runtime.readFile(path))
+            const parsed: unknown = JSON.parse(await this.runtime.readFile(path))
+            // A cache that isn't an object is broken, so hog starts a new one instead of failing the command.
+            if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
+                cache = parsed as Record<string, CachedIdentity>
+            }
         } catch {
             // No cache yet.
         }
