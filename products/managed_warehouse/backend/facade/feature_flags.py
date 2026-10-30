@@ -3,3 +3,5 @@ MANAGED_TRINO_QUERY_FLAG = "managed-warehouse-trino-query"
 # Either flag gives an organization the managed warehouse.
 MANAGED_WAREHOUSE_ACCESS_FLAGS = (MANAGED_TRINO_QUERY_FLAG, DATA_WAREHOUSE_SCENE_FLAG)
 DATA_MODELING_SHADOW_FLAG = "managed-warehouse-data-modeling-shadow"
+# Registers prepared data imports through Trino instead of duckgres, for warehouses without duckgres.
+DUCKLAKE_TRINO_REGISTRATION_FLAG = "managed-warehouse-trino-import-registration"

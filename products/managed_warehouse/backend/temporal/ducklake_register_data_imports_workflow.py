@@ -10,7 +10,7 @@ import datetime as dt
 import threading
 import contextlib
 import dataclasses
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
 
 from django.conf import settings
 from django.db import close_old_connections
@@ -18,6 +18,7 @@ from django.db import close_old_connections
 import psycopg
 from psycopg import sql as psql
 from structlog.contextvars import bind_contextvars
+from structlog.types import FilteringBoundLogger
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
@@ -47,9 +48,18 @@ from products.managed_warehouse.backend.facade.contracts import (
     ManagedWarehouseSourceJobUpdate,
     ManagedWarehouseSourceJobWorkflow,
 )
-from products.managed_warehouse.backend.facade.feature_flags import MANAGED_WAREHOUSE_ACCESS_FLAGS
+from products.managed_warehouse.backend.facade.feature_flags import (
+    DUCKLAKE_TRINO_REGISTRATION_FLAG,
+    MANAGED_WAREHOUSE_ACCESS_FLAGS,
+)
 from products.managed_warehouse.backend.models import ManagedWarehouseSourceJob
 from products.managed_warehouse.backend.storage import connect_to_duckgres, setup_duckgres_session
+from products.managed_warehouse.backend.temporal.ducklake_register_trino import (
+    TrinoRegistrationCatalog,
+    read_parquet_footers,
+    staging_table_name,
+    staging_table_schema,
+)
 from products.managed_warehouse.backend.temporal.metrics import (
     get_ducklake_register_data_imports_bytes_metric,
     get_ducklake_register_data_imports_duration_metric,
@@ -57,11 +67,13 @@ from products.managed_warehouse.backend.temporal.metrics import (
     get_ducklake_register_data_imports_finished_metric,
     get_ducklake_register_data_imports_last_success_metric,
     get_ducklake_register_data_imports_rows_metric,
+    get_ducklake_register_data_imports_skipped_metric,
     get_ducklake_register_data_imports_stale_metric,
     get_ducklake_register_data_imports_started_metric,
     record_ducklake_register_data_imports_stage_duration,
 )
 from products.managed_warehouse.backend.temporal.source_job_state import record_managed_warehouse_source_job_activity
+from products.managed_warehouse.backend.trino_compiler import get_ready_trino_catalog_name
 from products.warehouse_sources.backend.facade.ducklake import query_folder_publishing_job_id
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 
@@ -189,6 +201,22 @@ def _bind_registration_activity_context(*, team_id: int, schema_id: str, job_id:
     bind_contextvars(**identifiers)
 
 
+def _registers_through_trino(organization_id: str) -> bool:
+    try:
+        return feature_enabled_or_false(
+            DUCKLAKE_TRINO_REGISTRATION_FLAG,
+            organization_id,
+            groups={"organization": organization_id},
+            group_properties={"organization": {"id": organization_id}},
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
+        )
+    except Exception as error:
+        LOGGER.warning("Failed to evaluate the DuckLake Trino registration feature flag", error=str(error))
+        capture_exception(error)
+        return False
+
+
 @dataclasses.dataclass
 class DuckLakeRegisterDataImportsGateInputs:
     team_id: int
@@ -211,7 +239,7 @@ class DuckLakeRegisterDataImportsInputs:
         }
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class DuckLakeRegisterDataImportsMetadata:
     source_schema_id: str
     prepared_queryable_folder: str
@@ -219,6 +247,8 @@ class DuckLakeRegisterDataImportsMetadata:
     landing_uri: str
     ducklake_schema_name: str
     ducklake_table_name: str
+    # Chosen once in prepare and recorded in history, so register and cleanup of one run use the same engine.
+    use_trino: bool = False
 
 
 @dataclasses.dataclass(frozen=True)
@@ -236,6 +266,7 @@ class DuckLakeRegisterCleanupInputs:
     team_id: int
     schema_name: str
     table_names: list[str]
+    use_trino: bool = False
 
 
 class _StalePreparedGenerationError(Exception):
@@ -285,11 +316,20 @@ async def ducklake_register_data_imports_gate_activity(inputs: DuckLakeRegisterD
     if not flag_enabled:
         return False
 
+    # The Trino registration flag marks a warehouse that may have no duckgres, so a Trino target that is not
+    # ready skips this run instead of falling back to duckgres. The next completed sync starts registration again.
+    if await database_sync_to_async(_registers_through_trino)(organization_id):
+        if await database_sync_to_async(get_ready_trino_catalog_name)(organization_id) is None:
+            await logger.ainfo("Trino target is not ready; skipping DuckLake data imports registration through Trino")
+            get_ducklake_register_data_imports_skipped_metric(team_id=inputs.team_id, reason="trino_not_ready").add(1)
+            return False
+
     # The flag alone is not sufficient: registration resolves the team's schema through
     # the duckgres control plane, which only knows orgs with a provisioned server, so a
     # flag-enabled team in an unprovisioned org would fail the prepare activity with a
     # spurious "control plane unreachable" error. Dev mode has no DuckgresServer rows
     # (connections come from env vars), so the check applies only to real deployments.
+    # The Trino path needs the row too: it records the bucket that the files land in.
     if is_dev_mode():
         return True
 
@@ -336,6 +376,8 @@ async def prepare_ducklake_data_imports_registration_activity(
         prepared_source_uri = f"{settings.BUCKET_URL}/{schema.folder_path()}/{inputs.prepared_queryable_folder}"
         ducklake_schema_name = await database_sync_to_async(duckgres_data_imports_schema)(inputs.team_id)
         ducklake_table_name = await database_sync_to_async(duckgres_data_imports_table_name)(schema)
+        organization_id = await database_sync_to_async(_get_org_id_for_team)(inputs.team_id)
+        use_trino = await database_sync_to_async(_registers_through_trino)(organization_id)
         landing_uri = await database_sync_to_async(_resolve_data_imports_landing_uri)(
             team_id=inputs.team_id,
             ducklake_schema_name=ducklake_schema_name,
@@ -343,7 +385,9 @@ async def prepare_ducklake_data_imports_registration_activity(
             source_schema_id=str(inputs.schema_id),
             job_id=inputs.job_id,
             prepared_queryable_folder=inputs.prepared_queryable_folder,
+            use_trino=use_trino,
         )
+        await logger.ainfo("Prepared DuckLake data imports registration", engine="trino" if use_trino else "duckgres")
         return DuckLakeRegisterDataImportsMetadata(
             source_schema_id=str(schema.id),
             prepared_queryable_folder=inputs.prepared_queryable_folder,
@@ -351,6 +395,7 @@ async def prepare_ducklake_data_imports_registration_activity(
             landing_uri=landing_uri,
             ducklake_schema_name=ducklake_schema_name,
             ducklake_table_name=ducklake_table_name,
+            use_trino=use_trino,
         )
 
 
@@ -376,21 +421,37 @@ def copy_and_register_ducklake_data_imports_activity(inputs: DuckLakeRegisterDat
             job_id=inputs.job_id,
             prepared_queryable_folder=inputs.metadata.prepared_queryable_folder,
         )
+        trino_names: RegistrationTableNames | None = None
+        if inputs.metadata.use_trino:
+            trino_names = inputs.registration_table_names or _new_trino_registration_table_names()
+            # The catalog refuses a file it has ever recorded until the file is deleted, and a later run of the
+            # same job and generation must not overwrite files a published table owns. So each attempt copies
+            # into its own directory.
+            landing_uri = f"{landing_uri}/{trino_names.attempt_token}"
         with _stage_timer(stage="copy", team_id=inputs.team_id, schema_id=schema_id):
             landing_paths, copied_bytes = _copy_prepared_parquet_files(
                 inputs.metadata.prepared_source_uri,
                 landing_uri,
             )
         try:
-            with _connect_to_duckgres_for_team(inputs.team_id) as conn:
-                cancel_delay = _duckgres_cancel_delay(activity_started_monotonic)
-                with _cancel_duckgres_query_after(conn, cancel_delay) as cancel_requested:
-                    registered_rows = _register_prepared_parquet_files(
-                        inputs,
-                        conn,
-                        landing_paths,
-                        cancel_requested=cancel_requested,
-                    )
+            if trino_names is not None:
+                registered_rows = _register_prepared_parquet_files_through_trino(
+                    inputs,
+                    trino_names,
+                    landing_uri=landing_uri,
+                    landing_paths=landing_paths,
+                    cancel_after_seconds=_duckgres_cancel_delay(activity_started_monotonic),
+                )
+            else:
+                with _connect_to_duckgres_for_team(inputs.team_id) as conn:
+                    cancel_delay = _duckgres_cancel_delay(activity_started_monotonic)
+                    with _cancel_duckgres_query_after(conn, cancel_delay) as cancel_requested:
+                        registered_rows = _register_prepared_parquet_files(
+                            inputs,
+                            conn,
+                            landing_paths,
+                            cancel_requested=cancel_requested,
+                        )
         except _StalePreparedGenerationError:
             get_ducklake_register_data_imports_stale_metric(
                 team_id=inputs.team_id, schema_id=schema_id, stage="publish"
@@ -413,6 +474,7 @@ def copy_and_register_ducklake_data_imports_activity(inputs: DuckLakeRegisterDat
             ducklake_table=f"{inputs.metadata.ducklake_schema_name}.{inputs.metadata.ducklake_table_name}",
             file_count=len(landing_paths),
             landing_uri=landing_uri,
+            engine="trino" if inputs.metadata.use_trino else "duckgres",
         )
         return True
 
@@ -458,6 +520,7 @@ def _resolve_data_imports_landing_uri(
     source_schema_id: str,
     job_id: str,
     prepared_queryable_folder: str,
+    use_trino: bool = False,
 ) -> str:
     if is_dev_mode():
         bucket = get_config().get("DUCKLAKE_BUCKET")
@@ -468,10 +531,19 @@ def _resolve_data_imports_landing_uri(
         raise ApplicationError(f"No S3 bucket configured for team {team_id}", non_retryable=True)
 
     safe_job_id = re.sub(r"[^A-Za-z0-9_-]", "_", str(job_id))
-    job_landing_uri = (
-        f"s3://{bucket}/{ducklake_schema_name}/{ducklake_table_name}/"
-        f"{DATA_IMPORTS_GENERATIONS_PREFIX}/{source_schema_id}/{safe_job_id}"
-    )
+    if use_trino:
+        # Trino's add_files refuses a file inside another table's directory. A table that the copy workflow
+        # created owns `<schema>/<table>/`, and a renamed table keeps its first directory, so the Trino path
+        # lands generations outside every table directory.
+        job_landing_uri = (
+            f"s3://{bucket}/{DATA_IMPORTS_GENERATIONS_PREFIX}/{ducklake_schema_name}/{ducklake_table_name}/"
+            f"{source_schema_id}/{safe_job_id}"
+        )
+    else:
+        job_landing_uri = (
+            f"s3://{bucket}/{ducklake_schema_name}/{ducklake_table_name}/"
+            f"{DATA_IMPORTS_GENERATIONS_PREFIX}/{source_schema_id}/{safe_job_id}"
+        )
     return _generation_scoped_landing_uri(
         job_landing_uri,
         job_id=job_id,
@@ -821,21 +893,103 @@ def _register_prepared_parquet_files(
         _cleanup_registration_tables(conn, schema_name, cleanup_names)
 
 
+def _register_prepared_parquet_files_through_trino(
+    inputs: DuckLakeRegisterDataImportsActivityInputs,
+    registration_names: RegistrationTableNames,
+    *,
+    landing_uri: str,
+    landing_paths: list[str],
+    cancel_after_seconds: float | None,
+) -> int:
+    schema_name = inputs.metadata.ducklake_schema_name
+    staging_name = registration_names.shadow_name
+    schema_id = inputs.metadata.source_schema_id
+    # The footers are the files' own types, which add_files compares exactly. The Delta schema can differ
+    # from older files in the generation.
+    with _stage_timer(stage="schema", team_id=inputs.team_id, schema_id=schema_id):
+        footers = read_parquet_footers(get_s3_client(), landing_paths)
+        staging_schema = staging_table_schema(footers, _hive_partition_columns(landing_uri, landing_paths))
+
+    with TrinoRegistrationCatalog.connect(
+        _get_org_id_for_team(inputs.team_id),
+        principal=f"posthog:ducklake-register:team:{inputs.team_id}:schema:{schema_id}",
+        cancel_after_seconds=cancel_after_seconds,
+    ) as catalog:
+        published = False
+        try:
+            with _stage_timer(stage="register", team_id=inputs.team_id, schema_id=schema_id):
+                catalog.create_schema(schema_name)
+                catalog.create_staging_table(schema_name, staging_name, staging_schema)
+                catalog.register_files(
+                    schema_name,
+                    staging_name,
+                    landing_paths,
+                    generation_token=_generation_token(inputs.metadata.prepared_queryable_folder, inputs.job_id),
+                )
+
+            with _stage_timer(stage="verify", team_id=inputs.team_id, schema_id=schema_id):
+                source_count = sum(footer.num_rows for footer in footers)
+                registered_count = catalog.count_rows(schema_name, staging_name)
+                if source_count != registered_count:
+                    raise ApplicationError(
+                        "DuckLake prepared-file registration row count mismatch: "
+                        f"source={source_count}, registered={registered_count}",
+                        non_retryable=True,
+                    )
+
+            generation_is_stale = False
+            with _stage_timer(stage="publish", team_id=inputs.team_id, schema_id=schema_id) as timer:
+                if _should_publish_prepared_generation(inputs):
+                    catalog.publish_as(schema_name, staging_name, target=inputs.metadata.ducklake_table_name)
+                    published = True
+                else:
+                    timer.set_status("STALE")
+                    generation_is_stale = True
+
+            if generation_is_stale:
+                raise _StalePreparedGenerationError
+
+            return registered_count
+        finally:
+            # publish_as renames the staging table, so this drop finds nothing when a publish committed
+            # without an acknowledgement.
+            if not published:
+                catalog.drop_table_quietly(schema_name, staging_name)
+
+
+_SHADOW_TABLE_PREFIX = "__ph_register_"
+_PREVIOUS_TABLE_PREFIX = "__ph_previous_"
+
+
 @dataclasses.dataclass(frozen=True, kw_only=True)
 class RegistrationTableNames:
     shadow_name: str
+    # The Trino path publishes with publish_as and never creates this table.
     previous_name: str
+
+    @property
+    def attempt_token(self) -> str:
+        return self.shadow_name.removeprefix(_SHADOW_TABLE_PREFIX)
 
 
 def registration_table_names_from_token(attempt_token: str) -> RegistrationTableNames:
     return RegistrationTableNames(
-        shadow_name=f"__ph_register_{attempt_token}",
-        previous_name=f"__ph_previous_{attempt_token}",
+        shadow_name=f"{_SHADOW_TABLE_PREFIX}{attempt_token}",
+        previous_name=f"{_PREVIOUS_TABLE_PREFIX}{attempt_token}",
     )
+
+
+def trino_registration_table_names(*, minted_at: dt.datetime, token: str) -> RegistrationTableNames:
+    shadow_name = staging_table_name(minted_at, token)
+    return registration_table_names_from_token(shadow_name.removeprefix(_SHADOW_TABLE_PREFIX))
 
 
 def _new_registration_table_names() -> RegistrationTableNames:
     return registration_table_names_from_token(uuid.uuid4().hex)
+
+
+def _new_trino_registration_table_names() -> RegistrationTableNames:
+    return trino_registration_table_names(minted_at=dt.datetime.now(dt.UTC), token=uuid.uuid4().hex[:16])
 
 
 _CLEANUP_DROP_ATTEMPTS = 3
@@ -936,6 +1090,40 @@ def _sweep_stale_registration_tables(conn: psycopg.Connection, schema_name: str)
     return swept
 
 
+def _sweep_and_log(sweep: Callable[[], list[str]], logger: FilteringBoundLogger) -> None:
+    try:
+        swept = sweep()
+    except Exception as error:
+        # The sweep is opportunistic: this attempt's own tables are already
+        # dropped, and the next registration in this schema sweeps again.
+        logger.warning("Stale registration table sweep failed", error=str(error))
+        capture_exception(error)
+    else:
+        if swept:
+            logger.info("Swept stale DuckLake registration tables", table_names=swept)
+
+
+def _cleanup_registration_tables_through_trino(
+    inputs: DuckLakeRegisterCleanupInputs, logger: FilteringBoundLogger
+) -> None:
+    with TrinoRegistrationCatalog.connect(
+        _get_org_id_for_team(inputs.team_id),
+        principal=f"posthog:ducklake-register-cleanup:team:{inputs.team_id}",
+    ) as catalog:
+        for table_name in inputs.table_names:
+            catalog.drop_table(inputs.schema_name, table_name)
+        logger.info("Cleaned up DuckLake registration tables", table_names=inputs.table_names, engine="trino")
+        _sweep_and_log(
+            lambda: catalog.drop_stale_staging_tables(
+                inputs.schema_name,
+                now=dt.datetime.now(dt.UTC),
+                min_age=_SWEEP_MIN_AGE,
+                limit=_SWEEP_BATCH_LIMIT,
+            ),
+            logger,
+        )
+
+
 @activity.defn
 def cleanup_ducklake_registration_tables_activity(inputs: DuckLakeRegisterCleanupInputs) -> None:
     """Drop this attempt's registration tables, however the register activity ended.
@@ -954,21 +1142,16 @@ def cleanup_ducklake_registration_tables_activity(inputs: DuckLakeRegisterCleanu
     if not settings.TEST:
         close_old_connections()
 
+    if inputs.use_trino:
+        _cleanup_registration_tables_through_trino(inputs, logger)
+        return
+
     with _connect_to_duckgres_for_team(inputs.team_id) as conn:
         setup_duckgres_session(conn, extensions=("ducklake",))
         for table_name in inputs.table_names:
             _drop_registration_table(conn, inputs.schema_name, table_name)
         logger.info("Cleaned up DuckLake registration tables", table_names=inputs.table_names)
-        try:
-            swept = _sweep_stale_registration_tables(conn, inputs.schema_name)
-        except Exception as error:
-            # The sweep is opportunistic: this attempt's own tables are already
-            # dropped, and the next registration in this schema sweeps again.
-            logger.warning("Stale registration table sweep failed", error=str(error))
-            capture_exception(error)
-        else:
-            if swept:
-                logger.info("Swept stale DuckLake registration tables", table_names=swept)
+        _sweep_and_log(lambda: _sweep_stale_registration_tables(conn, inputs.schema_name), logger)
 
 
 def _hive_partition_columns(landing_uri: str, landing_paths: list[str]) -> list[str]:
@@ -1011,7 +1194,9 @@ class DuckLakeRegisterDataImportsWorkflow(PostHogWorkflow):
             retry_policy=RetryPolicy(maximum_attempts=1),
         )
         if not should_register:
-            logger.info("DuckLake data imports registration gated off (flag disabled or no DuckgresServer)")
+            logger.info(
+                "DuckLake data imports registration gated off (flag disabled, no DuckgresServer, or Trino not ready)"
+            )
             return
 
         track_source_job_state = workflow.patched(_SOURCE_JOB_STATE_PATCH_ID)
@@ -1048,7 +1233,12 @@ class DuckLakeRegisterDataImportsWorkflow(PostHogWorkflow):
             # before its own finally runs and leaves the shadow/previous tables behind.
             registration_table_names: RegistrationTableNames | None = None
             if workflow.patched(_CLEANUP_FINALIZER_PATCH_ID):
-                registration_table_names = registration_table_names_from_token(workflow.uuid4().hex)
+                if metadata.use_trino:
+                    registration_table_names = trino_registration_table_names(
+                        minted_at=workflow.now(), token=workflow.uuid4().hex[:16]
+                    )
+                else:
+                    registration_table_names = registration_table_names_from_token(workflow.uuid4().hex)
 
             activity_inputs = DuckLakeRegisterDataImportsActivityInputs(
                 team_id=inputs.team_id,
@@ -1072,10 +1262,15 @@ class DuckLakeRegisterDataImportsWorkflow(PostHogWorkflow):
                             DuckLakeRegisterCleanupInputs(
                                 team_id=inputs.team_id,
                                 schema_name=metadata.ducklake_schema_name,
-                                table_names=[
-                                    registration_table_names.shadow_name,
-                                    registration_table_names.previous_name,
-                                ],
+                                table_names=(
+                                    [registration_table_names.shadow_name]
+                                    if metadata.use_trino
+                                    else [
+                                        registration_table_names.shadow_name,
+                                        registration_table_names.previous_name,
+                                    ]
+                                ),
+                                use_trino=metadata.use_trino,
                             ),
                             start_to_close_timeout=dt.timedelta(minutes=2),
                             # Patient on purpose: the drops are idempotent and a leaked
