@@ -1233,11 +1233,10 @@ class HogFunctionViewSet(
             span.set_attribute("hog_function.search.empty", results_len == 0)
         return response
 
-    def paginate_queryset(self, queryset: QuerySet | Sequence) -> Sequence | None:
-        page = super().paginate_queryset(queryset)
-        if self.action == "list" and page is not None:
-            self._attach_templates_without_fk(page)
-        return page
+    def get_serializer(self, *args: Any, **kwargs: Any) -> BaseSerializer:
+        if self.action == "list" and args and isinstance(args[0], list):
+            self._attach_templates_without_fk(args[0])
+        return super().get_serializer(*args, **kwargs)
 
     @staticmethod
     def _attach_templates_without_fk(functions: Sequence[HogFunction]) -> None:
