@@ -24,13 +24,14 @@ class PublicResourceKind:
     kind: str
     identifier_field: str
     name_field: str
+    url_path: str
 
 
 PUBLIC_RESOURCE_KINDS = (
-    PublicResourceKind(kind="dashboard", identifier_field="id", name_field="name"),
-    PublicResourceKind(kind="insight", identifier_field="id", name_field="name"),
-    PublicResourceKind(kind="notebook", identifier_field="short_id", name_field="title"),
-    PublicResourceKind(kind="recording", identifier_field="session_id", name_field="session_id"),
+    PublicResourceKind(kind="dashboard", identifier_field="id", name_field="name", url_path="dashboard"),
+    PublicResourceKind(kind="insight", identifier_field="id", name_field="name", url_path="insights"),
+    PublicResourceKind(kind="notebook", identifier_field="short_id", name_field="title", url_path="notebooks"),
+    PublicResourceKind(kind="recording", identifier_field="session_id", name_field="session_id", url_path="replay"),
 )
 
 
@@ -87,9 +88,6 @@ class OrganizationOffboarding:
             name = cast(str | None, getattr(resource, resource_kind.name_field))
             if kind == "insight" and not name:
                 name = cast("Insight", resource).derived_name
-            path = {"dashboard": "dashboard", "insight": "insights", "notebook": "notebooks", "recording": "replay"}[
-                kind
-            ]
             identifier = (
                 cast("Insight | Notebook", resource).short_id
                 if kind in ("insight", "notebook")
@@ -104,7 +102,7 @@ class OrganizationOffboarding:
                     team_id=configuration.team_id,
                     project_name=configuration.team.name,
                     password_required=not configuration.has_unprotected_link,
-                    url=f"/project/{configuration.team_id}/{path}/{quote(str(identifier), safe='')}",
+                    url=f"/project/{configuration.team_id}/{resource_kind.url_path}/{quote(str(identifier), safe='')}",
                 ),
             )
         return list(resources.values())
