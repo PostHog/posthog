@@ -116,9 +116,12 @@ class TestTeamCacheInvalidation(BaseTest):
             ),
             (
                 "home_tab_dashboard_config",
-                lambda team: get_or_create_team_extension(
-                    team, apps.get_model("dashboards", "TeamHomeTabDashboardConfig")
-                ).save(),
+                lambda team: (
+                    apps.get_model("dashboards", "TeamHomeTabDashboardConfig")
+                    .objects.for_team(team.pk)
+                    .get_or_create(team_id=team.pk)[0]
+                    .save()
+                ),
             ),
         ]
     )

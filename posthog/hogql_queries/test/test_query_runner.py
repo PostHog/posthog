@@ -1151,8 +1151,8 @@ class TestQueryRunner(BaseTest):
         assert response.is_cached is False
         assert response.results[0] == ["row", 1, 2, 3]
 
-    @mock.patch("django.db.transaction.on_commit")
-    def test_cache_response(self, mock_on_commit):
+    @mock.patch("posthog.clickhouse.client.execute_async.add_task_to_on_commit")
+    def test_cache_response(self, mock_enqueue):
         TestQueryRunner = self.setup_test_query_runner_class()
 
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
@@ -1184,39 +1184,39 @@ class TestQueryRunner(BaseTest):
             response = runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
             self.assertIsInstance(response, TheTestCachedBasicQueryResponse)
             self.assertEqual(response.is_cached, False)
-            mock_on_commit.assert_not_called()
+            mock_enqueue.assert_not_called()
 
         with time_machine.travel(datetime(2023, 2, 4, 13, 37 + 11 + 5, 42), tick=False):
             # returns cached response - does not kick off calculation in the background
             response = runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE)
             self.assertIsInstance(response, TheTestCachedBasicQueryResponse)
             self.assertEqual(response.is_cached, True)
-            mock_on_commit.assert_not_called()
+            mock_enqueue.assert_not_called()
 
         with time_machine.travel(datetime(2023, 2, 4, 13, 37 + 11 + 11, 42), tick=False):
             # returns cached response but kicks off calculation in the background
             response = runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE)
             self.assertIsInstance(response, TheTestCachedBasicQueryResponse)
             self.assertEqual(response.is_cached, True)
-            mock_on_commit.assert_called_once()
+            mock_enqueue.assert_called_once()
 
         with time_machine.travel(datetime(2023, 2, 4, 23, 55, 42), tick=False):
             # returns cached response for extended time
             response = runner.run(execution_mode=ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE)
             self.assertIsInstance(response, TheTestCachedBasicQueryResponse)
             self.assertEqual(response.is_cached, True)
-            mock_on_commit.assert_called_once()  # still once
+            mock_enqueue.assert_called_once()  # still once
 
-        mock_on_commit.reset_mock()
+        mock_enqueue.reset_mock()
         with time_machine.travel(datetime(2023, 2, 5, 23, 55, 42), tick=False):
             # returns cached response for extended time but finally kicks off calculation in the background
             response = runner.run(execution_mode=ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE)
             self.assertIsInstance(response, TheTestCachedBasicQueryResponse)
             self.assertEqual(response.is_cached, True)
-            mock_on_commit.assert_called_once()
+            mock_enqueue.assert_called_once()
 
-    @mock.patch("django.db.transaction.on_commit")
-    def test_recent_cache_calculate_async_if_stale_and_blocking_on_miss(self, mock_on_commit):
+    @mock.patch("posthog.clickhouse.client.execute_async.add_task_to_on_commit")
+    def test_recent_cache_calculate_async_if_stale_and_blocking_on_miss(self, mock_enqueue):
         TestQueryRunner = self.setup_test_query_runner_class()
 
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
@@ -1250,7 +1250,7 @@ class TestQueryRunner(BaseTest):
             # Should kick off the calculation in the background
             self.assertEqual(response.is_cached, True)
             self.assertEqual(response.last_refresh.isoformat(), "2023-02-04T13:37:42+00:00")
-            mock_on_commit.assert_called_once()
+            mock_enqueue.assert_called_once()
 
     @parameterized.expand(
         [
