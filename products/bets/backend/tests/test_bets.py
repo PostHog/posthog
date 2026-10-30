@@ -17,8 +17,9 @@ from rest_framework.response import Response
 from posthog.models import OrganizationMembership
 
 from products.bets.backend.db import WRITER_DB
-from products.bets.backend.facade.contracts import Metric
+from products.bets.backend.facade.contracts import MeasureSearch, Metric
 from products.bets.backend.facade.enums import IdeaOutcome, LedgerKind
+from products.bets.backend.logic import measures
 from products.bets.backend.logic.ledger import append, settle_usage, totals
 from products.bets.backend.logic.loop import reconcile
 from products.bets.backend.logic.metrics import unfinished
@@ -815,3 +816,79 @@ class TestBetLoop(APIBaseTest):
                 reconcile_spend(bet)
                 assert not spend_pending(bet)
         assert totals(self.team.id, bet).spent_cents == 200
+
+
+class TestMeasureOptions(SimpleTestCase):
+    def run_options(self, goal: str, model: Any) -> tuple[MeasureSearch, MagicMock]:
+        saved = [
+            SimpleNamespace(
+                short_id="share001",
+                name="Share rate",
+                query={
+                    "kind": "TrendsQuery",
+                    "series": [{"kind": "EventsNode", "event": "shared_file", "math": "dau"}],
+                },
+            ),
+            SimpleNamespace(
+                short_id="upload01",
+                name="Uploads",
+                query={"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "uploaded_file"}]},
+            ),
+        ]
+        create = MagicMock()
+        with (
+            patch.object(measures, "saved_insights_for_read", return_value=saved),
+            patch.object(measures, "top_events", return_value=["shared_file", "uploaded_file"]),
+            patch.object(measures, "wait_days", return_value={}),
+            patch.object(measures, "refresh_metrics"),
+            patch.object(
+                measures,
+                "metric",
+                return_value=Metric(
+                    name="Measure", values=[1.0], dates=["2026-10-01"], current=1.0, change=None, message=""
+                ),
+            ),
+            patch.object(measures, "proposed_plan", return_value=None),
+            patch.object(measures, "project_id", return_value=1),
+            patch.object(measures, "get_settings", return_value=SimpleNamespace(mde_percent=10, min_run_hours=72)),
+            patch.object(measures, "get_or_create_saved_insight", create),
+            patch.object(measures, "complete", side_effect=model),
+        ):
+            return measures.measure_options(
+                SimpleNamespace(id=1, project_id=1, parent_team=None), SimpleNamespace(id=1), goal
+            ), create
+
+    def test_only_checked_measures_reach_the_owner(self) -> None:
+        def model(team: Any, system: str, content: str) -> dict:
+            if system == measures.PROMPT:
+                return {
+                    "draft": "Share of new uploaders who share a file within a day.",
+                    "options": [
+                        {"insight": "share001", "why": "a"},
+                        {"insight": "upload01", "why": "b"},
+                        {"new": {"name": "Dub rate", "kind": "users", "event": "published_dub"}, "why": "c"},
+                        {"new": {"name": "Sharers", "kind": "users", "event": "shared_file"}, "why": "d"},
+                    ],
+                }
+            return {
+                "checks": [
+                    {"id": "share001", "verdict": "fits"},
+                    {"id": "upload01", "verdict": "no"},
+                    {"id": "new2", "verdict": "no"},
+                ]
+            }
+
+        search, create = self.run_options("More uploaders share a file", model)
+
+        assert [option.insight for option in search.options] == ["share001"]
+        assert search.draft == "Share of new uploaders who share a file within a day."
+        create.assert_not_called()
+
+    def test_a_model_outage_returns_no_options(self) -> None:
+        def model(team: Any, system: str, content: str) -> dict:
+            raise measures.MeasureModelUnavailable
+
+        search, create = self.run_options("More uploaders download a file", model)
+
+        assert search.options == []
+        create.assert_not_called()

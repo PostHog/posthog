@@ -19610,12 +19610,112 @@ export namespace Schemas {
       updated_at: string;
     }
 
+    /**
+     * * `increase` - increase
+     * * `decrease` - decrease
+     */
+    export type BetsGuardrailOptionDirectionEnum = typeof BetsGuardrailOptionDirectionEnum[keyof typeof BetsGuardrailOptionDirectionEnum];
+
+
+    export const BetsGuardrailOptionDirectionEnum = {
+      Increase: 'increase',
+      Decrease: 'decrease',
+    } as const;
+
+    export interface BetsGuardrailOption {
+      /** Short ID of the insight for this guardrail. */
+      insight: string;
+      /** Name of the guardrail measure. */
+      name: string;
+      /** What the guardrail counts. */
+      definition: string;
+      /** Which way is better for this guardrail.
+       *
+       * * `increase` - increase
+       * * `decrease` - decrease */
+      direction: BetsGuardrailOptionDirectionEnum;
+    }
+
+    export interface BetsGuardrailRequest {
+      /**
+         * What the owner wants to change, in their own words.
+         * @maxLength 500
+         */
+      goal: string;
+      /**
+         * Short ID of the chosen measure, if any.
+         * @maxLength 32
+         */
+      measure: string;
+    }
+
     export interface BetsIdea {
       /**
          * The owner's idea, in one sentence.
          * @maxLength 255
          */
       title: string;
+    }
+
+    /**
+     * * `existing` - existing
+     * * `new` - new
+     */
+    export type BetsMeasureOptionSourceEnum = typeof BetsMeasureOptionSourceEnum[keyof typeof BetsMeasureOptionSourceEnum];
+
+
+    export const BetsMeasureOptionSourceEnum = {
+      Existing: 'existing',
+      New: 'new',
+    } as const;
+
+    export interface BetsMeasureOption {
+      /** Short ID of the insight that measures this option. */
+      insight: string;
+      /** Name of the measure. */
+      name: string;
+      /** A saved insight, or a new measure Bets made.
+       *
+       * * `existing` - existing
+       * * `new` - new */
+      source: BetsMeasureOptionSourceEnum;
+      /** One sentence on why this measure fits. */
+      why: string;
+      /** What the measure counts. */
+      definition: string;
+      /**
+         * The latest complete value, or null before the first complete period.
+         * @nullable
+         */
+      current: number | null;
+      /** Unit of the value, such as %. */
+      unit: string;
+      /** Days before a person can count in this measure. 0 means at once. */
+      wait_days: number;
+      /**
+         * Planned days for one experiment on this measure.
+         * @nullable
+         */
+      test_days: number | null;
+      /** Recent complete values, oldest first. */
+      values: number[];
+      /** Dates of the recent values. */
+      dates: string[];
+    }
+
+    export interface BetsMeasureRequest {
+      /**
+         * What the owner wants to change, in their own words.
+         * @maxLength 500
+         */
+      goal: string;
+    }
+
+    export interface BetsMeasureSearch {
+      /** Measures that fit the goal, best first. */
+      options: BetsMeasureOption[];
+      /** One sentence that defines the best measure, for an agent to build. */
+      draft: string;
     }
 
     export interface BetsModelOption {

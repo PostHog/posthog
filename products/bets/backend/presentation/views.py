@@ -8,12 +8,17 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import User
+from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
 
 from ..facade import api
 from .serializers import (
     BetsActivitySerializer,
     BetsDetailSerializer,
+    BetsGuardrailOptionSerializer,
+    BetsGuardrailRequestSerializer,
     BetsIdeaSerializer,
+    BetsMeasureRequestSerializer,
+    BetsMeasureSearchSerializer,
     BetsMetricPreviewQuerySerializer,
     BetsMetricSerializer,
     BetsOverviewSerializer,
@@ -109,6 +114,34 @@ class BetsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         serializer.is_valid(raise_exception=True)
         preview = api.metric_preview(self.team, self.user, serializer.validated_data["insight"])
         return Response(BetsMetricSerializer(preview).data)
+
+    @extend_schema(request=BetsMeasureRequestSerializer, responses=BetsMeasureSearchSerializer)
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="measures",
+        throttle_classes=[AIBurstRateThrottle, AISustainedRateThrottle],
+    )
+    def measures(self, request: Request, **kwargs: object) -> Response:
+        serializer = BetsMeasureRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        search = api.measure_options(self.team, self.user, serializer.validated_data["goal"])
+        return Response(BetsMeasureSearchSerializer(search).data)
+
+    @extend_schema(request=BetsGuardrailRequestSerializer, responses=BetsGuardrailOptionSerializer(many=True))
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="guardrails",
+        throttle_classes=[AIBurstRateThrottle, AISustainedRateThrottle],
+    )
+    def guardrails(self, request: Request, **kwargs: object) -> Response:
+        serializer = BetsGuardrailRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        options = api.guardrail_options(
+            self.team, self.user, serializer.validated_data["goal"], serializer.validated_data["measure"]
+        )
+        return Response(BetsGuardrailOptionSerializer(options, many=True).data)
 
     @extend_schema(request=BetsSettingsWriteSerializer, responses=BetsSettingsSerializer)
     @action(detail=False, methods=["get", "patch"], url_path="settings")

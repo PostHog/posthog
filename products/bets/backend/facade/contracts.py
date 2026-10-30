@@ -13,6 +13,35 @@ class Metric:
 
 
 @frozen
+class MeasureOption:
+    insight: str
+    name: str
+    source: str
+    why: str
+    definition: str
+    current: float | None
+    unit: str
+    wait_days: int
+    test_days: int | None
+    values: list[float]
+    dates: list[str]
+
+
+@frozen
+class MeasureSearch:
+    options: list[MeasureOption]
+    draft: str
+
+
+@frozen
+class GuardrailOption:
+    insight: str
+    name: str
+    definition: str
+    direction: str
+
+
+@frozen
 class Money:
     allocated_cents: int
     spent_cents: int

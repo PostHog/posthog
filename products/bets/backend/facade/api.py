@@ -9,8 +9,8 @@ from posthog.ingress.contracts import WebhookDelivery
 from posthog.models import Integration, Team, User
 
 from ..db import WRITER_DB
-from ..facade.contracts import Metric
-from ..logic import access, bets, loop, read
+from ..facade.contracts import GuardrailOption, MeasureSearch, Metric
+from ..logic import access, bets, loop, measures, read
 from ..logic.activity import ActivityEntry, recent_activity
 from ..logic.metrics import metric, refresh_metrics, validate_goal
 from ..logic.spend import bet_for_run
@@ -48,6 +48,14 @@ def metric_preview(team: Team, user: User, short_id: str) -> Metric:
     validate_goal(team, user, short_id)
     refresh_metrics(team, user, [short_id])
     return metric(team, user, short_id, complete=True)
+
+
+def measure_options(team: Team, user: User, goal: str) -> MeasureSearch:
+    return measures.measure_options(team, user, goal)
+
+
+def guardrail_options(team: Team, user: User, goal: str, measure: str) -> list[GuardrailOption]:
+    return measures.guardrail_options(team, user, goal, measure)
 
 
 def detail(team: Team, user: User, bet_id: str | UUID) -> dict:

@@ -58,7 +58,7 @@ export const SERVER_FIELDS: Record<string, BetFormField> = {
 export const FIELD_LABELS: Record<BetFormField, string> = {
     statement: 'belief',
     title: 'name',
-    goal_insight: 'insight',
+    goal_insight: 'measure',
     target: 'target',
     guardrails: 'guardrail direction',
     budget: 'budget',

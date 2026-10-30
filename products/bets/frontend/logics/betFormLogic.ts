@@ -12,9 +12,19 @@ import { integrationsGithubReposRetrieve, integrationsList } from 'products/inte
 import { insightsList } from 'products/product_analytics/frontend/generated/api'
 import type { InsightApi } from 'products/product_analytics/frontend/generated/api.schemas'
 
-import { betsCreate, betsMetricPreviewRetrieve, betsPartialUpdate, betsRetrieve } from '../generated/api'
+import {
+    betsCreate,
+    betsGuardrailsCreate,
+    betsMeasuresCreate,
+    betsMetricPreviewRetrieve,
+    betsPartialUpdate,
+    betsRetrieve,
+} from '../generated/api'
 import type {
     BetsDetailApi,
+    BetsGuardrailOptionApi,
+    BetsMeasureOptionApi,
+    BetsMeasureSearchApi,
     BetsMetricApi,
     BetsOverviewApi,
     BetsSecondaryMetricApi,
@@ -74,6 +84,16 @@ export interface betFormLogicValues {
     insightNames: Record<string, string>
     insightOptions: BetInsightOption[]
     insightSearch: string
+    measureSearch: BetsMeasureSearchApi | null
+    measureSearchLoading: boolean
+    measureOptions: BetsMeasureOptionApi[]
+    measureDraft: string
+    guardrailSuggestions: BetsGuardrailOptionApi[]
+    guardrailSuggestionsLoading: boolean
+    guardrailChips: BetsGuardrailOptionApi[]
+    measuredGoal: string
+    fromBelief: boolean
+    picking: boolean
     insights: InsightApi[]
     insightsLoading: boolean
     isNew: boolean
@@ -111,6 +131,33 @@ export interface betFormLogicValues {
 export interface betFormLogicActions {
     addGuardrail: (insight: string) => {
         insight: string
+    }
+    adoptGuardrail: (option: BetsGuardrailOptionApi) => {
+        option: BetsGuardrailOptionApi
+    }
+    findGuardrails: ({ goal, measure }: { goal: string; measure: string }) => {
+        goal: string
+        measure: string
+    }
+    findGuardrailsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    findGuardrailsSuccess: (
+        guardrailSuggestions: BetsGuardrailOptionApi[],
+        payload?: {
+            goal: string
+            measure: string
+        }
+    ) => {
+        guardrailSuggestions: BetsGuardrailOptionApi[]
+        payload?: {
+            goal: string
+            measure: string
+        }
     }
     addOwnerIdea: () => {
         value: true
@@ -226,6 +273,33 @@ export interface betFormLogicActions {
         error: string | null
         field: BetFormField | null
     }
+    findMeasures: ({ goal }: { goal: string }) => {
+        goal: string
+    }
+    findMeasuresFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    findMeasuresSuccess: (
+        measureSearch: BetsMeasureSearchApi | null,
+        payload?: {
+            goal: string
+        }
+    ) => {
+        measureSearch: BetsMeasureSearchApi | null
+        payload?: {
+            goal: string
+        }
+    }
+    measureFromBelief: () => {
+        value: true
+    }
+    setPicking: (picking: boolean) => {
+        picking: boolean
+    }
     setInsightSearch: (search: string) => {
         search: string
     }
@@ -252,6 +326,7 @@ export interface betFormLogicProps {
 export interface betFormLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
+        fromBelief: (measuredGoal: string, form: BetsWriteApi) => boolean
         budgetLimitCents: (overview: BetsOverviewApi | null, existing: BetsDetailApi | null) => number | null
         breadcrumbs: (existing: BetsDetailApi | null) => Breadcrumb[]
         suggestedTitle: (form: BetsWriteApi, titleEdited: boolean) => string
@@ -360,6 +435,8 @@ export type betFormLogicType = MakeLogicType<
     betFormLogicMeta
 >
 
+const MIN_BELIEF_FOR_MEASURES = 20
+
 export const betFormLogic = kea<betFormLogicType>([
     props({ id: 'new' } as { id: string }),
     key((props) => props.id),
@@ -375,6 +452,9 @@ export const betFormLogic = kea<betFormLogicType>([
         setDescribing: (describing: boolean) => ({ describing }),
         selectPrimaryInsight: (insight: string) => ({ insight }),
         setInsightSearch: (search: string) => ({ search }),
+        setPicking: (picking: boolean) => ({ picking }),
+        adoptGuardrail: (option: BetsGuardrailOptionApi) => ({ option }),
+        measureFromBelief: true,
         addGuardrail: (insight: string) => ({ insight }),
         changeGuardrail: (insight: string, patch: Partial<Omit<BetsSecondaryMetricApi, 'insight'>>) => ({
             insight,
@@ -409,6 +489,35 @@ export const betFormLogic = kea<betFormLogicType>([
                     const preview = await betsMetricPreviewRetrieve(String(values.currentProjectId), { insight })
                     breakpoint()
                     return preview
+                },
+            },
+        ],
+        measureSearch: [
+            null as BetsMeasureSearchApi | null,
+            {
+                findMeasures: async ({ goal }: { goal: string }, breakpoint) => {
+                    if (!goal.trim()) {
+                        return null
+                    }
+                    const search = await betsMeasuresCreate(String(values.currentProjectId), { goal: goal.trim() })
+                    breakpoint()
+                    return search
+                },
+            },
+        ],
+        guardrailSuggestions: [
+            [] as BetsGuardrailOptionApi[],
+            {
+                findGuardrails: async ({ goal, measure }: { goal: string; measure: string }, breakpoint) => {
+                    if (!goal.trim()) {
+                        return []
+                    }
+                    const options = await betsGuardrailsCreate(String(values.currentProjectId), {
+                        goal: goal.trim(),
+                        measure,
+                    })
+                    breakpoint()
+                    return options
                 },
             },
         ],
@@ -488,6 +597,7 @@ export const betFormLogic = kea<betFormLogicType>([
             {
                 setDescribing: (_, { describing }) => describing,
                 selectPrimaryInsight: () => false,
+                setPicking: () => false,
                 loadExistingSuccess: (_, { existing }: { existing: BetsDetailApi }) =>
                     !existing.goal_insight && !!existing.goal_description,
             },
@@ -501,6 +611,14 @@ export const betFormLogic = kea<betFormLogicType>([
                 setDescribing: () => true,
             },
         ],
+        picking: [
+            false,
+            {
+                setPicking: (_, { picking }) => picking,
+                loadExistingSuccess: (_, { existing }: { existing: BetsDetailApi }) => !!existing.goal_insight,
+            },
+        ],
+        measuredGoal: ['', { findMeasures: (_, { goal }) => goal.trim() }],
         insightSearch: [
             '',
             {
@@ -552,6 +670,29 @@ export const betFormLogic = kea<betFormLogicType>([
         ],
     }),
     selectors(({ props }) => ({
+        measureOptions: [
+            (s) => [s.measureSearch],
+            (measureSearch: BetsMeasureSearchApi | null): BetsMeasureOptionApi[] => measureSearch?.options ?? [],
+        ],
+        measureDraft: [
+            (s) => [s.measureSearch],
+            (measureSearch: BetsMeasureSearchApi | null): string => measureSearch?.draft ?? '',
+        ],
+        guardrailChips: [
+            (s) => [s.guardrailSuggestions, s.form],
+            (suggestions: BetsGuardrailOptionApi[], form: BetsWriteApi): BetsGuardrailOptionApi[] => {
+                const taken = new Set([
+                    form.goal_insight,
+                    ...(form.secondary_metrics ?? []).map((metric) => metric.insight),
+                ])
+                return suggestions.filter((option) => !taken.has(option.insight))
+            },
+        ],
+        fromBelief: [
+            (s) => [s.measuredGoal, s.form],
+            (measuredGoal: string, form: BetsWriteApi): boolean =>
+                !!measuredGoal && measuredGoal === form.statement.trim(),
+        ],
         isNew: [() => [], (): boolean => props.id === 'new'],
         budgetLimitCents: [
             (s) => [s.overview, s.existing],
@@ -891,7 +1032,37 @@ export const betFormLogic = kea<betFormLogicType>([
         ],
     })),
     listeners(({ values, actions, props, cache }) => ({
+        measureFromBelief: () => {
+            const belief = values.form.statement.trim()
+            const untouched =
+                !values.picking &&
+                !values.describing &&
+                !values.form.goal_insight &&
+                !(values.form.goal_description ?? '').trim()
+            if (untouched && belief.length >= MIN_BELIEF_FOR_MEASURES && belief !== values.measuredGoal) {
+                actions.findMeasures({ goal: belief })
+            }
+        },
+        setDescribing: ({ describing }) => {
+            if (!describing) {
+                return
+            }
+            const draft = values.measureDraft || values.measuredGoal
+            if (draft && (!(values.form.goal_description ?? '').trim() || values.fromBelief)) {
+                actions.change({ goal_description: draft })
+            }
+            actions.findGuardrails({ goal: values.measuredGoal || draft, measure: '' })
+        },
+        adoptGuardrail: ({ option }) => {
+            actions.addGuardrail(option.insight)
+            actions.changeGuardrail(option.insight, { name: option.name, direction: option.direction })
+        },
         selectPrimaryInsight: ({ insight }) => {
+            const goal =
+                values.measuredGoal || (values.form.goal_description ?? '').trim() || values.form.statement.trim()
+            if (goal) {
+                actions.findGuardrails({ goal, measure: insight })
+            }
             actions.change({
                 goal_insight: insight,
                 goal_metric: values.insightNames[insight] ?? values.form.goal_metric,

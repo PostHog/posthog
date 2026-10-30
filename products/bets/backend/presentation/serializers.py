@@ -494,6 +494,51 @@ class BetsMetricPreviewQuerySerializer(serializers.Serializer):
     insight = serializers.CharField(max_length=32, help_text="Short ID of the saved insight to preview.")
 
 
+class BetsMeasureRequestSerializer(serializers.Serializer):
+    goal = serializers.CharField(max_length=500, help_text="What the owner wants to change, in their own words.")
+
+
+class BetsMeasureOptionSerializer(serializers.Serializer):
+    insight = serializers.CharField(help_text="Short ID of the insight that measures this option.")
+    name = serializers.CharField(help_text="Name of the measure.")
+    source = serializers.ChoiceField(
+        choices=["existing", "new"], help_text="A saved insight, or a new measure Bets made."
+    )
+    why = serializers.CharField(help_text="One sentence on why this measure fits.")
+    definition = serializers.CharField(help_text="What the measure counts.")
+    current = serializers.FloatField(
+        allow_null=True, help_text="The latest complete value, or null before the first complete period."
+    )
+    unit = serializers.CharField(allow_blank=True, help_text="Unit of the value, such as %.")
+    wait_days = serializers.IntegerField(help_text="Days before a person can count in this measure. 0 means at once.")
+    test_days = serializers.IntegerField(allow_null=True, help_text="Planned days for one experiment on this measure.")
+    values = serializers.ListField(child=serializers.FloatField(), help_text="Recent complete values, oldest first.")
+    dates = serializers.ListField(child=serializers.CharField(), help_text="Dates of the recent values.")
+
+
+class BetsMeasureSearchSerializer(serializers.Serializer):
+    options = BetsMeasureOptionSerializer(many=True, help_text="Measures that fit the goal, best first.")
+    draft = serializers.CharField(
+        allow_blank=True, help_text="One sentence that defines the best measure, for an agent to build."
+    )
+
+
+class BetsGuardrailRequestSerializer(serializers.Serializer):
+    goal = serializers.CharField(max_length=500, help_text="What the owner wants to change, in their own words.")
+    measure = serializers.CharField(
+        allow_blank=True, max_length=32, help_text="Short ID of the chosen measure, if any."
+    )
+
+
+class BetsGuardrailOptionSerializer(serializers.Serializer):
+    insight = serializers.CharField(help_text="Short ID of the insight for this guardrail.")
+    name = serializers.CharField(help_text="Name of the guardrail measure.")
+    definition = serializers.CharField(help_text="What the guardrail counts.")
+    direction = serializers.ChoiceField(
+        choices=["increase", "decrease"], help_text="Which way is better for this guardrail."
+    )
+
+
 class BetsStatusSerializer(serializers.Serializer):
     status = serializers.ChoiceField(choices=BetStatusChange.choices, help_text="Resume, pause or close the bet.")
 

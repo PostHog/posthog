@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
 import {
     Button,
@@ -11,6 +12,7 @@ import {
     InputGroupAddon,
     InputGroupInput,
     InputGroupText,
+    Spinner,
     Text,
     Textarea,
 } from '@posthog/quill'
@@ -25,6 +27,7 @@ import { BetFormSection } from '../components/BetFormSection'
 import { BetFormSummary } from '../components/BetFormSummary'
 import { BetGuardrailsField } from '../components/BetGuardrailsField'
 import { BetInsightPicker } from '../components/BetInsightPicker'
+import { BetMeasureOptions } from '../components/BetMeasureOptions'
 import { BetOwnerIdeasField } from '../components/BetOwnerIdeasField'
 import { BetRepositoryField } from '../components/BetRepositoryField'
 import { BetTargetField } from '../components/BetTargetField'
@@ -54,8 +57,25 @@ export function BetEditScene({ id = 'new' }: { id?: string }): JSX.Element {
         fieldErrors,
         isNew,
         describing,
+        picking,
+        measuredGoal,
+        measureSearchLoading,
+        fromBelief,
     } = useValues(logic)
-    const { change, setTitle, setBudget, selectPrimaryInsight, touch, submit, setDescribing } = useActions(logic)
+    const {
+        change,
+        setTitle,
+        setBudget,
+        selectPrimaryInsight,
+        touch,
+        submit,
+        setPicking,
+        findMeasures,
+        measureFromBelief,
+    } = useActions(logic)
+    const goalText = (form.goal_description ?? '').trim()
+    const [refining, setRefining] = useState(false)
+    const beliefFirst = !picking && fromBelief && !goalText
     const insightNote = !form.goal_insight
         ? 'A saved trends insight with one series.'
         : previewLoading
@@ -95,7 +115,10 @@ export function BetEditScene({ id = 'new' }: { id?: string }): JSX.Element {
                                     value={form.statement}
                                     aria-invalid={!!fieldErrors.statement || undefined}
                                     onChange={(event) => change({ statement: event.target.value })}
-                                    onBlur={() => touch('statement')}
+                                    onBlur={() => {
+                                        touch('statement')
+                                        measureFromBelief()
+                                    }}
                                     placeholder="Shoppers buy more when they trust the total price early, because surprise costs at the end make them leave."
                                     className="Bets__belief"
                                 />
@@ -133,61 +156,129 @@ export function BetEditScene({ id = 'new' }: { id?: string }): JSX.Element {
                             </div>
                         </BetFormSection>
                         <BetFormSection id="bet-section-measure" title="How we measure it">
-                            <Field data-invalid={!!fieldErrors.goal_insight || undefined}>
-                                <FieldLabel htmlFor={describing ? 'bet-goal-description' : 'bet-insight'}>
-                                    Measure with
-                                </FieldLabel>
-                                {describing ? (
-                                    <Textarea
-                                        id="bet-goal-description"
-                                        maxLength={2000}
-                                        value={form.goal_description ?? ''}
-                                        aria-invalid={!!fieldErrors.goal_insight || undefined}
-                                        onChange={(event) => change({ goal_description: event.target.value })}
-                                        onBlur={() => touch('goal_insight')}
-                                        placeholder="For example: the share of new users who upload a file in their first week."
-                                    />
-                                ) : (
-                                    <BetInsightPicker
-                                        id={id}
-                                        inputId="bet-insight"
-                                        value={form.goal_insight ?? ''}
-                                        options={insightOptions}
-                                        placeholder="Choose a saved insight"
-                                        invalid={!!fieldErrors.goal_insight}
-                                        onSelect={(insight) => {
-                                            selectPrimaryInsight(insight)
-                                            window.setTimeout(() => document.getElementById('bet-target')?.focus())
-                                        }}
-                                        onClose={() => touch('goal_insight')}
-                                        onDescribe={() => {
-                                            setDescribing(true)
-                                            window.setTimeout(() =>
-                                                document.getElementById('bet-goal-description')?.focus()
-                                            )
-                                        }}
-                                    />
-                                )}
-                                {fieldErrors.goal_insight ? (
-                                    <FieldError>{fieldErrors.goal_insight}</FieldError>
-                                ) : describing ? (
-                                    <FieldDescription>
-                                        Bets looks for a saved insight that matches, or creates one. You check it and
-                                        set the target before the bet starts.{' '}
-                                        <Button
-                                            type="button"
-                                            variant="link-muted"
-                                            size="inline"
-                                            onClick={() => setDescribing(false)}
-                                            data-attr="bets-form-choose-insight"
-                                        >
-                                            Choose a saved insight instead
-                                        </Button>
-                                    </FieldDescription>
-                                ) : (
-                                    insightNote && <FieldDescription>{insightNote}</FieldDescription>
-                                )}
-                            </Field>
+                            {(beliefFirst || (describing && !picking)) && (
+                                <BetMeasureOptions
+                                    id={id}
+                                    onRefine={
+                                        refining
+                                            ? undefined
+                                            : () => {
+                                                  setRefining(true)
+                                                  window.setTimeout(() =>
+                                                      document.getElementById('bet-goal-description')?.focus()
+                                                  )
+                                              }
+                                    }
+                                />
+                            )}
+                            {beliefFirst && !refining ? null : (
+                                <Field data-invalid={!!fieldErrors.goal_insight || undefined}>
+                                    <FieldLabel htmlFor={picking ? 'bet-insight' : 'bet-goal-description'}>
+                                        {picking
+                                            ? 'Measure with'
+                                            : describing
+                                              ? 'The agent builds this measure'
+                                              : beliefFirst
+                                                ? 'Describe the change'
+                                                : 'What should change?'}
+                                    </FieldLabel>
+                                    {picking ? (
+                                        <BetInsightPicker
+                                            id={id}
+                                            inputId="bet-insight"
+                                            value={form.goal_insight ?? ''}
+                                            options={insightOptions}
+                                            placeholder="Choose a saved insight"
+                                            invalid={!!fieldErrors.goal_insight}
+                                            onSelect={(insight) => {
+                                                selectPrimaryInsight(insight)
+                                                window.setTimeout(() => document.getElementById('bet-target')?.focus())
+                                            }}
+                                            onClose={() => touch('goal_insight')}
+                                            onDescribe={() => {
+                                                setPicking(false)
+                                                window.setTimeout(() =>
+                                                    document.getElementById('bet-goal-description')?.focus()
+                                                )
+                                            }}
+                                        />
+                                    ) : (
+                                        <InputGroup className="Bets__goalInput">
+                                            <InputGroupInput
+                                                id="bet-goal-description"
+                                                maxLength={500}
+                                                value={form.goal_description ?? ''}
+                                                aria-invalid={!!fieldErrors.goal_insight || undefined}
+                                                onChange={(event) => change({ goal_description: event.target.value })}
+                                                onKeyDown={(event) => {
+                                                    if (event.key === 'Enter' && goalText && !describing) {
+                                                        event.preventDefault()
+                                                        findMeasures({ goal: goalText })
+                                                    }
+                                                }}
+                                                onBlur={() => {
+                                                    touch('goal_insight')
+                                                    if (!describing && goalText && goalText !== measuredGoal) {
+                                                        findMeasures({ goal: goalText })
+                                                    }
+                                                }}
+                                                placeholder={
+                                                    beliefFirst
+                                                        ? 'For example: more uploaders share within a day'
+                                                        : 'More new uploaders share a file on their first day'
+                                                }
+                                            />
+                                            {!describing &&
+                                                (measureSearchLoading || (goalText && goalText !== measuredGoal)) && (
+                                                    <InputGroupAddon align="inline-end">
+                                                        {measureSearchLoading ? (
+                                                            <Spinner className="Bets__goalSpinner" />
+                                                        ) : (
+                                                            <Button
+                                                                type="button"
+                                                                size="sm"
+                                                                variant="default"
+                                                                onClick={() => findMeasures({ goal: goalText })}
+                                                                data-attr="bets-form-find-measures"
+                                                            >
+                                                                Find measures
+                                                                <kbd className="Bets__kbd">↵</kbd>
+                                                            </Button>
+                                                        )}
+                                                    </InputGroupAddon>
+                                                )}
+                                        </InputGroup>
+                                    )}
+                                    {fieldErrors.goal_insight ? (
+                                        <FieldError>{fieldErrors.goal_insight}</FieldError>
+                                    ) : picking ? (
+                                        <FieldDescription>
+                                            {insightNote}{' '}
+                                            <Button
+                                                type="button"
+                                                variant="link-muted"
+                                                size="inline"
+                                                onClick={() => setPicking(false)}
+                                                data-attr="bets-form-measure-mode"
+                                            >
+                                                Describe it instead
+                                            </Button>
+                                        </FieldDescription>
+                                    ) : describing ? (
+                                        <FieldDescription>
+                                            Edit it if you need to. The agent adds tracking when an event is missing.
+                                        </FieldDescription>
+                                    ) : (
+                                        !measuredGoal &&
+                                        !measureSearchLoading && (
+                                            <FieldDescription>
+                                                Write it in your own words. Bets finds the measure in your data.
+                                            </FieldDescription>
+                                        )
+                                    )}
+                                </Field>
+                            )}
+                            {!picking && !beliefFirst && !describing && <BetMeasureOptions id={id} />}
                             {form.goal_insight && !describing && <BetTargetField id={id} />}
                             <BetGuardrailsField id={id} />
                         </BetFormSection>

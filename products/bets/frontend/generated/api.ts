@@ -11,7 +11,11 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     BetsActivityApi,
     BetsDetailApi,
+    BetsGuardrailOptionApi,
+    BetsGuardrailRequestApi,
     BetsIdeaApi,
+    BetsMeasureRequestApi,
+    BetsMeasureSearchApi,
     BetsMetricApi,
     BetsMetricPreviewRetrieveParams,
     BetsOverviewApi,
@@ -146,6 +150,40 @@ export const betsWorkCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(betsWorkActionApi),
+    })
+}
+
+export const getBetsGuardrailsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/bets/guardrails/`
+}
+
+export const betsGuardrailsCreate = async (
+    projectId: string,
+    betsGuardrailRequestApi: BetsGuardrailRequestApi,
+    options?: RequestInit
+): Promise<BetsGuardrailOptionApi[]> => {
+    return apiMutator<BetsGuardrailOptionApi[]>(getBetsGuardrailsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(betsGuardrailRequestApi),
+    })
+}
+
+export const getBetsMeasuresCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/bets/measures/`
+}
+
+export const betsMeasuresCreate = async (
+    projectId: string,
+    betsMeasureRequestApi: BetsMeasureRequestApi,
+    options?: RequestInit
+): Promise<BetsMeasureSearchApi> => {
+    return apiMutator<BetsMeasureSearchApi>(getBetsMeasuresCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(betsMeasureRequestApi),
     })
 }
 

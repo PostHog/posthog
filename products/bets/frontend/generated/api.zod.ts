@@ -350,6 +350,27 @@ export const BetsWorkCreateBody = /* @__PURE__ */ zod.object({
         .describe('The experiment plan the owner approves with a build.'),
 })
 
+export const betsGuardrailsCreateBodyGoalMax = 500
+
+export const betsGuardrailsCreateBodyMeasureMax = 32
+
+export const BetsGuardrailsCreateBody = /* @__PURE__ */ zod.object({
+    goal: zod
+        .string()
+        .max(betsGuardrailsCreateBodyGoalMax)
+        .describe('What the owner wants to change, in their own words.'),
+    measure: zod.string().max(betsGuardrailsCreateBodyMeasureMax).describe('Short ID of the chosen measure, if any.'),
+})
+
+export const betsMeasuresCreateBodyGoalMax = 500
+
+export const BetsMeasuresCreateBody = /* @__PURE__ */ zod.object({
+    goal: zod
+        .string()
+        .max(betsMeasuresCreateBodyGoalMax)
+        .describe('What the owner wants to change, in their own words.'),
+})
+
 export const betsSettingsPartialUpdateBodyBudgetCentsMin = 0
 export const betsSettingsPartialUpdateBodyBudgetCentsMax = 1000000000
 

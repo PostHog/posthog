@@ -1311,6 +1311,106 @@ export interface BetsWorkActionApi {
     plan?: BetsPlanInputApi
 }
 
+export interface BetsGuardrailRequestApi {
+    /**
+     * What the owner wants to change, in their own words.
+     * @maxLength 500
+     */
+    goal: string
+    /**
+     * Short ID of the chosen measure, if any.
+     * @maxLength 32
+     */
+    measure: string
+}
+
+/**
+ * * `increase` - increase
+ * * `decrease` - decrease
+ */
+export type BetsGuardrailOptionDirectionEnumApi =
+    (typeof BetsGuardrailOptionDirectionEnumApi)[keyof typeof BetsGuardrailOptionDirectionEnumApi]
+
+export const BetsGuardrailOptionDirectionEnumApi = {
+    Increase: 'increase',
+    Decrease: 'decrease',
+} as const
+
+export interface BetsGuardrailOptionApi {
+    /** Short ID of the insight for this guardrail. */
+    insight: string
+    /** Name of the guardrail measure. */
+    name: string
+    /** What the guardrail counts. */
+    definition: string
+    /** Which way is better for this guardrail.
+     *
+     * * `increase` - increase
+     * * `decrease` - decrease */
+    direction: BetsGuardrailOptionDirectionEnumApi
+}
+
+export interface BetsMeasureRequestApi {
+    /**
+     * What the owner wants to change, in their own words.
+     * @maxLength 500
+     */
+    goal: string
+}
+
+/**
+ * * `existing` - existing
+ * * `new` - new
+ */
+export type BetsMeasureOptionSourceEnumApi =
+    (typeof BetsMeasureOptionSourceEnumApi)[keyof typeof BetsMeasureOptionSourceEnumApi]
+
+export const BetsMeasureOptionSourceEnumApi = {
+    Existing: 'existing',
+    New: 'new',
+} as const
+
+export interface BetsMeasureOptionApi {
+    /** Short ID of the insight that measures this option. */
+    insight: string
+    /** Name of the measure. */
+    name: string
+    /** A saved insight, or a new measure Bets made.
+     *
+     * * `existing` - existing
+     * * `new` - new */
+    source: BetsMeasureOptionSourceEnumApi
+    /** One sentence on why this measure fits. */
+    why: string
+    /** What the measure counts. */
+    definition: string
+    /**
+     * The latest complete value, or null before the first complete period.
+     * @nullable
+     */
+    current: number | null
+    /** Unit of the value, such as %. */
+    unit: string
+    /** Days before a person can count in this measure. 0 means at once. */
+    wait_days: number
+    /**
+     * Planned days for one experiment on this measure.
+     * @nullable
+     */
+    test_days: number | null
+    /** Recent complete values, oldest first. */
+    values: number[]
+    /** Dates of the recent values. */
+    dates: string[]
+}
+
+export interface BetsMeasureSearchApi {
+    /** Measures that fit the goal, best first. */
+    options: BetsMeasureOptionApi[]
+    /** One sentence that defines the best measure, for an agent to build. */
+    draft: string
+}
+
 export interface BetsStepModelWriteApi {
     /**
      * Model ID, or empty for the project default.

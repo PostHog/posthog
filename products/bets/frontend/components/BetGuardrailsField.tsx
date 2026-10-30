@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconX } from '@posthog/icons'
+import { IconPlus, IconX } from '@posthog/icons'
 import {
     Button,
     Field,
@@ -27,13 +27,36 @@ const DIRECTIONS = [
 ]
 
 export function BetGuardrailsField({ id }: { id: string }): JSX.Element {
-    const { form, guardrailOptions, insightNames, fieldErrors } = useValues(betFormLogic({ id }))
-    const { addGuardrail, changeGuardrail, removeGuardrail } = useActions(betFormLogic({ id }))
+    const { form, guardrailOptions, insightNames, fieldErrors, guardrailChips, guardrailSuggestionsLoading } =
+        useValues(betFormLogic({ id }))
+    const { addGuardrail, changeGuardrail, removeGuardrail, adoptGuardrail } = useActions(betFormLogic({ id }))
     const guardrails = form.secondary_metrics ?? []
     return (
         <Field>
             <FieldTitle>Guardrails (optional)</FieldTitle>
             <FieldDescription>Metrics that must not get worse while Bets tests ideas.</FieldDescription>
+            {(guardrailSuggestionsLoading || guardrailChips.length > 0) && guardrails.length < MAX_GUARDRAILS && (
+                <div className="Bets__guardrailChips" aria-busy={guardrailSuggestionsLoading || undefined}>
+                    <span className="Bets__guardrailChipsLabel">
+                        {guardrailSuggestionsLoading ? 'Finding guardrails…' : 'Suggested'}
+                    </span>
+                    {guardrailChips.map((option) => (
+                        <Button
+                            key={option.insight}
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            left
+                            tooltip={option.definition}
+                            onClick={() => adoptGuardrail(option)}
+                            data-attr="bets-form-guardrail-chip"
+                        >
+                            <IconPlus />
+                            {option.name}
+                        </Button>
+                    ))}
+                </div>
+            )}
             {guardrails.length > 0 && (
                 <ul className="Bets__guardrails m-0 list-none p-0">
                     {guardrails.map((metric) => {

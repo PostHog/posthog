@@ -228,6 +228,19 @@ def saved_insight_for_read(*, team: Team, user: User, short_id: str) -> SavedIns
     )
 
 
+def saved_insights_for_read(*, team: Team, user: User, limit: int) -> list[SavedInsightDefinition]:
+    """The most recently changed saved insights of this project that the caller can view."""
+    access = UserAccessControl(user=user, team=team)
+    insights = Insight.objects.filter(team__project_id=team.project_id, saved=True, deleted=False).order_by(
+        "-last_modified_at"
+    )[: limit * 2]
+    return [
+        SavedInsightDefinition(id=insight.pk, short_id=insight.short_id, name=insight.name, query=insight.query or {})
+        for insight in insights
+        if access.check_access_level_for_object(insight, "viewer")
+    ][:limit]
+
+
 def saved_insight_for_update(*, team: Team, user: User, short_id: str) -> SavedInsightDefinition | None:
     access_control = UserAccessControl(user=user, team=team, organization_id=str(team.organization_id))
     if not access_control.check_access_level_for_resource("insight", "editor"):

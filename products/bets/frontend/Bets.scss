@@ -180,6 +180,173 @@
         cursor: pointer;
     }
 
+    .Bets__measures {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .Bets__measuresHead {
+        display: flex;
+        gap: 12px;
+        align-items: baseline;
+        justify-content: space-between;
+        font-size: 12px;
+        color: var(--today-muted);
+    }
+
+    .Bets__guardrailChips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        align-items: center;
+    }
+
+    .Bets__guardrailChipsLabel {
+        margin-right: 2px;
+        font-size: 12px;
+        color: var(--today-muted);
+    }
+
+    .Bets__measuresFoot {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        align-items: baseline;
+        font-size: 12px;
+        color: var(--today-faint);
+
+        button {
+            font-size: 12px;
+        }
+    }
+
+    .Bets__measureList {
+        display: flex;
+        flex-direction: column;
+        gap: 0;
+        overflow: hidden;
+        background: var(--today-paper);
+        border: 1px solid var(--today-line);
+        border-radius: 10px;
+        animation: Bets__measuresIn 180ms var(--today-ease);
+    }
+
+    .Bets__measureItem {
+        display: grid;
+        grid-template-columns: 16px minmax(0, 1fr);
+        gap: 14px;
+        align-items: center;
+        min-height: 52px;
+        padding: 10px 16px;
+        cursor: pointer;
+        transition: background-color 120ms var(--today-ease);
+
+        & + .Bets__measureItem {
+            border-top: 1px solid var(--today-line);
+        }
+
+        &:hover {
+            background: var(--today-soft);
+        }
+
+        &[data-selected] {
+            background: var(--today-soft);
+        }
+
+        &[data-quiet] {
+            min-height: 46px;
+            background: transparent;
+
+            .Bets__measureName {
+                font-weight: 400;
+                color: var(--today-muted);
+            }
+
+            .Bets__measureDetail {
+                display: none;
+            }
+        }
+    }
+
+    .Bets__measureText {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        min-width: 0;
+    }
+
+    .Bets__measureName {
+        display: inline-flex;
+        gap: 6px;
+        align-items: center;
+        overflow: hidden;
+        font-size: 13.5px;
+        font-weight: 500;
+        color: var(--today-ink);
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .Bets__measureChange {
+        grid-column: -2 / -1;
+        justify-self: end;
+        font-size: 12px;
+    }
+
+    .Bets__measureList:has(.Bets__measureChange) .Bets__measureItem {
+        grid-template-columns: 16px minmax(0, 1fr) auto;
+    }
+
+    .Bets__measureList[data-plotted] .Bets__measureItem {
+        grid-template-columns: 16px minmax(0, 1fr) auto;
+    }
+
+    .Bets__measureData {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+    }
+
+    .Bets__goalInput {
+        height: 40px;
+        font-size: 14px;
+    }
+
+    .Bets__kbd {
+        margin-left: 6px;
+        font-family: inherit;
+        font-size: 11px;
+        color: var(--today-muted);
+    }
+
+    .Bets__goalSpinner {
+        margin-right: 8px;
+        color: var(--today-muted);
+    }
+
+    .Bets__measureDetail {
+        overflow: hidden;
+        font-size: 12px;
+        color: var(--today-muted);
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .Bets__measureSpark {
+        width: 72px;
+        color: var(--today-faint);
+    }
+
+    .Bets__measureValue {
+        min-width: 28px;
+        font-size: 15px;
+        font-weight: 500;
+        font-variant-numeric: tabular-nums;
+        color: var(--today-ink);
+        text-align: right;
+    }
+
     .Bets__belief {
         min-height: 112px;
         max-height: 280px;
@@ -792,6 +959,12 @@
 
         .BetsTreemap {
             height: min(380px, 55dvh);
+        }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        .Bets__measureList {
+            animation: none;
         }
     }
 
@@ -1518,5 +1691,17 @@
     .Bets .BetsResults__axis {
         grid-column: 2;
         margin-top: 10px;
+    }
+}
+
+@keyframes Bets__measuresIn {
+    from {
+        opacity: 0;
+        transform: translateY(-4px);
+    }
+
+    to {
+        opacity: 1;
+        transform: none;
     }
 }
