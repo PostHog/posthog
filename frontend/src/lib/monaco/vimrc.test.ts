@@ -25,6 +25,18 @@ describe('parseVimrc', () => {
     })
 
     it.each([
+        ['uses a backslash when no leader is set', '', 'nnoremap \\r :run<CR>'],
+        ['sets a space leader', 'let mapleader = " "', 'nnoremap <Space>r :run<CR>'],
+        ['sets an escaped space leader', 'let mapleader = "\\<Space>"', 'nnoremap <Space>r :run<CR>'],
+        ['sets a comma leader with g:', "let g:mapleader = ','", 'nnoremap ,r :run<CR>'],
+    ])('replaces <Leader> in mappings when the vimrc %s', (_description, leaderLine, expected) => {
+        const { commands, errors } = parseVimrc(`${leaderLine}\nnnoremap <leader>r :run<CR>`)
+
+        expect(errors).toEqual([])
+        expect(commands).toEqual([{ lineNumber: 2, command: expected }])
+    })
+
+    it.each([
         ['deletes every line', '%d'],
         ['deletes matching lines', 'g/select/d'],
         ['substitutes text', 's/select/SELECT/'],
@@ -34,6 +46,8 @@ describe('parseVimrc', () => {
         ['overrides an option command', 'map :set :sort'],
         ['overrides a mapping command', 'noremap :map :sort'],
         ['removes an ex-command mapping', 'unmap :set'],
+        ['sets a variable that is not the leader', 'let g:foo = 1'],
+        ['sets a leader of more than one key', 'let mapleader = "ab"'],
     ])('rejects a command that %s', (_description, command) => {
         const { commands, errors } = parseVimrc(`set relativenumber\n${command}`)
 

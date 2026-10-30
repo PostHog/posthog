@@ -126,6 +126,7 @@ from products.signals.backend.tasks import (
     refresh_signal_scout_background_bands,
     sweep_first_report_notifications,
     sweep_implementation_dispatches,
+    sweep_monitoring_tracker_issues,
     sync_pending_signals_refund_credits,
 )
 from products.skills.backend.tasks import sync_community_skills
@@ -448,6 +449,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         sweep_first_report_notifications.s(),
         name="send first self-driving report emails",
         expires_seconds=5 * 60,
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*"),
+        sweep_monitoring_tracker_issues.s(),
+        name="complete verified signals tracker issues",
+        expires_seconds=60,
     )
 
     # Re-enqueue signals PR refunds whose billing credit sync hasn't landed - hourly at minute 25

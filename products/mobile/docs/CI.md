@@ -7,11 +7,20 @@ Three GitHub Actions workflows cover the app. They install the independent `prod
 `.github/workflows/mobile-ci.yml` is a reusable workflow. `pr-housekeeping.yml` calls it on every pull request, and `mobile-release.yml` calls it for each release commit.
 Direct pushes to `master` that match the workflow's paths only install dependencies and warm the pnpm store cache. They do not repeat validation.
 
-A `changes` job reads the pull request diff. When nothing under `products/mobile/**` (Markdown excluded), the generated Signals API types, or the workflow changed, the check job is skipped and the run ends in seconds.
+A `changes` job reads the pull request diff and selects the mobile checks.
+
+| Changed files                                                         | Mobile checks                            |
+| --------------------------------------------------------------------- | ---------------------------------------- |
+| `products/mobile/**` (Markdown excluded) or `mobile-ci.yml`           | Typecheck, lint, Jest and release checks |
+| Generated Signals or Error Tracking API types, with no mobile changes | Typecheck                                |
+| Neither group                                                         | Status report only                       |
+
+The generated API files are type-only imports in the app, so typechecking checks compatibility without repeating runtime tests.
+Changes in both groups run the full suite. Release commits also run the full suite.
 The `Mobile CI Pass` job reports a verdict on every run, so it can be a required branch-protection check.
 A trigger-level `paths:` filter cannot do this: a required check that never dispatches leaves the pull request waiting for a status that never arrives. See `/authoring-ci-workflows`.
 
-The check job runs these steps for pull requests and release commits, using the same commands you run locally:
+The full check job runs these steps, using the same commands you run locally:
 
 ```sh
 pnpm install --frozen-lockfile
@@ -34,10 +43,11 @@ Markdown, MDX, SCSS and YAML use the repository's Oxfmt configuration. The share
 
 Details:
 
-- The checkout includes the mobile app and its existing generated Signals API types. Keep new runtime dependencies inside the mobile workspace.
+- The checkout includes the mobile app and its imported generated Signals and Error Tracking API types. Keep new runtime dependencies inside the mobile workspace.
 - pnpm comes from `packageManager` in `products/mobile/package.json`, not from the repo root.
 - Node comes from `products/mobile/.node-version`. Keep it equal to the repo's `.nvmrc` and to `node` in `eas.json`.
 - The pnpm store cache is keyed on `products/mobile/pnpm-lock.yaml`. Pull requests only restore it. Pushes to `master` save it.
+- Generated API type changes do not trigger a separate cache-warming run on `master`; they do not change the mobile dependencies.
 - Change detection uses the existing paths-filter GitHub App. Both reusable-workflow callers pass `GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY` by name. The workflow creates a token with pull-request read access only for same-repository PRs; fork and Dependabot PRs use `GITHUB_TOKEN` because they do not receive the app secret. No credential value belongs in the repository.
 - A newer push to the same pull request cancels the older run.
 - Push runs use a separate concurrency group for each commit, so a later release cannot replace an earlier pending validation run. Publication stays serialized; see [release ordering and retries](RELEASING.md#receipts-ordering-and-retries).

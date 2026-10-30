@@ -1280,7 +1280,7 @@ def get_query_runner(
         )
 
     if kind == "ExperimentQuery":
-        from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
+        from products.experiments.backend.facade.queries import ExperimentQueryRunner
 
         return ExperimentQueryRunner(
             query=query,
@@ -1292,9 +1292,7 @@ def get_query_runner(
         )
 
     if kind == "ExperimentExposureQuery":
-        from products.experiments.backend.hogql_queries.experiment_exposures_query_runner import (
-            ExperimentExposuresQueryRunner,
-        )
+        from products.experiments.backend.facade.queries import ExperimentExposuresQueryRunner
 
         return ExperimentExposuresQueryRunner(
             query=cast(ExperimentExposureQuery | dict[str, Any], query),

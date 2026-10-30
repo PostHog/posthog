@@ -117,7 +117,7 @@ class FlagHistory:
 
 
 class FlagHistoryNotCheckedReason(StrEnum):
-    # pinned: the finding's `evidence.reason`.
+    # pinned: the finding's `reason`.
     NO_HISTORY_ACCESS = "no_history_access"
     NO_QUERY_ACCESS = "no_query_access"
     EXPOSURE_FILTERS = "exposure_filters"

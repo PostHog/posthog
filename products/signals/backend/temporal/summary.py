@@ -45,6 +45,7 @@ from products.signals.backend.auto_start import (
 )
 from products.signals.backend.daily_limit import capture_signal_report_daily_limit_paused, daily_report_limit_gate
 from products.signals.backend.github_optional import RepositoryAccessTemporarilyUnavailable
+from products.signals.backend.issue_dependencies import reports_waiting_on_issues_of
 from products.signals.backend.models import (
     SIGNALS_AT_RUN_INCREMENT,
     SignalReport,
@@ -68,7 +69,11 @@ from products.signals.backend.spend import (
     report_triggering_signal,
     submit_signal_metadata_updates,
 )
-from products.signals.backend.stack_plan import create_layer_reports, start_unblocked_layers_of_plan
+from products.signals.backend.stack_plan import (
+    create_layer_reports,
+    start_unblocked_layers,
+    start_unblocked_layers_of_plan,
+)
 from products.signals.backend.startup_failure import (
     ResearchStartupFailure,
     notify_research_startup_failure,
@@ -1397,6 +1402,13 @@ async def maybe_autostart_implementation_activity(input: MaybeAutostartImplement
             # A plan never starts its own run, so its first layers start here, at the same settle point.
             await database_sync_to_async(start_unblocked_layers_of_plan, thread_sensitive=False)(
                 team_id=input.team_id, parent_report_id=input.report_id, ch_user=ClickHouseUser.SIGNALS
+            )
+            # Reports held because no report held a GitHub issue they depend on can link to this one now.
+            waiting_ids = await database_sync_to_async(reports_waiting_on_issues_of, thread_sensitive=False)(
+                team_id=input.team_id, report_id=input.report_id, ch_user=ClickHouseUser.SIGNALS
+            )
+            await database_sync_to_async(start_unblocked_layers, thread_sensitive=False)(
+                team_id=input.team_id, report_ids=waiting_ids, ch_user=ClickHouseUser.SIGNALS
             )
         except RepositoryAccessTemporarilyUnavailable as error:
             raise ApplicationError(

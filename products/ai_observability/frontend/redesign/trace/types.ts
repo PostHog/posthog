@@ -128,6 +128,12 @@ export interface LabeledLink {
     href: string
 }
 
+export interface GitPullRequestLink {
+    number: number
+    title: string | null
+    href: string
+}
+
 export type TraceSearchStatus = 'idle' | 'loading' | 'ready' | 'error'
 
 export type TraceSearchFailure = 'too_slow' | 'failed'

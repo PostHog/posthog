@@ -1477,6 +1477,10 @@ export interface ChartSettingsDisplay {
     trendLine?: boolean
     yAxisPosition?: 'left' | 'right'
     displayType?: 'auto' | 'line' | 'bar' | 'area'
+    /** Keep this series out of the tooltip's total row, e.g. a target line over stacked bars. */
+    excludeFromTotal?: boolean
+    /** Overrides the chart's "Show values on series" for this series. Unset or 'auto' follows the chart setting. */
+    valueLabels?: 'auto' | 'show' | 'hide'
 }
 
 export interface HeatmapGradientStop {
@@ -3378,9 +3382,62 @@ export interface AccountsTableRow {
 
 export type CachedAccountsTableQueryResponse = CachedQueryResponse<AccountsTableQueryResponse>
 
+export type AccountsTableCustomPropertyDisplayType =
+    | 'text'
+    | 'link'
+    | 'number'
+    | 'currency'
+    | 'percent'
+    | 'date'
+    | 'datetime'
+    | 'boolean'
+    | 'select'
+
+export interface AccountsTableCustomPropertySource {
+    id: string
+}
+
+export interface AccountsTableCustomPropertyOption {
+    id?: string | null
+    label: string
+    color: string
+}
+
+export interface AccountsTableCustomPropertyDefinition {
+    id: string
+    name: string
+    description?: string | null
+    display_type: AccountsTableCustomPropertyDisplayType
+    is_big_number?: boolean
+    is_canonical: boolean
+    has_workflow_reference: boolean
+    source?: AccountsTableCustomPropertySource | null
+    options?: AccountsTableCustomPropertyOption[] | null
+}
+
+export interface AccountsTableRelationshipDefinition {
+    id: string
+    name: string
+    description?: string | null
+    is_single_holder?: boolean
+    is_controlled: boolean
+}
+
+/** @discriminator kind */
+export type AccountsTableResolvedColumn =
+    | AccountsTableAccountFieldColumn
+    | AccountsTableTagsColumn
+    | AccountsTableNoteCountColumn
+    | AccountsTableRelationshipColumn
+    | AccountsTableCustomPropertyColumn
+    | AccountsTableCustomPropertyHistoryColumn
+
 export interface AccountsTableQueryResponse extends AnalyticsQueryResponseBase {
     kind: NodeKind.AccountsTableQuery
     results: AccountsTableRow[]
+    columns?: AccountsTableResolvedColumn[]
+    customPropertyDefinitions?: AccountsTableCustomPropertyDefinition[]
+    relationshipDefinitions?: AccountsTableRelationshipDefinition[]
     hasMore: boolean
     limit: integer
     offset: integer
@@ -3396,6 +3453,9 @@ export interface AccountsTableQuery extends DataNode<AccountsTableQueryResponse>
     includeIgnored?: boolean
     /** Columns to load for each account. Account identity fields are always returned. */
     columns: AccountsTableColumn[]
+    useDefaultColumns?: boolean
+    /** Omit missing definitions and custom-property filters incompatible with their current types. */
+    ignoreMissingDefinitions?: boolean
     /** Filters are combined with AND. Values within tag and assignment filters use OR. */
     filters?: AccountsTableFilter[]
     /** Nonempty property-filter groups are ORed together; filters within each group use AND. Global filters still apply. */
@@ -6500,6 +6560,8 @@ export interface ExperimentExposureHealthFinding {
     code: ExperimentExposureHealthFindingCode
     /** The case within the code, when a code covers several. Null when the code has one case. */
     subcode: string | null
+    /** A stable qualifier below the subcode, for example where a sample ratio mismatch is located. Null when the finding names none. */
+    reason: string | null
     /** How much the problem affects the results: critical, warning, or info. */
     severity: ExperimentExposureHealthFindingSeverity
     /** One-line summary of the problem. */
@@ -6954,6 +7016,12 @@ export interface ResolvedDateRangeResponse {
     date_from: string
     /**  @format date-time */
     date_to: string
+    /**
+     * The earliest timestamp the query reads, when only its first interval depends on rows from before date_from.
+     * Lifecycle sets it to the start of the interval before the range.
+     * @format date-time
+     */
+    read_from?: string
 }
 
 export type MultipleBreakdownType =
