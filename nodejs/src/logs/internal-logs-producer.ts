@@ -51,6 +51,7 @@ type AttemptResult = { outcome: 'sent' | 'rejected' | 'unknown_team' | 'retry'; 
 
 const RETRY_BASE_DELAY_MS = 100
 const RETRY_MAX_DELAY_MS = 5_000
+const DRAIN_POLL_MS = 50
 
 const internalLogsProducerRecordsCounter = new Counter({
     name: 'logs_internal_producer_records_total',
@@ -86,7 +87,6 @@ export class InternalLogsProducer {
     // Counts waiting and in-flight records, because each one holds its bytes until its request settles.
     private bufferedBytes = 0
     private inFlight = new Set<Request>()
-    private idleWaiters: (() => void)[] = []
     // Set when `drain` ends. After it, nothing is sent or counted twice, and a retrying request stops.
     private stopped = false
 
@@ -151,39 +151,17 @@ export class InternalLogsProducer {
     /** Sends what is left until the timeout, then stops and counts the rest as abandoned. Call on shutdown. */
     async drain(timeoutMs: number): Promise<void> {
         const deadline = Date.now() + timeoutMs
-        while (!this.stopped && !this.isIdle()) {
-            this.pump()
-            if (!(await this.waitForIdle(deadline - Date.now()))) {
-                this.abandon()
-            }
+        this.pump()
+        while (!this.stopped && !this.isIdle() && Date.now() < deadline) {
+            await delay(Math.min(DRAIN_POLL_MS, deadline - Date.now()))
+        }
+        if (!this.stopped && !this.isIdle()) {
+            this.abandon()
         }
         this.stopped = true
     }
 
-    private waitForIdle(timeoutMs: number): Promise<boolean> {
-        if (this.isIdle()) {
-            return Promise.resolve(true)
-        }
-        return new Promise((resolve) => {
-            const waiter = (): void => {
-                clearTimeout(timer)
-                resolve(true)
-            }
-            const timer = setTimeout(
-                () => {
-                    this.idleWaiters = this.idleWaiters.filter((other) => other !== waiter)
-                    resolve(false)
-                },
-                Math.max(0, timeoutMs)
-            )
-            this.idleWaiters.push(waiter)
-        })
-    }
-
     private abandon(): void {
-        if (this.stopped) {
-            return
-        }
         this.stopped = true
         const unsent = [...this.waiting.values(), ...this.inFlight]
         for (const { source, records } of unsent) {
@@ -212,9 +190,6 @@ export class InternalLogsProducer {
                 this.inFlight.delete(request)
                 this.bufferedBytes -= request.bytes
                 this.pump()
-                if (this.isIdle()) {
-                    this.idleWaiters.splice(0).forEach((resolve) => resolve())
-                }
             })
         }
         this.report()
@@ -233,7 +208,7 @@ export class InternalLogsProducer {
         const body = toOtlpBody(source, records)
         const deadline = Date.now() + this.config.LOGS_INTERNAL_PRODUCER_RETRY_TIMEOUT_MS
         for (let attempt = 0; !this.stopped; attempt++) {
-            const result = await this.attempt(source, teamId, body)
+            const result = await this.attempt(source, teamId, body, deadline)
             if (this.stopped) {
                 return
             }
@@ -263,9 +238,16 @@ export class InternalLogsProducer {
         }
     }
 
-    private async attempt(source: string, teamId: number, body: string): Promise<AttemptResult> {
+    private async attempt(source: string, teamId: number, body: string, deadline: number): Promise<AttemptResult> {
+        let timer: NodeJS.Timeout | undefined
         try {
-            const team = await this.teamManager.getTeam(teamId)
+            // A team lookup has no timeout of its own, so a stalled Postgres would hold this request slot past the deadline.
+            const team = await Promise.race([
+                this.teamManager.getTeam(teamId),
+                new Promise<never>((_, reject) => {
+                    timer = setTimeout(() => reject(new Error('team lookup timed out')), deadline - Date.now())
+                }),
+            ])
             if (this.stopped) {
                 return { outcome: 'retry', detail: 'stopped' }
             }
@@ -295,6 +277,8 @@ export class InternalLogsProducer {
             return { outcome: retriable ? 'retry' : 'rejected', detail: String(status) }
         } catch (error) {
             return { outcome: 'retry', detail: String(error) }
+        } finally {
+            clearTimeout(timer)
         }
     }
 }

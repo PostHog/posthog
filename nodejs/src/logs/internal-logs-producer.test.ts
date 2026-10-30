@@ -225,19 +225,29 @@ describe('InternalLogsProducer', () => {
         expect(new InternalLogsVerifier(KEY, '2').verify(retrySignature, 2, retriedAt.toISOString())).toBeDefined()
     })
 
-    it('gives up on a batch at the retry timeout', async () => {
-        fetchMock.mockRejectedValue(new Error('connect ECONNREFUSED'))
-
-        const sent = send(
-            new InternalLogsProducer(config({ LOGS_INTERNAL_PRODUCER_RETRY_TIMEOUT_MS: 2_000 }), teamManager),
-            [entry()]
+    it.each([
+        { name: 'every request fails', stall: () => fetchMock.mockRejectedValue(new Error('connect ECONNREFUSED')) },
+        {
+            name: 'the team lookup never answers',
+            stall: () => teamManager.getTeam.mockReturnValueOnce(new Promise(() => {})),
+        },
+    ])('gives up on a batch at the retry timeout when $name', async ({ stall }) => {
+        register.resetMetrics()
+        stall()
+        const producer = new InternalLogsProducer(
+            config({ LOGS_INTERNAL_PRODUCER_RETRY_TIMEOUT_MS: 2_000 }),
+            teamManager
         )
+
+        await send(producer, [entry()])
         await jest.advanceTimersByTimeAsync(5_000)
 
-        await sent
         const attempts = fetchMock.mock.calls.length
         await jest.advanceTimersByTimeAsync(60_000)
         expect(fetchMock).toHaveBeenCalledTimes(attempts)
+        const metric = await register.getSingleMetric('logs_internal_producer_records_total')!.get()
+        expect(Object.fromEntries(metric.values.map((v) => [v.labels.outcome, v.value]))).toEqual({ failed: 1 })
+        expect((producer as any).inFlight.size).toBe(0)
     })
 
     it('drain sends entries that were never flushed and waits for them', async () => {
@@ -247,7 +257,7 @@ describe('InternalLogsProducer', () => {
         producer.enqueue('hog_flow', [entry()])
 
         let drained = false
-        const drain = producer.drain(10_000).then(() => {
+        void producer.drain(10_000).then(() => {
             drained = true
         })
         await jest.advanceTimersByTimeAsync(0)
@@ -255,7 +265,7 @@ describe('InternalLogsProducer', () => {
         expect(drained).toBe(false)
 
         held.release()
-        await drain
+        await jest.advanceTimersByTimeAsync(100)
         expect(drained).toBe(true)
     })
 
