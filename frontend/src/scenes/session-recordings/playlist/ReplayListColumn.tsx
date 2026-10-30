@@ -12,6 +12,7 @@ export interface ReplayListColumnProps {
     /** The Highlights list, when the picks experiment offers one. */
     picksList?: ReactNode
     picksMode: ReplayListPicksMode
+    collections?: boolean
     unwatchedPicksCount?: number
     onPicksSelected?: (selected: boolean) => void
 }
@@ -21,6 +22,7 @@ export function ReplayListColumn({
     recordingsList,
     picksList,
     picksMode,
+    collections = false,
     unwatchedPicksCount = 0,
     onPicksSelected,
 }: ReplayListColumnProps): JSX.Element {
@@ -55,7 +57,9 @@ export function ReplayListColumn({
             label: 'All recordings',
             'data-attr': 'list-segment-recordings',
         },
-        { value: 'collections' as const, label: 'Collections', 'data-attr': 'list-segment-collections' },
+        ...(collections
+            ? [{ value: 'collections' as const, label: 'Collections', 'data-attr': 'list-segment-collections' }]
+            : []),
     ]
 
     return (

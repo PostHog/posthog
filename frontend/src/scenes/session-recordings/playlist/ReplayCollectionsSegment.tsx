@@ -13,7 +13,7 @@ import { BUILT_IN_COLLECTION_ICONS } from '../collections/builtInCollectionIcons
 import { CollectionSectionHeading } from '../collections/CollectionSectionHeading'
 import { getCollectionCounts } from '../collections/collectionUtils'
 import { sessionRecordingCollectionsLogic } from '../collections/sessionRecordingCollectionsLogic'
-import { createPlaylist } from './playlistUtils'
+import { useNewCollection } from '../collections/useNewCollection'
 import { ReplayCollectionView } from './ReplayCollectionView'
 import { replayListColumnLogic } from './replayListColumnLogic'
 
@@ -23,6 +23,7 @@ export function ReplayCollectionsSegment({ logicKey }: { logicKey: string }): JS
     const { setSavedPlaylistsFilters } = useActions(sessionRecordingCollectionsLogic)
     const { openCollectionShortId } = useValues(replayListColumnLogic({ logicKey }))
     const { openCollection } = useActions(replayListColumnLogic({ logicKey }))
+    const { createCollection, creating } = useNewCollection()
     const searching = !!filters.search
 
     if (openCollectionShortId) {
@@ -52,7 +53,8 @@ export function ReplayCollectionsSegment({ logicKey }: { logicKey: string }): JS
                         type="primary"
                         size="small"
                         icon={<IconPlus />}
-                        onClick={() => void createPlaylist({ type: 'collection', creation_method: 'new' }, true)}
+                        onClick={() => void createCollection()}
+                        loading={creating}
                         data-attr="list-collections-new"
                     >
                         New
