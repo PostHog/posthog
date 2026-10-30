@@ -12,11 +12,13 @@ import type { InsightLogicProps } from '~/types'
 import { explainChartLogic } from './explainChartLogic'
 
 export function ExplainChartButton({ insightProps }: { insightProps: InsightLogicProps }): JSX.Element | null {
-    const { explainAvailable, storyShown, investigating, consentRequested } = useValues(explainChartLogic(insightProps))
+    const { storyAvailable, explainAvailable, story, storyShown, investigating, consentRequested } = useValues(
+        explainChartLogic(insightProps)
+    )
     const { explainClicked, approveConsent, dismissConsent } = useActions(explainChartLogic(insightProps))
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
-    if (!explainAvailable) {
+    if (!explainAvailable && !(storyAvailable && story)) {
         return null
     }
     const label = investigating ? 'Investigating…' : 'Explain this chart'

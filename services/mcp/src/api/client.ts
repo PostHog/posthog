@@ -1383,6 +1383,19 @@ export class ApiClient {
                 }
             },
 
+            saveExplanation: async ({
+                insightId,
+                data,
+            }: {
+                insightId: number
+                data: Record<string, unknown>
+            }): Promise<Result<Schemas.InsightExplanation>> => {
+                return this.fetchJson<Schemas.InsightExplanation>(
+                    `${this.baseUrl}/api/projects/${projectId}/insights/${insightId}/explanations/`,
+                    { method: 'POST', body: JSON.stringify({ data }) }
+                )
+            },
+
             create: async ({ data }: { data: Record<string, any> }): Promise<Result<Schemas.Insight>> => {
                 return this.fetchJson<Schemas.Insight>(`${this.baseUrl}/api/projects/${projectId}/insights/`, {
                     method: 'POST',

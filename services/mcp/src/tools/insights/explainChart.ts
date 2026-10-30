@@ -139,6 +139,7 @@ function sqlProblems(chapters: Params['chapters'], sqlEvidence: Map<string, SqlE
 
 interface StoryChart {
     query: StoryTrendsQuery
+    insightId: number | null
     insightName: string | null
     path: string
 }
@@ -175,7 +176,7 @@ async function loadChart(context: Context, projectId: string, params: Params): P
     if (params.insightId === undefined) {
         const query = asTrendsQuery(params.query)
         await applyProjectTestAccountDefault(context, query)
-        return { query, insightName: null, path: newInsightPath(query) }
+        return { query, insightId: null, insightName: null, path: newInsightPath(query) }
     }
     const insight = await context.api.insights({ projectId }).get({ insightId: params.insightId })
     if (!insight.success) {
@@ -183,6 +184,7 @@ async function loadChart(context: Context, projectId: string, params: Params): P
     }
     return {
         query: asTrendsQuery(insight.data.query),
+        insightId: insight.data.id,
         insightName: insight.data.name || insight.data.derived_name || null,
         path: `/insights/${insight.data.short_id}`,
     }
@@ -194,16 +196,39 @@ function warningMessages(warnings: unknown[]): string[] {
     )
 }
 
+async function saveExplanation(
+    context: Context,
+    projectId: string,
+    chart: StoryChart,
+    data: ExplainChartData
+): Promise<string | null> {
+    if (chart.insightId === null) {
+        return null
+    }
+    try {
+        const saved = await context.api.insights({ projectId }).saveExplanation({ insightId: chart.insightId, data })
+        return saved.success ? `${chart.path}?explanation=${saved.data.id}` : null
+    } catch {
+        return null
+    }
+}
+
 function describeResult(
     chart: StoryChart,
     series: StorySeriesResult,
     chapters: Params['chapters'],
     missed: string[],
     warnings: unknown[],
-    evidenceProblems: string[]
+    evidenceProblems: string[],
+    explanationUrl: string | null
 ): string {
     const name = chart.insightName ?? series.label ?? 'the chart'
     const lines = [`The explanation of "${name}" has ${chapters.length} chapters.`]
+    if (explanationUrl) {
+        lines.push(
+            `Where the person cannot see it rendered inline, give them this link, which opens it beside the chart in PostHog: ${explanationUrl}`
+        )
+    }
     if (warnings.length) {
         lines.push(`The query came with warnings the person should hear about: ${warningMessages(warnings).join(' ')}`)
     }
@@ -267,7 +292,7 @@ export const explainChartHandler: ToolBase<typeof schema, Result>['handler'] = a
         }
     })
 
-    return {
+    const data: ExplainChartData = {
         query: chart.query,
         results,
         seriesIndex: params.series,
@@ -276,14 +301,21 @@ export const explainChartHandler: ToolBase<typeof schema, Result>['handler'] = a
         ...(warnings?.length ? { warnings } : {}),
         headline: params.headline,
         chapters,
-        _posthogUrl: `${baseUrl}${chart.path}`,
+    }
+    const explanationPath = await saveExplanation(context, projectId, chart, data)
+    const explanationUrl = explanationPath ? `${baseUrl}${explanationPath}` : null
+
+    return {
+        ...data,
+        _posthogUrl: explanationUrl ?? `${baseUrl}${chart.path}`,
         [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: describeResult(
             chart,
             series,
             params.chapters,
             missed,
             warnings ?? [],
-            sqlProblems(params.chapters, sqlEvidence)
+            sqlProblems(params.chapters, sqlEvidence),
+            explanationUrl
         ),
     }
 }

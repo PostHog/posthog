@@ -32,6 +32,7 @@ import type {
     InsightDataChecksRequestApi,
     InsightExplainApi,
     InsightExplainRequestApi,
+    InsightExplanationApi,
     InsightViewedRequestApi,
     InsightsActivityRetrieveParams,
     InsightsAllActivityRetrieveParams,
@@ -485,6 +486,40 @@ export const insightsCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(insightApi),
+    })
+}
+
+export const getInsightsExplanationsCreateUrl = (projectId: string, insightId: number) => {
+    return `/api/projects/${projectId}/insights/${insightId}/explanations/`
+}
+
+export const insightsExplanationsCreate = async (
+    projectId: string,
+    insightId: number,
+    insightExplanationApi: NonReadonly<InsightExplanationApi>,
+    options?: RequestInit
+): Promise<InsightExplanationApi> => {
+    return apiMutator<InsightExplanationApi>(getInsightsExplanationsCreateUrl(projectId, insightId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(insightExplanationApi),
+    })
+}
+
+export const getInsightsExplanationsRetrieveUrl = (projectId: string, insightId: number, id: string) => {
+    return `/api/projects/${projectId}/insights/${insightId}/explanations/${id}/`
+}
+
+export const insightsExplanationsRetrieve = async (
+    projectId: string,
+    insightId: number,
+    id: string,
+    options?: RequestInit
+): Promise<InsightExplanationApi> => {
+    return apiMutator<InsightExplanationApi>(getInsightsExplanationsRetrieveUrl(projectId, insightId, id), {
+        ...options,
+        method: 'GET',
     })
 }
 

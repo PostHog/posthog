@@ -9102,6 +9102,167 @@ export interface PaginatedInsightListApi {
     results: InsightApi[]
 }
 
+export interface StorySeriesResultApi {
+    /** The series name. */
+    label?: string
+    /** One value per point. */
+    data?: number[]
+    /** The date of each point, in the query's timezone. */
+    days?: string[]
+}
+
+/**
+ * * `high` - High confidence
+ * * `medium` - Medium confidence
+ * * `low` - Low confidence
+ */
+export type StoryConfidenceEnumApi = (typeof StoryConfidenceEnumApi)[keyof typeof StoryConfidenceEnumApi]
+
+export const StoryConfidenceEnumApi = {
+    High: 'high',
+    Medium: 'medium',
+    Low: 'low',
+} as const
+
+/**
+ * * `line` - Line
+ * * `bar` - Bar
+ */
+export type StoryEvidenceChartTypeEnumApi =
+    (typeof StoryEvidenceChartTypeEnumApi)[keyof typeof StoryEvidenceChartTypeEnumApi]
+
+export const StoryEvidenceChartTypeEnumApi = {
+    Line: 'line',
+    Bar: 'bar',
+} as const
+
+export interface StoryEvidenceSeriesApi {
+    /** The breakdown value or column this line draws. */
+    name: string
+    /** One value per label. Null where the breakdown value has no row for that point. */
+    values: (number | null)[]
+}
+
+export interface StoryEvidenceChartApi {
+    /** How the evidence chart draws its series.
+     *
+     * * `line` - Line
+     * * `bar` - Bar */
+    type: StoryEvidenceChartTypeEnumApi
+    /** The x-axis points. */
+    labels: string[]
+    /** The axis label of each point, which leaves out a date that repeats. */
+    ticks?: string[]
+    /** The lines or bars to draw. */
+    series: StoryEvidenceSeriesApi[]
+    /**
+     * The y-axis label, if any.
+     * @nullable
+     */
+    yAxisLabel: string | null
+}
+
+/**
+ * The query that shows the fact.
+ * @nullable
+ */
+export type StoryEvidenceApiQuery = { [key: string]: unknown } | null
+
+export interface StoryEvidenceApi {
+    /** One fact that supports the chapter. */
+    text: string
+    /**
+     * A PostHog link that shows the fact.
+     * @nullable
+     */
+    url: string | null
+    /**
+     * The query that shows the fact.
+     * @nullable
+     */
+    query?: StoryEvidenceApiQuery
+    /**
+     * The MCP query tool that can redraw `query`.
+     * @nullable
+     */
+    queryTool?: string | null
+    /** The fact drawn as a chart, from its SQL. */
+    chart?: StoryEvidenceChartApi | null
+}
+
+export interface StoryChapterApi {
+    /** The moment on the chart this chapter explains. */
+    title: string
+    /**
+     * Inclusive indexes into the series' points. Null when the chapter's dates match no point.
+     * @minItems 2
+     * @maxItems 2
+     * @nullable
+     * @items.minimum 0
+     */
+    range: number[] | null
+    /**
+     * What happened in this moment.
+     * @nullable
+     */
+    summary: string | null
+    /**
+     * The likely cause of this moment.
+     * @nullable
+     */
+    cause: string | null
+    /** How sure the investigation is of the cause.
+     *
+     * * `high` - High confidence
+     * * `medium` - Medium confidence
+     * * `low` - Low confidence */
+    confidence: StoryConfidenceEnumApi | null
+    /**
+     * Why the confidence is what it is.
+     * @nullable
+     */
+    confidenceReason: string | null
+    /** The facts behind the cause. */
+    evidence: StoryEvidenceApi[]
+}
+
+/**
+ * The TrendsQuery the explanation follows.
+ */
+export type ExplainChartDataApiQuery = { [key: string]: unknown }
+
+export interface ExplainChartDataApi {
+    /** The TrendsQuery the explanation follows. */
+    query: ExplainChartDataApiQuery
+    /** Every series on the chart when it was explained. */
+    results: StorySeriesResultApi[]
+    /**
+     * The index in `results` the explanation follows.
+     * @minimum 0
+     */
+    seriesIndex: number
+    /**
+     * The insight's name.
+     * @nullable
+     */
+    insightName: string | null
+    /** Whether the last point's period had not ended yet. */
+    lastPointInProgress: boolean
+    /** One sentence a person could read in place of the whole explanation. */
+    headline: string
+    /** The moments that stand out, in reading order. */
+    chapters: StoryChapterApi[]
+    /** Warnings the chart's query came back with. */
+    warnings?: unknown[]
+}
+
+export interface InsightExplanationApi {
+    readonly id: string
+    /** The chart explanation, as the insight page shows it. */
+    data: ExplainChartDataApi
+    readonly created_at: string
+}
+
 /**
  * The period that this insight's query covered, with both ends resolved to timestamps. Null when the insight has no result yet or its query type does not report the range.
  * @nullable

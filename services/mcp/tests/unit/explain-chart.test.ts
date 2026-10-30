@@ -11,7 +11,11 @@ const MONTHS = ['2025-12-01', '2026-01-01', '2026-02-01']
 const QUARTERS = ['2025-10-01', '2026-01-01', '2026-04-01']
 const YEARS = ['2024-01-01', '2025-01-01', '2026-01-01']
 
-function createContext(query: Record<string, unknown>, response: Record<string, unknown> = {}): Context {
+function createContext(
+    query: Record<string, unknown>,
+    response: Record<string, unknown> = {},
+    saved: unknown = { success: true, data: { id: 'e1' } }
+): Context {
     return {
         api: {
             insights: vi.fn().mockReturnValue({
@@ -19,6 +23,7 @@ function createContext(query: Record<string, unknown>, response: Record<string, 
                     success: true,
                     data: { id: 7, short_id: 'abc12345', name: 'Sign-ups', query },
                 }),
+                saveExplanation: vi.fn().mockResolvedValue(saved),
             }),
             query: vi.fn().mockReturnValue({
                 runQuery: vi.fn().mockResolvedValue({
@@ -50,23 +55,44 @@ describe('explain-chart', () => {
         expect(findStoryRange([...days], interval, start, end)).toEqual(expected)
     })
 
-    it('shows the chapters and tells the agent which dates matched no point', async () => {
-        const context = createContext({ kind: 'InsightVizNode', source: { kind: 'TrendsQuery', series: [] } })
+    it.each([
+        [
+            'saved',
+            { success: true, data: { id: 'e1' } },
+            'https://us.posthog.com/project/1/insights/abc12345?explanation=e1',
+        ],
+        [
+            'not saved',
+            { success: false, error: new Error('Throttled') },
+            'https://us.posthog.com/project/1/insights/abc12345',
+        ],
+    ])(
+        'shows the chapters and tells the agent which dates matched no point when the explanation is %s',
+        async (_, saved, url) => {
+            const context = createContext(
+                { kind: 'InsightVizNode', source: { kind: 'TrendsQuery', series: [] } },
+                {},
+                saved
+            )
 
-        const result = await explainChartHandler(context, {
-            insightId: 'abc12345',
-            series: 0,
-            headline: 'One day stands out.',
-            chapters: [
-                { title: 'A spike on October 2', start: '2026-10-02' },
-                { title: 'A gap in November', start: '2026-11-01' },
-            ],
-        })
+            const result = await explainChartHandler(context, {
+                insightId: 'abc12345',
+                series: 0,
+                headline: 'One day stands out.',
+                chapters: [
+                    { title: 'A spike on October 2', start: '2026-10-02' },
+                    { title: 'A gap in November', start: '2026-11-01' },
+                ],
+            })
 
-        expect(result.chapters.map((chapter) => chapter.range)).toEqual([[1, 1], null])
-        expect(result._posthogUrl).toBe('https://us.posthog.com/project/1/insights/abc12345')
-        expect(result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toContain('"A gap in November"')
-    })
+            expect(result.chapters.map((chapter) => chapter.range)).toEqual([[1, 1], null])
+            expect(result._posthogUrl).toBe(url)
+            expect(result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toContain('"A gap in November"')
+            expect(result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY].includes('?explanation=')).toBe(
+                url.includes('?explanation=')
+            )
+        }
+    )
 
     it.each([['a funnel', { kind: 'FunnelsQuery', series: [] }, 'only explains trends charts']])(
         'refuses %s',
