@@ -104,11 +104,12 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
         await this.worker.connect(async (jobs) => {
             const invocations: CyclotronJobInvocation[] = []
             const now = Date.now()
+            const jobLateness = jobLatenessHistogram.labels({ queue })
 
             for (const job of jobs) {
                 this.pendingJobs.set(job.id, job)
                 invocations.push(v2JobToInvocation(job))
-                jobLatenessHistogram.observe({ queue }, Math.max(0, now - job.scheduled.toMillis()) / 1000)
+                jobLateness.observe(Math.max(0, now - job.scheduled.toMillis()) / 1000)
             }
 
             pendingJobsGauge.set(this.pendingJobs.size)
