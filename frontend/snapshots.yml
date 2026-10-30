@@ -1336,6 +1336,10 @@ snapshots:
         hash: v1.k794b7964.e17eb30240808e9ce240a8e6aa0cb68e984e9a95fbf40ffae4246405565d2c27.Iy36TSFhxTIjRtzorONoJoGYm9ZOe3bDTUblSWRYsVA
     components-hogcharts-metriccard--resting-summary--light:
         hash: v1.k794b7964.58f0cbd9ef14a9118fa901cbeaa4740fe05e924711f3330fab90b119249fcd22.deCV_bqNEdk9lNkBTqHHyBrKqG-nhIheRHLBz-0iiEE
+    components-hogcharts-metriccard--value-color--dark:
+        hash: v1.k794b7964.469495cddadbc8e666f9c5795ab84350be15a71bc68c7fd5cc717b3437d77dc4.VCXjZJmhNRAwkjI_RHP1KkT7F1b8MlnjdLsT6wmeI5M
+    components-hogcharts-metriccard--value-color--light:
+        hash: v1.k794b7964.4dfce61954c49f9ef36b5f262e72bbbbf2b5ec779050bf7286f74b2c651f3552.f6QjAYzJuN1E8ou17wyyPZtCjkcBuxlFi_RLxB26MA4
     components-hogcharts-piechart--donut--dark:
         hash: v1.k794b7964.2260392123476646b81a9fc7de71c0ef351797ee389c4111a08a36a86f5b441f.b2RKzR6Ss820XshiC4FpMg4aI4CODwPzws6EjxrWypA
     components-hogcharts-piechart--donut--light:
