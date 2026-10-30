@@ -1417,6 +1417,9 @@ importers:
       ajv:
         specifier: ^8.20.0
         version: 8.20.0
+      ata-validator:
+        specifier: ^1.56.0
+        version: 1.58.1(yaml@2.9.0)
       caniuse-lite:
         specifier: ^1.0.30001689
         version: 1.0.30001690
@@ -6259,6 +6262,45 @@ packages:
 
   '@antfu/install-pkg@1.1.0':
     resolution: {integrity: sha512-MGQsmw10ZyI+EJo45CdSER4zEb+p31LpDAFp2Z3gkSd1yqVZGi0Ebx++YTEMonJy4oChEMLsxZ64j8FH6sSqtQ==}
+
+  '@ata-validator/native-darwin-arm64@1.58.1':
+    resolution: {integrity: sha512-uZNX+Ys5YfJBNtTBKI9Dy78QmdAhQiOMfcK3PH/G1EWWCy0sDJSBreLdaWoPEB1UQffCgJBYJXmP4TIE226JOg==}
+    cpu: [arm64]
+    os: [darwin]
+
+  '@ata-validator/native-darwin-x64@1.58.1':
+    resolution: {integrity: sha512-rMMqLJhJPFKBJF2CTg16DxEsZC1Iwkn5Pe6KCK9czIRhgL7nm0W+PTRVgF0jmGJNfnxJ6WafSz8+372iBlKzCQ==}
+    cpu: [x64]
+    os: [darwin]
+
+  '@ata-validator/native-linux-arm64-gnu@1.58.1':
+    resolution: {integrity: sha512-J/4YB7vgPGv4s+XIj4rIq09M9fYLXE1LoQGvx+O143YzWbFmP0A25VXKQEy2Gu4WcCzttBHHVN06737UAoq3jQ==}
+    cpu: [arm64]
+    os: [linux]
+    libc: [glibc]
+
+  '@ata-validator/native-linux-arm64-musl@1.58.1':
+    resolution: {integrity: sha512-oB80B8iy3OAStejZahl2qIbJKdoKRYtt6JA9HrePUpoUFfnnrmQrUVeqdowOLXkYeCmQE4zSUuxJ05TFS/G47A==}
+    cpu: [arm64]
+    os: [linux]
+    libc: [musl]
+
+  '@ata-validator/native-linux-x64-gnu@1.58.1':
+    resolution: {integrity: sha512-Wa/ivey6ck2gMdbLhqqYsF6FXPTXMDGeNt1qZSH9jzrGnErVLGdnRTKk+7ea75Mwr6Fon1/ApBZAYdWYTzHEeQ==}
+    cpu: [x64]
+    os: [linux]
+    libc: [glibc]
+
+  '@ata-validator/native-linux-x64-musl@1.58.1':
+    resolution: {integrity: sha512-Swry1Nzn0Ca4v1Qbv+t9qNYTyvorWSc0pPt7ToHL6JL36cCNGmDkT6jgU4tfqIiTWedlex/D8CuvVc9qrJ+85g==}
+    cpu: [x64]
+    os: [linux]
+    libc: [musl]
+
+  '@ata-validator/native-win32-x64@1.58.1':
+    resolution: {integrity: sha512-OKTnRWG/7sPq4aYrxhm9D5E5qQeXK+d6Q9Mo5TiK9QRZIB2Of2UcD70m1B0V0IBKnR4rDI6O0FsOTNsqTj3/Xg==}
+    cpu: [x64]
+    os: [win32]
 
   '@aws-crypto/crc32@5.2.0':
     resolution: {integrity: sha512-nLbCWqQNgUiwwtFsen1AdzAtvuLRsQS8rYgMuxCrdKf9kOssamGLuPwyTY9wyYblNr9+1XM8v6zoDTPPSIeANg==}
@@ -14881,6 +14923,16 @@ packages:
 
   asynckit@0.4.0:
     resolution: {integrity: sha512-Oei9OH4tRh0YqU3GxhX79dM/mwVgvbZJaSNaRk+bshkj0S5cfHcgYakreBjrHwatXKbz+IoIdYLxrKim2MjW0Q==}
+
+  ata-validator@1.58.1:
+    resolution: {integrity: sha512-TAmffXxY3SdxLHVBx/I6PYLMXaUAU+K17Nicth28SiANPVmZtw6uJM8yyTmFAYAP08nlZBzYpQYG/aeN2zFYeQ==}
+    engines: {node: '>=20.0.0'}
+    hasBin: true
+    peerDependencies:
+      yaml: ^2.0.0
+    peerDependenciesMeta:
+      yaml:
+        optional: true
 
   atomic-sleep@1.0.0:
     resolution: {integrity: sha512-kNOjDqAh7px0XWNI+4QbzoiR/nTkHAWNud2uvnJquD1/x5a7EQZMJT0AczqK0Qn67oY/TTQ1LbUKajZpp3I9tQ==}
@@ -24349,6 +24401,27 @@ snapshots:
     dependencies:
       package-manager-detector: 1.6.0
       tinyexec: 1.1.2
+
+  '@ata-validator/native-darwin-arm64@1.58.1':
+    optional: true
+
+  '@ata-validator/native-darwin-x64@1.58.1':
+    optional: true
+
+  '@ata-validator/native-linux-arm64-gnu@1.58.1':
+    optional: true
+
+  '@ata-validator/native-linux-arm64-musl@1.58.1':
+    optional: true
+
+  '@ata-validator/native-linux-x64-gnu@1.58.1':
+    optional: true
+
+  '@ata-validator/native-linux-x64-musl@1.58.1':
+    optional: true
+
+  '@ata-validator/native-win32-x64@1.58.1':
+    optional: true
 
   '@aws-crypto/crc32@5.2.0':
     dependencies:
@@ -35033,6 +35106,17 @@ snapshots:
   async@3.2.6: {}
 
   asynckit@0.4.0: {}
+
+  ata-validator@1.58.1(yaml@2.9.0):
+    optionalDependencies:
+      '@ata-validator/native-darwin-arm64': 1.58.1
+      '@ata-validator/native-darwin-x64': 1.58.1
+      '@ata-validator/native-linux-arm64-gnu': 1.58.1
+      '@ata-validator/native-linux-arm64-musl': 1.58.1
+      '@ata-validator/native-linux-x64-gnu': 1.58.1
+      '@ata-validator/native-linux-x64-musl': 1.58.1
+      '@ata-validator/native-win32-x64': 1.58.1
+      yaml: 2.9.0
 
   atomic-sleep@1.0.0: {}
 
