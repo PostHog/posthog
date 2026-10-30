@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, Link } from '@posthog/lemon-ui'
+import { Link } from '@posthog/lemon-ui'
 
 import { activityClientLabel } from 'lib/components/ActivityLog/activityClientLabel'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -8,10 +8,7 @@ import { urls } from 'scenes/urls'
 
 import { Experiment, FeatureFlagBasicType } from '~/types'
 
-import {
-    RESTORE_UNAVAILABLE_DISABLED_REASON,
-    canRestoreFeatureFlag,
-} from 'products/feature_flags/frontend/featureFlagConfigFormat'
+import { FeatureFlagDeletedBanner } from 'products/feature_flags/frontend/FeatureFlagDeletedBanner'
 
 import { experimentLogic } from '../experimentLogic'
 import { deletedFlagBannerLogic } from './deletedFlagBannerLogic'
@@ -28,49 +25,43 @@ function DeletedFlagBannerContent({
 }: {
     experimentId: Experiment['id']
     flag: FeatureFlagBasicType
-}): JSX.Element {
+}): JSX.Element | null {
     const logic = deletedFlagBannerLogic({ experimentId, flagId: flag.id })
-    const { flagDeletion, restoredFlagLoading } = useValues(logic)
+    const { deletedFlag, deletedFlagLoading, flagDeletion, restoredFlagLoading } = useValues(logic)
     const { restoreFlag } = useActions(logic)
-    const canRestore = canRestoreFeatureFlag(flag.filters)
 
-    const flagLink = (
-        <Link to={urls.featureFlag(flag.id)} target="_blank">
-            {keyBeforeDelete(flag)}
-        </Link>
-    )
+    // Until the flag API answers, nobody knows whether the viewer can restore the flag.
+    if (deletedFlagLoading) {
+        return null
+    }
 
     return (
-        <LemonBanner
-            type="error"
-            className="mb-4"
-            action={
-                canRestore
-                    ? {
-                          children: 'Restore flag',
-                          onClick: restoreFlag,
-                          loading: restoredFlagLoading,
-                          'data-attr': 'experiment-restore-deleted-flag',
-                      }
-                    : undefined
+        <FeatureFlagDeletedBanner
+            // When the flag API can't be read, the banner offers no restore.
+            flag={deletedFlag ?? { ...flag, archived: false, can_edit: false }}
+            subject={
+                <>
+                    This experiment's feature flag{' '}
+                    <Link to={urls.featureFlag(flag.id)} target="_blank">
+                        {keyBeforeDelete(flag)}
+                    </Link>
+                </>
             }
+            onRestore={restoreFlag}
+            restoreLoading={restoredFlagLoading}
+            restoreDataAttr="experiment-restore-deleted-flag"
+            className="mb-4"
         >
             <div>
-                <strong>This experiment's feature flag is deleted</strong>
-            </div>
-            <div>
-                {flagDeletion ? (
+                {flagDeletion && (
                     <>
-                        {flagDeletion.actor} deleted {flagLink} <TZLabel time={flagDeletion.deletedAt} />
-                        {flagDeletion.client ? ` via ${activityClientLabel(flagDeletion.client)}` : ''}.
+                        {flagDeletion.actor} deleted it <TZLabel time={flagDeletion.deletedAt} />
+                        {flagDeletion.client ? ` via ${activityClientLabel(flagDeletion.client)}` : ''}.{' '}
                     </>
-                ) : (
-                    <>The feature flag {flagLink} was deleted.</>
-                )}{' '}
+                )}
                 The experiment can't launch until the flag is restored.
-                {!canRestore && <> {RESTORE_UNAVAILABLE_DISABLED_REASON}</>}
             </div>
-        </LemonBanner>
+        </FeatureFlagDeletedBanner>
     )
 }
 
