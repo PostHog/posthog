@@ -80,7 +80,7 @@ function mockInsight(
 const MOCK_INSIGHTS = [
     mockInsight(1, 'Revenue by plan tier', 'TrendsQuery', [1, 2], '2026-04-29T08:00:00Z'),
     mockInsight(2, 'Upgrade funnel by plan tier', 'FunnelsQuery', [2], '2026-04-12T15:30:00Z'),
-    mockInsight(3, 'Weekly active users by plan tier', 'TrendsQuery', [], null),
+    { ...mockInsight(3, 'Weekly active users by plan tier', 'TrendsQuery', [], null), created_by: null },
 ]
 
 function propertyUsageDecorator(

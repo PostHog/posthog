@@ -85,7 +85,13 @@ export function DefinitionUsageInsightsTable({
             title: 'Created by',
             key: 'created_by',
             render: function renderCreatedBy(_, insight) {
-                const { first_name, last_name, email } = insight.created_by
+                // The generated type says non-null, but the creator foreign key is SET_NULL, so system-created
+                // insights and insights of deleted users arrive with `created_by: null`.
+                const createdBy: InsightApi['created_by'] | null = insight.created_by
+                if (!createdBy) {
+                    return <span className="text-secondary">—</span>
+                }
+                const { first_name, last_name, email } = createdBy
                 return <ProfilePicture user={{ first_name, last_name, email }} size="md" showName />
             },
         },
