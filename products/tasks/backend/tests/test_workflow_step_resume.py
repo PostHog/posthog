@@ -15,7 +15,7 @@ from products.tasks.backend.logic.services.workflow_step_resume import (
     resume_workflow_step_for_run,
     resume_workflow_step_for_run_id,
 )
-from products.tasks.backend.models import Task, TaskRun
+from products.tasks.backend.models import TASK_RUN_FINISH_REPORT_STATE_KEY, Task, TaskRun
 from products.tasks.backend.temporal.process_task.activities.relay_sandbox_events import _persist_final_message
 
 _RESUME = "products.tasks.backend.logic.services.workflow_step_resume.emit_workflow_step_resume"
@@ -225,8 +225,16 @@ class TestResumeWorkflowStepForRun(BaseTest):
             _persist_final_message(str(run.id), "Current turn")
             assert resume.call_args.kwargs["result"]["final_message"] == "Current turn"
 
-    def test_agent_completion_with_a_report_wakes_the_step_with_it_and_keeps_it(self) -> None:
-        run = self._run(status=TaskRun.Status.IN_PROGRESS, final_message="Previous turn")
+    @parameterized.expand(
+        [
+            ("without_output_fields", None, ["Opened 2 draft PRs"], 0),
+            ("with_output_fields", {"type": "object", "properties": {"title": {"type": "string"}}}, [], 1),
+        ]
+    )
+    def test_agent_completion_with_a_report_keeps_it_and_waits_for_output_fields(
+        self, _name: str, json_schema: dict | None, woken_with: list[str], deferred_wakes: int
+    ) -> None:
+        run = self._run(status=TaskRun.Status.IN_PROGRESS, final_message="Previous turn", json_schema=json_schema)
         run.state = {"end_run_when_done": True}
         run.save(update_fields=["state"])
 
@@ -234,7 +242,6 @@ class TestResumeWorkflowStepForRun(BaseTest):
             patch(_RESUME) as resume,
             patch(_SEND_TASK) as send_task,
             patch("products.tasks.backend.facade.api.signal_workflow_completion"),
-            patch("products.tasks.backend.logic.services.loop_runs.handle_loop_run_terminal"),
         ):
             with self.captureOnCommitCallbacks(execute=True):
                 update_task_run(
@@ -245,9 +252,42 @@ class TestResumeWorkflowStepForRun(BaseTest):
                     only_if_non_terminal=True,
                     caller_is_agent=True,
                 )
-            assert resume.call_args.kwargs["result"]["final_message"] == "Opened 2 draft PRs"
-            send_task.assert_not_called()
             _persist_final_message(str(run.id), "Waiting on CI")
-            run.refresh_from_db()
-            assert run.output["final_message"] == "Opened 2 draft PRs"
-            assert resume.call_count == 1
+
+        run.refresh_from_db()
+        assert run.output is not None
+        assert run.output["final_message"] == "Opened 2 draft PRs"
+        assert [call.kwargs["result"]["final_message"] for call in resume.call_args_list] == woken_with
+        assert send_task.call_count == deferred_wakes
+
+    @parameterized.expand(
+        [
+            (
+                "finish_report_on_a_failed_run",
+                Task.OriginProduct.USER_CREATED,
+                TaskRun.Status.FAILED,
+                True,
+                "Saved earlier",
+            ),
+            (
+                "earlier_message_on_a_completed_workflow_run",
+                Task.OriginProduct.WORKFLOW,
+                TaskRun.Status.COMPLETED,
+                False,
+                "Current turn",
+            ),
+        ]
+    )
+    def test_relay_replaces_the_final_message_unless_finish_saved_it(
+        self, _name: str, origin_product: str, run_status: str, saved_by_finish: bool, expected: str
+    ) -> None:
+        run = self._run(origin_product=origin_product, status=run_status, final_message="Saved earlier")
+        run.state = {"end_run_when_done": True, TASK_RUN_FINISH_REPORT_STATE_KEY: saved_by_finish}
+        run.save(update_fields=["state"])
+
+        with patch(_RESUME), patch(_SEND_TASK):
+            _persist_final_message(str(run.id), "Current turn")
+
+        run.refresh_from_db()
+        assert run.output is not None
+        assert run.output["final_message"] == expected

@@ -158,6 +158,7 @@ from products.tasks.backend.models import (
     PRIOR_RUN_SUMMARY_STATE_KEY,
     PRIOR_RUN_TAGS_STATE_KEY,
     TASK_OWNERSHIP_VERSION_STATE_KEY,
+    TASK_RUN_FINISH_REPORT_STATE_KEY,
     TASK_RUN_SUMMARY_STATE_KEY,
     TASK_RUN_TAGS_STATE_KEY,
     Channel,
@@ -3167,6 +3168,9 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "slack_actor_slack_user_id",
         # Names the autoresearch training run this TaskRun finalizes when it ends (training.ingestion).
         "autoresearch_training_run_id",
+        # Set only when the agent's `finish` call saves its report. A forged marker would stop the
+        # relay from saving the run's final message and make readers trust a caller-written one.
+        TASK_RUN_FINISH_REPORT_STATE_KEY,
     }
 )
 
@@ -3744,15 +3748,20 @@ def update_task_run(
             # A dormant run has no workflow to complete its stream after cancellation.
             run.state = {**(run.state or {}), "cancel_fallback_cleanup_complete": True}
             update_fields.add("state")
-        # Drop an earlier turn's message so the workflow step waits for the report of this turn.
-        # A `finish` call that carries the report in the same PATCH keeps it.
         if (
+            caller_is_agent
+            and new_status in {TaskRun.Status.COMPLETED, TaskRun.Status.FAILED}
+            and old_status != new_status
+            and _carries_final_message(validated_data)
+        ):
+            run.state = {**(run.state or {}), TASK_RUN_FINISH_REPORT_STATE_KEY: True}
+            update_fields.add("state")
+        elif (
             caller_is_agent
             and new_status == TaskRun.Status.COMPLETED
             and old_status != new_status
             and run.task.origin_product == Task.OriginProduct.WORKFLOW
             and (run.state or {}).get("end_run_when_done")
-            and not _carries_final_message(validated_data)
         ):
             if isinstance(run.output, dict):
                 run.output = {key: value for key, value in run.output.items() if key != "final_message"}
