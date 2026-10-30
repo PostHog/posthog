@@ -1053,6 +1053,24 @@ describe('HogFunctionHandler', () => {
             )
         })
 
+        it('links the AI task in the wait log, whatever the step stores', async () => {
+            // Serve the per-team template under the real id, because other test files share the template table.
+            const awaitedTemplateId = TASK_TEMPLATE_ID
+            const getTemplate =
+                mockHogFunctionTemplateManager.getHogFunctionTemplate.bind(mockHogFunctionTemplateManager)
+            jest.spyOn(mockHogFunctionTemplateManager, 'getHogFunctionTemplate').mockImplementation((id) =>
+                getTemplate(id === 'template-posthog-create-task' ? awaitedTemplateId : id)
+            )
+            TASK_TEMPLATE_ID = 'template-posthog-create-task'
+            buildTaskFlow()
+
+            const { invocationResult } = await execute()
+
+            expect(invocationResult.logs.map((l) => l.message)).toContainEqual(
+                expect.stringMatching(/Waiting for the task to finish \(up to .+\) \[Task:t1\|r1\]$/)
+            )
+        })
+
         it.each([
             ['the template asks for no wait', { skip: { value: true } }, true],
             ['waiting is turned off', {}, false],

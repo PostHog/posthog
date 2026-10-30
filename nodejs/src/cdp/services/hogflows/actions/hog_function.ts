@@ -24,7 +24,7 @@ import { RecipientPreferencesService } from '../../messaging/recipient-preferenc
 import { CdpUsageReporterService } from '../../usage/cdp-usage-reporter.service'
 import { trackHogFlowBillableInvocation } from '../billing-utils'
 import { HogFlowFunctionsService } from '../hogflow-functions.service'
-import { actionIdForLogging, findContinueAction } from '../hogflow-utils'
+import { actionIdForLogging, aiTaskLogToken, findContinueAction } from '../hogflow-utils'
 import { observeMissingVariableReferences } from '../hogflow-variable-usage'
 import { ActionHandler, ActionHandlerOptions, ActionHandlerResult } from './action.interface'
 
@@ -353,10 +353,12 @@ export class HogFunctionHandler implements ActionHandler {
             label: awaitRequest.label,
             parkedAt: DateTime.now().toISO()!,
         }
+        // The stored variable only links the task when it holds the whole result, so link it here too.
+        const taskToken = aiTaskLogToken(action, dispatch)
         result.logs.push({
             level: 'info',
             timestamp: DateTime.now(),
-            message: `${actionIdForLogging(action)} Waiting for the ${awaitRequest.label} to finish (up to ${humanDuration(awaitRequest.maxWait)})`,
+            message: `${actionIdForLogging(action)} Waiting for the ${awaitRequest.label} to finish (up to ${humanDuration(awaitRequest.maxWait)})${taskToken ? ` ${taskToken}` : ''}`,
         })
         // Stored now so a step that later fails still leaves the ids for `on_error: continue`.
         return { scheduledAt: deadline, result: dispatch }
