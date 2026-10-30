@@ -29,11 +29,16 @@ export function ShareBarChart<T>({
     totalCalls,
     theme,
     tooltip,
+    fillHeight = false,
+    label,
 }: {
     rows: ShareBarRow<T>[]
     totalCalls: number
     theme: ChartTheme
     tooltip: (ctx: TooltipContext<ShareMeta<T>>) => JSX.Element | null
+    /** Fill the height the parent gives and scroll the rows, instead of growing with them. The parent must be a flex column. */
+    fillHeight?: boolean
+    label?: string
 }): JSX.Element {
     const series = useMemo<Series<ShareMeta<T>>[]>(
         () =>
@@ -65,17 +70,38 @@ export function ShareBarChart<T>({
         },
         [rowByKey]
     )
+    const barList = (
+        <BarList
+            series={series}
+            theme={theme}
+            total={totalCalls}
+            config={SHARE_BAR_CONFIG}
+            valueFormatter={formatCalls}
+            renderLabel={renderLabel}
+            tooltip={tooltip}
+        />
+    )
+    if (!fillHeight) {
+        return (
+            <div translate="no" className="pt-2">
+                {barList}
+            </div>
+        )
+    }
+    // The absolute scroller adds no height to the card, so a chart beside it in the same grid row sets
+    // the row height. min-h-60 applies when the cards stack and no sibling sets a height. It must stay
+    // below the height of the share-over-time card, or the list stretches that card again.
     return (
-        <div translate="no" className="pt-2">
-            <BarList
-                series={series}
-                theme={theme}
-                total={totalCalls}
-                config={SHARE_BAR_CONFIG}
-                valueFormatter={formatCalls}
-                renderLabel={renderLabel}
-                tooltip={tooltip}
-            />
+        <div className="relative min-h-60 flex-1">
+            <div
+                className="absolute inset-0 overflow-y-auto pt-2"
+                translate="no"
+                tabIndex={0}
+                role="region"
+                aria-label={label}
+            >
+                {barList}
+            </div>
         </div>
     )
 }
