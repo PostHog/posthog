@@ -155,9 +155,7 @@ _SHARED_ACCESS_SOURCES = frozenset(
 )
 
 
-def is_workflow_owner_or_shared_editor(
-    *, team_id: int, workflow_id: UUID, user_access_control: UserAccessControl
-) -> bool:
+def may_act_for_workflow_owner(*, team_id: int, workflow_id: UUID, user_access_control: UserAccessControl) -> bool:
     try:
         flow = HogFlow.objects.only("id", "team_id", "created_by_id").get(team_id=team_id, id=workflow_id)
     except HogFlow.DoesNotExist:

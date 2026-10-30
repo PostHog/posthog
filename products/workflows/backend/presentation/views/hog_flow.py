@@ -155,8 +155,8 @@ from products.workflows.backend.facade.activity import (
 from products.workflows.backend.facade.api import (
     flow_ids_with_active_schedule,
     is_utm_apply_eligible,
-    is_workflow_owner_or_shared_editor,
     load_team_utm_defaults,
+    may_act_for_workflow_owner,
     plan_flow_utm_update,
     release_edited_email_utm_keys,
     seed_new_email_steps_with_utm_defaults,
@@ -669,8 +669,11 @@ _REPLAY_VISION_TEMPLATE_ID = "template-posthog-replay-vision"
 
 _T3_CODE_TEMPLATE_ID = "template-t3-code"
 _T3_CODE_OWNER_ONLY_ERROR = (
-    "This workflow has a T3 Code step, so only its owner or someone they share it with can change or run it. "
-    "Ask the owner to share it with you."
+    "This workflow has a T3 Code step, which runs on its owner's T3 Code account. Only the owner, an organization "
+    "admin, or someone the owner shares the workflow with can change or run it. Ask one of them to make the change."
+)
+_T3_CODE_TRANSACTIONAL_ERROR = (
+    "A transactional email workflow can't have a T3 Code step, because anyone who sends the email would start a run."
 )
 # Each group lists the scopes that grant one thing the step needs: reading recordings, and starting scans,
 # which the scan APIs gate on scanner write.
@@ -731,9 +734,13 @@ def _may_change_t3_code_steps(
     draft_actions = (workflow.draft or {}).get("actions")
     if not _holds_t3_code_step(workflow.actions, draft_actions, *actions):
         return True
-    return is_workflow_owner_or_shared_editor(
+    return may_act_for_workflow_owner(
         team_id=workflow.team_id, workflow_id=workflow.id, user_access_control=user_access_control
     )
+
+
+def _only_stops_the_workflow(data: dict[str, Any]) -> bool:
+    return set(data) == {"status"} and data["status"] != HogFlowState.ACTIVE
 
 
 def _require_replay_vision_editor_access(request: Request | None, context: dict[str, Any], actions: Any) -> None:
@@ -3694,9 +3701,13 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         if (
             instance
             and user_access_control
+            and not _only_stops_the_workflow(data)
             and not _may_change_t3_code_steps(instance, user_access_control, data.get("actions"))
         ):
             raise exceptions.PermissionDenied(_T3_CODE_OWNER_ONLY_ERROR)
+        origin_product = instance.origin_product if instance else data.get("origin_product")
+        if origin_product == HogFlowOriginProduct.TRANSACTIONAL_EMAILS and _holds_t3_code_step(data.get("actions")):
+            raise serializers.ValidationError({"actions": _T3_CODE_TRANSACTIONAL_ERROR})
 
         # Reject duplicate action ids on any client-submitted actions array (create/update/graph), on
         # every path - not just the surgical /graph endpoint where validate_graph enforces it. Secret
@@ -3934,7 +3945,7 @@ def set_workflow_enabled(*, team_id: int, user_id: int, workflow_id: uuid_mod.UU
     hog_flow = get_team_workflow_edit_state(
         team_id=team_id, workflow_id=workflow_id, user_access_control=user_access_control, required_level="editor"
     )
-    if not _may_change_t3_code_steps(hog_flow, user_access_control):
+    if enabled and not _may_change_t3_code_steps(hog_flow, user_access_control):
         raise WorkflowAccessDenied(required_level="editor")
     target = HogFlowState.ACTIVE if enabled else HogFlowState.DRAFT
     if hog_flow.status != target:
@@ -5981,6 +5992,7 @@ class HogFlowViewSet(
         instance = self._edit_state()
         if not instance.draft:
             raise exceptions.ValidationError("This workflow has no staged draft to publish.")
+        self._require_t3_code_caller_access(request, instance)
 
         if not confirm:
             counts = self._get_in_flight_counts(instance)
@@ -6121,6 +6133,7 @@ class HogFlowViewSet(
         param_serializer.is_valid(raise_exception=True)
 
         workflow_ref = self._workflow_ref()
+        self._require_t3_code_caller_access(request, self._edit_state())
         restored_version = int(version or 0)
         try:
             result = restore_revision(
@@ -6338,6 +6351,7 @@ class HogFlowViewSet(
         param_serializer.is_valid(raise_exception=True)
 
         workflow_ref = self._workflow_ref()
+        self._require_t3_code_caller_access(request, self._edit_state())
         parsed_proposal_id = _parse_uuid_or_none(proposal_id)
         if parsed_proposal_id is None:
             raise exceptions.NotFound("No such suggestion for this workflow.")

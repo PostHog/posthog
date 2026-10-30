@@ -8576,22 +8576,41 @@ class TestT3CodeStepOwnership(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("owner", status.HTTP_200_OK),
-            ("shared_editor", status.HTTP_200_OK),
-            ("admin", status.HTTP_200_OK),
-            ("teammate", status.HTTP_403_FORBIDDEN),
+            ("owner", {"name": "Fix every error"}, status.HTTP_200_OK),
+            ("shared_editor", {"name": "Fix every error"}, status.HTTP_200_OK),
+            ("admin", {"name": "Fix every error"}, status.HTTP_200_OK),
+            ("teammate", {"name": "Fix every error"}, status.HTTP_403_FORBIDDEN),
+            ("teammate", {"status": "archived"}, status.HTTP_200_OK),
         ]
     )
-    def test_only_the_owner_or_someone_they_share_with_can_change_it(self, who: str, expected: int) -> None:
+    def test_only_the_owner_or_someone_they_share_with_can_change_it(
+        self, who: str, change: dict, expected: int
+    ) -> None:
         self._log_in_as(who)
 
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/hog_flows/{self.flow.id}", {"name": "Fix every error"}, format="json"
-        )
+        response = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{self.flow.id}", change, format="json")
 
         assert response.status_code == expected, response.json()
-        if who == "teammate":
+        if expected == status.HTTP_403_FORBIDDEN:
             assert "T3 Code step" in response.json()["detail"]
+
+    @parameterized.expand(
+        [
+            ("publish", {"confirm": True}),
+            ("revisions/1/restore", {"overwrite": True}),
+            ("proposals/00000000-0000-4000-8000-000000000000/approve", {"overwrite": True}),
+        ]
+    )
+    def test_a_teammate_cannot_replace_its_content(self, path: str, body: dict) -> None:
+        HogFlow.objects.filter(id=self.flow.id).update(draft={"actions": self.flow.actions})
+        self._log_in_as("teammate")
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{self.flow.id}/{path}", body, format="json"
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        assert "T3 Code step" in response.json()["detail"]
 
     @parameterized.expand(
         [
@@ -8622,11 +8641,44 @@ class TestT3CodeStepOwnership(APIBaseTest):
 
         assert response.status_code == expected, response.json()
 
-    def test_a_teammate_cannot_turn_it_on_from_a_canvas(self) -> None:
+    def test_a_teammate_can_turn_it_off_but_not_on_from_a_canvas(self) -> None:
         teammate = self._log_in_as("teammate")
 
         with pytest.raises(WorkflowAccessDenied):
             set_workflow_enabled(team_id=self.team.id, user_id=teammate.id, workflow_id=self.flow.id, enabled=True)
+        HogFlow.objects.filter(id=self.flow.id).update(status="active")
+        assert (
+            set_workflow_enabled(team_id=self.team.id, user_id=teammate.id, workflow_id=self.flow.id, enabled=False)
+            == "draft"
+        )
+
+    def test_a_transactional_email_workflow_cannot_have_a_t3_code_step(self) -> None:
+        template = deepcopy(webhook_template)
+        template["id"] = "template-t3-code"
+        sync_template_to_db(template)
+        trigger, t3_code_step = self.flow.actions
+
+        with patch("products.workflows.backend.presentation.views.hog_flow.gated_template_enabled", return_value=True):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows",
+                {
+                    "name": "Welcome email",
+                    "origin_product": "transactional_emails",
+                    "actions": [
+                        trigger,
+                        {
+                            **t3_code_step,
+                            "config": {**t3_code_step["config"], "inputs": {"url": {"value": "https://example.com"}}},
+                        },
+                    ],
+                    "edges": [],
+                },
+                format="json",
+                HTTP_X_POSTHOG_CLIENT="mcp",
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "transactional email workflow" in str(response.json())
 
 
 class TestRunScoutActionValidation(APIBaseTest):
