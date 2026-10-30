@@ -323,10 +323,15 @@ _USAGE_TYPE_LABELS: dict[str, str] = {
 
 
 def _integration_in_use_error(usages: list[IntegrationUsage]) -> ValidationError:
+    # Integration management does not grant read access to the sources that block deletion.
     types = [*_USAGE_TYPE_LABELS, *sorted({usage.type for usage in usages} - set(_USAGE_TYPE_LABELS))]
     used_by = [
         f"{_USAGE_TYPE_LABELS.get(usage_type, usage_type)}: "
-        f"{', '.join(sorted(usage.name for usage in usages if usage.type == usage_type))}"
+        + (
+            str(sum(usage.type == usage_type for usage in usages))
+            if usage_type == "warehouse_source"
+            else ", ".join(sorted(usage.name for usage in usages if usage.type == usage_type))
+        )
         for usage_type in types
         if any(usage.type == usage_type for usage in usages)
     ]

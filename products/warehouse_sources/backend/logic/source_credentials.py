@@ -20,7 +20,7 @@ methods without a change to the callers.
 import json
 from collections.abc import Iterable, Mapping
 from typing import Any
-from urllib.parse import unquote
+from urllib.parse import parse_qsl, unquote, urlsplit
 from uuid import UUID, uuid4
 
 import structlog
@@ -307,16 +307,18 @@ def _connection_string_identity(value: str) -> Any:
     if not value:
         return ""
     if "://" in value:
-        scheme, _, rest = value.partition("://")
-        authority, _, path = rest.partition("/")
-        userinfo, _, hosts = authority.rpartition("@")
-        return {
-            "scheme": scheme.lower(),
+        uri = urlsplit(value)
+        userinfo, _, hosts = uri.netloc.rpartition("@")
+        identity = {
+            "scheme": uri.scheme.lower(),
             "user": unquote(userinfo.partition(":")[0]),
             "hosts": hosts.lower(),
-            # The query can hold options and secrets, so only the database name of the path counts.
-            "database": path.partition("?")[0].partition("#")[0],
+            "database": uri.path.removeprefix("/"),
         }
+        if uri.scheme.lower() in ("mongodb", "mongodb+srv"):
+            options = {key.lower(): item for key, item in parse_qsl(uri.query)}
+            identity["auth_source"] = options.get("authsource", unquote(uri.path.removeprefix("/")) or "admin")
+        return identity
     # ADO.NET separates pairs with ";" and has keys with spaces ("User Id"). libpq separates with spaces.
     pairs = [pair.partition("=") for pair in (value.split(";") if ";" in value else value.split()) if "=" in pair]
     parts = {

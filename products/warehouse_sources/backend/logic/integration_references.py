@@ -8,6 +8,7 @@ team, which keeps the cost bounded by the size of that team.
 from collections.abc import Mapping
 from typing import Any
 
+from posthog.helpers.encrypted_fields import FERNET_TOKEN_PREFIX
 from posthog.integrations import IntegrationManager, IntegrationNotFound
 
 from products.warehouse_sources.backend.facade.contracts import SourceReferencingIntegration
@@ -25,7 +26,11 @@ def list_sources_using_integration(team_id: int, integration_pk: int) -> list[So
         .exclude(deleted=True)
         .only("id", "source_type", "prefix", "job_inputs")
     )
-    inputs_by_source = SourceInputsStore.load_many(sources)
+    inputs_by_source = {
+        source_id: inputs
+        for source_id, inputs in SourceInputsStore.load_many(sources).items()
+        if not _has_ciphertext(inputs)
+    }
     wanted = str(integration_pk)
     users = [
         SourceReferencingIntegration(id=source.id, source_type=str(source.source_type), prefix=source.prefix)
@@ -73,3 +78,11 @@ def _has_pointer(inputs: Mapping[str, Any], wanted: str) -> bool:
         if isinstance(value, Mapping) and _has_pointer(value, wanted):
             return True
     return False
+
+
+def _has_ciphertext(value: Any) -> bool:
+    if isinstance(value, Mapping):
+        return any(_has_ciphertext(item) for item in value.values())
+    if isinstance(value, list):
+        return any(_has_ciphertext(item) for item in value)
+    return isinstance(value, str) and value.startswith(FERNET_TOKEN_PREFIX)

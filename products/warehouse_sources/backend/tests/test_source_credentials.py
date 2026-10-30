@@ -406,6 +406,38 @@ class TestWarehouseSourceCredentialsStore(BaseTest):
                 "new_row",
             ),
             (
+                "mongodb_auth_source",
+                ExternalDataSourceType.MONGODB,
+                {"connection_string": "mongodb://reader:fake-password@db.example.com/app?authSource=admin"},
+                "connection_string",
+                "mongodb://reader:fake-password@db.example.com/app?authSource=other",
+                "new_row",
+            ),
+            (
+                "mongodb_default_auth_source",
+                ExternalDataSourceType.MONGODB,
+                {"connection_string": "mongodb://reader:fake-password@db.example.com/app"},
+                "connection_string",
+                "mongodb://reader:fake-password@db.example.com/app?authSource=other",
+                "new_row",
+            ),
+            (
+                "mongodb_no_path_auth_source",
+                ExternalDataSourceType.MONGODB,
+                {"connection_string": "mongodb+srv://reader:fake-password@db.example.com?authSource=admin"},
+                "connection_string",
+                "mongodb+srv://reader:fake-password@db.example.com?authSource=other",
+                "new_row",
+            ),
+            (
+                "mongodb_password",
+                ExternalDataSourceType.MONGODB,
+                {"connection_string": "mongodb://reader:fake-password@db.example.com/app?authSource=admin"},
+                "connection_string",
+                "mongodb://reader:new@db.example.com/app?authSource=admin",
+                "conflict",
+            ),
+            (
                 "pairs_password",
                 ExternalDataSourceType.MSSQL,
                 MSSQL_ADO_FIELDS,
@@ -565,17 +597,23 @@ class TestWarehouseSourceCredentialsStore(BaseTest):
 
     @parameterized.expand(
         [
-            ("same_kind", ExternalDataSourceType.POSTGRES, True),
-            ("other_kind", ExternalDataSourceType.STRIPE, False),
+            ("same_kind", ExternalDataSourceType.POSTGRES, True, False),
+            ("other_kind", ExternalDataSourceType.STRIPE, False, False),
+            ("encrypted_pointer_same_kind", ExternalDataSourceType.POSTGRES, True, True),
+            ("encrypted_pointer_other_kind", ExternalDataSourceType.STRIPE, False, True),
         ]
     )
     def test_a_source_with_unreadable_inputs_counts_as_a_user_of_a_row_of_its_kind(
-        self, _name: str, broken_type: ExternalDataSourceType, counted: bool
+        self, _name: str, broken_type: ExternalDataSourceType, counted: bool, encrypted_pointer: bool
     ) -> None:
         editor = self._source()
         pk = WarehouseSourceCredentialsStore.create(editor, PG_FIELDS)
         broken = self._source(broken_type)
-        broken.job_inputs = "not json"
+        broken.job_inputs = (
+            {"auth": {CREDENTIALS_REFERENCE_KEY: Fernet(Fernet.generate_key()).encrypt(str(pk).encode()).decode()}}
+            if encrypted_pointer
+            else "not json"
+        )
         broken.save()
         new_fields = {**PG_FIELDS, "password": "new"}
 
