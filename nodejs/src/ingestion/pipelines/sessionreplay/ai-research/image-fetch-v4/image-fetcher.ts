@@ -40,7 +40,6 @@ export interface ImageFetchResult {
     currentUrl: string
     status?: number
     bytes?: Buffer
-    /** One of the asset's `contentTypes`, lowercase and without parameters. */
     contentType?: string
     contentEncoding?: string
     cache?: HttpCacheMetadata
@@ -56,7 +55,6 @@ export interface ImageFetchResult {
 }
 
 export interface ImageFetchOptions {
-    /** What the reference expects at the URL, which sets the Accept header and the content types the fetch takes. */
     asset: V4UrlAsset
     sourcePartitions?: readonly number[]
     maxBytes: number

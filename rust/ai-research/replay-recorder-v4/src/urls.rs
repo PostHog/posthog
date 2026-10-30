@@ -1,5 +1,4 @@
-//! Fetch jobs for the remote images and fonts a flush's blocks referenced, in the v3 fetch topic's job shape. Both go to
-//! one topic keyed by registrable domain, so fonts share the image jobs' partitions and politeness limits.
+//! Fetch jobs for the remote images and fonts a flush's blocks referenced, in the v3 fetch topic's job shape.
 
 use std::collections::{BTreeMap, HashSet};
 use std::time::Duration;
@@ -23,8 +22,8 @@ const MAX_RECORD_BYTES: usize = 512 * 1024;
 /// How many redirects a job may follow, as in v3.
 const REMAINING_HOPS: u32 = 10;
 
-/// Builds one job per new remote image or font URL, grouped by registrable domain, the topic's key. Counts each block's
-/// image URLs in the stats paired with it. `already_sent` names references this process sent today.
+/// Builds one job per new remote image URL, grouped by registrable domain, the topic's key. Counts each block's URLs
+/// in the stats paired with it. `already_sent` names references this process sent today.
 pub fn fetch_jobs<'b>(
     blocks: impl IntoIterator<Item = (&'b Block, &'b mut BlockStats)>,
     keys: &FlushKeys,
@@ -76,8 +75,8 @@ pub fn fetch_jobs<'b>(
     jobs
 }
 
-/// The reference of a remote image or font URL, the same in the fetch job and in the stored block, or why the policy
-/// declines the URL. `url_key` is the team's URL key for `key_month`.
+/// The reference of a remote image URL, the same in the fetch job and in the stored block, or why the policy declines
+/// the URL. `url_key` is the team's URL key for `key_month`.
 pub fn url_reference(
     raw: &str,
     asset: UrlAsset,

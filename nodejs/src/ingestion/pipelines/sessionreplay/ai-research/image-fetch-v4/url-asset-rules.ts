@@ -8,9 +8,7 @@ import type { V4UrlAsset } from './v4-url-ref'
 
 export interface UrlAssetRules {
     accept: string
-    /** Media types the response may declare, lowercase and without parameters. */
     contentTypes: readonly string[]
-    /** Decodes the response body and checks that its bytes are this asset, or throws `InvalidImageTransportError`. */
     prepare: (bytes: Buffer, contentType: string | undefined, contentEncoding: string | undefined) => Promise<Buffer>
     frameKind: 'image-url' | 'font-url'
     /** Each prefix needs a write grant for the fetcher's role in posthog-cloud-infra (`v4-staging.hcl`). */

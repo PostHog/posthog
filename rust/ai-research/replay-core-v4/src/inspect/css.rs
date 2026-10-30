@@ -1,6 +1,6 @@
-//! Remote URLs in CSS. Image URLs are found with the rules of v3 `css.rs`: the `url()` and the best `image-set()`
-//! candidate in the value of a property that shows an image. Custom properties and other properties do not count. Font
-//! URLs are the `url()`s in the `src` descriptor of an `@font-face` rule.
+//! Remote image URLs in CSS, found with the rules of v3 `css.rs`: the `url()` and the best `image-set()` candidate in the
+//! value of a property that shows an image. Custom properties and other properties do not count.
+//! Font URLs are the `url()`s in the `src` descriptor of an `@font-face` rule.
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CssUrl<'a> {
@@ -12,8 +12,8 @@ pub enum CssUrl<'a> {
     },
 }
 
-/// Calls `found` with each URL candidate in `css`: a `style` attribute, `<style>` text or `_cssText`, which v3 reads
-/// the same way for images.
+/// Calls `found` with each URL candidate in `css`: a `style` attribute, `<style>` text or `_cssText`, which v3
+/// reads the same way.
 pub fn urls(css: &str, found: &mut impl FnMut(CssUrl<'_>)) {
     let declarations = declarations(css);
     let mut families: Vec<Option<&str>> = Vec::new();
@@ -22,7 +22,6 @@ pub fn urls(css: &str, found: &mut impl FnMut(CssUrl<'_>)) {
             if families.len() <= face {
                 families.resize(face + 1, None);
             }
-            // As in any declaration block, the last `font-family` of the rule wins.
             families[face] = Some(&css[declaration.start..declaration.end]);
         }
     }
@@ -48,10 +47,15 @@ pub fn declaration_image_urls(property: &str, value: &str, found: &mut impl FnMu
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum DeclarationKind {
     Image,
-    /// A custom property. Its value is skipped, so that a colon in it does not start a declaration.
     Custom,
     FontSrc(usize),
     FontFamily(usize),
+}
+
+#[derive(Clone, Copy)]
+struct OpenFontFace {
+    inner_brace_depth: usize,
+    index: usize,
 }
 
 struct Declaration {
@@ -69,8 +73,7 @@ fn declarations(css: &str) -> Vec<Declaration> {
     let mut brace_depth = 0usize;
     let mut paren_depth = 0usize;
     let mut bracket_depth = 0usize;
-    // The brace depth inside the `@font-face` rule the scan is in, and that rule's index.
-    let mut font_face: Option<(usize, usize)> = None;
+    let mut open_font_face: Option<OpenFontFace> = None;
     let mut font_faces = 0usize;
     let mut position = 0;
     while position < bytes.len() {
@@ -96,17 +99,20 @@ fn declarations(css: &str) -> Vec<Declaration> {
             b']' => bracket_depth = bracket_depth.saturating_sub(1),
             b'{' if paren_depth == 0 && bracket_depth == 0 => {
                 brace_depth += 1;
-                if font_face.is_none()
+                if open_font_face.is_none()
                     && is_font_face_prelude(&css[segment_start.unwrap_or(position)..position])
                 {
-                    font_face = Some((brace_depth, font_faces));
+                    open_font_face = Some(OpenFontFace {
+                        inner_brace_depth: brace_depth,
+                        index: font_faces,
+                    });
                     font_faces += 1;
                 }
                 segment_start = None;
             }
             b'}' if paren_depth == 0 && bracket_depth == 0 => {
-                if font_face.is_some_and(|(depth, _)| depth == brace_depth) {
-                    font_face = None;
+                if open_font_face.is_some_and(|face| face.inner_brace_depth == brace_depth) {
+                    open_font_face = None;
                 }
                 brace_depth = brace_depth.saturating_sub(1);
                 segment_start = None;
@@ -121,8 +127,10 @@ fn declarations(css: &str) -> Vec<Declaration> {
             {
                 // Each colon trims only the whitespace before it, so a long selector list stays linear.
                 let property = css[segment_start.unwrap_or(position)..position].trim_end();
-                let kind = match font_face {
-                    Some((depth, face)) if depth == brace_depth => font_descriptor(property, face),
+                let kind = match open_font_face {
+                    Some(face) if face.inner_brace_depth == brace_depth => {
+                        font_descriptor(property, face.index)
+                    }
                     _ => style_property(property),
                 };
                 if let Some(kind) = kind {

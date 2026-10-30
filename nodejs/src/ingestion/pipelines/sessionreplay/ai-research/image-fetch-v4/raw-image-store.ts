@@ -25,8 +25,8 @@ const storedImages = new Counter({
 })
 
 /**
- * Stores each fetched image or font sealed and unscrubbed in `images-v4`, under the team month key of its reference. The
- * v4 dataset is anonymized downstream, so unlike the v3 lane this sink never sends an image to the scrub lane.
+ * Stores each fetched image sealed and unscrubbed in `images-v4`, under the team month key of its reference. The v4
+ * dataset is anonymized downstream, so unlike the v3 lane this sink never sends an image to the scrub lane.
  *
  * S3 expires an object by its creation time, and blocks that reference an image are written all month. So a new fetch
  * overwrites the object of its reference, and `refreshImage` copies it onto itself to reset its age.
@@ -114,7 +114,7 @@ export class RawImageStore implements RefreshingImageSink {
         try {
             body = await rules.prepare(result.bytes, result.contentType, result.contentEncoding)
         } catch (error) {
-            // A body that is not the asset it claims to be is handled: fetching it again returns the same body.
+            // A body that is not the image it claims to be is handled: fetching it again returns the same body.
             if (error instanceof InvalidImageTransportError) {
                 storedImages.labels(asset, 'invalid').inc()
                 return

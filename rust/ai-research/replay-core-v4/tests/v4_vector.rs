@@ -163,7 +163,6 @@ fn reproduces_every_pinned_v4_value() {
     .unwrap();
     assert_eq!(fetched_frame, bytes(&fetched["frame"]));
 
-    // A fetched font hashes its URL as an image does, under its own prefix and frame kind.
     let font = &vector["fontUrl"];
     let font_hash = reference_hash(
         &image_url_key(&team_month_key),

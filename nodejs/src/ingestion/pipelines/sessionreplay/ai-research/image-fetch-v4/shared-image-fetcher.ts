@@ -37,8 +37,7 @@ export class SharedImageFetcher implements ImageFetcher {
     }
 
     public async fetch(url: string, options: ImageFetchOptions): Promise<ImageFetchResult> {
-        // The TDM reservation decides if a response is refused, and the asset decides which content types it may have, so
-        // only jobs that agree on both share a response.
+        // The TDM reservation decides if a response is refused and the asset decides its allowed types, so only jobs that agree on both share a response.
         const id = `${options.asset} ${options.tdmrepReservation ? 'reserved' : 'open'} ${url}`
         const recent = this.recent.get(id)
         if (recent) {

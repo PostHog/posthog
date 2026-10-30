@@ -24,8 +24,7 @@ pub fn image_ref(team_id: i64, key_month: &str, hash: &str) -> String {
     format!("image:v4:{team_id}:{key_month}:{hash}")
 }
 
-/// What a remote URL in a block loads. It sets the prefix of the URL's reference, so the fetcher knows what to check
-/// the response for and where to store it.
+/// The prefix of a URL's reference tells the fetcher what to check the response for and where to store it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UrlAsset {
     Image,
@@ -49,13 +48,11 @@ pub fn url_ref(asset: UrlAsset, team_id: i64, key_month: &str, hash: &str) -> St
     format!("{}:v4:{team_id}:{key_month}:{hash}", asset.prefix())
 }
 
-/// What a URL that the URL policy refuses becomes. The reason is the policy's metric label.
 pub fn declined_url_ref(asset: UrlAsset, reason: &str) -> String {
     format!("{}:v4:declined:{reason}", asset.prefix())
 }
 
-/// What a font URL of a family in `bundled_fonts.txt` becomes, by the family's slug. It names no URL, so the renderer
-/// uses its own copy of the family.
+/// It names no URL, so the renderer uses its own copy of the family.
 pub fn bundled_font_ref(slug: &str) -> String {
     format!("fonturl:v4:bundled:{slug}")
 }

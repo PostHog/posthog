@@ -199,12 +199,9 @@ impl UrlLimit {
     }
 }
 
-/// What a remote URL of a block loads, which sets what the writer puts in its place. The block holds one reference per
-/// URL, so a URL that the block uses as more than one kind takes the greatest. A fetched font is greater than a
-/// bundled one, because the fetch stores the page's own file.
+/// One URL gets one reference, so a URL used as several kinds takes the greatest. A fetched font beats a bundled one because it is the page's own file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum RemoteKind {
-    /// A family in `bundled_fonts.txt`, by slug. Nothing fetches it.
     BundledFont(&'static str),
     Font,
     Image,
@@ -216,7 +213,7 @@ pub struct RemoteUrl {
     pub kind: RemoteKind,
 }
 
-/// Distinct remote URLs in image slots and `@font-face` rules within [`MAX_BLOCK_REMOTE_URLS`] and
+/// Distinct remote image URLs within [`MAX_BLOCK_REMOTE_URLS`] and
 /// [`MAX_BLOCK_REMOTE_URL_BYTES`]. Past a limit it keeps no more, and `limit` says why.
 #[derive(Debug, Default)]
 pub struct RemoteUrls {
@@ -318,7 +315,7 @@ impl RemoteUrls {
     }
 }
 
-/// Distinct remote image URLs, at most [`MAX_IMAGE_URLS`] per message, and font URLs, at most [`MAX_FONT_URLS`].
+/// Distinct remote image URLs, at most [`MAX_IMAGE_URLS`] per message.
 #[derive(Default)]
 struct Urls {
     urls: Vec<String>,
@@ -361,7 +358,6 @@ impl Urls {
         }
     }
 
-    /// A family the renderer ships gets no fetch.
     fn push_font(&mut self, url: &str, family: Option<&str>) {
         let url = url.trim();
         if !is_remote(url) {
@@ -1224,7 +1220,7 @@ impl DomInspector {
             + table_bytes::<String>(self.evicted.capacity())
     }
 
-    /// Starts a message: the image and font URL caps count per message.
+    /// Starts a message: the image URL cap counts per message.
     pub fn start_message(&mut self) {
         self.urls.in_message.clear();
         if let Some(fonts) = &mut self.urls.fonts {
@@ -1345,7 +1341,6 @@ impl DomInspector {
         std::mem::take(&mut self.urls.urls)
     }
 
-    /// The remote font files the stylesheets referenced since the last call, for the fetcher.
     pub fn take_font_urls(&mut self) -> Vec<String> {
         self.urls
             .fonts
@@ -1354,7 +1349,7 @@ impl DomInspector {
             .unwrap_or_default()
     }
 
-    /// Every remote image and font URL the events since the last call hold, for the writer to replace.
+    /// Every remote image URL the events since the last call hold, for the writer to replace.
     pub fn take_remote_urls(&mut self) -> RemoteUrls {
         std::mem::take(&mut self.urls.remote)
     }
@@ -2082,7 +2077,6 @@ mod tests {
                 "\"Open Sans\"",
                 &format!("url({})", font("open-sans.woff2")),
             ),
-            // One file used as a bundled family and as the page's own family is fetched.
             face("Inter", &format!("url({})", font("shared.woff2"))),
             face("Brand Inter", &format!("url({})", font("shared.woff2"))),
             format!(".logo{{background:url({})}}", font("logo.png")),

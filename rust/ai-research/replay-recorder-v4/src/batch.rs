@@ -92,10 +92,8 @@ pub struct Block {
     pub moments: Vec<Moment>,
     /// Remote image URLs the block's DOM referenced.
     pub image_urls: Vec<String>,
-    /// Remote font files the block's stylesheets referenced, of families the renderer does not ship.
     pub font_urls: Vec<String>,
-    /// Every remote URL in an image slot or an `@font-face` rule of the block, which the writer replaces with its
-    /// reference.
+    /// Every remote URL in an image slot or `@font-face` rule of the block, which the writer replaces with its reference.
     pub remote_urls: Vec<RemoteUrl>,
     /// Set when the inspector stopped short of naming every remote URL, so that the block must not be stored.
     pub url_limit: Option<UrlLimit>,

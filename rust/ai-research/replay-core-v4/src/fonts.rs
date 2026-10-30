@@ -1,10 +1,8 @@
-//! Web fonts in a v4 block: the `@font-face` families that the renderer ships, and the font files that the fetcher
-//! takes.
+//! The `@font-face` families that the renderer ships, and the font files that the fetcher takes.
 
 use std::collections::HashMap;
 use std::sync::LazyLock;
 
-/// The text families the renderer ships. The file documents its own format.
 const BUNDLED_FONTS: &str = include_str!("bundled_fonts.txt");
 
 /// A descriptor longer than the longest name the list can hold is not lowercased, because a page controls its length.
@@ -41,8 +39,7 @@ fn comparable_name(name: &str) -> String {
         .to_ascii_lowercase()
 }
 
-/// The family an `@font-face` rule names: one quoted string, or identifiers separated by whitespace. `None` for an
-/// escape or a list of families, which the descriptor does not allow.
+/// `None` for an escape or a list of families, which an `@font-face` descriptor does not allow.
 fn family_name(descriptor: &str) -> Option<&str> {
     let value = descriptor.trim();
     if value.len() > MAX_FAMILY_DESCRIPTOR_LEN || value.contains('\\') {
@@ -62,8 +59,7 @@ pub fn bundled_font(family_descriptor: &str) -> Option<&'static str> {
     BUNDLED_FAMILIES.get(&name).map(String::as_str)
 }
 
-/// Whether the fetcher takes the font file at a URL. Chromium loads neither Embedded OpenType nor SVG fonts, which older
-/// stylesheets list next to WOFF, so a fetch of one would only spend the origin's politeness budget.
+/// Chromium loads neither Embedded OpenType nor SVG fonts, so a fetch of one would only spend the origin's politeness budget.
 pub fn is_fetched_font_url(url: &str) -> bool {
     let path = url.split(['?', '#']).next().unwrap_or_default();
     let file = path.rsplit(['/', '\\']).next().unwrap_or_default();

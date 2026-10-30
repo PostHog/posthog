@@ -1,8 +1,6 @@
-//! Replaces the remote image URLs of a stored block with their `imageurl:v4` references, as v3 replaced them, and the
-//! `src` URLs of `@font-face` rules with `fonturl:v4` references. A URL the policy declines becomes a marker that names
-//! the reason, so that no credential, signature or private host stays in the block. A font of a family the renderer
-//! ships becomes a marker that names the family. The inspector names the URLs: those in image slots, CSS included, and
-//! those in `@font-face` rules.
+//! Replaces the remote image URLs of a stored block with their `imageurl:v4` references, as v3 replaced them. A URL the
+//! policy declines becomes a marker that names the reason, so that no credential, signature or private host stays in
+//! the block. The inspector names the URLs: those in image slots, CSS included.
 //!
 //! A srcset is rebuilt instead: a declined candidate leaves the list, and so does each remote candidate of a picture
 //! source whose type the fetcher does not store. An inline image, such as an SVG data URI, stays. A browser skips a
@@ -87,7 +85,7 @@ fn is_written_escape(hex: Option<&[u8]>) -> bool {
         && !matches!((high, low), (b'0', b'8' | b'9' | b'a' | b'c' | b'd'))
 }
 
-/// What a declined image URL becomes. The reason is the policy's metric label.
+/// What a declined URL becomes. The reason is the policy's metric label.
 pub fn declined_marker(reason: &str) -> String {
     declined_url_ref(UrlAsset::Image, reason)
 }
