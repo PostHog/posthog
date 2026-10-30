@@ -209,9 +209,8 @@ pub struct RemoteUrls {
     /// in `urls` on its own.
     /// Boxed, because the session state counts this struct's size and most blocks hold no srcset.
     srcsets: Option<Box<SrcsetValues>>,
-    /// The CSS rewrites, keyed by the text they replace, within their own count and byte budget. Past it this keeps no
-    /// more, which is safe: the writer replaces each URL a rewrite drops on its own, and a relative URL then stays
-    /// relative as the page wrote it. Boxed, as `srcsets` is.
+    /// Past its count and byte budget this keeps no more, which is safe: each URL a rewrite drops is in `urls` too, and a
+    /// relative URL stays as the page wrote it.
     css_rewrites: Option<Box<CssRewrites>>,
 }
 
@@ -271,8 +270,7 @@ impl RemoteUrls {
         }
     }
 
-    /// The first rewrite of a text wins. Two differ only for a path-relative URL that the page sets again after it
-    /// navigates to another directory.
+    /// The first wins. Two differ only for a path-relative URL that the page sets again after a navigation.
     fn insert_css_rewrite(&mut self, rewrite: CssRewrite) {
         let rewrites = self.css_rewrites.get_or_insert_with(Box::default);
         let bytes = rewrite.text.len()
@@ -2012,12 +2010,24 @@ mod tests {
             {"type": 3, "timestamp": 3, "data": {"source": 15, "id": 1, "styleIds": [1], "styles": [{"styleId": 1, "rules": [{"rule": format!(".d{{background:url({})}}", url("adopted"))}]}]}},
         ]));
         let (mut dom, _) = observe_all(&message, "w");
+        // A hidden or one-pixel img is not fetched, but the block holds its URL, so the writer replaces it too.
         let mut remote = dom.take_remote_urls();
         let mut rewrites: Vec<String> = remote
             .take_css_rewrites()
             .into_iter()
             .map(|rewrite| rewrite.text)
             .collect();
+        let remote = remote.into_urls();
+        for name in [
+            "hidden",
+            "display-none",
+            "pixel",
+            "shown-later",
+            "lazy",
+            "set-1x",
+        ] {
+            assert!(remote.contains(&url(name)), "{name}");
+        }
         rewrites.sort();
         assert_eq!(
             rewrites,
@@ -2031,19 +2041,6 @@ mod tests {
                 "url(/img/relative-rule.png)".to_owned(),
             ]
         );
-        // A hidden or one-pixel img is not fetched, but the block holds its URL, so the writer replaces it too. So
-        // does an image-set candidate that the render does not show.
-        let remote = remote.into_urls();
-        for name in [
-            "hidden",
-            "display-none",
-            "pixel",
-            "shown-later",
-            "lazy",
-            "set-1x",
-        ] {
-            assert!(remote.contains(&url(name)), "{name}");
-        }
         let mut found = dom.take_image_urls();
         found.sort();
         let mut expected: Vec<String> = [

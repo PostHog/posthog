@@ -1,6 +1,4 @@
-//! Image URLs in CSS: the `url()`s in the value of a property that shows an image, or of a custom property, which a page
-//! passes to such a property through `var()`. An offline render loads only the images the block refers to, so an
-//! `image-set()` is rewritten to hold the one candidate the fetcher takes, and a relative URL to its absolute form.
+//! Image URLs in CSS: the `url()`s of an image property, or of a custom property that reaches one through `var()`.
 
 use url::Url;
 
@@ -9,7 +7,6 @@ use crate::url_policy::{is_fetched_image_type, is_remote};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CssUrl<'a> {
     Image(&'a str),
-    /// The writer replaces this `image-set()` candidate too, so that it does not stay when no [`CssRewrite`] removes it.
     Unshown(&'a str),
     Rewrite(CssRewrite),
 }
@@ -21,8 +18,7 @@ pub struct CssRewrite {
     pub dropped: Vec<String>,
 }
 
-/// Calls `found` with each image URL in `css`, a `style` attribute, `<style>` text or `_cssText`, and with each rewrite
-/// that the block needs. A relative URL resolves against `page_url`.
+/// Calls `found` with each image URL and rewrite in `css`: a `style` attribute, `<style>` text or `_cssText`.
 pub fn image_urls(css: &str, page_url: Option<&str>, found: &mut impl FnMut(CssUrl<'_>)) {
     for (start, end) in image_value_ranges(css) {
         value_urls(&css[start..end], page_url, found);
@@ -44,7 +40,6 @@ fn can_hold_image(property: &str) -> bool {
     property.starts_with("--") || is_image_property(property)
 }
 
-/// The value ranges of the declarations in `css` that can hold an image.
 fn image_value_ranges(css: &str) -> Vec<(usize, usize)> {
     let bytes = css.as_bytes();
     let mut ranges: Vec<(usize, usize)> = Vec::new();
@@ -235,10 +230,8 @@ fn url_function_urls(
     }
 }
 
-/// The absolute URL of a relative `source` on `page_url`, with `https` as its scheme because the fetcher loads nothing
-/// else. `None` when `source` is not relative or there is no page to resolve it against.
+/// The absolute form of a relative `source`, as `https` because the fetcher loads nothing else.
 fn resolve(source: &str, page_url: Option<&str>) -> Option<String> {
-    // A protocol-relative URL names its host, so the URL policy takes it as it is.
     if is_remote(source)
         || Url::parse(source).err() != Some(url::ParseError::RelativeUrlWithoutBase)
     {
@@ -256,9 +249,8 @@ fn url_function(url: &str) -> String {
     format!("url(\"{url}\")")
 }
 
-/// The renderer shows only the `image-set()` candidate that fits its pixel ratio, and fails offline on any candidate
-/// the fetcher did not take. So the set is rewritten to hold one candidate: the highest resolution of a type the
-/// fetcher stores. The other remote candidates are named but not fetched, so that one set costs its host one fetch.
+/// A renderer picks the candidate for its pixel ratio and fails offline on any the fetcher did not take, so the set keeps
+/// one: the highest resolution of a stored type. Fetching one candidate per set limits the load on the image's host.
 fn image_set_urls(
     function: &str,
     name_len: usize,
@@ -272,7 +264,11 @@ fn image_set_urls(
         .iter()
         .enumerate()
         .filter_map(|(index, candidate)| {
-            Some((index, candidate.source.as_deref()?, candidate.resolution?))
+            Some((
+                index,
+                candidate.source.as_deref()?,
+                candidate.resolution_dppx?,
+            ))
         })
         .fold(None, |best: Option<(usize, &str, f64)>, candidate| {
             if best.is_none_or(|best| candidate.2 > best.2) {
@@ -313,11 +309,9 @@ fn image_set_urls(
 
 struct ImageSetCandidate<'a> {
     text: &'a str,
-    /// The image's URL when it is a `url()` or a string that [`collectable`] keeps.
     source: Option<String>,
     descriptors: &'a str,
-    /// In dppx. `None` when the descriptors do not parse, or name a type the fetcher does not store.
-    resolution: Option<f64>,
+    resolution_dppx: Option<f64>,
 }
 
 fn image_set_candidates(contents: &str) -> Option<Vec<ImageSetCandidate<'_>>> {
@@ -368,14 +362,13 @@ fn image_set_candidate(candidate: &str) -> Option<ImageSetCandidate<'_>> {
         let end = skip_quoted(bytes, 0)?;
         (Some(candidate[1..end - 1].to_owned()), &candidate[end..])
     } else {
-        // Another image, such as a gradient, which nothing fetches.
         (None, "")
     };
     Some(ImageSetCandidate {
         text: candidate,
         source: source.as_deref().and_then(collectable).map(str::to_owned),
         descriptors,
-        resolution: parse_descriptors(descriptors),
+        resolution_dppx: parse_descriptors(descriptors),
     })
 }
 

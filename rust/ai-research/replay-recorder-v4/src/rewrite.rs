@@ -8,8 +8,7 @@
 //! show a broken image. The writer rebuilds each srcset in the bytes it stores, after inline images left and escapes
 //! were written again, so the rebuild never depends on a prediction of those bytes.
 //!
-//! CSS text that the inspector names is rewritten before the URLs are replaced: an `image-set()` to the one candidate
-//! the fetcher takes, and a relative `url()` to its absolute URL, which the URL pass then replaces with its reference.
+//! The CSS rewrites that the inspector names run first, so the URL pass then replaces the URLs in their replacements.
 
 use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -429,8 +428,7 @@ impl UrlRewrite {
         }
     }
 
-    /// The bytes with each inspected CSS rewrite applied, except where its text continues a longer name, such as
-    /// `image-set(` inside `-webkit-image-set(`.
+    /// Skips a match that continues a longer name, such as `image-set(` inside `-webkit-image-set(`.
     fn rewrite_css<'b>(&mut self, bytes: &'b [u8]) -> Cow<'b, [u8]> {
         let Some(matcher) = &self.css_matcher else {
             return Cow::Borrowed(bytes);
@@ -464,9 +462,9 @@ impl UrlRewrite {
         }
     }
 
-    /// The bytes with each URL replaced, each inspected CSS rewrite applied, and in a DOM event each inspected srcset
-    /// rebuilt. Returns the input when it holds none. Only a full snapshot or a mutation holds image slots, so a srcset
-    /// in any other event, such as a custom event's payload with the same value, is left to the rewrite of each URL.
+    /// The bytes with each URL replaced, and in a DOM event each inspected srcset rebuilt. Returns the input when it
+    /// holds none. Only a full snapshot or a mutation holds image slots, so a srcset in any other event, such as a
+    /// custom event's payload with the same value, is left to the rewrite of each URL.
     pub fn apply<'b>(&mut self, bytes: &'b [u8], dom_event: bool) -> Cow<'b, [u8]> {
         let rebuilt = if dom_event {
             self.rebuild_srcsets(bytes)
