@@ -63,6 +63,17 @@ describe("sidebarRows", () => {
     expect(
       rowsFor(layout, page({ tasks: [task("a"), task("b"), task("c")] })),
     ).toEqual(["# Work", "v Workspace 1", "  Task a", "  Task b", "Task c"]);
+    const rows = sidebarRows({
+      layout,
+      work: page({ tasks: [task("a"), task("b"), task("c")] }),
+      collapsed: new Set(),
+      working: new Set(),
+    });
+    expect(rows.slice(1, 4)).toMatchObject([
+      { kind: "workspace", size: 2 },
+      { kind: "task", nested: true, last: false },
+      { kind: "task", nested: true, last: true },
+    ]);
   });
 
   it("puts a new chat at the top", () => {
