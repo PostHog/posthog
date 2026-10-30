@@ -151,6 +151,7 @@ def integration_usages(team_id: int, integration_id: int) -> list[IntegrationUsa
 ```
 
 The SDK finds the module on the first call to `usages` or `delete`. Code outside a product calls `register_usage_provider` instead.
+The product sets `IntegrationUsage.type` (for example `warehouse_source`, `workflow`, `hog_function`, `batch_export`). The integrations API names these types in its error when a delete finds usages.
 
 ## Reference a row from a serializer
 

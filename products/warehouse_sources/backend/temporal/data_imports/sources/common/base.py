@@ -2,7 +2,7 @@ import datetime
 import functools
 import dataclasses
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from typing import TYPE_CHECKING, Any, Generic, Optional, TypeVar, Union, cast
 
 import structlog
@@ -20,6 +20,7 @@ if TYPE_CHECKING:
 
 from products.warehouse_sources.backend.facade.source_config import (
     SourceConfig,
+    SourceFieldConfig,
     SourceFieldCredentialAccountSelectConfig,
     SourceFieldFileUploadConfig,
     SourceFieldInputConfig,
@@ -105,6 +106,35 @@ FieldType = Union[
 ]
 
 SourceCredentialsValidationResult = tuple[bool, str | None]
+
+# Field names that say where stored credentials connect, and as which account, for any source that
+# declares them. The input of the default `credential_identity_fields`.
+GENERIC_IDENTITY_FIELDS: frozenset[str] = frozenset(
+    {
+        "host",
+        "port",
+        "instance_url",
+        "connection_string",
+        "ssh_tunnel",
+        "user",
+        "username",
+        "account",
+        "account_id",
+        "account_sid",
+    }
+)
+
+
+def _declared_field_names(fields: Iterable[SourceFieldConfig]) -> Iterator[str]:
+    """The names of the form fields at any depth: in switch groups and in the options of a select."""
+    for field in fields:
+        yield field.name
+        if isinstance(field, SourceFieldSwitchGroupConfig):
+            yield from _declared_field_names(field.fields)
+        elif isinstance(field, SourceFieldSelectConfig):
+            for option in field.options:
+                yield from _declared_field_names(option.fields or [])
+
 
 # Label used by sources whose vendor has no meaningful API versioning. Version strings are
 # opaque vendor labels (Stripe date versions, semver, names) — never parsed or ordered.
@@ -520,6 +550,18 @@ class _BaseSource(ABC, Generic[ConfigType]):
         the SSH tunnel target are handled separately, so sources whose connection target lives in
         a differently named field (e.g. Okta's ``okta_domain``) should list it here."""
         return []
+
+    @property
+    def credential_identity_fields(self) -> frozenset[str]:
+        """Connection fields that say where the stored credentials connect, and as which account.
+
+        When other sources or products share the credentials row, a change to one of these fields makes a
+        new row, so the other users keep their connection. The default is ``connection_host_fields`` plus
+        each name in ``GENERIC_IDENTITY_FIELDS`` that the source declares as a form field (at any depth) or
+        stores as a config attribute."""
+        declared = set(_declared_field_names(self.get_source_config.fields))
+        declared |= {config_field.name for config_field in dataclasses.fields(self._config_class)}
+        return frozenset(self.connection_host_fields) | (GENERIC_IDENTITY_FIELDS & declared)
 
     @property
     def credential_kind(self) -> str | None:

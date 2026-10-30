@@ -34,7 +34,7 @@ products/batch_exports/backend/models/batch_export.py 1
 products/billing_alerts/backend/facade/api.py 2
 products/business_knowledge/backend/github_repos.py 2
 products/canvas/backend/welcome.py 2
-products/cdp/backend/validation.py 3
+products/cdp/backend/validation.py 2
 products/commands/backend/channels/slack/mentions.py 3
 products/commands/backend/logic/github.py 2
 products/commands/backend/logic/subjects.py 2

@@ -22,6 +22,7 @@ from .auth_types import (
     AuthRequirement,
     AuthTypeSelector,
     IntegrationAuthType,
+    catalogued_kinds,
     config_for_write,
     default_auth_type,
     effective_auth_type,
@@ -98,6 +99,13 @@ def _decrypted_sensitive_value(integration: "Integration", field_name: str) -> s
         field=field_name,
     )
     return recovered
+
+
+# Marks a row that a data warehouse source created from the fields a user typed in. The value is the
+# source type, so a client can show the source's name and icon for a kind it does not know. The row
+# holds `sensitive_config["fields"]` in the source's own field shape, not in the shape that other
+# code of the kind reads. Hog functions must never get such a row as an input.
+WAREHOUSE_SOURCE_TYPE_CONFIG_KEY = "warehouse_source_type"
 
 
 class IntegrationQuerySet(models.QuerySet["Integration"]):
@@ -234,8 +242,13 @@ class _AllRowsManager(IntegrationModelManager):
 
 
 def integration_kind_choices() -> list[tuple[str, str | Promise]]:
-    # Callable so growing the enum doesn't generate a no-op migration.
-    return list(Integration.IntegrationKind.choices)
+    # Callable so growing the enum doesn't generate a no-op migration. Kinds that a product registers
+    # with `register_kind_auth_types` (the warehouse source credential kinds) are valid stored kinds
+    # too, but they stay out of `IntegrationKind` and so out of the public API enum.
+    choices: list[tuple[str, str | Promise]] = list(Integration.IntegrationKind.choices)
+    known = {value for value, _ in choices}
+    choices += [(kind, kind) for kind in sorted(catalogued_kinds()) if kind not in known]
+    return choices
 
 
 class Integration(models.Model):
@@ -350,8 +363,12 @@ class Integration(models.Model):
         return effective_auth_type(self.kind, self.config)
 
     @property
+    def holds_warehouse_source_fields(self) -> bool:
+        return isinstance(self.config, dict) and WAREHOUSE_SOURCE_TYPE_CONFIG_KEY in self.config
+
+    @property
     def display_name(self) -> str:
-        if self.auth_type != default_auth_type(self.kind):
+        if self.holds_warehouse_source_fields or self.auth_type != default_auth_type(self.kind):
             # The branches below read the config shape of the default auth type.
             return self.config.get("display_name") or f"ID: {self.integration_id}"
         if self.kind == "twitter-ads":
@@ -470,3 +487,8 @@ def defer_repository_cache_fields[QuerySetT: models.QuerySet[Integration]](query
 @database_sync_to_async
 def aget_integration_by_id(integration_id: str, team_id: int) -> Integration | None:
     return Integration.objects.get(id=integration_id, team_id=team_id)
+
+
+# The kinds that an API request can name. A kind that a product registers (a warehouse source
+# credential kind) is stored data only, so the generated API enum stays small.
+PUBLIC_INTEGRATION_KIND_CHOICES = list(Integration.IntegrationKind.choices)

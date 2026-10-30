@@ -16494,114 +16494,14 @@ export namespace Schemas {
      */
     export type IntegrationAuthTypeEnum = "oauth" | "token" | "credentials";
     /**
-     * * `anthropic` - Anthropic
-     * * `apple-ads` - Apple Ads
-     * * `apns` - Apple Push
-     * * `aws-redshift` - Aws Redshift
-     * * `aws-s3` - Aws S3
-     * * `azure-blob` - Azure Blob
-     * * `bing-ads` - Bing Ads
-     * * `clickup` - Clickup
-     * * `customerio-app` - Customerio App
-     * * `customerio-track` - Customerio Track
-     * * `customerio-webhook` - Customerio Webhook
-     * * `databricks` - Databricks
-     * * `email` - Email
-     * * `firebase` - Firebase
-     * * `github` - Github
-     * * `gitlab` - Gitlab
-     * * `google-ads` - Google Ads
-     * * `google-analytics` - Google Analytics
-     * * `google-calendar` - Google Calendar
-     * * `google-cloud-service-account` - Google Cloud Service Account
-     * * `google-cloud-storage` - Google Cloud Storage
-     * * `google-pubsub` - Google Pubsub
-     * * `google-search-console` - Google Search Console
-     * * `google-sheets` - Google Sheets
-     * * `helpscout` - Helpscout
-     * * `hubspot` - Hubspot
-     * * `instagram` - Instagram
-     * * `intercom` - Intercom
-     * * `jira` - Jira
-     * * `linear` - Linear
-     * * `linkedin-ads` - Linkedin Ads
-     * * `meta-ads` - Meta Ads
-     * * `pardot` - Pardot
-     * * `pinterest-ads` - Pinterest Ads
-     * * `postgresql` - Postgresql
-     * * `posthog` - Posthog
-     * * `reddit-ads` - Reddit Ads
-     * * `twitter-ads` - Twitter Ads
-     * * `resend` - Resend
-     * * `s3-compatible` - S3 Compatible
-     * * `salesforce` - Salesforce
-     * * `slack` - Slack
-     * * `slack-posthog-code` - Slack Posthog Code
-     * * `snapchat` - Snapchat
-     * * `snowflake` - Snowflake
-     * * `stripe` - Stripe
-     * * `tiktok-ads` - Tiktok Ads
-     * * `twilio` - Twilio
-     * * `vercel` - Vercel
-     * * `youtube-analytics` - Youtube Analytics
-     */
-    export type IntegrationKindEnum =
-        | "anthropic"
-        | "apple-ads"
-        | "apns"
-        | "aws-redshift"
-        | "aws-s3"
-        | "azure-blob"
-        | "bing-ads"
-        | "clickup"
-        | "customerio-app"
-        | "customerio-track"
-        | "customerio-webhook"
-        | "databricks"
-        | "email"
-        | "firebase"
-        | "github"
-        | "gitlab"
-        | "google-ads"
-        | "google-analytics"
-        | "google-calendar"
-        | "google-cloud-service-account"
-        | "google-cloud-storage"
-        | "google-pubsub"
-        | "google-search-console"
-        | "google-sheets"
-        | "helpscout"
-        | "hubspot"
-        | "instagram"
-        | "intercom"
-        | "jira"
-        | "linear"
-        | "linkedin-ads"
-        | "meta-ads"
-        | "pardot"
-        | "pinterest-ads"
-        | "postgresql"
-        | "posthog"
-        | "reddit-ads"
-        | "twitter-ads"
-        | "resend"
-        | "s3-compatible"
-        | "salesforce"
-        | "slack"
-        | "slack-posthog-code"
-        | "snapchat"
-        | "snowflake"
-        | "stripe"
-        | "tiktok-ads"
-        | "twilio"
-        | "vercel"
-        | "youtube-analytics";
-    /**
      * Standard Integration serializer.
      */
     export type IntegrationConfig = {
         id: number;
-        kind: IntegrationKindEnum;
+        /**
+         * The provider of the integration, for example 'slack' or 'github'. A create accepts only the kinds that PostHog connects here. Data warehouse sources also store their typed-in credentials as integrations, under a kind per source type.
+         */
+        kind: string;
         /**
          * How this integration authenticates with the provider: `oauth` for a connection the provider manages (an OAuth grant or an app installation), `token` for one static secret, or `credentials` for several typed-in fields. A kind can have several auth types.
          *

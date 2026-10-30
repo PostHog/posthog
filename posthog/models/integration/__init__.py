@@ -81,6 +81,8 @@ from .linear import LinearIntegration
 from .linkedin_ads import LinkedInAdsIntegration
 from .meta import InstagramIntegration, MetaAdsIntegration, MetaGraphIntegration
 from .model import (
+    PUBLIC_INTEGRATION_KIND_CHOICES,
+    WAREHOUSE_SOURCE_TYPE_CONFIG_KEY,
     Integration,
     IntegrationModelManager,
     IntegrationQuerySet,
@@ -207,6 +209,8 @@ __all__ = [
     "OauthClientCredentials",
     "OauthConfig",
     "POSTHOG_SLACK_SCOPE",
+    "PUBLIC_INTEGRATION_KIND_CHOICES",
+    "WAREHOUSE_SOURCE_TYPE_CONFIG_KEY",
     "OAUTH_CLIENT_CREDENTIAL_KEYS",
     "SALESFORCE_OAUTH_KINDS",
     "POSTHOG_CONNECT_KIND",
