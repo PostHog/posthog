@@ -50,7 +50,7 @@ function Row({
         </Box>
       );
     case "loading":
-      return <Spinner label="Loading" />;
+      return <Spinner label="Loading cloud runs" />;
     case "empty":
       return <Text dimColor>No work yet</Text>;
     case "viewMore":

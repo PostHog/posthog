@@ -83,6 +83,19 @@ describe("sidebarRows", () => {
     expect(labels(rows)).toEqual(["# Work", "Task old", "Task a"]);
   });
 
+  it("names open tasks from the saved layout while the list loads, without a status yet", () => {
+    const layout = openTask(initialLayout(), "a", "Fix the flaky test");
+    const rows = sidebarRows({
+      layout,
+      work: page({ tasks: null }),
+      collapsed: new Set(),
+      working: new Set(),
+    });
+
+    expect(labels(rows)).toEqual(["# Work", "Fix the flaky test", "[loading]"]);
+    expect(rows[1]).toMatchObject({ kind: "task", indicator: null });
+  });
+
   it("hides a collapsed workspace's tasks", () => {
     const layout = openTask(
       splitFocused(openTask(initialLayout(), "a"), "row"),

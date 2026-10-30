@@ -37,6 +37,7 @@ function useRunView(
 
 export function Pane({
   title,
+  paneTaskId,
   task,
   runs,
   chat,
@@ -44,6 +45,7 @@ export function Pane({
   focused,
 }: {
   title: string;
+  paneTaskId: string | null;
   task: Task | undefined;
   runs: CloudRuns;
   chat: ChatView;
@@ -90,8 +92,9 @@ export function Pane({
   const chatHeight = height - composerLines.length - (view.error ? 1 : 0);
 
   let content: ReactElement;
-  if (!task)
+  if (!paneTaskId)
     content = <Text dimColor>Type a message to start a cloud run.</Text>;
+  else if (!task) content = <Spinner label="Loading chat" />;
   else if (!run) content = <Text dimColor>This task has no runs yet.</Text>;
   else if (run.environment === "local")
     content = <Text dimColor>Local runs can't be opened here yet.</Text>;

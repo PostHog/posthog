@@ -68,15 +68,20 @@ export function sidebarRows({
     taskId: string | null,
     paneId: string | null,
     nested: boolean,
+    savedTitle?: string,
   ): SidebarRow => {
     const task = taskId ? byId.get(taskId) : undefined;
     return {
       kind: "task",
       taskId,
       paneId,
-      title: taskId === null ? "New chat" : (task?.title ?? "Loading…"),
+      title:
+        taskId === null ? "New chat" : task?.title || savedTitle || "Untitled",
+      // No status until the list or a fetch says what state the run is in.
       indicator:
-        taskId === null ? null : indicatorFor(task, working.has(taskId)),
+        taskId === null || !task
+          ? null
+          : indicatorFor(task, working.has(taskId)),
       nested,
     };
   };
@@ -92,7 +97,7 @@ export function sidebarRows({
       const [pane] = workspacePanes;
       if (pane.taskId === null) rows.push(taskRow(null, pane.id, false));
       else if (listed.has(pane.taskId)) singlePaneOf.set(pane.taskId, pane.id);
-      else unlisted.push(taskRow(pane.taskId, pane.id, false));
+      else unlisted.push(taskRow(pane.taskId, pane.id, false, pane.title));
       return;
     }
     const expanded = !collapsed.has(workspace.id);
@@ -104,7 +109,7 @@ export function sidebarRows({
     });
     for (const pane of workspacePanes) {
       if (pane.taskId) splitTasks.add(pane.taskId);
-      if (expanded) rows.push(taskRow(pane.taskId, pane.id, true));
+      if (expanded) rows.push(taskRow(pane.taskId, pane.id, true, pane.title));
     }
   });
   rows.push(...unlisted);
@@ -150,7 +155,7 @@ export function activateRow(
   switch (row.kind) {
     case "task":
       if (row.paneId) return focusPane(layout, row.paneId);
-      return row.taskId ? openTask(layout, row.taskId) : layout;
+      return row.taskId ? openTask(layout, row.taskId, row.title) : layout;
     case "workspace": {
       const workspace = layout.workspaces.find((w) => w.id === row.workspaceId);
       return workspace ? focusPane(layout, workspace.focusedPaneId) : layout;

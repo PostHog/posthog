@@ -2,7 +2,13 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
-export type PaneNode = { kind: "pane"; id: string; taskId: string | null };
+export type PaneNode = {
+  kind: "pane";
+  id: string;
+  taskId: string | null;
+  // Saved so the pane and sidebar can name the task before the work list loads.
+  title?: string;
+};
 export type LayoutNode =
   | PaneNode
   | { kind: "split"; direction: "row" | "column"; children: LayoutNode[] };
@@ -23,8 +29,8 @@ const LAYOUT_PATH = join(homedir(), ".config", "posthog-tui", "layout.json");
 
 const newId = (): string => globalThis.crypto.randomUUID();
 
-function newWorkspace(taskId: string | null): Workspace {
-  const pane: PaneNode = { kind: "pane", id: newId(), taskId };
+function newWorkspace(taskId: string | null, title?: string): Workspace {
+  const pane: PaneNode = { kind: "pane", id: newId(), taskId, title };
   return { id: newId(), root: pane, focusedPaneId: pane.id };
 }
 
@@ -121,7 +127,11 @@ export function cycleFocus(state: LayoutState, step: 1 | -1): LayoutState {
   return next === "sidebar" ? focusSidebar(state) : focusPane(state, next);
 }
 
-export function openTask(state: LayoutState, taskId: string): LayoutState {
+export function openTask(
+  state: LayoutState,
+  taskId: string,
+  title?: string,
+): LayoutState {
   const open = state.workspaces
     .flatMap((w) => panes(w.root))
     .find((pane) => pane.taskId === taskId);
@@ -134,14 +144,14 @@ export function openTask(state: LayoutState, taskId: string): LayoutState {
       ...updateActive(state, (workspace) => ({
         ...workspace,
         root: mapPanes(workspace.root, (pane) =>
-          pane.id === focused.id ? { ...pane, taskId } : pane,
+          pane.id === focused.id ? { ...pane, taskId, title } : pane,
         ),
       })),
       focus: "pane",
     };
   }
 
-  const workspace = newWorkspace(taskId);
+  const workspace = newWorkspace(taskId, title);
   return {
     workspaces: [...state.workspaces, workspace],
     activeWorkspaceId: workspace.id,
@@ -153,13 +163,14 @@ export function assignTask(
   state: LayoutState,
   paneId: string,
   taskId: string,
+  title?: string,
 ): LayoutState {
   return {
     ...state,
     workspaces: state.workspaces.map((workspace) => ({
       ...workspace,
       root: mapPanes(workspace.root, (pane) =>
-        pane.id === paneId ? { ...pane, taskId } : pane,
+        pane.id === paneId ? { ...pane, taskId, title } : pane,
       ),
     })),
   };
