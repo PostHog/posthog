@@ -72,6 +72,38 @@ class TestEmailIntegrationDomainValidation(BaseTest):
         assert second.config["mail_from_subdomain"] == "bounces"
         assert mock_create_email_domain.call_args.kwargs["mail_from_subdomain"] == "bounces"
 
+    @patch("products.workflows.backend.facade.api.update_ses_mail_from_subdomain")
+    @patch("products.workflows.backend.facade.api.create_ses_email_domain")
+    def test_editing_mail_from_subdomain_moves_every_sender_on_the_domain(
+        self, mock_create_email_domain, mock_update_mail_from
+    ):
+        mock_create_email_domain.return_value = {"status": "success", "domain": "successdomain.com"}
+        first = EmailIntegration.create_native_integration(
+            {"email": "first@successdomain.com", "name": "First", "provider": "ses", "mail_from_subdomain": "bounces"},
+            team_id=self.team.id,
+            organization_id=str(self.organization.id),
+            created_by=self.user,
+        )
+        second = EmailIntegration.create_native_integration(
+            {"email": "second@successdomain.com", "name": "Second", "provider": "ses"},
+            team_id=self.team.id,
+            organization_id=str(self.organization.id),
+            created_by=self.user,
+        )
+
+        EmailIntegration(second).update_native_integration({"mail_from_subdomain": "returns"}, team_id=self.team.id)
+
+        first.refresh_from_db()
+        assert first.config["mail_from_subdomain"] == "returns"
+
+        third = EmailIntegration.create_native_integration(
+            {"email": "third@successdomain.com", "name": "Third", "provider": "ses"},
+            team_id=self.team.id,
+            organization_id=str(self.organization.id),
+            created_by=self.user,
+        )
+        assert third.config["mail_from_subdomain"] == "returns"
+
     @patch("products.workflows.backend.facade.api.create_ses_email_domain")
     def test_sender_created_during_the_provider_call_is_not_overwritten(self, mock_create_email_domain):
         config = {"email": "user@successdomain.com", "name": "Test User", "provider": "ses"}

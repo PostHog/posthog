@@ -802,7 +802,7 @@ class TestEmailIntegration:
             created_by=self.user,
         )
         integration2 = EmailIntegration.create_native_integration(
-            {**self.valid_config, "provider": "ses"},
+            {**self.valid_config, "email": "second@posthog.com", "provider": "ses"},
             team_id=self.team.id,
             organization_id=self.organization.id,
             created_by=self.user,

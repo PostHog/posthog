@@ -168,12 +168,28 @@ class EmailIntegration:
         if setup_method := config.get("setup_method"):
             changes["setup_method"] = setup_method
         # The row is reread under a lock so a concurrent verification write is not overwritten.
+        siblings_by_team: dict[int, list[int]] = {}
         with transaction.atomic():
             locked = model.Integration.objects.select_for_update().get(id=self.integration.id)
             locked.config.update(changes)
             locked.save(update_fields=["config"])
+            if mail_from_changed:
+                # SES keeps one MAIL FROM per domain identity, so the call above repointed every
+                # sender on this domain. Their rows have to follow, or they keep reporting the old
+                # value and the next sender added to the domain inherits it.
+                siblings = (
+                    model.Integration.objects.select_for_update()
+                    .filter(kind="email", config__domain=domain)
+                    .exclude(id=locked.id)
+                )
+                for sibling in siblings:
+                    sibling.config["mail_from_subdomain"] = mail_from_subdomain
+                    sibling.save(update_fields=["config"])
+                    siblings_by_team.setdefault(sibling.team_id, []).append(sibling.id)
         self.integration.config = locked.config
         reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
+        for sibling_team_id, sibling_ids in siblings_by_team.items():
+            reload_integrations_on_workers(sibling_team_id, sibling_ids)
 
         return self.integration
 
