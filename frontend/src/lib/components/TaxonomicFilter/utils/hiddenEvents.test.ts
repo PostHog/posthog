@@ -4,7 +4,6 @@ import {
     hiddenEventMatchingSearch,
     hiddenEventNames,
     moveAnnouncementUrl,
-    readsFlagCallsFromFlagEvaluations,
     withHiddenEventsExcluded,
 } from 'lib/components/TaxonomicFilter/utils/hiddenEvents'
 
@@ -36,15 +35,6 @@ describe('events hidden from query builders', () => {
         ['mode 1 with the notices on', FlagEvaluationsModeEnumApi.Number1, true, []],
     ])('warns about moving events on %s', (_label, mode, moveNoticesEnabled, expected) => {
         expect(eventsWithMoveNotice(mode, moveNoticesEnabled)).toEqual(expected)
-    })
-
-    it.each([
-        ['no team yet', undefined, false],
-        ['mode 0', FlagEvaluationsModeEnumApi.Number0, false],
-        ['mode 1', FlagEvaluationsModeEnumApi.Number1, true],
-        ['mode 2', FlagEvaluationsModeEnumApi.Number2, true],
-    ])('reads flag calls from flag evaluations for %s: %s', (_label, mode, expected) => {
-        expect(readsFlagCallsFromFlagEvaluations(mode)).toBe(expected)
     })
 
     it.each([

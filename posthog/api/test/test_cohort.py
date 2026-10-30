@@ -138,8 +138,8 @@ _HIDDEN_EVENT_REFUSAL = "its data is moving"
 _FLAG_CALL_TYPE_REFUSAL = "can use this event"
 _FLAG_CALL_WINDOW_REFUSAL = "88 days or less"
 _FLAG_CALL_KEY_REFUSAL = '"Feature flag" equals'
-_FLAG_CALL_COMPILE_REFUSAL = "can't calculate"
-_FLAG_CALL_FILTER_REFUSAL = "SQL expression"
+_FLAG_CALL_COMPILE_REFUSAL = "can't calculate this criterion"
+_FLAG_CALL_FILTER_REFUSAL = "instead of a SQL expression"
 _FLAG_CALL_SQL_EXPRESSION_REFUSAL = "on another criterion"
 _FLAG_CALL_REALTIME_REFUSAL = "Real-time cohorts can't use this event"
 

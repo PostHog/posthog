@@ -11,7 +11,6 @@ import { isPersonMetadataPropertyFilter, isPersonPropertyFilter } from 'lib/comp
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { hasRecentContext } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
 import { ExcludedOperators, TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
-import { readsFlagCallsFromFlagEvaluations } from 'lib/components/TaxonomicFilter/utils/hiddenEvents'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { dayjs } from 'lib/dayjs'
 import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
@@ -37,7 +36,6 @@ import {
     isRecentPersonFilterUnsupported,
     personOperatorOptionsType,
 } from 'scenes/cohorts/cohortUtils'
-import { teamLogic } from 'scenes/teamLogic'
 
 import { actionsModel } from '~/models/actionsModel'
 import { getPropertyKey, propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
@@ -180,9 +178,6 @@ export function CohortTaxonomicField({
     const { calculatedValue, calculatedValueLoading } = useValues(logic)
     const { onChange } = useActions(logic)
     const { getPropertyDefinition, propertyDefinitionStorage } = useValues(propertyDefinitionsModel)
-    // Without the rewrite, the cohorts API refuses every new flag-call criterion, so the event stays hidden.
-    const { currentTeam } = useValues(teamLogic)
-    const flagCallsReadFromFlagEvaluations = readsFlagCallsFromFlagEvaluations(currentTeam?.flag_evaluations_mode)
     const groupType = (criteria[groupTypeFieldKey] as TaxonomicFilterGroupType) ?? taxonomicGroupTypes[0]
     const excludedOperators = useMemo<ExcludedOperators | undefined>(() => {
         if (!hideUnsupportedRecentOperators) {
@@ -224,7 +219,7 @@ export function CohortTaxonomicField({
                 [TaxonomicFilterGroupType.Events]: [null], // "All events" isn't supported by Cohorts currently
             }}
             excludedOperators={excludedOperators}
-            includeHiddenEvents={includeHiddenEvents && flagCallsReadFromFlagEvaluations}
+            includeHiddenEvents={includeHiddenEvents}
             groupTypes={taxonomicGroupTypes}
             placeholder={placeholder}
             data-attr={`cohort-taxonomic-field-${fieldKey}`}
