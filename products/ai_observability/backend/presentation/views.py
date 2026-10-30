@@ -14,11 +14,13 @@ from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.models.user import User
+from posthog.permissions import get_authenticator_scopes
 from posthog.rate_limit import (
     AIObservabilitySummarizationBurstThrottle,
     AIObservabilitySummarizationDailyThrottle,
     AIObservabilitySummarizationSustainedThrottle,
 )
+from posthog.scopes import scopes_not_covered
 
 from ..facade import api, contracts
 from .query_concurrency import query_concurrency_slots
@@ -64,6 +66,15 @@ NODE_ID_PARAMETER = OpenApiParameter(
     OpenApiParameter.PATH,
     description="The node id, sent as the unpadded base64url encoding of its UTF-8 bytes. The root node's id is the trace id.",
 )
+SURVEY_RESPONSE_SCOPES = ["survey:read", "query:read"]
+
+
+def _token_allows(request: ValidatedRequest, required_scopes: list[str]) -> bool:
+    """True for session auth, which carries no scopes."""
+    scopes = get_authenticator_scopes(getattr(request, "successful_authenticator", None))
+    return scopes is None or "*" in scopes or not scopes_not_covered(scopes, required_scopes)
+
+
 THROTTLED_RESPONSE = OpenApiResponse(description="Too many queries are running for the project or organization.")
 NOT_APPROVED_DETAIL = "AI data processing must be approved by your organization before using summaries."
 NOT_A_USER_DETAIL = "Summaries are only available to signed-in users and their personal API keys."
@@ -199,12 +210,17 @@ class TraceViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     )
     @action(detail=True, methods=["GET"], url_path="feedback")
     def feedback(self, request: ValidatedRequest, pk: str, **kwargs: Any) -> Response:
-        """End-user feedback on a trace: the scores and the comments its feedback events carry, each with the step it targets."""
+        """End-user feedback on a trace: scores and comments from its feedback events, survey responses linked to it, and surveys shown but not answered."""
         try:
             trace_id = decode_trace_id_segment(pk)
         except MalformedTraceIdSegmentError:
             return Response({"detail": "Malformed encoded trace id."}, status=status.HTTP_400_BAD_REQUEST)
-        feedback = self._read(request, lambda user, hint: api.get_trace_feedback(self.team, user, trace_id, hint))
+        # Survey responses are survey data, so a token also needs the scopes the survey responses endpoint requires.
+        include_surveys = _token_allows(request, SURVEY_RESPONSE_SCOPES)
+        feedback = self._read(
+            request,
+            lambda user, hint: api.get_trace_feedback(self.team, user, trace_id, hint, include_surveys=include_surveys),
+        )
         return Response(feedback.model_dump(mode="json", by_alias=True))
 
     @validated_request(

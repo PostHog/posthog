@@ -42,6 +42,7 @@ s3://<bucket>/<prefix>/
 ├── inbox_report_reviewers/v1/dt=YYYY-MM-DD/   # one row per suggested reviewer of each spine report
 ├── inbox_user_report_interactions/v1/dt=YYYY-MM-DD/ # cumulative interactions per (report, person)
 ├── inbox_project_vectors/v1/dt=YYYY-MM-DD/    # per-team mean report vectors of past engagement, by kind
+├── inbox_user_vectors/v1/dt=YYYY-MM-DD/       # per-user mean report vectors of past engagement, by kind
 └── inbox_activity_summary_vectors/v1/dt=YYYY-MM-DD/ # one row per activity summary vector generated during the day
 ```
 
@@ -79,6 +80,15 @@ Point-in-time contract:
 - A report enters a vector only when its vector landed and its engagement happened strictly before `as_of`. The snapshot holds only the latest vector per report, so a report re-embedded after `as_of` is left out rather than read with text it did not have yet.
 - The training side can rebuild any past day by calling the function on newer snapshots with an earlier `as_of`. No backfill is needed while the vectors are inside the embedding TTL.
 - Serving: when any manifest entry reads project vectors, `inbox_ranking_serving_manifest` copies the dt=D day into the deployment's object store before it writes the manifest. The sweep reads that day once per pass, only for the teams it scores. Its `as_of` is the end of dt=D, so it is never newer than a report scored after the publish. Until the next publish, a report scored on day D+2 still reads dt=D, which is one day older than training reads.
+
+### User vectors
+
+`inbox_user_vectors` is an (organization, user, kind) leaf with the user vectors of `user_vectors(interactions, embeddings, as_of)` in `dataset/project_vectors.py`.
+The asset calls it with `as_of` = the end of dt=D, on the dt=D interactions and embeddings snapshots, so its rows equal what `pair_user_vectors` rebuilds for a report born on D+1.
+
+- It filters the interactions again by `training_consent_team_ids()`, and maps each team to its organization through `team_organizations`, like the pair lane.
+- Each row carries the `user_hash` of its (organization, user): a hash over each kind's name, `n_reports` and vector. A day that adds no report to a user's history keeps the hash.
+- The manifest asset copies the day to `serving_user_vectors_key(prefix, dt)` and names it in `user_vectors`. The mirror never gets a copy.
 
 ### Engagement export
 
@@ -184,7 +194,8 @@ That table drops a row 3 months after its `timestamp`, and `UserActivitySummaryV
 `inbox_ranking_training_job` runs daily at 05:00 UTC on the same partition definition (gated like the dataset job).
 It fits no model: the `nn` families train on the `signals_ml` location (see [The nn family](#the-nn-family)).
 The job runs three assets: `inbox_ranking_serving_manifest`, `inbox_ranking_served_scores` and `inbox_ranking_unseen_graded`.
-The manifest depends on the dt=D `inbox_project_vectors` partition, which it copies.
+The manifest depends on the dt=D `inbox_project_vectors` and `inbox_user_vectors` partitions, which it copies.
+The user vectors copy is optional: a missing day leaves `user_vectors` out of the manifest and never blocks the publish.
 The models live under the dataset prefix:
 
 ```text

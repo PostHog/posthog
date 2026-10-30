@@ -98,6 +98,8 @@ pub struct Block {
     pub url_limit: Option<UrlLimit>,
     /// The image-slot srcset values of the block, which the writer rebuilds from the candidates it keeps.
     pub srcsets: Vec<Srcset>,
+    /// The distinct pages of the block's surfacing features, which the writer stores as fingerprints.
+    pub visited_urls: Vec<String>,
     /// The earliest Kafka timestamp of the block's messages, for the capture watermark of the index topic.
     pub captured_at_ms: Option<i64>,
 }
@@ -511,6 +513,7 @@ fn inspect_session(
                 remote_urls: inspected.remote_urls,
                 url_limit: inspected.url_limit,
                 srcsets: inspected.srcsets,
+                visited_urls: inspected.features.visited_urls,
                 captured_at_ms,
             }
         })

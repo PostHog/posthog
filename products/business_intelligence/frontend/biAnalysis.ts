@@ -160,8 +160,8 @@ function groupingSets(config: BIConfig, input: BIAnalysisInput): string[][] {
     }
     if (pivot) {
         // Reaggregate every hierarchy intersection: averages and distinct counts cannot be summed from leaves.
-        for (let rowDepth = 1; rowDepth <= rows.length; rowDepth++) {
-            for (let columnDepth = 1; columnDepth <= columns.length; columnDepth++) {
+        for (let rowDepth = Math.min(1, rows.length); rowDepth <= rows.length; rowDepth++) {
+            for (let columnDepth = Math.min(1, columns.length); columnDepth <= columns.length; columnDepth++) {
                 sets.push([...rows.slice(0, rowDepth), ...columns.slice(0, columnDepth)])
             }
             if (config.totals?.rows) {
