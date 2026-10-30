@@ -59,8 +59,10 @@ Regression lines on vertical bar and combo charts. See [bars.md](./bars.md).
 A translucent band across the plot between `from` and `to` on the value axis, for threshold zones.
 Omit `from` to run it to the plot bottom, or `to` to run it to the top; the part outside the axis range is clipped.
 `yAxisId` picks a secondary axis.
+The fill defaults to the theme's axis color.
 It draws over the series, like a `ReferenceLine` fill, so keep `fillOpacity` low.
 Pair each threshold's band with a goal line; `GoalLineConfig.stroke: 'solid'` draws the line solid instead of dashed.
+Goal lines render before child overlays, so a band also tints the goal line and its label.
 
 ### `HighlightedRange`
 
