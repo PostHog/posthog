@@ -226,6 +226,8 @@ describe("Composer", () => {
     expect(text(popup)).toContain("model");
     expect(text(editor)).not.toContain("model");
     expect(text(editor)).toContain("/");
+    // The picked suggestion is PostHog blue, not pi's own accent.
+    expect(popup[0]).toContain("\u001b[38;2;29;74;255m");
   });
 
   it("offers the run's own commands alongside the built-in ones", async () => {

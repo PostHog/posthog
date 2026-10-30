@@ -65,6 +65,10 @@ export function detectBackground(
 export const orange = (text: string): string =>
   `\u001b[38;2;245;78;0m${text}\u001b[39m`;
 
+// PostHog blue (#1D4AFF), for the picked row of a list: the slash-command suggestions.
+export const blue = (text: string): string =>
+  `\u001b[38;2;29;74;255m${text}\u001b[39m`;
+
 // The theme pi draws with, kept so the TUI's own colours can follow it.
 // On globalThis because a hot swap of src/ re-runs this module but not the startup that detected the theme.
 const kept = globalThis as {
