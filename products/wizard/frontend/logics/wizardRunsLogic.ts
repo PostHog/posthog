@@ -5,9 +5,9 @@ import posthog from 'posthog-js'
 import { dayjs } from 'lib/dayjs'
 import { projectLogic } from 'scenes/projectLogic'
 
-import { wizardRunsList } from './generated/api'
-import type { RunEnvironmentEnumApi, WizardRunApi, WizardRunStatusEnumApi } from './generated/api.schemas'
-import { wizardWorkspaceLabel } from './wizardRunDisplay'
+import { wizardRunsList } from '../generated/api'
+import type { RunEnvironmentEnumApi, WizardRunApi, WizardRunStatusEnumApi } from '../generated/api.schemas'
+import { wizardWorkspaceLabel } from '../lib/wizardRunDisplay'
 
 const RUN_POLL_INTERVAL_MS = 10_000
 const RUN_PAGE_SIZE = 100

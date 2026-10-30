@@ -1,7 +1,7 @@
 import { IconCheckCircle, IconClock, IconX, IconXCircle } from '@posthog/icons'
 import { Badge, Spinner } from '@posthog/quill-primitives'
 
-import type { WizardRunApi } from '../generated/api.schemas'
+import type { WizardRunApi } from '../../generated/api.schemas'
 
 export function WizardRunStatusTag({ status }: { status: WizardRunApi['status'] }): JSX.Element {
     if (status === 'completed') {

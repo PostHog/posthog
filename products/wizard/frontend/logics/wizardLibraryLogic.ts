@@ -12,17 +12,17 @@ import { uuid } from 'lib/utils/dom'
 import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
 
-import type { IntegrationType, PreflightStatus } from '../../../frontend/src/types'
-import { wizardRegistryList, wizardRunsCreate } from './generated/api'
+import type { IntegrationType, PreflightStatus } from '../../../../frontend/src/types'
+import { wizardRegistryList, wizardRunsCreate } from '../generated/api'
 import type {
     RunEnvironmentEnumApi,
     WizardProgramApi,
     WizardRunApi,
     WizardRunCreateRequestApi,
-} from './generated/api.schemas'
-import { wizardEventProperties, wizardRunEventProperties } from './wizardAnalytics'
+} from '../generated/api.schemas'
+import { wizardEventProperties, wizardRunEventProperties } from '../lib/wizardAnalytics'
+import { WIZARD_LOCAL_RUNS_VISIBLE, wizardCommand } from '../lib/wizardRunDisplay'
 import { type WizardRunDetailSource, wizardRunDetailsLogic } from './wizardRunDetailsLogic'
-import { WIZARD_LOCAL_RUNS_VISIBLE, wizardCommand } from './wizardRunDisplay'
 import { wizardRunsLogic } from './wizardRunsLogic'
 
 function requestError(error: unknown, fallback: string): string {

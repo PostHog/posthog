@@ -1,5 +1,12 @@
-import type { WizardRunApi } from './generated/api.schemas'
-import { wizardGithubRepositoryUrl, wizardRunCanCancel, wizardRunFailureStage } from './wizardRunDisplay'
+import type { WizardRunApi } from '../generated/api.schemas'
+import {
+    WizardRunProgressStep,
+    wizardGithubRepositoryUrl,
+    wizardRunCanCancel,
+    wizardRunFailureStage,
+    wizardRunProgressStates,
+    wizardRunProgressStep,
+} from './wizardRunDisplay'
 
 function makeRun(overrides: Partial<WizardRunApi>): WizardRunApi {
     return {
@@ -56,6 +63,49 @@ describe('wizardRunFailureStage', () => {
         const run = makeRun({ status: 'failed', error_code: 'PHW_CLI_BAD_ARGS', stage: 'creating_artifacts' })
 
         expect(wizardRunFailureStage(run)).toBe('creating_artifacts')
+    })
+})
+
+describe('wizardRunProgressStep', () => {
+    test.each([
+        ['created', null, null, WizardRunProgressStep.Starting],
+        ['running', null, 'preparing_workspace', WizardRunProgressStep.PreparingWorkspace],
+        ['running', null, 'executing_wizard', WizardRunProgressStep.ExecutingWizard],
+        ['failed', 'artifact_creation_failed', null, WizardRunProgressStep.CreatingArtifacts],
+        ['completed', null, null, null],
+        ['cancelled', null, null, null],
+    ])('maps %s with stage %s/%s to %s', (status, errorCode, stage, expected) => {
+        const run = makeRun({
+            status: status as WizardRunApi['status'],
+            error_code: errorCode,
+            stage: stage as WizardRunApi['stage'],
+        })
+
+        expect(wizardRunProgressStep(run)).toBe(expected)
+    })
+})
+
+describe('wizardRunProgressStates', () => {
+    test('marks completed steps, the current step, and pending steps', () => {
+        const run = makeRun({ status: 'running', stage: 'executing_wizard' })
+
+        expect(wizardRunProgressStates(run)).toEqual({
+            [WizardRunProgressStep.Starting]: 'complete',
+            [WizardRunProgressStep.PreparingWorkspace]: 'complete',
+            [WizardRunProgressStep.ExecutingWizard]: 'active',
+            [WizardRunProgressStep.CreatingArtifacts]: 'pending',
+        })
+    })
+
+    test('marks the failure step and leaves later steps pending', () => {
+        const run = makeRun({ status: 'failed', error_code: 'artifact_creation_failed' })
+
+        expect(wizardRunProgressStates(run)).toEqual({
+            [WizardRunProgressStep.Starting]: 'complete',
+            [WizardRunProgressStep.PreparingWorkspace]: 'complete',
+            [WizardRunProgressStep.ExecutingWizard]: 'complete',
+            [WizardRunProgressStep.CreatingArtifacts]: 'failed',
+        })
     })
 })
 

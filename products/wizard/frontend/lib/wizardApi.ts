@@ -1,7 +1,7 @@
 import api from 'lib/api'
 
-import { getWizardRunsArtifactsContentRetrieveUrl, wizardRunsArtifactsList } from './generated/api'
-import type { WizardRunArtifactApi } from './generated/api.schemas'
+import { getWizardRunsArtifactsContentRetrieveUrl, wizardRunsArtifactsList } from '../generated/api'
+import type { WizardRunArtifactApi } from '../generated/api.schemas'
 
 export async function loadWizardRunArtifacts(projectId: string, runId: string): Promise<WizardRunArtifactApi[]> {
     return (await wizardRunsArtifactsList(projectId, runId)).results

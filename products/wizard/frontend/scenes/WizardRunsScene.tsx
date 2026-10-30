@@ -24,13 +24,13 @@ import { userLogic } from 'scenes/userLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 
-import { WizardLibraryModal } from './library/WizardLibraryModal'
-import { WizardRunDetailsDialog } from './runs/WizardRunDetailsDialog'
-import { WizardRunSceneSyncDetailsDialog } from './runs/WizardRunSceneSyncDetailsDialog'
-import { WizardRunTable } from './runs/WizardRunTable'
-import { wizardLibraryLogic } from './wizardLibraryLogic'
-import { wizardRunDetailsLogic } from './wizardRunDetailsLogic'
-import { wizardRunsLogic } from './wizardRunsLogic'
+import { WizardRunTable } from '../components/run/WizardRunTable'
+import { wizardLibraryLogic } from '../logics/wizardLibraryLogic'
+import { wizardRunDetailsLogic } from '../logics/wizardRunDetailsLogic'
+import { wizardRunsLogic } from '../logics/wizardRunsLogic'
+import { WizardRunDetailsDialog } from '../views/run-details/WizardRunDetailsDialog'
+import { WizardRunSceneSyncDetailsDialog } from '../views/run-details/WizardRunSceneSyncDetailsDialog'
+import { WizardLibraryModal } from '../views/wizard-library/WizardLibraryModal'
 
 export const scene: SceneExport = {
     component: WizardRunsScene,

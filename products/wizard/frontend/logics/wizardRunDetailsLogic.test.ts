@@ -8,18 +8,18 @@ import { projectLogic } from 'scenes/projectLogic'
 
 import { initKeaTests } from '~/test/init'
 
-import { wizardRunsPartialUpdate, wizardRunsRetrieve } from './generated/api'
-import type { WizardRunApi, WizardRunGitDiffArtifactApi } from './generated/api.schemas'
-import { loadWizardRunArtifactContent, loadWizardRunArtifacts } from './wizardApi'
+import { wizardRunsPartialUpdate, wizardRunsRetrieve } from '../generated/api'
+import type { WizardRunApi, WizardRunGitDiffArtifactApi } from '../generated/api.schemas'
+import { loadWizardRunArtifactContent, loadWizardRunArtifacts } from '../lib/wizardApi'
 import { wizardRunDetailsLogic } from './wizardRunDetailsLogic'
 
-jest.mock('./generated/api', () => ({
+jest.mock('../generated/api', () => ({
     wizardRunsList: jest.fn().mockResolvedValue({ count: 0, next: null, previous: null, results: [] }),
     wizardRunsPartialUpdate: jest.fn(),
     wizardRunsRetrieve: jest.fn(),
 }))
 
-jest.mock('./wizardApi', () => ({
+jest.mock('../lib/wizardApi', () => ({
     loadWizardRunArtifactContent: jest.fn(),
     loadWizardRunArtifacts: jest.fn(),
 }))

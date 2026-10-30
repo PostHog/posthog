@@ -5,11 +5,11 @@ import { projectLogic } from 'scenes/projectLogic'
 
 import { initKeaTests } from '~/test/init'
 
-import { wizardRunsList } from './generated/api'
-import type { WizardRunApi } from './generated/api.schemas'
+import { wizardRunsList } from '../generated/api'
+import type { WizardRunApi } from '../generated/api.schemas'
 import { wizardRunsLogic } from './wizardRunsLogic'
 
-jest.mock('./generated/api', () => ({ wizardRunsList: jest.fn() }))
+jest.mock('../generated/api', () => ({ wizardRunsList: jest.fn() }))
 
 const mockWizardRunsList = wizardRunsList as jest.Mock
 

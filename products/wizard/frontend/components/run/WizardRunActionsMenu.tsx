@@ -8,8 +8,8 @@ import {
     DropdownMenuTrigger,
 } from '@posthog/quill-primitives'
 
-import type { WizardRunApi } from '../generated/api.schemas'
-import { wizardRunCanCancel } from '../wizardRunDisplay'
+import type { WizardRunApi } from '../../generated/api.schemas'
+import { wizardRunCanCancel } from '../../lib/wizardRunDisplay'
 
 export function WizardRunActionsMenu({
     run,
