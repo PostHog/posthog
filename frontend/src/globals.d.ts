@@ -41,6 +41,8 @@ declare global {
         ESBUILD_LOAD_SCRIPT: (name) => void
         ESBUILD_LOAD_CHUNKS: (name) => void
         ESBUILD_LOADED_CHUNKS: Set<string>
+        /** Set by the HTML loader script: unhashed name to content-hashed name, for files loaded by URL. */
+        ESBUILD_STATIC_FILES?: Record<string, string>
         /** Set by the HTML loader script: resolves when the boot stylesheet has loaded (true) or failed (false). */
         ESBUILD_CSS_READY?: Promise<boolean>
         /** Chunk hashes per lazy entry; the full map arrives from a hashed static file after boot. */

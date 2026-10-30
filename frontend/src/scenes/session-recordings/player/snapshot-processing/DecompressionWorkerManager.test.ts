@@ -1,3 +1,4 @@
+import type { DecompressionRequest, DecompressionResponse } from './decompressionWorker'
 import {
     DecompressionWorkerManager,
     getDecompressionWorkerManager,
@@ -54,6 +55,48 @@ describe('DecompressionWorkerManager', () => {
             expect(result1).toEqual(data1)
             expect(result2).toEqual(data2)
             expect(result3).toEqual(data3)
+        })
+
+        it('loads the worker and wasm by the content-hashed names the page provides', async () => {
+            const requests: { workerUrl: string | URL; message: DecompressionRequest }[] = []
+            class FakeWorker extends EventTarget {
+                constructor(readonly url: string | URL) {
+                    super()
+                    void Promise.resolve().then(() =>
+                        this.dispatchEvent(new MessageEvent('message', { data: { type: 'ready' } }))
+                    )
+                }
+                postMessage(message: DecompressionRequest): void {
+                    requests.push({ workerUrl: this.url, message })
+                    const response: DecompressionResponse = { id: message.id, decompressedData: message.compressedData }
+                    this.dispatchEvent(new MessageEvent('message', { data: response }))
+                }
+                terminate(): void {}
+            }
+            window.ESBUILD_STATIC_FILES = {
+                'decompressionWorker.js': 'decompressionWorker-AB12CD34.js',
+                'snappy_bg.wasm': 'snappy_bg-EF56AB78.wasm',
+            }
+            const originalWorker = window.Worker
+            window.Worker = FakeWorker as unknown as typeof Worker
+            // jest.setup.ts mocks this module for every test, so take the real class.
+            const { DecompressionWorkerManager: RealManager } =
+                jest.requireActual<typeof import('./DecompressionWorkerManager')>('./DecompressionWorkerManager')
+            const hashedManager = new RealManager()
+            try {
+                const data = new Uint8Array([1, 2, 3])
+                expect(await hashedManager.decompress(data)).toEqual(data)
+                expect(requests).toEqual([
+                    {
+                        workerUrl: '/static/decompressionWorker-AB12CD34.js',
+                        message: expect.objectContaining({ wasmUrl: '/static/snappy_bg-EF56AB78.wasm' }),
+                    },
+                ])
+            } finally {
+                hashedManager.terminate()
+                window.Worker = originalWorker
+                delete window.ESBUILD_STATIC_FILES
+            }
         })
     })
 
