@@ -51,7 +51,8 @@ export const SLASH_COMMANDS = [
   { name: "logout", description: "Sign out and clear your workspaces" },
 ];
 
-const DIM = (text: string): string => `\u001b[2m${text}\u001b[22m`;
+// Faint grey, the same as the pane dividers, so the rule recedes behind the chat.
+const RULE = (text: string): string => `\u001b[2;90m${text}\u001b[22;39m`;
 
 // pi's editor, hosted in a pane: it asks this stub to repaint instead of owning the terminal.
 export class Composer {
@@ -66,7 +67,7 @@ export class Composer {
       terminal: { rows: 40 },
     } as unknown as TUI;
     this.editor = new Editor(host, {
-      borderColor: DIM,
+      borderColor: RULE,
       selectList: getSelectListTheme(),
     });
     this.setCommands([]);
