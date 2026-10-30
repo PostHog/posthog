@@ -43,6 +43,9 @@ export interface ChartLayoutContextValue<Meta = unknown> {
     /** Stacked value-axis gutters shared by `AxisLabels` and `AxisTitles`. Empty for horizontal /
      *  hidden y-axis charts. */
     yGutters: Gutter[]
+    /** Keys of the series the chart stacks, when it stacks only some of them (a line chart with
+     *  `Series.stacked: false`). Unset when every eligible series stacks. */
+    stackedSeriesKeys?: ReadonlySet<string>
 }
 
 /** Hover state isolated from layout so mousemoves don't invalidate every overlay.

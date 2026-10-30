@@ -44,10 +44,25 @@ describe('LineChart', () => {
             undefined,
             60,
         ],
+        ['stacks each axis on its own', [{}, {}, { yAxisId: 'right', data: [50, 50, 50] }], true, 60],
     ] as [string, Partial<Series>[], boolean | undefined, number][])('%s', (_, overrides, stacked, expectedMax) => {
         const series: Series[] = overrides.map((o, i) => ({ ...(SERIES[i] ?? SERIES[0]), key: `s${i}`, ...o }))
         const { chart } = renderChart(<LineChart series={series} labels={LABELS} theme={THEME} config={{ stacked }} />)
         expect(Math.max(...chart.yTicks().map(Number))).toBe(expectedMax)
+    })
+
+    it('stacks a stacked: false series in percent mode, so it reads as a share', async () => {
+        const series: Series[] = [
+            { key: 'a', label: 'A', data: [10, 20, 30], fill: {} },
+            { key: 'total', label: 'Total', data: [30, 60, 90], stacked: false },
+        ]
+        const { chart } = renderChart(
+            <LineChart series={series} labels={LABELS} theme={THEME} config={{ percentStackView: true }} />
+        )
+        expect(chart.yTicks().at(-1)).toBe('100%')
+        chart.hoverAtIndex(1)
+        const tooltip = await chart.waitForTooltip()
+        expect(tooltip.series.total.value).toBe(0.75)
     })
 
     it('renders empty state without crashing', () => {
