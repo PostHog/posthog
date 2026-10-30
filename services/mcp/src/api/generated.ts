@@ -110895,7 +110895,7 @@ export namespace Schemas {
       spans: number;
       /** Metric data points stored in the window. */
       metric_points: number;
-      /** Distinct metric series active in any hour that overlaps the window. */
+      /** Distinct metric series with at least one point in the window. */
       metric_series: number;
       /** The service.name resource attribute. */
       service_name: string;
@@ -110910,7 +110910,7 @@ export namespace Schemas {
       spans: number;
       /** Metric data points stored in the window. */
       metric_points: number;
-      /** Distinct metric series active in any hour that overlaps the window. */
+      /** Distinct metric series with at least one point in the window. */
       metric_series: number;
     }
 

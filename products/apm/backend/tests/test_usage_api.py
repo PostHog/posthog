@@ -42,7 +42,9 @@ def insert_logs(team_id: int, service: str, sizes: list[int], at: dt.datetime = 
     sync_execute("INSERT INTO logs FORMAT JSONEachRow\n" + "\n".join(json.dumps(row) for row in rows))
 
 
-def insert_metric_points(team_id: int, service: str, series: int, points: int, at: dt.datetime = INSIDE) -> None:
+def insert_metric_points(
+    team_id: int, service: str, series: int, points: int, at: dt.datetime = INSIDE, has_labels: bool = True
+) -> None:
     rows = [
         {
             "team_id": team_id,
@@ -55,7 +57,7 @@ def insert_metric_points(team_id: int, service: str, series: int, points: int, a
             "metric_type": "gauge",
             "value": float(p),
             "count": 1,
-            "has_labels": True,
+            "has_labels": has_labels,
             "attributes": {"series": str(s)},
             "resource_attributes": {},
         }
@@ -163,6 +165,18 @@ class TestServiceUsageAPI(ClickhouseTestMixin, APIBaseTest):
                 }
             ],
         )
+
+    def test_series_count_includes_series_whose_points_carry_no_labels(self) -> None:
+        at = dt.datetime(2026, 10, 4, 8, 5, 0)
+        insert_metric_points(self.team.id, "unlabelled", series=2, points=3, at=at, has_labels=False)
+
+        data = self._get(date_from="2026-10-04T08:00:00Z", date_to="2026-10-04T09:00:00Z")
+
+        self.assertEqual(
+            [(row["service_name"], row["metric_points"], row["metric_series"]) for row in data["results"]],
+            [("unlabelled", 6, 2)],
+        )
+        self.assertEqual(data["totals"]["metric_series"], 2)
 
     def test_empty_window_returns_no_rows(self) -> None:
         data = self._get(date_from="2026-10-01T00:00:00Z", date_to="2026-10-01T01:00:00Z")
