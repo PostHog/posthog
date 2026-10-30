@@ -426,6 +426,8 @@ export type CyclotronJobInvocationHogFunctionContext = {
     // version (a retry's scheduled time) and lose the original.
     firstScheduledAt?: string
     actionId?: string // The hogflow action node ID, used for metrics instance_id when executing within a workflow
+    // Set when a protected workflow step pauses mid-send, so its retries stay protected.
+    sensitive?: boolean
     actionStepCount?: number
     customerTaskIdempotencyVersion?: 1
 }
@@ -483,7 +485,7 @@ export type HogFlowInvocationContext = {
     // Opt-outs this run's "Opt out of messages" steps made. Message steps check them before the recipient cache,
     // because a worker that resumes the run can hold the recipient's preferences from before the opt-out.
     messageOptOuts?: MessageOptOutRecord[]
-    // Stamped at run start and persisted with the state, so a recovery path that holds only the
+    // Stamped on every execution of a protected workflow and persisted with the state, so a recovery path that holds only the
     // workflow id still keeps a sensitive run's message data out of its snapshot.
     sensitive?: boolean
     // Set by the transactional email API, which skips the trigger pipeline. The email worker counts the run as
