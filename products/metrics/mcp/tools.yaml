@@ -19,6 +19,7 @@ tools:
         title: Characterize metric anomaly
         description_file: ./prompts/characterize-metric-anomaly.md
         system_prompt_hint: First call when investigating "metric X looks wrong" — magnitude, onset, which labels moved
+        search_keywords: [prometheus, grafana, alertmanager, alert, incident]
         feature_flag: metrics
     metric-attribute-values-list:
         operation: metrics_attribute_values_retrieve
@@ -53,6 +54,7 @@ tools:
             query-metrics, or as a PromQL label name. In PromQL, service.name is service_name and other names with dots
             need quotes.
         system_prompt_hint: Find the labels of a metric before you filter or group it
+        search_keywords: [prometheus, promql, grafana]
         feature_flag: metrics
         response:
             include:
@@ -68,7 +70,8 @@ tools:
             idempotent: true
         title: List metric names
         description_file: ./prompts/metric-names-list.md
-        system_prompt_hint: Discover which server/infrastructure metrics exist before querying them
+        system_prompt_hint: Discover which server/infrastructure (Prometheus/OTel) metrics exist before querying them
+        search_keywords: [prometheus, grafana, victoriametrics, infrastructure]
         feature_flag: metrics
         response:
             include:
@@ -96,7 +99,8 @@ tools:
             idempotent: true
         title: Query metrics
         description_file: ./prompts/query-metrics.md
-        system_prompt_hint: Server/infrastructure metrics (OTel/Prometheus) — time series, rates, quantiles, formulas
+        system_prompt_hint: Server/infrastructure metrics (OTel/Prometheus) — time series, rates, quantiles, formulas, or a PromQL expression from an alert, runbook or Grafana panel
+        search_keywords: [prometheus, promql, grafana, victoriametrics, alertmanager, vmalert, infrastructure]
         feature_flag: metrics
         reads_ingested_data: events
         response:

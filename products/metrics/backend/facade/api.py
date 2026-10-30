@@ -72,6 +72,7 @@ from products.metrics.backend.metric_names_query_runner import MetricNamesQueryR
 from products.metrics.backend.metric_query_runner import MAX_RAW_SERIES, MetricQueryRunner, _pick_interval
 from products.metrics.backend.metric_samples_query_runner import build_metric_query_runner
 from products.metrics.backend.metrics_overview_query_runner import MetricsOverviewQueryRunner
+from products.metrics.backend.promql import run_promql_range
 from products.metrics.backend.query_concurrency import query_concurrency_slots
 from products.metrics.backend.variable_options import check_options_window, compile_regex, list_variable_options
 from products.metrics.backend.variables import from_dashboard, with_values
@@ -437,6 +438,17 @@ def run_metric_query(*, team: Team, request: MetricQueryRequest) -> list[MetricS
             else series_by_clause[clause.name]
         )
     ]
+
+
+def run_promql_query(
+    *, team: Team, expr: str, date_from: dt.datetime, date_to: dt.datetime, interval: str | None
+) -> list[MetricSeries]:
+    """Run a PromQL expression as a Snuffle range query on the bucket grid that `run_metric_query` uses.
+
+    A bucket that a series did not report is a null point, not zero. The caller checks the Snuffle
+    feature flag. The presentation layer surfaces `ValueError` as a 400.
+    """
+    return run_promql_range(team, expr, date_from, date_to, interval)
 
 
 def metric_query_concurrency_slots(team: Team) -> AbstractContextManager[None]:

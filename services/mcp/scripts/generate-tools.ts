@@ -2234,6 +2234,7 @@ function generateDefinitionsJson(
                     ...(supersededBy?.length ? { superseded_by: supersededBy } : {}),
                     ...(redirectHint ? { redirect_hint: redirectHint } : {}),
                     ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),
+                    ...(toolConfig.search_keywords?.length ? { search_keywords: toolConfig.search_keywords } : {}),
                 }
                 definitions[`${name}-execute`] = {
                     description:
@@ -2263,6 +2264,7 @@ function generateDefinitionsJson(
                     ...(supersededBy?.length ? { superseded_by: supersededBy } : {}),
                     ...(redirectHint ? { redirect_hint: redirectHint } : {}),
                     ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),
+                    ...(toolConfig.search_keywords?.length ? { search_keywords: toolConfig.search_keywords } : {}),
                 }
             } else {
                 definitions[name] = {
@@ -2289,6 +2291,7 @@ function generateDefinitionsJson(
                     ...(supersededBy?.length ? { superseded_by: supersededBy } : {}),
                     ...(redirectHint ? { redirect_hint: redirectHint } : {}),
                     ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),
+                    ...(toolConfig.search_keywords?.length ? { search_keywords: toolConfig.search_keywords } : {}),
                 }
             }
         }
@@ -2328,6 +2331,7 @@ function generateDefinitionsJson(
                 ...(wrapperConfig.superseded_by?.length ? { superseded_by: wrapperConfig.superseded_by } : {}),
                 ...(wrapperConfig.redirect_hint ? { redirect_hint: wrapperConfig.redirect_hint } : {}),
                 ...(wrapperConfig.system_prompt_hint ? { system_prompt_hint: wrapperConfig.system_prompt_hint } : {}),
+                ...(wrapperConfig.search_keywords?.length ? { search_keywords: wrapperConfig.search_keywords } : {}),
             }
         }
     }
@@ -2509,6 +2513,7 @@ function generateQueryWrapperDefinitionsJson(
             ...(toolConfig.superseded_by?.length ? { superseded_by: toolConfig.superseded_by } : {}),
             ...(toolConfig.redirect_hint ? { redirect_hint: toolConfig.redirect_hint } : {}),
             ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),
+            ...(toolConfig.search_keywords?.length ? { search_keywords: toolConfig.search_keywords } : {}),
         }
     }
     return definitions

@@ -49,6 +49,12 @@ export const ToolConfigSchema = z
          */
         system_prompt_hint: z.string().optional(),
         /**
+         * Extra words agents use for this tool's job that its name, title and description do not
+         * contain, such as a vendor or query-language name ("prometheus", "promql"). Exec `search`
+         * matches them at the same weight as the title.
+         */
+        search_keywords: z.array(z.string().trim().min(1)).optional(),
+        /**
          * Brief work-protocol guidance appended to the tool's *response* as `_agentNote`,
          * so the agent sees it at point of use instead of it growing the always-loaded tool
          * description. Keep it to a sentence or two and defer details to the referenced
@@ -584,6 +590,12 @@ export const QueryWrapperToolConfigSchema = z
          * Example: "Time series, aggregations, formulas, comparisons"
          */
         system_prompt_hint: z.string().optional(),
+        /**
+         * Extra words agents use for this tool's job that its name, title and description do not
+         * contain, such as a vendor or query-language name ("prometheus", "promql"). Exec `search`
+         * matches them at the same weight as the title.
+         */
+        search_keywords: z.array(z.string().trim().min(1)).optional(),
         ui_resource_uri: z.string().optional(),
         /** Properties to exclude from the generated Zod schema */
         exclude_properties: z.array(z.string()).optional(),

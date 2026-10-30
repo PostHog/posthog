@@ -168,6 +168,8 @@ export type Tool<TSchema extends z.ZodType = z.ZodType, TResult = unknown> = {
     name: string
     title: string
     description: string
+    /** Extra words that exec `search` matches at title weight, from the YAML `search_keywords`. */
+    searchKeywords?: string[]
     schema: TSchema
     /**
      * JSON Schema to advertise instead of deriving one from `schema`. Set for proxied

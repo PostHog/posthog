@@ -8,7 +8,7 @@ import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 import requests
@@ -33,6 +33,7 @@ from products.access_control.backend.facade.user_access_control import AccessCon
 from products.access_control.backend.models.access_control import AccessControl
 from products.error_tracking.backend.facade.testing import create_issue, create_spike_event
 from products.metrics.backend.date_range import metrics_query_date_range
+from products.metrics.backend.presentation.api import _MetricQueryBodySerializer
 from products.metrics.backend.variable_options import (
     _shared_options,
     apply_regex,
@@ -491,6 +492,69 @@ class TestMetricsVariableOptionsApi(APIBaseTest):
             response = self._post(body)
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert message in response.json()["detail"]
+        request.assert_not_called()
+
+
+class TestMetricQueryBodyValidation(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("nothing", {}),
+            ("promql_and_metric_name", {"promql": "up", "metricName": "up"}),
+            ("promql_and_clauses", {"promql": "up", "clauses": [{"name": "a", "metricName": "up"}]}),
+            ("promql_and_formula", {"promql": "up", "formula": "a / 2"}),
+        ]
+    )
+    def test_query_needs_exactly_one_form(self, _name: str, body: dict[str, Any]) -> None:
+        assert not _MetricQueryBodySerializer(data=body).is_valid()
+
+    def test_promql_alone_is_a_valid_query(self) -> None:
+        serializer = _MetricQueryBodySerializer(data={"promql": "sum(rate(http_requests_total[5m]))"})
+        assert serializer.is_valid(), serializer.errors
+
+
+@override_settings(SNUFFLE_APM_URL="http://snuffle.test:9091")
+class TestMetricsPromqlQueryApi(APIBaseTest):
+    def _post(self, query: dict[str, Any]) -> Any:
+        return self.client.post(f"/api/projects/{self.team.id}/metrics/query/", {"query": query}, format="json")
+
+    def test_promql_query_runs_as_a_snuffle_range_query(self) -> None:
+        upstream = MagicMock(spec=requests.Response, status_code=200, headers={})
+        upstream.json.return_value = {
+            "status": "success",
+            "data": {
+                "resultType": "matrix",
+                "result": [
+                    {
+                        "metric": {"__name__": "http_requests_total", "job": "api"},
+                        "values": [[1793181600, "1.5"]],
+                    }
+                ],
+            },
+        }
+        expr = 'sum by (job) (rate(http_requests_total{job="api"}[5m]))'
+        with patch("posthog.api.snuffle_proxy.internal_requests.request", return_value=upstream) as request:
+            response = self._post(
+                {"promql": expr, "dateFrom": "2026-10-28T10:00:00Z", "dateTo": "2026-10-28T11:00:00Z"}
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert request.call_args.args == ("POST", "http://snuffle.test:9091/api/v1/query_range")
+        assert request.call_args.kwargs["data"]["query"] == expr
+        [series] = response.json()["results"]
+        assert (series["labels"], series["metric_name"]) == ({"job": "api"}, "http_requests_total")
+        assert 1.5 in [point["value"] for point in series["points"]]
+
+    def test_promql_query_needs_the_snuffle_flag(self) -> None:
+        def flag_enabled(flag: str, *args: Any, **kwargs: Any) -> bool:
+            return flag != "logs-metrics-snuffle-api"
+
+        with (
+            patch("posthoganalytics.feature_enabled", side_effect=flag_enabled),
+            patch("posthog.api.snuffle_proxy.internal_requests.request") as request,
+        ):
+            response = self._post({"promql": "up"})
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
         request.assert_not_called()
 
 
