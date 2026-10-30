@@ -16,6 +16,8 @@ from posthog.models.utils import generate_random_token_personal
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.experiments.backend.facade.testing import create_experiment
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.reminders.backend.models import Reminder
 
 
@@ -373,13 +375,32 @@ class TestReminderAPI(APIBaseTest):
         self.assertEqual(response.status_code, 200, response.content)
         self.assertEqual(response.json()["results"], [])
 
-    def test_attaching_a_resource_the_caller_cannot_view_is_refused(self) -> None:
-        dashboard = Dashboard.objects.create(team=self.team, name="Revenue")
+    @parameterized.expand(
+        [
+            ("dashboard_viewable", "dashboard", False, False, True),
+            ("dashboard_hidden", "dashboard", True, False, False),
+            ("experiment_viewable", "experiment", False, False, True),
+            ("experiment_hidden", "experiment", True, False, False),
+            ("experiment_hidden_but_created_by_the_caller", "experiment", True, True, True),
+        ]
+    )
+    def test_attaching_a_resource_requires_view_access(
+        self, _name: str, resource_type: str, hidden: bool, created_by_caller: bool, attached: bool
+    ) -> None:
+        created_by = self.user if created_by_caller else None
+        if resource_type == "dashboard":
+            resource_id = Dashboard.objects.create(team=self.team, name="Revenue", created_by=created_by).pk
+        else:
+            flag = FeatureFlag.objects.create(team=self.team, key="experiment-flag")
+            resource_id = create_experiment(
+                team_id=self.team.id, feature_flag_id=flag.id, created_by_id=created_by.id if created_by else None
+            )
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": "Access control"}
         ]
         self.organization.save(update_fields=["available_product_features"])
-        AccessControl.objects.create(team=self.team, resource="dashboard", access_level="none")
+        if hidden:
+            AccessControl.objects.create(team=self.team, resource=resource_type, access_level="none")
         membership = self.organization.memberships.get(user=self.user)
         membership.level = OrganizationMembership.Level.MEMBER
         membership.save(update_fields=["level"])
@@ -392,15 +413,19 @@ class TestReminderAPI(APIBaseTest):
                 "team": self.team.id,
                 "title": "Review the weekly numbers",
                 "recurrence_interval": "weekly",
-                "resource_type": "dashboard",
-                "resource_id": str(dashboard.pk),
+                "resource_type": resource_type,
+                "resource_id": str(resource_id),
             },
         )
 
-        self.assertEqual(response.status_code, 400, response.content)
-        # Same message an absent dashboard gets, so the refusal does not confirm it exists.
-        self.assertIn("No dashboard with id", response.content.decode())
-        self.assertEqual(Reminder.objects.count(), 0)
+        if attached:
+            self.assertEqual(response.status_code, 201, response.content)
+            self.assertEqual(Reminder.objects.get().resource_id, str(resource_id))
+        else:
+            self.assertEqual(response.status_code, 400, response.content)
+            # Same message an absent resource gets, so the refusal does not confirm it exists.
+            self.assertIn(f"No {resource_type} with id", response.content.decode())
+            self.assertEqual(Reminder.objects.count(), 0)
 
     def test_list_hides_reminders_from_an_organization_enforcing_a_domain_the_user_is_outside(self) -> None:
         self._make_reminder()
