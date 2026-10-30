@@ -103,6 +103,7 @@ from products.approvals.backend.presentation.mixins import ApprovalHandlingMixin
 from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.cohorts.backend.models.util import get_all_cohort_dependencies
 from products.dashboards.backend.api.dashboard import Dashboard
+from products.experiments.backend.facade.contracts import LinkedExperiment
 from products.feature_flags.backend.api.filters_schema import (
     FEATURE_FLAG_OPERATOR_ALIASES,
     FEATURE_FLAG_PROPERTY_TYPES,
@@ -1463,6 +1464,15 @@ def _attach_live_experiments(flags: Sequence[FeatureFlag]) -> None:
     experiments = experiments_api.live_experiments_by_flag([flag.id for flag in flags])
     for flag in flags:
         flag._active_experiments = experiments.get(flag.id, ())
+
+
+def _live_experiments(flag: FeatureFlag) -> tuple[LinkedExperiment, ...]:
+    if hasattr(flag, "_active_experiments"):
+        return flag._active_experiments
+    # The experiments facade imports this module, so a module-level import would be circular.
+    from products.experiments.backend.facade import api as experiments_api  # noqa: PLC0415
+
+    return experiments_api.live_experiments_by_flag([flag.id]).get(flag.id, ())
 
 
 class FeatureFlagListSerializer(serializers.ListSerializer):
@@ -3309,20 +3319,12 @@ class FeatureFlagSerializer(
         return representation
 
     def get_experiment_set(self, obj: FeatureFlag) -> list[int]:
-        # Use the prefetched active experiments
-        if hasattr(obj, "_active_experiments"):
-            return [exp.id for exp in obj._active_experiments]
-        return [exp.id for exp in obj.experiment_set.filter(deleted=False)]
+        return [exp.id for exp in _live_experiments(obj)]
 
     @extend_schema_field(FeatureFlagExperimentSetMetadataSerializer(many=True))
     def get_experiment_set_metadata(self, obj: FeatureFlag) -> list[dict]:
-        # Use the prefetched active experiments
-        if hasattr(obj, "_active_experiments"):
-            experiments = obj._active_experiments
-        else:
-            experiments = obj.experiment_set.filter(deleted=False)
         # `is_running` mirrors the deletion guard: only a running experiment blocks flag deletion
-        return [{"id": exp.id, "name": exp.name, "is_running": exp.is_running} for exp in experiments]
+        return [{"id": exp.id, "name": exp.name, "is_running": exp.is_running} for exp in _live_experiments(obj)]
 
 
 # Migration 0546 backfilled `creation_mode="template"` onto dashboards matching these, so together
