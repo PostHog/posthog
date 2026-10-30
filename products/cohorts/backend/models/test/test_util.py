@@ -1163,6 +1163,10 @@ class TestCohortUtils(BaseTest):
         cases = [
             ("SELECT DISTINCT person_id, event FROM events LIMIT 10", ["LIMIT 10"]),
             ("SELECT DISTINCT person_id, event FROM events LIMIT 1 BY event", ["LIMIT 1", "BY events.event"]),
+            (
+                "(SELECT DISTINCT person_id, event FROM events UNION ALL SELECT DISTINCT person_id, event FROM events) LIMIT 10",
+                ["LIMIT 10", "UNION ALL"],
+            ),
         ]
         for query_str, expected_tokens in cases:
             with self.subTest(query=query_str):
@@ -1175,6 +1179,8 @@ class TestCohortUtils(BaseTest):
                 context = HogQLContext(team_id=self.team.id, enable_select_queries=True)
                 sql = print_cohort_hogql_query(cohort, context, team=self.team)
                 self.assertIn("DISTINCT", sql)
+                if "UNION ALL" in expected_tokens:
+                    self.assertEqual(sql.count("DISTINCT"), 2)
                 for token in expected_tokens:
                     self.assertIn(token, sql)
                 insert_cohort_query_actors_into_ch(cohort, team=self.team)

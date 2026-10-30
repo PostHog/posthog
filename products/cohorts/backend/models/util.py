@@ -464,6 +464,24 @@ def _is_bounded(select_query: ast.SelectQuery) -> bool:
     return select_query.limit is not None or select_query.offset is not None or select_query.limit_by is not None
 
 
+def _select_queries_under_bounded_set(query: ast.SelectQuery | ast.SelectSetQuery) -> set[int]:
+    """Return `id()` of every SELECT that sits beneath a set query with a LIMIT or OFFSET."""
+    found: set[int] = set()
+
+    def visit(node: ast.SelectQuery | ast.SelectSetQuery, bounded: bool) -> None:
+        if isinstance(node, ast.SelectQuery):
+            if bounded:
+                found.add(id(node))
+            return
+        bounded = bounded or node.limit is not None or node.offset is not None
+        visit(node.initial_select_query, bounded)
+        for subsequent in node.subsequent_select_queries:
+            visit(subsequent.select_query, bounded)
+
+    visit(query, False)
+    return found
+
+
 def _inline_positional_references(select_query: ast.SelectQuery) -> None:
     """Replace positional GROUP BY/ORDER BY/LIMIT BY ordinals with the SELECT expression they point at.
 
@@ -508,6 +526,8 @@ def _wrap_select_query_with_column(
     select_query: ast.SelectQuery,
     source_column: str,
     target_alias: str,
+    *,
+    keep_distinct: bool = False,
 ) -> None:
     """Wrap `select_query` in `SELECT <source_column> AS <target_alias> FROM (<select_query>)` in place.
 
@@ -518,7 +538,7 @@ def _wrap_select_query_with_column(
     on the outer node so root CTEs remain visible across UNION branches.
     """
     inner = copy.copy(select_query)
-    if not _is_bounded(inner):
+    if not (keep_distinct or _is_bounded(inner)):
         inner.distinct = None
     inner.ctes = None
     # The outer query selects `source_column` by its bare name, so a dotted field such as
@@ -552,6 +572,8 @@ def print_cohort_hogql_query(cohort: Cohort, hogql_context: HogQLContext, *, tea
 
     uses_distinct_id = False
     uses_actor_id = False
+
+    queries_under_bounded_set = _select_queries_under_bounded_set(query)
 
     for select_query in extract_select_queries(query):
         # Positional GROUP BY/ORDER BY ordinals (e.g. `GROUP BY 2`) reference the Nth SELECT
@@ -589,12 +611,16 @@ def print_cohort_hogql_query(cohort: Cohort, hogql_context: HogQLContext, *, tea
         )
         if actor_column is not None:
             if is_aggregating_or_multi_column:
-                _wrap_select_query_with_column(select_query, actor_column, "actor_id")
+                _wrap_select_query_with_column(
+                    select_query, actor_column, "actor_id", keep_distinct=id(select_query) in queries_under_bounded_set
+                )
             else:
                 select_query.select = [ast.Alias(expr=columns[actor_column], alias="actor_id")]
             uses_actor_id = True
         elif distinct_id_column is not None and is_aggregating_or_multi_column:
-            _wrap_select_query_with_column(select_query, "distinct_id", "distinct_id")
+            _wrap_select_query_with_column(
+                select_query, "distinct_id", "distinct_id", keep_distinct=id(select_query) in queries_under_bounded_set
+            )
             uses_distinct_id = True
         elif isinstance(table, ast.Field) and table.chain[-1] == "events":
             select_query.select = [ast.Alias(expr=ast.Field(chain=["person", "id"]), alias="actor_id")]
