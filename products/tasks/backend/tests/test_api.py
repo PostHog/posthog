@@ -4616,12 +4616,21 @@ class TestTaskAPI(BaseTaskAPITest):
 
     @parameterized.expand(
         [
-            ("unset_default_publishes", Task.OriginProduct.USER_CREATED, None, {}, True),
-            ("stored_default_off", Task.OriginProduct.USER_CREATED, False, {}, False),
-            ("stored_default_on", Task.OriginProduct.USER_CREATED, True, {}, True),
-            ("request_overrides_default", Task.OriginProduct.USER_CREATED, True, {"auto_publish": False}, False),
-            ("signal_report_run_source", Task.OriginProduct.USER_CREATED, True, {"run_source": "signal_report"}, None),
-            ("other_origin", Task.OriginProduct.SLACK, True, {}, None),
+            ("unset_default_publishes", Task.OriginProduct.USER_CREATED, None, None, {}, True),
+            ("stored_default_off", Task.OriginProduct.USER_CREATED, False, None, {}, False),
+            ("stored_default_on", Task.OriginProduct.USER_CREATED, True, None, {}, True),
+            ("request_overrides_default", Task.OriginProduct.USER_CREATED, True, None, {"auto_publish": False}, False),
+            (
+                "signal_report_run_source",
+                Task.OriginProduct.USER_CREATED,
+                True,
+                None,
+                {"run_source": "signal_report"},
+                None,
+            ),
+            ("other_origin", Task.OriginProduct.SLACK, True, None, {}, None),
+            ("resume_keeps_previous_choice", Task.OriginProduct.USER_CREATED, None, {"auto_publish": False}, {}, False),
+            ("resume_without_previous_choice", Task.OriginProduct.USER_CREATED, False, {}, {}, False),
         ]
     )
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
@@ -4630,6 +4639,7 @@ class TestTaskAPI(BaseTaskAPITest):
         _name: str,
         origin_product: Task.OriginProduct,
         stored_default: bool | None,
+        previous_state: dict | None,
         payload: dict,
         expected: bool | None,
         mock_workflow,
@@ -4641,11 +4651,16 @@ class TestTaskAPI(BaseTaskAPITest):
         task = self.create_task()
         task.origin_product = origin_product
         task.save(update_fields=["origin_product"])
+        if previous_state is not None:
+            previous_run = TaskRun.objects.create(
+                task=task, team=self.team, status=TaskRun.Status.COMPLETED, state=previous_state
+            )
+            payload = {**payload, "resume_from_run_id": str(previous_run.id)}
 
         response = self.client.post(f"/api/projects/@current/tasks/{task.id}/run/", payload, format="json")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
-        self.assertEqual(TaskRun.objects.get(task=task).state.get("auto_publish"), expected)
+        self.assertEqual(task.runs.latest("created_at").state.get("auto_publish"), expected)
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_run_endpoint_creates_cloud_run_without_triggering_workflow(self, mock_workflow):

@@ -9624,6 +9624,7 @@ def run_task(
 
     if (
         validated_data.get("auto_publish") is None
+        and (previous_state is None or previous_state.auto_publish is None)
         and task.origin_product == Task.OriginProduct.USER_CREATED
         and run_source in (None, RunSource.MANUAL)
         and user_id is not None
