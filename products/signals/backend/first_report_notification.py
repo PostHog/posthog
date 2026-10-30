@@ -60,9 +60,13 @@ def _eligible_recipient(user: User | None, team: Team) -> bool:
 def _visible_reports(team_id: int) -> QuerySet[SignalReport]:
     return (
         SignalReport.objects.filter(
+            Q(status=SignalReport.Status.READY, latest_actionability=ActionabilityChoice.IMMEDIATELY_ACTIONABLE.value)
+            | Q(
+                status=SignalReport.Status.PENDING_INPUT,
+                latest_actionability=ActionabilityChoice.REQUIRES_HUMAN_INPUT.value,
+                scout_idempotency_key=f"first-report:{team_id}",
+            ),
             team_id=team_id,
-            status=SignalReport.Status.READY,
-            latest_actionability=ActionabilityChoice.IMMEDIATELY_ACTIONABLE.value,
             latest_already_addressed=False,
         )
         .exclude(title="")

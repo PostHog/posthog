@@ -1,6 +1,6 @@
 import json
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import timedelta
 from typing import Annotated, Any, Literal
 
@@ -13,6 +13,7 @@ from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
 
 from posthog.dataclasses import frozen
+from posthog.exceptions_capture import capture_exception
 from posthog.llm.system_one import (
     MAX_SCORE_LEVELS,
     ChoiceAnswer,
@@ -40,6 +41,7 @@ from posthog.temporal.ai_observability.evaluation_types import (
     build_generation_not_found_result,
     build_skipped_evaluation_result,
 )
+from posthog.temporal.ai_observability.judge_images import ImagePrompt, build_image_prompt
 from posthog.temporal.ai_observability.message_utils import extract_text_from_messages, format_tool_definitions
 from posthog.temporal.ai_observability.metrics import (
     increment_errors,
@@ -57,7 +59,6 @@ from products.ai_observability.backend.llm import DEFAULT_MODEL_BY_PROVIDER, Cli
 from products.ai_observability.backend.llm.decisions import (
     DecisionClient,
     DecisionEndpointBlockedError,
-    decision_evaluations_enabled,
     is_decision_model,
 )
 from products.ai_observability.backend.llm.errors import (
@@ -79,9 +80,10 @@ from products.ai_observability.backend.llm.errors import (
     UnsupportedModelError,
     provider_error_detail,
 )
+from products.ai_observability.backend.llm.images import ImagePart
 from products.ai_observability.backend.llm.providers.openai import OPENAI_DECISIONS_BASE_URL
 from products.ai_observability.backend.llm.providers.openai_decisions import OpenAIDecisionAdapter
-from products.ai_observability.backend.llm.providers.openrouter import OPENROUTER_DECISIONS_BASE_URL, decision_model_ids
+from products.ai_observability.backend.llm.providers.openrouter import OPENROUTER_DECISIONS_BASE_URL
 from products.ai_observability.backend.llm.types import CompletionResponse
 from products.ai_observability.backend.models.evaluation_configs import (
     BooleanOutputConfig,
@@ -94,6 +96,7 @@ from products.ai_observability.backend.text_repr.formatters import (
     sanitize_surrogates,
     truncate_by_line_sampling,
 )
+from products.ai_observability.backend.text_repr.formatters.media_blocks import MediaMarker
 
 logger = structlog.get_logger(__name__)
 
@@ -443,6 +446,25 @@ def _build_unparsable_response_skip_result(
     return result
 
 
+# Statuses an attached image can cause. Auth, permission and missing-model errors fail the same way without images.
+_IMAGE_REJECTION_STATUSES = frozenset({400, 413, 415, 422})
+
+
+class JudgeImagesRejectedError(Exception):
+    """Reported without the provider's message, which can quote a live presigned link."""
+
+
+def _image_rejection_status(error: Exception) -> int | None:
+    """The status of a provider rejection an image can cause, raw or wrapped by an adapter."""
+    for candidate in (error, error.__cause__):
+        if (
+            isinstance(candidate, Exception)
+            and (status := _rejected_request_status(candidate)) in _IMAGE_REJECTION_STATUSES
+        ):
+            return status
+    return None
+
+
 def _rejected_request_status(error: Exception) -> int | None:
     """The 4xx status of a provider rejection that no retry can fix, or None.
 
@@ -490,6 +512,23 @@ def _build_rejected_request_skip_result(
         "key_id": key_id,
     }
     return result
+
+
+def _build_rate_limit_skip_result(
+    error: RetryableRateLimitError, *, allows_na: bool, output_type: str
+) -> EvaluationActivityResult:
+    reasoning = require_user_error_spec("rate_limit_retries_exhausted").safe_message
+    # Only the SDK error the adapter wrapped carries the provider's sentence. Our own message on
+    # `error` is generic, and the provider's text names the limit that the customer has to change.
+    detail = truncate_error_detail(provider_error_detail(error.__cause__))
+    if detail:
+        reasoning = f"{reasoning} Provider message: {detail}"
+    return build_skipped_evaluation_result(
+        output_type=output_type,
+        allows_na=allows_na,
+        reasoning=reasoning,
+        skip_reason="rate_limit_retries_exhausted",
+    )
 
 
 @temporalio.activity.defn
@@ -542,17 +581,19 @@ def _execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> EvaluationActi
         return _build_errored_trace_result(allows_na, output_type=output_type)
 
     io = extract_event_io(event_type, properties)
-    tools_raw = extract_event_tools(properties)
-
-    input_data = extract_text_from_messages(io.input_raw)
-    output_data = extract_text_from_messages(io.output_raw)
-    tools_data = format_tool_definitions(tools_raw)
-
+    tools_data = format_tool_definitions(extract_event_tools(properties))
     system_prompt = build_system_prompt(prompt, allows_na, output_type=output_type, output_config=output_config)
 
-    output_section = f"\n\nOutput: {output_data}"
-    context_budget = EVENT_TEXT_MAX_CHARS - len("Input: ") - len(output_section)
-    if context_budget < 0:
+    user_prompt = _build_user_prompt(io.input_raw, io.output_raw, tools_data)
+    image_prompt = build_image_prompt(
+        evaluation,
+        user_prompt,
+        lambda media_marker: _build_user_prompt(io.input_raw, io.output_raw, tools_data, media_marker=media_marker),
+    )
+    if user_prompt is None and image_prompt is not None:
+        # Inline base64 can push the plain text over the limit when the marked text still fits.
+        user_prompt = image_prompt.unnumbered_text()
+    if user_prompt is None:
         return build_skipped_evaluation_result(
             output_type=output_type,
             allows_na=allows_na,
@@ -560,20 +601,32 @@ def _execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> EvaluationActi
             skip_reason="generation_output_too_long",
         )
 
-    sections = [input_data]
-    if tools_data:
-        sections.append(f"Tools available:\n{tools_data}")
-    # Keep the full answer being graded outside the sampled context.
-    context = truncate_by_line_sampling("\n\n".join(sections), context_budget)
-    user_prompt = sanitize_surrogates(f"Input: {context}{output_section}")
-
     return call_llm_judge(
         evaluation=evaluation,
         system_prompt=system_prompt,
         user_prompt=user_prompt,
         allows_na=allows_na,
         backfill=inputs.backfill_id is not None,
+        image_prompt=image_prompt,
     )
+
+
+def _build_user_prompt(
+    input_raw: Any, output_raw: Any, tools_data: str, *, media_marker: MediaMarker | None = None
+) -> str | None:
+    """The judge's user prompt, or None when the output alone exceeds the judge's text limit."""
+    # Render the input first, so its images get the lower numbers in reading order.
+    input_text = extract_text_from_messages(input_raw, media_marker)
+    output_section = f"\n\nOutput: {extract_text_from_messages(output_raw, media_marker)}"
+    context_budget = EVENT_TEXT_MAX_CHARS - len("Input: ") - len(output_section)
+    if context_budget < 0:
+        return None
+    sections = [input_text]
+    if tools_data:
+        sections.append(f"Tools available:\n{tools_data}")
+    # Keep the full answer being graded outside the sampled context.
+    context = truncate_by_line_sampling("\n\n".join(sections), context_budget)
+    return sanitize_surrogates(f"Input: {context}{output_section}")
 
 
 def _decision_numeric_score(minimum: float, maximum: float, index: float) -> float:
@@ -597,6 +650,7 @@ def call_llm_judge(
     user_prompt: str,
     allows_na: bool,
     backfill: bool = False,
+    image_prompt: ImagePrompt | None = None,
 ) -> EvaluationActivityResult:
     """Resolve the judge model/key for `evaluation` and run a single judge completion.
 
@@ -638,19 +692,14 @@ def call_llm_judge(
     probability: float | None = None
     decision_result = None
     try:
-        openrouter_enabled = provider == "openrouter" and decision_evaluations_enabled(
-            team_id, base_url=OPENROUTER_DECISIONS_BASE_URL
-        )
         judge_method = evaluation["evaluation_config"].get("judge_method")
         # Explicit selection takes precedence for models that support both methods.
         # Models gaining decisions must not move existing chat evaluations onto a different API.
         uses_decisions = (
             judge_method == "decision"
             if judge_method is not None
-            else is_decision_model(provider, model, openrouter_enabled=openrouter_enabled, decision_only=True)
+            else is_decision_model(provider, model, decision_only=True)
         )
-        if judge_method is None and provider == "openrouter" and not openrouter_enabled:
-            uses_decisions = model in (decision_model_ids(refresh=False, decision_only=True) or ())
         if uses_decisions:
             if output_type not in ("boolean", "categorical", "numeric"):
                 return build_skipped_evaluation_result(
@@ -668,15 +717,6 @@ def call_llm_judge(
                 if provider_key
                 else ""
             )
-            if (provider == "openrouter" and not openrouter_enabled) or (
-                provider in ("system_one", "openai") and not decision_evaluations_enabled(team_id, base_url=base_url)
-            ):
-                return build_skipped_evaluation_result(
-                    output_type=output_type,
-                    allows_na=allows_na,
-                    reasoning="Decision model evaluations are not available for this project.",
-                    skip_reason="system_one_unavailable",
-                )
             prompt = evaluation["evaluation_config"]["prompt"]
             categorical_config = (
                 CategoricalOutputConfig.model_validate(output_config) if output_type == "categorical" else None
@@ -819,15 +859,40 @@ def call_llm_judge(
                 ),
             )
         else:
-            response = client.complete(
-                CompletionRequest(
-                    model=model,
-                    system=system_prompt,
-                    messages=[{"role": "user", "content": user_prompt}],
-                    provider=provider,
-                    response_format=response_format,
-                )
+            content = image_prompt.images.content(image_prompt.text, provider, model) if image_prompt else user_prompt
+            sent_images = isinstance(content, list) and any(isinstance(part, ImagePart) for part in content)
+            request = CompletionRequest(
+                model=model,
+                system=system_prompt,
+                messages=[{"role": "user", "content": content}],
+                provider=provider,
+                response_format=response_format,
+                reasoning_level=evaluation["evaluation_config"].get("reasoning_level"),
             )
+            status: int | None = None
+            try:
+                response = client.complete(request)
+            except Exception as e:
+                status = _image_rejection_status(e) if sent_images else None
+                if status is None:
+                    raise
+            # Handle the rejection outside the except: the provider's error can quote a presigned link, and
+            # an active exception reaches the logs through capture_exception and chains onto a retry failure.
+            if status is not None:
+                # A model without image input, or an image link the provider could not download.
+                # Grade the plain transcript rather than skip the run.
+                context = {
+                    "evaluation_id": evaluation["id"],
+                    "team_id": evaluation["team_id"],
+                    "provider": provider,
+                    "model": model,
+                    "status": status,
+                }
+                logger.warning("judge_images_rejected", **context)
+                if not is_byok:
+                    # On a PostHog key this can mean broken presigned links, so keep it visible.
+                    capture_exception(JudgeImagesRejectedError(f"Provider rejected judge images ({status})"), context)
+                response = client.complete(replace(request, messages=[{"role": "user", "content": user_prompt}]))
     except (DecisionEndpointBlockedError, ProviderConfigurationError) as e:
         increment_user_errors("endpoint_blocked", provider=provider)
         return terminal_user_error_result(
@@ -847,11 +912,17 @@ def call_llm_judge(
             skip_reason="request_rejected",
         )
     except RetryableRateLimitError as e:
-        increment_errors("rate_limit", provider=provider)
         retry_delay = timedelta(seconds=e.retry_after) if e.retry_after is not None else None
-        # A retry usually gets through, so only an outage that outlasts every attempt reaches error tracking.
         last = is_last_attempt(retry_delay) if backfill else _is_last_judge_attempt()
-        error_class = ApplicationError if last else NonReportableApplicationError
+        # Decision endpoints raise this error for outages too (408, 503, 529). Only a 429 on the
+        # customer's own key is a limit that the customer sets and PostHog cannot act on.
+        customer_limited = is_byok and e.status == 429
+        if customer_limited and last and not backfill:
+            increment_user_errors("rate_limit_retries_exhausted", provider=provider)
+            return _build_rate_limit_skip_result(e, allows_na=allows_na, output_type=output_type)
+        increment_errors("rate_limit", provider=provider)
+        # A retry usually gets through, so only an outage that outlasts every attempt reaches error tracking.
+        error_class = ApplicationError if last and not customer_limited else NonReportableApplicationError
         raise error_class(
             str(e),
             {"error_type": "provider_unavailable", "provider": provider},
@@ -937,18 +1008,6 @@ def call_llm_judge(
             non_retryable=True,
         )
     except UnsupportedModelError as e:
-        # A failed chat call can populate a cold catalogue; a disabled flag must not disable the evaluation.
-        if (
-            provider == "openrouter"
-            and not openrouter_enabled
-            and model in (decision_model_ids(refresh=False, decision_only=True) or ())
-        ):
-            return build_skipped_evaluation_result(
-                output_type=output_type,
-                allows_na=allows_na,
-                reasoning="Decision model evaluations are not available for this project.",
-                skip_reason="system_one_unavailable",
-            )
         increment_user_errors("model_not_supported", provider=provider)
         return terminal_user_error_result(
             spec=require_user_error_spec("model_not_supported", is_byok=is_byok),

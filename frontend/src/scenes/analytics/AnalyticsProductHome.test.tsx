@@ -1,14 +1,26 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { cleanup, render, screen } from '@testing-library/react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { initKeaTests } from '~/test/init'
 
 import { AnalyticsProductHome } from './AnalyticsProductHome'
 
 jest.mock('products/product_analytics/frontend/insights/home/HomeTab', () => ({
-    HomeTab: () => <div>Product analytics dashboard</div>,
+    HomeTab: ({ page }: { page: { title: JSX.Element } }) => (
+        <>
+            {page.title}
+            <div>Product analytics dashboard</div>
+        </>
+    ),
+}))
+
+jest.mock('products/product_analytics/frontend/insights/home/HomeDashboardModals', () => ({
+    HomeDashboardModals: () => null,
 }))
 
 jest.mock('./AnalyticsCreateModals', () => ({
@@ -16,7 +28,7 @@ jest.mock('./AnalyticsCreateModals', () => ({
 }))
 
 jest.mock('~/layout/scenes/components/SceneTitleSection', () => ({
-    SceneTitleSection: () => null,
+    SceneTitleSection: ({ actions }: { actions?: JSX.Element }) => <div>{actions}</div>,
 }))
 
 describe('AnalyticsProductHome', () => {
@@ -46,5 +58,18 @@ describe('AnalyticsProductHome', () => {
         render(<AnalyticsProductHome />)
 
         expect(screen.queryByText('Product analytics dashboard') !== null).toBe(railEnabled)
+    })
+
+    test.each([
+        ['the default dashboard', null, 'home-tab-choose-dashboard'],
+        ['a custom dashboard', 42, 'home-tab-dashboard-options'],
+    ])('shows a labeled Customize control for %s', (_scenario, homeDashboardId, expectedDataAttr) => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TODAY_RAIL_NAV]: true })
+        teamLogic.mount()
+        teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, home_tab_dashboard: homeDashboardId })
+
+        const { container } = render(<AnalyticsProductHome />)
+
+        expect(container.querySelector(`[data-attr="${expectedDataAttr}"]`)?.textContent).toBe('Customize')
     })
 })

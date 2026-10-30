@@ -16,6 +16,7 @@ import { commandLogic } from 'lib/components/Command/commandLogic'
 import { SearchItem, fileSystemEntryToSearchItem } from 'lib/components/Search/searchItems'
 import { searchListsLogic } from 'lib/components/Search/searchListsLogic'
 import { canOpenInNewTab } from 'lib/components/Search/utils'
+import { shortcutLogic } from 'lib/components/Shortcuts/shortcutLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { themeLogic } from 'lib/logic/themeLogic'
@@ -75,6 +76,7 @@ import {
     emptyRemoteSlots,
     isSelectable,
     pickDisplayedQuery,
+    rankableSettings,
     resultsSettled,
     themeSearchItem,
 } from './commandKSections'
@@ -83,6 +85,7 @@ import { REMOTE_REQUESTS, RemoteContext, RemoteResults, RemoteSource, settleRequ
 const REMOTE_DEBOUNCE_MS = 150
 const OBJECTS_DEBOUNCE_MS = 50
 const FAST_REQUESTS = ['objects', 'persons']
+const INPUT_HIGHLIGHT_KEY = 'input'
 
 export type CommitVia = 'tab' | 'enter' | 'space' | 'paste' | 'click' | 'typed' | 'see-all'
 
@@ -103,6 +106,7 @@ export interface commandKSearchLogicValues {
     productsItems: SearchItem[] // searchListsLogic
     settingsItems: SearchItem[] // searchListsLogic
     starredItems: SearchItem[] // searchListsLogic
+    shortcutItems: SearchItem[] // shortcutLogic
     currentTeamId: number | null // teamLogic
     isDarkModeOn: boolean // themeLogic
     user: UserType | null // userLogic
@@ -246,12 +250,8 @@ export interface commandKSearchLogicActions {
             >
         >
     }
-    requestStarted: (
-        requestId: string,
-        query: string
-    ) => {
-        query: string
-        requestId: string
+    requestsStarted: (queries: Record<string, string>) => {
+        queries: Record<string, string>
     }
     selectChip: (index: ChipSelection) => {
         index: ChipSelection
@@ -273,9 +273,6 @@ export interface commandKSearchLogicActions {
     }
     showQuery: (query: SectionsQuery) => {
         query: SectionsQuery
-    }
-    syncRemote: () => {
-        value: true
     }
 }
 
@@ -315,6 +312,7 @@ export interface commandKSearchLogicMeta {
         localLists: (
             recentItems: SearchItem[],
             starredItems: SearchItem[],
+            shortcutItems: SearchItem[],
             productsItems: SearchItem[],
             settingsItems: SearchItem[],
             newItems: SearchItem[],
@@ -410,6 +408,8 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
             ['groupTypes', 'aggregationLabel'],
             themeLogic,
             ['isDarkModeOn'],
+            shortcutLogic,
+            ['shortcutItems'],
         ],
         actions: [
             commandLogic,
@@ -439,8 +439,7 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
         completeHighlighted: true,
         askAi: true,
         clearQuery: true,
-        syncRemote: true,
-        requestStarted: (requestId: string, query: string) => ({ requestId, query }),
+        requestsStarted: (queries: Record<string, string>) => ({ queries }),
         remoteLoaded: (query: string, results: RemoteResults, failed: boolean = false) => ({ query, results, failed }),
         showQuery: (query: SectionsQuery) => ({ query }),
         loadFolders: true,
@@ -486,7 +485,7 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
         requestedQueries: [
             {} as Record<string, string>,
             {
-                requestStarted: (state, { requestId, query }) => ({ ...state, [requestId]: query }),
+                requestsStarted: (state, { queries }) => ({ ...state, ...queries }),
             },
         ],
         remote: [
@@ -503,14 +502,20 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                     }
                     return next
                 },
-                requestStarted: (state, { requestId, query }) => {
+                requestsStarted: (state, { queries }) => {
+                    const retried = Object.entries(queries).flatMap(([requestId, query]) =>
+                        (REMOTE_REQUESTS.find((request) => request.id === requestId)?.sources ?? [])
+                            .filter((source) => state[source].failed?.[query])
+                            .map((source) => [source, query] as const)
+                    )
+                    if (retried.length === 0) {
+                        return state
+                    }
                     const next = { ...state }
-                    for (const source of REMOTE_REQUESTS.find((request) => request.id === requestId)?.sources ?? []) {
-                        if (state[source].failed?.[query]) {
-                            const { [query]: _items, ...cache } = state[source].cache
-                            const { [query]: _failed, ...failed } = state[source].failed ?? {}
-                            next[source] = { cache, failed }
-                        }
+                    for (const [source, query] of retried) {
+                        const { [query]: _items, ...cache } = next[source].cache
+                        const { [query]: _failed, ...failed } = next[source].failed ?? {}
+                        next[source] = { cache, failed }
                     }
                     return next
                 },
@@ -642,6 +647,7 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
             (s) => [
                 s.recentItems,
                 s.starredItems,
+                s.shortcutItems,
                 s.productsItems,
                 s.settingsItems,
                 s.newItems,
@@ -653,6 +659,7 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
             (
                 recents: SearchItem[],
                 starred: SearchItem[],
+                shortcuts: SearchItem[],
                 products: SearchItem[],
                 settings: SearchItem[],
                 create: SearchItem[],
@@ -663,6 +670,7 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
             ): LocalLists => ({
                 recents,
                 starred,
+                shortcuts,
                 products,
                 settings,
                 create,
@@ -726,9 +734,10 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                     remote,
                     ...displayed.query,
                     stale: displayed.stale,
-                    personsFirst:
-                        !!displayed.query.remoteQueries.persons?.includes('@') &&
-                        featureFlags[FEATURE_FLAGS.COMMAND_K_PERSONS_FIRST_FOR_EMAIL] === 'test',
+                    personsFirst: !!displayed.query.remoteQueries.persons?.includes('@'),
+                    settingsInResults:
+                        rankableSettings(local, displayed.query.localQuery).length > 0 &&
+                        featureFlags[FEATURE_FLAGS.COMMAND_K_SETTINGS_IN_RESULTS] === 'test',
                 }),
         ],
         selectableRows: [
@@ -739,7 +748,9 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
         highlightedRow: [
             (s) => [s.selectableRows, s.highlightedKey],
             (rows: CommandKRow[], highlightedKey: string | null): CommandKRow | null =>
-                rows.find((row) => row.key === highlightedKey) ?? rows[0] ?? null,
+                highlightedKey === INPUT_HIGHLIGHT_KEY
+                    ? null
+                    : (rows.find((row) => row.key === highlightedKey) ?? rows[0] ?? null),
         ],
         highlightIsFilterRow: [
             (s) => [s.highlightedRow],
@@ -816,6 +827,66 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
             }
         }
 
+        const syncRemote = (): void => {
+            const started: Record<string, string> = {}
+            for (const request of REMOTE_REQUESTS) {
+                const query = values.requestQueries[request.id] ?? ''
+                if (query !== (values.requestedQueries[request.id] ?? '')) {
+                    started[request.id] = query
+                }
+            }
+            if (Object.keys(started).length === 0) {
+                showSettledQuery()
+                return
+            }
+            actions.requestsStarted(started)
+            for (const request of REMOTE_REQUESTS) {
+                if (!(request.id in started)) {
+                    continue
+                }
+                const query = started[request.id]
+                if (!query) {
+                    // The request no longer applies, so stop it rather than let it hold a query slot.
+                    cache.disposables.dispose(`request-${request.id}`)
+                    continue
+                }
+                const cached = request.sources.map((source) => values.remote[source].cache[query])
+                if (cached.every(Boolean)) {
+                    cache.disposables.dispose(`request-${request.id}`)
+                    actions.remoteLoaded(
+                        query,
+                        Object.fromEntries(request.sources.map((source, index) => [source, cached[index]]))
+                    )
+                    continue
+                }
+                const debounceMs = FAST_REQUESTS.includes(request.id) ? OBJECTS_DEBOUNCE_MS : REMOTE_DEBOUNCE_MS
+                // One disposable per request covers the debounce and the fetch, so a newer query
+                // cancels both, and unmounting cancels everything.
+                cache.disposables.add(
+                    () => {
+                        const controller = new AbortController()
+                        const timer = setTimeout(() => {
+                            void settleRequest(request, query, controller.signal, values.remoteContext).then(
+                                (settled) => {
+                                    if (settled && values.requestedQueries[request.id] === query) {
+                                        actions.remoteLoaded(query, settled.results, settled.failed)
+                                    }
+                                }
+                            )
+                        }, debounceMs)
+                        return () => {
+                            clearTimeout(timer)
+                            controller.abort()
+                        }
+                    },
+                    `request-${request.id}`,
+                    // Hiding the tab must not abort a search, or its section would sit on stale rows.
+                    { pauseOnPageHidden: false }
+                )
+            }
+            showSettledQuery()
+        }
+
         const onQueryChanged = (): void => {
             const context = values.cursorContext
             const keys =
@@ -836,12 +907,12 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
             if (context.kind === 'value' && context.filter.key === 'createdBy') {
                 actions.ensureAllMembersLoaded()
             }
-            actions.syncRemote()
+            syncRemote()
         }
 
         return {
             // Remote searches wait for a project, so a project that loads mid-query starts them.
-            loadCurrentTeamSuccess: () => actions.syncRemote(),
+            loadCurrentTeamSuccess: () => syncRemote(),
             inputChanged: ({ text, cursor, pasted }) => {
                 // With everything selected, the edit replaced the chips along with the text.
                 const replacedAll = values.chipSelection === 'all'
@@ -922,12 +993,8 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                     case 'edit-chip':
                         actions.editChip(intent.index)
                         break
-                    case 'clear-or-close':
-                        if (values.isPaletteEmpty) {
-                            actions.closeCommand()
-                        } else {
-                            actions.clearQuery()
-                        }
+                    case 'close':
+                        actions.closeCommand()
                         break
                 }
             },
@@ -937,7 +1004,8 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                     return
                 }
                 const currentIndex = values.highlightedRow ? rows.indexOf(values.highlightedRow) : -1
-                actions.setHighlightedKey(rows[(currentIndex + direction + rows.length) % rows.length].key)
+                const nextIndex = Math.min(currentIndex + direction, rows.length - 1)
+                actions.setHighlightedKey(nextIndex < 0 ? INPUT_HIGHLIGHT_KEY : rows[nextIndex].key)
             },
             activateRow: ({ row, newTab, via }) => {
                 if (row.kind === 'filter-key') {
@@ -973,57 +1041,6 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                 }
             },
             clearQuery: () => actions.setChipsAndText([], '', 0),
-            syncRemote: () => {
-                for (const request of REMOTE_REQUESTS) {
-                    const query = values.requestQueries[request.id]
-                    if (!query) {
-                        // The request no longer applies, so stop it rather than let it hold a query slot.
-                        if (values.requestedQueries[request.id]) {
-                            cache.disposables.dispose(`request-${request.id}`)
-                            actions.requestStarted(request.id, '')
-                        }
-                        continue
-                    }
-                    if (query === values.requestedQueries[request.id]) {
-                        continue
-                    }
-                    actions.requestStarted(request.id, query)
-                    const cached = request.sources.map((source) => values.remote[source].cache[query])
-                    if (cached.every(Boolean)) {
-                        cache.disposables.dispose(`request-${request.id}`)
-                        actions.remoteLoaded(
-                            query,
-                            Object.fromEntries(request.sources.map((source, index) => [source, cached[index]]))
-                        )
-                        continue
-                    }
-                    const debounceMs = FAST_REQUESTS.includes(request.id) ? OBJECTS_DEBOUNCE_MS : REMOTE_DEBOUNCE_MS
-                    // One disposable per request covers the debounce and the fetch, so a newer query
-                    // cancels both, and unmounting cancels everything.
-                    cache.disposables.add(
-                        () => {
-                            const controller = new AbortController()
-                            const timer = setTimeout(() => {
-                                void settleRequest(request, query, controller.signal, values.remoteContext).then(
-                                    (settled) => {
-                                        if (settled && values.requestedQueries[request.id] === query) {
-                                            actions.remoteLoaded(query, settled.results, settled.failed)
-                                        }
-                                    }
-                                )
-                            }, debounceMs)
-                            return () => {
-                                clearTimeout(timer)
-                                controller.abort()
-                            }
-                        },
-                        `request-${request.id}`,
-                        // Hiding the tab must not abort a search, or its section would sit on stale rows.
-                        { pauseOnPageHidden: false }
-                    )
-                }
-                showSettledQuery()
-            },
             remoteLoaded: showSettledQuery,
             loadFolders: async () => {
                 if (cache.foldersRequested) {

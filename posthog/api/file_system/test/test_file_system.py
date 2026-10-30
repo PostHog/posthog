@@ -1,5 +1,5 @@
 from collections.abc import Callable, Iterable, Mapping
-from datetime import UTC
+from datetime import UTC, timedelta
 from typing import Any, TypedDict, cast
 
 import pytest
@@ -12,6 +12,7 @@ from django.core.cache import cache
 from django.db import connection
 from django.test import SimpleTestCase
 from django.test.utils import CaptureQueriesContext
+from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
@@ -41,7 +42,7 @@ from products.cdp.backend.models.hog_functions.hog_function import HogFunction, 
 from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.early_access_features.backend.models import EarlyAccessFeature
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.facade.testing import create_experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
@@ -62,6 +63,37 @@ class TestFileSystemAPI(APIBaseTest):
         # The user must be a staff user while we're beta testing
         self.user.is_staff = True
         self.user.save()
+
+    @time_machine.travel("2026-01-31T12:00:00Z", tick=False)
+    def test_frequent_files_rank_separate_visit_days_with_recency_decay(self) -> None:
+        now = timezone.now()
+        cases = [
+            ("one-off", [0], "web"),
+            ("regular", [1, 2, 3, 4], "web"),
+            ("older", [10, 20], "web"),
+            ("expired", [40, 41], "web"),
+            ("future", [-1, -2], "web"),
+            ("reloaded", [0, 0, 0], "web"),
+            ("desktop", [0, 1, 2], "desktop"),
+        ]
+        for ref, days, surface in cases:
+            FileSystem.objects.create(team=self.team, path=f"Docs/{ref}", type="doc", ref=ref, surface=surface)
+            FileSystemViewLog.objects.create(
+                team=self.team,
+                user=self.user,
+                type="doc",
+                ref=ref,
+                surface=surface,
+                viewed_at=now - timedelta(days=min(days)),
+                view_days=[(now - timedelta(days=day)).date() for day in days],
+            )
+        url = f"/api/projects/{self.team.id}/file_system/frequent/"
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual([item["ref"] for item in response.json()], ["regular", "older"])
+        self.assertEqual([item["ref"] for item in self.client.get(url, {"limit": 1}).json()], ["regular"])
+        self.client.force_login(self._create_user("different@example.com"))
+        self.assertEqual(self.client.get(url).json(), [])
 
     def test_list_files_initially_empty(self):
         """
@@ -477,7 +509,7 @@ class TestFileSystemAPI(APIBaseTest):
         """
         # Create 5 objects
         ff = FeatureFlag.objects.create(team=self.team, key="Beta Feature", created_by=self.user)
-        Experiment.objects.create(team=self.team, name="Experiment #1", created_by=self.user, feature_flag=ff)
+        create_experiment(team_id=self.team.id, name="Experiment #1", created_by_id=self.user.id, feature_flag_id=ff.id)
         Dashboard.objects.create(team=self.team, name="User Dashboard", created_by=self.user)
         Insight.objects.create(team=self.team, saved=True, name="Marketing Insight", created_by=self.user)
         Notebook.objects.create(team=self.team, title="Data Exploration", created_by=self.user)
@@ -496,7 +528,9 @@ class TestFileSystemAPI(APIBaseTest):
         Ensure that the 'type' query parameter filters creation to a single type.
         """
         flag = FeatureFlag.objects.create(team=self.team, key="Only Flag", created_by=self.user)
-        Experiment.objects.create(team=self.team, name="Experiment #1", feature_flag=flag, created_by=self.user)
+        create_experiment(
+            team_id=self.team.id, name="Experiment #1", feature_flag_id=flag.id, created_by_id=self.user.id
+        )
         FileSystem.objects.all().delete()
 
         # Filter for feature_flag only => creates 1 new 'leaf' item
@@ -1498,6 +1532,29 @@ class TestFileSystemAPIAdvancedPermissions(APIBaseTest):
     # access resolution has to hold across that boundary, not just within self.team.
     def _create_sibling_team(self) -> Team:
         return Team.objects.create(project=self.project, organization=self.organization, name="Env-2")
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_frequent_files_filter_access_before_selecting_top_items(self, mock_flag: MagicMock) -> None:
+        assert self.file_b.ref is not None
+        Dashboard.objects.filter(id=self.file_b.ref).update(created_by=self.other_user)
+        FileSystem.objects.filter(team=self.team, type="dashboard", ref=self.file_b.ref).update(
+            created_by=self.other_user
+        )
+        self._create_access_control(resource="dashboard", resource_id=self.file_b.ref, access_level="none")
+        now = timezone.now()
+        for entry, days in ((self.file_a, [1, 2]), (self.file_b, [0, 1, 2, 3])):
+            assert entry.ref is not None
+            FileSystemViewLog.objects.create(
+                team=self.team,
+                user=self.user,
+                type=entry.type,
+                ref=entry.ref,
+                viewed_at=now - timedelta(days=min(days)),
+                view_days=[(now - timedelta(days=day)).date() for day in days],
+            )
+        response = self.client.get(f"/api/projects/{self.team.id}/file_system/frequent/", {"limit": 1})
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual([item["ref"] for item in response.json()], [self.file_a.ref])
 
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_list_excludes_items_with_none_access(self, mock_flag):
@@ -2642,19 +2699,19 @@ class TestDestroyRepairsLeftoverHogFunctions(APIBaseTest):
 
     def _prepare_experiment_case(self):
         feature_flag = FeatureFlag.objects.create(team=self.team, key="exp-flag", created_by=self.user)
-        experiment = Experiment.objects.create(
-            team=self.team,
+        experiment_id = create_experiment(
+            team_id=self.team.id,
             name="Experiment",
-            feature_flag=feature_flag,
-            created_by=self.user,
+            feature_flag_id=feature_flag.id,
+            created_by_id=self.user.id,
         )
         fs_entry = self._ensure_file_system_entry(
-            file_type="experiment", ref=str(experiment.id), fallback_name=str(experiment.id)
+            file_type="experiment", ref=str(experiment_id), fallback_name=str(experiment_id)
         )
         return {
             "fs_entry": fs_entry,
-            "item_id": str(experiment.id),
-            "ref": str(experiment.id),
+            "item_id": str(experiment_id),
+            "ref": str(experiment_id),
             "path": fs_entry.path,
         }
 

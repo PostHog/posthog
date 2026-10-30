@@ -3,6 +3,8 @@ from unittest import mock
 
 import requests
 
+from posthog.integrations import IntegrationNotFound
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googlesearchconsole import (
     GoogleSearchConsoleSourceConfig,
@@ -164,11 +166,10 @@ def test_get_oauth_accounts_names_a_next_step_when_the_account_owns_no_property(
 
 
 def test_validate_credentials_missing_integration_returns_reconnect_message():
-    from posthog.models.integration import Integration
 
     with mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.source.google_search_console_session",
-        side_effect=Integration.DoesNotExist(),
+        side_effect=IntegrationNotFound(),
     ):
         ok, message = GoogleSearchConsoleSource().validate_credentials(_config(), team_id=1)
 
@@ -317,7 +318,7 @@ def test_validate_credentials_normalizes_site_url_before_lookup(entered, site_ur
 
 def test_validate_credentials_handles_missing_integration():
     # A disconnected/deleted OAuth integration makes the credentials lookup raise
-    # `Integration.DoesNotExist` ("... matching query does not exist"). Surface an
+    # `IntegrationNotFound` ("... matching query does not exist"). Surface an
     # actionable reconnect message instead of the raw ORM error.
     with mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.source.google_search_console_session",

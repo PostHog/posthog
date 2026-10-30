@@ -721,3 +721,64 @@ export const ExternalDataSourcesSourcePrefixCreateBody = /* @__PURE__ */ zod
 export const ExternalDataSourcesStoreCredentialsCreateBody = /* @__PURE__ */ zod
     .record(zod.string(), zod.unknown())
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
+
+/**
+ * Add a notification destination to a warehouse alert.
+ */
+
+export const warehouseAlertsDestinationsCreateBodyPagerdutySeverityDefault = `critical`
+export const warehouseAlertsDestinationsCreateBodyPagerdutyRegionDefault = `us`
+
+export const WarehouseAlertsDestinationsCreateBody = /* @__PURE__ */ zod.object({
+    type: zod
+        .enum(['slack', 'webhook', 'teams', 'discord', 'pagerduty'])
+        .describe(
+            '\* `slack` - slack\n\* `webhook` - webhook\n\* `teams` - teams\n\* `discord` - discord\n\* `pagerduty` - pagerduty'
+        )
+        .describe(
+            'Notification destination type.\n\n\* `slack` - slack\n\* `webhook` - webhook\n\* `teams` - teams\n\* `discord` - discord\n\* `pagerduty` - pagerduty'
+        ),
+    event_kinds: zod
+        .array(zod.enum(['firing', 'resolved']).describe('\* `firing` - firing\n\* `resolved` - resolved'))
+        .min(1)
+        .default([`firing`, `resolved`])
+        .describe(
+            'Which transitions send a message. A PagerDuty destination opens an incident when the alert fires and resolves it when the alert resolves, whatever this lists. Defaults to every kind.'
+        ),
+    slack_workspace_id: zod
+        .number()
+        .optional()
+        .describe('Integration ID for the Slack workspace. Required when type=slack.'),
+    slack_channel_id: zod.string().optional().describe('Slack channel ID. Required when type=slack.'),
+    slack_channel_name: zod.string().optional().describe('Human-readable channel name for display.'),
+    webhook_url: zod.url().optional().describe('HTTPS endpoint to post to. Required for webhook, teams and discord.'),
+    pagerduty_routing_key: zod
+        .string()
+        .optional()
+        .describe('Integration key of a PagerDuty Events API v2 integration. Required when type=pagerduty.'),
+    pagerduty_severity: zod
+        .enum(['critical', 'error', 'warning', 'info'])
+        .describe('\* `critical` - critical\n\* `error` - error\n\* `warning` - warning\n\* `info` - info')
+        .default(warehouseAlertsDestinationsCreateBodyPagerdutySeverityDefault)
+        .describe(
+            'Severity PagerDuty records on the incident. Used when type=pagerduty.\n\n\* `critical` - critical\n\* `error` - error\n\* `warning` - warning\n\* `info` - info'
+        ),
+    pagerduty_region: zod
+        .enum(['us', 'eu'])
+        .describe('\* `us` - us\n\* `eu` - eu')
+        .default(warehouseAlertsDestinationsCreateBodyPagerdutyRegionDefault)
+        .describe('PagerDuty service region of the account. Used when type=pagerduty.\n\n\* `us` - us\n\* `eu` - eu'),
+})
+
+/**
+ * Delete notification destinations of a warehouse alert.
+ */
+export const warehouseAlertsDestinationsDeleteCreateBodyDestinationIdsMax = 5
+
+export const WarehouseAlertsDestinationsDeleteCreateBody = /* @__PURE__ */ zod.object({
+    destination_ids: zod
+        .array(zod.uuid())
+        .min(1)
+        .max(warehouseAlertsDestinationsDeleteCreateBodyDestinationIdsMax)
+        .describe("IDs of the alert's destinations to delete, as the list endpoint returns them."),
+})

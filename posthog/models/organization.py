@@ -1,7 +1,8 @@
 import sys
+from collections.abc import Collection
 from datetime import datetime, timedelta
 from functools import cache as functools_cache
-from typing import TYPE_CHECKING, Any, Literal, Optional, TypedDict, Union
+from typing import TYPE_CHECKING, Any, Literal, Optional, Self, TypedDict, Union
 
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
@@ -55,6 +56,7 @@ class OrganizationUsageInfo(TypedDict):
     feature_flag_requests: OrganizationUsageResource | None
     api_queries_read_bytes: OrganizationUsageResource | None
     llm_events: OrganizationUsageResource | None
+    mcp_events: OrganizationUsageResource | None
     ai_credits: OrganizationUsageResource | None
     signals_credits: OrganizationUsageResource | None
     posthog_code_credits: OrganizationUsageResource | None
@@ -378,8 +380,8 @@ class Organization(ModelActivityMixin, UUIDTModel):
     __repr__ = sane_repr("name")
 
     @classmethod
-    def from_db(cls, db: Any, field_names: Any, values: Any) -> "Organization":
-        instance = super().from_db(db, field_names, values)
+    def from_db(cls, db: str | None, field_names: Collection[str], values: Collection[Any], **kwargs: Any) -> Self:
+        instance = super().from_db(db, field_names, values, **kwargs)
         instance._loaded_name = instance.__dict__.get("name")
         return instance
 
@@ -784,6 +786,14 @@ def _start_billing_active_sync_workflow(organization_id: str) -> None:
     except Exception:
         # The nightly reconciliation realigns billing; never fail the org save.
         logger.warning("billing_active_state_sync_dispatch_failed", organization_id=organization_id, exc_info=True)
+
+
+class OrganizationAITerms(Organization):
+    # Gives staff one admin page for the AI terms an organization accepts, across products.
+    class Meta:
+        proxy = True
+        verbose_name = "AI terms and conditions"
+        verbose_name_plural = "AI terms and conditions"
 
 
 class OrganizationMembership(ModelActivityMixin, UUIDTModel):

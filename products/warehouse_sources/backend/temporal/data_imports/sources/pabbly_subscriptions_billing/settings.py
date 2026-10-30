@@ -48,6 +48,12 @@ PABBLY_ENDPOINTS: dict[str, PabblyEndpointConfig] = {
         # Product catalog metadata only (no customer content or credentials); safe to capture.
         capture_http_samples=True,
     ),
+    "plans": PabblyEndpointConfig(
+        name="plans",
+        path="/plans",
+        # Plan catalog metadata only (no customer content or credentials); safe to capture.
+        capture_http_samples=True,
+    ),
     "multiplans": PabblyEndpointConfig(
         name="multiplans",
         path="/multiplans",
@@ -55,6 +61,7 @@ PABBLY_ENDPOINTS: dict[str, PabblyEndpointConfig] = {
         capture_http_samples=True,
     ),
     "payment_gateways": PabblyEndpointConfig(name="payment_gateways", path="/paymentgateways"),
+    "commissions": PabblyEndpointConfig(name="commissions", path="/commissions"),
     "addons": PabblyEndpointConfig(
         name="addons",
         path="/addons/{parent_id}",

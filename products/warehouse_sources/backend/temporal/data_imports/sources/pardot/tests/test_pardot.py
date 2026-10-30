@@ -118,16 +118,24 @@ class TestFormatDatetime:
 
 
 class TestBuildQueryParams:
-    def test_incremental_filters_and_sorts_on_the_chosen_cursor(self) -> None:
+    @pytest.mark.parametrize(
+        "endpoint, incremental_field",
+        [
+            ("prospects", "updatedAt"),
+            # Emails have no createdAt/updatedAt filters, only sentAt.
+            ("emails", "sentAt"),
+        ],
+    )
+    def test_incremental_filters_and_sorts_on_the_chosen_cursor(self, endpoint: str, incremental_field: str) -> None:
         params = _build_query_params(
-            PARDOT_ENDPOINTS["prospects"],
+            PARDOT_ENDPOINTS[endpoint],
             should_use_incremental_field=True,
             db_incremental_field_last_value=datetime(2024, 5, 1, tzinfo=UTC),
-            incremental_field="updatedAt",
+            incremental_field=incremental_field,
         )
 
-        assert params["orderBy"] == "updatedAt"
-        assert params["updatedAtAfterOrEqualTo"] == "2024-05-01T00:00:00+00:00"
+        assert params["orderBy"] == incremental_field
+        assert params[f"{incremental_field}AfterOrEqualTo"] == "2024-05-01T00:00:00+00:00"
 
     @pytest.mark.parametrize(
         "endpoint, incremental_field",
@@ -136,6 +144,9 @@ class TestBuildQueryParams:
             ("prospect_accounts", "createdAt"),
             # The requested field isn't one this endpoint advertises.
             ("prospects", "lastActivityAt"),
+            # Form handlers filter on createdAt but have no updatedAt, so a createdAt
+            # watermark would never pick up edits.
+            ("form_handlers", "createdAt"),
         ],
     )
     def test_unsupported_cursor_falls_back_to_the_default_sort(self, endpoint: str, incremental_field: str) -> None:
@@ -161,6 +172,15 @@ class TestFieldLists:
             # v5 400s a query whose `fields` list names a write-only-on-create field.
             ("custom_fields", "valuesPrefill"),
             ("list_emails", "scheduledTime"),
+            ("emails", "scheduledTime"),
+            # Email bodies aren't queryable and 400 the same way.
+            ("emails", "htmlMessage"),
+            ("emails", "textMessage"),
+            ("email_templates", "htmlMessage"),
+            ("email_templates", "textMessage"),
+            ("landing_pages", "content"),
+            ("landing_pages", "regionContent"),
+            ("landing_pages", "layoutCss"),
         ],
     )
     def test_does_not_request_write_only_fields(self, endpoint: str, write_only_field: str) -> None:

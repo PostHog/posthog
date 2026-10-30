@@ -4539,6 +4539,47 @@ aXbc
         expect(onChange).not.toHaveBeenCalled()
     })
 
+    it.each([
+        [
+            'deletes an empty table',
+            '|  |  |\n| --- | --- |\n|  |  |',
+            `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\nIntro paragraph`,
+        ],
+        ['keeps a table with content', '| A |  |\n| --- | --- |\n|  |  |', undefined],
+    ])('%s on backspace', (_, tableMarkdown, expectedMarkdown) => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle(`Intro paragraph\n\n${tableMarkdown}`),
+                onChange,
+            })
+        )
+        const lastCell = Array.from(
+            container.querySelectorAll<HTMLElement>('.MarkdownNotebook__table-cell-content')
+        ).at(-1) as HTMLElement
+
+        placeCaretInElement(lastCell)
+        fireEvent.keyDown(lastCell, { key: 'Backspace' })
+
+        expect(container.querySelector('.MarkdownNotebook__table-block') === null).toEqual(!!expectedMarkdown)
+        expect(onChange.mock.calls.at(-1)?.[0]).toEqual(expectedMarkdown)
+    })
+
+    it('deletes a table with content from its delete control', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle('Intro paragraph\n\n| A | B |\n| --- | --- |\n| 1 | 2 |'),
+                onChange,
+            })
+        )
+
+        fireEvent.click(container.querySelector('button[aria-label="Delete table"]') as HTMLButtonElement)
+
+        expect(container.querySelector('.MarkdownNotebook__table-block')).toBeNull()
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\nIntro paragraph`)
+    })
+
     it('keeps newly inserted components active for keyboard row actions', () => {
         const onChange = jest.fn()
         const { container } = render(createElement(MarkdownNotebook, { value: withNotebookTitle(' '), onChange }))

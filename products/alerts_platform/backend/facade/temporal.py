@@ -1,8 +1,13 @@
 from products.alerts_platform.backend.temporal.metrics import (
     ALERTS_PLATFORM_LATENCY_HISTOGRAM_BUCKETS,
     ALERTS_PLATFORM_LATENCY_HISTOGRAM_METRICS,
+    ALERTS_PLATFORM_TICK_HISTOGRAM_BUCKETS,
+    ALERTS_PLATFORM_TICK_HISTOGRAM_METRICS,
+    ALERTS_PLATFORM_TICK_KEYS_BUCKETS,
+    ALERTS_PLATFORM_TICK_KEYS_METRICS,
 )
 from products.alerts_platform.backend.temporal.schedule import (
+    create_alerts_platform_expired_holds_schedule,
     create_alerts_platform_inventory_schedule,
     create_alerts_platform_tick_schedule,
 )
@@ -22,6 +27,10 @@ from products.alerts_platform.backend.temporal.workflows import (
 __all__ = [
     "ALERTS_PLATFORM_LATENCY_HISTOGRAM_BUCKETS",
     "ALERTS_PLATFORM_LATENCY_HISTOGRAM_METRICS",
+    "ALERTS_PLATFORM_TICK_HISTOGRAM_BUCKETS",
+    "ALERTS_PLATFORM_TICK_HISTOGRAM_METRICS",
+    "ALERTS_PLATFORM_TICK_KEYS_BUCKETS",
+    "ALERTS_PLATFORM_TICK_KEYS_METRICS",
     "DELIVERY_ACTIVITIES",
     "DELIVERY_EXECUTION_TIMEOUT",
     "DELIVERY_WORKFLOWS",
@@ -30,6 +39,7 @@ __all__ = [
     "SHARED_ORCHESTRATION_ACTIVITIES",
     "SHARED_ORCHESTRATION_WORKFLOWS",
     "AlertsPlatformTelemetryInterceptor",
+    "create_alerts_platform_expired_holds_schedule",
     "create_alerts_platform_inventory_schedule",
     "create_alerts_platform_tick_schedule",
     "source_evaluation_timeout",

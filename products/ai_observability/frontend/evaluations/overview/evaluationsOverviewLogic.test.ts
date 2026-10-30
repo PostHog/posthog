@@ -10,6 +10,8 @@ import { initKeaTests } from '~/test/init'
 
 import type { EvaluationApi, EvaluationResultApi } from '../../generated/api.schemas'
 import { llmEvaluationsLogic } from '../llmEvaluationsLogic'
+import { topBreakdownSeries } from './evaluationDetailResultsLogic'
+import { bucketDateRange, hasIsolatedPoints, passFailCounts } from './evaluationOverviewDisplay'
 import { evaluationResultDrawerLogic } from './evaluationResultDrawerLogic'
 import {
     evaluationsOverviewLogic,
@@ -110,6 +112,7 @@ const ATTENTION_ROWS = [
     attentionRow('worse-12', 'worse', PASS_RATE, -12),
     attentionRow('worse-8', 'worse', PASS_RATE, -8),
     attentionRow('errored', 'errored', PASS_RATE, null),
+    { ...attentionRow('paused', null, PASS_RATE, 1), enabled: false },
 ]
 
 const HISTOGRAM = { scale: SCALE, buckets: [{ label: '7', count: 10 }] }
@@ -137,6 +140,40 @@ function detailRequest(endpoint: string, id: string, url: string): string {
 const FAILURES_QUERY = 'outcome=failed&limit=5'
 
 describe('evaluationsOverviewLogic', () => {
+    test.each([
+        ['a point between two empty buckets', [null, 50, null, 60, 70], true],
+        ['a point at the edge next to an empty bucket', [40, null, 60, 70], true],
+        ['a connected line with a gap', [40, 50, null, 60, 70], false],
+        ['a single bucket', [40], false],
+    ])('finds isolated points in %s', (_, values, expected) => {
+        const sparse = { ...ROWS[0], trend: { values, volume: values.map((value) => (value === null ? 0 : 10)) } }
+        expect(hasIsolatedPoints(sparse)).toBe(expected)
+    })
+
+    test.each([
+        ['a day in a time zone ahead of UTC', '2026-10-20T00:00:00+02:00', 'day', '2026-10-20', '2026-10-20'],
+        ['an hour', '2026-10-20T14:00:00+02:00', 'hour', '2026-10-20T12:00:00Z', '2026-10-20T13:00:00Z'],
+    ] as const)('narrows the runs to %s', (_, bucket, interval, dateFrom, dateTo) => {
+        expect(bucketDateRange(bucket, interval)).toEqual({ dateFrom, dateTo })
+    })
+
+    it('keeps the values with the most graded runs and weighs the rest into one Other result', () => {
+        const series = [
+            { key: 'a', label: 'a', values: [50, NaN], graded: [10, 0] },
+            { key: 'b', label: 'b', values: [80, 100], graded: [1, 3] },
+            { key: 'c', label: 'c', values: [20, NaN], graded: [3, 0] },
+        ]
+        expect(topBreakdownSeries(series, 1)).toEqual([
+            series[0],
+            { key: '$$_posthog_breakdown_other_$$', label: 'Other', values: [35, 100], graded: [4, 3] },
+        ])
+    })
+
+    it('splits pass rate volume into exact passed and failed counts, with empty buckets as zero', () => {
+        const row = { ...ROWS[0], trend: { values: [(2 / 3) * 100, null, 100], volume: [3, 0, 7] } }
+        expect(passFailCounts(row)).toEqual({ passed: [2, 0, 7], failed: [1, 0, 0] })
+    })
+
     let requests: URLSearchParams[]
     /** Statuses the next overview reads fail with, one per read. */
     let overviewFailures: number[]
@@ -435,6 +472,28 @@ describe('evaluationsOverviewLogic', () => {
         expect(drawerLogic.values.openDetails).toMatchObject({ status: 'ready' })
     })
 
+    it('opens paused evaluations in Explore only when they have results in the period', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:teamId/evaluations/': {
+                    count: 2,
+                    next: null,
+                    results: [
+                        { ...evaluation('eval-a', null), enabled: false },
+                        { ...evaluation('eval-z', null), enabled: false },
+                    ],
+                },
+            },
+        })
+        llmEvaluationsLogic.actions.loadEvaluations()
+        await expectLogic(llmEvaluationsLogic).toFinishAllListeners()
+        await expectLogic(logic).toFinishAllListeners()
+
+        const url = decodeURIComponent(logic.values.exploreUrl ?? '')
+        expect(url).toContain('eval-a')
+        expect(url).not.toContain('eval-z')
+    })
+
     test.each([
         { dateFrom: '-14d', dateTo: null, expected: '"date_from":"2026-10-09","date_to":"2026-10-22"' },
         // Hourly buckets read a date-only end as midnight, which would drop the whole day.
@@ -539,9 +598,13 @@ describe('evaluationsOverviewLogic', () => {
     test.each([
         {
             selector: 'tableRows' as const,
-            expected: ['errored', 'worse-sentiment', 'worse-12', 'worse-8', 'worse-5', 'silent', 'healthy'],
+            expected: ['errored', 'worse-sentiment', 'worse-12', 'worse-8', 'worse-5', 'silent', 'healthy', 'paused'],
         },
         { selector: 'chartedIds' as const, expected: ['worse-sentiment', 'worse-12', 'worse-8'] },
+        {
+            selector: 'compareListRows' as const,
+            expected: ['worse-sentiment', 'worse-12', 'worse-8', 'worse-5', 'healthy', 'paused', 'errored', 'silent'],
+        },
     ])('puts the worst regression first in $selector', async ({ selector, expected }) => {
         useMocks({
             get: {

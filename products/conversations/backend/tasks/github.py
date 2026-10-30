@@ -12,6 +12,7 @@ from celery import shared_task
 from posthog.comment.formatting import rich_content_to_markdown
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
+from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models.comment import Comment as CommentModel
 from posthog.models.github_integration_base import GitHubIntegrationError
 from posthog.models.team import Team
@@ -394,7 +395,7 @@ def create_github_issue(
     labels: list[str] | None = None,
 ) -> dict[str, Any] | None:
     """Create a GitHub issue and a linked Ticket."""
-    from posthog.models.integration import GitHubIntegration, Integration
+    from posthog.models.integration import GitHubIntegration
 
     try:
         team = Team.objects.get(id=team_id)
@@ -403,8 +404,8 @@ def create_github_issue(
         return None
 
     try:
-        integration = Integration.objects.get(id=integration_id, team=team, kind="github")
-    except Integration.DoesNotExist:
+        integration = IntegrationManager.github.oauth.get(team.id, integration_id)
+    except IntegrationNotFound:
         logger.warning("github_create_issue_integration_not_found", integration_id=integration_id)
         return None
 

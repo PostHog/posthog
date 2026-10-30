@@ -539,6 +539,21 @@ export class RecordingService {
                  ), deleted_media AS (
                      DELETE FROM replay_vision_replayobservationmedia
                      WHERE observation_id IN (SELECT id FROM observations)
+                 ), deleted_dismissals AS (
+                     DELETE FROM replay_vision_replayobservationfeeddismissal
+                     WHERE observation_id IN (SELECT id FROM observations)
+                 ), deleted_impressions AS (
+                     DELETE FROM replay_vision_replayobservationfeedimpression
+                     WHERE observation_id IN (SELECT id FROM observations)
+                 ), deleted_similarities AS (
+                     DELETE FROM replay_vision_replayobservationanchorsimilarity
+                     WHERE observation_id IN (SELECT id FROM observations)
+                 ), deleted_ranks AS (
+                     DELETE FROM replay_vision_replayobservationrank
+                     WHERE observation_id IN (SELECT id FROM observations)
+                 ), deleted_feed_entries AS (
+                     DELETE FROM replay_vision_replayhighlightfeedentry
+                     WHERE observation_id IN (SELECT id FROM observations)
                  )
                  DELETE FROM replay_vision_replayobservation
                  WHERE id IN (SELECT id FROM observations)`,

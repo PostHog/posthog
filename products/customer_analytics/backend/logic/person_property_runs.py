@@ -145,7 +145,7 @@ def record_sync_run(record: PersonPropertySyncRunRecord) -> None:
                     source,
                     error=record.error,
                     disable_event_id=record.job_id or str(run.id),
-                    count_failure=not already_failed,
+                    count_failure=record.count_failure and not already_failed,
                 )
                 log.warning(
                     "person-property run recorded: failed",

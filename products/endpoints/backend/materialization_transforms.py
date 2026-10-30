@@ -246,12 +246,14 @@ def get_reaggregation(func_name: str) -> AggregateReaggregation | None:
 
 
 def _is_aggregate(func_name: str) -> bool:
-    """Whether ``func_name`` resolves to a known aggregate, registered or combinator-derived.
-
-    ``find_hogql_aggregation`` only covers names in the registry; combinator-derived names
-    (``sumIf``, ``maxIf``, ``countArrayIf``, …) live outside it and need ``_strip_combinators``.
-    """
-    return find_hogql_aggregation(func_name) is not None or _strip_combinators(func_name) is not None
+    sorted_suffixes = sorted(COMBINATORS.keys(), key=len, reverse=True)
+    name = func_name
+    while find_hogql_aggregation(name) is None:
+        suffix = next((s for s in sorted_suffixes if name.lower().endswith(s.lower()) and len(name) > len(s)), None)
+        if suffix is None:
+            return False
+        name = name[: -len(suffix)]
+    return True
 
 
 SUPPORTED_MATERIALIZATION_OPS = frozenset(
@@ -574,17 +576,30 @@ def _select_alias_conflict(select: ast.SelectQuery, vars_in_context: list[Materi
     return None
 
 
-def _context_select(
-    ast_node: ast.SelectQuery | ast.SelectSetQuery, cte_name: Optional[str]
-) -> Optional[ast.SelectQuery]:
-    """The SELECT a variable's columns get added to — the CTE body for CTE-bound variables,
-    else the top-level query — mirroring the contexts the transformer visits."""
-    if cte_name is None:
-        return ast_node if isinstance(ast_node, ast.SelectQuery) else None
-    if isinstance(ast_node, ast.SelectQuery) and ast_node.ctes and cte_name in ast_node.ctes:
-        body = ast_node.ctes[cte_name].expr
-        return body if isinstance(body, ast.SelectQuery) else None
-    return None
+class _AliasConflictFinder(TraversingVisitor):
+    def __init__(self, contexts: dict[Optional[str], list[MaterializableVariable]]) -> None:
+        super().__init__()
+        self._contexts = contexts
+        self._current_cte_name: Optional[str] = None
+        self.conflict: Optional[str] = None
+
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        for cte_name, cte in (node.ctes or {}).items():
+            prev_cte = self._current_cte_name
+            self._current_cte_name = cte_name
+            self.visit(cte.expr)
+            self._current_cte_name = prev_cte
+
+        original_ctes = node.ctes
+        node.ctes = None
+        try:
+            super().visit_select_query(node)
+        finally:
+            node.ctes = original_ctes
+
+        vars_in_context = self._contexts.get(self._current_cte_name)
+        if self.conflict is None and vars_in_context:
+            self.conflict = _select_alias_conflict(node, vars_in_context)
 
 
 def _find_alias_conflict(
@@ -601,11 +616,9 @@ def _find_alias_conflict(
     contexts: dict[Optional[str], list[MaterializableVariable]] = {}
     for var in result_vars:
         contexts.setdefault(var.cte_name, []).append(var)
-    for cte_name, vars_in_context in contexts.items():
-        select = _context_select(ast_node, cte_name)
-        if select is not None and (conflict := _select_alias_conflict(select, vars_in_context)) is not None:
-            return _alias_conflict_reason(conflict)
-    return None
+    finder = _AliasConflictFinder(contexts)
+    finder.visit(ast_node)
+    return _alias_conflict_reason(finder.conflict) if finder.conflict is not None else None
 
 
 def _has_joins(node: ast.SelectQuery) -> bool:

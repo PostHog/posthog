@@ -273,7 +273,7 @@ def int_to_base(number: int, base: int, *, alphabet: Optional[str] = None) -> st
 
 
 class Percentile(models.Aggregate):
-    template = "percentile_disc(%(percentile)s) WITHIN GROUP (ORDER BY %(expressions)s)"
+    template = "percentile_disc(%(percentile)s) WITHIN GROUP (ORDER BY %(expressions)s)%(filter)s"
 
     def __init__(self, percentile, expression, **extra):
         super().__init__(expression, percentile=percentile, **extra)

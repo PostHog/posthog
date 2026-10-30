@@ -15,6 +15,7 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 
 from products.approvals.backend.exceptions import ApprovalRequired
 from products.approvals.backend.models import ApprovalPolicy, ChangeRequest
+from products.experiments.backend.facade.testing import create_experiment
 from products.feature_flags.backend.encrypted_flag_payloads import REDACTED_PAYLOAD_VALUE, flag_payload_codec
 from products.feature_flags.backend.facade.api import (
     _redact_unchanged_encrypted_payloads,
@@ -41,6 +42,7 @@ from products.feature_flags.backend.facade.filters import (
     set_holdout,
     set_release_condition_rollout,
     strip_group_cohort_restriction,
+    without_payloads,
 )
 from products.feature_flags.backend.facade.rules import ExperimentRuleConfig, HoldoutRef, experiment_rule_from_filters
 from products.feature_flags.backend.models.feature_flag import FeatureFlag, build_scheduled_change_serializer_data
@@ -79,18 +81,33 @@ class TestFeatureFlagFacadeGatedWrites(APIBaseTest):
         assert flag.archived is True
         assert flag.active is False
 
-    def test_flag_disable_requires_approval_reflects_policy(self):
-        assert flag_disable_requires_approval(self.team) is False
+    @parameterized.expand(
+        [
+            ("no_policy", False, False, None, False),
+            ("flag_policy_on_a_standalone_flag", False, False, "feature_flag.disable", True),
+            ("flag_policy_on_an_experiment_flag_before_scoping", True, False, "feature_flag.disable", True),
+            ("pause_policy_on_an_experiment_flag_after_scoping", True, True, "experiment.pause", True),
+            ("flag_policy_on_an_experiment_flag_after_scoping", True, True, "feature_flag.disable", False),
+        ]
+    )
+    def test_flag_disable_requires_approval_reads_the_governing_policy(
+        self, _name: str, owned_by_experiment: bool, scoped_by_owner: bool, action_key: str | None, expected: bool
+    ) -> None:
+        flag = self._create_flag(active=True)
+        if owned_by_experiment:
+            create_experiment(team_id=self.team.id, feature_flag_id=flag.id, name="Owner")
+        if action_key is not None:
+            ApprovalPolicy.objects.create(
+                organization=self.organization,
+                team=self.team,
+                action_key=action_key,
+                conditions={},
+                approver_config={"quorum": 1, "users": [self.user.id]},
+                created_by=self.user,
+            )
 
-        ApprovalPolicy.objects.create(
-            organization=self.organization,
-            team=self.team,
-            action_key="feature_flag.disable",
-            conditions={},
-            approver_config={"quorum": 1, "users": [self.user.id]},
-            created_by=self.user,
-        )
-        assert flag_disable_requires_approval(self.team) is True
+        with patch("products.approvals.backend.coverage.scope_by_owner_enabled", return_value=scoped_by_owner):
+            assert flag_disable_requires_approval(flag.id, team=self.team) is expected
 
     def test_archive_active_flag_without_disable_is_rejected(self):
         flag = self._create_flag(active=True)
@@ -1206,6 +1223,7 @@ TRANSFORMS = [
     ("set_release_condition_rollout", lambda filters: set_release_condition_rollout(filters, 0, 10)),
     ("_leads_with_unconditional_rollout", _leads_with_unconditional_rollout),
     ("roll_out_to_everyone", roll_out_to_everyone),
+    ("without_payloads", without_payloads),
 ]
 
 

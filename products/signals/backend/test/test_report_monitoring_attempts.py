@@ -1,5 +1,7 @@
 import json
+from dataclasses import replace
 from datetime import timedelta
+from uuid import uuid4
 
 import time_machine
 from posthog.test.base import BaseTest
@@ -19,17 +21,60 @@ from products.signals.backend.models import (
     SignalReportArtefact,
     SignalReportCheck,
     SignalReportMonitoringAttempt,
+    SignalReportMonitoringResult,
 )
+from products.signals.backend.report_check_evaluation import CheckVerdict
+from products.signals.backend.report_check_evidence import EvidenceStatus
+from products.signals.backend.report_check_execution import record_check_verdict
+from products.signals.backend.report_check_final_agents import monitoring_scout_check, ready_monitoring_scout_check
+from products.signals.backend.report_check_final_candidates import collect_due_final_checks
+from products.signals.backend.report_checks import CheckOutcome
 from products.signals.backend.report_monitoring_attempts import (
     check_definition_version,
     complete_implementation,
     current_monitoring_attempt,
+)
+from products.signals.backend.report_monitoring_results import (
+    InvalidMonitoringResult,
+    MonitoringEvaluation,
+    MonitoringResultConflict,
+    save_monitoring_result,
 )
 
 _FLAG_CLIENT = "products.signals.backend.report_content_gates.feature_enabled_or_false"
 
 
 class TestMonitoringAttemptDefinitionVersion(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("sufficient", None, "Evidence is sufficient.", "qualified"),
+            ("errored", False, "The query failed.", "query_error"),
+            ("unsupported", True, "The source is unsupported.", "unsupported_source"),
+            ("insufficient", False, " ", "no_activity"),
+            ("insufficient", False, "No activity.", " "),
+        ]
+    )
+    def test_invalid_evidence_cannot_claim_an_expectation_verdict(
+        self, evidence_status: EvidenceStatus, matches: bool | None, explanation: str, reason: str
+    ) -> None:
+        now = timezone.now()
+        with self.assertRaises(ValueError):
+            MonitoringEvaluation(
+                team_id=1,
+                report_id=uuid4(),
+                attempt_id=uuid4(),
+                check_id=uuid4(),
+                submission_id=uuid4(),
+                definition_version="example",
+                window_start=now,
+                window_end=now,
+                evaluated_at=now,
+                evidence_status=evidence_status,
+                evidence_reason=reason,
+                expectation_matches=matches,
+                explanation=explanation,
+            )
+
     @parameterized.expand(
         [
             ("title", "Verify deployment", True),
@@ -41,6 +86,7 @@ class TestMonitoringAttemptDefinitionVersion(SimpleTestCase):
             ("runs_remaining", 2, False),
             ("last_outcome", SignalReportCheck.Outcome.PASSED, False),
             ("status", SignalReportCheck.Status.ACTIVE, False),
+            ("legacy_monitoring_attempt_id", uuid4(), False),
         ]
     )
     def test_definition_versions_track_authorship_without_changing_after_execution(
@@ -93,6 +139,282 @@ class TestReportMonitoringAttempts(BaseTest):
             next_run_at=self.now + timedelta(hours=1),
             expires_at=self.now + timedelta(days=30),
         )
+
+    def _evaluation(self, check: SignalReportCheck) -> MonitoringEvaluation:
+        start = self.now - timedelta(minutes=60)
+        attempt = complete_implementation(team_id=check.team_id, report_id=check.report_id, monitoring_started_at=start)
+        assert attempt is not None
+        return MonitoringEvaluation(
+            team_id=check.team_id,
+            report_id=check.report_id,
+            attempt_id=attempt.id,
+            check_id=check.id,
+            submission_id=uuid4(),
+            definition_version=check_definition_version(check),
+            window_start=start,
+            window_end=start + timedelta(minutes=check.soak_minutes or 0),
+            evaluated_at=self.now,
+            evidence_status="sufficient",
+            evidence_reason="qualifying_observations",
+            expectation_matches=True,
+            explanation="The observed behavior meets the expectation.",
+            evidence_refs=("observation:example",),
+        )
+
+    @parameterized.expand(
+        [
+            (f"{outcome}_{guard}", outcome, guard)
+            for outcome in ["passed", "failed", "inconclusive"]
+            for guard in ["unchanged", "cancelled", "manual_resolve", "unbound", "modified"]
+        ]
+    )
+    def test_legacy_verdicts_preserve_only_their_original_monitoring_obligation(
+        self, _name: str, outcome: CheckOutcome, guard: str
+    ) -> None:
+        check = self._check()
+        check.config = {"instructions": "Verify checkout recovery."}
+        check.save(update_fields=["config"])
+        evaluation = self._evaluation(check)
+        check.refresh_from_db()
+        check.status = SignalReportCheck.Status.ACTIVE
+        check.dispatched_at = self.now
+        check.save(update_fields=["status", "dispatched_at"])
+        if guard == "modified":
+            check.title = "A revised expectation"
+            check.save(update_fields=["title"])
+        with patch(_FLAG_CLIENT, return_value=False):
+            record_check_verdict(
+                check,
+                CheckVerdict(
+                    outcome=outcome,
+                    explanation="Legacy observation outside fixed-window verification.",
+                    reason="unmeasurable" if outcome == "inconclusive" else None,
+                ),
+                now=self.now,
+            )
+        check.refresh_from_db()
+        assert check.status == outcome
+        assert check.legacy_monitoring_attempt_id == (None if guard == "modified" else evaluation.attempt_id)
+        assert not SignalReportMonitoringResult.objects.for_team(self.team.id).exists()
+        assert self.report.artefacts.filter(type=SignalReportArtefact.ArtefactType.CHECK_RESULT).count() == 1
+        if guard == "cancelled":
+            check.status = SignalReportCheck.Status.CANCELLED
+            check.save(update_fields=["status"])
+        elif guard == "manual_resolve":
+            self.report.refresh_from_db()
+            self.report.save(update_fields=self.report.transition_to(SignalReport.Status.RESOLVED))
+        elif guard == "unbound":
+            check.legacy_monitoring_attempt_id = uuid4()
+            check.save(update_fields=["legacy_monitoring_attempt_id"])
+        due = collect_due_final_checks(self.now, kind=SignalReportCheck.Kind.AGENT, limit=10)
+        if guard == "unchanged":
+            assert len(due) == 1
+            ready_monitoring_scout_check(monitoring_scout_check(due[0]))
+            result = save_monitoring_result(evaluation)
+            assert result.window_start == evaluation.window_start
+            assert result.window_end == evaluation.window_end
+            assert result.evidence_refs == ["observation:example"]
+        else:
+            assert due == []
+            with self.assertRaises(InvalidMonitoringResult):
+                save_monitoring_result(evaluation)
+
+    @parameterized.expand(
+        [
+            (kind, status, expired)
+            for kind in (SignalReportCheck.Kind.METRIC_THRESHOLD, SignalReportCheck.Kind.AGENT)
+            for status, expired in (
+                (SignalReportCheck.Status.PENDING, False),
+                (SignalReportCheck.Status.PENDING, True),
+                (SignalReportCheck.Status.ERRORED, False),
+                (SignalReportCheck.Status.ERRORED, True),
+                (SignalReportCheck.Status.EXPIRED, True),
+            )
+        ]
+    )
+    def test_final_result_is_durable_idempotent_and_does_not_complete_or_spend_runs(
+        self, kind: str, status: str, expired: bool
+    ) -> None:
+        check = self._check(kind=kind)
+        evaluation = self._evaluation(check)
+        check.status = status
+        if expired:
+            check.expires_at = self.now
+        check.save()
+
+        result = save_monitoring_result(evaluation)
+        assert save_monitoring_result(evaluation).id == result.id
+        result.refresh_from_db()
+        assert result.team_id == self.team.id
+        assert result.report_id == self.report.id
+        assert result.attempt_id == evaluation.attempt_id
+        assert result.report_check_id == check.id
+        assert result.definition_version == evaluation.definition_version
+        assert result.window_start == evaluation.window_start
+        assert result.window_end == evaluation.window_end
+        assert result.evaluated_at == evaluation.evaluated_at
+        assert result.outcome == "passed"
+        assert result.evidence_status == "sufficient"
+        assert result.evidence_reason == evaluation.evidence_reason
+        assert result.expectation_matches is True
+        assert result.explanation == evaluation.explanation
+        assert result.evidence_refs == list(evaluation.evidence_refs)
+        assert SignalReportMonitoringResult.objects.for_team(self.team.id).count() == 1
+        self.report.refresh_from_db()
+        check.refresh_from_db()
+        assert self.report.status == SignalReport.Status.MONITORING
+        assert check.status == status
+        assert check.runs_remaining == 1
+        assert check.last_outcome is None
+
+    @parameterized.expand([("expired",), ("resolved",), ("reopened",), ("cancelled",), ("definition",), ("disabled",)])
+    def test_saved_submission_retries_survive_lifecycle_changes(self, change: str) -> None:
+        check = self._check()
+        evaluation = self._evaluation(check)
+        result = save_monitoring_result(evaluation)
+        if change in {"resolved", "reopened"}:
+            self.report.refresh_from_db()
+            target = SignalReport.Status.RESOLVED if change == "resolved" else SignalReport.Status.READY
+            self.report.save(update_fields=self.report.transition_to(target))
+        elif change == "disabled":
+            self.flag.return_value = False
+        else:
+            if change == "expired":
+                check.expires_at = self.now
+            elif change == "cancelled":
+                check.status = SignalReportCheck.Status.CANCELLED
+            else:
+                check.title = "A changed expectation"
+            check.save()
+
+        assert save_monitoring_result(evaluation).id == result.id
+        with self.assertRaises(MonitoringResultConflict):
+            save_monitoring_result(replace(evaluation, explanation="A different evaluation"))
+        with self.assertRaises(MonitoringResultConflict if change == "expired" else InvalidMonitoringResult):
+            save_monitoring_result(replace(evaluation, submission_id=uuid4()))
+        assert SignalReportMonitoringResult.objects.for_team(self.team.id).count() == 1
+
+    def test_nonconclusive_submissions_allow_later_evaluation_and_do_not_claim_failure(self) -> None:
+        evaluation = self._evaluation(self._check())
+        statuses: tuple[EvidenceStatus, ...] = ("insufficient", "unsupported", "errored")
+        for status in statuses:
+            retry = replace(
+                evaluation,
+                submission_id=uuid4(),
+                evidence_status=status,
+                expectation_matches=False if status == "insufficient" else None,
+            )
+            result = save_monitoring_result(retry)
+            assert save_monitoring_result(retry).id == result.id
+            assert result.outcome == ("errored" if status == "errored" else "inconclusive")
+        verdict = save_monitoring_result(replace(evaluation, expectation_matches=False))
+        assert verdict.outcome == "failed"
+        assert SignalReportMonitoringResult.objects.for_team(self.team.id).count() == 4
+
+    @parameterized.expand([("same_id",), ("new_id",)])
+    def test_conflicting_submission_cannot_replace_a_verdict(self, change: str) -> None:
+        evaluation = self._evaluation(self._check())
+        result = save_monitoring_result(evaluation)
+        conflict = replace(
+            evaluation,
+            submission_id=uuid4() if change == "new_id" else evaluation.submission_id,
+            expectation_matches=False,
+        )
+        with self.assertRaises(MonitoringResultConflict):
+            save_monitoring_result(conflict)
+        result.refresh_from_db()
+        assert result.outcome == "passed"
+        assert SignalReportMonitoringResult.objects.for_team(self.team.id).count() == 1
+
+    @parameterized.expand(
+        [
+            ("resolved",),
+            ("suppressed",),
+            ("reopened",),
+            ("new_attempt",),
+            ("cancelled",),
+            ("passed",),
+            ("failed",),
+            ("inconclusive",),
+            ("definition",),
+            ("snapshot",),
+            ("nonmember",),
+            ("wrong_attempt",),
+            ("wrong_team",),
+            ("window_start",),
+            ("window_end",),
+            ("not_due",),
+            ("future_evaluation",),
+            ("missing_soak",),
+            ("disabled",),
+            ("unavailable",),
+        ]
+    )
+    def test_invalidated_final_work_is_rejected(self, change: str) -> None:
+        check = self._check(soak_minutes=None if change == "missing_soak" else 60)
+        evaluation = self._evaluation(check)
+        if change in {"resolved", "suppressed", "reopened", "new_attempt"}:
+            self.report.refresh_from_db()
+            target = {"resolved": SignalReport.Status.RESOLVED, "suppressed": SignalReport.Status.SUPPRESSED}.get(
+                change, SignalReport.Status.READY
+            )
+            self.report.save(update_fields=self.report.transition_to(target))
+            if change == "new_attempt":
+                complete_implementation(team_id=self.team.id, report_id=self.report.id, monitoring_started_at=self.now)
+        elif change in {"cancelled", "passed", "failed", "inconclusive", "definition"}:
+            if change != "definition":
+                check.status = change
+            else:
+                check.config = {"instructions": "A changed expectation"}
+            check.save()
+        elif change in {"snapshot", "nonmember"}:
+            SignalReportMonitoringAttempt.objects.for_team(self.team.id).filter(id=evaluation.attempt_id).update(
+                check_versions={} if change == "nonmember" else {str(check.id): "different-version"}
+            )
+        elif change == "wrong_attempt":
+            evaluation = replace(evaluation, attempt_id=uuid4())
+        elif change == "wrong_team":
+            other_team = Team.objects.create(organization=self.organization)
+            evaluation = replace(evaluation, team_id=other_team.id)
+        elif change == "window_start":
+            evaluation = replace(evaluation, window_start=evaluation.window_start - timedelta(seconds=1))
+        elif change == "window_end":
+            evaluation = replace(evaluation, window_end=evaluation.window_end - timedelta(seconds=1))
+        elif change == "future_evaluation":
+            evaluation = replace(evaluation, evaluated_at=self.now + timedelta(seconds=1))
+        elif change == "disabled":
+            self.flag.return_value = False
+        elif change == "unavailable":
+            self.flag.side_effect = RuntimeError("flag service unavailable")
+        with time_machine.travel(self.now - timedelta(seconds=1) if change == "not_due" else self.now, tick=False):
+            with self.assertRaises(InvalidMonitoringResult):
+                save_monitoring_result(evaluation)
+        assert not SignalReportMonitoringResult.objects.for_team(self.team.id).exists()
+
+    def test_zero_soak_is_immediately_due_but_does_not_imply_qualified_evidence(self) -> None:
+        evaluation = self._evaluation(self._check(soak_minutes=0))
+        evaluation = replace(
+            evaluation,
+            evaluated_at=evaluation.window_start,
+            evidence_status="insufficient",
+            evidence_reason="empty_window",
+        )
+        with time_machine.travel(evaluation.window_start, tick=False):
+            result = save_monitoring_result(evaluation)
+        assert result.window_start == result.window_end
+        assert result.expectation_matches is True
+        assert result.outcome == "inconclusive"
+
+    def test_final_results_preserve_literal_child_environment_scoping(self) -> None:
+        child = Team.objects.create(organization=self.organization, parent_team=self.team)
+        report = SignalReport.objects.create(team=child, status=SignalReport.Status.READY)
+        evaluation = self._evaluation(self._check(report=report))
+        result = save_monitoring_result(evaluation)
+        assert result.team_id == child.id
+        assert not SignalReportMonitoringResult.objects.for_team(self.team.id).exists()
+        assert SignalReportMonitoringResult.objects.for_team(child.id).get().id == result.id
+        with self.assertRaises(InvalidMonitoringResult):
+            save_monitoring_result(replace(evaluation, team_id=self.team.id))
 
     @parameterized.expand(
         [
@@ -220,11 +542,20 @@ class TestReportMonitoringAttempts(BaseTest):
             report=self.report, type=SignalReportArtefact.ArtefactType.CHECK_EXPIRED
         ).exists()
 
-    @parameterized.expand([("disabled", False), ("unavailable", RuntimeError("flag service unavailable"))])
+    @parameterized.expand(
+        [
+            ("disabled", False),
+            ("unavailable", RuntimeError("flag service unavailable")),
+            ("archived_disabled", False, True),
+            ("archived_unavailable", RuntimeError("flag service unavailable"), True),
+        ]
+    )
     def test_disabled_or_unavailable_flag_resolves_without_creating_an_attempt(
-        self, _name: str, flag_result: bool | Exception
+        self, _name: str, flag_result: bool | Exception, archived: bool = False
     ) -> None:
         check = self._check()
+        if archived:
+            self.report.save(update_fields=self.report.transition_to(SignalReport.Status.SUPPRESSED))
         if isinstance(flag_result, Exception):
             self.flag.side_effect = flag_result
         else:
@@ -255,7 +586,7 @@ class TestReportMonitoringAttempts(BaseTest):
             patch("products.signals.backend.tasks.close_dismissed_report_pr.delay") as close_pr,
             self.captureOnCommitCallbacks(execute=True),
         ):
-            complete_implementation(
+            attempt = complete_implementation(
                 team_id=self.team.id,
                 report_id=self.report.id,
                 monitoring_started_at=self.now,
@@ -263,6 +594,9 @@ class TestReportMonitoringAttempts(BaseTest):
                 actor_user=self.user,
                 close_pr_on_resolve=close_pr_on_resolve,
             )
+        if has_checks:
+            assert attempt is not None
+            assert attempt.close_pr_on_resolve == close_pr_on_resolve
         properties = capture.call_args.kwargs["properties"]
         assert properties["actor_kind"] == "user"
         assert properties["actor_user_uuid"] == str(self.user.uuid)
@@ -285,6 +619,7 @@ class TestReportMonitoringAttempts(BaseTest):
         check.consecutive_errors = 2
         check.consecutive_inconclusive = 3
         check.monitoring_fallback_expires_at = self.now + timedelta(days=5)
+        check.legacy_monitoring_attempt_id = uuid4()
         check.run_interval_minutes = 120
         check.runs_remaining = 3
         check.save()
@@ -304,6 +639,7 @@ class TestReportMonitoringAttempts(BaseTest):
             assert check.consecutive_errors == 0
             assert check.consecutive_inconclusive == 0
             self.assertIsNone(check.monitoring_fallback_expires_at)
+            self.assertIsNone(check.legacy_monitoring_attempt_id)
             assert check.runs_remaining == 3
         check.refresh_from_db()
         assert check.status == SignalReportCheck.Status.ACTIVE
@@ -319,6 +655,8 @@ class TestReportMonitoringAttempts(BaseTest):
         check.status = SignalReportCheck.Status.CANCELLED
         check.save(update_fields=["status"])
         replacement = self._check()
+        replacement.monitoring_dispatch_after = self.now + timedelta(days=1)
+        replacement.save(update_fields=["monitoring_dispatch_after"])
         retry = complete_implementation(
             team_id=self.team.id, report_id=self.report.id, monitoring_started_at=self.now - timedelta(minutes=1)
         )
@@ -346,6 +684,8 @@ class TestReportMonitoringAttempts(BaseTest):
         assert second is not None
         assert second.id != first.id
         assert second.check_versions == {str(replacement.id): check_definition_version(replacement)}
+        replacement.refresh_from_db()
+        self.assertIsNone(replacement.monitoring_dispatch_after)
         first.refresh_from_db()
         assert first.check_versions == original_versions
 

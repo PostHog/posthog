@@ -562,6 +562,48 @@ pub fn filter_source_paths(paths: &[String]) -> Vec<&str> {
         .collect()
 }
 
+pub fn filter_source_paths_under_root<'a>(paths: &'a [String], root: &Path) -> Vec<&'a str> {
+    let Ok(root) = root.canonicalize() else {
+        return Vec::new();
+    };
+    filter_source_paths(paths)
+        .into_iter()
+        .filter(|path| {
+            Path::new(path)
+                .canonicalize()
+                .is_ok_and(|resolved| resolved.starts_with(&root))
+        })
+        .collect()
+}
+
+pub fn filter_source_paths_for_upload<'a>(
+    paths: &'a [String],
+    source_root: Option<&Path>,
+    binary_path: &Path,
+    extra_filter: impl Fn(&str) -> bool,
+) -> Vec<&'a str> {
+    let filtered = match source_root {
+        Some(root) => filter_source_paths_under_root(paths, root),
+        None => filter_source_paths(paths),
+    };
+    let filtered: Vec<&str> = filtered
+        .into_iter()
+        .filter(|path| extra_filter(path))
+        .collect();
+    info!(
+        "Found {} source paths in DWARF ({} after filtering)",
+        paths.len(),
+        filtered.len()
+    );
+    if filtered.is_empty() && source_root.is_some() {
+        warn!(
+            "No readable sources found inside the source root for {}",
+            binary_path.display()
+        );
+    }
+    filtered
+}
+
 /// Collect source files from disk, reading each file referenced by DWARF debug info.
 ///
 /// Since the CLI runs on the build machine, the absolute paths from DWARF are valid.
@@ -723,8 +765,8 @@ pub fn load_sources_from_zip(
 #[cfg(test)]
 mod tests {
     use super::{
-        build_zip_relative_paths, filter_go_toolchain_sources, is_bundleable_go_source,
-        read_source_file,
+        build_zip_relative_paths, collect_source_files, filter_go_toolchain_sources,
+        filter_source_paths_under_root, is_bundleable_go_source, read_source_file,
     };
 
     #[test]
@@ -764,6 +806,32 @@ mod tests {
                 "zip entry name {name:?} contains a traversal component"
             );
         }
+    }
+
+    #[test]
+    fn source_root_only_includes_files_inside_the_app() {
+        let dir = tempfile::tempdir().unwrap();
+        let app = dir.path().join("app");
+        let framework = dir.path().join("app-framework");
+        std::fs::create_dir_all(app.join("lib")).unwrap();
+        std::fs::create_dir_all(&framework).unwrap();
+        let source = app.join("lib/main.dart");
+        let outside = framework.join("main.dart");
+        std::fs::write(&source, "void main() {}").unwrap();
+        std::fs::write(&outside, "void main() {}").unwrap();
+        let paths = vec![
+            source.to_string_lossy().into_owned(),
+            outside.to_string_lossy().into_owned(),
+            app.join("lib/../../app-framework/main.dart")
+                .to_string_lossy()
+                .into_owned(),
+        ];
+
+        let filtered = filter_source_paths_under_root(&paths, &app);
+        assert_eq!(filtered, vec![paths[0].as_str()]);
+        let sources = collect_source_files(&filtered).unwrap();
+        assert_eq!(sources.manifest.files.len(), 1);
+        assert_eq!(sources.contents.values().next().unwrap(), b"void main() {}");
     }
 
     #[test]

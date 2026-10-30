@@ -19,7 +19,6 @@ from posthog.temporal.common.utils import asyncify, close_db_connections
 from products.context_layer.backend.facade import api as context_layer_facade
 from products.tasks.backend.constants import (
     AGENT_OTEL_TELEMETRY_STATE_KEY,
-    AGENT_PEER_MESSAGING_FEATURE_FLAG,
     AGENT_SERVER_SHADOW_FEATURE_FLAG,
     BENJAMIN_FEATURE_FLAG,
     CODEX_SUBSCRIPTION_EGRESS_DOMAINS,
@@ -49,6 +48,7 @@ from products.tasks.backend.exceptions import (
     TaskRunNotReadyError,
 )
 from products.tasks.backend.facade.api import ensure_task_run_session
+from products.tasks.backend.facade.profiles import TaskProfile, TaskProfileError, get_task_profile
 from products.tasks.backend.feature_flags import own_subscription_cloud_enabled
 from products.tasks.backend.logic.model_access import ModelAccess, resolve_model_access
 from products.tasks.backend.logic.services.agent_instructions import agent_instructions_state_update
@@ -112,6 +112,9 @@ class TaskProcessingContext:
     repository: str | None
     distinct_id: str
     origin_product: str | None = None
+    profile_key: str | None = None
+    profile_idle_minutes: int | None = None
+    profile_max_wake_minutes: int | None = None
     startup_requested_at: str | None = None
     task_runtime: str = Task.Runtime.ACP
     environment: str | None = None
@@ -132,10 +135,8 @@ class TaskProcessingContext:
     json_schema: dict | None = None
     ci_prompt: str | None = None
     # Captured at workflow start so snapshot creation is deterministic across
-    # activity retries. This means "create any Modal resume snapshot"; filesystem
-    # snapshots are guarded by the legacy setting, directory snapshots by feature flag.
+    # activity retries.
     use_modal_resume_snapshots: bool = True
-    use_modal_directory_resume_snapshots: bool = True  # Temporal payload compatibility
     # Captured at workflow start so the sandbox event transport branch is
     # deterministic for the full run.
     sandbox_event_ingest_enabled: bool = False
@@ -167,9 +168,6 @@ class TaskProcessingContext:
     # default is what pre-existing run histories decode, so replays schedule no new timer
     # (see .claude/rules/temporal-workflow-versioning.md, pattern 2).
     interactive_max_run_duration_seconds: int | None = None
-    # Whether agent peer messaging tools should surface in this run (flag + Pi runtime).
-    # Exposure only: the peers endpoints re-check authorization server-side on every call.
-    peer_messaging_enabled: bool = False
     pi_acp_conversation_enabled: bool = False
     # Which sandbox provider this run provisions on ("modal" or "hogland"). Captured at
     # workflow start and persisted into TaskRun.state at provision time, so activities
@@ -221,6 +219,17 @@ class TaskProcessingContext:
         if isinstance(repositories, list) and all(isinstance(repository, str) for repository in repositories):
             return repositories
         return [self.repository] if self.repository else []
+
+    @property
+    def github_access_repositories(self) -> list[str]:
+        """Repositories the run's GitHub token covers: the cloned ones plus any granted at creation.
+
+        Only token minting reads this. Remote rewrites and cloning stay on ``repositories``.
+        """
+        access = (self.state or {}).get("github_access_repositories")
+        if isinstance(access, list) and access and all(isinstance(repository, str) for repository in access):
+            return access
+        return self.repositories
 
     @property
     def github_read_access(self) -> bool:
@@ -298,7 +307,10 @@ class TaskProcessingContext:
     def inactivity_timeout(self) -> timedelta:
         """Idle time before the workflow times the run out; longer for user-driven runs."""
         return resolve_inactivity_timeout(
-            is_user_origin=self._is_user_origin(), origin_product=self.origin_product, state=self.state
+            is_user_origin=self._is_user_origin(),
+            origin_product=self.origin_product,
+            state=self.state,
+            profile_idle_minutes=self.profile_idle_minutes,
         )
 
     def _is_user_origin(self) -> bool:
@@ -316,13 +328,23 @@ class TaskProcessingContext:
         sessions can legitimately run for hours, so they are uncapped — except interactive
         signals-origin runs, whose inference is unbilled and which therefore get their own
         (longer) ceiling, resolved activity-side into the field below. Autonomous runs get
-        the cap as a safety net unless the setting disables it deployment-wide.
+        the cap as a safety net unless the setting disables it deployment-wide. A task with
+        a profile takes the exemption from the profile's `max_wake_minutes`. Its cap is the
+        lower of `max_wake_minutes` and the setting.
         """
-        if self.mode == "interactive" or self._is_user_origin():
+        if self.mode == "interactive" or self._exempt_from_max_run_duration():
             if self.interactive_max_run_duration_seconds:
                 return timedelta(seconds=self.interactive_max_run_duration_seconds)
             return None
-        return resolve_max_run_duration()
+        cap = resolve_max_run_duration()
+        if cap is None or self.profile_max_wake_minutes is None:
+            return cap
+        return min(cap, timedelta(minutes=self.profile_max_wake_minutes))
+
+    def _exempt_from_max_run_duration(self) -> bool:
+        if self.profile_key:
+            return self.profile_max_wake_minutes is None
+        return self._is_user_origin()
 
     def sandbox_resource_overrides(self) -> dict[str, float | int]:
         """Per-task SandboxConfig overrides (compute + TTL), clamped to server-owned bounds.
@@ -401,7 +423,6 @@ RUN_FEATURE_FLAG_KEYS: list[str] = [
     HOGLAND_SANDBOX_FEATURE_FLAG,
     HOGLAND_HOTPLUG_GOLDEN_FEATURE_FLAG,
     DEV_STACK_PREVIEW_FEATURE_FLAG,
-    AGENT_PEER_MESSAGING_FEATURE_FLAG,
     PI_ACP_FEATURE_FLAG,
 ]
 
@@ -435,22 +456,6 @@ def _flag_enabled(flags: FlagsAndPayloads, key: str) -> bool:
 
 def _flag_payload(flags: FlagsAndPayloads, key: str) -> object:
     return (flags.get("featureFlagPayloads") or {}).get(key)
-
-
-def _is_peer_messaging_enabled(
-    *,
-    flags: FlagsAndPayloads,
-    run_id: str,
-) -> bool:
-    """Whether the agent peer-messaging tools should surface in the sandbox.
-
-    Fail-closed exposure gate only — the peers list/message endpoints enforce the
-    flag and runtime again server-side, so a stale env var in a resumed sandbox
-    can never authorize anything."""
-    enabled = _flag_enabled(flags, AGENT_PEER_MESSAGING_FEATURE_FLAG)
-    if enabled:
-        log_with_activity_context("peer_messaging_flag_checked", run_id=run_id, peer_messaging_enabled=True)
-    return enabled
 
 
 def _is_pi_acp_enabled(*, flags: FlagsAndPayloads) -> bool:
@@ -884,6 +889,16 @@ def _resolve_sandbox_backend(
     return "hogland" if enabled else "modal"
 
 
+def _stored_task_profile(task: Task, run_id: str) -> TaskProfile | None:
+    if not task.profile:
+        return None
+    try:
+        return get_task_profile(task.profile)
+    except TaskProfileError:
+        log_with_activity_context("task_profile_not_registered", run_id=run_id, profile=task.profile)
+        return None
+
+
 def _compile_effective_network_policy(allowed_domains: list[str]) -> EffectiveNetworkPolicy:
     debug_domains = _get_debug_only_domains() if settings.DEBUG else []
     debug_ports = _get_debug_only_ports() if settings.DEBUG else []
@@ -1287,6 +1302,8 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         if user_github_integration is not None:
             user_github_integration_id = str(user_github_integration.integration.id)
 
+    profile = _stored_task_profile(task, run_id)
+
     return TaskProcessingContext(
         task_id=str(task.id),
         run_id=run_id,
@@ -1299,10 +1316,13 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         repository=run_repository,
         distinct_id=distinct_id,
         origin_product=task.origin_product,
+        profile_key=profile.key if profile else None,
+        profile_idle_minutes=profile.idle_minutes if profile else None,
+        profile_max_wake_minutes=profile.max_wake_minutes if profile else None,
         task_runtime=task.runtime,
         environment=task_run.environment,
         task_created_by_id=task.created_by_id,
-        create_pr=input.create_pr,
+        create_pr=input.create_pr and (profile is None or profile.create_pr),
         pr_loop_enabled=pr_loop_enabled,
         pr_babysit_enabled=pr_loop_enabled,
         context_layer_enabled=context_layer_enabled,
@@ -1325,7 +1345,6 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         ci_prompt=task.ci_prompt,
         # Hogland has no resume-snapshot support yet; every run cold-boots there.
         use_modal_resume_snapshots=sandbox_backend != "hogland",
-        use_modal_directory_resume_snapshots=sandbox_backend != "hogland",
         sandbox_event_ingest_enabled=sandbox_event_ingest_enabled,
         sandbox_rotation_enabled=True,
         agent_otel_telemetry_enabled=agent_otel_telemetry_enabled,
@@ -1346,12 +1365,5 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         interactive_max_run_duration_seconds=interactive_max_run_duration_seconds,
         sandbox_backend=sandbox_backend,
         dev_stack_preview_enabled=dev_stack_preview_enabled,
-        # v1 scopes peer messaging to Pi runs; the flag check is skipped elsewhere
-        # so ACP runs never even evaluate it.
-        peer_messaging_enabled=task.runtime == Task.Runtime.PI
-        and _is_peer_messaging_enabled(
-            flags=flags,
-            run_id=run_id,
-        ),
         pi_acp_conversation_enabled=task.runtime == Task.Runtime.PI and _is_pi_acp_enabled(flags=flags),
     )

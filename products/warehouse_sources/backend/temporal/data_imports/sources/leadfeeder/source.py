@@ -88,6 +88,7 @@ Optionally set a **Start date** to bound the initial sync. Leave it blank to pul
                     ),
                     SourceFieldInputConfig(
                         name="start_date",
+                        sync_setting=True,
                         label="Start date",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,

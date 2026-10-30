@@ -6,7 +6,7 @@ import * as orvalSchemas from '@/generated/workflows/api'
 import { withUiApp } from '@/resources/ui-apps'
 import { WorkflowActionEmailPatchSchema, WorkflowGraphPatchSchema } from '@/schema/tool-inputs'
 import { transformRequestBody, withToolHooks } from '@/tools/tool-hooks'
-import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
+import { withPostHogUrl, omitResponseFields, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 import hooks_workflowsCreate from '@/tools/workflows/broadcastLinkHooks'
 import hooks_workflowsGet from '@/tools/workflows/broadcastLinkHooks'
@@ -39,6 +39,9 @@ const broadcastsCreate = (): ToolBase<ReturnType<typeof BroadcastsCreateSchema>,
         if (params.origin_product !== undefined) {
             body['origin_product'] = params.origin_product
         }
+        if (params.source_record !== undefined) {
+            body['source_record'] = params.source_record
+        }
         if (params.trigger_masking !== undefined) {
             body['trigger_masking'] = params.trigger_masking
         }
@@ -66,7 +69,11 @@ const broadcastsCreate = (): ToolBase<ReturnType<typeof BroadcastsCreateSchema>,
             path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/`,
             body,
         })
-        return await withPostHogUrl(context, result, `/broadcasts/${result.id}`)
+        const filtered = omitResponseFields(result, [
+            'actions.*.config.inputs',
+            'draft.actions.*.config.inputs',
+        ]) as typeof result
+        return await withPostHogUrl(context, filtered, `/broadcasts/${filtered.id}`)
     },
 })
 
@@ -120,6 +127,9 @@ const workflowsCreate = (): ToolBase<ReturnType<typeof WorkflowsCreateSchema>, W
                 if (params.origin_product !== undefined) {
                     body['origin_product'] = params.origin_product
                 }
+                if (params.source_record !== undefined) {
+                    body['source_record'] = params.source_record
+                }
                 if (params.trigger_masking !== undefined) {
                     body['trigger_masking'] = params.trigger_masking
                 }
@@ -146,7 +156,11 @@ const workflowsCreate = (): ToolBase<ReturnType<typeof WorkflowsCreateSchema>, W
                     path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/`,
                     body: await transformRequestBody(hooks_workflowsCreate, context, params, body),
                 })
-                return await withPostHogUrl(context, result, `/workflows/${result.id}/workflow`)
+                const filtered = omitResponseFields(result, [
+                    'actions.*.config.inputs',
+                    'draft.actions.*.config.inputs',
+                ]) as typeof result
+                return await withPostHogUrl(context, filtered, `/workflows/${filtered.id}/workflow`)
             }
         ),
     })
@@ -272,9 +286,42 @@ const workflowsDiscardDraft = (): ToolBase<ReturnType<typeof WorkflowsDiscardDra
                 method: 'POST',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(String(params.id))}/discard_draft/`,
             })
-            return result
+            const filtered = omitResponseFields(result, [
+                'actions.*.config.inputs',
+                'draft.actions.*.config.inputs',
+            ]) as typeof result
+            return filtered
         },
     })
+
+const WorkflowsEmailDraftsCreateSchema = () => {
+    const WorkflowDataSuggestionsBuildForEventsBody = orvalSchemas.WorkflowDataSuggestionsBuildForEventsBody()
+    return WorkflowDataSuggestionsBuildForEventsBody
+}
+
+const workflowsEmailDraftsCreate = (): ToolBase<
+    ReturnType<typeof WorkflowsEmailDraftsCreateSchema>,
+    Schemas.EventWorkflowsBuildResponse
+> => ({
+    name: 'workflows-email-drafts-create',
+    schema: WorkflowsEmailDraftsCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowsEmailDraftsCreateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.events !== undefined) {
+            body['events'] = params.events
+        }
+        if (params.retry !== undefined) {
+            body['retry'] = params.retry
+        }
+        const result = await context.api.request<Schemas.EventWorkflowsBuildResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/workflow_data_suggestions/build_for_events/`,
+            body,
+        })
+        return result
+    },
+})
 
 const WorkflowsGetSchema = () => {
     const HogFlowsRetrieveParams = orvalSchemas.HogFlowsRetrieveParams()
@@ -362,6 +409,77 @@ const workflowsGlobalStats = (): ToolBase<
     },
 })
 
+const WorkflowsImportCustomerioSchema = () => {
+    const WorkflowImportsCreateBody = orvalSchemas.WorkflowImportsCreateBody()
+    return WorkflowImportsCreateBody
+}
+
+const workflowsImportCustomerio = (): ToolBase<
+    ReturnType<typeof WorkflowsImportCustomerioSchema>,
+    Schemas.WorkflowImportResponse
+> => ({
+    name: 'workflows-import-customerio',
+    schema: WorkflowsImportCustomerioSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowsImportCustomerioSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.source !== undefined) {
+            body['source'] = params.source
+        }
+        if (params.campaigns !== undefined) {
+            body['campaigns'] = params.campaigns
+        }
+        if (params.snippets !== undefined) {
+            body['snippets'] = params.snippets
+        }
+        if (params.segment_cohorts !== undefined) {
+            body['segment_cohorts'] = params.segment_cohorts
+        }
+        if (params.layouts !== undefined) {
+            body['layouts'] = params.layouts
+        }
+        if (params.sender_identities !== undefined) {
+            body['sender_identities'] = params.sender_identities
+        }
+        if (params.segments !== undefined) {
+            body['segments'] = params.segments
+        }
+        if (params.dry_run !== undefined) {
+            body['dry_run'] = params.dry_run
+        }
+        const result = await context.api.request<Schemas.WorkflowImportResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/workflow_imports/`,
+            body,
+        })
+        return result
+    },
+})
+
+const WorkflowsImportNotesSchema = () => {
+    const WorkflowImportsForWorkflowRetrieveQueryParams = orvalSchemas.WorkflowImportsForWorkflowRetrieveQueryParams()
+    return WorkflowImportsForWorkflowRetrieveQueryParams
+}
+
+const workflowsImportNotes = (): ToolBase<
+    ReturnType<typeof WorkflowsImportNotesSchema>,
+    Schemas.WorkflowImportRecord
+> => ({
+    name: 'workflows-import-notes',
+    schema: WorkflowsImportNotesSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowsImportNotesSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.WorkflowImportRecord>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/workflow_imports/for_workflow/`,
+            query: {
+                hog_flow_id: params.hog_flow_id,
+            },
+        })
+        return result
+    },
+})
+
 const WorkflowsListSchema = () => {
     const HogFlowsListQueryParams = orvalSchemas.HogFlowsListQueryParams()
     return HogFlowsListQueryParams
@@ -385,11 +503,13 @@ const workflowsList = (): ToolBase<
                     created_at: params.created_at,
                     created_by: params.created_by,
                     id: params.id,
+                    latest_send_first: params.latest_send_first,
                     limit: params.limit,
                     offset: params.offset,
                     optimization_enabled: params.optimization_enabled,
                     origin_product: params.origin_product,
                     search: params.search,
+                    source_record: params.source_record,
                     status: params.status,
                     tags: params.tags,
                     trigger: params.trigger,
@@ -577,7 +697,11 @@ const workflowsPatchActionEmail = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(String(id))}/actions/${encodeURIComponent(String(action_id))}/email/`,
             body,
         })
-        return result
+        const filtered = omitResponseFields(result, [
+            'actions.*.config.inputs',
+            'draft.actions.*.config.inputs',
+        ]) as typeof result
+        return filtered
     },
 })
 
@@ -595,7 +719,11 @@ const workflowsPatchGraph = (): ToolBase<ReturnType<typeof WorkflowsPatchGraphSc
             path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(String(id))}/graph/`,
             body,
         })
-        return result
+        const filtered = omitResponseFields(result, [
+            'actions.*.config.inputs',
+            'draft.actions.*.config.inputs',
+        ]) as typeof result
+        return filtered
     },
 })
 
@@ -622,7 +750,73 @@ const workflowsPublish = (): ToolBase<ReturnType<typeof WorkflowsPublishSchema>,
             path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(String(params.id))}/publish/`,
             body,
         })
-        return result
+        const filtered = omitResponseFields(result, [
+            'workflow.actions.*.config.inputs',
+            'workflow.draft.actions.*.config.inputs',
+        ]) as typeof result
+        return filtered
+    },
+})
+
+const WorkflowsReputationGetSchema = () => {
+    const HogFlowsReputationRetrieveQueryParams = orvalSchemas.HogFlowsReputationRetrieveQueryParams()
+    return HogFlowsReputationRetrieveQueryParams.extend({
+        fields: z
+            .array(
+                z.enum([
+                    'sending_allowance',
+                    'reputation',
+                    'workflows',
+                    'aws',
+                    'isps',
+                    'isp_shared_domains',
+                    'isp_withheld_domains',
+                    'email_sending_suspended',
+                    'email_sending_suspended_at',
+                    'email_sending_suspension_reason',
+                ])
+            )
+            .min(1)
+            .optional()
+            .describe(
+                'Optional subset of response fields to return, each a dot-path from the allowlist. Omit to return all fields. Request only the fields your task needs to keep responses small.'
+            ),
+    })
+}
+
+const workflowsReputationGet = (): ToolBase<
+    ReturnType<typeof WorkflowsReputationGetSchema>,
+    Schemas.TeamEmailReputationResponse
+> => ({
+    name: 'workflows-reputation-get',
+    schema: WorkflowsReputationGetSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowsReputationGetSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.TeamEmailReputationResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/reputation/`,
+            query: {
+                search: params.search,
+            },
+        })
+        const filtered = pickResponseFields(
+            result,
+            params.fields?.length
+                ? params.fields
+                : [
+                      'sending_allowance',
+                      'reputation',
+                      'workflows',
+                      'aws',
+                      'isps',
+                      'isp_shared_domains',
+                      'isp_withheld_domains',
+                      'email_sending_suspended',
+                      'email_sending_suspended_at',
+                      'email_sending_suspension_reason',
+                  ]
+        ) as typeof result
+        return filtered
     },
 })
 
@@ -651,7 +845,11 @@ const workflowsRestoreRevision = (): ToolBase<ReturnType<typeof WorkflowsRestore
             path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(String(params.id))}/revisions/${encodeURIComponent(String(params.version))}/restore/`,
             body,
         })
-        return result
+        const filtered = omitResponseFields(result, [
+            'actions.*.config.inputs',
+            'draft.actions.*.config.inputs',
+        ]) as typeof result
+        return filtered
     },
 })
 
@@ -876,7 +1074,11 @@ const workflowsUpdate = (): ToolBase<ReturnType<typeof WorkflowsUpdateSchema>, W
                     path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(String(params.id))}/`,
                     body: await transformRequestBody(hooks_workflowsUpdate, context, params, body),
                 })
-                return await withPostHogUrl(context, result, `/workflows/${result.id}/workflow`)
+                const filtered = omitResponseFields(result, [
+                    'actions.*.config.inputs',
+                    'draft.actions.*.config.inputs',
+                ]) as typeof result
+                return await withPostHogUrl(context, filtered, `/workflows/${filtered.id}/workflow`)
             }
         ),
     })
@@ -961,10 +1163,13 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'workflows-data-suggestions-get': workflowsDataSuggestionsGet,
     'workflows-data-suggestions-list': workflowsDataSuggestionsList,
     'workflows-discard-draft': workflowsDiscardDraft,
+    'workflows-email-drafts-create': workflowsEmailDraftsCreate,
     'workflows-get': workflowsGet,
     'workflows-get-invocation': workflowsGetInvocation,
     'workflows-get-revision': workflowsGetRevision,
     'workflows-global-stats': workflowsGlobalStats,
+    'workflows-import-customerio': workflowsImportCustomerio,
+    'workflows-import-notes': workflowsImportNotes,
     'workflows-list': workflowsList,
     'workflows-list-batch-jobs': workflowsListBatchJobs,
     'workflows-list-invocations': workflowsListInvocations,
@@ -975,6 +1180,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'workflows-patch-action-email': workflowsPatchActionEmail,
     'workflows-patch-graph': workflowsPatchGraph,
     'workflows-publish': workflowsPublish,
+    'workflows-reputation-get': workflowsReputationGet,
     'workflows-restore-revision': workflowsRestoreRevision,
     'workflows-sending-rules-get': workflowsSendingRulesGet,
     'workflows-sending-rules-update': workflowsSendingRulesUpdate,

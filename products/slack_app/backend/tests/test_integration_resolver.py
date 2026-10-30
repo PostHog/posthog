@@ -1,3 +1,6 @@
+from collections.abc import Sequence
+from typing import Any
+
 import pytest
 
 from django.apps import apps
@@ -124,6 +127,12 @@ class TestResolveIntegration:
             task_run=task_run,
             mentioning_slack_user_id=SLACK_USER,
         )
+
+    def test_load_integrations_for_user_does_not_query_per_candidate(self, django_assert_num_queries):
+        with django_assert_num_queries(4):
+            result = load_integrations(slack_team_id=WORKSPACE, kinds=["slack"], user=self.user)
+
+        assert {c.id for c in result.candidates} == {self.integration_a.id, self.integration_b.id}
 
     @pytest.mark.parametrize("mapping_kind", ["task", "report", "fork"])
     @pytest.mark.parametrize("has_default", [False, True])
@@ -594,7 +603,7 @@ class TestLoadIntegrationsAuthStateFilter:
             sensitive_config={"access_token": "xoxb"},
         )
 
-    def _candidate_ids(self, result_candidates: list[Integration]) -> list[int]:
+    def _candidate_ids(self, result_candidates: Sequence[Any]) -> list[int]:
         return [c.id for c in result_candidates]
 
     def test_cold_cache_runs_auth_test_per_candidate_and_caches_verdict(self):

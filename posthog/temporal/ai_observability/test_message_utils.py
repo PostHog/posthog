@@ -4,7 +4,12 @@ import json
 
 import pytest
 
-from posthog.temporal.ai_observability.message_utils import extract_text_from_messages, format_tool_definitions
+from posthog.temporal.ai_observability.judge_images import JudgeImages
+from posthog.temporal.ai_observability.message_utils import (
+    extract_text_from_messages,
+    format_tool_definitions,
+    last_message_text,
+)
 
 
 class TestExtractTextFromMessages:
@@ -57,6 +62,96 @@ class TestExtractTextFromMessages:
         result = extract_text_from_messages(messages)
         assert expected_substring in result
         assert result != ""
+
+    @pytest.mark.parametrize(
+        ("block", "marker"),
+        [
+            pytest.param(
+                {"type": "image_url", "image_url": {"url": f"phaiblob://v1/sha256/{'a' * 64}?mime=image%2Fjpeg"}},
+                "[image 1]",
+                id="openai_offloaded_pointer",
+            ),
+            pytest.param(
+                {"type": "image_url", "image_url": {"url": "data:image/png;base64,aGk="}},
+                "[image 1]",
+                id="openai_inline_data_uri",
+            ),
+            pytest.param(
+                {"type": "input_image", "image_url": "https://example.com/cat.jpg"},
+                "[image: https://example.com/cat.jpg]",
+                id="openai_responses_customer_link",
+            ),
+            pytest.param(
+                {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "aGk="}},
+                "[image 1]",
+                id="anthropic_base64",
+            ),
+            pytest.param(
+                {
+                    "type": "image",
+                    "source": {"type": "base64", "media_type": "image/png", "data": "[base64 image redacted]"},
+                },
+                "[image]",
+                id="anthropic_redacted",
+            ),
+            pytest.param(
+                {"type": "image_url", "image_url": {"url": "data:image/png;base64,[base64 image redacted]"}},
+                "[image]",
+                id="openai_redacted_data_uri",
+            ),
+            pytest.param(
+                {"type": "image_url", "image_url": {"url": "data:image/png;base64," * 3 + "aGk="}},
+                "[image]",
+                id="nested_data_uri",
+            ),
+            pytest.param({"inline_data": {"mime_type": "image/png", "data": "aGk="}}, "[image 1]", id="gemini_inline"),
+            pytest.param(
+                {"type": "image", "inline_data": {"mime_type": "image/png", "data": "aGk="}},
+                "[image 1]",
+                id="gemini_posthog_sdk",
+            ),
+            pytest.param(
+                {"type": "image", "data": "aGk=", "mime_type": "image/png"}, "[image 1]", id="gemini_interactions"
+            ),
+            pytest.param({"inlineData": {"mimeType": "audio/wav", "data": "aGk="}}, "[audio]", id="gemini_audio"),
+            pytest.param({"type": "input_audio", "input_audio": {"data": "aGk="}}, "[audio]", id="openai_audio"),
+            pytest.param({"type": "document", "source": {"type": "base64", "data": "aGk="}}, "[file]", id="file"),
+        ],
+    )
+    def test_judge_images_replace_media_blocks_with_markers(self, block, marker):
+        messages = [{"role": "user", "content": [block, {"type": "text", "text": "What does this chart show?"}]}]
+
+        assert (
+            extract_text_from_messages(messages, JudgeImages(team_id=7).marker)
+            == f"user: {marker} What does this chart show?"
+        )
+
+    def test_judge_images_number_otel_parts_and_tool_result_images(self):
+        pointer = f"phaiblob://v1/sha256/{'a' * 64}?mime=image%2Fpng&size=1"
+        image = {"type": "image_url", "image_url": {"url": pointer}}
+        messages = [
+            {
+                "role": "user",
+                "parts": [{"type": "blob", "modality": "image", "mime_type": "image/png", "content": pointer}],
+            },
+            {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1", "content": [image]}]},
+            {
+                "type": "function_call_output",
+                "call_id": "c1",
+                "output": [{"type": "input_image", "image_url": pointer}],
+            },
+        ]
+
+        assert (
+            extract_text_from_messages(messages, JudgeImages(team_id=7).marker)
+            == "user: [image 1]\nuser: [image 1]\ntool[c1]: [image 1]"
+        )
+        assert extract_text_from_messages(messages).startswith("user: [image]\n")
+
+    def test_media_blocks_keep_their_text_without_judge_images(self):
+        block = {"type": "file", "file": {"filename": "report.pdf"}}
+
+        assert "report.pdf" in extract_text_from_messages([{"role": "user", "content": [block]}])
 
     def test_mixed_content_blocks(self):
         messages = [
@@ -495,6 +590,16 @@ class TestExtractTextFromMessages:
             ),
             pytest.param({"type": "file", "file_id": "file_123"}, "[file: file_123]", id="file_reference"),
             pytest.param({"type": "blob", "content": "aGVsbG8="}, "[media]", id="blob_without_modality"),
+            pytest.param(
+                {"type": "blob", "mime_type": "audio/wav", "content": "aGVsbG8="},
+                "[audio]",
+                id="modality_from_mime_type",
+            ),
+            pytest.param(
+                {"type": "uri", "modality": "image", "mime_type": "image/png", "uri": "gs://bucket/a.png"},
+                "[image]",
+                id="uri_nobody_else_can_fetch",
+            ),
         ],
     )
     def test_otel_parts_media_render_markers(self, part, marker):
@@ -764,3 +869,34 @@ class TestFormatToolDefinitions:
         # rather than silently dropped — the judge can still see something.
         result = format_tool_definitions(tools)
         assert result == json.dumps(tools, default=str)
+
+
+@pytest.mark.parametrize(
+    "messages,role,expected",
+    [
+        (
+            [
+                {"role": "system", "content": "You are a support agent."},
+                {"role": "user", "content": "First question"},
+                {"role": "assistant", "content": "First answer"},
+                {"role": "user", "content": [{"type": "text", "text": "Second question"}]},
+            ],
+            "user",
+            "Second question",
+        ),
+        (
+            [
+                {"role": "user", "content": "What is the weather in Paris?"},
+                {"role": "assistant", "content": [{"type": "tool_use", "id": "t1", "name": "weather", "input": {}}]},
+                {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1", "content": "18C sunny"}]},
+            ],
+            "user",
+            "What is the weather in Paris?",
+        ),
+        ([{"role": "assistant", "content": "The answer"}], "assistant", "The answer"),
+        ([{"role": "system", "content": "Only a system prompt"}], "user", "system: Only a system prompt"),
+        ("A plain string", "user", "A plain string"),
+    ],
+)
+def test_last_message_text(messages, role, expected):
+    assert last_message_text(messages, role) == expected
