@@ -3,6 +3,7 @@ import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { inflateRawSync, zstdDecompressSync } from 'node:zlib'
 
 import { HogError } from '@/core/errors'
+import type { RuntimeFetch } from '@/core/runtime'
 
 import { SymbolDataType } from './container'
 import { decodeUtf8 } from './json'
@@ -191,10 +192,12 @@ function readZip(zip: Buffer): ZipEntry[] {
 
 // `extract_dsym_zip`: entries go under `{output}/{base}/`, keeping only normal path components so
 // an entry can't escape the folder.
-function extractZip(zip: Buffer, baseName: string, output: string, cwd: string): string[] {
+function extractZip(zip: Buffer, baseName: string, output: string, cwd: string, dryRun: boolean): string[] {
     const folder = join(output, baseName)
     const root = resolve(cwd, folder)
-    mkdirSync(root, { recursive: true })
+    if (!dryRun) {
+        mkdirSync(root, { recursive: true })
+    }
     const written: string[] = []
     for (const entry of readZip(zip)) {
         const parts = pathParts(entry.name, process.platform).filter(
@@ -215,8 +218,10 @@ function extractZip(zip: Buffer, baseName: string, output: string, cwd: string):
                 `The symbol set's zip has an entry outside its folder: ${entry.name}`
             )
         }
-        mkdirSync(dirname(resolve(cwd, path)), { recursive: true })
-        writeFileSync(resolve(cwd, path), entry.data)
+        if (!dryRun) {
+            mkdirSync(dirname(resolve(cwd, path)), { recursive: true })
+            writeFileSync(resolve(cwd, path), entry.data)
+        }
         written.push(path)
     }
     return written
@@ -224,11 +229,24 @@ function extractZip(zip: Buffer, baseName: string, output: string, cwd: string):
 
 // `extract_symbol_data`: tries each type in posthog-cli's order. A container whose payload fails
 // to decode falls through to the next type, as in posthog-cli.
-// Paths in the report are as the caller gave them. Files are written relative to `cwd`.
-export function extractSymbolSet(bytes: Uint8Array, baseName: string, output: string, cwd: string): ExtractReport {
+// Paths in the report are as the caller gave them. Files are written relative to `cwd`, and a dry
+// run lists them without writing.
+export function extractSymbolSet(
+    bytes: Uint8Array,
+    baseName: string,
+    output: string,
+    cwd: string,
+    dryRun = false
+): ExtractReport {
     const data = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength)
-    mkdirSync(resolve(cwd, output), { recursive: true })
-    const write = (path: string, data: Uint8Array): void => writeFileSync(resolve(cwd, path), data)
+    if (!dryRun) {
+        mkdirSync(resolve(cwd, output), { recursive: true })
+    }
+    const write = (path: string, data: Uint8Array): void => {
+        if (!dryRun) {
+            writeFileSync(resolve(cwd, path), data)
+        }
+    }
     // A container of a known type whose payload fails to decode: posthog-cli reports it as an
     // unknown type, which sends people after the wrong cause.
     let decodeError: { type: number; message: string } | undefined
@@ -273,7 +291,7 @@ export function extractSymbolSet(bytes: Uint8Array, baseName: string, output: st
     }
     const elf = attempt(() => readPayload(data, SymbolDataType.ElfDebugInfo), SymbolDataType.ElfDebugInfo)
     if (elf) {
-        return { kind: 'elf', output: join(output, baseName), files: extractZip(elf, baseName, output, cwd) }
+        return { kind: 'elf', output: join(output, baseName), files: extractZip(elf, baseName, output, cwd, dryRun) }
     }
     let dsym: Buffer
     try {
@@ -290,7 +308,7 @@ export function extractSymbolSet(bytes: Uint8Array, baseName: string, output: st
         }
         throw new HogError('invalid_symbol_set', `hog couldn't read the symbol set: ${(error as Error).message}`)
     }
-    return { kind: 'dsym', output: join(output, baseName), files: extractZip(dsym, baseName, output, cwd) }
+    return { kind: 'dsym', output: join(output, baseName), files: extractZip(dsym, baseName, output, cwd, dryRun) }
 }
 
 // `urlencoding::encode`: everything except A-Z, a-z, 0-9 and `-._~` is percent-encoded.
@@ -347,7 +365,7 @@ export async function resolveRef(client: SymbolSetClient, reference: string): Pr
 export async function downloadSymbolSet(
     client: SymbolSetClient,
     id: string,
-    fetcher: typeof fetch
+    fetcher: RuntimeFetch
 ): Promise<Uint8Array> {
     if (!isSymbolSetId(id)) {
         throw new HogError('invalid_symbol_set_id', `${id} isn't a symbol set ID.`, 'Symbol set IDs are UUIDs.')
@@ -357,7 +375,7 @@ export async function downloadSymbolSet(
         `No symbol set has the ID ${id}.`
     )) as { url: string }
     try {
-        const response = await fetcher(url, { signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS) })
+        const response = await fetcher(url, { timeoutMs: DOWNLOAD_TIMEOUT_MS, skipRateLimit: true })
         if (!response.ok) {
             throw new HogError('download_failed', `The symbol set download failed with status ${response.status}.`)
         }
