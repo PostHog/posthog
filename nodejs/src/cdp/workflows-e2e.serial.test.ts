@@ -24,6 +24,7 @@ import express from 'ultimate-express'
 
 import { HogFlow } from '~/cdp/schema/hogflow'
 import { template as createTaskTemplate } from '~/cdp/templates/_destinations/posthog_tasks/posthog-create-task.template'
+import { template as webhookCallbackTemplate } from '~/cdp/templates/_destinations/webhook/webhook-callback.template'
 import { template as webhookTemplate } from '~/cdp/templates/_destinations/webhook/webhook.template'
 import { setupExpressApp } from '~/common/api/router'
 import {
@@ -2769,6 +2770,116 @@ describe('Workflows E2E (postgres-v2)', () => {
             // 409 is terminal for the step: one request, no retry burning the engine's budget.
             const taskCreates = mockFetch.mock.calls.filter(([url]) => (url as string).includes('/workflow_tasks/'))
             expect(taskCreates).toHaveLength(1)
+        })
+    })
+
+    describe('webhook with callback action', () => {
+        let api: CdpApi
+        let app: express.Application
+        let server: any
+        let resumer: CyclotronV2Manager
+
+        beforeEach(async () => {
+            await insertHogFunctionTemplate(hub.postgres, {
+                id: webhookCallbackTemplate.id,
+                name: webhookCallbackTemplate.name,
+                code: webhookCallbackTemplate.code,
+                inputs_schema: webhookCallbackTemplate.inputs_schema,
+            })
+            await insertHogFunctionTemplate(hub.postgres, {
+                id: 'template-workflows-e2e-post-reply',
+                name: 'Workflows E2E Post Reply',
+                code: `fetch(inputs.url, {'method': 'POST', 'body': variables.reply})`,
+                inputs_schema: [{ key: 'url', type: 'string', required: true }],
+            })
+
+            await createWorkflowFlow({
+                actions: {
+                    trigger: trigger(),
+                    function_1: {
+                        type: 'function',
+                        config: {
+                            template_id: webhookCallbackTemplate.id,
+                            inputs: {
+                                url: { value: 'https://example.com/approvals' },
+                                body: { value: { request: 'approve the refund' } },
+                                max_wait: { value: '1h' },
+                            },
+                        },
+                        output_variable: { key: 'reply' },
+                    },
+                    function_2: {
+                        type: 'function',
+                        config: {
+                            template_id: 'template-workflows-e2e-post-reply',
+                            inputs: { url: { value: 'https://example.com/after-reply' } },
+                        },
+                    },
+                    exit: exitAction(),
+                },
+                edges: [
+                    { from: 'trigger', to: 'function_1', type: 'continue' },
+                    { from: 'function_1', to: 'function_2', type: 'continue' },
+                    { from: 'function_2', to: 'exit', type: 'continue' },
+                ],
+            })
+            globals = createGlobals()
+
+            resumer = new CyclotronV2Manager({ pool: { dbUrl: CYCLOTRON_NODE_DB_URL, maxConnections: 2 } })
+            api = new CdpApi(hub, deps, { hogQueue: hogflowQueue, hogflowQueue }, resumer)
+            app = setupExpressApp()
+            app.use('/', api.router())
+            server = app.listen(0, () => {})
+        })
+
+        afterEach(async () => {
+            server.close()
+            await resumer.disconnect()
+        })
+
+        // Tests run without SITE_URL, so the URL carries no host.
+        const callbackPath = (callbackUrl: string): string => new URL(callbackUrl, 'http://localhost').pathname
+
+        it('parks until the third party posts to the callback URL, then continues with its payload', async () => {
+            await triggerWorkflow(globals)
+
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledTimes(1)
+            }, 10000)
+            const [url, options] = mockFetch.mock.calls[0]
+            expect(url).toEqual('https://example.com/approvals')
+            const sent = parseJSON(options.body)
+            expect(sent).toEqual({
+                request: 'approve the refund',
+                callback_url: expect.stringContaining('/public/webhooks/workflow_callbacks/'),
+            })
+
+            await waitForExpect(async () => {
+                const { rows } = await cyclotronPool.query(`SELECT status, state FROM cyclotron_jobs`)
+                expect(rows).toHaveLength(1)
+                expect(rows[0].status).toEqual('available')
+                expect(parseJSON(rows[0].state.toString('utf-8')).state.currentAction.awaitingResume).toBeTruthy()
+            }, 10000)
+
+            const reply = await supertest(app)
+                .post(callbackPath(sent.callback_url))
+                .send({ result: { approved: true, approver: 'sam@example.com' } })
+            expect(reply.status).toEqual(200)
+
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledTimes(2)
+            }, 10000)
+            expect(mockFetch.mock.calls[1][0]).toEqual('https://example.com/after-reply')
+            expect(parseJSON(mockFetch.mock.calls[1][1].body)).toEqual({
+                approved: true,
+                approver: 'sam@example.com',
+                status: 'completed',
+            })
+
+            const replay = await supertest(app)
+                .post(callbackPath(sent.callback_url))
+                .send({ result: { approved: false } })
+            expect(replay.status).toEqual(410)
         })
     })
 

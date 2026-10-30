@@ -30,6 +30,7 @@ import { mergeSecretHeaders, resolveSecretHeaders } from '../utils/secret-header
 import { resolveStandardWebhooksKey, signStandardWebhooksRequest } from '../utils/standard-webhooks'
 import { HogExecutorExecuteOptions, HogExecutorPreviousResult, HogExecutorService } from './hog-executor.service'
 import { HogInputsService } from './hog-inputs.service'
+import { getWorkflowStepCallbacks } from './hogflows/step-callback'
 import { EMAIL_QUEUE_PRIORITY, cdpEmailQueuedTotal, getEmailQueuePriorityClass } from './messaging/email-priority'
 import { EmailService } from './messaging/email.service'
 import { PushNotificationService } from './messaging/push-notification.service'
@@ -241,6 +242,7 @@ export class HogExecutorAsyncService {
                 ...options,
                 asyncFunctionsNames: options.asyncFunctionsNames ?? getRegisteredAsyncFunctionNames(),
                 functions: {
+                    workflowCallbackUrl: (): string => getWorkflowStepCallbacks().urlFor(invocation),
                     generateMessagingPreferencesUrl: (identifier): string | null => {
                         return identifier && typeof identifier === 'string'
                             ? this.deps.recipientTokensService.generatePreferencesUrl(

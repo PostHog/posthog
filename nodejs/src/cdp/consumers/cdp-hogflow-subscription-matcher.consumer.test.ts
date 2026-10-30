@@ -2195,13 +2195,14 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
                 })
             ),
         })
-        const parkedState = (key = originKey): Buffer =>
+        const parkedState = (key = originKey, pendingResult?: Record<string, unknown>): Buffer =>
             stateBuffer({
                 actionStepCount: 3,
                 currentAction: {
                     id: 'task_node',
                     startedAtTimestamp: 1,
                     awaitingResume: { key, deadlineAt: 'x', dispatch: {} },
+                    ...(pendingResult ? { resumeResult: { key, status: 'completed', result: pendingResult } } : {}),
                 },
             })
         const resume = { origin_key: originKey, status: 'completed', result: { final_message: 'done' } }
@@ -2252,6 +2253,7 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             ['the job already finished', 'completed', parkedState()],
             ['the job failed', 'failed', parkedState()],
             ['the wake belongs to an earlier visit', 'available', parkedState(`${jobId}:task_node:2`)],
+            ['an earlier wake for the step has not run yet', 'available', parkedState(originKey, { approved: true })],
         ])('wakes nothing when %s', async (_, status, state) => {
             matcher.resumeRows = [{ id: jobId, status, state }]
 

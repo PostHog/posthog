@@ -52,6 +52,12 @@ import { checkHogFlowQuotaLimits } from './services/hogflows/hogflow-quota-limit
 import { TRANSACTIONAL_EMAIL_EVENT } from './services/hogflows/hogflow-sensitivity'
 import { matchesWaitUntilCondition } from './services/hogflows/hogflow-utils'
 import { IdempotencyKeys } from './services/hogflows/idempotency-keys'
+import {
+    WORKFLOW_STEP_CALLBACK_MAX_BODY_BYTES,
+    WORKFLOW_STEP_CALLBACK_PATH,
+    WorkflowStepCallbackSchema,
+    WorkflowStepCallbacks,
+} from './services/hogflows/step-callback'
 import { WorkflowStepResumeSchema } from './services/hogflows/step-resume.service'
 import {
     TransactionalEmailOutcome,
@@ -204,6 +210,7 @@ export class CdpApi {
     private teamWorkflowsConfigService: TeamWorkflowsConfigService
     private emailStatusService: EmailStatusService
     private resumeBatchJwt: ScopedServiceJwt
+    private workflowStepCallbacks: WorkflowStepCallbacks
 
     constructor(
         private config: PluginsServerConfig,
@@ -295,6 +302,7 @@ export class CdpApi {
             PosthogJwtAudience.WORKFLOWS_RESUME_BATCH,
             config.WORKFLOWS_STEP_RESUME_JWT_SECRET || ''
         )
+        this.workflowStepCallbacks = new WorkflowStepCallbacks(config)
     }
 
     public get service(): PluginServerService {
@@ -403,11 +411,28 @@ export class CdpApi {
             next()
         }
 
+        const callbackBodySizeLimit = (
+            req: ModifiedRequest,
+            res: express.Response,
+            next: express.NextFunction
+        ): void => {
+            if (req.rawBody && req.rawBody.length > WORKFLOW_STEP_CALLBACK_MAX_BODY_BYTES) {
+                res.status(413).json({ error: 'Request entity too large' })
+                return
+            }
+            next()
+        }
+
         // Public routes (excluded from authentication by middleware)
         router.post(
             '/public/webhooks/dwh/:webhook_id',
             publicBodySizeLimit,
             asyncHandler(this.handleWarehouseSourceWebhook())
+        )
+        router.post(
+            `${WORKFLOW_STEP_CALLBACK_PATH}/:token`,
+            callbackBodySizeLimit,
+            asyncHandler(this.postWorkflowStepCallback)
         )
         router.post('/public/webhooks/:webhook_id', publicBodySizeLimit, asyncHandler(this.handleWebhook()))
         router.get('/public/webhooks/:webhook_id', asyncHandler(this.handleWebhook()))
@@ -1539,6 +1564,39 @@ export class CdpApi {
                 error: e instanceof Error ? e.message : String(e),
             })
             return res.status(500).json({ error: e instanceof Error ? e.message : String(e) })
+        }
+    }
+
+    private postWorkflowStepCallback = async (req: ModifiedRequest, res: express.Response): Promise<any> => {
+        try {
+            if (!this.batchResolverProducer || !this.workflowStepCallbacks.enabled) {
+                return res.status(503).json({ error: 'Workflow callbacks are not available' })
+            }
+            const callback = this.workflowStepCallbacks.read(req.params.token)
+            if (!callback) {
+                return res.status(401).json({ error: 'Invalid callback URL' })
+            }
+            const parsed = WorkflowStepCallbackSchema.safeParse(req.body ?? {})
+            if (!parsed.success) {
+                return res.status(400).json({ error: parsed.error.issues[0]?.message ?? 'Invalid request body' })
+            }
+
+            const outcomes = await this.batchResolverProducer.resumeParkedSteps(callback.teamId, [
+                { ...parsed.data, origin_key: callback.originKey, jobId: callback.jobId, actionId: callback.actionId },
+            ])
+            const outcome = outcomes.get(callback.jobId) ?? 'job_missing'
+            if (outcome === 'delivered') {
+                return res.status(200).json({ status: 'accepted' })
+            }
+            if (outcome === 'job_running') {
+                return res.status(409).json({ error: 'The step is not waiting yet. Retry shortly.' })
+            }
+            return res.status(410).json({ error: 'This callback URL was already used or has expired' })
+        } catch (e) {
+            logger.error('Error handling workflow step callback', {
+                error: e instanceof Error ? e.message : String(e),
+            })
+            return res.status(500).json({ error: 'Internal error' })
         }
     }
 

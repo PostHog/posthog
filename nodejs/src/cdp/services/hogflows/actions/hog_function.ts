@@ -26,6 +26,7 @@ import { trackHogFlowBillableInvocation } from '../billing-utils'
 import { HogFlowFunctionsService } from '../hogflow-functions.service'
 import { actionIdForLogging, findContinueAction } from '../hogflow-utils'
 import { observeMissingVariableReferences } from '../hogflow-variable-usage'
+import { AWAITED_STEP_MAX_WAIT } from '../step-resume.service'
 import { ActionHandler, ActionHandlerOptions, ActionHandlerResult } from './action.interface'
 
 const OPT_OUT_OF_MESSAGES_TEMPLATE_ID = 'template-posthog-opt-out-of-messages'
@@ -66,7 +67,6 @@ type AwaitRequest = { maxWait: Duration; label: string; settled: Record<string, 
 
 const AWAIT_DURATION_REGEX = /^(\d*\.?\d+)([dhms])$/
 const SECONDS_PER_UNIT: Record<string, number> = { d: 86400, h: 3600, m: 60, s: 1 }
-const AWAIT_MAX_WAIT_CEILING = Duration.fromObject({ hours: 24 })
 
 // A malformed request throws rather than returning null, so the step logs why it did not wait.
 const parseAwaitRequest = (execResult: unknown): AwaitRequest | null => {
@@ -88,7 +88,7 @@ const parseAwaitRequest = (execResult: unknown): AwaitRequest | null => {
     }
     const requested = Duration.fromObject({ seconds: parseFloat(match[1]) * SECONDS_PER_UNIT[match[2]] })
     return {
-        maxWait: requested > AWAIT_MAX_WAIT_CEILING ? AWAIT_MAX_WAIT_CEILING : requested,
+        maxWait: requested > AWAITED_STEP_MAX_WAIT ? AWAITED_STEP_MAX_WAIT : requested,
         label: typeof label === 'string' && label ? label : 'run',
         settled:
             settled && typeof settled === 'object' && !Array.isArray(settled)

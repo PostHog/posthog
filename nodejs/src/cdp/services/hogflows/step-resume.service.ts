@@ -1,3 +1,4 @@
+import { Duration } from 'luxon'
 import { Pool } from 'pg'
 import { Counter } from 'prom-client'
 import { z } from 'zod'
@@ -11,6 +12,8 @@ export const WorkflowStepResumeSchema = z.object({
     result: z.record(z.string(), z.unknown()).optional().nullable(),
 })
 
+export const AWAITED_STEP_MAX_WAIT = Duration.fromObject({ hours: 24 })
+
 export type StepResume = z.infer<typeof WorkflowStepResumeSchema> & { jobId: string; actionId: string }
 
 // `job_<status>` covers every non-parked cyclotron status; `delivered` is the only success.
@@ -23,12 +26,17 @@ export const counterStepResume = new Counter({
 })
 
 // Stamps the resume onto the parked step. Returns null when the job is not waiting on this exact
-// key: the step already advanced, or the wake belongs to an earlier visit of the same step.
+// key: the step already advanced, the wake belongs to an earlier visit of the same step, or an
+// earlier wake for this key is waiting to run, so a replayed callback cannot replace the reply.
 export function applyStepResumeToState(stateBuffer: Buffer, resume: StepResume): Buffer | null {
     try {
         const parsed = parseJSON(stateBuffer.toString('utf-8'))
         const currentAction = parsed.state?.currentAction
-        if (currentAction?.id !== resume.actionId || currentAction.awaitingResume?.key !== resume.origin_key) {
+        if (
+            currentAction?.id !== resume.actionId ||
+            currentAction.awaitingResume?.key !== resume.origin_key ||
+            currentAction.resumeResult?.key === resume.origin_key
+        ) {
             return null
         }
         parsed.state = {

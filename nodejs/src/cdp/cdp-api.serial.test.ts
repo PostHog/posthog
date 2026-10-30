@@ -37,6 +37,7 @@ import { CdpApi } from './cdp-api'
 import { CdpConsumerBaseDeps } from './consumers/cdp-base.consumer'
 import { posthogFilterOutPlugin } from './legacy-plugins/_transformations/posthog-filter-out-plugin/template'
 import { IdempotencyKeys, createIdempotencyValkeyPool } from './services/hogflows/idempotency-keys'
+import { WorkflowStepCallbacks } from './services/hogflows/step-callback'
 import {
     transactionalEmailRequestsTotal,
     transactionalEmailStageDurationMs,
@@ -2124,6 +2125,123 @@ describe('CDP API', () => {
                 expect(mockResumeParkedSteps).not.toHaveBeenCalled()
             } finally {
                 api['stepResumeJwt'] = savedJwt
+            }
+        })
+    })
+
+    describe('workflow step callback', () => {
+        let mockResumeParkedSteps: jest.Mock
+        const jobId = new UUIDT().toString().toLowerCase()
+        const originKey = `${jobId}:callback_node:2`
+
+        const mintCallbackToken = ({
+            secret = 'local-dev-workflows-step-callback-jwt',
+            audience = 'posthog:workflows:step_callback',
+            claims = { team_id: team.id, origin_key: originKey } as Record<string, unknown>,
+        } = {}) => jwt.sign(claims, secret, { audience, expiresIn: '2m' })
+        const callbackPath = (token = mintCallbackToken()) => `/public/webhooks/workflow_callbacks/${token}`
+
+        beforeEach(() => {
+            mockResumeParkedSteps = jest.fn().mockResolvedValue(new Map([[jobId, 'delivered']]))
+            api['batchResolverProducer'] = {
+                createJob: jest.fn(),
+                disconnect: jest.fn(),
+                countInFlightJobs: jest.fn(),
+                rescheduleParkedJobs: jest.fn(),
+                cancelJobs: jest.fn(),
+                resumeParkedSteps: mockResumeParkedSteps,
+                resumeParkedBatchResolver: jest.fn(),
+            }
+        })
+
+        afterEach(() => {
+            api['batchResolverProducer'] = null
+        })
+
+        it('wakes the step the token names with the posted reply', async () => {
+            const res = await supertest(app)
+                .post(callbackPath())
+                .send({ status: 'failed', result: { error_message: 'Refund rejected' } })
+
+            expect(res.status).toEqual(200)
+            expect(mockResumeParkedSteps).toHaveBeenCalledWith(team.id, [
+                {
+                    origin_key: originKey,
+                    status: 'failed',
+                    result: { error_message: 'Refund rejected' },
+                    jobId,
+                    actionId: 'callback_node',
+                },
+            ])
+        })
+
+        it.each([
+            ['the step is not parked yet', 'job_running', 409],
+            ['the step already took a reply', 'stale_key', 410],
+            ['the run is gone', 'job_missing', 410],
+        ])('answers %s with the status the caller acts on', async (_desc, outcome, status) => {
+            mockResumeParkedSteps.mockResolvedValue(new Map([[jobId, outcome]]))
+
+            const res = await supertest(app)
+                .post(callbackPath())
+                .send({ result: { approved: true } })
+
+            expect(res.status).toEqual(status)
+        })
+
+        it.each([
+            ['a token signed with the wrong key', () => callbackPath(mintCallbackToken({ secret: 'wrong-key' }))],
+            [
+                'a step resume token',
+                () =>
+                    callbackPath(
+                        mintCallbackToken({
+                            secret: 'local-dev-workflows-step-resume-jwt',
+                            audience: 'posthog:workflows:step_resume',
+                        })
+                    ),
+            ],
+            [
+                'a token without a step key',
+                () => callbackPath(mintCallbackToken({ claims: { team_id: team.id, origin_key: 'nope' } })),
+            ],
+            ['a token that is not a JWT', () => callbackPath('not-a-token')],
+        ])('rejects %s', async (_desc, path) => {
+            const res = await supertest(app)
+                .post(path())
+                .send({ result: { approved: true } })
+
+            expect(res.status).toEqual(401)
+            expect(mockResumeParkedSteps).not.toHaveBeenCalled()
+        })
+
+        it.each([
+            ['a status the caller may not set', { status: 'cancelled' }, 400],
+            ['a result that is not an object', { result: 'approved' }, 400],
+            ['a body over the size cap', { result: { note: 'x'.repeat(20_000) } }, 413],
+        ])('rejects %s', async (_desc, body, status) => {
+            const res = await supertest(app).post(callbackPath()).send(body)
+
+            expect(res.status).toEqual(status)
+            expect(mockResumeParkedSteps).not.toHaveBeenCalled()
+        })
+
+        it('fails closed when the callback key is not provisioned', async () => {
+            const saved = api['workflowStepCallbacks']
+            api['workflowStepCallbacks'] = new WorkflowStepCallbacks({
+                WORKFLOWS_STEP_CALLBACK_JWT_SECRET: '',
+                SITE_URL: hub.SITE_URL,
+                CLOUD_DEPLOYMENT: null,
+            })
+            try {
+                const res = await supertest(app)
+                    .post(callbackPath())
+                    .send({ result: { approved: true } })
+
+                expect(res.status).toEqual(503)
+                expect(mockResumeParkedSteps).not.toHaveBeenCalled()
+            } finally {
+                api['workflowStepCallbacks'] = saved
             }
         })
     })

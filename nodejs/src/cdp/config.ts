@@ -232,6 +232,8 @@ export type CdpConfig = ClickhouseConfig & {
     // workflow step). Its own key: the Celery and Temporal workers mint it, no other tier does.
     // Same comma-separated rotation and fail-closed-when-empty semantics.
     WORKFLOWS_STEP_RESUME_JWT_SECRET: string
+    // Signs the callback URLs workflow steps hand to third parties. Same rotation and fail-closed semantics.
+    WORKFLOWS_STEP_CALLBACK_JWT_SECRET: string
     // Scoped JWT keys verifying Django's transactional email sends. Its own key: only Django
     // mints it. Same comma-separated rotation and fail-closed-when-empty semantics.
     WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET: string
@@ -463,6 +465,7 @@ export function getDefaultCdpConfig(): CdpConfig {
         WORKFLOWS_CANCEL_JWT_SECRET: isTestEnv() || isDevEnv() ? 'local-dev-workflows-cancel-jwt' : '',
         // Dev/test default must match Django's (posthog/settings/data_stores.py).
         WORKFLOWS_STEP_RESUME_JWT_SECRET: isTestEnv() || isDevEnv() ? 'local-dev-workflows-step-resume-jwt' : '',
+        WORKFLOWS_STEP_CALLBACK_JWT_SECRET: isTestEnv() || isDevEnv() ? 'local-dev-workflows-step-callback-jwt' : '',
         // Dev/test default must match Django's (posthog/settings/data_stores.py).
         WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET:
             isTestEnv() || isDevEnv() ? 'local-dev-workflows-transactional-email-jwt' : '',
