@@ -37,6 +37,13 @@ function lineStrokeWidth(series: ResolvedSeries): number {
     return Math.max(0, series.stroke?.width ?? LINE_STROKE_WIDTH) || 0
 }
 
+/** The incomplete-period dash: `stroke.partial.pattern`, else 10px dashes with an 8px visible gap.
+ *  A round cap adds half the width to each end of a dash, so the gap grows with the width to stay
+ *  open on a wide line. At the default width this is `[10, 10]`. */
+function partialDashPattern(series: ResolvedSeries): number[] {
+    return series.stroke?.partial?.pattern ?? [10, lineStrokeWidth(series) + 8]
+}
+
 /** Dot radius for a point with no line through it, e.g. a series with one value. */
 const ISOLATED_POINT_RADIUS = 3
 
@@ -107,7 +114,7 @@ function drawFractionalTailDash(drawCtx: DrawContext, series: ResolvedSeries, da
 
     // Dashed: the split pixel out to the final point.
     ctx.beginPath()
-    ctx.setLineDash(series.stroke?.partial?.pattern ?? [10, 10])
+    ctx.setLineDash(partialDashPattern(series))
     ctx.moveTo(splitX, splitY)
     ctx.lineTo(x1, y1)
     ctx.stroke()
@@ -189,7 +196,7 @@ function drawSmoothFractionalTail(drawCtx: DrawContext, series: ResolvedSeries, 
 
     // Dashed: the split point out to the final point, along the same curve.
     ctx.beginPath()
-    ctx.setLineDash(series.stroke?.partial?.pattern ?? [10, 10])
+    ctx.setLineDash(partialDashPattern(series))
     ctx.moveTo(split.x, split.y)
     const end = tail[tail.length - 1]
     ctx.bezierCurveTo(split.secondCp1x, split.secondCp1y, split.secondCp2x, split.secondCp2y, end.x, end.y)
@@ -210,7 +217,7 @@ interface Stroke {
  */
 function planLineStrokes(series: ResolvedSeries, length: number): Stroke[] {
     const basePattern = series.stroke?.pattern ?? []
-    const partialPattern = series.stroke?.partial?.pattern ?? [10, 10]
+    const partialPattern = partialDashPattern(series)
     const from = resolvePartialIndex(series.stroke?.partial?.fromIndex, length)
     const to = resolvePartialIndex(series.stroke?.partial?.toIndex, length)
 
