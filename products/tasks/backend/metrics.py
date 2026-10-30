@@ -57,6 +57,20 @@ TASK_RUN_CREATED_TOTAL = Counter(
     ],
 )
 
+TASK_RUN_STARTED_BESIDE_LIVE_RUN_TOTAL = Counter(
+    "posthog_tasks_task_run_started_beside_live_run_total",
+    "Cloud TaskRuns started while another cloud run of the same task was still live",
+    labelnames=[
+        "origin_product",
+        "run_environment",
+        "mode",
+        "run_source",
+        "task_runtime",
+        "runtime_adapter",
+        "prewarmed",
+    ],
+)
+
 TASK_RUN_WORKFLOW_START_TOTAL = Counter(
     "posthog_tasks_task_run_workflow_start_total",
     "TaskRun workflow start lifecycle events",
@@ -71,6 +85,12 @@ TASK_RUN_WORKFLOW_START_TOTAL = Counter(
         "outcome",
         "reason",
     ],
+)
+
+SANDBOX_RUN_START_TOTAL = Counter(
+    "posthog_tasks_sandbox_run_start_total",
+    "Run starts requested by task sandboxes, by endpoint and outcome",
+    labelnames=["endpoint", "outcome"],
 )
 
 TASK_RUN_DISPATCH_CALLBACK_TOTAL = Counter(
@@ -134,13 +154,6 @@ SCHEDULED_TASK_RUN_OLDEST_DUE_AGE_SECONDS = Gauge(
     "Age of the oldest due scheduled task run",
 )
 
-AGENT_OTEL_TELEMETRY_STAMPED_TOTAL = Counter(
-    "posthog_tasks_agent_otel_telemetry_stamped_total",
-    "Agent-run OTel telemetry rollout decisions stamped into run state at dispatch "
-    "(tasks-agent-run-otel-telemetry flag). First-time stamps only; resumes reuse the stamp.",
-    labelnames=["enabled"],
-)
-
 RUN_LOG_MIRROR_ENTRIES_TOTAL = Counter(
     "posthog_tasks_run_log_mirror_entries_total",
     "Task-run log entries mirrored to stdout for the internal Logs project (run_log_mirror).",
@@ -188,6 +201,14 @@ TASK_RUN_FAILED_TOTAL = Counter(
         "temporal_activity_retry_state",
         "cause_error_type",
     ],
+)
+
+# Counted once per run on the terminal status write. TASK_RUN_FAILED_TOTAL only sees failures
+# that raise, so it misses runs the workflow fails directly, such as an agent lost mid-turn.
+TASK_RUN_TERMINAL_TOTAL = Counter(
+    "posthog_tasks_task_run_terminal_total",
+    "TaskRun terminal status transitions",
+    labelnames=["origin_product", "run_environment", "status", "error_type", "termination_reason"],
 )
 
 CUSTOM_IMAGE_BUILD_TOTAL = Counter(
@@ -442,6 +463,12 @@ DESKTOP_ACCESS_DECISIONS_TOTAL = Counter(
     labelnames=["outcome"],
 )
 
+DESKTOP_ACCESS_FLAG_UNRESOLVED_TOTAL = Counter(
+    "posthog_tasks_desktop_access_flag_unresolved_total",
+    "PostHog Desktop access flag evaluations that returned no boolean value",
+    labelnames=["flag"],
+)
+
 
 def observe_compute_quota_check(outcome: ComputeQuotaOutcome) -> None:
     COMPUTE_QUOTA_CHECK_TOTAL.labels(outcome=outcome).inc()
@@ -530,6 +557,14 @@ def _task_run_labels(task_run: "TaskRun | None") -> dict[str, str]:
 
 def observe_task_run_created(task_run: "TaskRun") -> None:
     TASK_RUN_CREATED_TOTAL.labels(**_task_run_labels(task_run)).inc()
+
+
+def observe_task_run_started_beside_live_run(task_run: "TaskRun") -> None:
+    TASK_RUN_STARTED_BESIDE_LIVE_RUN_TOTAL.labels(**_task_run_labels(task_run)).inc()
+
+
+def observe_sandbox_run_start(*, endpoint: str, outcome: str) -> None:
+    SANDBOX_RUN_START_TOTAL.labels(endpoint=endpoint, outcome=outcome).inc()
 
 
 def observe_task_run_dispatch_callback(task_run: "TaskRun | None", *, phase: Literal["scheduled", "fired"]) -> None:
@@ -697,6 +732,17 @@ def observe_agent_turn_failed(task_run: "TaskRun") -> None:
 _WIZARD_TERMINAL_STATUSES = {"completed", "failed", "cancelled"}
 
 
+def observe_task_run_terminal(task_run: "TaskRun", *, error_type: str | None, termination_reason: str | None) -> None:
+    labels = _task_run_labels(task_run)
+    TASK_RUN_TERMINAL_TOTAL.labels(
+        origin_product=labels["origin_product"],
+        run_environment=labels["run_environment"],
+        status=_metric_label(task_run.status),
+        error_type=_failure_metric_label(error_type),
+        termination_reason=_metric_label(termination_reason),
+    ).inc()
+
+
 def observe_wizard_run_unbound(task_run: "TaskRun") -> None:
     """Record a wizard run ending without its PR ever binding.
 
@@ -741,6 +787,9 @@ _SANDBOX_DEADLINE_REASONS = {
     "snapshot_missing",
     "provision_failed",
     "snapshot_unused",
+    "agent_activity",
+    "activity_during_snapshot",
+    "activity_during_handoff",
 }
 
 
@@ -777,3 +826,7 @@ def observe_code_usage_gate_check(*, outcome: CodeUsageGateOutcome) -> None:
 
 def observe_desktop_access_decision(*, outcome: DesktopAccessOutcome) -> None:
     DESKTOP_ACCESS_DECISIONS_TOTAL.labels(outcome=outcome).inc()
+
+
+def observe_desktop_access_flag_unresolved(*, flag: str) -> None:
+    DESKTOP_ACCESS_FLAG_UNRESOLVED_TOTAL.labels(flag=flag).inc()

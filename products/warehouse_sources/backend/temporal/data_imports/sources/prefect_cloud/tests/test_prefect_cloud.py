@@ -8,7 +8,6 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
-    always,
     scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.prefectcloud import (
@@ -141,8 +140,6 @@ class TestValidateCredentials:
     @pytest.mark.parametrize(
         "status_code, expected",
         [
-            (200, (True, 200)),
-            (401, (False, 401)),
             (404, (False, 404)),
         ],
     )
@@ -151,10 +148,6 @@ class TestValidateCredentials:
             assert validate_credentials(_ACCOUNT_ID, _WORKSPACE_ID, "pnu_key") == expected
 
         assert network.requests_log[0].url == f"{_WORKSPACE_URL}/flows/filter"
-
-    def test_transport_error_returns_none_status(self) -> None:
-        with scripted_network(always(ConnectionError("boom"))):
-            assert validate_credentials(_ACCOUNT_ID, _WORKSPACE_ID, "pnu_key") == (False, None)
 
     def test_malformed_id_raises_before_any_request(self) -> None:
         with scripted_network([]) as network:

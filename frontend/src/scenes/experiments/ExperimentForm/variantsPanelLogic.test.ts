@@ -73,16 +73,23 @@ describe('variantsPanelLogic', () => {
         },
     ]
 
+    // Absent from the loaded list, so only the API double-check can find it
+    const recentlyCreatedFlag = {
+        ...mockFeatureFlags[1],
+        id: 4,
+        key: `recently-created-${'x'.repeat(250)}`,
+    }
+
     beforeEach(async () => {
         useMocks({
             get: {
                 [`/api/projects/${MOCK_TEAM_ID}/feature_flags/`]: ({ request }) => {
                     const url = new URL(request.url)
-                    const search = url.searchParams.get('search')
+                    const key = url.searchParams.get('key')
 
-                    if (search) {
-                        const filtered = mockFeatureFlags.filter((flag) =>
-                            flag.key.toLowerCase().includes(search.toLowerCase())
+                    if (key) {
+                        const filtered = [...mockFeatureFlags, recentlyCreatedFlag].filter(
+                            (flag) => flag.key.toLowerCase() === key.toLowerCase()
                         )
                         return [200, { results: filtered, count: filtered.length }]
                     }
@@ -215,17 +222,20 @@ describe('variantsPanelLogic', () => {
                 })
         })
 
-        it('returns existingFlag via API fallback when key is not in local Set', async () => {
+        it.each([
+            ['a short key', 'existing-flag-2', 2],
+            ['a key over 200 characters', recentlyCreatedFlag.key, 4],
+        ])('returns existingFlag via API fallback when key is not in local Set, for %s', async (_, key, id) => {
             // Unlike the test above, we don't wait for loadFeatureFlagsSuccess,
             // so unavailableFeatureFlagKeys is empty and the API path is used
             await expectLogic(logic, () => {
-                logic.actions.validateFeatureFlagKey('existing-flag-2')
+                logic.actions.validateFeatureFlagKey(key)
             })
                 .toDispatchActions(['validateFeatureFlagKey', 'validateFeatureFlagKeySuccess'])
                 .toMatchValues({
                     featureFlagKeyValidation: partial({
                         valid: false,
-                        existingFlag: partial({ id: 2, key: 'existing-flag-2' }),
+                        existingFlag: partial({ id, key }),
                     }),
                 })
         })

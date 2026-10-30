@@ -26,13 +26,12 @@ from products.tasks.backend.logic.services.agent_command import (
     user_facing_agent_error,
 )
 from products.tasks.backend.logic.services.connection_token import create_sandbox_connection_token
-from products.tasks.backend.logic.services.peer_messages import mark_peer_message_outcome, peer_message_id_from_context
-from products.tasks.backend.logic.services.run_actor import slack_actor_state_updates, user_has_current_team_access
+from products.tasks.backend.logic.services.run_actor import slack_actor_state_updates
 from products.tasks.backend.logic.services.staged_artifacts import get_task_run_artifacts_by_id
 from products.tasks.backend.logic.services.store_skills import refresh_store_skills_state
 from products.tasks.backend.logic.stream.redis_stream import publish_task_run_stream_event
 from products.tasks.backend.metrics import observe_followup_denied_permission_stop, observe_followup_sandbox_stopped
-from products.tasks.backend.models import AgentPeerMessage, TaskRun
+from products.tasks.backend.models import TaskRun
 from products.tasks.backend.redis import run_uses_dedicated_stream
 from products.tasks.backend.temporal.oauth import create_oauth_access_token_for_run
 from products.tasks.backend.temporal.process_task.sandbox_credentials import (
@@ -55,8 +54,9 @@ from products.tasks.backend.temporal.process_task.utils import (
     mark_sandbox_github_identity,
     mark_sandbox_mcp_session,
     mcp_exclude_tools_from_state,
-    record_message_actor,
+    record_delivered_message,
     sandbox_identity_scope,
+    unmounted_mcp_installations_log_fields,
     upgrade_run_to_user_authorship,
 )
 
@@ -85,7 +85,6 @@ SANDBOX_STOPPED_MESSAGE = (
     "This run's sandbox has stopped, so your message wasn't delivered. Start a new run to continue."
 )
 RUN_STOPPING_MESSAGE = "This run is stopping, so your message wasn't delivered. Start a new run to continue."
-PEER_SANDBOX_STOPPED_MESSAGE = "The recipient run's sandbox has stopped"
 DENIED_PERMISSION_STOP_MESSAGE = (
     "Stopped after the denied action. Send a new message to continue with a different approach."
 )
@@ -166,7 +165,6 @@ def _fail_when_sandbox_stopped(
     actor_user: Any,
     *,
     task_run: TaskRun | None = None,
-    peer_message_id: str | None = None,
 ) -> None:
     """Stop a delivery the control plane says can never land, before anything else reports it.
 
@@ -186,14 +184,6 @@ def _fail_when_sandbox_stopped(
         actor_user_id=actor_user.id if actor_user is not None else None,
         sandbox_id=(state or {}).get("sandbox_id"),
     )
-    if peer_message_id is not None:
-        _mark_peer_delivery_outcome(
-            peer_message_id,
-            AgentPeerMessage.Outcome.DELIVERY_FAILED,
-            "sandbox_stopped",
-            PEER_SANDBOX_STOPPED_MESSAGE,
-        )
-        raise ApplicationError(f"peer message delivery failed: {PEER_SANDBOX_STOPPED_MESSAGE}", non_retryable=True)
     raise ApplicationError(SANDBOX_STOPPED_MESSAGE, non_retryable=True)
 
 
@@ -278,19 +268,11 @@ def _steer_decline_reason(result_data: dict[str, Any] | None) -> str:
 
 
 def _deliver_followup(input: SendFollowupToSandboxInput) -> str | None:
-    peer_message_id = peer_message_id_from_context(input.context)
     try:
         task_run = TaskRun.objects.select_related("task__created_by", "task__team").get(id=input.run_id)
     except TaskRun.DoesNotExist:
         error_msg = "Task run not found"
         logger.warning("send_followup_run_not_found", run_id=input.run_id)
-        if peer_message_id is not None:
-            # Peer failures never write the recipient's stream sentinels; the row
-            # carries the outcome and the workflow's isolation keeps the run healthy.
-            _mark_peer_delivery_outcome(
-                peer_message_id, AgentPeerMessage.Outcome.DELIVERY_FAILED, "run_not_found", error_msg
-            )
-            raise ApplicationError(f"peer message delivery failed: {error_msg}", non_retryable=True)
         _write_error_and_complete(input.run_id, error_msg)
         # Raise so the workflow can mark the run as failed. Without this,
         # background-mode runs hang until the inactivity timeout because
@@ -300,15 +282,7 @@ def _deliver_followup(input: SendFollowupToSandboxInput) -> str | None:
     # out-of-band cancellation sets without that marker. Either means the run is winding down,
     # so no follow-up should rebind credentials or reach the sandbox.
     if (task_run.state or {}).get("cancel_requested_at") or task_run.status == TaskRun.Status.CANCELLED:
-        if peer_message_id is not None:
-            _mark_peer_delivery_outcome(
-                peer_message_id, AgentPeerMessage.Outcome.DELIVERY_FAILED, "run_stopping", RUN_STOPPING_MESSAGE
-            )
-            raise ApplicationError(f"peer message delivery failed: {RUN_STOPPING_MESSAGE}", non_retryable=True)
         raise ApplicationError(RUN_STOPPING_MESSAGE, non_retryable=True)
-
-    if peer_message_id is not None:
-        return _deliver_peer_message(input, task_run, peer_message_id)
 
     # Resolve credentials against this message's sender, not the run-state
     # actor a concurrent follow-up may have overwritten since queueing. Local
@@ -442,8 +416,14 @@ def _deliver_followup(input: SendFollowupToSandboxInput) -> str | None:
             )
             raise ApplicationError(f"send_followup failed: {error_msg}", non_retryable=True)
 
-    if input.message_id and actor_slack_user_id:
-        record_message_actor(input.run_id, input.message_id, actor_slack_user_id)
+    if input.message_id:
+        person_message = (input.context or {}).get("person_message")
+        record_delivered_message(
+            input.run_id,
+            input.message_id,
+            actor_slack_user_id=actor_slack_user_id,
+            person_message=person_message if isinstance(person_message, str) else None,
+        )
 
     result = send_user_message(
         task_run,
@@ -568,153 +548,6 @@ def _deliver_followup(input: SendFollowupToSandboxInput) -> str | None:
     return None
 
 
-def _mark_peer_delivery_outcome(peer_message_id: str, outcome: str, phase: str = "", detail: str = "") -> None:
-    """Best-effort audit-row bookkeeping — a marking failure must never change how
-    delivery itself is reported."""
-    try:
-        mark_peer_message_outcome(peer_message_id, outcome, failure_phase=phase, failure_detail=detail)
-    except Exception:
-        logger.warning("peer_message_outcome_mark_failed", peer_message_id=peer_message_id, exc_info=True)
-
-
-def _resolve_peer_credential_actor(task_run: TaskRun) -> tuple[Any, str]:
-    """The user a peer turn may execute as, or ``(None, reason)`` to fail delivery closed.
-
-    The ONLY credential-actor source in peer delivery mode is the sandbox's own
-    bound identity — never the message input, never task-state actor overlays — and
-    the binding is honored only when it is the task creator with current active
-    team access. v1 peer authorization is creator-to-creator (see
-    visible_peer_runs), so the creator is the sole authority a peer message can
-    carry. Everything else fails closed: an expired binding marker can hide a
-    still-live prior session (the marker lives half the token lifetime), and a
-    binding left by a teammate (e.g. a Slack interaction) must never lend their
-    credentials to a turn they did not send.
-    """
-    bound_user_id = get_sandbox_mcp_session_user(sandbox_identity_scope(str(task_run.id), task_run.state))
-    if bound_user_id is None:
-        return None, "the sandbox's bound credential identity is unconfirmed"
-    creator = task_run.task.created_by
-    if creator is None or bound_user_id != creator.id:
-        return None, "the sandbox is bound to a different user than the task creator"
-    if not user_has_current_team_access(creator, task_run.task.team):
-        return None, "the task creator no longer has active access to this team"
-    return creator, ""
-
-
-def _deliver_peer_message(input: SendFollowupToSandboxInput, task_run: TaskRun, peer_message_id: str) -> str | None:
-    """Deliver an agent peer message (see logic/services/peer_messages.py).
-
-    Deviations from the user follow-up path, each load-bearing for the delivery
-    contract:
-    - Credentials: delivery fails closed unless the sandbox's bound identity is
-      confirmed to be the task creator with current team access (see
-      _resolve_peer_credential_actor); refreshes then run strictly via that
-      identity. A peer message can never mint or rebind credentials for anyone
-      else, and never runs a turn on unconfirmed residual credentials.
-    - Failures record the outcome on the message row and raise non-retryably
-      WITHOUT stream error sentinels: no user turn is dangling, and the workflow's
-      failure isolation keeps the recipient run healthy.
-    - Steer is never honored; peer messages always queue as non-steer turns.
-    """
-    state = task_run.state
-    actor_user, identity_error = _resolve_peer_credential_actor(task_run)
-    if actor_user is None:
-        error_msg = f"Peer delivery requires a confirmed credential identity: {identity_error}"
-        _mark_peer_delivery_outcome(
-            peer_message_id, AgentPeerMessage.Outcome.DELIVERY_FAILED, "credential_identity", error_msg
-        )
-        raise ApplicationError(f"peer message delivery failed: {error_msg}", non_retryable=True)
-
-    auth_token = create_sandbox_connection_token(
-        task_run, user_id=actor_user.id, distinct_id=get_actor_distinct_id(actor_user)
-    )
-    _fail_when_sandbox_stopped(input.run_id, state, actor_user, task_run=task_run, peer_message_id=peer_message_id)
-    mcp_failure = _refresh_sandbox_mcp(
-        task_run, input.posthog_mcp_scopes, auth_token, actor_user=actor_user, state=state
-    )
-    if mcp_failure is not None:
-        error_msg = "Could not refresh sandbox MCP credentials via the bound identity"
-        _mark_peer_delivery_outcome(
-            peer_message_id, AgentPeerMessage.Outcome.DELIVERY_FAILED, "credential_refresh", error_msg
-        )
-        raise ApplicationError(f"peer message delivery failed: {error_msg}", non_retryable=True)
-    github_failure = _refresh_sandbox_github(task_run, actor_user, state)
-    if github_failure is not None:
-        error_msg = (
-            "The recipient run's sandbox has stopped"
-            if github_failure == SandboxRebindFailure.SANDBOX_NOT_RUNNING
-            else "Could not refresh sandbox GitHub credentials via the bound identity"
-        )
-        _mark_peer_delivery_outcome(
-            peer_message_id, AgentPeerMessage.Outcome.DELIVERY_FAILED, "credential_refresh", error_msg
-        )
-        raise ApplicationError(f"peer message delivery failed: {error_msg}", non_retryable=True)
-
-    artifacts = None
-    if input.artifact_ids:
-        artifacts, missing_artifact_ids = get_task_run_artifacts_by_id(task_run, input.artifact_ids)
-        if missing_artifact_ids:
-            error_msg = f"Peer attachments missing from the target run: {', '.join(missing_artifact_ids)}"
-            _mark_peer_delivery_outcome(
-                peer_message_id, AgentPeerMessage.Outcome.DELIVERY_FAILED, "artifacts_missing", error_msg
-            )
-            raise ApplicationError(f"peer message delivery failed: {error_msg}", non_retryable=True)
-
-    result = send_user_message(
-        task_run,
-        input.message,
-        artifacts=artifacts,
-        auth_token=auth_token,
-        timeout=FOLLOWUP_TIMEOUT_SECONDS,
-        message_id=input.message_id,
-        steer=False,
-    )
-    logger.info(
-        "peer_message_delivery_attempted",
-        run_id=input.run_id,
-        peer_message_id=peer_message_id,
-        artifact_count=len(artifacts or []),
-    )
-
-    if result.success:
-        if _is_duplicate_delivery(result.data):
-            # The sandbox already recorded this message_id: a prior attempt
-            # delivered it, so the accurate audit outcome is delivered — and that
-            # attempt owns the turn bookkeeping.
-            _mark_peer_delivery_outcome(peer_message_id, AgentPeerMessage.Outcome.DELIVERED)
-            return None
-        _mark_peer_delivery_outcome(peer_message_id, AgentPeerMessage.Outcome.DELIVERED)
-        _write_turn_complete(
-            input.run_id,
-            _get_stop_reason(result.data),
-            run_uses_dedicated_stream(task_run.state),
-            run_stream_presence_gated(task_run.state),
-            task_run.task.origin_product,
-        )
-        return None
-    if result.turn_in_flight:
-        # The read timeout means the message reached the sandbox and the turn is
-        # simply still running (see the user path for why this is not a failure).
-        _mark_peer_delivery_outcome(peer_message_id, AgentPeerMessage.Outcome.DELIVERED)
-        return TURN_IN_FLIGHT_OUTCOME
-    if result.retryable and input.message_id and _current_attempt() < input.max_attempts:
-        # Row stays signaled; a retried delivery is deduped by message_id and the
-        # final attempt terminalizes below.
-        raise ApplicationError(f"peer message delivery retryable failure: {result.error}")
-    error_msg = user_facing_agent_error(result.error)
-    logger.warning(
-        "peer_message_delivery_failed",
-        run_id=input.run_id,
-        peer_message_id=peer_message_id,
-        error=result.error,
-        status_code=result.status_code,
-    )
-    _mark_peer_delivery_outcome(
-        peer_message_id, AgentPeerMessage.Outcome.DELIVERY_FAILED, "sandbox_delivery", error_msg
-    )
-    raise ApplicationError(f"peer message delivery failed: {error_msg}", non_retryable=True)
-
-
 def _refresh_sandbox_mcp(
     task_run: TaskRun,
     scopes: PosthogMcpScopes,
@@ -781,7 +614,7 @@ def _refresh_sandbox_mcp(
         origin_product=task_run.task.origin_product,
         exclude_tools=mcp_exclude_tools_from_state(state),
     )
-    user_mcp_configs = get_user_mcp_server_configs(
+    user_mcp = get_user_mcp_server_configs(
         token=access_token,
         team_id=task_run.team_id,
         user_id=actor_user.id,
@@ -794,8 +627,17 @@ def _refresh_sandbox_mcp(
         credential_owner_id=task_run.task.mcp_credential_owner_id,
         allowed_gateway_server_ids=task_run.task.mcp_gateway_server_allowlist,
     )
-    if user_mcp_configs:
-        mcp_configs = mcp_configs + user_mcp_configs
+    if user_mcp.configs:
+        mcp_configs = mcp_configs + user_mcp.configs
+    if user_mcp.unmounted:
+        logger.info(
+            "mcp_installations_not_mounted",
+            team_id=task_run.team_id,
+            task_id=str(task_run.task_id),
+            run_id=run_id,
+            user_id=actor_user.id,
+            unmounted=unmounted_mcp_installations_log_fields(user_mcp.unmounted),
+        )
 
     # refresh_session replaces the session's server list wholesale, so the
     # run's imported servers must ride along or they vanish mid-run.
@@ -941,7 +783,6 @@ def _refresh_sandbox_github(
     if promoted_state is not None:
         state = promoted_state
 
-    scope = sandbox_identity_scope(run_id, state)
     if get_pr_authorship_mode(task, state) != PrAuthorshipMode.USER:
         return None
 
@@ -1023,7 +864,7 @@ def _refresh_sandbox_github(
             if applied:
                 # Record the new actor only on a fully-confirmed rebind. A partial write leaves one
                 # credential location on the prior actor's token, so fall through to logout instead.
-                mark_sandbox_github_identity(scope, actor_user.id)
+                mark_sandbox_github_identity(sandbox.id, actor_user.id)
                 logger.info("refresh_github_rebound", run_id=run_id, user_id=actor_user.id)
                 return None
             logger.warning("refresh_github_apply_incomplete", run_id=run_id, user_id=actor_user.id)
@@ -1043,7 +884,7 @@ def _refresh_sandbox_github(
             # bound away from the run owner, and clearing it would let the scheduled refresh inject
             # the owner's token into this actor's session. It does not gate the rebind — every turn
             # re-establishes — so a reconnect is still picked up.
-            mark_sandbox_github_identity(scope, actor_user.id)
+            mark_sandbox_github_identity(sandbox.id, actor_user.id)
             logger.info("refresh_github_logged_out", run_id=run_id, user_id=actor_user.id)
             return None
         logger.warning("refresh_github_logout_failed", run_id=run_id, user_id=actor_user.id, had_token=bool(token))

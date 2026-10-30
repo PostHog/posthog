@@ -9,6 +9,7 @@ _KNOWN_PROGRAMS = {
     "audit",
     "error-tracking-upload-source-maps",
     "events-audit",
+    "feature-flags",
     "mcp-add",
     "mcp-analytics",
     "mcp-remove",

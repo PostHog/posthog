@@ -42,6 +42,41 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "docs_url": "https://api.ynab.com/v1#tag/months",
         "columns": {"plan_id": "Plan containing this month.", "month": "First day of the plan month."},
     },
+    "month_categories": {
+        "description": "Categories with their assigned, activity, and available amounts for each plan month.",
+        "docs_url": "https://api.ynab.com/v1#tag/months",
+        "columns": {
+            "plan_id": "Plan containing this category.",
+            "month": "First day of the plan month that the amounts apply to.",
+            "budgeted": "Amount assigned to the category in the month, in milliunits.",
+            "activity": "Category activity in the month, in milliunits.",
+            "balance": "Available category amount at the end of the month, in milliunits.",
+        },
+    },
+    "money_movements": {
+        "description": "Money moved between budget categories in each plan.",
+        "docs_url": "https://api.ynab.com/v1#tag/money-movements",
+        "columns": {
+            "plan_id": "Plan containing this money movement.",
+            "month": "Plan month of the money movement.",
+            "moved_at": "Time the server processed the money movement.",
+            "from_category_id": "Category the money was moved from.",
+            "to_category_id": "Category the money was moved to.",
+            "amount": "Amount moved, in milliunits.",
+            "money_movement_group_id": "Group this money movement belongs to.",
+            "performed_by_user_id": "User who moved the money.",
+        },
+    },
+    "money_movement_groups": {
+        "description": "Groups of related money movements, with their month, author, and note.",
+        "docs_url": "https://api.ynab.com/v1#tag/money-movements",
+        "columns": {
+            "plan_id": "Plan containing this money movement group.",
+            "group_created_at": "Time the money movement group was created.",
+            "month": "Plan month of the money movement group.",
+            "performed_by_user_id": "User who performed the money movement group.",
+        },
+    },
     "transactions": {
         "description": "Plan transactions with nested split transactions, excluding pending transactions.",
         "docs_url": "https://api.ynab.com/v1#tag/transactions",

@@ -134,8 +134,10 @@ class FunnelResultsFormatter:
         matrix: list[list[Any]] = [
             ["Average time to convert", aggregation.distribution_label],
         ]
-        for series in results.get("bins") or []:
-            matrix.append([format_duration(series[0]), format_percentage(series[1])])
+        bins = results.get("bins") or []
+        total = sum(count for _, count in bins)
+        for bin_from_seconds, count in bins:
+            matrix.append([format_duration(bin_from_seconds), format_percentage(count / total if total else 0)])
 
         hint = f"The {aggregation.distribution_label.lower()} is the percentage of {aggregation.unit} who completed the funnel in the given period."
         return f"{self._format_time_range()}\n\nEvents: {self._format_filter_series_label()}\n{format_matrix(matrix)}\n\n{hint}"

@@ -2,6 +2,7 @@ from typing import cast
 
 from requests.exceptions import HTTPError
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -41,6 +42,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ScalrSource(ResumableSource[ScalrSourceConfig, ScalrResumeConfig]):
+    codebase_detection = detect(env=("^SCALR_",), go=("github.com/scalr/go-scalr",))
+
     lists_tables_without_credentials = True
     supported_versions = ("v3",)
     default_version = "v3"
@@ -111,7 +114,7 @@ class ScalrSource(ResumableSource[ScalrSourceConfig, ScalrResumeConfig]):
             caption="Create a service account token in Scalr under account scope > IAM > Service accounts. "
             "Give the account read access to environments, workspaces, and runs.",
             iconPath="/static/services/scalr.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

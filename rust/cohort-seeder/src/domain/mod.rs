@@ -2,7 +2,7 @@
 //!
 //! No module here reaches into PostgreSQL, ClickHouse, or Kafka. The internal
 //! dependency order is strictly downward:
-//! `ids` ← {`condition`, `window`} ← `chunk` ← {`plan`, `pinned`, `aggregate`} ←
+//! `ids` ← {`condition`, `window`} ← `chunk` ← `pinned` ← `plan` ← `aggregate` ←
 //! {`person_relevance`, `person_analysis`} ← `person`,
 //! except that `chunk` reaches back into `person` for the `PersonRange` vocabulary its spec
 //! carries. The seed wire contract (`SeedTile`/`PersonSeed` and the ids that ride them) lives in
@@ -18,6 +18,7 @@ pub mod condition;
 pub mod condition_analysis;
 pub mod ids;
 pub mod ledger;
+pub mod newest_day;
 pub mod partition;
 pub mod person;
 pub mod person_analysis;
@@ -38,8 +39,10 @@ pub use chunk::{
     ScanVolume, ScannedChunk, StreamedChunk, UnknownChunkStatus,
 };
 pub use cohort_core::seed::{
-    BehavioralShapeHash, PersonSeed, PersonShapeHash, ReconcileCompleteMarker, ReconcileScope,
-    ReconcileTile, ScopeKind, SeedTile, ShapeHashError, UnknownScopeKind,
+    BehavioralShapeHash, CatalogMiss, CoverageStartMs, PersonSeed, PersonShapeHash,
+    ReconcileCompleteMarker, ReconcileMarker, ReconcileScope, ReconcileTile,
+    ReconcileWithheldMarker, RunBoundaryMs, ScopeKind, SeedTile, ShapeHashError, UnknownScopeKind,
+    WithheldReason,
 };
 pub use columns::{ColumnName, MaterializedColumns};
 pub use compare::{diff_tiles, Divergence, DivergenceClass, TileDiff, MAX_EXEMPLARS_PER_CLASS};
@@ -47,7 +50,7 @@ pub(crate) use completion::MARKER_WATCH_SCHEMA;
 pub use completion::{
     CommittedOffset, CompletionParts, CompletionPhase, CompletionStatus, DispatchEpoch,
     DispatchedReconcile, LivenessCheck, MarkerNovelty, MarkerPartition, MarkerPartitionError,
-    MarkerWatch, NextOffset, ObservationEnds, ObservedMarker, PartitionBitmap,
+    MarkerVerdict, MarkerWatch, NextOffset, ObservationEnds, ObservedMarker, PartitionBitmap,
     PartitionBitmapError, ProducedOffset, ReconcileHwms, ReconcileHwmsError, SeedGroupCommits,
     SettleProof, UndispatchedReason, WatchPartition, WatchPositions,
 };
@@ -59,7 +62,8 @@ pub use ids::{
     Band, ChunkId, ClaimEpoch, ConditionHash, ConditionHashError, DayIdx, RunId, SChunkMs,
     ScannedAtMs, UtcMillis, UtcMsRange, UtcRangeError,
 };
-pub use ledger::{MarkerFold, MarkerLedger, SettledVerdict};
+pub use ledger::{MarkerFold, MarkerLedger, SettledVerdict, WithheldCohort};
+pub use newest_day::{ConditionSlot, NewestDayConditions};
 pub use partition::{SeedPartition, SeedPartitionCountError, SeedPartitions};
 pub use person::{
     person_chunk_sentinel_day, tile_ranges, EvaluatedConditions, PersonChunkSpec,
@@ -71,10 +75,12 @@ pub use person::{
 pub use person_analysis::{AlwaysEvaluateReason, PersonAnalysisCensus};
 pub use pinned::{
     PinnedDropReason, PinnedError, PinnedParticipation, PinnedParticipationState, PinnedRun,
-    PinnedRunSnapshot, PinnedWarning, TriggerKind, UncoveredCohort, UncoveredParticipations,
-    UncoveredReason, UnknownTriggerKind, ValidatedPinnedRun,
+    PinnedRunSnapshot, PinnedWarning, ScanTable, TriggerKind, UncoveredCohort,
+    UncoveredParticipations, UncoveredReason, UnknownTriggerKind, ValidatedPinnedRun,
 };
-pub use plan::{bands_for_day, conditions_active_on, plan_days, ActiveConditions};
+pub use plan::{
+    bands_for_day, conditions_active_on, plan_days, table_scans, ActiveConditions, TableScan,
+};
 pub use projection::{
     BlobSource, ChunkProjection, ColumnBackedKeys, ColumnExactKeys, ColumnPlan, ColumnUpgrade,
     ProjectedKeys, PropertiesOutcome, PropertiesSource, PropertiesSourcing, RebuildReason,

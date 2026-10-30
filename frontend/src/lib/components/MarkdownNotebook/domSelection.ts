@@ -21,6 +21,8 @@ import {
 } from './types'
 import { getInlineText, normalizeInlineNodes } from './utils'
 
+const TABLE_CELL_SELECTOR = '[data-markdown-notebook-table-section]'
+
 export function getNotebookBlockElement(rootElement: HTMLElement | null, nodeId: string): HTMLElement | null {
     return (
         rootElement?.querySelector<HTMLElement>(
@@ -352,6 +354,11 @@ export function getSelectedNotebookMarkdown(
         return null
     }
 
+    // Copy and cut inside one table cell use the native clipboard, so only the selected text is copied.
+    if (isRangeInsideSingleTableCell(range)) {
+        return null
+    }
+
     const selectedNodes: NotebookBlockNode[] = []
     nodes.forEach((node) => {
         const element = blockRefs[node.id]
@@ -388,6 +395,11 @@ export function getSelectedNotebookMarkdown(
     }
 
     return serializeNotebookNodes(selectedNodes)
+}
+
+function isRangeInsideSingleTableCell(range: Range): boolean {
+    const startCell = getElementForNode(range.startContainer)?.closest(TABLE_CELL_SELECTOR)
+    return !!startCell && startCell === getElementForNode(range.endContainer)?.closest(TABLE_CELL_SELECTOR)
 }
 
 export function getSelectedTextRanges(

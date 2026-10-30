@@ -52,6 +52,10 @@ SERVICENOW_ENDPOINTS: dict[str, ServiceNowEndpointConfig] = {
     "configuration_items": ServiceNowEndpointConfig(name="configuration_items", table="cmdb_ci"),
     "knowledge_articles": ServiceNowEndpointConfig(name="knowledge_articles", table="kb_knowledge"),
     "assets": ServiceNowEndpointConfig(name="assets", table="alm_asset"),
+    "task_slas": ServiceNowEndpointConfig(name="task_slas", table="task_sla"),
+    "metric_instances": ServiceNowEndpointConfig(name="metric_instances", table="metric_instance"),
+    "choices": ServiceNowEndpointConfig(name="choices", table="sys_choice"),
+    "service_offerings": ServiceNowEndpointConfig(name="service_offerings", table="service_offering"),
 }
 
 ENDPOINTS = tuple(SERVICENOW_ENDPOINTS.keys())

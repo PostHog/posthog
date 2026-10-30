@@ -84,6 +84,18 @@ describe('PropertyFilters', () => {
         operator: PropertyOperator.Exact,
     } as const
 
+    it('shows the logical divider tooltip on click', async () => {
+        renderPropertyFilters({
+            propertyFilters: [BROWSER_FILTER, OS_FILTER],
+            logicalRowDivider: true,
+            logicalRowDividerTooltip: 'Every filter in this condition set must match.',
+        })
+
+        await userEvent.click(screen.getByText('AND'))
+
+        expect(await screen.findByText('Every filter in this condition set must match.')).toBeInTheDocument()
+    })
+
     const splitControls: PropertyFiltersProps['renderControls'] = ({ addFilter, activeFilters }) => (
         <div>
             <div>{addFilter}</div>

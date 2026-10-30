@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -34,6 +35,13 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class LightfieldSource(SimpleSource[LightfieldSourceConfig]):
+    codebase_detection = detect(
+        env=("^LIGHTFIELD_",),
+        npm=("lightfield",),
+        pypi=("lightfield",),
+        go=("github.com/Lightfld/lightfield-go", "github.com/Lightfld/lightfield-cli"),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("2026-03-01",)
     default_version = "2026-03-01"
@@ -146,7 +154,7 @@ Custom objects need no extra scope. The field and relationship definitions table
 """,
             docsUrl="https://posthog.com/docs/cdp/sources/lightfield",
             iconPath="/static/services/lightfield.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

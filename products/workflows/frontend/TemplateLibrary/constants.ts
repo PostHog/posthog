@@ -4,6 +4,7 @@ export const NEW_TEMPLATE: MessageTemplate = {
     id: 'new',
     name: 'Untitled email',
     description: '',
+    tags: [],
     content: {
         templating: 'liquid' as const,
         email: {

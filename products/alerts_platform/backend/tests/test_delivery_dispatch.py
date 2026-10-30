@@ -1,4 +1,5 @@
-from datetime import UTC, datetime
+from dataclasses import replace
+from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
 import pytest
@@ -7,11 +8,14 @@ from unittest.mock import patch
 from django.test import SimpleTestCase
 from django.utils import timezone
 
+from parameterized import parameterized
+from prometheus_client import REGISTRY
+
 from products.alerts_platform.backend.delivery.dispatch import deliver
 from products.alerts_platform.backend.delivery.message import AlertMessage
 from products.alerts_platform.backend.delivery.telemetry import record_delivery
 from products.alerts_platform.backend.delivery.thread_store import NullThreadStore, ThreadClaim, ThreadKey
-from products.alerts_platform.backend.delivery.transport import DeliveryError, MessageHandle
+from products.alerts_platform.backend.delivery.transport import DeliveryError, DestinationMisconfigured, MessageHandle
 from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
     AlertEventKind,
@@ -19,6 +23,7 @@ from products.alerts_platform.backend.facade.contracts import (
     EvaluationAnnouncement,
     SourceKind,
 )
+from products.alerts_platform.backend.tests.recorded_metrics import recorded_metrics
 
 TARGET = cast(AlertDestinationData, {"type": "slack", "slack_workspace_id": 1, "slack_channel_id": "C-ENG"})
 FIRST_FIRING = datetime(2026, 9, 30, 9, tzinfo=UTC)
@@ -145,6 +150,7 @@ class TestDeliveryDispatch(SimpleTestCase):
                 configuration_id="cfg-1",
                 evaluation_key=evaluation_key,
                 target=TARGET,
+                destination_id="destination-1",
                 announcement=announcement or _announcement(),
             )
         return recorded
@@ -169,10 +175,12 @@ class TestDeliveryDispatch(SimpleTestCase):
                     configuration_id="cfg-1",
                     evaluation_key="eval-1",
                     target=TARGET,
+                    destination_id="destination-1",
                     announcement=_announcement(),
                 )
 
         assert recorded.call_args.kwargs["succeeded"] is False
+        assert recorded.call_args.kwargs["error"] == "nope"
 
     def test_a_resolve_replies_under_its_own_firing_rather_than_an_earlier_one(self) -> None:
         store = RecordingThreadStore()
@@ -229,35 +237,89 @@ class TestDeliveryDispatch(SimpleTestCase):
             alert_name="API errors",
             consecutive_failures=0,
             transitions=(_transition(grouping_key="checkout"), _transition(grouping_key="search")),
+            overflowed=3,
         )
 
         self._deliver(transport, store, announcement)
 
         assert [handle for _, handle in transport.sends] == [None, None]
         assert len(store.threads) == 2
+        assert [
+            [detail.value for detail in message.details if detail.label == "Untracked groups"]
+            for message, _ in transport.sends
+        ] == [["3 more groups not tracked because this alert is at its group limit"], []]
 
     def test_a_retried_evaluation_does_not_send_a_second_copy(self) -> None:
         store = RecordingThreadStore()
-        self._deliver(FakeTransport(), store, evaluation_key="eval-1")
-
         retry = FakeTransport()
-        self._deliver(retry, store, evaluation_key="eval-1")
+
+        with recorded_metrics() as metrics:
+            self._deliver(FakeTransport(), store, evaluation_key="eval-1")
+            self._deliver(retry, store, evaluation_key="eval-1")
 
         assert retry.sends == []
+        assert [(m.attributes, m.value) for m in metrics if m.name == "alerts_platform_deliveries_total"] == [
+            ({"source": "logs", "provider": "fake", "path": "native", "outcome": "sent"}, 1),
+            ({"source": "logs", "provider": "fake", "path": "native", "outcome": "already_delivered"}, 1),
+        ]
+        (lag,) = (m for m in metrics if m.name == "alerts_platform_delivery_lag_ms")
+        assert lag.attributes == {"source": "logs", "provider": "fake"} and lag.value > 0
 
-    def test_a_check_that_never_fired_starts_no_conversation(self) -> None:
+    @parameterized.expand(
+        [
+            ("failed_check", AlertEventKind.ERRORED),
+            ("resolve_of_a_firing_taken_over_from_the_source", AlertEventKind.RESOLVED),
+        ]
+    )
+    def test_a_message_about_no_known_firing_joins_no_conversation_and_is_sent_once(
+        self, _name: str, kind: AlertEventKind
+    ) -> None:
         store = RecordingThreadStore()
-        transport = FakeTransport()
+        first, retry, later = FakeTransport(), FakeTransport(), FakeTransport()
 
-        self._deliver(transport, store, _announcement(AlertEventKind.ERRORED, None))
+        self._deliver(first, store, _announcement(kind, None), evaluation_key="eval-1")
+        self._deliver(retry, store, _announcement(kind, None), evaluation_key="eval-1")
+        later_transition = replace(_transition(kind, None), occurred_at=FIRST_FIRING + timedelta(minutes=5))
+        self._deliver(
+            later, store, replace(_announcement(kind, None), transitions=(later_transition,)), evaluation_key="eval-2"
+        )
 
-        assert store.threads == {}
+        assert [handle for _, handle in first.sends] == [None]
+        assert retry.sends == []
+        assert [handle for _, handle in later.sends] == [None]
 
-    def test_a_provider_outage_is_counted_as_a_failed_delivery(self) -> None:
-        transport = FakeTransport(error=ConnectionError("slack unreachable"))
+    def test_a_send_outside_a_worker_is_counted_in_the_process_registry(self) -> None:
+        labels = {"source": "logs", "provider": "fake", "path": "native", "outcome": "sent"}
+        before = REGISTRY.get_sample_value("alerts_platform_deliveries_total", labels) or 0
+        lag_before = (
+            REGISTRY.get_sample_value("alerts_platform_delivery_lag_ms_count", {"source": "logs", "provider": "fake"})
+            or 0
+        )
 
-        with patch("products.alerts_platform.backend.delivery.dispatch.record_delivery") as recorded:
-            with pytest.raises(ConnectionError):
+        self._deliver(FakeTransport(), RecordingThreadStore())
+
+        assert REGISTRY.get_sample_value("alerts_platform_deliveries_total", labels) == before + 1
+        assert (
+            REGISTRY.get_sample_value("alerts_platform_delivery_lag_ms_count", {"source": "logs", "provider": "fake"})
+            == lag_before + 1
+        )
+
+    @parameterized.expand(
+        [
+            ("outage", ConnectionError("slack unreachable"), "ConnectionError", "failed"),
+            ("misconfigured", DestinationMisconfigured("not_in_channel"), "not_in_channel", "misconfigured"),
+        ]
+    )
+    def test_a_failed_send_is_counted_by_whose_fix_it_is(
+        self, _name: str, error: Exception, logged: str, outcome: str
+    ) -> None:
+        transport = FakeTransport(error=error)
+
+        with (
+            patch("products.alerts_platform.backend.delivery.dispatch.record_delivery") as recorded,
+            recorded_metrics() as metrics,
+        ):
+            with pytest.raises(type(error)):
                 deliver(
                     transport=transport,
                     thread_store=NullThreadStore(),
@@ -265,10 +327,14 @@ class TestDeliveryDispatch(SimpleTestCase):
                     configuration_id="cfg-1",
                     evaluation_key="eval-1",
                     target=TARGET,
+                    destination_id="destination-1",
                     announcement=_announcement(),
                 )
 
         assert recorded.call_args.kwargs["succeeded"] is False
+        # An outage's text can carry a credential URL, so only its class reaches the person's log.
+        assert recorded.call_args.kwargs["error"] == logged
+        assert [m.attributes["outcome"] for m in metrics if m.name == "alerts_platform_deliveries_total"] == [outcome]
 
     def test_a_store_that_remembers_nothing_still_delivers(self) -> None:
         transport = FakeTransport()
@@ -281,15 +347,40 @@ class TestDeliveryDispatch(SimpleTestCase):
 class TestDeliveryTelemetry(SimpleTestCase):
     def test_an_outcome_is_keyed_to_alerts_rather_than_to_hog_functions(self) -> None:
         with patch("products.alerts_platform.backend.delivery.telemetry.get_producer") as producer:
-            record_delivery(team_id=2, configuration_id="cfg-1", provider="slack", succeeded=True)
+            record_delivery(team_id=2, configuration_id="cfg-1", provider="slack", destination_id=None, succeeded=True)
 
-        payload = producer.return_value.produce.call_args.kwargs["data"]
-        assert payload["app_source"] == "alert"
-        assert payload["app_source_id"] == "cfg-1"
-        assert (payload["metric_kind"], payload["metric_name"]) == ("success", "succeeded")
+        [metrics] = [c.kwargs["data"] for c in producer.return_value.produce.call_args_list]
+        assert metrics["app_source"] == "alert"
+        assert metrics["app_source_id"] == "cfg-1"
+        assert metrics["instance_id"] == "slack"
+        assert (metrics["metric_kind"], metrics["metric_name"]) == ("success", "succeeded")
+
+    @parameterized.expand(
+        [("sent", True, None, "INFO", "Sent"), ("refused", False, "channel_not_found", "ERROR", "channel_not_found")]
+    )
+    def test_a_send_with_a_destination_is_counted_and_logged_under_it(
+        self, _name: str, succeeded: bool, error: str | None, level: str, message: str
+    ) -> None:
+        with patch("products.alerts_platform.backend.delivery.telemetry.get_producer") as producer:
+            for _ in range(2):
+                record_delivery(
+                    team_id=2,
+                    configuration_id="cfg-1",
+                    provider="slack",
+                    destination_id="fn-1",
+                    succeeded=succeeded,
+                    error=error,
+                )
+
+        metrics, log, _, second_log = [c.kwargs["data"] for c in producer.return_value.produce.call_args_list]
+        assert metrics["instance_id"] == "fn-1"
+        assert (log["log_source"], log["log_source_id"]) == ("alert_destination", "fn-1")
+        assert (log["level"], log["message"]) == (level, message)
+        # Two sends in the same microsecond would otherwise share a sorting key and merge into one row.
+        assert log["instance_id"] != second_log["instance_id"]
 
     def test_a_broken_producer_does_not_fail_a_send_that_already_happened(self) -> None:
         with patch(
             "products.alerts_platform.backend.delivery.telemetry.get_producer", side_effect=RuntimeError("down")
         ):
-            record_delivery(team_id=2, configuration_id="cfg-1", provider="slack", succeeded=True)
+            record_delivery(team_id=2, configuration_id="cfg-1", provider="slack", destination_id=None, succeeded=True)

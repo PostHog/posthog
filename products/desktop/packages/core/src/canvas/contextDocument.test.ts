@@ -181,6 +181,21 @@ describe("contextDocument", () => {
       "flag",
     ],
     [
+      "a flag at the canonical path",
+      "https://us.posthog.com/project/1/feature-flags/8",
+      "flag",
+    ],
+    [
+      "an error issue at the canonical path",
+      "https://us.posthog.com/project/1/error-tracking/0190f8a1-5e3b",
+      "error",
+    ],
+    [
+      "an error issue at the legacy path",
+      "https://us.posthog.com/project/1/error_tracking/0190f8a1-5e3b",
+      "error",
+    ],
+    [
       "the same path on another host",
       "https://attacker.example/project/1/feature_flags/8",
       null,

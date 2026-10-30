@@ -28,12 +28,12 @@ import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { cn } from 'lib/utils/css-classes'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
-import { membersLogic } from 'scenes/organization/membersLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { FEATURE_FLAGS } from '~/lib/constants'
+import { membersLogic } from '~/models/membersLogic'
 import { DashboardType, InsightShortId, SubscriptionResourceTypes, SubscriptionType } from '~/types'
 
 import { AiPromptFields, AiPromptSubscriptionIntroduction } from './AiPromptFields'
@@ -357,7 +357,8 @@ function SubscriptionDeliveryStep({
     subscription: SubscriptionType
     logicProps: SubscriptionLogicProps
 }): JSX.Element {
-    const { meFirstMembers, membersLoading } = useValues(membersLogic)
+    const { members, meFirstMembers, membersLoading } = useValues(membersLogic)
+    const { ensureAllMembersLoaded } = useActions(membersLogic)
     const { integrations, slackIntegrations } = useValues(integrationsLogic)
     const { preflight } = useValues(preflightLogic)
     const { setSubscriptionValue } = useActions(subscriptionLogic(logicProps))
@@ -386,6 +387,11 @@ function SubscriptionDeliveryStep({
                                 allowCustomValues
                                 options={usersLemonSelectOptions(meFirstMembers.map((member) => member.user))}
                                 loading={membersLoading}
+                                onFocus={() => {
+                                    if (!members) {
+                                        ensureAllMembersLoaded()
+                                    }
+                                }}
                                 placeholder="Enter an email address"
                             />
                         )}

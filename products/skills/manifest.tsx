@@ -78,8 +78,11 @@ export const manifest: ProductManifest = {
             href: urls.skills(),
             searchKeywords: ['agent instructions', 'playbooks'],
             searchTabs: [
-                { name: 'Scouts', href: urls.skillsCategoryTab('scouts') },
-                { name: 'Community', href: urls.communitySkills(), flag: FEATURE_FLAGS.LLM_ANALYTICS_COMMUNITY_SKILLS },
+                {
+                    name: 'Community skills',
+                    href: urls.communitySkills(),
+                    flag: FEATURE_FLAGS.LLM_ANALYTICS_COMMUNITY_SKILLS,
+                },
             ],
             sceneKey: 'Skills',
         },

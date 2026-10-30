@@ -61,6 +61,17 @@ export const LOSSLESS_BUILDER_FIXTURES: Record<string, BuilderQuery> = {
             }),
         ],
     },
+    'histogram p50 and p99 of the same buckets': {
+        clauses: [
+            clause({ metricName: 'http.server.duration', aggregation: 'histogram_quantile', quantile: 0.5 }),
+            clause({
+                name: 'b',
+                metricName: 'http.server.duration',
+                aggregation: 'histogram_quantile',
+                quantile: 0.99,
+            }),
+        ],
+    },
     'eq filter': {
         clauses: [clause({ metricName: 'queue_depth', filters: [{ key: 'service_name', op: 'eq', value: 'api' }] })],
     },
@@ -349,6 +360,19 @@ const PROMQL_CASES: [string, BuilderQuery | null, 'lossless' | 'lossy'][] = [
         'sum(rate(http_requests_total[$__rate_interval])) by (job)',
         { clauses: [clause({ metricName: 'http_requests_total', aggregation: 'rate', groupBy: [{ key: 'job' }] })] },
         'lossless',
+    ],
+    [
+        'sum(rate(http_requests_total{job=~"$job"}[${window}]))',
+        {
+            clauses: [
+                clause({
+                    metricName: 'http_requests_total',
+                    aggregation: 'rate',
+                    filters: [{ key: 'job', op: 'regex', value: '^$job$' }],
+                }),
+            ],
+        },
+        'lossy',
     ],
     [
         'sum(increase(jobs_total[1h]))',
@@ -683,7 +707,7 @@ describe('metrics query languages', () => {
             expect(parsePromQL(printPromQL(parsed))).toEqual(parsed)
         })
 
-        it.each(['sum(', 'x{a=b}', 'x{a="b}', 'sum by (a (x)', '}', 'x[5m', '', 'sum(x) @ end()'])(
+        it.each(['sum(', 'x{a=b}', 'x{a="b}', 'sum by (a (x)', '}', 'x[5m', '', 'sum(x) @ end()', 'sum(up) / $scale2'])(
             'rejects %j with a position',
             (text) => {
                 expect(() => parsePromQL(text)).toThrow(PromQLParseError)
@@ -748,7 +772,10 @@ describe('metrics query languages', () => {
                 ([, expected, kind]) =>
                     expected &&
                     kind === 'lossless' &&
-                    expected.clauses.every((clause) => clause.aggregation !== 'histogram_quantile')
+                    expected.clauses.every(
+                        (clause) =>
+                            clause.aggregation !== 'histogram_quantile' || [0.5, 0.95, 0.99].includes(clause.quantile!)
+                    )
             )
         )('switching %s to the builder and back is lossless', (text) => {
             const conversion = convertMetricsQuery(metricsQuery({ language: 'promql', promql: text }), 'builder')
@@ -778,11 +805,41 @@ describe('metrics query languages', () => {
             ],
             ['parenthesized formula', '(sum(queue_depth) + sum(retry_queue_depth)) / 2'],
             [
+                'histogram p50 and p99 of the same buckets',
+                'histogram_quantiles("clause", 0.5, 0.99, sum by (le) (rate({"http.server.duration_bucket"})))',
+            ],
+            [
                 'two series without formula',
                 'label_replace(sum(queue_depth), "clause", "a", "", "") or label_replace(avg({"process.cpu.utilization"}), "clause", "b", "", "")',
             ],
         ])('writes %s as %s', (name, expected) => {
             expect(builderToPromql(LOSSLESS_BUILDER_FIXTURES[name])).toEqual({ value: expected, issues: [] })
+        })
+
+        it.each<[string, BuilderClause[]]>([
+            [
+                'different buckets',
+                [
+                    clause({ metricName: 'x', aggregation: 'histogram_quantile', quantile: 0.5 }),
+                    clause({ name: 'b', metricName: 'y', aggregation: 'histogram_quantile', quantile: 0.9 }),
+                ],
+            ],
+            [
+                'aliases that are not the defaults',
+                [
+                    clause({ metricName: 'x', aggregation: 'histogram_quantile', quantile: 0.5 }),
+                    clause({ name: 'c', metricName: 'x', aggregation: 'histogram_quantile', quantile: 0.9 }),
+                ],
+            ],
+            [
+                'the same quantile twice',
+                [
+                    clause({ metricName: 'x', aggregation: 'histogram_quantile', quantile: 0.5 }),
+                    clause({ name: 'b', metricName: 'x', aggregation: 'histogram_quantile', quantile: 0.5 }),
+                ],
+            ],
+        ])('keeps the label_replace union for histogram quantiles with %s', (_name, clauses) => {
+            expect(builderToPromql({ clauses }).value).toMatch(/^label_replace\(histogram_quantile\(/)
         })
 
         it('spreads an ungrouped series over a grouped one with on() group_left', () => {
@@ -895,10 +952,10 @@ describe('metrics query languages', () => {
                 'builder',
             ],
             [
-                'a histogram quantile, which the builder can chart but not edit',
+                'a histogram quantile without a builder percentile, which the builder can chart but not edit',
                 metricsQuery({
                     language: 'promql',
-                    promql: 'histogram_quantile(0.5, sum by (le) (rate({"http.server.duration_bucket"})))',
+                    promql: 'histogram_quantile(0.9, sum by (le) (rate({"http.server.duration_bucket"})))',
                 }),
                 'builder',
             ],

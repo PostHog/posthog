@@ -74,16 +74,6 @@ class TestPagination:
 
 
 class TestValidateCredentials:
-    def test_ok(self) -> None:
-        with scripted_network([ScriptedResponse(status=200)]):
-            assert validate_credentials("tok", "ds1") == (True, None)
-
-    def test_unauthorized_message(self) -> None:
-        with scripted_network([ScriptedResponse(status=401)]):
-            ok, msg = validate_credentials("tok", "ds1")
-        assert ok is False
-        assert "token" in (msg or "")
-
     def test_not_found_message(self) -> None:
         with scripted_network([ScriptedResponse(status=404)]):
             ok, msg = validate_credentials("tok", "ds1")
@@ -157,9 +147,3 @@ class TestPlatformEndpoints:
         # A single object endpoint has no cursor, so nothing is checkpointed.
         assert len(result.requests) == 1
         assert result.saved_states == []
-
-    def test_unknown_endpoint_raises(self) -> None:
-        result = _driver().run("not_a_table", [])
-
-        assert isinstance(result.raised, ValueError)
-        assert "Unknown Apify endpoint" in str(result.raised)

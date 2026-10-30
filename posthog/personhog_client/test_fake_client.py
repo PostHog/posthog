@@ -2,9 +2,13 @@ import json
 
 import pytest
 
+import grpc
+from parameterized import parameterized
+from personhog.lifecycle.v1 import lifecycle_pb2
 from personhog.types.v1 import cohort_pb2, common_pb2, group_pb2, person_pb2
 
 from posthog.personhog_client.fake_client import FakePersonHogClient, fake_personhog_client
+from posthog.personhog_client.interceptor import semantic_refusal_reason
 
 
 class TestFakePersonHogClientPersons:
@@ -250,6 +254,17 @@ class TestFakePersonHogClientGroupWrites:
         assert resp.group.version == 0
         fetched = self.client.get_group(group_pb2.GetGroupRequest(team_id=1, group_type_index=0, group_key="org:new"))
         assert fetched.group.id == resp.group.id
+
+    def test_create_group_returns_existing_group_on_duplicate_key(self):
+        existing = self.client.get_group(group_pb2.GetGroupRequest(team_id=1, group_type_index=0, group_key="org:1"))
+
+        resp = self.client.create_group(
+            group_pb2.CreateGroupRequest(
+                team_id=1, group_type_index=0, group_key="org:1", group_properties=b'{"name": "Other"}'
+            )
+        )
+
+        assert resp.group == existing.group
 
     def test_create_group_auto_increment_id(self):
         resp1 = self.client.create_group(group_pb2.CreateGroupRequest(team_id=1, group_type_index=1, group_key="k1"))
@@ -789,3 +804,263 @@ class TestFakePersonHogClientVersionRpcs:
         with pytest.raises(ValueError, match=error):
             self._ensure_persons(*((k, min_version) for k in keys))
         assert self.client.stored_person(self.TEAM_ID, keys[0]) is None
+
+
+class TestFakePersonHogClientRepairWrites:
+    TEAM_ID = 7
+    LIVE = "00000000-0000-0000-0000-000000000001"
+    OTHER = "00000000-0000-0000-0000-000000000002"
+    TOMB = "00000000-0000-0000-0000-000000000003"
+    MISSING = "00000000-0000-0000-0000-000000000004"
+
+    def setup_method(self):
+        self.client = FakePersonHogClient()
+        self.client.add_person(team_id=self.TEAM_ID, person_id=1, uuid=self.LIVE, version=2, distinct_ids=["live-did"])
+        self.client.add_person(team_id=self.TEAM_ID, person_id=2, uuid=self.OTHER, distinct_ids=["other-did"])
+        self.client.add_person(
+            team_id=self.TEAM_ID,
+            person_id=3,
+            uuid=self.TOMB,
+            version=4,
+            is_deleted=True,
+            distinct_ids=["stray-did"],
+        )
+
+    def _write(
+        self, *writes: tuple[str, person_pb2.DistinctIdWriteAction, str, int]
+    ) -> list[person_pb2.DistinctIdWriteResult]:
+        response = self.client.write_distinct_ids(
+            person_pb2.WriteDistinctIdsRequest(
+                team_id=self.TEAM_ID,
+                writes=[
+                    person_pb2.DistinctIdWrite(distinct_id=d, action=a, person_uuid=u, min_version=m)
+                    for d, a, u, m in writes
+                ],
+            )
+        )
+        return list(response.results)
+
+    def test_raise_person_floors_raises_only_live_persons(self):
+        response = self.client.raise_person_version_floors(
+            person_pb2.RaisePersonVersionFloorsRequest(
+                team_id=self.TEAM_ID,
+                floors=[
+                    person_pb2.PersonVersionFloor(person_uuid=u, min_version=5)
+                    for u in (self.LIVE, self.TOMB, self.MISSING)
+                ],
+            )
+        )
+        assert [(r.outcome, r.version) for r in response.results] == [
+            (person_pb2.RAISE_OUTCOME_RAISED, 5),
+            (person_pb2.RAISE_OUTCOME_NOT_LIVE, 4),
+            (person_pb2.RAISE_OUTCOME_MISSING, 0),
+        ]
+
+    def test_restore_inserts_only_absent_uuids(self):
+        response = self.client.restore_persons(
+            person_pb2.RestorePersonsRequest(
+                team_id=self.TEAM_ID,
+                persons=[
+                    person_pb2.RestoredPerson(person_uuid=u, properties=b'{"plan": "free"}', version=6)
+                    for u in (self.MISSING, self.LIVE, self.TOMB)
+                ],
+            )
+        )
+        assert [r.outcome for r in response.results] == [
+            person_pb2.RESTORE_OUTCOME_INSERTED,
+            person_pb2.RESTORE_OUTCOME_EXISTS_LIVE,
+            person_pb2.RESTORE_OUTCOME_EXISTS_TOMBSTONED,
+        ]
+        restored = self.client.stored_person(self.TEAM_ID, self.MISSING)
+        assert restored is not None and json.loads(restored.properties) == {"plan": "free"} and restored.version == 6
+
+    def test_restore_inserts_listed_distinct_ids_and_skips_a_person_none_of_them_could_reach(self):
+        holder = "00000000-0000-0000-0000-000000000009"
+        self.client.add_person(team_id=self.TEAM_ID, person_id=9, uuid=holder, distinct_ids=["taken", "taken-2"])
+        reachable, unreachable = "00000000-0000-0000-0000-000000000005", "00000000-0000-0000-0000-000000000006"
+
+        def ids(*dids: str) -> list[person_pb2.RestoredDistinctId]:
+            return [person_pb2.RestoredDistinctId(distinct_id=d, version=4) for d in dids]
+
+        response = self.client.restore_persons(
+            person_pb2.RestorePersonsRequest(
+                team_id=self.TEAM_ID,
+                persons=[
+                    person_pb2.RestoredPerson(
+                        person_uuid=reachable, properties=b"{}", distinct_ids=ids("new", "taken")
+                    ),
+                    person_pb2.RestoredPerson(person_uuid=unreachable, properties=b"{}", distinct_ids=ids("taken-2")),
+                ],
+            )
+        )
+
+        assert [(r.outcome, list(r.restored_distinct_ids)) for r in response.results] == [
+            (person_pb2.RESTORE_OUTCOME_INSERTED, ["new"]),
+            (person_pb2.RESTORE_OUTCOME_NO_DISTINCT_ID, []),
+        ]
+        assert self.client.stored_person(self.TEAM_ID, unreachable) is None
+        stored = self.client.get_distinct_id_rows(
+            person_pb2.GetDistinctIdRowsRequest(team_id=self.TEAM_ID, distinct_ids=["new", "taken"])
+        )
+        rows = {r.distinct_id: (r.person_uuid, r.version) for r in stored.rows}
+        assert rows == {"new": (reachable, 4), "taken": (holder, 0)}
+
+    def test_write_distinct_ids_applies_each_write_only_from_its_expected_state(self):
+        insert = person_pb2.DISTINCT_ID_WRITE_ACTION_INSERT
+        raise_ = person_pb2.DISTINCT_ID_WRITE_ACTION_RAISE
+        applied = person_pb2.DISTINCT_ID_WRITE_OUTCOME_APPLIED
+        failed = person_pb2.DISTINCT_ID_WRITE_OUTCOME_PRECONDITION_FAILED
+        not_live = person_pb2.DISTINCT_ID_WRITE_OUTCOME_PERSON_NOT_LIVE
+
+        results = self._write(
+            ("new-did", insert, self.LIVE, 5),
+            ("other-did", insert, self.LIVE, 5),
+            ("dead-did", insert, self.TOMB, 5),
+            ("live-did", raise_, self.LIVE, 3),
+            ("other-did-2", raise_, self.LIVE, 3),
+            ("dead-did-raise", raise_, self.TOMB, 3),
+        )
+        assert [
+            (
+                r.distinct_id,
+                r.outcome,
+                (r.row.person_id, r.row.version, r.row.is_deleted) if r.HasField("row") else None,
+            )
+            for r in results
+        ] == [
+            ("new-did", applied, (1, 5, False)),
+            ("other-did", failed, (2, 0, False)),
+            ("dead-did", not_live, None),
+            ("live-did", applied, (1, 3, False)),
+            ("other-did-2", failed, None),
+            ("dead-did-raise", not_live, None),
+        ]
+
+    def test_rejects_the_whole_batch_before_any_write(self):
+        with pytest.raises(ValueError, match="must not be negative"):
+            self._write(
+                ("first-did", person_pb2.DISTINCT_ID_WRITE_ACTION_INSERT, self.LIVE, 1),
+                ("second-did", person_pb2.DISTINCT_ID_WRITE_ACTION_INSERT, self.LIVE, -1),
+            )
+        assert self.client.stored_person_by_distinct_id(self.TEAM_ID, "first-did") is None
+        with pytest.raises(ValueError, match="Duplicate key"):
+            self.client.raise_person_version_floors(
+                person_pb2.RaisePersonVersionFloorsRequest(
+                    team_id=self.TEAM_ID,
+                    floors=[
+                        person_pb2.PersonVersionFloor(person_uuid=self.LIVE, min_version=9),
+                        person_pb2.PersonVersionFloor(person_uuid=self.LIVE.upper(), min_version=9),
+                    ],
+                )
+            )
+        live = self.client.stored_person(self.TEAM_ID, self.LIVE)
+        assert live is not None and live.version == 2
+
+
+class TestFakePersonHogClientLifecycleDeletes:
+    TEAM_ID = 1
+    OP_A = "11111111-1111-4111-8111-111111111111"
+    OP_B = "22222222-2222-4222-8222-222222222222"
+
+    def setup_method(self):
+        self.client = FakePersonHogClient()
+        self.client.add_person(
+            team_id=self.TEAM_ID, person_id=10, uuid="abc-123", version=4, distinct_ids=["user@example.com", "anon-1"]
+        )
+        self.client.add_person(team_id=self.TEAM_ID, person_id=20, uuid="def-456", distinct_ids=["user2@example.com"])
+        self.client.add_cohort_membership(person_id=10, cohort_id=7)
+
+    def _delete(self, person_ids: list[int], op_id: str = OP_A, team_id: int = TEAM_ID):
+        return self.client.lifecycle.delete_persons(
+            lifecycle_pb2.DeletePersonsRequest(team_id=team_id, person_ids=person_ids, op_id=op_id)
+        )
+
+    def test_reports_one_outcome_per_requested_id_and_tombstones_the_deleted_persons(self):
+        response = self._delete([10, 999, 10, 20])
+
+        assert response.op_id == self.OP_A
+        assert [(r.person_id, r.outcome) for r in response.results] == [
+            (10, lifecycle_pb2.DELETE_PERSON_OUTCOME_DELETED),
+            (999, lifecycle_pb2.DELETE_PERSON_OUTCOME_NOT_FOUND),
+            (10, lifecycle_pb2.DELETE_PERSON_OUTCOME_DELETED),
+            (20, lifecycle_pb2.DELETE_PERSON_OUTCOME_DELETED),
+        ]
+        stored = self.client.stored_person(self.TEAM_ID, "abc-123")
+        assert stored is not None and stored.is_deleted and stored.version == 5
+        assert not self.client.get_person(person_pb2.GetPersonRequest(team_id=self.TEAM_ID, person_id=10)).HasField(
+            "person"
+        )
+        assert not self.client.get_person_by_distinct_id(
+            person_pb2.GetPersonByDistinctIdRequest(team_id=self.TEAM_ID, distinct_id="anon-1")
+        ).HasField("person")
+        assert (
+            self.client.check_cohort_membership(
+                cohort_pb2.CheckCohortMembershipRequest(person_id=10, cohort_ids=[7])
+            ).memberships
+            == []
+        )
+        # The saga leaves no publish-queue row; ClickHouse hears about the delete from the changelog.
+        assert self.client.tombstone_queue == {}
+
+    def test_already_tombstoned_and_held_persons_are_not_touched(self):
+        self._delete([10])
+        self.client.hold_lifecycle_mark(team_id=self.TEAM_ID, person_id=20)
+
+        response = self._delete([10, 20], op_id=self.OP_B)
+
+        assert [r.outcome for r in response.results] == [
+            lifecycle_pb2.DELETE_PERSON_OUTCOME_NOT_FOUND,
+            lifecycle_pb2.DELETE_PERSON_OUTCOME_SKIPPED_CONFLICT,
+        ]
+        stored = self.client.stored_person(self.TEAM_ID, "abc-123")
+        assert stored is not None and stored.version == 5
+        assert self.client.get_person(person_pb2.GetPersonRequest(team_id=self.TEAM_ID, person_id=20)).HasField(
+            "person"
+        )
+
+    def test_retry_with_the_same_op_id_and_request_returns_the_recorded_outcome(self):
+        first = self._delete([10, 20])
+
+        retry = self._delete([10, 20])
+
+        assert retry == first
+        stored = self.client.stored_person(self.TEAM_ID, "abc-123")
+        assert stored is not None and stored.version == 5
+        assert len(self.client.assert_called("lifecycle.delete_persons")) == 2
+
+    @parameterized.expand(
+        [
+            ("different_ids", [10], TEAM_ID),
+            ("different_order", [20, 10], TEAM_ID),
+            ("different_team", [10, 20], 2),
+        ]
+    )
+    def test_same_op_id_with_a_different_request_is_a_definitive_refusal(
+        self, _name: str, person_ids: list[int], team_id: int
+    ):
+        self._delete([10, 20])
+
+        with pytest.raises(grpc.RpcError) as raised:
+            self._delete(person_ids, team_id=team_id)
+
+        assert raised.value.code() == grpc.StatusCode.FAILED_PRECONDITION
+        assert semantic_refusal_reason(raised.value) == "op_id_reused"
+
+    @parameterized.expand(
+        [
+            ("empty", [], OP_A, TEAM_ID),
+            ("over_the_cap", list(range(1, 252)), OP_A, TEAM_ID),
+            ("non_positive_id", [10, 0], OP_A, TEAM_ID),
+            ("malformed_op_id", [10], "not-a-uuid", TEAM_ID),
+            ("team_id_out_of_range", [10], OP_A, 2**31),
+        ]
+    )
+    def test_rejects_requests_the_server_would_reject(
+        self, _name: str, person_ids: list[int], op_id: str, team_id: int
+    ):
+        with pytest.raises(grpc.RpcError) as raised:
+            self._delete(person_ids, op_id=op_id, team_id=team_id)
+
+        assert raised.value.code() == grpc.StatusCode.INVALID_ARGUMENT
+        stored = self.client.stored_person(self.TEAM_ID, "abc-123")
+        assert stored is not None and not stored.is_deleted

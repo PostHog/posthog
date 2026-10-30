@@ -6,50 +6,31 @@ import { HomepageConfiguration } from '~/layout/scenes/HomepageConfiguration'
 
 import { projectTreeDataLogic } from '../../ProjectTree/projectTreeDataLogic'
 import { navProductsTabLogic } from './navProductsTabLogic'
+import { SidebarSuggestionsSetting } from './SidebarSuggestionsSetting'
 import { StarredProductsPicker } from './StarredProductsPicker'
-import { StarredSetupIntro } from './StarredSetupIntro'
 
 export function CustomizeSidebarModal(): JSX.Element {
-    const { customizeSidebarOpen, customizeSidebarMode, starredProductsSaving, hasDraftStarredChanges } =
-        useValues(navProductsTabLogic)
-    const { setCustomizeSidebarOpen, saveStarredProducts, confirmCleanSlate } = useActions(navProductsTabLogic)
+    const { customizeSidebarOpen, starredProductsSaving, hasDraftStarredChanges } = useValues(navProductsTabLogic)
+    const { setCustomizeSidebarOpen, saveStarredProducts } = useActions(navProductsTabLogic)
     const { shortcutDataHasLoaded } = useValues(projectTreeDataLogic)
-    const isStarredSetup = customizeSidebarMode === 'starred-setup'
 
     return (
         <LemonModal
-            title={isStarredSetup ? 'Set up your new sidebar' : 'Customize sidebar'}
+            title="Customize sidebar"
             isOpen={customizeSidebarOpen}
-            onClose={() => setCustomizeSidebarOpen(false, 'dismiss')}
+            onClose={() => setCustomizeSidebarOpen(false)}
             hasUnsavedInput={hasDraftStarredChanges}
             width={720}
             footer={
                 <div className="flex flex-wrap items-center gap-2 w-full">
                     <div className="flex-1">
-                        {isStarredSetup ? (
-                            <LemonButton
-                                type="tertiary"
-                                onClick={confirmCleanSlate}
-                                disabledReason={
-                                    starredProductsSaving
-                                        ? 'Saving your starred products'
-                                        : !shortcutDataHasLoaded
-                                          ? 'Loading your starred products'
-                                          : undefined
-                                }
-                                data-attr="starred-setup-clean-slate-footer"
-                            >
-                                Start with a clean slate
-                            </LemonButton>
-                        ) : (
-                            <p className="text-xs text-secondary mb-0">
-                                Tip: Drag starred items in the sidebar to rearrange them.
-                            </p>
-                        )}
+                        <p className="text-xs text-secondary mb-0">
+                            Tip: Drag starred items in the sidebar to rearrange them.
+                        </p>
                     </div>
                     <LemonButton
                         type="secondary"
-                        onClick={() => setCustomizeSidebarOpen(false, 'cancel_button')}
+                        onClick={() => setCustomizeSidebarOpen(false)}
                         disabledReason={starredProductsSaving ? 'Saving your starred products' : undefined}
                         data-attr="customize-sidebar-cancel"
                     >
@@ -60,7 +41,7 @@ export function CustomizeSidebarModal(): JSX.Element {
                         onClick={saveStarredProducts}
                         loading={starredProductsSaving}
                         disabledReason={!shortcutDataHasLoaded ? 'Loading your starred products' : undefined}
-                        data-attr={isStarredSetup ? 'starred-setup-save' : 'customize-sidebar-save'}
+                        data-attr="customize-sidebar-save"
                     >
                         Save
                     </LemonButton>
@@ -68,17 +49,14 @@ export function CustomizeSidebarModal(): JSX.Element {
             }
         >
             <div className="flex flex-col gap-6">
-                {isStarredSetup ? (
-                    <StarredSetupIntro />
-                ) : (
-                    <section className="flex flex-col gap-2">
-                        <div>
-                            <LemonLabel>Homepage</LemonLabel>
-                            <p className="text-xs text-secondary mb-0">The page that opens when you select Home.</p>
-                        </div>
-                        <HomepageConfiguration />
-                    </section>
-                )}
+                <section className="flex flex-col gap-2">
+                    <div>
+                        <LemonLabel>Homepage</LemonLabel>
+                        <p className="text-xs text-secondary mb-0">The page that opens when you select Home.</p>
+                    </div>
+                    <HomepageConfiguration />
+                </section>
+                <SidebarSuggestionsSetting />
                 <StarredProductsPicker />
             </div>
         </LemonModal>

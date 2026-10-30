@@ -1,3 +1,4 @@
+import json
 from collections.abc import Callable
 from typing import Any, cast
 
@@ -53,7 +54,12 @@ class TrendsExtractor:
     """
 
     def extract(
-        self, alert: AlertConfiguration, insight: Insight, query: Any, execution_mode: ExecutionMode
+        self,
+        alert: AlertConfiguration,
+        insight: Insight,
+        query: Any,
+        execution_mode: ExecutionMode,
+        cache_age_seconds: int | None = None,
     ) -> ExtractionResult:
         query = TrendsQuery.model_validate(query)
         if not (alert.config and "type" in alert.config and alert.config["type"] == "TrendsAlertConfig"):
@@ -94,7 +100,9 @@ class TrendsExtractor:
                     if is_non_time_series
                     else _date_range_override_for_intervals(query, last_x_intervals=lookback_intervals)
                 )
-                calculation_result = self._calculate(alert, insight, execution_mode, filters_override)
+                calculation_result = self._calculate(
+                    alert, insight, execution_mode, cache_age_seconds, filters_override
+                )
                 if (
                     empty := self._empty_result(
                         calculation_result, alert, has_breakdown, interval_type, value_formatter
@@ -113,7 +121,9 @@ class TrendsExtractor:
                 # When the current interval is incomplete we compare the previous interval
                 # against the one before it, so we need the extra lookback interval.
                 filters_override = _date_range_override_for_intervals(query, last_x_intervals=lookback_intervals)
-                calculation_result = self._calculate(alert, insight, execution_mode, filters_override)
+                calculation_result = self._calculate(
+                    alert, insight, execution_mode, cache_age_seconds, filters_override
+                )
                 if (
                     empty := self._empty_result(
                         calculation_result, alert, has_breakdown, interval_type, value_formatter
@@ -130,7 +140,9 @@ class TrendsExtractor:
                 if is_non_time_series:
                     raise ValueError("Relative alerts not supported for non time series trends")
                 filters_override = _date_range_override_for_intervals(query, last_x_intervals=lookback_intervals)
-                calculation_result = self._calculate(alert, insight, execution_mode, filters_override)
+                calculation_result = self._calculate(
+                    alert, insight, execution_mode, cache_age_seconds, filters_override
+                )
                 if (
                     empty := self._empty_result(
                         calculation_result, alert, has_breakdown, interval_type, value_formatter
@@ -159,6 +171,7 @@ class TrendsExtractor:
                 is_breakdown=has_breakdown,
                 interval_type=interval_type,
                 value_formatter=value_formatter,
+                truncated=has_breakdown and bool(calculation_result.has_more),
             ),
             delay=delay,
             minimum_points=1 if condition.type == AlertConditionType.ABSOLUTE_VALUE else 2,
@@ -170,12 +183,14 @@ class TrendsExtractor:
         alert: AlertConfiguration,
         insight: Insight,
         execution_mode: ExecutionMode,
+        cache_age_seconds: int | None,
         filters_override: dict | None,
     ) -> InsightResult:
         return calculate_for_query_based_insight(
             insight,
             team=alert.team,
             execution_mode=execution_mode,
+            cache_age_seconds=cache_age_seconds,
             # Scheduled alert check (no request user); attribute the read to the alert owner so
             # warehouse HogQL access control resolves against their access.
             user=alert.created_by,
@@ -243,6 +258,14 @@ class TrendsExtractor:
                     points=points,
                     current_index=current_index,
                     is_current_interval=is_current_interval,
+                    identity=_breakdown_identity(result) if has_breakdown else None,
                 )
             )
         return series
+
+
+def _breakdown_identity(result: dict[str, Any]) -> str:
+    """The series and the raw breakdown value, which the formatted label can merge across rows."""
+    return json.dumps(
+        [result.get("order"), result.get("breakdown_value")], separators=(",", ":"), ensure_ascii=False, default=str
+    )

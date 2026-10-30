@@ -17,6 +17,7 @@ wrappers:
             readOnly: true
             destructive: false
             idempotent: true
+        reads_ingested_data: events
         title: Run a trends query
         description_file: ./prompts/query-trends.md
         system_prompt_hint: Time series, aggregations, formulas, comparisons
@@ -36,6 +37,7 @@ wrappers:
             readOnly: true
             destructive: false
             idempotent: true
+        reads_ingested_data: events
         title: Run a funnel query
         description_file: ./prompts/query-funnel.md
         system_prompt_hint: Conversion rates, drop-off analysis, time to convert
@@ -55,6 +57,7 @@ wrappers:
             readOnly: true
             destructive: false
             idempotent: true
+        reads_ingested_data: events
         title: Run a retention query
         description_file: ./prompts/query-retention.md
         system_prompt_hint: User return patterns over time
@@ -74,6 +77,7 @@ wrappers:
             readOnly: true
             destructive: false
             idempotent: true
+        reads_ingested_data: events
         title: Run a stickiness query
         description_file: ./prompts/query-stickiness.md
         system_prompt_hint: Engagement frequency (how many days users do X)
@@ -93,6 +97,7 @@ wrappers:
             readOnly: true
             destructive: false
             idempotent: true
+        reads_ingested_data: events
         title: Run a paths query
         description_file: ./prompts/query-paths.md
         system_prompt_hint: User navigation flows and sequences
@@ -112,6 +117,7 @@ wrappers:
             readOnly: true
             destructive: false
             idempotent: true
+        reads_ingested_data: events
         title: Run a lifecycle query
         description_file: ./prompts/query-lifecycle.md
         system_prompt_hint: New, returning, resurrecting, dormant user composition
@@ -132,6 +138,7 @@ wrappers:
             readOnly: true
             destructive: false
             idempotent: true
+        reads_ingested_data: events
         title: List persons behind a trends data point
         description_file: ./prompts/query-trends-actors.md
         system_prompt_hint: List persons behind a trends data point
@@ -151,6 +158,7 @@ wrappers:
             readOnly: true
             destructive: false
             idempotent: true
+        reads_ingested_data: events
         title: List persons in a lifecycle bucket
         description_file: ./prompts/query-lifecycle-actors.md
         system_prompt_hint: List persons in a lifecycle bucket (new/returning/resurrecting/dormant) for a given day
@@ -170,6 +178,7 @@ wrappers:
             readOnly: true
             destructive: false
             idempotent: true
+        reads_ingested_data: events
         title: List persons on a paths insight
         description_file: ./prompts/query-paths-actors.md
         system_prompt_hint: List persons who traversed the paths defined by a paths insight
@@ -189,6 +198,7 @@ wrappers:
             readOnly: true
             destructive: false
             idempotent: true
+        reads_ingested_data: events
         title: List persons in a retention cohort
         description_file: ./prompts/query-retention-actors.md
         system_prompt_hint: List persons in a retention acquisition cohort and which intervals they returned in
@@ -208,6 +218,7 @@ wrappers:
             readOnly: true
             destructive: false
             idempotent: true
+        reads_ingested_data: events
         title: List persons behind a stickiness bar
         description_file: ./prompts/query-stickiness-actors.md
         system_prompt_hint: List persons who were active in a given number of intervals (one stickiness bar)
@@ -227,6 +238,7 @@ wrappers:
             readOnly: true
             destructive: false
             idempotent: true
+        reads_ingested_data: events
         title: List persons who converted or dropped off at a funnel step
         description_file: ./prompts/query-funnel-actors.md
         system_prompt_hint: List persons who converted through or dropped off at a given funnel step

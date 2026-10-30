@@ -1,5 +1,6 @@
 from typing import cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import NOT_DETECTABLE
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -34,6 +35,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ArcadeSource(ResumableSource[ArcadeSourceConfig, ArcadeResumeConfig]):
+    codebase_detection = NOT_DETECTABLE
+
     lists_tables_without_credentials = True
     api_docs_url = API_DOCS_URL
 
@@ -87,11 +90,11 @@ class ArcadeSource(ResumableSource[ArcadeSourceConfig, ArcadeResumeConfig]):
             label="Arcade",
             keywords=["interactive demo", "product demo", "demo analytics"],
             iconPath="/static/services/arcade.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption=(
                 "Requires an Arcade Enterprise workspace. Create an API key in Settings > Advanced. "
                 "Enable insights access for engagement data. Enable User provisioning for teams and users. "
-                "All tables use full refresh. Flow engagement includes totals from your start date through each sync."
+                "All tables use full refresh. Engagement tables include totals from your start date through each sync."
             ),
             fields=cast(
                 list[FieldType],
@@ -115,6 +118,7 @@ class ArcadeSource(ResumableSource[ArcadeSourceConfig, ArcadeResumeConfig]):
                     ),
                     SourceFieldInputConfig(
                         name="start_date",
+                        sync_setting=True,
                         label="Engagement start date",
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,

@@ -11,8 +11,10 @@ import asyncio
 import logging
 import tempfile
 import threading
-from collections.abc import Iterable
+import dataclasses
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from functools import lru_cache
 from http import HTTPStatus
 from io import StringIO
@@ -24,6 +26,7 @@ from django.conf import settings
 import modal
 import requests
 from cachetools import TTLCache, cached
+from modal._utils.async_utils import synchronizer as modal_synchronizer
 from modal.exception import (
     ConnectionError as ModalConnectionError,
     InvalidError as ModalInvalidError,
@@ -31,6 +34,7 @@ from modal.exception import (
     ServiceError as ModalServiceError,
     TimeoutError as ModalTimeoutError,
 )
+from modal_proto import api_pb2
 from python_socks import ProxyError as SocksProxyError
 from semantic_version import NpmSpec
 
@@ -38,13 +42,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.settings import CLOUD_DEPLOYMENT
 from posthog.utils import get_instance_region
 
-from products.tasks.backend.constants import (
-    ALLOWED_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATHS,
-    DEV_STACK_IMAGE_NAME,
-    SNAPSHOT_KIND_DIRECTORY,
-    SNAPSHOT_KIND_FILESYSTEM,
-    SnapshotKind,
-)
+from products.tasks.backend.constants import ALLOWED_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATHS, DEV_STACK_IMAGE_NAME
 from products.tasks.backend.exceptions import (
     SandboxCleanupError,
     SandboxControlPlaneError,
@@ -59,12 +57,6 @@ from products.tasks.backend.exceptions import (
     SnapshotCreationError,
     SnapshotFileLimitExceededError,
     SnapshotTimeoutError,
-)
-from products.tasks.backend.logic.services.agentsh import (
-    BASH_ENV_SCRIPT,
-    GH_GUARD_INSTALL_PATH,
-    generate_bash_env_script,
-    read_gh_guard_script,
 )
 from products.tasks.backend.logic.services.cpu_billing import (
     CPU_BILLING_SAMPLER_PATH as CPU_BILLING_SAMPLER_PATH,
@@ -84,19 +76,33 @@ from products.tasks.backend.logic.services.local_skills import (
     LocalSkillsCache,
     populate_skills_directory,
 )
-from products.tasks.backend.logic.services.modal_launch_preparation import build_modal_launch_preparation_script
+from products.tasks.backend.logic.services.modal_launch_preparation import (
+    build_modal_agent_server_launch_script,
+    build_modal_launch_preparation_script,
+)
 from products.tasks.backend.logic.services.modal_provision_diagnostics import (
     SandboxProvisionDiagnostics,
     capture_modal_output_if_debug,
     summarize_modal_output,
 )
-from products.tasks.backend.logic.services.sandbox import redact_sandbox_command
+from products.tasks.backend.logic.services.sandbox import build_bundled_skills_clear_command, redact_sandbox_command
+from products.tasks.backend.logic.services.task_filesystem import (
+    TASK_FILESYSTEM_SCRIPT,
+    TASK_FILESYSTEM_VERSION,
+    read_task_filesystem_script,
+    task_filesystem_command,
+)
 from products.tasks.backend.models import DevStackImageTarget, SandboxSnapshot
 
 from .agent_server_launcher import (
     AGENT_SERVER_PORT as AGENT_SERVER_PORT,
+    AGENT_SERVER_PREFLIGHT_CREDENTIAL_EXIT_CODE,
+    AGENT_SERVER_PREFLIGHT_REUSE_MARKER,
+    AGENT_SERVER_PREFLIGHT_TIMEOUT_SECONDS,
     AgentServerLaunchMixin,
+    AgentServerPreflight,
     _session_init_probe_hosts as _session_init_probe_hosts,
+    build_agent_server_preflight_lines,
 )
 from .sandbox import (
     AgentServerResult,
@@ -136,7 +142,7 @@ SANDBOX_IMAGE = SANDBOX_BASE_IMAGE
 # Dockerfile.sandbox-slim's NODE_MAJOR / uv COPY --from pins (and with Dockerfile.sandbox-base,
 # which both mirror).
 SANDBOX_SLIM_NODE_MAJOR = 24
-SANDBOX_SLIM_UV_IMAGE = "ghcr.io/astral-sh/uv:0.12.13"
+SANDBOX_SLIM_UV_IMAGE = "ghcr.io/astral-sh/uv:0.13.4"
 # Set as image ENV, so the build step that warms the cache and every `uv run` inside the sandbox
 # use the same directory whatever HOME the sandbox process gets.
 SANDBOX_STAMPHOG_UV_CACHE_DIR = "/opt/uv-cache"
@@ -179,6 +185,17 @@ _EMBEDDED_PROXY_STATUS = re.compile(r"\b([45]\d{2})\b")
 ControlPlaneFailure = Literal["rate_limited", "unavailable"]
 
 RUNNING_STATUS_CACHE_SECONDS = 10.0
+MODAL_LAUNCH_PREPARATION_TIMEOUT_SECONDS = 120
+MODAL_INLINE_COMMAND_MAX_BYTES = 60_000
+
+
+def _launch_preparation_failed_stage(stderr: str) -> str:
+    stage = re.search(
+        r"^__posthog_launch_preparation_failed=(install|bundled_skills|preflight|daemon_session)$",
+        stderr,
+        re.MULTILINE,
+    )
+    return stage.group(1) if stage else "unknown"
 
 
 def _classify_control_plane_failure(error: BaseException) -> ControlPlaneFailure | None:
@@ -311,12 +328,6 @@ def _sandbox_poll_result(sb: modal.Sandbox) -> str:
 
 def _get_modal_region() -> str:
     return MODAL_REGION_BY_DEPLOYMENT.get(CLOUD_DEPLOYMENT, DEFAULT_MODAL_REGION)
-
-
-def _normalize_snapshot_kind(value: object) -> SnapshotKind:
-    if value == SNAPSHOT_KIND_DIRECTORY:
-        return SNAPSHOT_KIND_DIRECTORY
-    return SNAPSHOT_KIND_FILESYSTEM
 
 
 def _resource_create_kwargs(config: SandboxConfig) -> dict[str, object]:
@@ -595,8 +606,13 @@ def _build_slim_template_image() -> modal.Image:
     changes pays a one-time Modal-side build; every create after that reuses the cached
     image layers.
     """
+    # Modal caches each layer by its definition, so the apt packages below, nodejs included,
+    # keep the versions of their first build. The ISO week in the first layer changes the
+    # definition once a week, so the first create of each week rebuilds them from the newest packages.
+    year, week, _ = datetime.now(UTC).isocalendar()
     return (
         modal.Image.debian_slim()
+        .run_commands(f"echo 'Refresh the apt packages for {year}-W{week:02d}'")
         # bash is required by the NodeSource setup script below; debian_slim doesn't guarantee it.
         .apt_install("git", "ca-certificates", "curl", "bash")
         .run_commands(
@@ -753,6 +769,8 @@ def _prepare_local_modal_build_context(template: SandboxTemplate) -> tuple[str, 
         shutil.copy2(base_dir / LOCAL_MODAL_MEMORY_WATCHDOG, context_dir / LOCAL_MODAL_MEMORY_WATCHDOG)
 
     if template == SandboxTemplate.DEFAULT_BASE:
+        filesystem_script = Path("products/tasks/backend/sandbox/images/task_filesystem.py")
+        shutil.copy2(base_dir / filesystem_script, context_dir / filesystem_script)
         destination_hogli_shim_path = context_dir / LOCAL_MODAL_HOGLI_SHIM_SCRIPT
         destination_hogli_shim_path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(base_dir / LOCAL_MODAL_HOGLI_SHIM_SCRIPT, destination_hogli_shim_path)
@@ -821,34 +839,109 @@ class ModalSandbox(AgentServerLaunchMixin):
         self.provision_diagnostics = None
         self._destroyed = False
 
-    def _install_agent_server_launch_files(self) -> tuple[str, ...]:
-        return ()
+    def _validate_agent_server_launch(self) -> None:
+        if not self._is_running_cached():
+            raise RuntimeError("Sandbox not in running state.")
+
+    def _wrap_agent_server_command(self, command: str) -> str:
+        return f"/usr/bin/python3 -I {TASK_FILESYSTEM_SCRIPT} enter -- {command}"
+
+    def _prepare_task_filesystem(self) -> None:
+        if self.config.template not in {
+            SandboxTemplate.DEFAULT_BASE,
+            SandboxTemplate.AUTORESEARCH_BASE,
+            SandboxTemplate.VM_BASE,
+        }:
+            return
+        if (self.config.metadata or {}).get("purpose") == "dev_stack_image_bake":
+            return
+        enabled = settings.TASKS_SANDBOX_PERSISTENT_FILESYSTEM_ENABLED
+        if self.config.snapshot_restored:
+            result = self.execute(f"test -f {TASK_FILESYSTEM_VERSION} && printf 1", timeout_seconds=30)
+            enabled = result.exit_code == 0 and result.stdout == "1"
+        elif enabled:
+            result = self.execute(
+                "test -d /opt/posthog/task-home && test ! -L /opt/posthog/task-home && printf 1", timeout_seconds=30
+            )
+            enabled = result.exit_code == 0 and result.stdout == "1"
+        if not enabled:
+            return
+        self._write_required_file(TASK_FILESYSTEM_SCRIPT, read_task_filesystem_script())
+        result = self.execute(
+            f"/usr/bin/python3 -I {TASK_FILESYSTEM_SCRIPT} initialize {self._sandbox_runtime()}", timeout_seconds=120
+        )
+        if result.exit_code != 0:
+            raise RuntimeError(f"Task filesystem initialization failed: {result.stderr[-2000:]}")
 
     def _sandbox_runtime(self) -> str | None:
         return "vm" if self.config.is_vm else "gvisor"
 
-    def _on_agent_server_reused(self) -> None:
-        # A restored snapshot can carry a healthy agent-server with a stale bash-env
-        # or gh shim from the snapshot's epoch. Refresh both before accepting reuse;
-        # agentsh setup and session replacement stay on the fresh-launch path so
-        # reuse doesn't disrupt the running server or its agentsh session.
-        self._write_required_file(BASH_ENV_SCRIPT, generate_bash_env_script().encode())
-        self._write_required_file(GH_GUARD_INSTALL_PATH, read_gh_guard_script())
-        self._chmod_required(GH_GUARD_INSTALL_PATH, "+x")
+    def _agent_server_preflight(self, allowed_domains: list[str] | None) -> AgentServerPreflight:
+        script = build_modal_agent_server_launch_script(
+            allowed_domains,
+            bundled_skills_clear_command=build_bundled_skills_clear_command(),
+            preflight_lines=build_agent_server_preflight_lines(
+                probe_health=self._agent_server_reuse_enabled(),
+                executable_paths=(),
+                probe_memory_watchdog=settings.TASKS_SANDBOX_MEMORY_WATCHDOG_ENABLED,
+            ),
+        )
+        timeout_seconds = MODAL_LAUNCH_PREPARATION_TIMEOUT_SECONDS + AGENT_SERVER_PREFLIGHT_TIMEOUT_SECONDS
+        encoded_script = base64.b64encode(script.encode()).decode()
+        command = (
+            "script_path=$(mktemp /tmp/posthog-launch-preparation-XXXXXXXX) && "
+            f'printf %s {encoded_script} | base64 -d > "$script_path" && bash "$script_path"'
+        )
+
+        def run() -> ExecutionResult:
+            if len(command.encode()) <= MODAL_INLINE_COMMAND_MAX_BYTES:
+                return self.execute(command, timeout_seconds=timeout_seconds)
+            script_path = f"/tmp/posthog-launch-preparation-{uuid.uuid4().hex}.sh"
+            self._write_required_file(script_path, script.encode())
+            return self.execute(f"bash {shlex.quote(script_path)}", timeout_seconds=timeout_seconds)
+
+        result, total_ms = self._run_launch_preparation(
+            run, completed_exit_codes=(0, AGENT_SERVER_PREFLIGHT_CREDENTIAL_EXIT_CODE)
+        )
+        if _launch_preparation_failed_stage(result.stderr) == "bundled_skills":
+            raise RuntimeError(f"Failed to clear bundled skills in sandbox {self.id}: {result.stderr}")
+        if result.exit_code != AGENT_SERVER_PREFLIGHT_CREDENTIAL_EXIT_CODE:
+            self._finish_launch_preparation(result, upload_ms=0, total_ms=total_ms)
+        preflight = self._read_agent_server_preflight(result, (), allowed_domains)
+        if AGENT_SERVER_PREFLIGHT_REUSE_MARKER in result.stdout.splitlines():
+            return preflight
+        return dataclasses.replace(preflight, launch_prepared=True)
 
     def _prepare_agent_server_launch(self, allowed_domains: list[str] | None) -> None:
         script_path = f"/tmp/posthog-launch-preparation-{uuid.uuid4().hex}.sh"
+        upload_ms = 0
+
+        def upload_and_run() -> ExecutionResult:
+            nonlocal upload_ms
+            started_at = time.monotonic()
+            self._write_required_file(script_path, build_modal_launch_preparation_script(allowed_domains).encode())
+            upload_ms = round((time.monotonic() - started_at) * 1000)
+            return self.execute(
+                f"bash {shlex.quote(script_path)}", timeout_seconds=MODAL_LAUNCH_PREPARATION_TIMEOUT_SECONDS
+            )
+
+        result, total_ms = self._run_launch_preparation(upload_and_run, completed_exit_codes=(0,))
+        self._finish_launch_preparation(result, upload_ms=upload_ms, total_ms=total_ms)
+
+    def _run_launch_preparation(
+        self, run: Callable[[], ExecutionResult], *, completed_exit_codes: tuple[int, ...]
+    ) -> tuple[ExecutionResult, int]:
         started_at = time.monotonic()
         result: ExecutionResult | None = None
         try:
-            self._write_required_file(script_path, build_modal_launch_preparation_script(allowed_domains).encode())
-            uploaded_at = time.monotonic()
-            result = self.execute(f"bash {shlex.quote(script_path)}", timeout_seconds=120)
+            result = run()
         finally:
             total_ms = round((time.monotonic() - started_at) * 1000)
-            record_launch_preparation_ms(
-                total_ms, "COMPLETED" if result is not None and result.exit_code == 0 else "FAILED"
-            )
+            completed = result is not None and result.exit_code in completed_exit_codes
+            record_launch_preparation_ms(total_ms, "COMPLETED" if completed else "FAILED")
+        return result, total_ms
+
+    def _finish_launch_preparation(self, result: ExecutionResult, *, upload_ms: int, total_ms: int) -> None:
         timings = {
             stage: int(duration)
             for stage, duration in re.findall(
@@ -859,17 +952,14 @@ class ModalSandbox(AgentServerLaunchMixin):
             "Modal launch preparation finished in sandbox %s: upload_ms=%d install_ms=%s "
             "daemon_session_ms=%s total_ms=%d exit_code=%d",
             self.id,
-            round((uploaded_at - started_at) * 1000),
+            upload_ms,
             timings.get("install_ms"),
             timings.get("daemon_session_ms"),
             total_ms,
             result.exit_code,
         )
         if result.exit_code != 0:
-            stage = re.search(
-                r"^__posthog_launch_preparation_failed=(install|daemon_session)$", result.stderr, re.MULTILINE
-            )
-            preparation_stage = stage.group(1) if stage else "unknown"
+            preparation_stage = _launch_preparation_failed_stage(result.stderr)
             agentsh_log = ""
             if preparation_stage == "daemon_session":
                 try:
@@ -976,43 +1066,42 @@ class ModalSandbox(AgentServerLaunchMixin):
             config.snapshot_restored = False
             config.image_fallback = None
             snapshot_external_id: str | None = None
-            snapshot_kind = _normalize_snapshot_kind(config.snapshot_kind)
             # No default-fill: a directory snapshot must arrive with an explicit allowed mount
             # path, or the mount below is refused. Defaulting here would silently re-target a
             # snapshot that upstream validation invalidated (mount path stripped).
             snapshot_mount_path: str | None = config.snapshot_mount_path
             snapshot_image: modal.Image | None = None
 
-            if config.snapshot_external_id:
+            if config.resume_snapshot_external_id:
+                snapshot_external_id = config.resume_snapshot_external_id
+                try:
+                    snapshot_image = modal.Image.from_id(config.resume_snapshot_external_id)
+                except Exception as e:
+                    logger.warning(f"Failed to load resume snapshot image {config.resume_snapshot_external_id}: {e}")
+                    capture_exception(e)
+            elif config.snapshot_external_id:
                 snapshot_external_id = config.snapshot_external_id
                 try:
                     snapshot_image = modal.Image.from_id(config.snapshot_external_id)
                 except Exception as e:
-                    logger.warning(f"Failed to load resume snapshot image {config.snapshot_external_id}: {e}")
+                    logger.warning(f"Failed to load snapshot image {config.snapshot_external_id}: {e}")
                     capture_exception(e)
             elif config.snapshot_id:
                 snapshot = SandboxSnapshot.objects.get(id=config.snapshot_id)
                 if snapshot.status == SandboxSnapshot.Status.COMPLETE:
                     snapshot_external_id = snapshot.external_id
-                    snapshot_kind = _normalize_snapshot_kind(snapshot.metadata.get("snapshot_kind"))
-                    metadata_mount_path = snapshot.metadata.get("snapshot_mount_path")
-                    if isinstance(metadata_mount_path, str) and metadata_mount_path:
-                        snapshot_mount_path = metadata_mount_path
                     try:
                         snapshot_image = modal.Image.from_id(snapshot.external_id)
                     except Exception as e:
                         logger.warning(f"Failed to load snapshot image {snapshot.external_id}: {e}")
                         capture_exception(e)
-            # Keep the config's kind authoritative for downstream trust decisions — the
-            # dev-stack bootstrap gate distinguishes directory from filesystem restores.
-            config.snapshot_kind = snapshot_kind
 
             # Creation candidates, best first. Each later entry is a downgrade attempted only
             # when creating from the previous image fails (e.g. its overlay image build errors),
             # so a broken overlay costs the local packages, never the snapshot or custom image.
             candidates: list[ImageCandidate] = []
             requested_dev_stack = config.is_dev_stack_image
-            if snapshot_image is not None and snapshot_kind == SNAPSHOT_KIND_FILESYSTEM:
+            if snapshot_image is not None and config.resume_snapshot_external_id is None:
                 overlaid_snapshot = _attach_local_package_mounts(
                     snapshot_image, config.template, install_dependencies=False
                 )
@@ -1051,7 +1140,7 @@ class ModalSandbox(AgentServerLaunchMixin):
                 )
             candidates.append(ImageCandidate(base_image, "base image"))
             if config.require_snapshot:
-                if snapshot_image is None or snapshot_kind != SNAPSHOT_KIND_FILESYSTEM:
+                if snapshot_image is None or config.resume_snapshot_external_id is not None:
                     raise RuntimeError("The required filesystem snapshot could not be loaded")
                 candidates = [
                     ImageCandidate(
@@ -1096,7 +1185,7 @@ class ModalSandbox(AgentServerLaunchMixin):
                 config.image_fallback = f"{custom_image_failure} -> base image"
 
             directory_mount_applied = False
-            if snapshot_kind == SNAPSHOT_KIND_DIRECTORY and snapshot_image is not None:
+            if config.resume_snapshot_external_id and snapshot_image is not None:
                 # The mount REPLACES the target directory in the running sandbox — over a live
                 # system path (the legacy "/tmp" default) that kills Modal's in-sandbox helpers,
                 # and a snapshot's content only fits the path it was captured from. Last-line
@@ -1140,7 +1229,6 @@ class ModalSandbox(AgentServerLaunchMixin):
                         "sandbox_id": sb.object_id,
                         "winner_label": winner.label,
                         "snapshot_external_id": snapshot_external_id,
-                        "snapshot_kind": snapshot_kind,
                         "snapshot_mount_path": snapshot_mount_path,
                     },
                 )
@@ -1181,6 +1269,24 @@ class ModalSandbox(AgentServerLaunchMixin):
                 sb.set_tags(config.metadata)
 
             sandbox = cls(sandbox=sb, config=config)
+            try:
+                sandbox._prepare_task_filesystem()
+            except Exception as e:
+                try:
+                    cls._terminate_unready_sandbox(sb, config)
+                except SandboxProvisionError:
+                    logger.exception(
+                        "Failed to terminate sandbox after task filesystem initialization",
+                        extra={"sandbox_id": sb.object_id},
+                    )
+                if isinstance(e, SandboxControlPlaneError):
+                    sb = None
+                    raise
+                raise SandboxProvisionError(
+                    "Task filesystem initialization failed",
+                    {"config_name": config.name, "sandbox_id": sb.object_id},
+                    cause=e,
+                ) from e
             if modal_output is not None:
                 sandbox.provision_diagnostics = summarize_modal_output(modal_output.getvalue())
 
@@ -1416,6 +1522,12 @@ class ModalSandbox(AgentServerLaunchMixin):
             {"sandbox_id": self.id, "command": redacted_command, "error": redacted_error},
             cause=RuntimeError(redacted_error),
         )
+
+    def execute_in_task_filesystem(self, command: str, timeout_seconds: int | None = None) -> ExecutionResult:
+        self._write_required_file(
+            TASK_FILESYSTEM_SCRIPT, read_task_filesystem_script(), timeout_seconds=timeout_seconds
+        )
+        return self.execute(task_filesystem_command(command), timeout_seconds=timeout_seconds)
 
     def execute(
         self,
@@ -1879,6 +1991,26 @@ class ModalSandbox(AgentServerLaunchMixin):
         if returncode == 124:
             return "timed out"
         return f"exited with code {returncode}"
+
+    def exit_status(self) -> str | None:
+        try:
+            returncode = self._sandbox.poll()
+        except Exception as e:
+            logger.warning(f"Failed to poll sandbox {self.id} for its exit status: {e}")
+            return "unknown"
+        if returncode is None:
+            return "running"
+        try:
+            result = getattr(modal_synchronizer._translate_in(self._sandbox), "_result", None)
+            if result is not None:
+                return api_pb2.GenericResult.GenericStatus.Name(result.status).lower().removeprefix("generic_status_")
+        except Exception as e:
+            logger.warning(f"Failed to read exit status for sandbox {self.id}: {e}")
+        if returncode == 124:
+            return "timeout"
+        if returncode == 137:
+            return "terminated"
+        return "success" if returncode == 0 else "failure"
 
     @property
     def name(self) -> str:

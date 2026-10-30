@@ -1,9 +1,15 @@
-import { MetricsQuery, Node, NodeKind } from '~/queries/schema/schema-general'
+import { Node, NodeKind } from '~/queries/schema/schema-general'
 import { isNodeWithSource } from '~/queries/utils'
 import { DashboardTile } from '~/types'
 
 /** A filter control in the dashboard filter bar. */
-export type DashboardControl = 'dateRange' | 'interval' | 'properties' | 'breakdown' | 'testAccounts' | 'metricLabels'
+export type DashboardControl =
+    | 'dateRange'
+    | 'interval'
+    | 'properties'
+    | 'breakdown'
+    | 'testAccounts'
+    | 'metricVariables'
 
 export interface DashboardControlScope {
     /** Insight tiles that the control changes. */
@@ -18,7 +24,7 @@ const ALL_CONTROLS: DashboardControl[] = [
     'properties',
     'breakdown',
     'testAccounts',
-    'metricLabels',
+    'metricVariables',
 ]
 
 // Matches what each query runner's `apply_dashboard_filters` changes. A kind that is not listed keeps
@@ -32,17 +38,12 @@ const CONTROLS_BY_QUERY_KIND: Partial<Record<NodeKind, DashboardControl[]>> = {
     [NodeKind.StickinessQuery]: ['dateRange', 'interval', 'properties', 'testAccounts'],
     [NodeKind.LifecycleQuery]: ['dateRange', 'interval', 'properties', 'testAccounts'],
     [NodeKind.CalendarHeatmapQuery]: ['dateRange', 'interval', 'properties', 'testAccounts'],
-    [NodeKind.MetricsQuery]: ['dateRange', 'metricLabels'],
-    [NodeKind.MetricsHistogramQuery]: ['dateRange', 'metricLabels'],
+    [NodeKind.MetricsQuery]: ['dateRange', 'metricVariables'],
+    [NodeKind.MetricsHistogramQuery]: ['dateRange', 'metricVariables'],
 }
 
 export function dashboardControlsForQuery(query: Node | null | undefined): DashboardControl[] {
     const source = isNodeWithSource(query) ? query.source : query
-    // Label filters are added to builder clauses only; PromQL and SQL text is not rewritten.
-    const metricsLanguage = source?.kind === NodeKind.MetricsQuery ? (source as MetricsQuery).language : undefined
-    if (metricsLanguage && metricsLanguage !== 'builder') {
-        return ['dateRange']
-    }
     return (source?.kind && CONTROLS_BY_QUERY_KIND[source.kind as NodeKind]) || DEFAULT_CONTROLS
 }
 

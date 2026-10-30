@@ -284,6 +284,112 @@ class TestResourceTags:
         ]
 
 
+class TestFanOut:
+    @pytest.mark.parametrize(
+        "endpoint,parent_operation,parent_key,child_operation,child_param,child_key,child_item,missing_code,parent_column",
+        [
+            (
+                "account_parents",
+                "ListAccounts",
+                "Accounts",
+                "ListParents",
+                "ChildId",
+                "Parents",
+                {"Id": "ou-exam-aaaaaaaa", "Type": "ORGANIZATIONAL_UNIT"},
+                "ChildNotFoundException",
+                "account_id",
+            ),
+            (
+                "policy_targets",
+                "ListPolicies",
+                "Policies",
+                "ListTargetsForPolicy",
+                "PolicyId",
+                "Targets",
+                {"TargetId": "111111111111", "Type": "ACCOUNT", "Name": "prod"},
+                "PolicyNotFoundException",
+                "policy_id",
+            ),
+            (
+                "delegated_services",
+                "ListDelegatedAdministrators",
+                "DelegatedAdministrators",
+                "ListDelegatedServicesForAccount",
+                "AccountId",
+                "DelegatedServices",
+                {"ServicePrincipal": "guardduty.amazonaws.com", "DelegationEnabledDate": JAN_2025},
+                "AccountNotRegisteredException",
+                "account_id",
+            ),
+        ],
+    )
+    def test_every_child_page_is_kept_with_its_parent_and_a_parent_removed_mid_sync_is_skipped(
+        self,
+        endpoint: str,
+        parent_operation: str,
+        parent_key: str,
+        child_operation: str,
+        child_param: str,
+        child_key: str,
+        child_item: dict[str, Any],
+        missing_code: str,
+        parent_column: str,
+    ) -> None:
+        def responder(request: RecordedRequest) -> ScriptedResponse:
+            payload = request.json()
+            operation = request_operation(request)
+            if operation == parent_operation:
+                if endpoint == "policy_targets" and payload["Filter"] != "SERVICE_CONTROL_POLICY":
+                    return ScriptedResponse(json=page(parent_key, []))
+                if payload.get("NextToken") is None:
+                    return ScriptedResponse(json=page(parent_key, [{"Id": "parent-a"}], next_token="parents-2"))
+                return ScriptedResponse(json=page(parent_key, [{"Id": "parent-gone"}, {"Id": "parent-b"}]))
+            assert operation == child_operation
+            if payload[child_param] == "parent-gone":
+                return aws_error(missing_code, "The entity no longer exists.")
+            if payload[child_param] == "parent-a" and payload.get("NextToken") is None:
+                return ScriptedResponse(json=page(child_key, [child_item], next_token="children-2"))
+            return ScriptedResponse(json=page(child_key, [child_item]))
+
+        result = driver().run(endpoint, responder)
+
+        assert result.raised is None
+        assert [[row[parent_column] for row in item] for item in result.items] == [
+            ["parent-a", "parent-a"],
+            ["parent-b"],
+        ]
+        child_payloads = [
+            request.json() for request in result.requests if request_operation(request) == child_operation
+        ]
+        assert all(payload["MaxResults"] == MAX_RESULTS for payload in child_payloads)
+
+    def test_account_parents_rows_name_the_parent_and_resume_the_account_walk(self) -> None:
+        def responder(request: RecordedRequest) -> ScriptedResponse:
+            if request_operation(request) == "ListAccounts":
+                return ScriptedResponse(json=page("Accounts", [{"Id": "222222222222"}]))
+            return ScriptedResponse(json=page("Parents", [{"Id": "r-exam", "Type": "ROOT"}]))
+
+        result = driver().run(
+            "account_parents", responder, resume_state=AwsOrganizationsResumeConfig(next_token="accounts-2")
+        )
+
+        assert result.raised is None
+        assert result.requests[0].json() == {"MaxResults": MAX_RESULTS, "NextToken": "accounts-2"}
+        assert result.rows == [{"account_id": "222222222222", "parent_id": "r-exam", "parent_type": "ROOT"}]
+
+    @pytest.mark.parametrize("endpoint", ["account_parents", "delegated_services"])
+    def test_a_walk_saved_as_complete_is_not_read_again(self, endpoint: str) -> None:
+        result = driver().run(
+            endpoint,
+            always(aws_error("ServiceException", "unexpected request")),
+            resume_state=AwsOrganizationsResumeConfig(next_token=None),
+        )
+
+        assert result.raised is None
+        assert result.requests == []
+        assert result.rows == []
+
+
 class TestResume:
     def test_an_expired_saved_token_restarts_the_walk_instead_of_failing(self) -> None:
         def responder(request: RecordedRequest) -> ScriptedResponse:
@@ -310,9 +416,10 @@ class TestResume:
         assert result.raised is None
         assert [request.json()["Filter"] for request in result.requests] == list(POLICY_FILTERS[1:])
 
-    def test_policies_resume_continues_a_half_walked_policy_type(self) -> None:
+    @pytest.mark.parametrize("endpoint", ["policies", "policy_targets"])
+    def test_policies_resume_continues_a_half_walked_policy_type(self, endpoint: str) -> None:
         result = driver().run(
-            "policies",
+            endpoint,
             always(ScriptedResponse(json=page("Policies", [{"Id": "p-example"}]))),
             resume_state=AwsOrganizationsResumeConfig(next_token="page-two", work_key=POLICY_FILTERS[1]),
         )
@@ -322,7 +429,9 @@ class TestResume:
             "ListPolicies",
             {"Filter": POLICY_FILTERS[1], "MaxResults": MAX_RESULTS, "NextToken": "page-two"},
         )
-        assert [request.json()["Filter"] for request in result.requests] == list(POLICY_FILTERS[1:])
+        assert [
+            request.json()["Filter"] for request in result.requests if request_operation(request) == "ListPolicies"
+        ] == list(POLICY_FILTERS[1:])
 
 
 class TestValidateCredentials:
@@ -384,7 +493,11 @@ class TestProbeEndpointPermissions:
             match request_operation(request):
                 case "ListPolicies":
                     return aws_error("AccessDeniedException", "not authorized to perform organizations:ListPolicies")
+                case "ListParents":
+                    return aws_error("AccessDeniedException", "not authorized to perform organizations:ListParents")
                 case "ListAccounts":
+                    if request.json().get("NextToken") is None:
+                        return ScriptedResponse(json=page("Accounts", [], next_token="accounts-2"))
                     return ScriptedResponse(json=page("Accounts", [{"Id": "111111111111"}]))
                 case "ListRoots":
                     return ScriptedResponse(json=page("Roots", [{"Id": "r-exam"}]))
@@ -395,10 +508,15 @@ class TestProbeEndpointPermissions:
 
         with scripted_network(responder) as network:
             reasons = probe_endpoint_permissions(
-                "AKIAEXAMPLE", "secret", None, ["accounts", "organization", "organizational_units", "policies"]
+                "AKIAEXAMPLE",
+                "secret",
+                None,
+                ["accounts", "organization", "organizational_units", "policies", "account_parents"],
             )
 
         assert reasons["accounts"] is None
+        assert reasons["account_parents"] is not None
+        assert "organizations:ListParents" in reasons["account_parents"]
         assert reasons["organization"] is None
         assert reasons["organizational_units"] is None
         assert reasons["policies"] is not None
@@ -409,6 +527,9 @@ class TestProbeEndpointPermissions:
             "ListRoots",
             "ListOrganizationalUnitsForParent",
             "ListPolicies",
+            "ListAccounts",
+            "ListAccounts",
+            "ListParents",
         ]
 
     @pytest.mark.parametrize("error", [AwsOrganizationsRetryableError("TooManyRequestsException", "slow down")])

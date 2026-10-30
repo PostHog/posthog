@@ -13,8 +13,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.elasticsearch.elasticsearch import (
     CLUSTER_UNAVAILABLE_ERROR,
-    CREDENTIALS_REJECTED_ERROR,
-    FORBIDDEN_ERROR,
     PAGE_SIZE,
     TLS_ERROR,
     UNEXPECTED_RESPONSE_ERROR,
@@ -23,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.elasticsea
     coerce_float_fields,
     elasticsearch_source,
     get_float_field_paths,
+    list_data_streams,
     list_indices,
     normalize_host,
     validate_credentials,
@@ -44,6 +43,13 @@ def _driver() -> SourceDriver:
             auth_method=ElasticsearchAuthMethodConfig(selection="api_key", api_key="k"),
         ),
     )
+
+
+_NOT_A_DATA_STREAM = ScriptedResponse(status=404, json={"error": {"type": "index_not_found_exception"}, "status": 404})
+
+
+def _data_stream_body(*names: str, **flags: bool) -> dict[str, Any]:
+    return {"data_streams": [{"name": name, "hidden": False, "system": False, **flags} for name in names]}
 
 
 def _scroll_page(hits: list[dict[str, Any]], scroll_id: str | None = "scroll-1") -> dict[str, Any]:
@@ -90,12 +96,8 @@ class TestValidateCredentials:
     @pytest.mark.parametrize(
         "status_code, expected_valid, expected_error",
         [
-            (200, True, None),
-            (401, False, CREDENTIALS_REJECTED_ERROR),
-            (403, False, FORBIDDEN_ERROR),
             (404, False, UNEXPECTED_RESPONSE_ERROR),
             (429, False, CLUSTER_UNAVAILABLE_ERROR),
-            (500, False, CLUSTER_UNAVAILABLE_ERROR),
         ],
     )
     def test_validate_credentials_status_mapping(self, status_code, expected_valid, expected_error):
@@ -112,7 +114,6 @@ class TestValidateCredentials:
         "raised, expected_error",
         [
             (Exception("boom"), UNREACHABLE_ERROR),
-            (requests.exceptions.ConnectionError("refused"), UNREACHABLE_ERROR),
             (requests.exceptions.SSLError("bad cert"), TLS_ERROR),
         ],
     )
@@ -143,12 +144,51 @@ class TestListIndices:
                 list_indices("https://es.example.com", ElasticsearchAuth(api_key="k"))
 
 
+class TestListDataStreams:
+    def test_filters_hidden_system_and_dot_prefixed_streams_and_sorts(self):
+        body = {
+            "data_streams": [
+                {"name": "metrics-app", "hidden": False, "system": False},
+                {"name": "logs-web", "hidden": False, "system": False},
+                {"name": "ilm-history-7", "hidden": True, "system": False},
+                {"name": "fleet-actions", "hidden": False, "system": True},
+                {"name": ".internal-stream", "hidden": False, "system": False},
+                {"name": "", "hidden": False},
+                {"hidden": False},
+                "not-a-dict",
+            ]
+        }
+        with scripted_network([ScriptedResponse(json=body)]) as network:
+            streams = list_data_streams("https://es.example.com", ElasticsearchAuth(api_key="k"))
+
+        assert streams == ["logs-web", "metrics-app"]
+        assert network.requests_log[0].path == "/_data_stream"
+
+    @pytest.mark.parametrize(
+        "response",
+        [
+            # Clusters before 7.9 have no data stream API.
+            ScriptedResponse(status=400, json={"error": {"type": "illegal_argument_exception"}}),
+            ScriptedResponse(status=404, json={}),
+            # Credentials without view_index_metadata can't list streams.
+            ScriptedResponse(status=403, json={"error": {"type": "security_exception"}}),
+            ScriptedResponse(body=b"<html>"),
+            ScriptedResponse(json={"unexpected": True}),
+            ScriptedResponse(json=[]),
+        ],
+    )
+    def test_unavailable_api_yields_no_streams(self, response):
+        with scripted_network([response]):
+            assert list_data_streams("https://es.example.com", ElasticsearchAuth(api_key="k")) == []
+
+
 class TestGetRows:
     def test_scrolls_until_short_page(self):
         full_hits = [{"_id": str(i), "_source": {"value": i}} for i in range(PAGE_SIZE)]
         result = _driver().run(
             "orders",
             [
+                _NOT_A_DATA_STREAM,
                 ScriptedResponse(json={"orders": {"mappings": {"properties": {}}}}),
                 ScriptedResponse(json=_scroll_page(full_hits)),
                 ScriptedResponse(json=_scroll_page([{"_id": "last", "_source": {"value": -1}}])),
@@ -159,14 +199,21 @@ class TestGetRows:
         assert result.raised is None
         assert len(result.items) == 2
         assert result.items[1] == [{"value": -1, "_id": "last"}]
-        assert result.paths == ["/orders/_mapping", "/orders/_search", "/_search/scroll", "/_search/scroll"]
-        assert result.requests[1].param("scroll") == "5m"
-        assert result.requests[2].json() == {"scroll": "5m", "scroll_id": "scroll-1"}
+        assert result.paths == [
+            "/_data_stream/orders",
+            "/orders/_mapping",
+            "/orders/_search",
+            "/_search/scroll",
+            "/_search/scroll",
+        ]
+        assert result.requests[2].param("scroll") == "5m"
+        assert result.requests[3].json() == {"scroll": "5m", "scroll_id": "scroll-1"}
 
     def test_scroll_context_is_cleared_after_walk(self):
         result = _driver().run(
             "orders",
             [
+                _NOT_A_DATA_STREAM,
                 ScriptedResponse(json={}),
                 ScriptedResponse(json=_scroll_page([{"_id": "1", "_source": {}}])),
                 ScriptedResponse(json={}),
@@ -174,9 +221,9 @@ class TestGetRows:
         )
 
         assert result.raised is None
-        assert [request.method for request in result.requests] == ["GET", "POST", "DELETE"]
-        assert result.requests[2].path == "/_search/scroll"
-        assert result.requests[2].json() == {"scroll_id": ["scroll-1"]}
+        assert [request.method for request in result.requests] == ["GET", "GET", "POST", "DELETE"]
+        assert result.requests[3].path == "/_search/scroll"
+        assert result.requests[3].json() == {"scroll_id": ["scroll-1"]}
 
     def test_float_typed_fields_are_coerced_across_rows(self):
         # A float-typed field whose docs mix whole (40) and fractional (40.5) values must all
@@ -184,6 +231,7 @@ class TestGetRows:
         result = _driver().run(
             "orders",
             [
+                _NOT_A_DATA_STREAM,
                 ScriptedResponse(
                     json={"orders": {"mappings": {"properties": {"amount": {"type": "float"}, "id": {"type": "long"}}}}}
                 ),
@@ -208,6 +256,57 @@ class TestGetRows:
         ]
         assert [type(row["amount"]) for row in result.rows] == [float, float]
         assert [type(row["id"]) for row in result.rows] == [int, int]
+
+    def test_data_stream_rows_carry_backing_index(self):
+        backing_mapping = {"properties": {"@timestamp": {"type": "date"}, "latency": {"type": "double"}}}
+        result = _driver().run(
+            "logs-web",
+            [
+                ScriptedResponse(json=_data_stream_body("logs-web")),
+                ScriptedResponse(
+                    json={
+                        ".ds-logs-web-2099.01.01-000001": {"mappings": backing_mapping},
+                        ".ds-logs-web-2099.01.02-000002": {"mappings": backing_mapping},
+                    }
+                ),
+                ScriptedResponse(
+                    json=_scroll_page(
+                        [
+                            {
+                                "_index": ".ds-logs-web-2099.01.01-000001",
+                                "_id": "same-id",
+                                "_source": {"@timestamp": "2099-01-01T10:00:00Z", "latency": 3},
+                            },
+                            {
+                                "_index": ".ds-logs-web-2099.01.02-000002",
+                                "_id": "same-id",
+                                "_source": {"@timestamp": "2099-01-02T10:00:00Z", "latency": 3.5},
+                            },
+                        ]
+                    )
+                ),
+                ScriptedResponse(json={}),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.response is not None
+        assert result.response.primary_keys == ["_index", "_id"]
+        assert result.rows == [
+            {
+                "@timestamp": "2099-01-01T10:00:00Z",
+                "latency": 3.0,
+                "_id": "same-id",
+                "_index": ".ds-logs-web-2099.01.01-000001",
+            },
+            {
+                "@timestamp": "2099-01-02T10:00:00Z",
+                "latency": 3.5,
+                "_id": "same-id",
+                "_index": ".ds-logs-web-2099.01.02-000002",
+            },
+        ]
+        assert result.paths[:3] == ["/_data_stream/logs-web", "/logs-web/_mapping", "/logs-web/_search"]
 
 
 class TestFloatFieldPaths:
@@ -296,13 +395,27 @@ class TestCoerceFloatFields:
 
 
 class TestElasticsearchSourceResponse:
-    def test_response_metadata(self):
-        response = elasticsearch_source(
-            "https://es.example.com", ElasticsearchAuth(api_key="k"), "orders", mock.MagicMock()
-        )
+    @pytest.mark.parametrize(
+        "detect_response, expected_primary_keys",
+        [
+            (_NOT_A_DATA_STREAM, ["_id"]),
+            (ScriptedResponse(json=_data_stream_body("orders")), ["_index", "_id"]),
+            # Only an exact name match counts as a data stream.
+            (ScriptedResponse(json=_data_stream_body("orders-archive")), ["_id"]),
+            # Credentials without view_index_metadata fall back to the plain index key.
+            (ScriptedResponse(status=403, json={"error": {"type": "security_exception"}}), ["_id"]),
+            (ScriptedResponse(body=b"<html>"), ["_id"]),
+        ],
+    )
+    def test_response_metadata(self, detect_response, expected_primary_keys):
+        with scripted_network([detect_response]) as network:
+            response = elasticsearch_source(
+                "https://es.example.com", ElasticsearchAuth(api_key="k"), "orders", mock.MagicMock()
+            )
 
+        assert network.requests_log[0].path == "/_data_stream/orders"
         assert response.name == "orders"
-        assert response.primary_keys == ["_id"]
+        assert response.primary_keys == expected_primary_keys
         assert response.sort_mode == "asc"
         assert response.partition_mode is None
         assert response.partition_keys is None

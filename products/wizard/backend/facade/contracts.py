@@ -104,6 +104,8 @@ class LocalFolderWorkspace:
 @frozen
 class GitRepositoryWorkspace:
     repository: str
+    # None means the repository's default branch.
+    branch: str | None = None
     type: Literal["git_repository"] = "git_repository"
 
 
@@ -136,6 +138,19 @@ class CreateWizardRunInput:
     workspace: WizardWorkspace
     program_id: str
     wizard_version: str | None = None
+    idempotency_key: str | None = None
+
+
+@frozen
+class StartWizardInstallInput:
+    """
+    Starts the PostHog setup program in the cloud on a GitHub repository of the project.
+    """
+
+    team_id: int
+    created_by_id: int
+    repository: str
+    branch: str | None = None
     idempotency_key: str | None = None
 
 
@@ -217,6 +232,13 @@ class WizardRunDTO:
 
 
 @frozen
+class WizardInstallStatusDTO:
+    run: WizardRunDTO
+    pull_request_url: str | None
+    next_step: str
+
+
+@frozen
 class ListWizardRunsInput:
     team_id: int
     offset: int
@@ -270,3 +292,38 @@ class WizardRunPullRequestArtifactDTO:
 
 
 type WizardRunArtifactDTO = WizardRunGitDiffArtifactDTO | WizardRunPullRequestArtifactDTO
+
+
+@frozen
+class WizardScanSignal:
+    # Free-form so the wizard can add a signal type without a backend change.
+    source: str
+    name: str
+    file: str | None
+
+
+@frozen
+class WizardScanTool:
+    kind: str
+    signals: tuple[WizardScanSignal, ...]
+
+
+@frozen
+class RecordWizardScanInput:
+    team_id: int
+    created_by_id: int | None
+    session_id: str
+    program: str
+    wizard_version: str
+    workspace_fingerprint: str
+    scanned_at: datetime
+    tools: tuple[WizardScanTool, ...]
+    # False when the wizard could not walk the whole workspace, so a missing tool may not be gone.
+    complete: bool = True
+
+
+@frozen
+class WizardScanResult:
+    id: UUID
+    # False when the session already reported this scan, so nothing was written.
+    created: bool

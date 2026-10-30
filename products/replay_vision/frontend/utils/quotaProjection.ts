@@ -59,6 +59,29 @@ export function hasBillableSpend(quota: VisionQuotaApi | null): boolean {
     return billableCredits(quota.credit_limit, quota.free_monthly_credits) > 0
 }
 
+/** What a free-only scanner can spend in a period. An org limit below the free credits lowers it, as on the server. */
+export function freeCreditsAllowance(quota: VisionQuotaApi | null): number | null {
+    if (!quota) {
+        return null
+    }
+    return Math.min(quota.free_monthly_credits, quota.credit_limit ?? Infinity)
+}
+
+/** What a free-only scanner can still spend this period. */
+export function freeCreditsLeft(quota: VisionQuotaApi | null): number | null {
+    const allowance = freeCreditsAllowance(quota)
+    return quota && allowance !== null ? Math.max(0, allowance - quota.credits_used) : null
+}
+
+/** How much of a month a monthly allowance covers at a monthly rate, for example "the first 3 weeks". */
+export function freeCreditsCoverage(allowance: number, monthlyCredits: number): string {
+    const days = Math.max(1, Math.floor((allowance / monthlyCredits) * ESTIMATE_MONTH_DAYS))
+    if (days >= 14) {
+        return `the first ${Math.floor(days / 7)} weeks`
+    }
+    return days === 1 ? 'the first day' : `the first ${days} days`
+}
+
 /**
  * True when the org's whole limit is the free allocation, so it is on the free plan rather than
  * capped by choice. A zero limit is excluded: that is a deliberate spend cap, not a free plan.

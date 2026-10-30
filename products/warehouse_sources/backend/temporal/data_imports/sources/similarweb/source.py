@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -46,6 +47,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SimilarwebSource(ResumableSource[SimilarwebSourceConfig, SimilarwebResumeConfig]):
+    codebase_detection = detect(env=("^SIMILARWEB_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     # The legacy REST API versions each resource in its own path segment (`/v1/...`, `/v4/...`);
     # API V5 replaces that with one `/v5/website-analysis` host that serves every engagement metric
@@ -63,7 +66,7 @@ class SimilarwebSource(ResumableSource[SimilarwebSourceConfig, SimilarwebResumeC
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
-            "403 Client Error: Forbidden for url": (
+            "Similarweb API returned status 403": (
                 "Similarweb rejected the API key, or the account is out of data credits. "
                 "Check both on the API management page in your Similarweb account."
             ),
@@ -165,6 +168,7 @@ class SimilarwebSource(ResumableSource[SimilarwebSourceConfig, SimilarwebResumeC
                     ),
                     SourceFieldInputConfig(
                         name="domains",
+                        sync_setting=True,
                         label="Domains",
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
@@ -177,6 +181,7 @@ class SimilarwebSource(ResumableSource[SimilarwebSourceConfig, SimilarwebResumeC
                     ),
                     SourceFieldInputConfig(
                         name="country",
+                        sync_setting=True,
                         label="Country",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
@@ -188,6 +193,7 @@ class SimilarwebSource(ResumableSource[SimilarwebSourceConfig, SimilarwebResumeC
                     ),
                     SourceFieldSelectConfig(
                         name="granularity",
+                        sync_setting=True,
                         label="Granularity",
                         required=True,
                         defaultValue="monthly",
@@ -199,6 +205,7 @@ class SimilarwebSource(ResumableSource[SimilarwebSourceConfig, SimilarwebResumeC
                     ),
                     SourceFieldInputConfig(
                         name="start_date",
+                        sync_setting=True,
                         label="Start month",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
@@ -211,5 +218,5 @@ class SimilarwebSource(ResumableSource[SimilarwebSourceConfig, SimilarwebResumeC
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
         )

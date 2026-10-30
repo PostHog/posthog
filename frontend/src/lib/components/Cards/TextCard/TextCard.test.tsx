@@ -69,18 +69,15 @@ describe('TextCard', () => {
     })
 
     describe('resize handles', () => {
-        it('shows all 8 handles when showResizeHandles is true', () => {
+        it('shows only the bottom-right handle when showResizeHandles is true', () => {
             const { container } = render(
                 <TextCard textTile={makeTextTile()} placement={DashboardPlacement.Dashboard} showResizeHandles={true} />
             )
 
-            const horizontalHandles = container.querySelectorAll('.handle.horizontal')
-            const verticalHandles = container.querySelectorAll('.handle.vertical')
-            const cornerHandles = container.querySelectorAll('.handle.corner')
+            const handles = container.querySelectorAll('.handle')
 
-            expect(horizontalHandles.length).toBe(2)
-            expect(verticalHandles.length).toBe(2)
-            expect(cornerHandles.length).toBe(4)
+            expect(handles).toHaveLength(1)
+            expect(handles[0]).toHaveClass('corner', 'bottom-right')
         })
     })
 })

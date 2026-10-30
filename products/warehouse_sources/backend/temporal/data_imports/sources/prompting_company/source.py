@@ -1,6 +1,7 @@
 from datetime import UTC, date, datetime
 from typing import cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -41,6 +42,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PromptingCompanySource(ResumableSource[PromptingCompanySourceConfig, PromptingCompanyResumeConfig]):
+    codebase_detection = detect(env=("^(PROMPTING_COMPANY|PROMPTINGCOMPANY)_",))
+
     lists_tables_without_credentials = True
     supported_versions = ("v1",)
     default_version = "v1"
@@ -105,7 +108,7 @@ class PromptingCompanySource(ResumableSource[PromptingCompanySourceConfig, Promp
             label="The Prompting Company",
             iconPath="/static/services/prompting_company.png",
             keywords=["geo", "ai visibility", "llm", "share of voice"],
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption=(
                 "Create an API key in your organization's Settings > API keys. "
                 "Grant `content:read`, `prompts:read`, `simulations:read`, and `analytics:read` for the tables you select. "
@@ -132,6 +135,7 @@ class PromptingCompanySource(ResumableSource[PromptingCompanySourceConfig, Promp
                     ),
                     SourceFieldInputConfig(
                         name="start_date",
+                        sync_setting=True,
                         label="Analytics start date",
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,

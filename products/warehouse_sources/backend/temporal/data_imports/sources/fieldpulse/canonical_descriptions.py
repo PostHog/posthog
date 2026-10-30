@@ -58,4 +58,24 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "docs_url": "https://help.fieldpulse.com/api-reference/lead-source/retrieve-lead-sources-list",
         "columns": {},
     },
+    "tags": {
+        "description": "Tags that label customers and jobs.",
+        "docs_url": "https://help.fieldpulse.com/api-reference/tags/retrieve-tags-list",
+        "columns": {},
+    },
+    "timesheets": {
+        "description": "Timesheet entries that record when users clock in and out.",
+        "docs_url": "https://help.fieldpulse.com/api-reference/timesheets/retrieve-timesheets-list",
+        "columns": {},
+    },
+    "teams": {
+        "description": "Teams of users in the company account.",
+        "docs_url": "https://help.fieldpulse.com/api-reference/teams/retrieve-company-teams-list",
+        "columns": {},
+    },
+    "items": {
+        "description": "Items that can be added to invoices and estimates.",
+        "docs_url": "https://help.fieldpulse.com/api-reference/items/retrieve-items-list",
+        "columns": {},
+    },
 }

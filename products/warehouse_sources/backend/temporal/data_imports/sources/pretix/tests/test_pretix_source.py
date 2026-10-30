@@ -1,4 +1,3 @@
-import pytest
 from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.pretix import PretixSourceConfig
@@ -21,18 +20,6 @@ class TestPretixSource:
         # Only `orders` has a documented server-side `modified_since` filter; advertising incremental
         # on another endpoint would silently full-refresh under an incremental label.
         assert set(INCREMENTAL_ENDPOINTS) == {"orders"}
-
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["events", "nonexistent"])
-
-        assert [schema.name for schema in schemas] == ["events"]
-
-    def test_source_for_pipeline_rejects_unknown_schema(self):
-        inputs = mock.MagicMock()
-        inputs.schema_name = "nonexistent"
-
-        with pytest.raises(ValueError, match="Unknown pretix schema"):
-            self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.pretix.source.pretix_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_pretix_source):

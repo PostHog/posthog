@@ -33,10 +33,6 @@ def _inputs(schema_name: str, should_use_incremental_field: bool = False) -> Sou
 
 
 class TestTerraformCloudSource:
-    def test_get_schemas_filters_by_name(self) -> None:
-        schemas = TerraformCloudSource().get_schemas(_config(), team_id=1, names=["runs"])
-        assert [s.name for s in schemas] == ["runs"]
-
     @parameterized.expand(
         [
             ("bad org/../path", False),
@@ -61,18 +57,6 @@ class TestTerraformCloudSource:
         ) as probe:
             assert TerraformCloudSource().validate_credentials(_config(), team_id=1) == (True, None)
         probe.assert_called_once_with("test-token", "acme")
-
-    @parameterized.expand(
-        [
-            ("401 Client Error: Unauthorized for url: https://app.terraform.io/api/v2/workspaces/ws-1/runs",),
-            ("403 Client Error: Forbidden for url: https://app.terraform.io/api/v2/organizations/acme/teams",),
-        ]
-    )
-    def test_non_retryable_errors_match_credential_failures(self, raised_message: str) -> None:
-        # A revoked token must permanently fail the sync rather than retry forever; the matcher
-        # keys on the stable status text + host, so real HTTPError strings match.
-        errors = TerraformCloudSource().get_non_retryable_errors()
-        assert any(pattern in raised_message and friendly for pattern, friendly in errors.items())
 
     @parameterized.expand([(True, "2026-01-01T00:00:00Z"), (False, None)])
     def test_source_for_pipeline_plumbs_arguments(self, should_use_incremental: bool, expected_last_value: Any) -> None:

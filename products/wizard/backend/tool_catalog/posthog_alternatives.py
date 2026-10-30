@@ -1,0 +1,80 @@
+from posthog.schema_enums import ProductKey
+
+from products.warehouse_sources.backend.facade.codebase_detection import Detection, detect
+
+# PostHog alternatives with no released warehouse source. Every source declares its own `codebase_detection`,
+# so only these live here. The wizard detects and reports them, and never offers them as a source.
+POSTHOG_ALTERNATIVES_WITHOUT_SOURCE: dict[str, Detection] = {
+    "Heap": detect(
+        script_hosts=(
+            "cdn.heapanalytics.com",
+            "cdn.us.heap-api.com",
+            "cdn.eu.heap-api.com",
+            "heapanalytics.com",
+            "eu.heapanalytics.com",
+        ),
+        npm=(
+            "@heap/react-native-heap",
+            "@heap/heap-react-native-autocapture",
+            "@heap/heap-react-native-bridge",
+            "@heap/heap-react-native-cs-integration",
+            "@heap/babel-plugin-heap-react-native-autocapture",
+            "@heap/heap-javascript-bridge-support",
+            "@heap/heap-capacitor-bridge",
+            "@heap/heap-webview-bridge",
+            "heap-api",
+            "reactjs-heap",
+        ),
+        pypi=("heap",),
+        cocoapods=(
+            "Heap",
+            "HeapSwiftCore",
+            "HeapIOSAutocapture",
+            "HeapNotificationAutocapture",
+            "HeapContentsquareIntegrationSDK",
+            "HeapSwiftCoreInterfaces",
+        ),
+        composer=("iagomelanias/heap-php",),
+        maven=(
+            "io.heap.core:heap-android-core",
+            "io.heap.autocapture:heap-autocapture-view",
+            "com.heapanalytics.android:heap-android-client",
+            "io.heap.autocapture:heap-autocapture-compose",
+            "io.heap.autocapture:heap-autocapture-notification",
+            "io.heap.core.identifier:ad-id-amazon",
+            "io.heap.core.identifier:ad-id-google",
+            "io.heap.core.identifier:vendor-id-google",
+            "io.heap.core.web:webview-heapjs",
+            "io.heap.contentsquare.csbridge:contentsquare-bridge",
+            "io.heap.gradle:heap-plugin",
+            "io.heap.gradle:io.heap.gradle.gradle.plugin",
+            "com.heapanalytics.android:heap-android-gradle",
+        ),
+        pub=("heap_flutter_bridge", "heap_flutter_autocapture", "heap_flutter_autocapture_auto_route"),
+        rubygems=("heap", "heap-helpers"),
+        swiftpm=(
+            "github.com/heap/heap-swift-core-sdk",
+            "github.com/heap/heap-ios-autocapture-sdk",
+            "github.com/heap/heap-notification-autocapture-sdk",
+            "github.com/heap/heap-ios-cs-integration-sdk",
+            "github.com/heap/heap-ios-sdk",
+            "github.com/heap/heap-swiftui-sdk",
+        ),
+        alternative_to=(ProductKey.PRODUCT_ANALYTICS,),
+    ),
+    "Hotjar": detect(
+        env=("^HOTJAR_",),
+        script_hosts=("static.hotjar.com", "script.hotjar.com"),
+        npm=(
+            "@hotjar/browser",
+            "react-hotjar",
+            "vue-hotjar",
+            "vue-hotjar-next",
+            "react-use-hotjar",
+            "ngx-hotjar",
+            "gatsby-plugin-hotjar",
+            "nuxt-module-hotjar",
+        ),
+        alternative_to=(ProductKey.SESSION_REPLAY, ProductKey.HEATMAPS, ProductKey.SURVEYS),
+    ),
+}

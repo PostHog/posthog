@@ -11,18 +11,21 @@ import shutil
 import subprocess
 
 
-def github_token() -> str | None:
-    """A github.com token from GH_TOKEN/GITHUB_TOKEN, else `gh auth token`, else None.
+def github_token(*, prefer_cli: bool = False) -> str | None:
+    """Use GH_TOKEN as an explicit override, then choose between GITHUB_TOKEN and gh.
 
-    Env vars win so CI and explicit overrides work without gh; otherwise fall back to the
-    caller's gh login. Pinned to github.com so the result is independent of the cwd's repo.
+    Personal uploads prefer the stored gh login because hogli also loads application
+    credentials from .env.local. GITHUB_TOKEN remains the fallback without a gh login.
+    Other callers retain environment-first selection for CI and service credentials.
     """
-    for env_var in ("GH_TOKEN", "GITHUB_TOKEN"):
-        if token := os.environ.get(env_var):
-            return token
+    if token := os.environ.get("GH_TOKEN"):
+        return token
+    fallback_token = os.environ.get("GITHUB_TOKEN") or None
+    if fallback_token and not prefer_cli:
+        return fallback_token
     gh = shutil.which("gh")
     if gh is None:
-        return None
+        return fallback_token
     try:
         result = subprocess.run(
             [gh, "auth", "token", "--hostname", "github.com"],
@@ -30,11 +33,12 @@ def github_token() -> str | None:
             text=True,
             timeout=10,
             check=False,
+            env={key: value for key, value in os.environ.items() if key not in ("GH_TOKEN", "GITHUB_TOKEN")},
         )
     except (OSError, subprocess.TimeoutExpired):
-        return None
+        return fallback_token
     token = result.stdout.strip()
-    return token if result.returncode == 0 and token else None
+    return token if result.returncode == 0 and token else fallback_token
 
 
 def github_headers(token: str | None) -> dict[str, str]:

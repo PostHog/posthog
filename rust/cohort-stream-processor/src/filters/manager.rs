@@ -1,8 +1,9 @@
 //! `FilterCatalog` + atomic swap + jittered periodic refresh loop.
 
 use std::collections::hash_map::DefaultHasher;
+use std::future::Future;
 use std::hash::{Hash, Hasher};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -17,7 +18,9 @@ use tokio::sync::Notify;
 use tokio::task::JoinError;
 use tracing::{debug, info, warn};
 
-use crate::filters::loader::{build_catalog_from_rows, load_realtime_cohorts, CohortRow};
+use crate::filters::loader::{
+    build_catalog_from_rows, load_realtime_cohorts, load_realtime_cohorts_for_teams, CohortRow,
+};
 use crate::filters::FilterError;
 use crate::filters::{FilterCatalog, Generation};
 use crate::observability::metrics::{
@@ -40,11 +43,35 @@ pub enum CatalogRefreshError {
     Build(#[from] JoinError),
 }
 
+/// Ordinal of a catalog refresh, taken when the refresh starts. A snapshot published by refresh `n`
+/// read Postgres after `n` began. Only [`CatalogHandle`] mints one.
+///
+/// "Read after it began" also assumes the database the refresh reads is current. When the catalog
+/// reads a read replica, a reconcile job relies on replica lag staying below the delay from
+/// Django's commit to the job's admission, which spans the seeder, Kafka and the seed consumer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) struct RefreshSeq(u64);
+
+/// One consistent read of the handle: the snapshot and the refresh that published it.
+pub(crate) enum CatalogView {
+    NotLoaded,
+    Loaded {
+        published: RefreshSeq,
+        catalog: Arc<FilterCatalog>,
+    },
+}
+
 /// Lock-free, atomically-swapped catalog handle. Starts empty and unloaded; the pipeline fails
 /// closed until the first successful refresh.
+///
+/// The refresh loop is its only writer after boot, and the boot refresh ends before the loop
+/// starts, so refreshes never overlap.
 pub struct CatalogHandle {
     catalog: ArcSwap<FilterCatalog>,
-    loaded: AtomicBool,
+    /// Refreshes started. Refresh `n` takes `n` when it starts.
+    begun: AtomicU64,
+    /// Sequence of the published snapshot, 0 before the first store.
+    published: AtomicU64,
     loaded_notify: Notify,
     /// Cohorts for teams outside this allowlist never enter the catalog.
     allowlist: TeamAllowlist,
@@ -64,7 +91,8 @@ impl CatalogHandle {
     pub fn with_allowlist(allowlist: TeamAllowlist, cascade_enabled: bool) -> Self {
         Self {
             catalog: ArcSwap::from_pointee(FilterCatalog::new()),
-            loaded: AtomicBool::new(false),
+            begun: AtomicU64::new(0),
+            published: AtomicU64::new(0),
             loaded_notify: Notify::new(),
             allowlist,
             cascade_enabled,
@@ -88,7 +116,28 @@ impl CatalogHandle {
     /// True once the first refresh has succeeded. Before that the catalog is empty and consumers
     /// should treat every team as having no realtime cohorts.
     pub fn is_loaded(&self) -> bool {
-        self.loaded.load(Ordering::Acquire)
+        self.published.load(Ordering::Acquire) > 0
+    }
+
+    /// The newest refresh that has started. An admitted reconcile job records it.
+    pub(crate) fn last_begun(&self) -> RefreshSeq {
+        RefreshSeq(self.begun.load(Ordering::SeqCst))
+    }
+
+    /// Reads `published` before the snapshot, so the snapshot is at least as new as the sequence it
+    /// reports.
+    pub(crate) fn view(&self) -> CatalogView {
+        match self.published.load(Ordering::Acquire) {
+            0 => CatalogView::NotLoaded,
+            published => CatalogView::Loaded {
+                published: RefreshSeq(published),
+                catalog: self.catalog.load_full(),
+            },
+        }
+    }
+
+    fn begin(&self) -> RefreshSeq {
+        RefreshSeq(self.begun.fetch_add(1, Ordering::SeqCst) + 1)
     }
 
     /// Resolve once the first refresh has succeeded; immediate if it already has.
@@ -107,11 +156,32 @@ impl CatalogHandle {
     /// Build an already-loaded handle from a prebuilt catalog (test seam).
     pub fn from_catalog(catalog: FilterCatalog) -> Self {
         let handle = Self::new();
-        handle.store(catalog);
+        handle.store(catalog, handle.begin());
         handle
     }
 
-    fn store(&self, catalog: FilterCatalog) {
+    /// A refresh that begins now and publishes `catalog`, for tests that need a refresh after some
+    /// event.
+    #[cfg(test)]
+    pub(crate) fn publish(&self, catalog: FilterCatalog) {
+        self.begin_refresh().publish(catalog);
+    }
+
+    /// A refresh that begins now and publishes later, for tests of a refresh in flight across some
+    /// event.
+    #[cfg(test)]
+    pub(crate) fn begin_refresh(&self) -> PendingRefresh<'_> {
+        PendingRefresh {
+            handle: self,
+            seq: self.begin(),
+        }
+    }
+
+    fn store(&self, catalog: FilterCatalog, seq: RefreshSeq) {
+        debug_assert!(
+            seq.0 > self.published.load(Ordering::Acquire),
+            "catalog refreshes overlapped: refresh {seq:?} stores after a newer one",
+        );
         // Advance the generation only on a content change (`INITIAL` is the first store); a no-op
         // refresh reuses it so memo entries stay valid.
         let signature = catalog_signature(&catalog);
@@ -130,17 +200,21 @@ impl CatalogHandle {
         gauge!(FILTER_CATALOG_TEAMS).set(catalog.team_count() as f64);
         gauge!(FILTER_CATALOG_UNIQUE_CONDITIONS).set(catalog.total_unique_conditions() as f64);
         self.catalog.store(Arc::new(catalog));
-        self.loaded.store(true, Ordering::Release);
+        self.published.fetch_max(seq.0, Ordering::Release);
         self.loaded_notify.notify_waiters();
     }
 
-    /// Query `posthog_cohort`, drop out-of-scope teams, rebuild the catalog, and swap it in.
+    /// Query `posthog_cohort` for the allowlisted teams, rebuild the catalog, and swap it in.
     ///
     /// The staleness metrics are stamped here rather than in [`run_refresh_loop`] so the boot load
     /// in `main` counts too — otherwise a pod that booted fine and then lost its refresh loop would
     /// look identical to one that never loaded.
+    #[hotpath::measure(impl_type = "CatalogHandle")]
     pub async fn refresh(&self, pool: &PgPool) -> Result<CatalogStats, CatalogRefreshError> {
-        match self.refresh_inner(pool).await {
+        match self
+            .refresh_from(|| load_allowlisted(pool, &self.allowlist))
+            .await
+        {
             Ok(stats) => {
                 gauge!(FILTER_CATALOG_LAST_SUCCESS_TIMESTAMP_SECONDS).set(now_unix_seconds());
                 counter!(FILTER_CATALOG_REFRESH_TOTAL, "result" => "success").increment(1);
@@ -153,8 +227,17 @@ impl CatalogHandle {
         }
     }
 
-    async fn refresh_inner(&self, pool: &PgPool) -> Result<CatalogStats, CatalogRefreshError> {
-        let mut rows = load_realtime_cohorts(pool).await?;
+    /// `load` reads the cohort rows. The refresh begins before it runs, so every write committed
+    /// before the read is in what it returns.
+    async fn refresh_from<Rows>(
+        &self,
+        load: impl FnOnce() -> Rows,
+    ) -> Result<CatalogStats, CatalogRefreshError>
+    where
+        Rows: Future<Output = Result<Vec<CohortRow>, FilterError>>,
+    {
+        let seq = self.begin();
+        let mut rows = load().await?;
         let fetched_rows = rows.len();
         retain_allowlisted(&mut rows, &self.allowlist);
         if rows.len() != fetched_rows {
@@ -165,12 +248,13 @@ impl CatalogHandle {
             );
         }
         let cascade_enabled = self.cascade_enabled;
-        self.build_and_store(move || build_catalog_from_rows(rows, cascade_enabled))
+        self.build_and_store(seq, move || build_catalog_from_rows(rows, cascade_enabled))
             .await
     }
 
     async fn build_and_store(
         &self,
+        seq: RefreshSeq,
         build: impl FnOnce() -> FilterCatalog + Send + 'static,
     ) -> Result<CatalogStats, CatalogRefreshError> {
         let catalog = tokio::task::spawn_blocking(move || {
@@ -185,7 +269,7 @@ impl CatalogHandle {
             teams: catalog.team_count(),
             unique_conditions: catalog.total_unique_conditions(),
         };
-        self.store(catalog);
+        self.store(catalog, seq);
         Ok(stats)
     }
 }
@@ -198,9 +282,37 @@ fn now_unix_seconds() -> f64 {
         .unwrap_or(0.0)
 }
 
-/// Drop rows outside the configured team scope before catalog construction.
+async fn load_allowlisted(
+    pool: &PgPool,
+    allowlist: &TeamAllowlist,
+) -> Result<Vec<CohortRow>, FilterError> {
+    match allowlist {
+        TeamAllowlist::All => load_realtime_cohorts(pool).await,
+        TeamAllowlist::Only(team_ids) => {
+            let team_ids: Vec<i32> = team_ids.iter().copied().collect();
+            load_realtime_cohorts_for_teams(pool, &team_ids).await
+        }
+    }
+}
+
+/// Backstop for the load query's team filter.
 fn retain_allowlisted(rows: &mut Vec<CohortRow>, allowlist: &TeamAllowlist) {
     rows.retain(|row| allowlist.includes(row.team_id));
+}
+
+/// A refresh that has begun and not yet published (test seam).
+#[cfg(test)]
+#[must_use = "a pending refresh publishes nothing until `publish` is called"]
+pub(crate) struct PendingRefresh<'a> {
+    handle: &'a CatalogHandle,
+    seq: RefreshSeq,
+}
+
+#[cfg(test)]
+impl PendingRefresh<'_> {
+    pub(crate) fn publish(self, catalog: FilterCatalog) {
+        self.handle.store(catalog, self.seq);
+    }
 }
 
 impl Default for CatalogHandle {
@@ -260,7 +372,7 @@ fn next_interval(interval: Duration, jitter: Duration) -> Duration {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashSet;
+    use std::collections::{BTreeSet, HashSet};
 
     use super::*;
     use chrono_tz::UTC;
@@ -348,7 +460,7 @@ mod tests {
         let handle = CatalogHandle::new();
         let runtime_thread = std::thread::current().id();
         let stats = handle
-            .build_and_store(move || {
+            .build_and_store(handle.begin(), move || {
                 assert_ne!(std::thread::current().id(), runtime_thread);
                 FilterCatalog::from_teams([(TeamId(7), team_with_one_behavioral())])
             })
@@ -360,7 +472,7 @@ mod tests {
         let snapshot = handle.load_full();
 
         let error = handle
-            .build_and_store(|| panic!("catalog build failed"))
+            .build_and_store(handle.begin(), || panic!("catalog build failed"))
             .await
             .unwrap_err();
         assert!(matches!(error, CatalogRefreshError::Build(error) if error.is_panic()));
@@ -380,7 +492,7 @@ mod tests {
         tokio::task::yield_now().await;
         assert!(!waiter.is_finished());
 
-        handle.store(FilterCatalog::from_teams([(
+        handle.publish(FilterCatalog::from_teams([(
             TeamId(7),
             team_with_one_behavioral(),
         )]));
@@ -390,11 +502,31 @@ mod tests {
         handle.wait_until_loaded().await;
     }
 
+    #[tokio::test]
+    async fn a_refresh_begins_before_it_reads_the_cohort_rows() {
+        let handle = CatalogHandle::new();
+        let before_refresh = handle.last_begun();
+        let begun_at_read = std::cell::Cell::new(before_refresh);
+
+        handle
+            .refresh_from(|| async {
+                begun_at_read.set(handle.last_begun());
+                Ok(Vec::new())
+            })
+            .await
+            .unwrap();
+
+        assert!(
+            begun_at_read.get() > before_refresh,
+            "a job admitted during the read must not count the refresh as begun after it",
+        );
+    }
+
     #[test]
     fn first_store_advances_past_the_initial_generation() {
         let handle = CatalogHandle::new();
         assert_eq!(handle.load().generation(), Generation::INITIAL);
-        handle.store(FilterCatalog::from_teams([(
+        handle.publish(FilterCatalog::from_teams([(
             TeamId(7),
             team_with_one_behavioral(),
         )]));
@@ -412,14 +544,14 @@ mod tests {
     #[test]
     fn no_op_refresh_keeps_the_generation_and_a_content_change_bumps_it() {
         let handle = CatalogHandle::new();
-        handle.store(FilterCatalog::from_teams([(
+        handle.publish(FilterCatalog::from_teams([(
             TeamId(7),
             team_with_one_behavioral(),
         )]));
         let gen1 = handle.load().generation();
 
         // Same condition set → same signature → generation unchanged (the memo survives the refresh).
-        handle.store(FilterCatalog::from_teams([(
+        handle.publish(FilterCatalog::from_teams([(
             TeamId(7),
             team_with_one_behavioral(),
         )]));
@@ -430,7 +562,7 @@ mod tests {
         );
 
         // A different condition hash → signature changes → generation advances (memo invalidates).
-        handle.store(FilterCatalog::from_teams([(
+        handle.publish(FilterCatalog::from_teams([(
             TeamId(7),
             team_with_one_person(),
         )]));
@@ -519,5 +651,27 @@ mod tests {
 
         assert!(handle.is_loaded());
         assert_eq!(handle.load().team_count(), stats.teams);
+
+        // Bypass `retain_allowlisted`, which would hide a missing SQL filter.
+        let keys = |rows: &[CohortRow]| -> BTreeSet<(i32, i32)> {
+            rows.iter().map(|row| (row.team_id, row.id)).collect()
+        };
+        let unscoped = load_allowlisted(&pool, &TeamAllowlist::All)
+            .await
+            .expect("unscoped load against live posthog_cohort");
+        if let Some(team_id) = unscoped.first().map(|row| row.team_id) {
+            let scoped = load_allowlisted(&pool, &TeamAllowlist::Only(HashSet::from([team_id])))
+                .await
+                .expect("team-scoped load against live posthog_cohort");
+            let expected: BTreeSet<_> = keys(&unscoped)
+                .into_iter()
+                .filter(|(team, _)| *team == team_id)
+                .collect();
+            assert_eq!(keys(&scoped), expected);
+        }
+        let none = load_allowlisted(&pool, &TeamAllowlist::Only(HashSet::new()))
+            .await
+            .expect("empty-scope load against live posthog_cohort");
+        assert!(none.is_empty());
     }
 }

@@ -1,3 +1,4 @@
+import json
 import uuid
 from datetime import UTC, datetime, timedelta
 from functools import cached_property
@@ -18,6 +19,7 @@ from posthog.schema import (
     ExperimentRatioMetric,
     ExperimentRetentionMetric,
     ExperimentStatsBase,
+    HogQLQueryModifiers,
     IntervalType,
     MultipleVariantHandling,
     PrecomputationMode,
@@ -25,16 +27,21 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
-from posthog.hogql.modifiers import create_default_modifiers_for_team
-from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
+from posthog.hogql.errors import ExposedHogQLError, QueryError, TableAccessDeniedError
+from posthog.hogql.query import HogQLQueryExecutor, execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Product, tag_queries, tags_context
+from posthog.exceptions import ClickHouseAtCapacity
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.extensions import get_or_create_team_extension
 
+from products.ai_observability.backend.facade.api import mentions_evaluation_pass_markers
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationResult
+from products.experiments.backend.facade.enums import PrecomputeSkipReason
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY, get_baseline_variant_key
 from products.experiments.backend.hogql_queries.base_query_utils import experiment_window, experiment_window_end
 from products.experiments.backend.hogql_queries.cuped_config import get_cuped_config
@@ -58,7 +65,6 @@ from products.experiments.backend.hogql_queries.precompute_policy import (
     ensure_exposures_precomputed,
     team_precompute_skip_reason,
 )
-from products.experiments.backend.hogql_queries.types import PrecomputeSkipReason
 from products.experiments.backend.hogql_queries.utils import (
     aggregate_variants_across_breakdowns,
     get_bayesian_experiment_result,
@@ -68,10 +74,14 @@ from products.experiments.backend.hogql_queries.utils import (
     get_variant_results,
     split_baseline_and_test_variants,
 )
-from products.experiments.backend.metric_resolution import metric_reads_data_warehouse
+from products.experiments.backend.metric_resolution import (
+    metric_reads_data_warehouse,
+    metric_uses_warehouse_native_source,
+)
 from products.experiments.backend.metric_utils import get_default_metric_title
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
+from products.experiments.backend.warehouse_timestamp_validation import enforce_warehouse_metric_timestamp_types
 
 logger = structlog.get_logger(__name__)
 
@@ -106,6 +116,8 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         max_execution_time: Optional[int] = None,
         bypass_warehouse_access_control: bool = False,
         error_event_context: Optional[str] = "ui",
+        experiment: Optional[Experiment] = None,
+        team_experiments_config: Optional[TeamExperimentsConfig] = None,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
@@ -122,10 +134,19 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         if not self.query.experiment_id:
             raise ValidationError("experiment_id is required")
 
-        try:
-            self.experiment = Experiment.objects.get(id=self.query.experiment_id, team=self.team)
-        except Experiment.DoesNotExist:
-            raise ValidationError(f"Experiment with id {self.query.experiment_id} not found")
+        # A caller that runs several metrics of one experiment passes the experiment, with its flag loaded, and the
+        # team's settings, so each runner doesn't read them again.
+        if team_experiments_config is not None:
+            self._team_experiments_config = team_experiments_config
+        if experiment is not None:
+            if experiment.id != self.query.experiment_id or experiment.team_id != self.team.pk:
+                raise ValueError("The experiment doesn't match the query's experiment and team")
+            self.experiment = experiment
+        else:
+            try:
+                self.experiment = Experiment.objects.get(id=self.query.experiment_id, team=self.team)
+            except Experiment.DoesNotExist:
+                raise ValidationError(f"Experiment with id {self.query.experiment_id} not found")
 
         # Evaluation point for the analysis window; experiment_window_end caps it at end_date. An
         # explicit as_of is a recalc's frozen run snapshot or a timeseries backfill's per-day point.
@@ -275,7 +296,7 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             return "not_applicable"
         return "precomputed" if self._metric_events_precomputed else "direct_scan"
 
-    def _get_experiment_query(self) -> ast.SelectQuery:
+    def _query_builder(self, *, with_metric: bool = True) -> ExperimentQueryBuilder:
         assert isinstance(
             self.metric,
             ExperimentFunnelMetric | ExperimentMeanMetric | ExperimentRatioMetric | ExperimentRetentionMetric,
@@ -285,7 +306,7 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             self.experiment.exposure_criteria, self.team, self.experiment.start_date
         )
 
-        builder = ExperimentQueryBuilder(
+        return ExperimentQueryBuilder(
             team=self.team,
             feature_flag_key=self.feature_flag_key,
             exposure_config=exposure_params.exposure_config,
@@ -294,12 +315,15 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             variants=self.variants,
             date_range_query=self.date_range_query,
             entity_key=self.entity_key,
-            metric=self.metric,
-            breakdowns=self._get_breakdowns_for_builder(),
+            metric=self.metric if with_metric else None,
+            breakdowns=self._get_breakdowns_for_builder() if with_metric else None,
             only_count_matured_users=self.experiment.only_count_matured_users,
             cuped_config=self.cuped_config,
             activation_config=exposure_params.activation_config,
         )
+
+    def _get_experiment_query(self) -> ast.SelectQuery:
+        builder = self._query_builder()
 
         should_precompute = self._should_precompute()
 
@@ -320,8 +344,15 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
                 if result.ready:
                     exposure_job_ids = [str(job_id) for job_id in result.job_ids]
                     self._is_precomputed = True
+                elif result.capacity_rejected:
+                    # ClickHouse refused the build because the pool is full. The direct scan
+                    # below would hold a slot for minutes and starve the next builds too, so
+                    # surface the capacity error and let the caller retry once the pool frees up.
+                    raise ClickHouseAtCapacity()
                 else:
                     logger.warning("exposure_lazy_computation_not_ready", experiment_id=self.experiment.id)
+            except ClickHouseAtCapacity:
+                raise
             except Exception as e:
                 # Swallowed: the direct-scan fallback below still returns results, which would
                 # otherwise hide a broken precomputation path. Report so it isn't silent.
@@ -348,13 +379,19 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
                                 numerator_job_ids = [str(job_id) for job_id in ratio_result.numerator.job_ids]
                                 denominator_job_ids = [str(job_id) for job_id in ratio_result.denominator.job_ids]
                                 self._metric_events_precomputed = True
+                            elif ratio_result.capacity_rejected:
+                                raise ClickHouseAtCapacity()
                         else:
                             metric_result = self._ensure_metric_events_precomputed(builder)
                             if metric_result.ready:
                                 metric_events_job_ids = [str(job_id) for job_id in metric_result.job_ids]
                                 self._metric_events_precomputed = True
+                            elif metric_result.capacity_rejected:
+                                raise ClickHouseAtCapacity()
                     if not self._metric_events_precomputed:
                         logger.warning("metric_events_lazy_computation_not_ready", experiment_id=self.experiment.id)
+                except ClickHouseAtCapacity:
+                    raise
                 except Exception as e:
                     capture_exception(
                         e,
@@ -374,6 +411,80 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
                 denominator_job_ids=denominator_job_ids,
             )
         )
+
+    def query_modifiers(self) -> HogQLQueryModifiers:
+        modifiers = self.modifiers.model_copy()
+        if posthoganalytics.feature_enabled(
+            "hogql-session-id-pushdown",
+            str(self.team.id),
+            groups={"project": str(self.team.id)},
+            group_properties={"project": {"id": str(self.team.id)}},
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
+        ):
+            modifiers.sessionIdPushdown = True
+        return modifiers
+
+    def create_database(self, modifiers: HogQLQueryModifiers, *, use_cached_sources: bool = False) -> Database:
+        return Database.create_for(
+            team=self.team,
+            user=self.user,
+            modifiers=modifiers,
+            timings=self.timings,
+            bypass_warehouse_access_control=self.bypass_warehouse_access_control,
+            use_cached_sources=use_cached_sources,
+        )
+
+    def compile_query(self, database: Database) -> None:
+        """
+        Build the query and compile it to ClickHouse SQL without running it or a precompute. Raises what a calculation
+        raises before ClickHouse receives the query. A calculation can still fail in ClickHouse, for example on a type
+        that the data holds.
+
+        `database` comes from `create_database(query_modifiers())` of a runner with the same team, user and warehouse
+        access, so a caller that compiles several metrics builds it once.
+        """
+        self._compile(self._query_builder().build_query(), database)
+        enforce_warehouse_metric_timestamp_types([self.metric.model_dump(mode="json")], database)
+
+    def compile_exposure_query(self, database: Database) -> None:
+        """Compile the exposure query without the metric and its breakdowns, as `compile_query` compiles the whole
+        query. When the whole query fails and this one compiles, the cause is in the metric."""
+        self._compile(self._query_builder(with_metric=False).get_exposure_timeseries_query(), database)
+
+    def _compile(self, query: ast.SelectQuery, database: Database) -> None:
+        context = HogQLContext(
+            team_id=self.team.pk,
+            user=self.user,
+            bypass_warehouse_access_control=self.bypass_warehouse_access_control,
+            database=database,
+        )
+        modifiers = self.query_modifiers()
+        # With this modifier, the executor writes preaggregated results to ClickHouse and waits for them before it
+        # prints the query, and a compile must run nothing. When no results are ready, the executor keeps the query
+        # unchanged, so the compile of the unchanged query checks what a calculation can fall back to.
+        modifiers.usePreaggregatedIntermediateResults = False
+        try:
+            HogQLQueryExecutor(
+                query_type="ExperimentQuery",
+                query=query,
+                team=self.team,
+                user=self.user,
+                bypass_warehouse_access_control=self.bypass_warehouse_access_control,
+                context=context,
+                timings=self.timings,
+                modifiers=modifiers,
+                workload=self.workload,
+            ).generate_clickhouse_sql()
+        except TableAccessDeniedError:
+            # A denied table must reach the caller as a denial, not as a field error that the HogQL pass recorded.
+            raise
+        except ExposedHogQLError as error:
+            # The HogQL pass records a field that it can't resolve and goes on. A later reference to the column that
+            # holds the field then raises an error that names the column, such as "Field not found: entity_id".
+            if context.errors:
+                raise QueryError(context.errors[0].message) from error
+            raise
 
     def _evaluate_experiment_query(
         self,
@@ -411,25 +522,19 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             experiment_scan_date_from=self.date_range.date_from,
             experiment_scan_date_to=self.date_range.date_to,
         )
-        experiment_query_debug = get_experiment_query_debug(
-            experiment_query_ast,
-            self.team,
-            user=self.user,
-            bypass_warehouse_access_control=self.bypass_warehouse_access_control,
-        )
-        self.hogql = experiment_query_debug[0]
-        self.clickhouse_sql = experiment_query_debug[1]
+        modifiers = self.query_modifiers()
 
-        modifiers = create_default_modifiers_for_team(self.team)
-        if posthoganalytics.feature_enabled(
-            "hogql-session-id-pushdown",
-            str(self.team.id),
-            groups={"project": str(self.team.id)},
-            group_properties={"project": {"id": str(self.team.id)}},
-            only_evaluate_locally=True,
-            send_feature_flag_events=False,
-        ):
-            modifiers.sessionIdPushdown = True
+        # The debug SQL would expose the evaluation rules that the markers keep out of the browser.
+        if not self._uses_evaluation_pass_markers():
+            experiment_query_debug = get_experiment_query_debug(
+                experiment_query_ast,
+                self.team,
+                user=self.user,
+                bypass_warehouse_access_control=self.bypass_warehouse_access_control,
+                modifiers=modifiers,
+            )
+            self.hogql = experiment_query_debug[0]
+            self.clickhouse_sql = experiment_query_debug[1]
 
         settings = HogQLGlobalSettings(
             max_execution_time=self.max_execution_time,
@@ -441,12 +546,23 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             settings.join_algorithm = "grace_hash"
             settings.grace_hash_join_initial_buckets = 2
 
+        # Built once here and handed to the executor, so the timestamp check reads the same catalog
+        # the query runs against. The column can change type after the metric was saved.
+        database = self.create_database(modifiers)
+        enforce_warehouse_metric_timestamp_types([self.metric.model_dump(mode="json")], database)
+
         response = execute_hogql_query(
             query_type="ExperimentQuery",
             query=experiment_query_ast,
             team=self.team,
             user=self.user,
             bypass_warehouse_access_control=self.bypass_warehouse_access_control,
+            context=HogQLContext(
+                team_id=self.team.pk,
+                user=self.user,
+                bypass_warehouse_access_control=self.bypass_warehouse_access_control,
+                database=database,
+            ),
             timings=self.timings,
             modifiers=modifiers,
             settings=settings,
@@ -460,8 +576,17 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
 
         return sorted_results, response.columns or []
 
+    def _refuse_warehouse_sources(self) -> None:
+        exposure_config = (self.experiment.exposure_criteria or {}).get("exposure_config") or {}
+        if (
+            metric_uses_warehouse_native_source(self.metric)
+            or exposure_config.get("kind") == "ExperimentWarehouseNativeExposureConfig"
+        ):
+            raise ExposedHogQLError("Warehouse-native sources cannot be calculated yet.")
+
     @experiment_error_handler
     def _calculate(self) -> ExperimentQueryResponse:
+        self._refuse_warehouse_sources()
         variant_results = self._prepare_variant_results()
 
         if self._has_breakdown(variant_results):
@@ -585,7 +710,17 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         return variants + variants_missing
 
     def to_actors_query(self) -> ast.SelectQuery:
+        # The actors response returns its generated SQL, which would expose the evaluation rules.
+        if self._uses_evaluation_pass_markers():
+            raise ValidationError("Persons are not available for evaluation pass rate metrics.")
         return build_experiment_actors_query(self)
+
+    def _uses_evaluation_pass_markers(self) -> bool:
+        return mentions_evaluation_pass_markers(
+            self.metric.model_dump_json()
+            + json.dumps(self.experiment.exposure_criteria or {})
+            + (self.actors_query.model_dump_json() if self.actors_query else "")
+        )
 
     def to_query(self) -> ast.SelectQuery:
         raise ValidationError(f"Cannot convert source query of type {self.query.metric.kind} to query")

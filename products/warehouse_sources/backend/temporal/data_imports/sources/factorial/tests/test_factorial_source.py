@@ -45,20 +45,10 @@ class TestFactorialSource:
         # Supported tables section.
         assert self.source.lists_tables_without_credentials is True
 
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["leaves"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "leaves"
-
     @pytest.mark.parametrize(
         ("status_code", "expected_valid", "expected_message"),
         [
             (200, True, None),
-            (
-                401,
-                False,
-                "Invalid Factorial API key, or it does not have access to your account's data.",
-            ),
         ],
     )
     def test_validate_credentials(

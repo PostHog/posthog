@@ -19,10 +19,11 @@ import { userLogic } from './userLogic'
 
 /** Mirrors `ALLOWED_WHILE_BLOCKED` in `posthog/middleware.py`. Change one and change the other. */
 const ALLOWED_WHILE_BLOCKED: Record<string, string[]> = {
-    '/organization-pending-deletion': ['/organization-pending-deletion', '/signup/'],
+    '/organization-pending-deletion': ['/organization-pending-deletion', '/signup/', '/agentic/authorize'],
     '/organization-deactivated': [
         '/organization-deactivated',
         '/signup/',
+        '/agentic/authorize',
         '/organization/billing',
         '/billing/authorization_status',
     ],

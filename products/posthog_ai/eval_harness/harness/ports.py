@@ -9,8 +9,15 @@ SKILL_ARCHIVE_PORT = 18788
 DJANGO_LIVE_PORT = 18000
 """Non-default port for the in-process Django server."""
 
-LLM_GATEWAY_PORT = 13308
-"""Non-default port to avoid conflicts with a running dev LLM gateway."""
+AI_GATEWAY_PORT = 18080
+"""Non-default port so a dev-stack Go ai-gateway on 8080 never collides."""
+
+AI_GATEWAY_REDIS_URL = "redis://localhost:6381/5"
+"""The ai-gateway compose valkey, on its own DB index.
+
+Django publishes the credential and team policy blobs here, and the eval gateway
+reads them. Policy blobs are keyed by team id, and eval team ids overlap with dev
+team ids, so DB 0, which a dev-stack gateway reads, must stay untouched."""
 
 PERSONHOG_REPLICA_PORT = 15051
 """Non-default port so a dev-stack personhog-replica on 50051 never collides."""

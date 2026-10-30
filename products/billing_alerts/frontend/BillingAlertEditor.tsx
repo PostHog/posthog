@@ -8,7 +8,6 @@ import { NextScheduledRun } from 'lib/components/ScheduledRunStatus'
 import { dayjs } from 'lib/dayjs'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
-import { AlertAdvancedOptions } from 'products/alerts/frontend/components/AlertAdvancedOptions'
 import { AlertDefinitionRow } from 'products/alerts/frontend/components/AlertDefinition'
 import {
     AlertEditor,
@@ -16,7 +15,7 @@ import {
     AlertEditorSection,
 } from 'products/alerts/frontend/components/AlertEditor'
 
-import { ADVANCED_OPTION_DEFAULTS, billingAlertFormLogic, BillingAlertFormLogicProps } from './billingAlertFormLogic'
+import { billingAlertFormLogic, BillingAlertFormLogicProps } from './billingAlertFormLogic'
 import { BillingAlertHistory } from './BillingAlertHistory'
 import { billingAlertNotificationLogic } from './billingAlertNotificationLogic'
 import { BillingAlertNotifications } from './BillingAlertNotifications'
@@ -40,10 +39,6 @@ function BillingAlertEditorContent(props: BillingAlertFormLogicProps): JSX.Eleme
     const { pendingDestinations } = useValues(billingAlertNotificationLogic)
     const { closeEditor, checkNow } = useActions(billingAlertsLogic)
     const { checkingAlertId } = useValues(billingAlertsLogic)
-    const enabledAdvancedOptionsCount =
-        Number(alertForm.minimumValue > ADVANCED_OPTION_DEFAULTS.minimumValue) +
-        Number(alertForm.evaluationDelayHours !== ADVANCED_OPTION_DEFAULTS.evaluationDelayHours) +
-        Number(alertForm.cooldownHours !== ADVANCED_OPTION_DEFAULTS.cooldownHours)
     const isPaused = props.alert !== null && !props.alert.enabled
 
     return (
@@ -144,43 +139,6 @@ function BillingAlertEditorContent(props: BillingAlertFormLogicProps): JSX.Eleme
                     <AlertEditorSection title="Notifications">
                         <BillingAlertNotifications alert={props.alert} />
                     </AlertEditorSection>
-
-                    <AlertAdvancedOptions enabledCount={enabledAdvancedOptionsCount}>
-                        <div
-                            className="grid grid-cols-1 md:grid-cols-2 gap-3"
-                            data-attr="billing-alert-advanced-options"
-                        >
-                            <LemonField name="minimumValue" label="Minimum current value">
-                                <LemonInput
-                                    type="number"
-                                    min={0}
-                                    value={alertForm.minimumValue}
-                                    onChange={(value) => setAlertFormValue('minimumValue', value ?? 0)}
-                                    prefix={<span>$</span>}
-                                />
-                            </LemonField>
-                            <LemonField name="evaluationDelayHours" label="Evaluation delay">
-                                <LemonInput
-                                    type="number"
-                                    min={0}
-                                    max={72}
-                                    value={alertForm.evaluationDelayHours}
-                                    onChange={(value) => setAlertFormValue('evaluationDelayHours', value ?? 0)}
-                                    suffix={<span>hours</span>}
-                                />
-                            </LemonField>
-                            <LemonField name="cooldownHours" label="Notification cooldown">
-                                <LemonInput
-                                    type="number"
-                                    min={0}
-                                    max={720}
-                                    value={alertForm.cooldownHours}
-                                    onChange={(value) => setAlertFormValue('cooldownHours', value ?? 0)}
-                                    suffix={<span>hours</span>}
-                                />
-                            </LemonField>
-                        </div>
-                    </AlertAdvancedOptions>
 
                     {props.alert ? <BillingAlertHistory alert={props.alert} /> : null}
                 </div>

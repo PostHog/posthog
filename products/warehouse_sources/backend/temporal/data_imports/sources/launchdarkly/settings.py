@@ -18,11 +18,17 @@ class LaunchDarklyEndpointConfig:
     # queried once per environment of every project, with ``_project_key`` and ``_environment_key``
     # injected into every row.
     requires_environment: bool = False
+    # Team-scoped endpoints take a ``{team_key}`` placeholder and are queried once per team, with
+    # ``_team_key`` injected into every row.
+    requires_team: bool = False
+    # Beta resources answer 403 unless every request carries ``LD-API-Version: beta``.
+    beta: bool = False
     # LaunchDarkly's list endpoints default to a small page size; 20 is the documented
     # safe default across every endpoint we sync. Raise per-endpoint only once verified.
     # ``None`` for endpoints that return every row in one response and take no ``limit``.
     page_size: int | None = 20
     extra_params: dict[str, Any] = field(default_factory=dict)
+    data_selector: str = "items"
     # LaunchDarkly exposes no server-side timestamp filter on these resources (its
     # timestamps are epoch-millisecond integers and the public API offers no
     # ``updated_after``/``since`` parameter), so every endpoint is full-refresh only.
@@ -96,6 +102,48 @@ LAUNCHDARKLY_ENDPOINTS: dict[str, LaunchDarklyEndpointConfig] = {
         path="/projects/{project_key}/environments/{environment_key}/holdouts",
         primary_key=["_id", "_project_key", "_environment_key"],
         requires_environment=True,
+    ),
+    "metric_groups": LaunchDarklyEndpointConfig(
+        name="metric_groups",
+        path="/projects/{project_key}/metric-groups",
+        primary_key=["_id", "_project_key"],
+        requires_project=True,
+        beta=True,
+    ),
+    "teams": LaunchDarklyEndpointConfig(
+        name="teams",
+        path="/teams",
+        primary_key=["key"],
+        extra_params={"expand": "members,roleAttributes"},
+    ),
+    "team_maintainers": LaunchDarklyEndpointConfig(
+        name="team_maintainers",
+        path="/teams/{team_key}/maintainers",
+        # A member can maintain several teams, so the member id alone repeats across teams.
+        primary_key=["_id", "_team_key"],
+        requires_team=True,
+    ),
+    "team_roles": LaunchDarklyEndpointConfig(
+        name="team_roles",
+        path="/teams/{team_key}/roles",
+        primary_key=["key", "_team_key"],
+        requires_team=True,
+    ),
+    "code_ref_repositories": LaunchDarklyEndpointConfig(
+        name="code_ref_repositories",
+        path="/code-refs/repositories",
+        primary_key=["name"],
+        page_size=None,
+        extra_params={"withBranches": "true"},
+    ),
+    "code_ref_statistics": LaunchDarklyEndpointConfig(
+        name="code_ref_statistics",
+        path="/code-refs/statistics/{project_key}",
+        # One row per flag and repository; rows are flattened out of the response's flag-key map.
+        primary_key=["_flag_key", "name", "_project_key"],
+        requires_project=True,
+        page_size=None,
+        data_selector="$",
     ),
 }
 

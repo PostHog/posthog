@@ -7,8 +7,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 API_BASE_URL = "https://api.xsolla.com/merchant"
+# Xsolla documents the transaction registry on v3 only, while the other merchant endpoints stay on v2.
+REGISTRY_BASE_URL = "https://api.xsolla.com/merchant/v3/"
+STORE_BASE_URL = "https://store.xsolla.com/api/v2/"
 API_DOCS_URL = "https://developers.xsolla.com/api/getting-started/"
 PAGE_SIZE = 100
+STORE_PAGE_SIZE = 50
 # Xsolla has no endpoint that reports when a merchant's history starts, so date-bounded endpoints
 # walk forward from a fixed date that predates Pay Station.
 HISTORY_START = date(2010, 1, 1)
@@ -21,6 +25,8 @@ RESPONSE_ACTIONS: list[ResponseAction] = [
     {"status_code": 401, "action": "raise", "message": AUTH_ERROR},
     {"status_code": 403, "action": "raise", "message": AUTH_ERROR},
 ]
+# A project in the merchant project list can have no store, so the Store API does not know it.
+STORE_RESPONSE_ACTIONS: list[ResponseAction] = [*RESPONSE_ACTIONS, {"status_code": 404, "action": "ignore"}]
 
 
 @frozen
@@ -35,6 +41,10 @@ class XsollaEndpoint:
     # Nested values copied to the row root, so that they can be primary keys or incremental fields.
     lifted_fields: tuple[tuple[str, str, str], ...] = ()
     partition_key: str | None = None
+    # Replaces the merchant API base URL, which follows the pinned source version.
+    base_url: str | None = None
+    # Store endpoints wrap rows in {"items": [...], "total_items_count": n}.
+    store: bool = False
 
 
 ENDPOINTS: dict[str, XsollaEndpoint] = {
@@ -84,6 +94,33 @@ ENDPOINTS: dict[str, XsollaEndpoint] = {
     "projects": XsollaEndpoint(
         path="merchants/{merchant_id}/projects",
         paginated=False,
+    ),
+    "transaction_registry": XsollaEndpoint(
+        path="merchants/{merchant_id}/reports/transactions/registry.json",
+        base_url=REGISTRY_BASE_URL,
+        window_days=92,
+        lifted_fields=(("id", "transaction", "id"),),
+    ),
+    "virtual_items": XsollaEndpoint(
+        path="project/{project_id}/admin/items/virtual_items",
+        primary_keys=("project_id", "sku"),
+        scope="project",
+        base_url=STORE_BASE_URL,
+        store=True,
+    ),
+    "virtual_currencies": XsollaEndpoint(
+        path="project/{project_id}/admin/items/virtual_currency",
+        primary_keys=("project_id", "sku"),
+        scope="project",
+        base_url=STORE_BASE_URL,
+        store=True,
+    ),
+    "bundles": XsollaEndpoint(
+        path="project/{project_id}/admin/items/bundle",
+        primary_keys=("project_id", "sku"),
+        scope="project",
+        base_url=STORE_BASE_URL,
+        store=True,
     ),
 }
 

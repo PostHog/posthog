@@ -53,11 +53,7 @@ const meta: Meta = {
     component: SourceOnboardingScan,
     parameters: {
         layout: 'padded',
-        featureFlags: [
-            FEATURE_FLAGS.MARKETING_ANALYTICS_SOURCE_ONBOARDING,
-            FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD,
-            FEATURE_FLAGS.MARKETING_ANALYTICS_SETUP,
-        ],
+        featureFlags: [FEATURE_FLAGS.MARKETING_ANALYTICS_SOURCE_ONBOARDING, FEATURE_FLAGS.MARKETING_ANALYTICS_SETUP],
     },
     decorators: [
         mswDecorator({

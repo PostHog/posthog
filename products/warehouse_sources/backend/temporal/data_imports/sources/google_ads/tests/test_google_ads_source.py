@@ -25,7 +25,7 @@ from google.ads.googleads.v23.resources.types.change_event import ChangeEvent
 from google.api_core import exceptions as google_api_exceptions
 from google.auth import exceptions as google_auth_exceptions
 
-from posthog.models.integration import Integration
+from posthog.integrations import IntegrationNotFound
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
     IntegrationAccountListingError,
@@ -238,9 +238,10 @@ class TestGoogleAdsNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
-            # `str(Integration.DoesNotExist)` as raised by `google_ads_client` during a sync when
-            # the OAuth integration row has been deleted/disconnected.
+            # The ORM text for a deleted OAuth integration row.
             "Integration matching query does not exist.",
+            # `_get_integration` raises `IntegrationNotFound` with this text for the same case.
+            "Integration not found: 42",
         ],
     )
     def test_missing_integration_is_non_retryable(self, error_msg):
@@ -479,7 +480,7 @@ class TestValidateCredentials:
         config = GoogleAdsSourceConfig(customer_id="1234567890", google_ads_integration_id=1, start_date=" 2020-01-01 ")
         with mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads.google_ads_client",
-            side_effect=Integration.DoesNotExist(),
+            side_effect=IntegrationNotFound(),
         ):
             ok, message = GoogleAdsSource().validate_credentials(config, team_id=1)
 
@@ -489,12 +490,12 @@ class TestValidateCredentials:
 
     def test_missing_integration_does_not_exist_returns_reconnect_message(self):
         # `google_ads_client` calls `Integration.objects.get(...)`, which raises the typed
-        # `Integration.DoesNotExist` when the OAuth connection row is gone. Surface an
+        # `IntegrationNotFound` when the OAuth connection row is gone. Surface an
         # actionable reconnect message instead of the raw ORM error.
         config = GoogleAdsSourceConfig(customer_id="1234567890", google_ads_integration_id=1)
         with mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads.google_ads_client",
-            side_effect=Integration.DoesNotExist(),
+            side_effect=IntegrationNotFound(),
         ):
             ok, message = GoogleAdsSource().validate_credentials(config, team_id=1)
 
@@ -1351,9 +1352,7 @@ class TestSearchFieldsTransientRetry:
         assert sleep.call_count == 0
 
 
-_INTEGRATION_GET_PATH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads.Integration.objects.get"
-)
+_INTEGRATION_GET_PATH = "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads.IntegrationManager.google_ads.oauth.get"
 _CLOSE_CONNECTIONS_PATH = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads.close_old_connections"
 )
@@ -1418,10 +1417,10 @@ class TestGetIntegrationDbResilience:
         assert sleep.call_args_list == [mock.call(2), mock.call(4), mock.call(6)]
 
     def test_missing_integration_is_not_retried(self):
-        get = mock.Mock(side_effect=Integration.DoesNotExist())
+        get = mock.Mock(side_effect=IntegrationNotFound("SDK text"))
 
         with mock.patch(_INTEGRATION_GET_PATH, get), mock.patch(_CLOSE_CONNECTIONS_PATH):
-            with pytest.raises(Integration.DoesNotExist):
+            with pytest.raises(IntegrationNotFound, match="^Integration not found: 1$"):
                 _get_integration(integration_id=1, team_id=2)
 
         # A deleted connection row is non-retryable elsewhere — don't mask it as a transient drop.
@@ -1522,6 +1521,60 @@ class TestGetOAuthAccountsNetworkErrorHandling:
 
             with pytest.raises(IntegrationAccountListingError):
                 source.get_oauth_accounts(1, 2)
+
+
+class TestGetOAuthAccountsPermissionErrors:
+    @pytest.mark.parametrize(
+        "body, expected",
+        [
+            (
+                '{"error": {"status": "PERMISSION_DENIED", "details": [{"reason": "ACCESS_TOKEN_SCOPE_INSUFFICIENT"}]}}',
+                "allow access to your Google Ads data",
+            ),
+            ('{"error": {"status": "PERMISSION_DENIED"}}', "Google rejected the credentials"),
+        ],
+    )
+    def test_forbidden_listing_names_the_fix(self, body, expected):
+        cache.clear()
+        integration = mock.Mock(errors=None, kind="google-ads", sensitive_config={"access_token": "token"})
+
+        with (
+            mock.patch.object(GoogleAdsSource, "get_oauth_integration", return_value=integration),
+            mock.patch(f"{_SOURCE_MODULE}.OauthIntegration") as mock_oauth,
+            mock.patch(
+                "posthog.models.integration.google_ads.requests.request",
+                return_value=mock.Mock(status_code=403, text=body),
+            ),
+        ):
+            mock_oauth.return_value.access_token_expired.return_value = False
+
+            with pytest.raises(IntegrationAccountListingError, match=expected):
+                GoogleAdsSource().get_oauth_accounts(1, 2)
+
+
+class TestGetOAuthAccountsQuotaExhausted:
+    def test_rate_limited_listing_is_actionable(self):
+        # A 429 RESOURCE_EXHAUSTED isn't retried automatically here, unlike the sync path's
+        # Temporal activity retries, so it must become the same actionable, catchable error the
+        # other listing failures raise rather than an unhandled 500.
+        cache.clear()
+        integration = mock.Mock(errors=None, kind="google-ads", sensitive_config={"access_token": "token"})
+        body = (
+            '{"error": {"status": "RESOURCE_EXHAUSTED", "message": "Resource has been exhausted (e.g. check quota)."}}'
+        )
+
+        with (
+            mock.patch.object(GoogleAdsSource, "get_oauth_integration", return_value=integration),
+            mock.patch(f"{_SOURCE_MODULE}.OauthIntegration") as mock_oauth,
+            mock.patch(
+                "posthog.models.integration.google_ads.requests.request",
+                return_value=mock.Mock(status_code=429, text=body),
+            ),
+        ):
+            mock_oauth.return_value.access_token_expired.return_value = False
+
+            with pytest.raises(IntegrationAccountListingError, match="rate-limited"):
+                GoogleAdsSource().get_oauth_accounts(1, 2)
 
 
 class _DrainClock:
@@ -1632,7 +1685,7 @@ class TestGoogleAdsQueryConstruction:
             "ORDER BY segments.date ASC"
         )
         assert all("2100-01-01" not in q for q in queries)
-        assert response.sort_mode == "asc"
+        assert response.sort_mode is None
 
     def test_lookback_overlap_cannot_consume_a_whole_run(self):
         # Spending the whole budget on lookback overlap leaves the cursor unmoved, so the next run
@@ -1819,6 +1872,34 @@ class TestGoogleAdsQueryConstruction:
             "WHERE segments.date >= '1970-01-01' AND segments.date < '2026-07-18' "
             "AND metrics.impressions > 0 ORDER BY segments.date ASC LIMIT 1"
         )
+
+    @pytest.mark.parametrize(
+        "skip_removed,expected_query",
+        [
+            (False, "SELECT ad_group_criterion.criterion_id FROM ad_group_criterion"),
+            (
+                True,
+                "SELECT ad_group_criterion.criterion_id FROM ad_group_criterion "
+                "WHERE ad_group_criterion.status != 'REMOVED'",
+            ),
+        ],
+    )
+    def test_skip_removed_filters_only_when_enabled(self, skip_removed: bool, expected_query: str) -> None:
+        table = GoogleAdsTable(
+            name="ad_group_criterion",
+            alias="ad_group_criterion",
+            columns=[_string_column("ad_group_criterion.criterion_id")],
+            parents=None,
+            requires_filter=False,
+            primary_key=["ad_group_criterion.criterion_id"],
+            should_sync_default=False,
+            description=None,
+            removed_filter="ad_group_criterion.status != 'REMOVED'",
+        )
+
+        _response, queries = self._run_source(table, skip_removed=skip_removed)
+
+        assert queries == [expected_query]
 
     def test_full_refresh_report_table_scans_the_full_range_without_windows(self):
         # A full-refresh pipeline persists no cursor, so a budgeted windowed drain restarts from

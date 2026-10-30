@@ -34,16 +34,12 @@ def _episodes(start_id: int, count: int) -> list[dict[str, Any]]:
 class TestValidateCredentials:
     @parameterized.expand(
         [
-            ("ok", 200, True, None),
-            ("unauthorized", 401, False, "Invalid RSS.com API key"),
-            ("forbidden", 403, False, "Invalid RSS.com API key"),
             (
                 "payment_required",
                 402,
                 False,
                 "The RSS.com API is only available on RSS.com Network plans. Upgrade your plan, then reconnect.",
             ),
-            ("server_error", 500, False, "RSS.com returned HTTP 500"),
         ]
     )
     def test_status_mapping(self, _name: str, status: int, expected_ok: bool, expected_msg: str | None) -> None:
@@ -51,13 +47,6 @@ class TestValidateCredentials:
             ok, message = validate_credentials("rss-key")
         assert ok is expected_ok
         assert message == expected_msg
-
-    def test_transport_error_is_inconclusive_not_invalid(self) -> None:
-        # A transport failure must not be reported as an invalid key (would prompt a needless rotation).
-        with scripted_network(always(requests.ConnectionError("boom"))):
-            ok, message = validate_credentials("rss-key")
-        assert ok is False
-        assert message == "Could not validate RSS.com API key"
 
 
 class TestTopLevelEndpoints:

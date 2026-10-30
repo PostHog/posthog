@@ -13,6 +13,7 @@ import psycopg2.extras
 from confluent_kafka import KafkaError, KafkaException
 from parameterized import parameterized
 
+from posthog.dags.personhog_shadow_drift import ShadowLaneStopConfig, stop_shadow_lane
 from posthog.dags.personhog_shadow_lane import (
     GROUP_ID_NOT_FOUND,
     NON_EMPTY_GROUP,
@@ -207,6 +208,77 @@ def test_start_leaves_consumers_down_while_a_processor_step_is_unready(
         start_shadow_lane(dagster.build_op_context(), config)
 
     assert apps.scales == [(SHADOW_PROCESSOR_DEPLOYMENT, 64)]
+
+
+class _StoppingAppsApi:
+    """A deployment scaled to zero keeps one pod for `linger_polls` pod-count polls, as a draining pod does."""
+
+    def __init__(self, linger_polls: int) -> None:
+        self.replicas = {SHADOW_CONSUMER_DEPLOYMENT: 4, SHADOW_PROCESSOR_DEPLOYMENT: 150}
+        self.linger = dict.fromkeys(self.replicas, 0)
+        self.linger_polls = linger_polls
+        self.scales: list[tuple[str, int]] = []
+        self.consumer_pods_at_scale: list[int] = []
+
+    def pods(self, name: str) -> int:
+        if self.replicas[name] > 0:
+            return self.replicas[name]
+        return 1 if self.linger[name] > 0 else 0
+
+    def pod_count(self, name: str) -> int:
+        count = self.pods(name)
+        if self.replicas[name] == 0 and self.linger[name] > 0:
+            self.linger[name] -= 1
+        return count
+
+    def patch_namespaced_deployment_scale(self, name: str, namespace: str, body: dict) -> None:
+        self.consumer_pods_at_scale.append(self.pods(SHADOW_CONSUMER_DEPLOYMENT))
+        self.replicas[name] = body["spec"]["replicas"]
+        self.linger[name] = self.linger_polls
+        self.scales.append((name, self.replicas[name]))
+
+
+@pytest.fixture
+def stopping_apps(monkeypatch: pytest.MonkeyPatch) -> Callable[..., _StoppingAppsApi]:
+    def install(linger_polls: int) -> _StoppingAppsApi:
+        apps = _StoppingAppsApi(linger_polls)
+        clock = _FakeClock()
+        monkeypatch.setattr("posthog.dags.personhog_shadow_lane.time", clock)
+        monkeypatch.setattr("posthog.dags.personhog_shadow_drift.apps_api", lambda: apps)
+        monkeypatch.setattr(
+            "posthog.dags.personhog_shadow_drift.deployment_pod_count",
+            lambda _apps, _namespace, name: apps.pod_count(name),
+        )
+        monkeypatch.setattr(
+            "posthog.dags.personhog_shadow_drift.wait_for_deployments",
+            partial(wait_for_deployments, sleep=clock.sleep),
+        )
+        return apps
+
+    return install
+
+
+def test_stop_scales_processors_only_after_the_consumer_pods_are_gone(
+    stopping_apps: Callable[..., _StoppingAppsApi],
+) -> None:
+    apps = stopping_apps(linger_polls=2)
+
+    # Each deployment drains in 20 s of polls, within its own 30 s budget; together they would exceed one.
+    stop_shadow_lane(dagster.build_op_context(), ShadowLaneStopConfig(stop_timeout_seconds=30))
+
+    assert apps.scales == [(SHADOW_CONSUMER_DEPLOYMENT, 0), (SHADOW_PROCESSOR_DEPLOYMENT, 0)]
+    assert apps.consumer_pods_at_scale == [4, 0]
+
+
+def test_stop_leaves_processors_up_while_a_consumer_pod_lingers(
+    stopping_apps: Callable[..., _StoppingAppsApi],
+) -> None:
+    apps = stopping_apps(linger_polls=100)
+
+    with pytest.raises(dagster.Failure, match="Pods still running"):
+        stop_shadow_lane(dagster.build_op_context(), ShadowLaneStopConfig(stop_timeout_seconds=30))
+
+    assert apps.scales == [(SHADOW_CONSUMER_DEPLOYMENT, 0)]
 
 
 class _FakeAppsApi:

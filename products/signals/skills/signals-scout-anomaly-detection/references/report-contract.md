@@ -82,7 +82,7 @@ characters behind a "Show more" toggle. Front-load, structure, no walls:
 Cite the insight and dashboard inline as markdown links so a human pivots straight to the
 source, and close by linking the notebook: "Full write-up with charts: [notebook](url)."
 The harness prompt (_Linking what you reference_) carries the link rule: reuse the url the
-returning tool attached (`notebooks-create` returns the notebook's), else `generate-app-url`.
+returning tool attached (`notebooks-create-markdown` returns the notebook's), else `generate-app-url`.
 Keep the title and the summary's first line plain text, because the inbox renders both as
 text: a link there shows up as literal markdown.
 
@@ -90,7 +90,7 @@ text: a link there shows up as literal markdown.
 
 The notebook stays the durable write-up, but attach the scored series to the report itself via
 `charts` too, so the inbox reader sees the break without leaving the report. Reuse the same
-widened-window node you embed in the notebook — but a `SavedInsightNode` only when the insight's
+pinned, widened query you chart in the notebook — but a `SavedInsightNode` only when the insight's
 saved range is **absolute** and contains both the baseline and the anomaly (a relative range
 like `-63d` shows them today and then slides until the anomaly scrolls off the durable report),
 else a widened ad-hoc `InsightVizNode` or `DataVisualizationNode` with pinned dates (and its
@@ -180,90 +180,96 @@ on a recurrence).
 
 ### Create it
 
-Call `notebooks-create` with a `title` and `content` (ProseMirror rich-text JSON). The response
-carries the new notebook's `short_id` and a clickable URL in `_posthogUrl` (the tool enriches the
-result with `/notebooks/{short_id}`) — surface that verbatim, don't hand-build it. If you ever
-need to build the link yourself, it is `generate-app-url` with `url=/notebooks/{shortId}`.
+Call `notebooks-create-markdown` with a `title` and an optional `markdown` body. The `markdown`
+body holds prose only (the quantified hook); add every chart as a cell afterwards. The response
+carries the notebook's short id in `notebook_id` and a clickable URL in `_posthogUrl`. Surface
+that URL verbatim, don't hand-build it. If you ever need to build the link yourself, it is
+`generate-app-url` with `url=/notebooks/{shortId}`.
+
+Then add the cells in reading order with `notebooks-add-cell`, passing the `notebook_id`. Each
+call appends at the end of the document, so no `after_node_id` is needed.
 
 - **Title** — name the metric, the direction, and the date, e.g.
-  `Anomaly: daily signups dropped ~60% (2026-06-06)`.
+  `Anomaly: daily signups dropped ~60% (2026-06-06)`. The tool writes it as the leading
+  `# heading`, so do not repeat it in `markdown`.
 - **One notebook per report** — never append a new anomaly to a prior run's notebook. A
   recurrence on a later day is a new notebook, linked from the `edit_report` note.
+
+`notebooks-create` (ProseMirror `content` with `ph-query` nodes) is retired. Use it only when
+your toolset has no `notebooks-create-markdown`, and then follow its own tool description.
 
 ### What goes in it
 
 Lead with the same hook the inbox sees, then the evidence the ~300-char preview can't hold:
 
 1. **Summary** — the quantified hook (bucket value vs baseline, robust z, priority), one or two
-   sentences. Same claim as the report summary, so the notebook stands alone.
-2. **The chart** — embed the anomalous series so the spike/drop is visible, with the window wide
-   enough (e.g. `-63d`) that the baseline _and_ the break are both on screen. A `SavedInsightNode`
-   renders the insight's own saved date range and carries no date override — so use it only when
-   that saved range already shows the baseline; if the insight is saved to a short window (often
-   `-7d`), embed an inline widened `DataVisualizationNode` (or `InsightVizNode`) for the scored
-   window instead.
+   sentences, in the `markdown` body of `notebooks-create-markdown`. Same claim as the report
+   summary, so the notebook stands alone.
+2. **The chart** — chart the anomalous series so the spike/drop is visible, with **pinned
+   absolute dates** wide enough (e.g. 63 days back from the scored bucket) that the baseline
+   _and_ the break are both on screen. A relative range like `-63d` slides, and the anomaly
+   scrolls off the durable write-up. A `saved_insight` cell renders the insight's own saved date
+   range with no override, so use it only when that saved range is absolute and shows the
+   baseline. Otherwise add a widened `Query` component or SQL cell for the scored window.
 3. **Baseline & method** — the seasonality-matched baseline (median + MAD per bucket), the
    z-score, which detector(s) `alert-simulate` fired, and that the partial bucket was excluded.
 4. **Attribution** — which breakdown segment(s) drove the move, and whether it's broad
    (regression) or one segment (often expected).
 5. **Hypothesis & next step** — suspected cause and what to check, matching the report summary.
 
-### Embedded-chart recipe
+### Cell recipe
 
-Charts are `{type: "ph-query", attrs: {nodeId: "<unique>", query: <query>}}` nodes inside
-`content`. `query` is one of:
+Give every non-markdown cell a short `title` that says what it shows. Markdown cells take no
+`title`; start them with a `##` heading instead.
 
-- **Embed the anomalous saved insight** —
-  `{kind: "SavedInsightNode", shortId: "<short_id>"}`. Renders the insight's _saved_ date range
-  (no override); fine when that range shows the baseline, otherwise prefer a widened node below.
-- **Chart a SQL-fallback series** —
-  `{kind: "DataVisualizationNode", source: {kind: "HogQLQuery", query: "SELECT ..."}, display: "ActionsLineGraph"}`.
-  Do **not** wrap a `HogQLQuery` in an `InsightVizNode`.
-- **Build an ad-hoc product-analytics chart** —
-  `{kind: "InsightVizNode", source: {kind: "TrendsQuery", ...}}`.
+| What                                  | `notebooks-add-cell` arguments                                                                                                                                                                            |
+| ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Prose section                         | `cell_type: "markdown"`, `markdown: "## Baseline & method\n\n- ..."`                                                                                                                                      |
+| Product analytics chart (pinned)      | `cell_type: "component"`, `tag_name: "Query"`, `props: {"query": {"kind": "InsightVizNode", "source": <TrendsQuery with an absolute dateRange>}}`                                                         |
+| HogQL series (the SQL-fallback score) | `cell_type: "sql"`, `code: "SELECT ..."` (pinned dates in the `WHERE`), `visualization: {"display": "ActionsLineGraph", "chartSettings": {"xAxis": {"column": "day"}, "yAxis": [{"column": "signups"}]}}` |
+| Saved insight (absolute range only)   | `cell_type: "saved_insight"`, `insight_short_id: "<short_id>"`                                                                                                                                            |
 
-Prefer embedding the saved insight you scored — it stays in sync with the source and is the thing
-the human will open next. Give each `ph-query` node a distinct `nodeId`.
+- **Query component.** `props.query` takes an `InsightVizNode` wrapping a `TrendsQuery`,
+  `FunnelsQuery`, `RetentionQuery`, `PathsQuery`, `StickinessQuery`, or `LifecycleQuery`. Copy the
+  scored insight's query and replace its `dateRange` with absolute `date_from` / `date_to`. Do
+  not put a `HogQLQuery` here; it is refused.
+- **SQL cell.** It runs as soon as you add it and returns the columns and a row preview. Read
+  the result and fix the query in place with `notebooks-update-cell` if it is wrong. Name the
+  axes in `chartSettings` with columns the query returns, and read `visualization_warnings` in
+  the response: a warning means the chart does not draw what you expect.
 
-`content` is a ProseMirror doc (use this skeleton). Text is
-`paragraph` / `heading` (with `attrs.level`) / `bulletList` → `listItem` → `paragraph`; charts are
-`ph-query` nodes. A minimal working shape:
+A minimal write-up, as four calls:
 
-```json
-{
-  "type": "doc",
-  "content": [
-    {
-      "type": "heading",
-      "attrs": { "level": 1 },
-      "content": [{ "type": "text", "text": "Anomaly: <metric> <direction> (<date>)" }]
-    },
-    { "type": "paragraph", "content": [{ "type": "text", "text": "<the quantified hook>" }] },
-    {
-      "type": "ph-query",
-      "attrs": { "nodeId": "scored-insight", "query": { "kind": "SavedInsightNode", "shortId": "<short_id>" } }
-    },
-    { "type": "heading", "attrs": { "level": 2 }, "content": [{ "type": "text", "text": "Baseline & method" }] },
-    {
-      "type": "bulletList",
-      "content": [
-        {
-          "type": "listItem",
-          "content": [
-            {
-              "type": "paragraph",
-              "content": [{ "type": "text", "text": "<baseline median + MAD, the z, partial bucket excluded>" }]
-            }
-          ]
-        }
-      ]
-    }
-  ]
-}
+```yaml
+# 1. notebooks-create-markdown
+title: 'Anomaly: daily signups dropped ~60% (2026-06-06)'
+markdown: 'Daily signups fell to 412 on 2026-06-06 against a same-weekday median of 1,048 (robust z = 4.8, P1).'
+# → notebook_id: aB12cD34, _posthogUrl: <notebook url>
+
+# 2. notebooks-add-cell
+notebook_id: aB12cD34
+cell_type: component
+tag_name: Query
+title: Daily signups, 2026-04-04 to 2026-06-06
+props:
+  query:
+    kind: InsightVizNode
+    source:
+      kind: TrendsQuery
+      interval: day
+      dateRange: { date_from: '2026-04-04', date_to: '2026-06-06T23:59:59' }
+      series: [{ kind: EventsNode, event: signed_up, math: total, custom_name: Signups }]
+
+# 3. notebooks-add-cell
+notebook_id: aB12cD34
+cell_type: markdown
+markdown: "## Baseline & method\n\n- 8-same-weekday median 1,048, MAD 95, robust z = 4.8.\n- Partial bucket for 2026-06-07 excluded."
+
+# 4. notebooks-add-cell (attribution and hypothesis, same shape as 3)
 ```
 
-For a SQL-fallback chart, swap the `ph-query` query for
-`{ "kind": "DataVisualizationNode", "source": { "kind": "HogQLQuery", "query": "SELECT ..." }, "display": "ActionsLineGraph" }`.
+For a SQL-fallback series, replace call 2 with a `sql` cell that selects the bucket and the value
+over the same pinned window, and set `visualization` as in the table.
 
 ### Clean up if the report doesn't surface
 
@@ -273,7 +279,7 @@ preflight gates and safety judge. If the report **did not surface** — `emit_re
 report created), or the safety judge suppressed it (`emitted=false`) — **delete the just-created
 notebook with `notebooks-destroy`** so a non-surfacing run leaves no orphan user-facing artifact.
 Only a notebook behind a surfaced report should survive the run. Skipping notebook _creation_ is
-acceptable only if `notebooks-create` fails — then author anyway and note the missing artifact in
+acceptable only if `notebooks-create-markdown` fails — then author anyway and note the missing artifact in
 the summary.
 
 ## Worked example
@@ -300,7 +306,7 @@ evidence:
       ±1.5 z. Latest complete day only; today's partial bucket excluded.
   - source_id: aB12cD34
     description: >
-      [Write-up](https://us.posthog.com/project/41233/notebooks/aB12cD34) with the -63d chart,
+      [Write-up](https://us.posthog.com/project/41233/notebooks/aB12cD34) with the pinned 63-day chart,
       the per-weekday baseline, and the segment attribution.
 summary: |
   Daily signups dropped to 412 yesterday (2026-06-06) against an ~1,048 same-weekday baseline (robust z = 4.8, MAD 95).

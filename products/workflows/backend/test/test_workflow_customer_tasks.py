@@ -301,11 +301,11 @@ class TestWorkflowCustomerTasks(APIBaseTest):
 
         # T2 is the joined parent row. Requiring a non-deprecated column off it keeps the check below
         # from passing vacuously if the join ever stops hydrating the parent.
-        parent_hydrating = [q["sql"] for q in context.captured_queries if 'T2."test_account_filters"' in q["sql"]]
+        parent_hydrating = [q["sql"] for q in context.captured_queries if '"T2"."test_account_filters"' in q["sql"]]
         assert parent_hydrating, "expected the create to hydrate the parent team through a join"
         for sql in parent_hydrating:
             for attr in DEPRECATED_ATTRS:
-                assert f'T2."{attr}"' not in sql, f"parent column {attr} was selected"
+                assert f'"T2"."{attr}"' not in sql, f"parent column {attr} was selected"
 
     def test_foreign_account_and_assignee_are_rejected(self) -> None:
         other_team = Team.objects.create(organization=self.organization, name="Other project")

@@ -8,6 +8,7 @@ class ManagedWarehouseBackfillPartition(TeamScopedRootMixin, UUIDModel):
     class Dataset(models.TextChoices):
         EVENTS = "events", "Events"
         PERSONS = "persons", "Persons"
+        GROUPS = "groups", "Groups"
 
     class Granularity(models.TextChoices):
         DAY = "day", "Day"

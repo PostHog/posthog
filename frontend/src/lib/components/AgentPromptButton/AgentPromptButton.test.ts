@@ -1,4 +1,7 @@
+import { MCP_INSTALL_COMMAND } from 'lib/components/MCPHint/constants'
+
 import {
+    buildAgentPrompt,
     buildClaudeCodeDeepLink,
     buildClaudeCodeWebLink,
     buildClaudeDesktopDeepLink,
@@ -42,6 +45,27 @@ describe('AgentPromptButton', () => {
         const link = build('a b/c?'.repeat(5_000))
         expect(link.length).toBeLessThanOrEqual(maxLength)
         expect(link.length).toBeGreaterThan(maxLength - 30)
+    })
+
+    const MCP_LINE = `If working with PostHog data would help with this task, use the PostHog MCP server in PostHog project 42. If the server is not connected, ask me to install it by running \`${MCP_INSTALL_COMMAND}\` in a terminal.`
+
+    it.each([
+        ['an external agent', 'cursor', false, 42, true, `Fix it\n\n${MCP_LINE}`],
+        ['the clipboard', 'clipboard', false, 42, true, `Fix it\n\n${MCP_LINE}`],
+        [
+            'an unknown project',
+            'cursor',
+            false,
+            null,
+            true,
+            `Fix it\n\n${MCP_LINE.replace(' in PostHog project 42', '')}`,
+        ],
+        ['PostHog AI', 'posthog-ai', false, 42, true, 'Fix it\n'],
+        ['raw content', 'cursor', true, 42, true, 'Fix it\n'],
+        ['a self-hosted instance', 'cursor', false, 42, false, 'Fix it\n'],
+    ] as const)('builds the prompt for %s', (_, agentKey, raw, projectId, isCloudOrDev, expected) => {
+        const action = { key: 'fix', label: 'Fix', buildPrompt: () => 'Fix it\n', raw }
+        expect(buildAgentPrompt(action, agentKey, projectId, isCloudOrDev)).toBe(expected)
     })
 
     it('does not split an emoji when it truncates a prompt at the cap', () => {

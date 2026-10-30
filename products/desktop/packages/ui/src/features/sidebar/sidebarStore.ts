@@ -37,6 +37,9 @@ interface SidebarStoreState {
   // The space session list's narrowing. Held here rather than in the list so a
   // space switch, which remounts the list, keeps what the user chose.
   channelItemFilters: ChannelItemFilters;
+  // Every source the user has selected, so the filter menu keeps offering a
+  // source after it is unchecked, even when no loaded task comes from it.
+  pickedChannelItemSources: string[];
   channelItemSort: ChannelItemSort;
   channelItemGrouping: ChannelItemGrouping;
   workSectionHeights: PreferredWorkSectionHeights;
@@ -101,6 +104,7 @@ export const useSidebarStore = create<SidebarStore>()(
       showInternal: false,
       taskTypeFilter: [...ALL_WORKSPACE_MODES],
       channelItemFilters: DEFAULT_SIDEBAR_CHANNEL_ITEM_FILTERS,
+      pickedChannelItemSources: [],
       channelItemSort: DEFAULT_CHANNEL_ITEM_SORT,
       channelItemGrouping: DEFAULT_CHANNEL_ITEM_GROUPING,
       workSectionHeights: {},
@@ -165,7 +169,16 @@ export const useSidebarStore = create<SidebarStore>()(
         })),
       setChannelsEnabled: (channelsEnabled) => set({ channelsEnabled }),
       setChannelItemFilters: (channelItemFilters) =>
-        set({ channelItemFilters }),
+        set((state) => ({
+          channelItemFilters,
+          pickedChannelItemSources: Array.from(
+            new Set([
+              ...state.pickedChannelItemSources,
+              ...state.channelItemFilters.sources,
+              ...channelItemFilters.sources,
+            ]),
+          ),
+        })),
       setChannelItemSort: (channelItemSort) => set({ channelItemSort }),
       setChannelItemGrouping: (channelItemGrouping) =>
         set({ channelItemGrouping }),
@@ -214,6 +227,7 @@ export const useSidebarStore = create<SidebarStore>()(
         showInternal: state.showInternal,
         taskTypeFilter: state.taskTypeFilter,
         channelItemFilters: state.channelItemFilters,
+        pickedChannelItemSources: state.pickedChannelItemSources,
         channelItemSort: state.channelItemSort,
         channelItemGrouping: state.channelItemGrouping,
         workSectionHeights: state.workSectionHeights,
@@ -234,6 +248,7 @@ export const useSidebarStore = create<SidebarStore>()(
           showInternal?: boolean;
           taskTypeFilter?: WorkspaceMode[];
           channelItemFilters?: Partial<ChannelItemFilters>;
+          pickedChannelItemSources?: string[];
           channelItemSort?: ChannelItemSort;
           channelItemGrouping?: ChannelItemGrouping;
           workSectionHeights?: PreferredWorkSectionHeights;
@@ -267,6 +282,9 @@ export const useSidebarStore = create<SidebarStore>()(
             ...current.channelItemFilters,
             ...persistedState.channelItemFilters,
           },
+          pickedChannelItemSources:
+            persistedState.pickedChannelItemSources ??
+            current.pickedChannelItemSources,
           channelItemSort:
             persistedState.channelItemSort ?? current.channelItemSort,
           channelItemGrouping:

@@ -21,6 +21,7 @@ import { InsightLogicProps } from '~/types'
 
 import { IssueActions } from 'products/error_tracking/frontend/components/IssueActions/IssueActions'
 import { issueQueryOptionsLogic } from 'products/error_tracking/frontend/components/IssueQueryOptions/issueQueryOptionsLogic'
+import { SuppressSimilarIssuesDialog } from 'products/error_tracking/frontend/components/SuppressSimilarIssues/SuppressSimilarIssuesDialog'
 import { IssueListTitleColumn, IssueListTitleHeader } from 'products/error_tracking/frontend/components/TableColumns'
 import { errorTrackingVolumeSparklineLogic } from 'products/error_tracking/frontend/components/VolumeSparkline/errorTrackingVolumeSparklineLogic'
 import {
@@ -185,6 +186,7 @@ export function IssuesList(): JSX.Element {
             >
                 <Query query={query} context={context} />
             </div>
+            <SuppressSimilarIssuesDialog />
         </BindLogic>
     )
 }

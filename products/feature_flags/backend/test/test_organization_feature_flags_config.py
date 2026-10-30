@@ -1,5 +1,4 @@
 from posthog.test.base import BaseTest
-from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -45,29 +44,19 @@ class TestOrganizationFeatureFlagsConfig(BaseTest):
 class TestFlagEvaluationsTableGate(BaseTest):
     @parameterized.expand(
         [
-            ("events_without_the_flag", FlagEvaluationsMode.EVENTS, False, False, False),
-            ("events_with_the_flag", FlagEvaluationsMode.EVENTS, True, False, True),
-            ("read_flag_evaluations_without_the_flag", FlagEvaluationsMode.READ_FLAG_EVALUATIONS, False, False, True),
-            (
-                "flag_evaluations_only_without_the_flag",
-                FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
-                False,
-                False,
-                True,
-            ),
-            ("no_config_row_without_the_flag", None, False, False, False),
+            ("events", FlagEvaluationsMode.EVENTS, False, False),
+            ("read_flag_evaluations", FlagEvaluationsMode.READ_FLAG_EVALUATIONS, False, True),
+            ("flag_evaluations_only", FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY, False, True),
+            ("no_config_row", None, False, False),
             (
                 "read_flag_evaluations_while_reads_are_forced_to_events",
                 FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
-                False,
                 True,
                 True,
             ),
         ]
     )
-    def test_table_is_enabled_by_the_organization_mode_or_the_flag(
-        self, _name, mode, flag_enabled, reads_forced_to_events, expected
-    ):
+    def test_table_is_enabled_by_the_organization_mode(self, _name, mode, reads_forced_to_events, expected):
         config = OrganizationFeatureFlagsConfig.objects.filter(organization=self.organization)
         if mode is None:
             config.delete()
@@ -76,7 +65,6 @@ class TestFlagEvaluationsTableGate(BaseTest):
 
         with (
             self.settings(DEBUG=False, E2E_TESTING=False),
-            patch("products.feature_flags.backend.facade.flags.feature_enabled_or_false", return_value=flag_enabled),
             override_instance_config("FLAG_EVALUATIONS_READS_FORCE_EVENTS", reads_forced_to_events),
         ):
             self.assertEqual(is_flag_evaluations_table_enabled(self.team), expected)

@@ -86,11 +86,16 @@ const NOTEBOOK_AI_PRESENCE_DEPARTURE_IDLE_MS = 5_000
 const NOTEBOOK_AI_PRESENCE_FADE_OUT_MS = 300
 
 type MarkdownNotebookV2Props = {
+    collapsedToolbarContainer?: HTMLElement | null
     debugOpen?: boolean
     onDebugOpenChange?: (isOpen: boolean) => void
 }
 
-export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNotebookV2Props): JSX.Element {
+export function MarkdownNotebookV2({
+    collapsedToolbarContainer,
+    debugOpen,
+    onDebugOpenChange,
+}: MarkdownNotebookV2Props): JSX.Element {
     const mountedNotebookLogic = useMountedLogic(notebookLogic)
     const {
         isEditable,
@@ -803,7 +808,9 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
                         canvasHeader={
                             jupyterMode ? (
                                 <>
-                                    {isEditable ? <NotebookJupyterToolbar /> : null}
+                                    {isEditable ? (
+                                        <NotebookJupyterToolbar collapsedContainer={collapsedToolbarContainer} />
+                                    ) : null}
                                     <NotebookVariablesBar />
                                 </>
                             ) : (

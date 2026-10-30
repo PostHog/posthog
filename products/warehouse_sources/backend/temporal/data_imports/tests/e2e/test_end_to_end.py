@@ -43,6 +43,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.models.event.util import format_clickhouse_timestamp
 from posthog.models.integration import Integration
 from posthog.models.team.team import Team
+from posthog.models.team.team_revenue_analytics_config import TeamRevenueAnalyticsConfig
 from posthog.temporal.common.shutdown import ShutdownMonitor, WorkerShuttingDownError
 from posthog.temporal.utils import ExternalDataWorkflowInputs
 
@@ -112,7 +113,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
     REFUND_RESOURCE_NAME as STRIPE_REFUND_RESOURCE_NAME,
     SUBSCRIPTION_RESOURCE_NAME as STRIPE_SUBSCRIPTION_RESOURCE_NAME,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.custom import InvoiceListWithAllLines
+from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.custom import (
+    CreditNoteListWithAllLines,
+    InvoiceListWithAllLines,
+)
 from products.warehouse_sources.backend.temporal.data_imports.tests.e2e.queue_replay import (
     PostgresQueueReplay,
     replay_v3_consumer,
@@ -414,7 +418,9 @@ async def _run(
         else:
             mock_run_scheduled.assert_called()
         mock_get_data_import_finished_metric.assert_called_with(
-            source_type=source_type, status=ExternalDataJobStatus.COMPLETED.lower()
+            source_type=source_type,
+            status=ExternalDataJobStatus.COMPLETED.lower(),
+            streak="none",
         )
 
         # Assert that app_metrics2 rows were emitted for the successful job — both
@@ -595,6 +601,7 @@ async def _execute_run(
         mock.patch.object(PostHogRESTClient, "paginate", mock_paginate_pages),
         mock.patch.object(ListObject, "auto_paging_iter", return_value=iter(mock_data_response)),
         mock.patch.object(InvoiceListWithAllLines, "auto_paging_iter", return_value=iter(mock_data_response)),
+        mock.patch.object(CreditNoteListWithAllLines, "auto_paging_iter", return_value=iter(mock_data_response)),
         override_settings(
             BUCKET_URL=f"s3://{BUCKET_NAME}",
             BUCKET_PATH=BUCKET_NAME,
@@ -690,9 +697,8 @@ async def test_stripe_charges(team, stripe_charge, mock_stripe_client):
         mock_data_response=stripe_charge["data"],
     )
 
-    # Get team from the DB to remove cached config value
-    team = await sync_to_async(Team.objects.get)(id=team.id)
-    assert team.revenue_analytics_config.notified_first_sync
+    config = await sync_to_async(TeamRevenueAnalyticsConfig.objects.get)(team_id=team.id)
+    assert config.notified_first_sync
 
 
 _ZENDESK_JOB_INPUTS: dict[str, str | dict[str, str]] = {

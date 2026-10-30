@@ -1,8 +1,10 @@
 import { useActions, useValues } from 'kea'
 
 import { LemonButton, LemonSegmentedButton, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { urls } from 'scenes/urls'
 
@@ -25,6 +27,7 @@ export function DashboardTemplateList(): JSX.Element {
         metricsDashboardReviewSceneLogic
     )
     const { setStatusFilter, analyzeProject } = useActions(metricsDashboardReviewSceneLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     return (
         <>
@@ -33,16 +36,28 @@ export function DashboardTemplateList(): JSX.Element {
                 description="Approve AI-generated metrics dashboards before projects see them."
                 resourceType={{ type: 'metrics' }}
                 actions={
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        onClick={analyzeProject}
-                        loading={analysisStartedLoading}
-                        tooltip="Look for new groups of metrics in this project, and generate dashboards for them."
-                        data-attr="metrics-dashboard-review-analyze"
-                    >
-                        Analyze this project
-                    </LemonButton>
+                    todayRailNav ? (
+                        <Button
+                            variant="outline"
+                            onClick={analyzeProject}
+                            loading={analysisStartedLoading}
+                            tooltip="Look for new groups of metrics in this project, and generate dashboards for them."
+                            data-attr="metrics-dashboard-review-analyze"
+                        >
+                            Analyze this project
+                        </Button>
+                    ) : (
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            onClick={analyzeProject}
+                            loading={analysisStartedLoading}
+                            tooltip="Look for new groups of metrics in this project, and generate dashboards for them."
+                            data-attr="metrics-dashboard-review-analyze"
+                        >
+                            Analyze this project
+                        </LemonButton>
+                    )
                 }
             />
             <LemonSegmentedButton

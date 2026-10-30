@@ -7,7 +7,7 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event
 from unittest.mock import patch
 
 from django.db import IntegrityError
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone as django_timezone
 
 from clickhouse_driver.errors import ServerException
@@ -21,6 +21,8 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.preaggregation.sql import DISTRIBUTED_PREAGGREGATION_RESULTS_TABLE
+from posthog.models.event.new_events_schema import new_events_schema_for_request
+from posthog.models.instance_setting import override_instance_config
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 
 from products.analytics_platform.backend.lazy_computation.computation_notifications import (
@@ -3511,9 +3513,28 @@ class TestIsNonRetryableError(BaseTest):
         assert is_non_retryable_error(error) is False
 
 
+_INSERT_LOAD_BALANCING_CASES = [
+    (LazyComputationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED, "in_order"),
+    (LazyComputationTable.EXPERIMENT_METRIC_EVENTS_PREAGGREGATED, None),
+    (LazyComputationTable.PREAGGREGATION_RESULTS, "in_order"),
+    (LazyComputationTable.MARKETING_TOUCHPOINTS_PREAGGREGATED, "in_order"),
+    (LazyComputationTable.MARKETING_CONVERSIONS_PREAGGREGATED, "in_order"),
+    (LazyComputationTable.MARKETING_COSTS_PREAGGREGATED, "in_order"),
+    (LazyComputationTable.WEB_OVERVIEW_PREAGGREGATED, "in_order"),
+    (LazyComputationTable.WEB_STATS_PREAGGREGATED, "in_order"),
+    (LazyComputationTable.WEB_STATS_PATHS_PREAGGREGATED, "in_order"),
+    (LazyComputationTable.WEB_VITALS_PATHS_PREAGGREGATED, "in_order"),
+    (LazyComputationTable.WEB_STATS_FRUSTRATION_PREAGGREGATED, "in_order"),
+    (LazyComputationTable.WEB_GOALS_PREAGGREGATED, "in_order"),
+    (LazyComputationTable.WEB_SESSIONS_DIMENSIONAL_PREAGGREGATED, "in_order"),
+    (LazyComputationTable.WEB_STATS_DIMENSIONAL_PREAGGREGATED, None),
+    (LazyComputationTable.WEB_BOUNCES_DIMENSIONAL_PREAGGREGATED, None),
+]
+
+
 class TestInsertSettings(BaseTest):
     def test_insert_settings_guarantee_read_your_writes(self):
-        settings = _get_insert_settings(self.team.pk)
+        settings = _get_insert_settings(self.team.pk, LazyComputationTable.PREAGGREGATION_RESULTS)
 
         # The executor marks jobs READY the moment the INSERT returns, which is only sound if
         # the distributed write is synchronous. Production profiles default to async, so this
@@ -3523,7 +3544,6 @@ class TestInsertSettings(BaseTest):
         # Quorum breakage (dead replica, stale ZK registration) must fail fast and fall back,
         # not hold the request for ClickHouse's 600s default quorum wait.
         assert settings["insert_quorum_timeout"] == PREAGGREGATION_INSERT_QUORUM_TIMEOUT_MS
-        assert settings["load_balancing"] == "in_order"
         assert settings["max_execution_time"] == HOGQL_INCREASED_MAX_EXECUTION_TIME
         assert "readonly" not in settings
 
@@ -3536,8 +3556,16 @@ class TestInsertSettings(BaseTest):
             f"products.analytics_platform.backend.lazy_computation.lazy_computation_executor.PREAGGREGATION_INSERT_QUORUM",
             "auto",
         ):
-            assert _get_insert_settings(self.team.pk)["insert_quorum"] == "auto"
-            assert _get_insert_settings(self.team.pk, read_after_write=False)["insert_quorum"] == 0
+            table = LazyComputationTable.PREAGGREGATION_RESULTS
+            assert _get_insert_settings(self.team.pk, table)["insert_quorum"] == "auto"
+            assert _get_insert_settings(self.team.pk, table, read_after_write=False)["insert_quorum"] == 0
+
+    @parameterized.expand(_INSERT_LOAD_BALANCING_CASES)
+    def test_insert_load_balancing_follows_the_read_table(self, table, expected_load_balancing):
+        assert _get_insert_settings(self.team.pk, table).get("load_balancing") == expected_load_balancing
+
+    def test_insert_load_balancing_cases_cover_every_table(self):
+        assert {table for table, _ in _INSERT_LOAD_BALANCING_CASES} == set(LazyComputationTable)
 
 
 class TestInsertSettingsAppliedToInserts(BaseTest):
@@ -3555,11 +3583,23 @@ class TestInsertSettingsAppliedToInserts(BaseTest):
 
     @parameterized.expand(
         [
-            ("default_read_after_write", {}, "auto"),
-            ("background_no_quorum", {"read_after_write": False}, 0),
+            ("default_read_after_write", {}, "auto", {}),
+            ("background_no_quorum", {"read_after_write": False}, 0, {}),
+            # Caller overrides must win over the defaults and over spill_to_disk's threshold.
+            (
+                "caller_settings_override_defaults",
+                {
+                    "spill_to_disk": True,
+                    "insert_settings": {"max_memory_usage": 7, "max_bytes_before_external_group_by": 3},
+                },
+                "auto",
+                {"max_memory_usage": 7, "max_bytes_before_external_group_by": 3},
+            ),
         ]
     )
-    def test_manual_insert_path_passes_insert_settings_to_clickhouse(self, _name, extra_kwargs, expected_quorum):
+    def test_manual_insert_path_passes_insert_settings_to_clickhouse(
+        self, _name, extra_kwargs, expected_quorum, expected_overrides
+    ):
         # The quorum constant is patched to its production value because TEST forces
         # it to 0, which would make both parameter rows assert the same settings.
         with (
@@ -3578,7 +3618,13 @@ class TestInsertSettingsAppliedToInserts(BaseTest):
                 time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
                 **extra_kwargs,
             )
-            expected_settings = _get_insert_settings(self.team.pk, **extra_kwargs)
+            expected_settings = _get_insert_settings(
+                self.team.pk,
+                LazyComputationTable.PREAGGREGATION_RESULTS,
+                spill_to_disk=extra_kwargs.get("spill_to_disk", False),
+                read_after_write=extra_kwargs.get("read_after_write", True),
+                overrides=extra_kwargs.get("insert_settings"),
+            )
 
         assert result.ready is True
         # Bind the assertion to the INSERT specifically, so the test doesn't break (or silently
@@ -3587,6 +3633,7 @@ class TestInsertSettingsAppliedToInserts(BaseTest):
         assert len(insert_calls) == 1  # one missing range -> one INSERT
         assert insert_calls[0].kwargs["settings"] == expected_settings
         assert insert_calls[0].kwargs["settings"]["insert_quorum"] == expected_quorum
+        assert insert_calls[0].kwargs["settings"].items() >= expected_overrides.items()
         # The coverage landed in this call, so quorum-skipping callers must not read it yet.
         assert result.freshly_built is True
 
@@ -3649,7 +3696,9 @@ class TestInsertSettingsAppliedToInserts(BaseTest):
             run_lazy_computation_insert(self.team, job, query_info)
 
         assert mock_execute.call_count == 1
-        assert mock_execute.call_args.kwargs["settings"] == _get_insert_settings(self.team.pk)
+        assert mock_execute.call_args.kwargs["settings"] == _get_insert_settings(
+            self.team.pk, LazyComputationTable.PREAGGREGATION_RESULTS
+        )
 
 
 class TestInsertsReportRowsWritten(BaseTest):
@@ -3777,6 +3826,22 @@ class TestExecuteOOMAndBudget(ClickhouseTestMixin, BaseTest):
         )
         assert result.ready is False
         assert result.memory_exceeded is True
+        assert result.capacity_rejected is False
+
+    def test_surfaces_capacity_rejected_on_too_many_simultaneous_queries(self):
+        def rejected_insert(_t, _j) -> None:
+            raise ServerException(message="Too many simultaneous queries", code=202)
+
+        result = LazyComputationExecutor().execute(
+            team=self.team,
+            query_info=self._query_info(),
+            start=datetime(2024, 1, 1, tzinfo=UTC),
+            end=datetime(2024, 1, 2, tzinfo=UTC),
+            run_insert=rejected_insert,
+        )
+        assert result.ready is False
+        assert result.capacity_rejected is True
+        assert result.memory_exceeded is False
 
     def test_oom_is_not_retried(self):
         calls: list = []
@@ -3895,3 +3960,72 @@ class TestCheckOnlyMode(BaseTest):
         result = self._execute(datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 3, tzinfo=UTC))
         assert result.ready is False
         assert time_mod.monotonic() - started < 5, "check-only must not block on pending jobs"
+
+
+class TestBuildsKeepTheirEventsTable(BaseTest):
+    INSERT_QUERY = TestInsertSettingsAppliedToInserts.INSERT_QUERY
+
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
+    def test_a_switched_persons_build_gets_a_job_of_its_own(self) -> None:
+        with (
+            override_instance_config("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA", False),
+            patch(
+                "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.sync_execute",
+                return_value=0,
+            ) as execute,
+        ):
+            legacy = ensure_precomputed(
+                team=self.team,
+                insert_query=self.INSERT_QUERY,
+                time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+                time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
+                ttl_seconds=7 * 24 * 60 * 60,
+            )
+            assert "events_json" not in execute.call_args.args[0]
+            with new_events_schema_for_request():
+                native = ensure_precomputed(
+                    team=self.team,
+                    insert_query=self.INSERT_QUERY,
+                    time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+                    time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
+                    ttl_seconds=7 * 24 * 60 * 60,
+                )
+            assert "events_json" in execute.call_args.args[0]
+        # The two builds read different tables, so neither may be served the other's rows.
+        assert set(legacy.job_ids).isdisjoint(native.job_ids)
+
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
+    def test_an_ast_build_prints_the_table_its_job_identity_names(self) -> None:
+        job = PreaggregationJob.objects.create(
+            team=self.team,
+            query_hash="test_hash",
+            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
+            status=PreaggregationJob.Status.PENDING,
+            expires_at=django_timezone.now() + timedelta(days=7),
+        )
+        query = parse_select(
+            self.INSERT_QUERY,
+            placeholders={
+                "time_window_min": ast.Constant(value=datetime(2024, 1, 1, tzinfo=UTC)),
+                "time_window_max": ast.Constant(value=datetime(2024, 1, 2, tzinfo=UTC)),
+            },
+        )
+        assert isinstance(query, ast.SelectQuery)
+        # The query that made the job pinned the legacy table, so the building person's cookie must not change
+        # what the build reads.
+        query_info = LazyComputationQuery(
+            query=query,
+            table=LazyComputationTable.PREAGGREGATION_RESULTS,
+            modifiers=HogQLQueryModifiers(useNewEventsSchema=False),
+        )
+        with (
+            override_instance_config("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA", False),
+            new_events_schema_for_request(),
+            patch(
+                "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.sync_execute",
+                return_value=0,
+            ) as execute,
+        ):
+            run_lazy_computation_insert(self.team, job, query_info)
+        assert "events_json" not in execute.call_args.args[0]

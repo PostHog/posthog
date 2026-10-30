@@ -16,7 +16,7 @@ import { ChartDisplayCategory } from '~/types'
 import { SelectableCard } from 'products/experiments/frontend/components/SelectableCard'
 
 import { experimentLogic } from '../experimentLogic'
-import { EXPOSURE_DEFAULT_EVENT, getActivationConfig } from '../exposureContract'
+import { EXPOSURE_DEFAULT_EVENT, getActivationConfig, resolveFilterTestAccounts } from '../exposureContract'
 import { commonActionFilterProps } from '../Metrics/Selectors'
 import { exposureConfigToSeries, seriesToExposureConfig } from '../utils'
 import { exposureCriteriaModalLogic } from './exposureCriteriaModalLogic'
@@ -238,10 +238,7 @@ export function ExposureCriteriaModal({ onSave }: ExposureCriteriaModalProps): J
                     </div>
                 </div>
                 <TestAccountFilterSwitch
-                    checked={(() => {
-                        const val = exposureCriteria?.filterTestAccounts
-                        return hasFilters ? !!val : false
-                    })()}
+                    checked={hasFilters && resolveFilterTestAccounts(exposureCriteria)}
                     onChange={(checked: boolean) => {
                         setExposureCriteria({
                             ...exposureCriteria,

@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -36,6 +37,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SonarCloudSource(ResumableSource[SonarCloudSourceConfig, SonarCloudResumeConfig]):
+    codebase_detection = detect(env=("^(SONAR_CLOUD|SONARCLOUD)_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -55,7 +58,7 @@ class SonarCloudSource(ResumableSource[SonarCloudSourceConfig, SonarCloudResumeC
             name=ExternalDataSourceType.SONARCLOUD,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Sonar Cloud",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your SonarQube Cloud user token and organization key to sync code-quality data into the PostHog Data warehouse.
 
 Generate a **user token** under **My Account → Security** in SonarQube Cloud, and find your **organization key** on your organization's homepage.

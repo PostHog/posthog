@@ -31,6 +31,20 @@ _MESSAGE_INFO_FIELDS: list[tuple[str, str]] = [
     ("lastOutboundMessageInfo", "lastOutboundMessageAt"),
 ]
 
+_ACTOR_FIELDS = ("createdBy", "updatedBy", "statusChangedBy", "markedAsSpamBy", "actor")
+# Null on most rows, so always split them into Type/Id columns rather than keep a null struct column.
+_NULLABLE_ACTOR_FIELDS = ("deletedBy", "archivedBy", "manuallyTriggeredBy")
+
+# (nested object, key inside it, flat column) — a null object still yields a null column.
+_NESTED_VALUE_FIELDS: list[tuple[str, str, str]] = [
+    ("accountOwner", "id", "accountOwnerId"),
+    ("parentLabelType", "id", "parentLabelTypeId"),
+    ("agent", "id", "agentId"),
+    ("channelDetails", "channelType", "channelType"),
+    ("template", "type", "templateType"),
+    ("template", "questionText", "templateQuestionText"),
+]
+
 
 def _datetime_to_plain_iso8601(value: datetime) -> str:
     """Serialize a datetime to an ISO-8601 format Plain accepts.
@@ -122,13 +136,24 @@ def _flatten_node(node: dict[str, Any]) -> dict[str, Any]:
             label.get("labelType", {}).get("name") for label in labels if label and label.get("labelType")
         ]
 
-    for actor_field in ["createdBy", "updatedBy", "statusChangedBy", "markedAsSpamBy", "actor"]:
-        if actor_field in flattened and isinstance(flattened[actor_field], dict):
-            actor = flattened.pop(actor_field)
-            flattened[f"{actor_field}Type"] = actor.get("actorType")
-            flattened[f"{actor_field}Id"] = (
-                actor.get("userId") or actor.get("machineUserId") or actor.get("customerId") or actor.get("systemId")
-            )
+    for actor_field in (*_ACTOR_FIELDS, *_NULLABLE_ACTOR_FIELDS):
+        if actor_field not in flattened:
+            continue
+        if not isinstance(flattened[actor_field], dict) and actor_field not in _NULLABLE_ACTOR_FIELDS:
+            continue
+        actor = flattened.pop(actor_field) or {}
+        flattened[f"{actor_field}Type"] = actor.get("actorType")
+        flattened[f"{actor_field}Id"] = (
+            actor.get("userId") or actor.get("machineUserId") or actor.get("customerId") or actor.get("systemId")
+        )
+
+    nested_sources = {src_field for src_field, _, _ in _NESTED_VALUE_FIELDS if src_field in flattened}
+    for src_field, key, dst_field in _NESTED_VALUE_FIELDS:
+        if src_field in nested_sources:
+            nested = flattened[src_field]
+            flattened[dst_field] = nested.get(key) if isinstance(nested, dict) else None
+    for src_field in nested_sources:
+        del flattened[src_field]
 
     for src_field, dst_field in _MESSAGE_INFO_FIELDS:
         if src_field in flattened:
@@ -378,6 +403,7 @@ def plain_source(
         partition_mode=endpoint_config.partition_mode,
         partition_format=endpoint_config.partition_format,
         partition_keys=endpoint_config.partition_keys,
+        sort_mode=endpoint_config.sort_mode,
     )
 
 

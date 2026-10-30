@@ -15,7 +15,9 @@ import { initKeaTests } from '~/test/init'
 
 import { INBOX_EVENTS } from '../inboxAnalytics'
 import {
+    appliedInboxSearch,
     buildSignalReportListOrdering,
+    buildSignalReportListSortParams,
     filterSearchParams,
     inboxFiltersLogic,
     InboxFilterState,
@@ -31,7 +33,7 @@ const DEFAULT_STATE: InboxFilterState = {
     scoutFilter: [],
     priorityFilter: [],
     stateFilter: ['monitoring', 'needs-decision'],
-    sortField: 'priority',
+    sortField: 'recommended',
     sortDirection: 'asc',
     searchQuery: '',
     createdWindow: null,
@@ -57,7 +59,26 @@ describe('inboxFiltersLogic', () => {
         })
 
         it('leads with the ranking field for a model sort', () => {
-            expect(buildSignalReportListOrdering('ranking_fixed', 'desc')).toBe('-ranking_fixed,status,-updated_at')
+            expect(buildSignalReportListOrdering('ranking_fix', 'desc')).toBe('-ranking_fix,status,-updated_at')
+        })
+
+        // The server ignores the `sort` preset whenever `ordering` is present.
+        it.each([
+            ['recommended', 'asc', { sort: 'recommended' }],
+            ['priority', 'asc', { ordering: 'priority,status,-updated_at' }],
+        ] as const)('sends %s:%s as %p', (field, direction, expected) => {
+            expect(buildSignalReportListSortParams(field, direction)).toEqual(expected)
+        })
+    })
+
+    describe('appliedInboxSearch', () => {
+        it.each([
+            ['', undefined],
+            [' ai ', undefined],
+            [' api ', 'api'],
+            ['checkout crash', 'checkout crash'],
+        ])('applies %p as %p', (input, expected) => {
+            expect(appliedInboxSearch(input)).toBe(expected)
         })
     })
 
@@ -98,6 +119,7 @@ describe('inboxFiltersLogic', () => {
                 { ...DEFAULT_STATE, scope: 'teammate:0199ed4a-5c03-0000-3220-df21df612e95' },
                 { scope: 'teammate:0199ed4a-5c03-0000-3220-df21df612e95' },
             ],
+            ['claimed-by-you scope only', { ...DEFAULT_STATE, scope: 'claimed-by-you' }, { scope: 'claimed-by-you' }],
             // An unchecked-everything selection means every state. It must survive the URL rewrite
             // that follows each toggle, or hydration would put the default selection straight back.
             ['an explicitly empty state selection', { ...DEFAULT_STATE, stateFilter: [] }, { state: 'all' }],
@@ -114,15 +136,16 @@ describe('inboxFiltersLogic', () => {
             expect(
                 parseFilterSearchParams({
                     scope: 'teammate:not-a-uuid',
-                    source: 'error_tracking,bogus_source',
+                    // `logs` has no entry in the old toolbar list, but the Source filter can offer it.
+                    source: 'error_tracking,logs,bogus_source',
                     priority: 'P9,P1',
-                    state: 'monitoring,bogus-state',
+                    state: 'monitoring,closed,bogus-state',
                     // priority:desc has a valid field and direction but is not one of the offered sort options.
                     sort: 'priority:desc',
                 })
             ).toEqual({
                 ...DEFAULT_STATE,
-                sourceProductFilter: ['error_tracking'],
+                sourceProductFilter: ['error_tracking', 'logs'],
                 priorityFilter: ['P1'],
                 stateFilter: ['monitoring'],
             })
@@ -130,13 +153,27 @@ describe('inboxFiltersLogic', () => {
 
         it.each([
             ['keeps a model sort for a user who can use it', 'ranking_action:desc', true, 'ranking_action', 'desc'],
-            ['falls back to the default sort for a user who cannot', 'ranking_action:desc', false, 'priority', 'asc'],
+            [
+                'falls back to the default sort for a user who cannot',
+                'ranking_action:desc',
+                false,
+                'recommended',
+                'asc',
+            ],
             [
                 'falls back to the default sort for a head the menu no longer offers',
                 'ranking_pr_merged:desc',
                 true,
-                'priority',
+                'recommended',
                 'asc',
+            ],
+            ['keeps an explicit Priority first from a shared link', 'priority:asc', false, 'priority', 'asc'],
+            [
+                'moves a link with the old Fix sort name to the current one',
+                'ranking_fixed:desc',
+                true,
+                'ranking_fix',
+                'desc',
             ],
         ] as const)('%s', (_name, sort, modelSortAvailable, sortField, sortDirection) => {
             expect(parseFilterSearchParams({ sort }, { modelSortAvailable })).toEqual({
@@ -197,10 +234,7 @@ describe('inboxFiltersLogic', () => {
 
         // The flat Reports list has no `?view=` sub-view, so a query change on it must attribute to
         // the `reports` tab and agree with the `tab` that `Inbox viewed` sends for the same visit.
-        it('attributes a redesigned Reports query change to the reports tab', async () => {
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_REDESIGN], {
-                [FEATURE_FLAGS.INBOX_REDESIGN]: true,
-            })
+        it('attributes a Reports query change to the reports tab', async () => {
             router.actions.push(urls.inbox('reports'))
             logic.actions.toggleState('needs-decision')
             await expectLogic(logic).toFinishAllListeners()
@@ -249,6 +283,60 @@ describe('inboxFiltersLogic', () => {
             })
         })
 
+        // The API combines `source_product` and `scout` as AND, so a leftover value from the other
+        // dimension would silently narrow the list to reports that match both.
+        it.each([
+            [{ kind: 'source_product', value: 'logs' }, ['logs'], [], 'logs', undefined],
+            [{ kind: 'scout', value: 'my-custom-scout' }, [], ['my-custom-scout'], undefined, 'my-custom-scout'],
+            [null, [], [], undefined, undefined],
+        ] as const)(
+            'replaces the whole source selection with %p and keeps the other filters',
+            (selection, sourceProductFilter, scoutFilter, sourceParam, scoutParam) => {
+                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_SOURCE_FILTER], {
+                    [FEATURE_FLAGS.INBOX_SOURCE_FILTER]: true,
+                })
+                logic.actions.setFilters({
+                    ...DEFAULT_STATE,
+                    sourceProductFilter: ['error_tracking', 'github'],
+                    scoutFilter: ['signals-scout-error-tracking'],
+                    priorityFilter: ['P1'],
+                    searchQuery: 'checkout',
+                })
+
+                logic.actions.setSourceFilter(selection)
+
+                expect(logic.values).toMatchObject({
+                    sourceProductFilter,
+                    scoutFilter,
+                    activeSourceProductFilter: sourceProductFilter,
+                    activeScoutFilter: scoutFilter,
+                    priorityFilter: ['P1'],
+                    searchQuery: 'checkout',
+                })
+                expect(router.values.searchParams.source).toBe(sourceParam)
+                expect(router.values.searchParams.scout).toBe(scoutParam)
+                expect(router.values.searchParams.priority).toBe('P1')
+            }
+        )
+
+        it('ignores a stored source selection while the flag is off and reloads when the flag changes', async () => {
+            logic.actions.setFilters({ ...DEFAULT_STATE, scoutFilter: ['my-custom-scout'] })
+
+            expect(logic.values).toMatchObject({
+                scoutFilter: ['my-custom-scout'],
+                activeScoutFilter: [],
+                hasActiveFilters: false,
+            })
+
+            await expectLogic(logic, () => {
+                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_SOURCE_FILTER], {
+                    [FEATURE_FLAGS.INBOX_SOURCE_FILTER]: true,
+                })
+            })
+                .toDispatchActions(['sourceFilterAvailabilityChanged'])
+                .toMatchValues({ activeScoutFilter: ['my-custom-scout'], hasActiveFilters: true })
+        })
+
         it.each([
             [
                 'keeps a stored model sort for staff with the flag',
@@ -256,36 +344,105 @@ describe('inboxFiltersLogic', () => {
                 true,
                 true,
                 'ranking_action',
+                'ranking_action',
                 'desc',
             ],
-            ['falls back to the default once the flag is off', 'ranking_action', false, true, 'priority', 'asc'],
-            ['falls back to the default for a non-staff user', 'ranking_action', true, false, 'priority', 'asc'],
+            // The reset reloads the lists, so rows loaded with the model sort do not stay on screen.
+            [
+                'resets the stored sort once the flag is off',
+                'ranking_action',
+                false,
+                true,
+                'recommended',
+                'recommended',
+                'asc',
+            ],
+            [
+                'keeps a stored model sort for a non-staff user with the flag',
+                'ranking_action',
+                true,
+                false,
+                'ranking_action',
+                'ranking_action',
+                'desc',
+            ],
             [
                 'falls back to the default for a stored head the menu no longer offers',
                 'ranking_pr_merged',
                 true,
                 true,
-                'priority',
+                'ranking_pr_merged',
+                'recommended',
                 'asc',
             ],
-        ] as const)('%s', (_name, storedSortField, flagOn, isStaff, activeSortField, activeSortDirection) => {
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_MODEL_SORT], {
-                [FEATURE_FLAGS.INBOX_MODEL_SORT]: true,
-            })
-            userLogic.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, is_staff: true })
-            // A sort persisted by an older build can name a head the type no longer lists.
-            logic.actions.setSort(storedSortField as InboxSortField, 'desc')
+        ] as const)(
+            '%s',
+            (_name, storedSortField, flagOn, isStaff, sortField, activeSortField, activeSortDirection) => {
+                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_MODEL_SORT], {
+                    [FEATURE_FLAGS.INBOX_MODEL_SORT]: true,
+                })
+                userLogic.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, is_staff: true })
+                // A sort persisted by an older build can name a head the type no longer lists.
+                logic.actions.setSort(storedSortField as InboxSortField, 'desc')
 
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_MODEL_SORT], {
-                [FEATURE_FLAGS.INBOX_MODEL_SORT]: flagOn,
-            })
-            userLogic.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, is_staff: isStaff })
+                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_MODEL_SORT], {
+                    [FEATURE_FLAGS.INBOX_MODEL_SORT]: flagOn,
+                })
+                userLogic.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, is_staff: isStaff })
 
-            expect(logic.values).toMatchObject({
-                sortField: storedSortField,
-                activeSortField,
-                activeSortDirection,
-            })
+                expect(logic.values).toMatchObject({
+                    sortField,
+                    activeSortField,
+                    activeSortDirection,
+                })
+            }
+        )
+    })
+
+    describe('stored sort migration', () => {
+        const STORAGE_PREFIX = 'scenes.inbox.logics.inboxFiltersLogic'
+        let logic: ReturnType<typeof inboxFiltersLogic.build>
+
+        beforeEach(() => {
+            localStorage.clear()
+            initKeaTests()
+            useMocks({ get: { '/api/projects/:team_id/signals/reports/available_reviewers/': () => [200, {}] } })
+        })
+
+        afterEach(() => {
+            logic.unmount()
+        })
+
+        it.each([
+            ['moves the old Priority first default to Recommended', 'priority', 'asc', null, 'recommended', 'asc'],
+            ['keeps a Priority first the user picked', 'priority', 'asc', true, 'priority', 'asc'],
+            ['keeps Newest first from before Recommended existed', 'created_at', 'desc', null, 'created_at', 'desc'],
+        ] as const)('%s', (_name, storedField, storedDirection, chosen, sortField, sortDirection) => {
+            localStorage.setItem(`${STORAGE_PREFIX}.sortField`, JSON.stringify(storedField))
+            localStorage.setItem(`${STORAGE_PREFIX}.sortDirection`, JSON.stringify(storedDirection))
+            if (chosen !== null) {
+                localStorage.setItem(`${STORAGE_PREFIX}.hasUserChosenSort`, JSON.stringify(chosen))
+            }
+            router.actions.push(urls.inbox())
+
+            logic = inboxFiltersLogic()
+            logic.mount()
+
+            expect(logic.values).toMatchObject({ sortField, sortDirection })
+            expect(router.values.searchParams.sort).toBe(
+                sortField === 'recommended' ? undefined : `${sortField}:${sortDirection}`
+            )
+        })
+
+        it('lets a shared link override the migration', () => {
+            localStorage.setItem(`${STORAGE_PREFIX}.sortField`, JSON.stringify('priority'))
+            localStorage.setItem(`${STORAGE_PREFIX}.sortDirection`, JSON.stringify('asc'))
+            router.actions.push(urls.inbox(), { sort: 'created_at:desc' })
+
+            logic = inboxFiltersLogic()
+            logic.mount()
+
+            expect(logic.values).toMatchObject({ sortField: 'created_at', sortDirection: 'desc' })
         })
     })
 })

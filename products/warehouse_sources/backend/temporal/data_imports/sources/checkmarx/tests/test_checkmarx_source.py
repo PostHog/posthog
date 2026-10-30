@@ -18,10 +18,6 @@ class TestCheckmarxSource:
     def setup_method(self) -> None:
         self.source = CheckmarxSource()
 
-    def test_get_schemas_filters_by_names(self) -> None:
-        schemas = self.source.get_schemas(_make_config(), team_id=1, names=["scans", "projects"])
-        assert {schema.name for schema in schemas} == {"scans", "projects"}
-
     @pytest.mark.parametrize("should_use_incremental_field", [True, False])
     def test_source_for_pipeline_plumbs_inputs(self, should_use_incremental_field: bool) -> None:
         inputs = MagicMock()

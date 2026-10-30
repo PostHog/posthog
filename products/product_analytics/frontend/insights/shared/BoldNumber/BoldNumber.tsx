@@ -14,9 +14,7 @@ import { percentage } from 'lib/utils/numbers'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { useInsightTooltip } from 'scenes/insights/useInsightTooltip'
 import { teamLogic } from 'scenes/teamLogic'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 
@@ -24,6 +22,9 @@ import { groupsModel } from '~/models/groupsModel'
 import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { ChartParams, TrendResult } from '~/types'
+
+import { InsightTooltip } from 'products/product_analytics/frontend/insights/shared/InsightTooltip/InsightTooltip'
+import { useInsightTooltip } from 'products/product_analytics/frontend/insights/shared/InsightTooltip/useInsightTooltip'
 
 import { Textfit } from './Textfit'
 
@@ -272,7 +273,7 @@ function BoldNumberComparison({
 }
 
 export function HogQLBoldNumber(): JSX.Element {
-    const { response, responseLoading, tabularData } = useValues(dataVisualizationLogic)
+    const { response, responseLoading, tableRows, getTableCell } = useValues(dataVisualizationLogic)
 
     if (!response || responseLoading) {
         return (
@@ -286,7 +287,7 @@ export function HogQLBoldNumber(): JSX.Element {
         )
     }
 
-    const formattedValue = tabularData[0]?.[0]?.formattedValue ?? null
+    const formattedValue = tableRows.length > 0 ? getTableCell(0, 0).formattedValue : null
     const directValue = Array.isArray(response) ? response[0]?.[0] : undefined
     const resultsValue = 'results' in response ? response.results?.[0]?.[0] : undefined
     const resultValue = 'result' in response ? response.result?.[0]?.[0] : undefined

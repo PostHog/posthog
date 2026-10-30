@@ -380,6 +380,170 @@ class TestEtsyTransport:
         assert len(result.rows) == PAGE_SIZE * 2
         assert _walk_requests(result)[1].param("offset") == str(PAGE_SIZE)
 
+    @time_machine.travel("2005-01-15", tick=False)
+    def test_payments_resolve_each_ledger_page_and_drop_payments_already_seen(self) -> None:
+        # A sale and its later refund are separate ledger entries for one payment, and a full
+        # refresh does not merge on the primary key, so a repeat would land as a duplicate row.
+        # A resumed attempt would start with no record of the payments already written, so the
+        # walk restarts instead and saves no cursor.
+        stale = EtsyResumeConfig(offset=PAGE_SIZE, window_start=ETSY_HISTORY_START, window_end=ETSY_HISTORY_START + 1)
+        result = _driver().run(
+            "payments",
+            route(
+                {
+                    "/oauth/token": [_scripted_token()],
+                    "/shops/1": [ScriptedResponse(json={"shop_id": 1, "created_timestamp": ETSY_HISTORY_START})],
+                    "/payment-account/ledger-entries": [
+                        _scripted_page(_rows(PAGE_SIZE, key="entry_id"), PAGE_SIZE + 2),
+                        _scripted_page(_rows(2, start=PAGE_SIZE, key="entry_id"), PAGE_SIZE + 2),
+                    ],
+                    "/ledger-entries/payments": [
+                        _scripted_page(_rows(2, start=1, key="payment_id"), 2),
+                        _scripted_page(_rows(2, start=2, key="payment_id"), 2),
+                    ],
+                }
+            ),
+            resume_state=stale,
+        )
+
+        assert result.raised is None
+        assert [row["payment_id"] for row in result.rows] == [1, 2, 3]
+        assert result.saved_states == []
+        ledger = [request for request in _walk_requests(result) if request.path.endswith("/ledger-entries")]
+        assert (ledger[0].param("min_created"), ledger[0].param("offset")) == (str(ETSY_HISTORY_START), "0")
+        lookups = [request for request in _get_requests(result) if request.path.endswith("/payments")]
+        assert [request.param("ledger_entry_ids") for request in lookups] == [
+            ",".join(str(i) for i in range(PAGE_SIZE)),
+            f"{PAGE_SIZE},{PAGE_SIZE + 1}",
+        ]
+
+    def test_listing_inventory_yields_a_row_per_product_and_splits_a_batch_etsy_rejects(self) -> None:
+        # Etsy 404s the whole batch when one listing is gone, which would otherwise fail every sync
+        # of a shop that deleted a listing mid-walk.
+        listing = {
+            "listing_id": 11,
+            "inventory": {
+                "products": [{"product_id": 1, "sku": "A"}, {"product_id": 2, "sku": "B"}],
+                "price_on_property": [200],
+            },
+        }
+        result = _driver().run(
+            "listing_inventory",
+            route(
+                {
+                    "/oauth/token": [_scripted_token()],
+                    "/shops/1/listings": [
+                        _scripted_page(_rows(2, start=10, key="listing_id"), 2),
+                        *[_scripted_page([], 0) for _ in range(len(LISTING_STATES) - 1)],
+                    ],
+                    "/listings/batch/inventory": [
+                        ScriptedResponse(status=404, json={"error": "Listing not found"}),
+                        ScriptedResponse(status=404, json={"error": "Listing not found"}),
+                        _scripted_page([listing], 1),
+                    ],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert result.rows == [
+            {"product_id": 1, "sku": "A", "price_on_property": [200], "listing_id": 11},
+            {"product_id": 2, "sku": "B", "price_on_property": [200], "listing_id": 11},
+        ]
+        assert [
+            request.param("listing_ids")
+            for request in _get_requests(result)
+            if request.path.endswith("/listings/batch/inventory")
+        ] == ["10,11", "10", "11"]
+
+    @parameterized.expand(
+        [
+            # A listing deleted after the listings page was read must not fail the sync.
+            ("deleted listing is skipped", 404, None),
+            ("missing scope still fails", 403, HTTPError),
+        ]
+    )
+    def test_listing_properties_fan_out_per_listing(
+        self, _name: str, middle_status: int, expected_error: Optional[type[Exception]]
+    ) -> None:
+        result = _driver().run(
+            "listing_properties",
+            route(
+                {
+                    "/oauth/token": [_scripted_token()],
+                    "/shops/1/listings": [
+                        _scripted_page(_rows(3, start=10, key="listing_id"), 3),
+                        *[_scripted_page([], 0) for _ in range(len(LISTING_STATES) - 1)],
+                    ],
+                    "/shops/1/listings/10/properties": [
+                        _scripted_page(
+                            [
+                                {"property_id": 200, "property_name": "Primary color", "values": ["Red"]},
+                                {"property_id": 46, "property_name": "Material", "values": ["Oak"]},
+                            ],
+                            2,
+                        )
+                    ],
+                    "/shops/1/listings/11/properties": [ScriptedResponse(status=middle_status, json={"error": "x"})],
+                    "/shops/1/listings/12/properties": [_scripted_page([], 0)],
+                }
+            ),
+        )
+
+        if expected_error is not None:
+            assert isinstance(result.raised, expected_error)
+            return
+        assert result.raised is None
+        # Etsy's response omits the listing id, and property ids repeat across listings, so the
+        # rows need it to stay unique.
+        assert result.rows == [
+            {"property_id": 200, "property_name": "Primary color", "values": ["Red"], "listing_id": 10},
+            {"property_id": 46, "property_name": "Material", "values": ["Oak"], "listing_id": 10},
+        ]
+
+    def test_listing_properties_resume_the_listings_walk(self) -> None:
+        result = _driver().run(
+            "listing_properties",
+            route(
+                {
+                    "/oauth/token": [_scripted_token()],
+                    "/shops/1/listings": [
+                        _scripted_page(_rows(1, start=10, key="listing_id"), PAGE_SIZE + 1),
+                        _scripted_page([], 0),
+                    ],
+                    "/shops/1/listings/10/properties": [_scripted_page([{"property_id": 200}], 1)],
+                }
+            ),
+            resume_state=EtsyResumeConfig(offset=PAGE_SIZE, listing_state="draft"),
+        )
+
+        assert result.raised is None
+        listing_pages = [request for request in _get_requests(result) if request.path.endswith("/listings")]
+        assert (listing_pages[0].param("state"), listing_pages[0].param("offset")) == ("draft", str(PAGE_SIZE))
+        assert result.rows == [{"property_id": 200, "listing_id": 10}]
+
+    def test_seller_taxonomy_flattens_the_tree_without_looking_up_a_shop(self) -> None:
+        tree: list[dict[str, Any]] = [
+            {
+                "id": 1,
+                "level": 0,
+                "parent_id": None,
+                "children": [{"id": 2, "level": 1, "parent_id": 1, "children": []}],
+            },
+            {"id": 3, "level": 0, "parent_id": None, "children": []},
+        ]
+        result = _driver(shop_id=None).run(
+            "seller_taxonomy_nodes",
+            route({"/oauth/token": [_scripted_token()], "/seller-taxonomy/nodes": [_scripted_page(tree, 2)]}),
+        )
+
+        assert result.raised is None
+        assert result.rows == [
+            {"id": 1, "level": 0, "parent_id": None},
+            {"id": 2, "level": 1, "parent_id": 1},
+            {"id": 3, "level": 0, "parent_id": None},
+        ]
+
     @parameterized.expand(
         [
             ("updated_timestamp", "min_last_modified"),

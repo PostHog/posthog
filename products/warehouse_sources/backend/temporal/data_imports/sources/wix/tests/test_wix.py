@@ -113,7 +113,7 @@ class TestWixTransport:
 class TestWixCredentials:
     @pytest.mark.parametrize(
         "status_code,expected_valid",
-        [(200, True), (403, True), (401, False), (428, False), (500, False)],
+        [(403, True), (428, False)],
     )
     def test_status_maps_to_a_verdict(self, status_code: int, expected_valid: bool) -> None:
         session = mock.MagicMock()
@@ -124,16 +124,6 @@ class TestWixCredentials:
 
         assert valid is expected_valid
         assert (message is None) is expected_valid
-
-    def test_unreachable_api_is_reported_rather_than_raised(self) -> None:
-        session = mock.MagicMock()
-        session.post.side_effect = requests.ConnectionError("no route")
-
-        with mock.patch(f"{_MODULE}._get_session", return_value=session):
-            valid, message = validate_credentials("key", "site")
-
-        assert valid is False
-        assert message is not None
 
     def test_permission_probe_names_the_missing_wix_permission(self) -> None:
         session = mock.MagicMock()

@@ -29,8 +29,7 @@ Date ranges include `date_from` and exclude `date_to`.
 
 Lists include all upload states by default. Prefer `statuses: "completed"` for a
 finished comparison; uploading and failed runs may be partial. Scorer history
-defaults to completed runs. An empty list means no matching stored experiments:
-legacy `$ai_evaluation` events are a separate source and are not imported by these tools.
+defaults to completed runs. An empty list means no matching stored experiments.
 
 Check suite, dataset source/identifier/revision, scorer version, and trial coverage
 before attributing a change to an application, model, or prompt revision. State which

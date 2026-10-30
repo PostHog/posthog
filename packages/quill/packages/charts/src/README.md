@@ -43,8 +43,22 @@ function MyChart() {
 }
 ```
 
-- `useChartTheme(opts?)` — React hook; re-reads the vars when the `class` / `theme`
-  attribute flips on `<html>` or `<body>`.
+`theme` is optional. A chart without it uses the nearest `ChartThemeProvider`, and
+without a provider it reads the vars itself. Set the theme once near the app root:
+
+```tsx
+import { ChartThemeProvider, useChartTheme } from '@posthog/quill-charts'
+
+function App() {
+  return <ChartThemeProvider value={useChartTheme()}>{/* … */}</ChartThemeProvider>
+}
+```
+
+- `useChartTheme(opts?)` — React hook; re-reads the vars when the `class`, `theme` or
+  `data-theme` attribute changes on `<html>` or `<body>`. All calls with the same
+  options share one observer and one theme object, so calling it in every chart is
+  cheap. A chart re-renders only when a theme value changes. Treat the result as
+  read-only, because other charts hold the same object.
 - `themeFromCssVars(opts?)` — one-shot, non-React read.
 - `DEFAULT_CHART_COLORS` — fallback palette used when the token vars aren't loaded
   (no quill-tokens stylesheet, or SSR). Without tokens loaded you get this palette,

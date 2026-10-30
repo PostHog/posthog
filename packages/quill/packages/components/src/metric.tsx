@@ -200,7 +200,10 @@ function MetricInner({
     className,
     dataAttr,
     children,
-}: Omit<MetricBaseProps, 'onError'> & { data?: number[]; series?: Series[] }): React.ReactElement | null {
+}: Omit<MetricBaseProps, 'onError'> & {
+    data?: number[]
+    series?: Series[]
+}): React.ReactElement | null {
     const sparklineData = data != null && data.length > 0 && theme != null ? data : null
     const lastIndex = sparklineData ? sparklineData.length - 1 : -1
 
@@ -323,24 +326,37 @@ function MetricInner({
 }
 
 /** Header row: title on the left, change pill (or anything) on the right. */
-export function MetricHeader({ className, ...props }: React.ComponentProps<'div'>): React.ReactElement {
-    return <div className={cn('flex items-start justify-between gap-2', className)} {...props} />
-}
+export const MetricHeader = React.forwardRef<HTMLDivElement, React.ComponentProps<'div'>>(function MetricHeader(
+    { className, ...props },
+    ref
+) {
+    return <div ref={ref} className={cn('flex items-start justify-between gap-2', className)} {...props} />
+})
 
-export function MetricTitle({ className, ...props }: React.ComponentProps<'div'>): React.ReactElement {
-    return <div className={cn('text-sm font-medium', className)} {...props} />
-}
+export const MetricTitle = React.forwardRef<HTMLDivElement, React.ComponentProps<'div'>>(function MetricTitle(
+    { className, ...props },
+    ref
+) {
+    return <div ref={ref} className={cn('text-sm font-medium', className)} {...props} />
+})
 
 /** Headline number. Follows the hovered sparkline point; pass `children` to render your own, or a
  *  `text-*` class to resize it (cn lets your size win over the default `text-4xl`). */
-export function MetricValue({ className, children, ...props }: React.ComponentProps<'div'>): React.ReactElement {
+export const MetricValue = React.forwardRef<HTMLDivElement, React.ComponentProps<'div'>>(function MetricValue(
+    { className, children, ...props },
+    ref
+) {
     const { headlineDisplay } = useMetric('MetricValue')
     return (
-        <div className={cn('min-w-0 truncate text-4xl font-bold tracking-tight tabular-nums', className)} {...props}>
+        <div
+            ref={ref}
+            className={cn('min-w-0 truncate text-4xl font-bold tracking-tight tabular-nums', className)}
+            {...props}
+        >
             {children ?? headlineDisplay}
         </div>
     )
-}
+})
 
 /** Change pill — a `Badge` (success/destructive by `goodDirection`, or the root's custom
  *  `positiveColor`/`negativeColor`) with a directional chevron. Renders nothing when there is no
@@ -358,7 +374,10 @@ export function MetricDelta({ className }: { className?: string }): React.ReactE
             // Dynamic user-configured colors can't be Tailwind classes; inline style wins over the variant.
             style={
                 change.colors != null
-                    ? { background: change.colors.background, color: change.colors.foreground }
+                    ? {
+                          background: change.colors.background,
+                          color: change.colors.foreground,
+                      }
                     : undefined
             }
             data-attr="metric-change-pill"
@@ -370,11 +389,10 @@ export function MetricDelta({ className }: { className?: string }): React.ReactE
     if (change.tooltip == null) {
         return badge
     }
-    // Badge isn't a forwardRef component, so it can't be the `render` target — anchor on a span.
     return (
         <TooltipProvider>
             <Tooltip>
-                <TooltipTrigger render={<span className="inline-flex" />}>{badge}</TooltipTrigger>
+                <TooltipTrigger render={badge} />
                 <TooltipContent>{change.tooltip}</TooltipContent>
             </Tooltip>
         </TooltipProvider>
@@ -382,22 +400,21 @@ export function MetricDelta({ className }: { className?: string }): React.ReactE
 }
 
 /** Caption under the headline. Renders nothing when empty; pass `children` to override. */
-export function MetricSubtitle({
-    className,
-    children,
-    ...props
-}: React.ComponentProps<'div'>): React.ReactElement | null {
+export const MetricSubtitle = React.forwardRef<HTMLDivElement, React.ComponentProps<'div'>>(function MetricSubtitle(
+    { className, children, ...props },
+    ref
+) {
     const { subtitle } = useMetric('MetricSubtitle')
     const content = children ?? subtitle
     if (content == null || content === '') {
         return null
     }
     return (
-        <div className={cn('text-sm opacity-60', className)} data-attr="metric-subtitle" {...props}>
+        <div ref={ref} className={cn('text-sm opacity-60', className)} data-attr="metric-subtitle" {...props}>
             {content}
         </div>
     )
-}
+})
 
 /** Sparkline, bled out to the card edges. Renders nothing when no series was supplied to the root. */
 export function MetricSparkline({

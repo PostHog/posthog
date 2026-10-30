@@ -14,6 +14,47 @@ import {
 } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
+const HogQLExpression = z.string()
+
+const AssistantEventsQuery = z
+    .object({
+        kind: z.literal('EventsQuery').default('EventsQuery'),
+        select: z.array(HogQLExpression).describe('Event columns as HogQL expressions.'),
+    })
+    .catchall(z.unknown())
+
+const AssistantDataTableNode = z
+    .object({
+        kind: z.literal('DataTableNode').default('DataTableNode'),
+        source: AssistantEventsQuery,
+    })
+    .catchall(z.unknown())
+
+const AssistantBareHogQLQuery = z
+    .object({
+        kind: z.literal('HogQLQuery').default('HogQLQuery'),
+        query: z.string().describe('The HogQL query to run.'),
+    })
+    .catchall(z.unknown())
+
+const AssistantBIVisualizationNode = z
+    .object({
+        config: z
+            .record(z.string(), z.unknown())
+            .describe('Complete worksheet configuration, including shelves and filters. Validated by the insight API.'),
+        kind: z.literal('BIVisualizationNode').default('BIVisualizationNode'),
+        source: AssistantBareHogQLQuery,
+    })
+    .catchall(z.unknown())
+
+const AssistantPieChartOptions = z.object({
+    hideAggregation: z.coerce.boolean().describe('Hide the total on a pie chart.').optional(),
+})
+
+const AssistantVizSpecificOptions = z.object({
+    ActionsPie: AssistantPieChartOptions.optional(),
+})
+
 const AssistantInsightVizNode = z.object({
     kind: z.literal('InsightVizNode').default('InsightVizNode'),
     source: z
@@ -21,6 +62,7 @@ const AssistantInsightVizNode = z.object({
         .describe(
             'Product analtycs query objects like TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery'
         ),
+    vizSpecificOptions: AssistantVizSpecificOptions.describe('Chart rendering options.').optional(),
 })
 
 const AssistantDataVisualizationBoxPlotSettings = z.object({
@@ -83,42 +125,54 @@ const PieChartSettings = z.object({
         .optional(),
 })
 
-const AssistantDataVisualizationAxisDisplaySettings = z.object({
-    color: z.string().describe('Custom color for this series as a hex string (e.g. `#1d4aff`).').optional(),
-    displayType: z
-        .enum(['auto', 'line', 'bar', 'area'])
-        .describe(
-            'Override how this individual series is rendered, independent of the chart-level `display` type. Use this to mix series types — e.g. plot one series as `bar` and overlay another as `line`. `auto` follows the chart-level display type.'
-        )
-        .optional(),
-    label: z
-        .string()
-        .describe('Custom label for this series, shown in the legend and tooltips instead of the column name.')
-        .optional(),
-    trendLine: z.coerce
-        .boolean()
-        .describe('Draw a linear trend line for this series. Only meaningful for line, bar, and area charts.')
-        .optional(),
-    yAxisPosition: z
-        .enum(['left', 'right'])
-        .describe('Which Y axis this numeric series should use. Use `right` for a secondary Y axis.')
-        .optional(),
-})
-
 const AssistantDataVisualizationAxisFormatting = z.object({
     decimalPlaces: z.coerce.number().describe('Number of decimal places to display.').optional(),
     prefix: z.string().describe('Text prepended to each value (e.g. `$`).').optional(),
     style: z
         .enum(['none', 'number', 'short', 'percent'])
         .describe(
-            'Number formatting style.\n- `none` — no formatting.\n- `number` — thousands separators (e.g. `1,234`).\n- `short` — abbreviated large numbers (e.g. `1.2k`, `3.4M`).\n- `percent` — multiply the value by 100 and append a `%` sign, so pass a 0-1 ratio (`a / b`, not `100.0 * a / b`). Never pair it with a `%` suffix, which renders `47.3%%`.'
+            '`none`: unformatted; `number`: thousands separators; `short`: abbreviations (1.2k, 3.4M). `percent`: multiplies by 100 and adds `%`. Pass a 0–1 ratio (`a / b`) and omit the `%` suffix to avoid doubling it.'
         )
         .optional(),
-    suffix: z
-        .string()
+    suffix: z.string().describe('Value suffix (e.g. ` ms`). Omit for `percent`, which adds `%`.').optional(),
+})
+
+const AssistantDataVisualizationColumnSettings = z.object({
+    formatting: AssistantDataVisualizationAxisFormatting.describe(
+        'Number-formatting settings for the values in this column.'
+    ).optional(),
+})
+
+const AssistantDataVisualizationColumn = z.object({
+    column: z.string().describe('Name of a column returned by the SQL query.'),
+    settings: AssistantDataVisualizationColumnSettings.describe(
+        'Optional number formatting for this column.'
+    ).optional(),
+})
+
+const AssistantDataVisualizationAxisDisplaySettings = z.object({
+    color: z.string().describe('Custom color for this series as a hex string (e.g. `#1d4aff`).').optional(),
+    displayType: z.enum(['auto', 'line', 'bar', 'area']).describe('Chart type. `auto` uses `display`.').optional(),
+    excludeFromTotal: z.coerce
+        .boolean()
         .describe(
-            'Text appended to each value (e.g. ` ms`). Leave unset when `style` is `percent`, which already appends the `%` sign.'
+            "Keep this series out of the tooltip's total row, e.g. a target line over stacked bars. A bar series still stacks, so set `displayType` to `line` for a series drawn over the stack."
         )
+        .optional(),
+    label: z.string().describe('Series label in legends and tooltips; replaces the column name.').optional(),
+    trendLine: z.coerce
+        .boolean()
+        .describe('Draw a linear trend line for this series. Only meaningful for line, bar, and area charts.')
+        .optional(),
+    valueLabels: z
+        .enum(['auto', 'show', 'hide'])
+        .describe(
+            'Per-series override of chart-level `showValuesOnSeries`. `show` labels this series even when the chart setting is off, `hide` leaves it unlabeled when the setting is on, `auto` follows the chart.'
+        )
+        .optional(),
+    yAxisPosition: z
+        .enum(['left', 'right'])
+        .describe('Which Y axis this numeric series should use. Use `right` for a secondary Y axis.')
         .optional(),
 })
 
@@ -179,7 +233,7 @@ const AssistantDataVisualizationChartSettings = z.object({
         .boolean()
         .describe('Stack bars to 100% of the total. Only meaningful with `ActionsStackedBar`.')
         .optional(),
-    xAxis: AssistantDataVisualizationAxis.describe(
+    xAxis: AssistantDataVisualizationColumn.describe(
         'Column used as the X axis. Typically a time bucket or categorical column, but `ScatterPlot` plots two measures against each other, so it needs a numeric column here too.'
     ).optional(),
     xAxisLabel: z.string().describe('Label rendered under the X axis.').optional(),
@@ -208,7 +262,7 @@ const AssistantDataVisualizationDisplayType = z.enum([
 
 const AssistantDataVisualizationTableSettings = z.object({
     columns: z
-        .array(AssistantDataVisualizationAxis)
+        .array(AssistantDataVisualizationColumn)
         .describe('Columns to display and their order. Omit to show every column returned by the query.')
         .optional(),
     pinnedColumns: z.array(z.string()).describe('Column names to pin to the left of the table.').optional(),
@@ -220,7 +274,7 @@ const AssistantDataVisualizationNode = z.object({
         'Chart configuration. Ignored when `display` is `ActionsTable` or `BoldNumber`.'
     ).optional(),
     display: AssistantDataVisualizationDisplayType.describe(
-        'Visualization type. Defaults to `ActionsTable` when omitted.\n\nGuidance:\n- Single-value result (one numeric column, one row) → `BoldNumber`.\n- Headline number with its change over time (KPI, scorecard) → `Metric`.\n- Time series → `ActionsLineGraph` or `ActionsAreaGraph`.\n- Parts of one whole → `ActionsPie`, `ActionsDonut` or `ActionsProportionBar`.\n- Categorical comparison → `ActionsBar` or `ActionsStackedBar`.\n- Ranking of categories by one value (top N, horizontal bars) → `ActionsBarValue`.\n- Two-dimensional aggregation → `TwoDimensionalHeatmap`.\n- Relationship between two numeric measures, one point per row → `ScatterPlot`.\n- Distribution summaries from pre-aggregated SQL rows → `BoxPlot` with `chartSettings.boxPlot`.\n- Otherwise → `ActionsTable`.'
+        'Chart type (default `ActionsTable`): `BoldNumber` = one value; `Metric` = KPI; `ActionsLineGraph` / `ActionsAreaGraph` = time series; `ActionsPie` / `ActionsDonut` / `ActionsProportionBar` = shares; `ActionsBar` / `ActionsStackedBar` = categories; `ActionsBarValue` = horizontal rankings; `TwoDimensionalHeatmap` = 2D aggregates; `ScatterPlot` = two measures; `BoxPlot` = distribution summaries with `chartSettings.boxPlot`.'
     ).optional(),
     kind: z.literal('DataVisualizationNode').default('DataVisualizationNode'),
     source: z.record(z.string(), z.unknown()).describe('HogQL query object that produces the rows to visualize.'),
@@ -241,24 +295,22 @@ const InsightNodeKind = z.enum([
     'WebOverviewQuery',
 ])
 
+const AssistantMetricsNodeKind = z.enum(['MetricsQuery', 'MetricsHistogramQuery'])
+
 const AssistantBareInsightQuery = z
     .object({
-        kind: InsightNodeKind,
-    })
-    .catchall(z.unknown())
-
-const AssistantBareHogQLQuery = z
-    .object({
-        kind: z.literal('HogQLQuery').default('HogQLQuery'),
-        query: z.string().describe('The HogQL query to run.'),
+        kind: z.union([InsightNodeKind, AssistantMetricsNodeKind]),
     })
     .catchall(z.unknown())
 
 const InsightQuery = z.union([
+    AssistantDataTableNode,
+    AssistantBIVisualizationNode,
     AssistantInsightVizNode,
     AssistantDataVisualizationNode,
     AssistantBareInsightQuery,
     AssistantBareHogQLQuery,
+    AssistantEventsQuery,
 ])
 
 const ElementsStatsRetrieveSchema = () => {
@@ -301,7 +353,7 @@ const InsightCreateSchema = () => {
             'Dashboard IDs this insight should belong to. This is a full replacement — always include all existing dashboard IDs when adding a new one.'
         ),
         description: InsightsCreateBody.shape['description'].describe(
-            'Human-readable summary of what the insight shows. Max 400 characters (longer values are rejected).'
+            'Optional, about 15 words. Omit if the name is enough. No change notes. Max 400 characters.'
         ),
     })
 }
@@ -349,7 +401,7 @@ const insightCreate = (): ToolBase<
         ]) as typeof result
         return withAgentNote(
             await withPostHogUrl(context, filtered, `/insights/${filtered.short_id}`),
-            'When you tell the user about this insight, name the display you chose and one or two other displays that also fit this query, in one short sentence, and offer to change it. If the user agrees, change it with insight-update. Suggest only displays that the insight kind supports and that fit the question:\n\n- Trends (`trendsFilter.display`): for change over time `ActionsLineGraph`, `ActionsAreaGraph`, `ActionsBar` or `ActionsUnstackedBar`; for totals per breakdown value or series `ActionsBarValue`, `ActionsPie` or `ActionsTable`; for one number `Metric` or `BoldNumber`, never with a breakdown or more than one series; `WorldMap` only for a `$geoip_country_code` breakdown.\n- Funnels (`funnelsFilter.funnelVizType`): `steps` for drop-off per step, `trends` for conversion over time, or `time_to_convert` for how long users take.\n- Retention (`retentionFilter.display`): `ActionsLineGraph` or `ActionsBar`.\n- Stickiness (`stickinessFilter.display`): `ActionsLineGraph`, `ActionsBar` or `ActionsAreaGraph`.\n- Lifecycle: stacked or side-by-side bars (`lifecycleFilter.stacked`).\n- SQL (`DataVisualizationNode` `display`): only displays that fit the columns the query returns.\n- Paths: suggest nothing.\n\nUse the chart names a person sees, such as "bar chart per category" or "line chart", not enum values or tool names. If the user named the chart they want, do not suggest others. If you create several insights in this task, give one short list of alternatives at the end, not one per insight.\n\nAfter creating a Trends, SQL (HogQL), Funnels or Metrics insight, call insight-query with the returned short_id, read the current value, and offer an alert when the metric is one someone would act on if it moved sharply (signups, active users, revenue, conversion rate, error or failure counts, latency). Name an actual number, never a placeholder such as X, for example "want me to alert you when daily signups drop below 400?". A count sitting at zero, such as errors or failures, is a strong case, so offer an upper bound of 1. Offer nothing when the insight returned no rows. When no absolute number fits and the insight supports it, offer a relative-change alert on a sudden increase or decrease. Skip metrics nobody acts on, such as raw pageview or event-volume counts, and skip high-cardinality breakdowns. Judge the metric, not the request. A newly created insight, or one the user just asked to see, is not throwaway for that reason. If the user already declined an alert in this conversation, do not offer again. If alert-create is unavailable, say nothing about alerts. Wait for the user to accept before creating an alert.\n'
+            'When you tell the user about this insight, name the display you chose and one or two other displays that also fit this query, in one short sentence, and offer to change it. If the user agrees, change it with insight-update. Suggest only displays that the insight kind supports and that fit the question:\n\n- Trends (`trendsFilter.display`): for change over time `ActionsLineGraph`, `ActionsAreaGraph`, `ActionsBar` or `ActionsUnstackedBar`; for totals per breakdown value or series `ActionsBarValue`, `ActionsPie` or `ActionsTable`; for one number `Metric` or `BoldNumber`, never with a breakdown or more than one series; `WorldMap` only for a `$geoip_country_code` breakdown.\n- Funnels (`funnelsFilter.funnelVizType`): `steps` for drop-off per step, `trends` for conversion over time, or `time_to_convert` for how long users take.\n- Retention (`retentionFilter.display`): `ActionsLineGraph` or `ActionsBar`.\n- Stickiness (`stickinessFilter.display`): `ActionsLineGraph`, `ActionsBar` or `ActionsAreaGraph`.\n- Lifecycle: stacked or side-by-side bars (`lifecycleFilter.stacked`).\n- SQL (`DataVisualizationNode` `display`): only displays that fit the columns the query returns.\n- Paths: suggest nothing.\n\nUse the chart names a person sees, such as "bar chart per category" or "line chart", not enum values or tool names. If the user named the chart they want, do not suggest others. If you create several insights in this task, give one short list of alternatives at the end, not one per insight.\n\nAfter creating a Trends, SQL (HogQL), Funnels or Metrics insight, call insight-query with the returned short_id, read the current value, and offer an alert when the metric is one someone would act on if it moved sharply (signups, active users, revenue, conversion rate, error or failure counts, latency). Name an actual number, never a placeholder such as X, for example "want me to alert you when daily signups drop below 400?". A count sitting at zero, such as errors or failures, is a strong case, so offer an upper bound of 1. Offer nothing when the insight returned no rows. When no absolute number fits and the insight supports it, offer a relative-change alert on a sudden increase or decrease. Skip metrics nobody acts on, such as raw pageview or event-volume counts, and skip high-cardinality breakdowns. Judge the metric, not the request. A newly created insight, or one the user just asked to see, is not throwaway for that reason. If the user already declined an alert in this conversation, do not offer again. If alert-create is unavailable, say nothing about alerts. Wait for the user to accept before creating an alert. After substantial visual changes, check the final saved insight once if browser access is already available. Skip browser checks for small edits.\n'
         )
     },
 })
@@ -447,7 +499,7 @@ const InsightUpdateSchema = () => {
                     'Dashboard IDs this insight should belong to. This is a full replacement — always include all existing dashboard IDs when adding a new one.'
                 ),
                 description: InsightsPartialUpdateBody.shape['description'].describe(
-                    'Human-readable summary of what the insight shows. Max 400 characters (longer values are rejected).'
+                    'Optional, about 15 words. Omit if the name is enough. No change notes. Max 400 characters.'
                 ),
             })
     )
@@ -602,6 +654,7 @@ const insightsList = (): ToolBase<
                 dashboards: params.dashboards,
                 date_from: params.date_from,
                 date_to: params.date_to,
+                display: params.display,
                 exclude_bi: params.exclude_bi,
                 favorited: params.favorited,
                 include_dashboards: params.include_dashboards,

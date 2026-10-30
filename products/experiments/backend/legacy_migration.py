@@ -9,6 +9,7 @@ from posthog.dataclasses import frozen
 from posthog.models.utils import convert_legacy_metric, convert_legacy_metrics
 
 from products.experiments.backend.experiment_saved_metric_service import ExperimentSavedMetricService
+from products.experiments.backend.facade.contracts import LegacyMigrationError
 from products.experiments.backend.metric_calculation.config import ExperimentCalculationSettings, stamp_calculation_keys
 from products.experiments.backend.metric_resolution import MetricRole
 from products.experiments.backend.models.experiment import (
@@ -22,10 +23,6 @@ from products.experiments.backend.models.experiment import (
 # original's feature flag, name, dates and results window. The rules v2 link and its snapshot
 # belong to the source flag's rule, and the rule id is globally unique, so a copy starts unlinked.
 _NOT_COPIED_FIELDS = ("id", "created_at", "key", "feature_flag_rule_id", "feature_flag_rule_snapshot")
-
-
-class LegacyMigrationError(Exception):
-    """Raised with a message meant for the person who asked for the migration."""
 
 
 @frozen
@@ -79,7 +76,7 @@ def migrate_experiment(
 ) -> ExperimentMigration:
     """Create a new-engine copy of a legacy experiment, or return the copy made earlier.
 
-    The original is left untouched and keeps its results. Both experiments point at the same
+    The original is left untouched. Both experiments point at the same
     feature flag, so the copy needs no new rollout.
 
     Legacy shared metrics have to be migrated too. With migrate_shared_metrics they are migrated

@@ -6,6 +6,7 @@
 123mail.cl
 123qwe.co.uk
 126.com
+139.com
 150ml.com
 15meg4free.com
 163.com
@@ -64,6 +65,7 @@ ace-of-base.com
 acmecity.com
 acmemail.net
 acninc.net
+addy.io
 adelphia.net
 adexec.com
 adfarrow.com
@@ -87,6 +89,7 @@ ajacied.com
 ak47.hu
 aknet.kg
 albawaba.com
+aleeas.com
 alex4all.com
 alexandria.cc
 algeria.com
@@ -125,6 +128,8 @@ animal.net
 animalhouse.com
 animalwoman.net
 anjungcafe.com
+anonaddy.com
+anonaddy.me
 anote.com
 another.com
 anotherwin95.com
@@ -177,6 +182,7 @@ atlanticbb.net
 atlaswebmail.com
 atlink.com
 ato.check.com
+atomicmail.io
 atozasia.com
 att.net
 att.net
@@ -309,6 +315,7 @@ bt.com
 btinternet.com
 btopenworld.co.uk
 buffymail.com
+bugcrowdninja.com
 bullsfan.com
 bullsgame.com
 bumerang.ro
@@ -588,6 +595,7 @@ dslextreme.com
 dubaimail.com
 dublin.com
 dublin.ie
+duck.com
 dunlopdriver.com
 dunloprider.com
 duno.com
@@ -628,6 +636,7 @@ elvis.com
 email-london.co.uk
 email.com
 email.cz
+email.de
 email.ee
 email.it
 email.nu
@@ -666,6 +675,7 @@ eqqu.com
 eramail.co.za
 eresmas.com
 eriga.lv
+erine.email
 erols.com
 estranet.it
 ethos.st
@@ -704,6 +714,7 @@ fastemail.us
 fastemailer.com
 fastermail.com
 fastimap.com
+fastmail.com
 fastmail.fm
 fastmailbox.net
 fastmessaging.com
@@ -931,6 +942,7 @@ gmx.de
 gmx.fr
 gmx.li
 gmx.net
+gmx.us
 gnwmail.com
 go.com
 go.ro
@@ -1002,6 +1014,7 @@ herediano.com
 heremail.com
 herono1.com
 hetnet.nl
+hey.com
 hey.to
 hhdevel.com
 highmilton.com
@@ -1037,18 +1050,24 @@ hotepmail.com
 hotfire.net
 hotletter.com
 hotmail.be
+hotmail.ca
 hotmail.co.il
+hotmail.co.jp
+hotmail.co.nz
 hotmail.co.uk
 hotmail.com
 hotmail.com.ar
 hotmail.com.br
 hotmail.com.mx
+hotmail.com.tr
 hotmail.de
 hotmail.es
 hotmail.fr
 hotmail.it
 hotmail.kg
 hotmail.kz
+hotmail.nl
+hotmail.no
 hotmail.ru
 hotpop.com
 hotpop3.com
@@ -1217,6 +1236,7 @@ katamail.com
 kayafmmail.co.za
 kbjrmail.com
 kcks.com
+keemail.me
 keg-party.com
 keko.com.ar
 kellychen.com
@@ -1283,15 +1303,21 @@ list.ru
 littleblueroom.com
 live.be
 live.ca
+live.cl
+live.cn
 live.co.uk
 live.com
 live.com.ar
 live.com.au
 live.com.mx
 live.de
+live.dk
 live.fr
+live.in
 live.it
+live.jp
 live.nl
+live.se
 liverpoolfans.com
 llandudno.com
 llangollen.com
@@ -1348,6 +1374,7 @@ mail.bulgaria.com
 mail.byte.it
 mail.co.za
 mail.com
+mail.de
 mail.ee
 mail.entrepeneurmag.com
 mail.freetown.com
@@ -2645,6 +2672,7 @@ mailbox.as
 mailbox.co.za
 mailbox.gr
 mailbox.hu
+mailbox.org
 mailbr.com.br
 mailc.net
 mailcan.com
@@ -2654,6 +2682,7 @@ mailcity.com
 mailclub.fr
 mailclub.net
 mailexcite.com
+mailfence.com
 mailforce.net
 mailftp.com
 mailgate.gr
@@ -2761,6 +2790,7 @@ mostlysunny.com
 motormania.com
 movemail.com
 movieluver.com
+mozmail.com
 mp4.it
 mr-potatohead.com
 mrpost.com
@@ -2797,6 +2827,7 @@ mystupidjob.com
 mythirdage.com
 myway.com
 myworldmail.com
+myyahoo.com
 n2.com
 n2business.com
 n2mail.com
@@ -2939,8 +2970,23 @@ ourbrisbane.com
 ournet.md
 outel.com
 outgun.com
+outlook.cl
+outlook.co.id
+outlook.co.nz
 outlook.com
+outlook.com.ar
+outlook.com.au
 outlook.com.br
+outlook.de
+outlook.es
+outlook.fr
+outlook.in
+outlook.it
+outlook.jp
+outlook.kr
+outlook.lv
+outlook.ph
+outlook.sa
 over-the-rainbow.com
 ownmail.net
 ozbytes.net.au
@@ -2958,6 +3004,10 @@ parsmail.com
 partlycloudy.com
 partynight.at
 parvazi.com
+passfwd.com
+passinbox.com
+passmail.com
+passmail.net
 passwordmail.com
 pathfindermail.com
 patmedia.net
@@ -2997,6 +3047,7 @@ plasa.com
 playersodds.com
 playful.com
 plusmail.com.br
+pm.me
 pmail.net
 pobox.com
 pobox.hu
@@ -3027,6 +3078,8 @@ postaccesslite.com
 postafree.com
 postaweb.com
 poste.it
+posteo.de
+posteo.net
 postinbox.com
 postino.ch
 postmark.net
@@ -3041,6 +3094,7 @@ press.co.jp
 priest.com
 primposta.com
 primposta.hu
+privaterelay.appleid.com
 pro.hu
 probemail.com
 prodigy.net
@@ -3053,6 +3107,8 @@ project2k.com
 prolaunch.com
 promessage.com
 prontomail.com
+proton.me
+protonmail.ch
 protonmail.com
 psi.net
 psv-supporter.com
@@ -3199,6 +3255,8 @@ sialkotian.com
 sialkotoye.com
 sify.com
 silkroad.net
+simplelogin.com
+simplelogin.fr
 sina.cn
 sina.com
 sinamail.com
@@ -3213,6 +3271,8 @@ sky.com
 skynet.be
 slamdunkfan.com
 slingshot.com
+slmail.me
+slmails.com
 slo.net
 slotter.com
 smapxsmap.net
@@ -3281,6 +3341,7 @@ starpower.net
 starspath.com
 start.com.au
 starting-point.com
+startmail.com
 startrekmail.com
 stealthmail.com
 stockracer.com
@@ -3491,6 +3552,11 @@ tsamail.co.za
 ttml.co.in
 tunisiamail.com
 turkey.com
+tuta.com
+tuta.io
+tutamail.com
+tutanota.com
+tutanota.de
 tvcablenet.be
 twinstarsmail.com
 tycoonmail.com
@@ -3601,6 +3667,7 @@ warrior.hu
 waumail.com
 wbdet.com
 wearab.net
+wearehackerone.com
 web-mail.com.ar
 web-police.com
 web.de
@@ -3635,6 +3702,7 @@ whoopymail.com
 wickedmail.com
 wideopenwest.com
 wildmail.com
+windowslive.com
 windrivers.net
 windstream.net
 wingnutz.com
@@ -3721,10 +3789,12 @@ yalla.com.lb
 yalook.com
 yam.com
 yandex.com
+yandex.kz
 yandex.ru
 yapost.com
 yawmail.com
 yclub.com
+yeah.net
 yebox.com
 yehaa.com
 yehey.com
@@ -3771,6 +3841,9 @@ zipmail.com.br
 zipmax.com
 zmail.ru
 zoho.com
+zohomail.com
+zohomail.com.au
+zohomail.in
 zonnet.nl
 zoominternet.net
 zubee.com

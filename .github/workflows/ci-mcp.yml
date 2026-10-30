@@ -32,7 +32,7 @@ permissions:
     pull-requests: read
 
 env:
-    # Manual cache-bust knob. Keep in sync with SCHEMA_CACHE_EPOCH in ci-backend.yml, which saves these caches on master pushes.
+    # Keep SCHEMA_CACHE_EPOCH in sync with .depot/workflows/ci-backend.yml so schema cache keys match.
     SCHEMA_CACHE_EPOCH: v2
     RUNS_ON_INTERNAL_PR: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
 
@@ -44,11 +44,14 @@ jobs:
         # every other job needs this one, and the gates treat skipped as success.
         # The merge queue's trunk-merge/** run is the gate, so skipping a draft
         # never weakens what protects master.
+        # Push and schedule runs only belong in this repo. Mirrors run CI on their own PRs only.
         if: >-
+            (github.repository == 'PostHog/posthog' || (github.event_name != 'push' && github.event_name != 'schedule')) && (
             github.event_name != 'pull_request'
             || github.event.pull_request.draft != true
             || startsWith(github.head_ref, 'trunk-merge/')
             || !contains(github.event.pull_request.labels.*.name, 'no-ci')
+            )
         name: Determine need to run MCP checks
         outputs:
             mcp: ${{ steps.filter.outputs.mcp || 'true' }}
@@ -64,7 +67,7 @@ jobs:
             # non-pytest Python change across the app triggers it.
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               id: app-token
-              if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+              if: github.repository == 'PostHog/posthog' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
               with:
                   client-id: ${{ vars.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
@@ -258,7 +261,7 @@ jobs:
 
     unit-tests:
         name: Unit Tests
-        runs-on: ubuntu-24.04
+        runs-on: depot-ubuntu-24.04-4
         timeout-minutes: 10
         needs: changes
         # Not on master push — master coverage comes from the hourly run (see `schedule`).
@@ -560,7 +563,7 @@ jobs:
                   if [ "$HEAD_AGE_SECONDS" -lt 86400 ]; then
                       echo "prefix_key=posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-" >> $GITHUB_OUTPUT
                   fi
-                  # Shared migration-set key. Must match ci-backend.yml's save-side computation byte for byte or it never hits.
+                  # Match the inputs and hashing in .depot/workflows/ci-backend.yml to find its schema dump.
                   MIG_FILES=$(git ls-tree -r --format='%(objectname) %(path)' "$MERGE_BASE" \
                       | grep -E '/migrations/[^/]+\.py$|^[0-9a-f]+ uv\.lock$' \
                       | grep -vE '/(clickhouse|async_migrations)/migrations/' \
@@ -683,7 +686,7 @@ jobs:
               run: bin/ci-wait-for-docker launch personhog-replica personhog-router
 
             - name: Seed test data
-              run: python manage.py generate_demo_data --n-clusters 10 --days-past 7 --days-future 0 --skip-materialization --skip-flag-sync --skip-user-product-list
+              run: python manage.py generate_demo_data --n-clusters 10 --days-past 7 --days-future 0 --skip-materialization --skip-flag-sync
 
             - name: Create API key and extract test IDs
               run: |
@@ -798,7 +801,8 @@ jobs:
         # A status function is required to commit regenerated snapshots even when unit-tests
         # failed (a snapshot mismatch fails that job). !cancelled() rather than always() so a
         # superseded run does not push a stale snapshot commit to the branch.
-        if: ${{ !cancelled() && (needs.changes.outputs.mcp == 'true' || needs.changes.outputs.mcp-typescript == 'true') && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.actor, '[bot]') && github.actor != 'posthog-bot' && !contains(github.actor, 'github-actions') }}
+        # The commit App is installed on PostHog/posthog only; the gate reads a skipped job as a pass.
+        if: ${{ !cancelled() && github.repository == 'PostHog/posthog' && (needs.changes.outputs.mcp == 'true' || needs.changes.outputs.mcp-typescript == 'true') && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.actor, '[bot]') && github.actor != 'posthog-bot' && !contains(github.actor, 'github-actions') }}
         permissions:
             contents: write
             pull-requests: write

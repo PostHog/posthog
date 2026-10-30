@@ -14,15 +14,19 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.exceptions import ValidationError
 
+from posthog.api.shared import UserBasicSerializer
 from posthog.models import Tag, User
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.test.warehouse_access import WAREHOUSE_ACCESS_CONTROL_FLAG, deny_warehouse_table_to_member
 
-from products.actions.backend.api.action import ActionStepJSONSerializer
+from products.actions.backend.api.action import ActionSerializer, ActionStepJSONSerializer
 from products.actions.backend.models.action import Action
 from products.actions.backend.models.selector_match_change import ActionSelectorMatchChange
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cohorts.backend.models.cohort import Cohort
+from products.experiments.backend.facade.testing import create_experiment
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
 from products.product_analytics.backend.facade.models import Insight
@@ -187,6 +191,28 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
         self.assertEqual(Action.objects.count(), count)
 
+    def test_cant_create_action_with_invalid_step_regex(self, *args):
+        count = Action.objects.count()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/actions/",
+            {
+                "name": "pricing pages",
+                "steps": [{"event": "$pageview", "url": "/pricing/\\d+\\", "url_matching": "regex"}],
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "invalid_input",
+                "detail": "Invalid regular expression: '/pricing/\\d+\\'",
+                "attr": "steps",
+            },
+        )
+        self.assertEqual(Action.objects.count(), count)
+
     def test_cant_create_action_with_whitespace_only_name(self, *args):
         count = Action.objects.count()
 
@@ -280,6 +306,9 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         action.refresh_from_db()
         assert action.name == "user signed up 2"
+
+        update_log = ActivityLog.objects.get(scope="Action", item_id=str(action.pk), activity="updated")
+        assert update_log.user == user
 
         # Assert analytics are sent
         patch_capture.assert_called_with(
@@ -480,7 +509,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.client.get(f"/api/projects/{self.team.id}/actions/")
 
         # No actions yet, so no tags prefetch query
-        with self.assertNumQueries(9), snapshot_postgres_queries_context(self):
+        with self.assertNumQueries(8), snapshot_postgres_queries_context(self):
             self.client.get(f"/api/projects/{self.team.id}/actions/")
 
         Action.objects.create(
@@ -490,7 +519,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
 
         # With actions, there's an extra tags prefetch query
-        with self.assertNumQueries(10), snapshot_postgres_queries_context(self):
+        with self.assertNumQueries(9), snapshot_postgres_queries_context(self):
             self.client.get(f"/api/projects/{self.team.id}/actions/")
 
         Action.objects.create(
@@ -499,7 +528,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             created_by=User.objects.create_and_join(self.organization, "b", ""),
         )
 
-        with self.assertNumQueries(10), snapshot_postgres_queries_context(self):
+        with self.assertNumQueries(9), snapshot_postgres_queries_context(self):
             self.client.get(f"/api/projects/{self.team.id}/actions/")
 
     @parameterized.expand(
@@ -739,16 +768,15 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert data[0]["name"] == "Legacy insight"
 
     def test_references_returns_experiment_using_action(self):
-        from products.experiments.backend.models.experiment import Experiment
         from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
         action = Action.objects.create(team=self.team, name="test action", steps_json=[{"event": "$pageview"}])
         flag = FeatureFlag.objects.create(team=self.team, key="exp-flag", created_by=self.user)
-        exp = Experiment.objects.create(
-            team=self.team,
+        experiment_id = create_experiment(
+            team_id=self.team.id,
             name="My experiment",
-            created_by=self.user,
-            feature_flag=flag,
+            created_by_id=self.user.id,
+            feature_flag_id=flag.id,
             metrics=[
                 {
                     "kind": "ExperimentTrendsQuery",
@@ -765,7 +793,8 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert len(data) == 1
         assert data[0]["type"] == "experiment"
         assert data[0]["name"] == "My experiment"
-        assert data[0]["url"] == f"/experiments/{exp.id}"
+        assert data[0]["url"] == f"/experiments/{experiment_id}"
+        assert data[0]["created_by"] == UserBasicSerializer(self.user).data
 
     def test_references_returns_cohort_using_action(self):
         action = Action.objects.create(team=self.team, name="test action", steps_json=[{"event": "$pageview"}])
@@ -838,16 +867,15 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert response.json() == []
 
     def test_references_does_not_return_deleted_experiments(self):
-        from products.experiments.backend.models.experiment import Experiment
         from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
         action = Action.objects.create(team=self.team, name="test action", steps_json=[{"event": "$pageview"}])
         flag = FeatureFlag.objects.create(team=self.team, key="deleted-exp-flag", created_by=self.user)
-        Experiment.objects.create(
-            team=self.team,
+        create_experiment(
+            team_id=self.team.id,
             name="Deleted experiment",
-            created_by=self.user,
-            feature_flag=flag,
+            created_by_id=self.user.id,
+            feature_flag_id=flag.id,
             deleted=True,
             metrics=[
                 {
@@ -991,7 +1019,6 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert counts[action_without_refs.id] == 0
 
     def test_include_reference_count_counts_across_all_resource_types(self):
-        from products.experiments.backend.models.experiment import Experiment
         from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
         action = Action.objects.create(team=self.team, name="widely used action", steps_json=[{"event": "$pageview"}])
@@ -1009,11 +1036,11 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
 
         flag = FeatureFlag.objects.create(team=self.team, key="bulk-count-flag", created_by=self.user)
-        Experiment.objects.create(
-            team=self.team,
+        create_experiment(
+            team_id=self.team.id,
             name="Experiment ref",
-            created_by=self.user,
-            feature_flag=flag,
+            created_by_id=self.user.id,
+            feature_flag_id=flag.id,
             metrics=[
                 {
                     "kind": "ExperimentTrendsQuery",
@@ -1058,6 +1085,29 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         results = response.json()["results"]
         action_result = next(r for r in results if r["id"] == action.id)
         assert action_result["reference_count"] == 4
+
+
+class TestActionStepRegexValidation(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (f"{field}_{case}", field, matching, value, expect_valid)
+            for field in ("url", "href", "text")
+            for case, matching, value, expect_valid in (
+                ("trailing_backslash", "regex", "/pricing/\\d+\\", False),
+                # Python's re accepts a lookahead, so this case fails if the check stops using RE2.
+                ("lookahead", "regex", "/pricing/(?=annual)", False),
+                ("valid_regex", "regex", "/pricing/\\d+", True),
+                ("contains_is_not_a_regex", "contains", "/pricing/\\d+\\", True),
+            )
+        ]
+    )
+    def test_validates_step_regex(self, _name: str, field: str, matching: str, value: str, expect_valid: bool) -> None:
+        steps = [{"event": "$autocapture", field: value, f"{field}_matching": matching}]
+        if expect_valid:
+            self.assertEqual(ActionSerializer().validate_steps(steps), steps)
+        else:
+            with self.assertRaisesMessage(ValidationError, "Invalid regular expression"):
+                ActionSerializer().validate_steps(steps)
 
 
 class TestSelectorWarning(SimpleTestCase):

@@ -37,9 +37,6 @@ from products.tasks.backend.constants import (
     DEFAULT_SANDBOX_WORKING_DIR,
     DEV_STACK_IMAGE_NAME,
     SANDBOX_REPOSITORIES_ROOT,
-    SNAPSHOT_KIND_DIRECTORY,
-    SNAPSHOT_KIND_FILESYSTEM,
-    SnapshotKind,
 )
 from products.tasks.backend.logic.services.local_skills import BUNDLED_SKILLS_PATHS, ENV_DISABLE_BUNDLED_SKILLS
 from products.tasks.backend.logic.services.sandbox_config import (
@@ -50,6 +47,7 @@ from products.tasks.backend.logic.services.sandbox_config import (
     SANDBOX_TTL_SECONDS,
     VM_SANDBOX_CPU_CORES,
 )
+from products.tasks.backend.logic.services.startup_failure import raise_startup_failure
 
 if TYPE_CHECKING:
     from products.tasks.backend.temporal.process_task.utils import McpServerConfig
@@ -217,7 +215,7 @@ class SandboxConfig(BaseModel):
     environment_variables: dict[str, str] | None = None
     snapshot_id: str | None = None
     snapshot_external_id: str | None = None
-    snapshot_kind: SnapshotKind = SNAPSHOT_KIND_FILESYSTEM
+    resume_snapshot_external_id: str | None = None
     snapshot_mount_path: str | None = None
     snapshot_source: str = "none"
     snapshot_restored: bool = False
@@ -278,18 +276,22 @@ class SandboxConfig(BaseModel):
             return self.dev_stack_present
         return self.custom_image_name == DEV_STACK_IMAGE_NAME
 
+    @property
+    def applies_dev_stack_floors(self) -> bool:
+        return self.is_dev_stack_image and self.workload == SandboxWorkload.DEFAULT
+
     @model_validator(mode="after")
     def _enforce_dev_stack_memory_floor(self) -> Self:
-        if self.is_dev_stack_image:
+        if self.applies_dev_stack_floors:
             self.memory_gb = max(self.memory_gb, DEV_STACK_MEMORY_GB)
         return self
 
     @property
     def effective_cpu_request_cores(self) -> float:
         """CPU floor the provider actually reserves when burstable: the configured request,
-        raised to the dev-stack image floor, clamped to the limit."""
+        raised to the dev-stack floor on default-workload boxes, clamped to the limit."""
         floor = float(self.cpu_request_cores)
-        if self.is_dev_stack_image:
+        if self.applies_dev_stack_floors:
             floor = max(floor, DEV_STACK_CPU_REQUEST_CORES)
         return min(floor, float(self.cpu_cores))
 
@@ -373,10 +375,8 @@ def build_agent_runtime_env_prefix(
     event_ingest_token: str | None = None,
     task_run_session_token: str | None = None,
     event_ingest_url: str | None = None,
-    event_ingest_keep_stream_open: bool = False,
     rtk_enabled: bool = True,
     benjamin_enabled: bool = False,
-    peer_messaging: bool = False,
     pi_acp_conversation: bool = False,
     unset_bedrock: bool = False,
 ) -> str:
@@ -400,16 +400,12 @@ def build_agent_runtime_env_prefix(
         "POSTHOG_TASK_RUN_SESSION_TOKEN": task_run_session_token,
         "POSTHOG_TASK_RUN_EVENT_INGEST_URL": event_ingest_url,
         "POSTHOG_TASK_RUN_EVENT_INGEST_KEEP_STREAM_OPEN": (
-            "true" if event_ingest_keep_stream_open else "false" if settings.DEBUG and not event_ingest_url else None
+            "false" if settings.DEBUG and not event_ingest_url else "true"
         ),
         # Set explicitly in both states: "0" opts the run out, "1" pins auto-detection on
         # even if a stale env value survives in a resumed sandbox.
         "POSTHOG_RTK": "1" if rtk_enabled else "0",
         "POSTHOG_BENJAMIN": "1" if benjamin_enabled else "0",
-        # Exposure gate for the peer-messaging tools (PR: agent peer messaging). Set in
-        # both states so a stale "1" in a resumed sandbox can't outlive a flag rollback;
-        # the peers endpoints re-check authorization server-side regardless.
-        "POSTHOG_AGENT_PEER_MESSAGING": "1" if peer_messaging else "0",
         "POSTHOG_PI_CONVERSATION_FORMAT": "acp" if pi_acp_conversation else "pi",
     }
     assignments = " ".join(
@@ -443,7 +439,10 @@ def build_bundled_skills_clear_command() -> str:
     vars, but the container environment still holds the value the launcher set.
     """
     paths = " ".join(shlex.quote(path) for path in BUNDLED_SKILLS_PATHS)
-    return f'if [ "${ENV_DISABLE_BUNDLED_SKILLS}" = "1" ]; then rm -rf {paths} && mkdir -p {paths}; fi'
+    return (
+        "export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin; "
+        f'if [ "${ENV_DISABLE_BUNDLED_SKILLS}" = "1" ]; then /usr/bin/rm -rf {paths} && /usr/bin/mkdir -p {paths}; fi'
+    )
 
 
 def build_agent_server_capability_probe(capability: str) -> str:
@@ -492,6 +491,9 @@ class SandboxBase(ABC):
     @abstractmethod
     def execute(self, command: str, timeout_seconds: int | None = None) -> ExecutionResult: ...
 
+    def execute_in_task_filesystem(self, command: str, timeout_seconds: int | None = None) -> ExecutionResult:
+        return self.execute(command, timeout_seconds=timeout_seconds)
+
     @abstractmethod
     def execute_stream(self, command: str, timeout_seconds: int | None = None) -> ExecutionStream: ...
 
@@ -529,16 +531,15 @@ class SandboxBase(ABC):
         # its author code execution with another member's secrets. Two checks:
         #   - the reserved name (user images always publish as posthog-sandbox-custom-*),
         #     with the absolute path below avoiding PATH shadowing;
-        #   - not a filesystem-snapshot restore: such a resume boots a mutable snapshot
+        #   - not a filesystem-snapshot restore: such a restore boots a mutable snapshot
         #     of a prior run — one that processed untrusted repo content and could have
         #     replaced the helper file itself. Directory restores only mount the workspace
         #     dir (ALLOWED_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATHS), leaving the helper the
         #     vetted image's own binary, so the warmup stays on for them — but the
         #     workspace is still attacker-controlled, so the launcher below scrubs the
-        #     environment (fixed PATH, no credentials) rather than trusting it. Anything
-        #     not explicitly a directory restore is treated as filesystem — fail closed.
+        #     environment (fixed PATH, no credentials) rather than trusting it.
         restored_untrusted_filesystem = (
-            self.config.snapshot_restored and self.config.snapshot_kind != SNAPSHOT_KIND_DIRECTORY
+            self.config.snapshot_restored and self.config.resume_snapshot_external_id is None
         )
         if (
             not self.config.is_vm
@@ -560,9 +561,11 @@ class SandboxBase(ABC):
             # POSTHOG_PERSONAL_API_KEY / GITHUB_TOKEN. `env -i` drops those credentials and the
             # user PATH; the fixed PATH resolves only real system binaries (start-dockerd lives
             # in /usr/local/bin). HOME=/root covers tooling that needs it (dockerd runs as root).
-            result = self.execute(
+            result = self.execute_in_task_filesystem(
                 "[ -x /usr/local/bin/bootstrap-dev-stack ] || exit 3; "
-                "/usr/bin/env -i HOME=/root PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin "
+                "docker_config=$(/usr/bin/mktemp -d /run/posthog-bootstrap-docker.XXXXXX) || exit 1; "
+                '/usr/bin/env -i HOME=/root DOCKER_CONFIG="$docker_config" '
+                "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin "
                 "setsid /usr/local/bin/bootstrap-dev-stack >/var/log/bootstrap-dev-stack.log 2>&1 </dev/null &",
                 timeout_seconds=30,
             )
@@ -675,17 +678,16 @@ class SandboxBase(ABC):
         event_ingest_token: str | None = None,
         task_run_session_token: str | None = None,
         event_ingest_url: str | None = None,
-        event_ingest_keep_stream_open: bool = False,
         repo_ready_file: str | None = None,
         wait_for_health: bool = True,
         rtk_enabled: bool = True,
         benjamin_enabled: bool = False,
-        peer_messaging: bool = False,
         pi_acp_conversation: bool = False,
         claude_model_access: str | None = None,
         codex_model_access: str | None = None,
         codex_run_token: str | None = None,
         sandbox_runtime: str | None = None,
+        before_launch: Callable[[], None] | None = None,
     ) -> int | None:
         """Start the agent-server HTTP server in the sandbox.
 
@@ -721,6 +723,9 @@ class SandboxBase(ABC):
     def is_running(self) -> bool: ...
 
     def exit_reason(self) -> str | None:
+        return None
+
+    def exit_status(self) -> str | None:
         return None
 
     def read_agent_server_session_init_ms(self) -> int | None:
@@ -903,6 +908,8 @@ def wait_for_health_check(
     """
     health_script = build_health_check_command(port, max_attempts, poll_interval, pid_file)
     result = execute(health_script, timeout_seconds=health_check_timeout_seconds(max_attempts, poll_interval))
+    if result.exit_code != 0:
+        raise_startup_failure(result.stdout, sandbox_id)
     if "claude_credential_unavailable" in result.stdout:
         from products.tasks.backend.exceptions import ProcessTaskFatalError
 
@@ -948,18 +955,20 @@ def build_health_check_command(
         f"SECONDS=0; i=0; max_attempts={max_attempts}; budget={budget_seconds}; while :; do "
         "  i=$((i + 1)); "
         f"{process_check}"
-        f"  body=$(curl -s --max-time {HEALTH_CURL_MAX_TIME_SECONDS} http://localhost:{port}/health); "
+        f"  body=$(curl -q -s --max-time {HEALTH_CURL_MAX_TIME_SECONDS} http://localhost:{port}/health); "
         "  status=$?; "
         '  if [ "$status" = "0" ]; then '
-        '    case "$body" in *claude_credential_unavailable*) echo "claude_credential_unavailable"; exit 1;; '
-        '*codex_credential_unavailable*) echo "codex_credential_unavailable"; exit 1;; esac; '
         "    python3 -c '"
         "import json, sys; "
         "payload = json.loads(sys.argv[1]); "
         'ready = payload.get("status") == "ok" and payload.get("hasSession") is True; '
-        'sys.exit(0 if ready else 2 if payload.get("initializationPhase") == "setup_hooks" else 1)'
+        'sys.exit(0 if ready else 3 if payload.get("readiness") == "failed" '
+        'else 2 if payload.get("initializationPhase") == "setup_hooks" else 1)'
         '\' "$body"; ready=$?; '
         '    if [ "$ready" = "0" ]; then echo "ok:$i"; exit 0; fi; '
+        '    if [ "$ready" = "3" ]; then printf "%s\\n" "$body"; exit 1; fi; '
+        '    case "$body" in *claude_credential_unavailable*) echo "claude_credential_unavailable"; exit 1;; '
+        '*codex_credential_unavailable*) echo "codex_credential_unavailable"; exit 1;; esac; '
         f'    if [ "$ready" = "2" ]; then max_attempts={hooks_max_attempts}; budget={hooks_budget_seconds}; fi; '
         "  fi; "
         '  if [ "$i" -ge "$max_attempts" ] || [ "$SECONDS" -ge "$budget" ]; then exit 1; fi; '

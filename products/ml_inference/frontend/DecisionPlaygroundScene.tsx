@@ -15,9 +15,9 @@ import {
 import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { appLogic } from 'scenes/appLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -85,7 +85,9 @@ export function DecisionPlaygroundScene(): JSX.Element {
         return receivedFeatureFlags || featureFlagsTimedOut ? (
             <NotFound object="page" />
         ) : (
-            <Spinner className="text-3xl mx-auto my-8" />
+            <div className="flex justify-center my-8">
+                <Spinner className="text-3xl" />
+            </div>
         )
     }
 

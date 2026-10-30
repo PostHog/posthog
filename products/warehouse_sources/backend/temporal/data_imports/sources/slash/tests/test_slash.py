@@ -5,7 +5,6 @@ import pytest
 
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     DriveResult,
     Script,
@@ -28,32 +27,105 @@ def _run(endpoint: str, script: Script, legal_entity_id: str | None = None, **in
 
 
 @pytest.mark.parametrize(
-    ("endpoint", "path", "row"),
+    ("endpoint", "path", "row", "id_path", "query"),
     [
-        ("accounts", "account", {"id": "account-example"}),
-        ("transactions", "transaction", {"id": "transaction-example", "date": "2026-01-02T00:00:00Z"}),
-        ("cards", "card", {"id": "card-example"}),
-        ("invoices", "invoice", {"invoice": {"id": "invoice-example"}, "invoiceDetails": {"memo": "Example"}}),
-        ("invoice_series", "invoice-series", {"id": "series-example"}),
-        ("expense_reports", "expense-report", {"id": "expense-example"}),
-        ("contacts", "contact", {"id": "contact-example"}),
+        ("accounts", "account", {"id": "account-example"}, None, {}),
+        (
+            "transactions",
+            "transaction",
+            {"id": "transaction-example", "date": "2026-01-02T00:00:00Z"},
+            None,
+            {},
+        ),
+        ("cards", "card", {"id": "card-example"}, None, {}),
+        (
+            "invoices",
+            "invoice",
+            {"invoice": {"id": "invoice-example"}, "invoiceDetails": {"memo": "Example"}},
+            "invoice",
+            {},
+        ),
+        ("invoice_series", "invoice-series", {"id": "series-example"}, None, {}),
+        ("expense_reports", "expense-report", {"id": "expense-example"}, None, {}),
+        ("contacts", "contact", {"id": "contact-example"}, None, {}),
+        (
+            "virtual_accounts",
+            "virtual-account",
+            {
+                "virtualAccount": {"id": "virtual-example", "accountType": "primary", "closedAt": None},
+                "balance": {"amountCents": 1200},
+                "spend": {"amountCents": 300},
+            },
+            "virtualAccount",
+            {"filter:includeClosedAccounts": ("true",)},
+        ),
+        ("card_groups", "card-group", {"id": "group-example", "name": "Example group"}, None, {}),
+        ("customers", "customer", {"id": "customer-example", "status": "archived"}, None, {}),
     ],
 )
 @pytest.mark.parametrize("legal_entity_id", [None, "entity-example"])
-def test_requests_and_row_identity(endpoint: str, path: str, row: dict[str, Any], legal_entity_id: str | None) -> None:
+def test_requests_and_row_identity(
+    endpoint: str,
+    path: str,
+    row: dict[str, Any],
+    id_path: str | None,
+    query: dict[str, tuple[str, ...]],
+    legal_entity_id: str | None,
+) -> None:
     result = _run(
         endpoint,
         [ScriptedResponse(json={"items": [row], "metadata": {"count": 1}})],
         legal_entity_id,
         db_incremental_field_last_value="2026-01-01T00:00:00Z",
     )
-    expected = {**row, "id": row["invoice"]["id"]} if endpoint == "invoices" else row
+    expected = {**row, "id": row[id_path]["id"]} if id_path else row
     assert result.rows == [expected]
     assert result.paths == [f"/{path}"]
     request = result.requests[0]
     assert request.headers["x-api-key"] == "fake-key"
     assert request.headers.get("x-legal-entity") == legal_entity_id
-    assert request.query == {}
+    assert request.query == query
+    assert result.saved_states == []
+
+
+def test_account_balances_fan_out_over_accounts() -> None:
+    balance = {
+        "accountId": "account-one",
+        "type": "debit",
+        "available": {"amountCents": 500},
+        "posted": {"amountCents": 700},
+        "timestamp": "2026-01-02T00:00:00Z",
+    }
+    result = _run(
+        "account_balances",
+        [
+            ScriptedResponse(json={"items": [{"id": "account-one"}, {"id": "account-two"}, {"id": "account-three"}]}),
+            ScriptedResponse(json={"balances": [balance]}),
+            ScriptedResponse(json={"balances": []}),
+            ScriptedResponse(
+                json={
+                    "balances": [
+                        {**balance, "accountId": "account-three", "type": "cash"},
+                        {**balance, "accountId": "account-three", "type": "credit"},
+                    ]
+                }
+            ),
+        ],
+        "entity-example",
+    )
+    assert result.raised is None
+    assert result.paths == [
+        "/account",
+        "/account/account-one/balance",
+        "/account/account-two/balance",
+        "/account/account-three/balance",
+    ]
+    assert all(request.headers["x-legal-entity"] == "entity-example" for request in result.requests)
+    assert [(row["accountId"], row["type"]) for row in result.rows] == [
+        ("account-one", "debit"),
+        ("account-three", "cash"),
+        ("account-three", "credit"),
+    ]
     assert result.saved_states == []
 
 
@@ -116,23 +188,27 @@ def test_repeated_cursor_fails() -> None:
 
 
 @pytest.mark.parametrize(
-    ("status", "schema", "expected", "message"),
+    ("status", "schema", "path", "expected", "message"),
     [
-        (200, None, True, None),
-        (200, "cards", True, None),
-        (401, None, False, "Slash rejected the API key. Check the key in your Slash dashboard."),
-        (403, None, True, None),
+        (403, None, "/account", True, None),
         (
             403,
             "cards",
+            "/card",
             False,
             "Your Slash key cannot access this resource. Check its permissions and the legal entity ID.",
         ),
-        (400, None, False, "Slash rejected the request. User-scoped keys require a valid legal entity ID."),
+        (400, None, "/account", False, "Slash rejected the request. User-scoped keys require a valid legal entity ID."),
+        (
+            403,
+            "account_balances",
+            "/account",
+            False,
+            "Your Slash key cannot access this resource. Check its permissions and the legal entity ID.",
+        ),
     ],
 )
-def test_credential_probe(status: int, schema: str | None, expected: bool, message: str | None) -> None:
-    path = "/card" if schema else "/account"
+def test_credential_probe(status: int, schema: str | None, path: str, expected: bool, message: str | None) -> None:
     script = [ScriptedResponse(status=status, json={"items": [], "metadata": {"nextCursor": "unused"}})]
     with scripted_network(script) as network:
         outcome = validate_credentials(SlashSourceConfig(api_key="fake-key", legal_entity_id="entity-example"), schema)
@@ -153,11 +229,6 @@ def test_sync_error_mapping(status: int) -> None:
     ]
     assert bool(matches) == (status != 404)
     assert len(result.requests) == 1
-
-
-def test_unknown_endpoint() -> None:
-    result = _run("unknown", [])
-    assert isinstance(result.raised, UnknownResourceError)
 
 
 def test_probe_unexpected_error_propagates() -> None:

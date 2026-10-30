@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -40,6 +41,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class RoktAdsSource(ResumableSource[RoktAdsSourceConfig, RoktAdsResumeConfig]):
+    codebase_detection = detect(
+        env=("^(ROKT_ADS|ROKTADS)_",), script_hosts=("apps.rokt.com", "apps.rokt-api.com", "apps.roktecommerce.com")
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     # Rokt's Query API carries a single `/v1/` path segment with no documented version choice, so
     # there is nothing to pin beyond the docs link.
@@ -171,7 +176,7 @@ class RoktAdsSource(ResumableSource[RoktAdsSourceConfig, RoktAdsResumeConfig]):
             caption="Generate an app ID and app secret on the Profile Settings page in [One Platform](https://my.rokt.com). Both the advertiser and partner reports read through the Rokt Query API.",
             docsUrl="https://posthog.com/docs/cdp/sources/rokt-ads",
             iconPath="/static/services/rokt_ads.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [
@@ -201,6 +206,7 @@ class RoktAdsSource(ResumableSource[RoktAdsSourceConfig, RoktAdsResumeConfig]):
                     ),
                     SourceFieldInputConfig(
                         name="timezone_variation",
+                        sync_setting=True,
                         label="Time zone (Olson name)",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
@@ -209,6 +215,7 @@ class RoktAdsSource(ResumableSource[RoktAdsSourceConfig, RoktAdsResumeConfig]):
                     ),
                     SourceFieldInputConfig(
                         name="currency_code",
+                        sync_setting=True,
                         label="Currency code",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,

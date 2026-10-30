@@ -2,6 +2,7 @@ import { type ComponentType, Fragment, useState } from 'react'
 
 import {
     IconActivity,
+    IconCheckCircle,
     IconHide,
     IconCode,
     IconComment,
@@ -39,6 +40,7 @@ import type { SignalReportPullRequestApi } from 'products/signals/frontend/gener
 import { INBOX_RANKING_SCORES, PRIORITY_TAG_TYPE, rankingScoreForHead } from '../../filterOptions'
 import { SignalCard } from '../../SignalCard'
 import { EnrichedReviewer, SignalReportActionability, SignalReportPriority, SignalReportArtefact } from '../../types'
+import { dismissalReasonLabel } from '../../utils/dismissalReasons'
 import { SignalReportActionabilityBadge } from '../badges/SignalReportActionabilityBadge'
 import { formatRankingLift, formatRankingProbability } from '../cards/rankingFormat'
 import { RankingLiftBar } from '../cards/RankingLiftBar'
@@ -53,6 +55,7 @@ import {
     AutostartSkipContent,
     CheckLifecycleContent,
     CheckResultContent,
+    CheckObservationContent,
     CheckScheduledContent,
     CodeReviewContent,
     CodeReferenceContent,
@@ -80,6 +83,7 @@ import {
     WorkClaimContent,
     WorkReleaseContent,
 } from './artefactTypes'
+import { CheckObservationBody } from './CheckObservationBody'
 import { prActivityTitle } from './prActivityPresentation'
 import { CHECK_LIFECYCLE_ENTRIES, inconclusiveReasonLabel } from './reportCheckPresentation'
 
@@ -161,6 +165,7 @@ const ARTEFACT_MARKER: Record<string, ComponentType<{ className?: string }>> = {
     autostart_skip: IconPause,
     code_review: IconListCheck,
     check_result: IconCalendar,
+    check_observation: IconCalendar,
     check_scheduled: IconCalendar,
     check_expired: IconCalendar,
     check_cancelled: IconCalendar,
@@ -173,7 +178,7 @@ const ARTEFACT_MARKER: Record<string, ComponentType<{ className?: string }>> = {
 }
 
 function dismissReasonLabel(reason: string): string {
-    return DISMISS_REASON_LABELS[reason] ?? prettify(reason)
+    return DISMISS_REASON_LABELS[reason] ?? dismissalReasonLabel(reason) ?? prettify(reason)
 }
 
 /** A short relevance / context note above a code block. */
@@ -651,6 +656,12 @@ function renderArtefactSummary(artefact: SignalReportArtefact): JSX.Element | nu
                 </LemonTag>
             ) : null
         }
+        case 'check_observation':
+            return (
+                <LemonTag size="small" type="muted">
+                    Interim measurement
+                </LemonTag>
+            )
         case 'check_result': {
             const outcome = (content as CheckResultContent).outcome
             const meta = outcome ? CHECK_OUTCOME[outcome] : null
@@ -785,6 +796,8 @@ function renderArtefactBody({
             return <AutostartSkipBody content={content as AutostartSkipContent} />
         case 'code_review':
             return <CodeReviewBody content={content as CodeReviewContent} />
+        case 'check_observation':
+            return <CheckObservationBody content={content as CheckObservationContent} />
         case 'check_result':
             return <CheckResultBody content={content as CheckResultContent} />
         case 'check_scheduled':
@@ -897,7 +910,10 @@ function ArtefactRow({
         renderArtefactBody({ reportId, artefact, knownTasks, knownPullRequests })
     )
     const bodyHasOwnCard = artefact.type === 'signal_finding' || artefact.type === 'commit'
-    const MarkerIcon = ARTEFACT_MARKER[artefact.type] ?? IconActivity
+    const MarkerIcon =
+        artefact.type === 'dismissal' && (artefact.content as DismissalContent).state === 'resolved'
+            ? IconCheckCircle
+            : (ARTEFACT_MARKER[artefact.type] ?? IconActivity)
 
     return (
         <div className="relative flex gap-3 pb-4 last:pb-0">

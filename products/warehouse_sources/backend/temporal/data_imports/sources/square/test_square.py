@@ -17,7 +17,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.square.set
 from products.warehouse_sources.backend.temporal.data_imports.sources.square.source import SquareSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.square.square import (
     MAX_CURSOR_RESTARTS,
+    SQUARE_API_VERSION_2026_09_16,
+    SQUARE_API_VERSION_V2,
     SQUARE_HOSTS,
+    SquareCredentialProbe,
     SquareInvalidCursorError,
     SquareResumeConfig,
     _build_initial_params,
@@ -143,37 +146,73 @@ class TestIsInvalidCursorError:
 class TestValidateCredentials:
     @parameterized.expand(
         [
-            ("ok", 200, (True, False)),
-            ("unauthorized", 401, (False, False)),
-            ("forbidden", 403, (False, True)),
-            ("server_error", 500, (False, False)),
+            ("ok", 200, SquareCredentialProbe(is_valid=True, is_forbidden=False)),
+            ("unauthorized", 401, SquareCredentialProbe(is_valid=False, is_forbidden=False)),
+            ("forbidden", 403, SquareCredentialProbe(is_valid=False, is_forbidden=True)),
+            ("server_error", 500, SquareCredentialProbe(is_valid=False, is_forbidden=False)),
         ]
     )
-    def test_status_code_mapping(self, _name: str, status_code: int, expected: tuple[bool, bool]) -> None:
+    def test_status_code_mapping(self, _name: str, status_code: int, expected: SquareCredentialProbe) -> None:
         with scripted_network(always(_page({}, status_code=status_code))):
-            assert validate_credentials("token", "production") == expected
+            assert validate_credentials("token", "production", SQUARE_API_VERSION_2026_09_16) == expected
 
     def test_network_error_returns_invalid(self) -> None:
         with scripted_network(always(ConnectionError("boom"))):
-            assert validate_credentials("token", "production") == (False, False)
+            assert validate_credentials("token", "production", SQUARE_API_VERSION_2026_09_16) == SquareCredentialProbe(
+                is_valid=False, is_forbidden=False
+            )
 
-    def test_schema_probes_that_endpoint(self) -> None:
+    @parameterized.expand(
+        [
+            ("legacy_v2", SQUARE_API_VERSION_V2, "2024-10-17"),
+            ("2026_09_16", SQUARE_API_VERSION_2026_09_16, "2026-09-16"),
+        ]
+    )
+    def test_schema_probes_that_endpoint(self, _name: str, api_version: str, expected_header: str) -> None:
         with scripted_network([_page({})]) as network:
-            validate_credentials("token", "sandbox", schema_name="payments")
-        assert network.requests_log[0].url.startswith(f"{SQUARE_HOSTS['sandbox']}/v2/payments")
+            validate_credentials("token", "sandbox", api_version, schema_name="payments")
+        request = network.requests_log[0]
+        assert request.url.startswith(f"{SQUARE_HOSTS['sandbox']}/v2/payments")
+        assert request.headers["square-version"] == expected_header
 
 
 class TestGetRowsPagination:
     def _drive(
-        self, endpoint: str, script: list[ScriptedResponse], resume_state: SquareResumeConfig | None = None
+        self,
+        endpoint: str,
+        script: list[ScriptedResponse],
+        resume_state: SquareResumeConfig | None = None,
+        api_version: str | None = None,
     ) -> DriveResult:
         config = SquareSourceConfig(access_token="token", environment="production")
-        return SourceDriver(SquareSource(), config).run(endpoint, script, resume_state=resume_state)
+        return SourceDriver(SquareSource(), config).run(
+            endpoint, script, resume_state=resume_state, api_version=api_version
+        )
 
     def test_first_request_starts_unresumed_when_there_is_no_saved_state(self) -> None:
         result = self._drive("payments", [_page({"payments": [{"id": "a"}]})])
 
         assert result.requests[0].param("cursor") is None
+
+    @parameterized.expand(
+        [
+            ("unpinned_uses_default", None, "2026-09-16"),
+            ("legacy_v2_pin", SQUARE_API_VERSION_V2, "2024-10-17"),
+            ("2026_09_16_pin", SQUARE_API_VERSION_2026_09_16, "2026-09-16"),
+        ]
+    )
+    def test_sends_square_version_header_for_pin(
+        self, _name: str, api_version: str | None, expected_header: str
+    ) -> None:
+        result = self._drive(
+            "customers",
+            [_page({"customers": [{"id": "c1"}], "cursor": "cur-1"}), _page({"customers": [{"id": "c2"}]})],
+            api_version=api_version,
+        )
+
+        assert result.raised is None
+        assert [request.path for request in result.requests] == ["/v2/customers", "/v2/customers"]
+        assert {request.headers["square-version"] for request in result.requests} == {expected_header}
 
     def test_invalid_cursor_resumes_incremental_endpoint_from_last_seen(self) -> None:
         # An endpoint with a server-side time filter (payments has begin_time) must not

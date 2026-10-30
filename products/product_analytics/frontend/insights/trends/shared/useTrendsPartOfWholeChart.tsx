@@ -9,7 +9,6 @@ import {
     formatAggregationAxisValueWithShareOfTotal,
 } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { teamLogic } from 'scenes/teamLogic'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 
@@ -19,6 +18,7 @@ import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
+import type { SeriesDatum } from 'products/product_analytics/frontend/insights/shared/InsightTooltip/insightTooltipUtils'
 import { trendsDataLogic } from 'products/product_analytics/frontend/insights/trends/trendsDataLogic'
 import type { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
 import { datasetToActorsQuery } from 'products/product_analytics/frontend/insights/trends/viz/datasetToActorsQuery'
@@ -69,6 +69,7 @@ export function useTrendsPartOfWholeChart({
         formula,
         pieChartVizOptions,
         hasDataWarehouseSeries,
+        actionNames,
         querySource,
         breakdownFilter,
         labelGroupType,
@@ -77,9 +78,14 @@ export function useTrendsPartOfWholeChart({
         isSingleSeriesDefinition,
     } = useValues(trendsDataLogic(insightProps))
 
+    const buildMeta = useCallback(
+        (r: IndexedTrendResult): TrendsSeriesMeta => buildTrendsSeriesMeta(r, querySource, actionNames),
+        [querySource, actionNames]
+    )
+
     const seriesIdentification = useMemo(
-        () => getSeriesIdentification((indexedResults ?? []).map(buildTrendsSeriesMeta)),
-        [indexedResults]
+        () => getSeriesIdentification((indexedResults ?? []).map(buildMeta)),
+        [indexedResults, buildMeta]
     )
 
     const resolvedGroupTypeLabel =
@@ -97,6 +103,8 @@ export function useTrendsPartOfWholeChart({
     const getLabel = useCallback(
         (r: IndexedTrendResult): string =>
             getTrendsSeriesDisplayLabel(r, {
+                querySource,
+                actionNames,
                 breakdownFilter,
                 cohorts: allCohorts.results,
                 formatPropertyValueForDisplay,
@@ -104,6 +112,8 @@ export function useTrendsPartOfWholeChart({
                 seriesIdentification,
             }),
         [
+            querySource,
+            actionNames,
             breakdownFilter,
             allCohorts.results,
             formatPropertyValueForDisplay,
@@ -115,13 +125,15 @@ export function useTrendsPartOfWholeChart({
     const series: Series<TrendsSeriesMeta>[] = useMemo(
         () =>
             buildTrendsPieSeries(indexedResults ?? [], {
+                querySource,
+                actionNames,
                 getColor: getTrendsColor,
                 // Hidden series are listed (dimmed) and excluded via config.legend.hiddenKeys instead
                 // of being dropped here, so the legend can restore them.
                 getHidden: undefined,
                 getLabel,
             }),
-        [indexedResults, getTrendsColor, getLabel]
+        [indexedResults, querySource, actionNames, getTrendsColor, getLabel]
     )
 
     const visibleResults = useMemo(
@@ -173,14 +185,7 @@ export function useTrendsPartOfWholeChart({
             }
             openPersonsModal({
                 title: label || '',
-                query: datasetToActorsQuery({
-                    dataset: {
-                        action: result.action,
-                        breakdown_value: result.breakdown_value,
-                        compare_label: result.compare_label,
-                    },
-                    query: querySource,
-                }),
+                query: datasetToActorsQuery({ dataset: result, query: querySource }),
                 additionalSelect: {
                     value_at_data_point: 'event_count',
                     matched_recordings: 'matched_recordings',

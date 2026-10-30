@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,6 +34,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class NewsApiSource(ResumableSource[NewsApiSourceConfig, NewsApiResumeConfig]):
+    codebase_detection = detect(env=("^(NEWS_API|NEWSAPI)_",), npm=("newsapi",), pypi=("newsapi-python",))
+
     supported_versions = ("v2",)
     default_version = "v2"
     api_docs_url = "https://newsapi.org/docs"
@@ -51,7 +54,7 @@ class NewsApiSource(ResumableSource[NewsApiSourceConfig, NewsApiResumeConfig]):
             name=ExternalDataSourceType.NEWSAPI,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="NewsAPI",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["newsapi", "news api"],
             caption="""Enter your NewsAPI key to pull live and historical news articles into the PostHog Data warehouse.
 
@@ -73,6 +76,7 @@ Note: NewsAPI's free Developer plan is limited to articles from the last month a
                     ),
                     SourceFieldInputConfig(
                         name="query",
+                        sync_setting=True,
                         label="Search query",
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
@@ -81,6 +85,7 @@ Note: NewsAPI's free Developer plan is limited to articles from the last month a
                     ),
                     SourceFieldInputConfig(
                         name="language",
+                        sync_setting=True,
                         label="Language (optional, 2-letter code)",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,

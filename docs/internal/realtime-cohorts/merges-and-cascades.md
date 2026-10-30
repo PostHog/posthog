@@ -105,7 +105,7 @@ Adding counts is right because each live event was folded into exactly one of th
 One narrow race breaks that: a backfill tile scanned after the merge, which already counts the old person's events under the survivor, can land on the survivor before the transfer does.
 
 The replay-marks rule matters for late events.
-An event for the old person that is re-addressed to the survivor keeps its own firehose coordinates, the event's partition and offset on the ingestion topic.
+An event for the old person that is re-addressed to the survivor keeps its own source coordinates, the event's `source_partition` and `source_offset`.
 The survivor checks them against the marks kept under the old person's id.
 An event the old person already counted is skipped, and a new one is counted.
 
@@ -128,7 +128,7 @@ Both are settings sized to the topic retentions, and nothing checks that they st
 
 The outbox is never garbage-collected.
 Until the transfer is acknowledged, it is the only copy of the old person's state.
-A partition revoke still deletes it with the rest of the slice.
+A store wipe still deletes it with the rest of the slice.
 
 ### Worked example
 
@@ -199,7 +199,7 @@ That answer is wrong for anyone who really is in the untracked cohort.
 4. For each referrer that flips, it produces the membership change and, if the chain may continue, a further cascade message.
 5. Only after both produces are acknowledged does it write the referrers' new Stage 2 bits and mark the offset.
    A failure pins the partition's cascade commit at that message.
-   Kafka redelivers it after the next restart or rebalance, and the redelivered message recomputes the same flip.
+   Kafka redelivers it after the next restart, and the redelivered message recomputes the same flip.
    Until then, cascade commits for that partition stall.
 
 Three limits bound the work:

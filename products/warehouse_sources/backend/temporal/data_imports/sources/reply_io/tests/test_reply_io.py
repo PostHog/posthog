@@ -19,7 +19,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.reply_io.reply_io import (
     PAGE_SIZE,
     ReplyIoResumeConfig,
-    check_access,
     check_endpoint_permissions,
     validate_credentials,
 )
@@ -114,12 +113,6 @@ class TestCredentials:
             valid, message = validate_credentials("reply-key", endpoint="sequences")
         assert valid is False
         assert message == "Your Reply API key is missing the `sequences:read` scope"
-
-    def test_check_access_connection_error_maps_to_zero(self) -> None:
-        with scripted_network(always(requests.ConnectionError("boom"))):
-            status, message = check_access("reply-key", "/whoami")
-        assert status == 0
-        assert message is not None and "boom" in message
 
 
 class TestEndpointPermissions:

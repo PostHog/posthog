@@ -1,7 +1,7 @@
 //! The outputs layer: the produce surface above the sinks.
 //!
 //! An [`Output`] is a published-to destination: either a single backend
-//! sink, or a policy composing two child outputs. Today the one policy is
+//! sink, or a policy composing two child outputs. The one policy is
 //! failover (health-gated Kafka primary with an S3 secondary).
 //!
 //! Outputs take two routes. The v0 event route ([`PublishEvents`]) hands over
@@ -198,9 +198,8 @@ impl Failover {
     }
 }
 
-/// The (pipeline, lane) → output map the deployment state holds. One
-/// deployment-wide output serves every address; the Kafka sink resolves
-/// per-lane topics through its [`OutputTable`] at enqueue.
+/// The deployment's output. One output serves every address; the Kafka sink
+/// resolves per-lane topics through its [`OutputTable`] at enqueue.
 ///
 /// [`OutputTable`]: crate::sinks::registry::OutputTable
 pub struct OutputRegistry {
@@ -232,7 +231,7 @@ impl OutputRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::pipeline::{Lane, Pipeline};
+    use crate::pipeline::{AnalyticsLane, PipelineLane};
     use crate::sinks::test_sink::MockSink;
     use crate::utils::uuid_v7_from_datetime;
     use crate::v0_request::{DataType, ProcessedEventMetadata};
@@ -307,10 +306,7 @@ mod tests {
         let event = test_event().event;
         PreparedEvent {
             uuid: Uuid::now_v7(),
-            address: Address::Lane {
-                pipeline: Pipeline::Analytics,
-                lane: Lane::Main,
-            },
+            address: Address::Lane(PipelineLane::Analytics(AnalyticsLane::Main)),
             partition_key: event.key(),
             ordering: OrderingGuarantee::PerDistinctId,
             payload: bytes::Bytes::from_static(b"{}"),

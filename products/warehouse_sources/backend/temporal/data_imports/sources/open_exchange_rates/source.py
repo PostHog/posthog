@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -32,6 +33,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class OpenExchangeRatesSource(ResumableSource[OpenExchangeRatesSourceConfig, OpenExchangeRatesResumeConfig]):
+    codebase_detection = detect(env=("^(OPEN_EXCHANGE_RATES|OPENEXCHANGERATES)_",), npm=("open-exchange-rates",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://docs.openexchangerates.org/reference/api-introduction"
 
@@ -45,7 +48,7 @@ class OpenExchangeRatesSource(ResumableSource[OpenExchangeRatesSourceConfig, Ope
             name=ExternalDataSourceType.OPENEXCHANGERATES,
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="Open Exchange Rates",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Open Exchange Rates App ID to pull foreign-exchange reference rates into the PostHog Data warehouse.
 
 Find your App ID in your [Open Exchange Rates dashboard](https://openexchangerates.org/account/app-ids).
@@ -67,6 +70,7 @@ The free plan is restricted to the `USD` base currency — a custom base currenc
                     ),
                     SourceFieldInputConfig(
                         name="base_currency",
+                        sync_setting=True,
                         label="Base currency",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
@@ -75,6 +79,7 @@ The free plan is restricted to the `USD` base currency — a custom base currenc
                     ),
                     SourceFieldInputConfig(
                         name="start_date",
+                        sync_setting=True,
                         label="Start date (historical backfill)",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,

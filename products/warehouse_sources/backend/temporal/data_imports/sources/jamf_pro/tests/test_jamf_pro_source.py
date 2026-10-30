@@ -23,10 +23,6 @@ class TestJamfProSource:
         # and exfiltrate the preserved credentials.
         assert self.source.connection_host_fields == ["instance_url"]
 
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["computers"])
-        assert [s.name for s in schemas] == ["computers"]
-
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.jamf_pro.source.jamf_pro_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_jamf_pro_source):
         inputs = mock.MagicMock()

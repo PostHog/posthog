@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -30,6 +31,15 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class IP2WhoisSource(SimpleSource[IP2WhoisSourceConfig]):
+    codebase_detection = detect(
+        env=("^(IP2_WHOIS|IP2WHOIS)_",),
+        npm=("ip2whois-nodejs",),
+        pypi=("ip2whois",),
+        composer=("ip2whois/ip2whois-php",),
+        go=("github.com/ip2whois/ip2whois-go", "github.com/ip2whois/ip2whois-cli"),
+        rubygems=("ip2whois_ruby",),
+    )
+
     supported_versions = ("v2",)
     default_version = "v2"
     api_docs_url = "https://www.ip2whois.com/developers-api"
@@ -47,7 +57,7 @@ class IP2WhoisSource(SimpleSource[IP2WhoisSourceConfig]):
             name=ExternalDataSourceType.IP2WHOIS,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="IP2WHOIS",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your IP2WHOIS API key and the domains you want to look up to pull WHOIS registration data into the PostHog Data warehouse.
 
 IP2WHOIS (by IP2Location) is a domain WHOIS lookup API. Create an API key in your [IP2WHOIS dashboard](https://www.ip2whois.com/) — the free tier includes 500 lookups per month.
@@ -76,6 +86,7 @@ Each sync looks up every configured domain once and replaces the table with the 
                     ),
                     SourceFieldInputConfig(
                         name="domains",
+                        sync_setting=True,
                         label="Domains",
                         type=SourceFieldInputConfigType.TEXTAREA,
                         required=True,
@@ -103,7 +114,8 @@ Each sync looks up every configured domain once and replaces the table with the 
             # Account-level API errors returned in the JSON error envelope (exhausted monthly quota,
             # disabled account, and anything else that isn't specific to a single domain) are raised as
             # IP2WhoisAPIError. These are deterministic within a run, so fail fast rather than retry.
-            "IP2WHOIS API error": "Your IP2WHOIS request was rejected by the API — the account may be disabled or the monthly lookup quota exhausted. Check your IP2WHOIS dashboard, then reconnect or resync.",
+            "IP2WHOIS API error [": "Your IP2WHOIS request was rejected by the API. The account may be disabled or the monthly lookup quota used up. Check your IP2WHOIS dashboard, then reconnect or resync.",
+            "IP2WHOIS API error: unexpected status": "Your IP2WHOIS request was rejected by the API. The account may be disabled or the monthly lookup quota used up. Check your IP2WHOIS dashboard, then reconnect or resync.",
         }
 
     def get_schemas(

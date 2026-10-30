@@ -1,6 +1,6 @@
 """The inbox trigger: auto-review self-driving (Signals) implementations when they produce a PR.
 
-A `post_save` receiver on `tasks.TaskRun` (resolved via the app registry — tasks never imports
+A `post_save` receiver on `tasks.TaskRun`, connected through the tasks facade hook (tasks never imports
 review_hog, keeping every product edge in the existing direction). The trigger is the save that
 records a review target on the run's `output` — NOT run completion: on the tasks architecture a
 successful run deliberately never leaves `in_progress` (it stays followable and the PR follow-up
@@ -39,21 +39,24 @@ import json
 import logging
 from typing import Any
 
-from django.apps import apps as django_apps
 from django.db import transaction
-from django.db.models.signals import post_save
 
 from products.review_hog.backend.models import ReviewUserSettings
 from products.review_hog.backend.preferences import ReviewPreferences
 from products.signals.backend.enums import ReportPriority
 from products.signals.backend.models import SignalReportArtefact
 from products.signals.backend.report_generation.priority import persisted_report_priority
+from products.stamphog.backend.facade.finished_review_hooks import (
+    FinishedReviewRun,
+    register_finished_review_hook as register_stamphog_finished_review_hook,
+)
 from products.stamphog.backend.facade.inbox_hooks import register_inbox_acting_reviewer_resolver
 from products.stamphog.backend.facade.review_evidence import (
     ReviewEvidence,
     ReviewEvidenceState,
     register_review_evidence_provider,
 )
+from products.tasks.backend.facade.task_run_signals import connect_task_run_post_save
 
 # This module loads during django.setup() (AppConfig.ready() wires the receiver), and
 # posthog/test/repo_invariants/test_startup_import_budget.py forbids temporalio/modal/openai/anthropic at setup —
@@ -68,17 +71,31 @@ REVIEWER_NAME = "PostHog Review"
 
 def connect() -> None:
     """Wire the TaskRun-save receiver and the stamphog hooks; called once from `AppConfig.ready()`."""
-    post_save.connect(
-        handle_task_run_saved,
-        sender=django_apps.get_model("tasks", "TaskRun"),
-        dispatch_uid="review_hog_task_run_completed",
-    )
+    connect_task_run_post_save(handle_task_run_saved, dispatch_uid="review_hog_task_run_completed")
     # Stamphog re-checks this toggle before re-reviewing a self-driving PR. It gets the resolver
     # through a hook because importing review_hog from stamphog would be a dependency cycle.
     register_inbox_acting_reviewer_resolver(resolve_stamphog_acting_reviewer)
     # Stamphog waits for a pending review of the head it judges and counts a completed one as
     # assurance. The same dependency cycle rules out a direct import.
     register_review_evidence_provider(review_evidence_for_stamphog)
+    # Stamphog asks for a review of a self-driving PR it refused or escalated. The same dependency
+    # cycle rules out a direct import.
+    register_stamphog_finished_review_hook(queue_stamphog_handoff)
+
+
+def queue_stamphog_handoff(finished: FinishedReviewRun) -> None:
+    """Queue the review Stamphog asks for, off Stamphog's activity."""
+    if not finished.request_external_review:
+        return
+    from products.review_hog.backend.tasks import process_stamphog_handoff  # noqa: PLC0415
+
+    process_stamphog_handoff.delay(
+        repository=finished.repository,
+        pr_number=finished.pr_number,
+        head_sha=finished.head_sha,
+        author_login=finished.author_login,
+        head_branch=finished.head_branch,
+    )
 
 
 def review_evidence_for_stamphog(repository: str, pr_number: int, head_sha: str) -> ReviewEvidence | None:

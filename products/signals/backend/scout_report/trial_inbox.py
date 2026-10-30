@@ -294,6 +294,7 @@ class TrialInboxReads:
                 self.overlay(report, live.get(report.source_report_id or "")),
                 include_source_metadata=include_source_metadata,
             )
+            document["inbox_merge_key"] = None
             if document.get("status") not in statuses:
                 continue
             if search and not any(search in str(document.get(field, "")).casefold() for field in ("title", "summary")):

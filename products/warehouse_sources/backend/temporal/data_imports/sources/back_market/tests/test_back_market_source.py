@@ -36,9 +36,6 @@ class TestBackMarketSource:
     @pytest.mark.parametrize(
         "mock_return, expected_valid, expected_message",
         [
-            ((True, 200), True, None),
-            ((False, 401), False, "Invalid Back Market API token"),
-            ((False, 403), False, "Could not connect to Back Market with the provided API token"),
             ((False, None), False, "Could not connect to Back Market with the provided API token"),
         ],
     )

@@ -3,7 +3,7 @@
 Finding a better model for a pipeline's question.
 One `run_training()` call → one `AutoresearchTrainingRun` → one sandbox agent session → zero or more `AutoresearchIteration` rows → at most one new champion `AutoresearchModel`.
 
-This is the expensive half of the product. A real run costs roughly a dollar in LLM spend and takes tens of minutes, so almost everything here is built around _not_ wasting a run: the stub path for plumbing tests, the safety net for agents that die mid-flight, and server-side champion selection so a confused agent cannot promote itself.
+This is the expensive half of the product. A real run costs roughly a dollar in LLM spend on Sonnet, about twice that on the default Opus 5.5, and takes tens of minutes, so almost everything here is built around _not_ wasting a run: the stub path for plumbing tests, the safety net for agents that die mid-flight, and server-side champion selection so a confused agent cannot promote itself.
 
 The other half is `../inference/`, which consumes what this package produces and must never re-fit.
 
@@ -12,6 +12,7 @@ The other half is `../inference/`, which consumes what this package produces and
 - `runner.py`
   The real path. `run_training()` creates the `AutoresearchTrainingRun` (status `RUNNING`) and fires `Task.create_and_run()` with `internal=True` and no repository, so the run shows up as an internal Task rather than in the normal Tasks list.
   The brief carries user-authored text, so the sandbox token holds only `TRAINING_MCP_SCOPES` (the `execute-sql` reads, the autoresearch scopes, and `user:read`, which the PostHog MCP server needs to start a session), and an empty connector allowlist keeps the team's shared MCP connectors out of the sandbox.
+  The task runs on the model and reasoning effort that `agent_run_config_for()` in `agent_model.py` resolves, and the run records the runtime adapter, model and effort in `agent_runtime_adapter`, `agent_model` and `agent_reasoning_effort`.
   `build_agent_description()` assembles the agent's brief — the target, the horizon, the population, and the contract for the bundle it must author.
   When the `autoresearch-report-notebook` flag is on for the launching user, the token also holds `REPORT_NOTEBOOK_MCP_SCOPES` and the brief adds two Finalize steps: before complete, the agent creates one report notebook and passes its `short_id` to complete. After complete, it adds the SQL and chart cells, because the run's model row (and so its `model_explanation`) exists only from then on. `report.md` stays required either way.
   The brief's worked `features.sql` reads events through a pre-filtered subquery (the event names the features use, the anchor persons, and the anchors' widest window) before it joins, because ClickHouse builds the hash table from the right side of a join and a direct events join reads the whole team's events.
@@ -21,6 +22,12 @@ The other half is `../inference/`, which consumes what this package produces and
   `feature_sql_hints()` in `recipe_validation.py` returns a non-blocking hint when a query reads `persons` or `raw_persons` in a SELECT whose `WHERE` does not refer to `{anchors}`. The `materialize-features` response carries the hints, with the `elapsed_s` and `rows_read` of the materialization.
   Step 0 of the brief carries the realized results that `realized_context.py` computes, wrapped as untrusted data, with guidance on how to read the gap between holdout and realized AUC. The brief presents realized AUC as evidence for a direction, never as a target: the next run's holdout covers the same recent dates, so tuning against realized results tunes against the holdout. A pipeline with no validated dates gets one line instead of tables. `report.md` asks for one line on how the run used these results.
   The agent drives the rest _itself_ through the `autoresearch-*` MCP tools: it records each iteration, uploads the bundle, and calls complete. Nothing polls it.
+- `agent_model.py`
+  Which model and reasoning effort the training agent runs on. Training is an internal task, and internal tasks skip team and user run preferences, so without an explicit model the run would take the Tasks default and change with it.
+  A pipeline's null `agent_model` resolves to `AUTORESEARCH_DEFAULT_MODEL` (`claude-opus-5-5`), and a null `agent_reasoning_effort` to `AUTORESEARCH_DEFAULT_REASONING_EFFORT` (`medium`). The runtime adapter comes from the model, so a Codex model runs on the Codex adapter.
+  A stored model the catalogue no longer serves resolves to the default model, and an effort the model does not support resolves to the default effort, so a stale row never fails a paid run at dispatch.
+  The write path is stricter: `validate_agent_settings()` rejects a model outside `agent_model_choices()` and an effort the model does not support. The choices are the offered Tasks catalogue models without an access flag, read through the tasks facade only.
+  Opus 5.5 lists at twice Sonnet 5.5's token price, so a run on the default costs roughly twice what a Sonnet run costs. The brief must read the same under every runtime, so keep harness-specific wording out of it.
 - `stub.py`
   `run_stub_training()` — a hand-authored champion recipe with universal engagement features (event counts, distinct event types, days since first seen) that apply to any team and any target.
   No agent, no LLM spend, deterministic. This is what `--stub` on `autoresearch_train` uses, and it is the right tool for testing anything downstream of training.
@@ -35,6 +42,7 @@ The other half is `../inference/`, which consumes what this package produces and
   The bundle is written once per run, so a losing iteration can overwrite it: the uploaded `features.sql` must match the `feature_sql` recorded by the selected iteration, whitespace aside, or promotion raises rather than publishing a champion whose recipe and score describe other code.
   `complete_training_run()` reads the bundle and enters the run's `team_scope()` before it opens the transaction, because the `TaskRun` safety net calls it from a worker thread with no request scope, and object-storage calls must not run under the row lock.
   The agent's `report_notebook_short_id` goes into the run summary only if that notebook exists in the run's team. A bad id or a failed check stores an empty value and never fails completion.
+  The run and each iteration carry an optional `headline` for the Agent research tab. The write serializers collapse its whitespace and cut it to `HEADLINE_MAX_LENGTH` (60) characters rather than reject it, so a long or missing headline never fails a run.
   A promoted bundle-backed model is fitted. A bundle-backed challenger is fitted only when it enters the shadow set (see `shadow_set.py`). The fit runs after commit and never changes the completion result.
   A successful challenger fit sets `metrics.model_fitted`, and a failed one only logs. A challenger without `model_fitted` stays out of the shadow set.
   After a champion fit, `check_scorability()` runs the bundle's `features.sql` against today's inference anchors under `BATCH_QUERY`. A passing check records `scorability_elapsed_s` and `scorability_rows_read` in the model metrics and sets `model_fitted`.
@@ -50,6 +58,7 @@ The other half is `../inference/`, which consumes what this package produces and
   `shadow_set(pipeline)` computes the models worth scoring side by side. Nothing stores the set.
   It holds the champion, the previous champion (the newest archived bundle-backed row with `promoted_at` set), and up to `SHADOW_CHALLENGER_LIMIT` (3) fitted bundle-backed challengers. No two members share a `recipe_hash`.
   A challenger younger than `horizon_days + SHADOW_MIN_MATURED_DATES` days keeps its place, so a new challenger cannot displace it. Past that age, a newer challenger displaces it. A challenger that does not enter at completion is never fitted, so it cannot enter later.
+  A model that cannot score never enters the set, and the next eligible model takes its slot. A previous-champion candidate cannot score when promotion archived it with `metrics.archived_reason` `unscorable` (set on a `replaced_unscorable` promotion, and cleared when a rollback restores the champion). Any candidate cannot score when `models_failing_repeatably_in_shadow()` in `../inference/failures.py` finds repeatable failures on `UNSCORABLE_AFTER_FAILED_DAYS` scoring days since its last completed run, read over its shadow runs and its scheduled champion runs. Kind `other` never counts. Nothing deletes the model row or its artifacts.
   The models API exposes membership as `in_shadow_set`. Every live scoring cadence scores the set (see `../inference/AGENTS.md`). Nothing promotes from the set yet.
 - `realized_context.py`
   `build_realized_context(pipeline)` reads the validation history through `latest_validation_runs()` in `../evaluation/history.py`, the same read as the `online_performance` API.

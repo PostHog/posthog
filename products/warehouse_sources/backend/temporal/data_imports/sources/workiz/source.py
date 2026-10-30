@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -36,6 +37,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class WorkizSource(ResumableSource[WorkizSourceConfig, WorkizResumeConfig]):
+    codebase_detection = detect(env=("^WORKIZ_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog -- safe for public docs
     api_docs_url = "https://developer.workiz.com/"
 
@@ -125,7 +128,7 @@ class WorkizSource(ResumableSource[WorkizSourceConfig, WorkizResumeConfig]):
             ),
             docsUrl="https://posthog.com/docs/cdp/sources/workiz",
             iconPath="/static/services/workiz.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             keywords=["field service", "jobs", "leads"],
             fields=cast(
                 list[FieldType],

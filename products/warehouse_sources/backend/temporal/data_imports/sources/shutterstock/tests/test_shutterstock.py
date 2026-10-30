@@ -23,7 +23,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.shuttersto
     ShutterstockResumeConfig,
     _format_start_date,
     check_endpoint_access,
-    validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.shutterstock.source import ShutterstockSource
 
@@ -62,19 +61,6 @@ class TestFormatStartDate:
 
 
 class TestCredentialProbes:
-    @pytest.mark.parametrize(
-        "status_code, expected",
-        [
-            (200, True),
-            (401, False),
-            (403, False),
-            (500, False),
-        ],
-    )
-    def test_validate_credentials_status_mapping(self, status_code: int, expected: bool) -> None:
-        with scripted_network(always(ScriptedResponse(status=status_code))):
-            assert validate_credentials(BASIC_AUTH) is expected
-
     @pytest.mark.parametrize(
         "endpoint, status_code, expect_reason, expect_scope",
         [

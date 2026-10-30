@@ -50,16 +50,26 @@ class TestAshbySource:
         assert network.requests_log[0].headers["authorization"] == "Basic YXNoYnkta2V5Og=="
 
     @pytest.mark.parametrize(
-        "schema_name, expected_path",
-        [("application_history", "/application.list"), ("interview_stages", "/interviewPlan.list")],
+        "schema_name, expected_path, expected_body",
+        [
+            # The fan-out child methods need a parent id, so probing them directly always fails.
+            ("application_history", "/application.list", {"limit": 1}),
+            ("interview_stages", "/interviewPlan.list", {"limit": 1}),
+            ("candidate_notes", "/candidate.list", {"limit": 1}),
+            # These methods reject unknown request-body keys, so the probe must not send a limit.
+            ("interview_stage_groups", "/interviewStageGroup.list", {}),
+            ("application_hiring_team_roles", "/applicationHiringTeamRole.list", {}),
+            # surveyType is required.
+            ("survey_submissions", "/surveySubmission.list", {"limit": 1, "surveyType": "CandidateExperience"}),
+        ],
     )
-    def test_validate_credentials_probes_the_parent_of_a_fanned_out_schema(
-        self, schema_name: str, expected_path: str
+    def test_validate_credentials_sends_a_valid_probe_for_the_schema(
+        self, schema_name: str, expected_path: str, expected_body: dict
     ) -> None:
-        # The child methods need a parent id, so probing them directly always fails.
         with scripted_network([ScriptedResponse(json={"success": True})]) as network:
             self.source.validate_credentials(self.config, self.team_id, schema_name=schema_name)
         assert network.requests_log[0].path == expected_path
+        assert network.requests_log[0].json() == expected_body
 
     def test_validate_credentials_uses_default_probe_without_schema(self) -> None:
         with scripted_network([ScriptedResponse(json={"success": True})]) as network:

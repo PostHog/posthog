@@ -1,1 +1,1 @@
-0015_drop_index_property_def_query
+0016_add_array_schema_property_type

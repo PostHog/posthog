@@ -66,6 +66,7 @@ export const INTRO_SCREEN_TEXT_FIELDS = [
 ] as const
 
 export const INTRO_SCREEN_DEFAULT_BUTTON_TEXT = 'Get started'
+export const BACK_BUTTON_DEFAULT_TEXT = 'Back'
 
 // Create SurveyMatchTypeLabels using allOperatorsMapping
 export const SurveyMatchTypeLabels = {
@@ -821,7 +822,6 @@ export enum SURVEY_CREATED_SOURCE {
     EXPERIMENTS = 'experiments',
     INSIGHT_CROSS_SELL = 'insight_cross_sell',
     CUSTOMER_ANALYTICS_INSIGHT = 'customer_analytics_insight',
-    ERROR_TRACKING = 'error_tracking',
     WEB_ANALYTICS = 'web_analytics',
     LLM_ANALYTICS = 'llm_analytics',
 }

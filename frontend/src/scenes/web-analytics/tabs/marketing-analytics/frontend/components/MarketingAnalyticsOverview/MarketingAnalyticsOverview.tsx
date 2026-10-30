@@ -1,11 +1,12 @@
-import { BuiltLogic, LogicWrapper, useValues } from 'kea'
+import { BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
 import { useMemo, useState } from 'react'
 
+import { useChartTheme } from 'lib/charts/hooks'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { InsightErrorState } from 'scenes/insights/EmptyStates'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { OverviewGrid, OverviewItem } from '~/queries/nodes/OverviewGrid/OverviewGrid'
+import { OverviewMetricCardItem } from '~/queries/nodes/OverviewGrid/OverviewMetricCardGrid'
 import {
     AnyResponseType,
     MarketingAnalyticsAggregatedQuery,
@@ -14,7 +15,16 @@ import {
 import { QueryContext } from '~/queries/types'
 import { MarketingAnalyticsNotReady } from '~/scenes/marketing-analytics/MarketingAnalyticsNotReady'
 
+import { adPerformanceMetricKey } from 'products/marketing_analytics/frontend/adPerformanceMetrics'
+import { adPerformanceTrendsLogic } from 'products/marketing_analytics/frontend/adPerformanceTrendsLogic'
+import { AdPerformanceOverviewMetrics } from 'products/marketing_analytics/frontend/overview/AdPerformanceOverviewMetrics'
+
+import { marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
+import {
+    MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID,
+    marketingAnalyticsTilesLogic,
+} from '../../logic/marketingAnalyticsTilesLogic'
 import {
     MarketingAnalyticsValidationWarningBanner,
     validateConversionGoals,
@@ -48,20 +58,36 @@ export function MarketingAnalyticsOverview(props: {
 
     const marketingOverviewQueryResponse = response as MarketingAnalyticsAggregatedQueryResponse | undefined
 
+    const { createAdPerformanceSparklineQuery } = useValues(marketingAnalyticsTilesLogic)
+    const { tileColumnSelection } = useValues(marketingAnalyticsLogic)
+    const { setTileColumnSelection } = useActions(marketingAnalyticsLogic)
+    const { sparklines } = useValues(
+        adPerformanceTrendsLogic({
+            query: createAdPerformanceSparklineQuery(props.query),
+            queryKey: `${key}-sparklines`,
+            dataNodeCollectionId: dataNodeCollectionId ?? MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID,
+        })
+    )
+    const sparklineTheme = useChartTheme()
     const samplingRate = marketingOverviewQueryResponse?.samplingRate
 
     const validationWarnings = useMemo(() => validateConversionGoals(conversion_goals), [conversion_goals])
 
-    // Convert results dict to array for rendering and map to OverviewItem
-    const overviewItems: OverviewItem[] = marketingOverviewQueryResponse?.results
-        ? Object.entries(marketingOverviewQueryResponse.results).map(([key, item]) => ({
-              key,
-              value: item.value,
-              previous: item.previous,
-              changeFromPreviousPct: item.changeFromPreviousPct,
-              kind: item.kind,
-              isIncreaseBad: item.isIncreaseBad,
-          }))
+    const overviewItems: OverviewMetricCardItem[] = marketingOverviewQueryResponse?.results
+        ? Object.entries(marketingOverviewQueryResponse.results).map(([key, item]) => {
+              const metric = adPerformanceMetricKey(key)
+              return {
+                  key,
+                  value: item.value,
+                  previous: item.previous,
+                  changeFromPreviousPct: item.changeFromPreviousPct,
+                  kind: item.kind,
+                  isIncreaseBad: item.isIncreaseBad,
+                  selected: metric ? tileColumnSelection === metric : undefined,
+                  onClick: metric ? () => setTileColumnSelection(metric) : undefined,
+                  sparkline: metric && typeof item.value === 'number' ? sparklines[metric] : undefined,
+              }
+          })
         : []
 
     // Calculate number of skeletons based on expected metrics
@@ -88,14 +114,14 @@ export function MarketingAnalyticsOverview(props: {
     return (
         <>
             {allWarnings.length > 0 && <MarketingAnalyticsValidationWarningBanner warnings={allWarnings} />}
-            <OverviewGrid
-                compact
-                items={overviewItems}
+            <AdPerformanceOverviewMetrics
+                viewKey={dataNodeCollectionId ?? MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID}
+                items={overviewItems.filter(filterEmptyMetrics)}
                 loading={responseLoading}
                 numSkeletons={numSkeletons}
                 samplingRate={samplingRate}
-                labelFromKey={labelFromKey}
-                filterEmptyItems={filterEmptyMetrics}
+                sparklineTheme={sparklineTheme}
+                labelFromKey={(key) => <span className="[overflow-wrap:anywhere]">{labelFromKey(key)}</span>}
             />
         </>
     )
@@ -114,7 +140,7 @@ const labelFromKey = (key: string): string => {
         .join(' ')
 }
 
-const filterEmptyMetrics = (item: OverviewItem): boolean => {
+const filterEmptyMetrics = (item: OverviewMetricCardItem): boolean => {
     // Always show cost per metrics, even if they're null (they'll display as "-")
     if (item.key.toLowerCase().startsWith('cost per')) {
         return true

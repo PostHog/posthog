@@ -96,6 +96,12 @@ export const InsightsListQueryParams = () => zod.object({
         .string()
         .optional()
         .describe('Filter by `last_modified_at < date_to`. Accepts absolute dates or relative strings.'),
+    display: zod
+        .string()
+        .optional()
+        .describe(
+            'Comma-separated chart types, e.g. `ActionsLineGraph,ActionsBar`. Only returns trends and SQL insights shown as one of them. A trends insight with no chart type set counts as `ActionsLineGraph`.'
+        ),
     exclude_bi: zod.boolean().optional().describe('Exclude Business intelligence worksheets from the insight list.'),
     favorited: zod
         .boolean()

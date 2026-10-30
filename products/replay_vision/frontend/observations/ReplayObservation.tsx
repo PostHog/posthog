@@ -6,6 +6,7 @@ import { IconArrowLeft, IconArrowRight } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonTabs, Link, Spinner } from '@posthog/lemon-ui'
 
 import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { lazyWithRetry } from 'lib/utils/retryImport'
@@ -30,11 +31,13 @@ import { ObservationDetails } from './ObservationDetails'
 import { ObservationFacts } from './ObservationFacts'
 import { ObservationHeadline } from './ObservationHeadline'
 import { ObservationLabelControl } from './ObservationLabelControl'
+import { ObservationNotesButton } from './ObservationNotesButton'
 import { ObservationPinnedProperties } from './ObservationPinnedProperties'
 import { ObservationReasoning } from './ObservationReasoning'
 import { ObservationRecordingUnavailable } from './ObservationRecordingUnavailable'
 import { ObservationShareButton } from './ObservationShareButton'
 import { ObservationUnsuccessfulScan } from './ObservationUnsuccessfulScan'
+import { QuillReplayObservationActions } from './QuillReplayObservationActions'
 import {
     neighborFilterParams,
     observationDetailUrl,
@@ -78,6 +81,7 @@ export function ReplayObservationSceneComponent(): JSX.Element {
     const { observation, observationLoading, retrying, previousObservationId, nextObservationId, neighborsPending } =
         useValues(observationLogic)
     const { retryObservation } = useActions(observationLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const hasTimeline = useMemo(
         () => (observation ? recordingTimeline([observation]).chapters.length > 0 : false),
         [observation]
@@ -87,7 +91,7 @@ export function ReplayObservationSceneComponent(): JSX.Element {
     // navigation (and the server-computed neighbor ids) stay within the filtered list.
     const neighborParams = neighborFilterParams(searchParams)
     const neighborsFiltered = Object.keys(neighborParams).some((key) => key !== 'order_by')
-    // Prev/next keeps the return params too, so back still lands on the list view (or the watch feed)
+    // Prev/next keeps the return params too, so back still lands on the list view (or the highlight feed)
     // the reader came from.
     const observationUrl = (id: string): string =>
         observationDetailUrl(id, {
@@ -155,64 +159,77 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                 description={observation.recording_subject_email ?? undefined}
                 resourceType={{ type: 'replay_vision' }}
                 actions={
-                    <>
-                        <LemonButton
-                            icon={<IconArrowLeft />}
-                            type="secondary"
-                            size="small"
-                            loading={neighborsPending}
-                            to={previousObservationId ? observationUrl(previousObservationId) : undefined}
-                            disabledReason={
-                                previousObservationId || neighborsPending
-                                    ? undefined
-                                    : neighborsFiltered
-                                      ? 'No previous observation matching your filters'
-                                      : 'No newer observation'
-                            }
-                            tooltip={
-                                <>
-                                    {neighborsFiltered
-                                        ? 'Previous observation matching your filters'
-                                        : 'Previous (newer) observation for this scanner'}{' '}
-                                    <KeyboardShortcut k />
-                                </>
-                            }
-                            data-attr="vision-observation-prev"
-                        >
-                            Previous
-                        </LemonButton>
-                        <LemonButton
-                            sideIcon={<IconArrowRight />}
-                            type="secondary"
-                            size="small"
-                            loading={neighborsPending}
-                            to={nextObservationId ? observationUrl(nextObservationId) : undefined}
-                            disabledReason={
-                                nextObservationId || neighborsPending
-                                    ? undefined
-                                    : neighborsFiltered
-                                      ? 'No next observation matching your filters'
-                                      : 'No older observation'
-                            }
-                            tooltip={
-                                <>
-                                    {neighborsFiltered
-                                        ? 'Next observation matching your filters'
-                                        : 'Next (older) observation for this scanner'}{' '}
-                                    <KeyboardShortcut j />
-                                </>
-                            }
-                            data-attr="vision-observation-next"
-                        >
-                            Next
-                        </LemonButton>
-                        <ObservationShareButton
+                    todayRailNav ? (
+                        <QuillReplayObservationActions
+                            previousUrl={previousObservationId ? observationUrl(previousObservationId) : undefined}
+                            nextUrl={nextObservationId ? observationUrl(nextObservationId) : undefined}
+                            neighborsPending={neighborsPending}
+                            neighborsFiltered={neighborsFiltered}
                             observationId={observation.id}
                             sessionRecordingId={observation.session_id}
                             playerKey={playerKey}
                         />
-                        <ReplayVisionFeedbackButton />
-                    </>
+                    ) : (
+                        <>
+                            <LemonButton
+                                icon={<IconArrowLeft />}
+                                type="secondary"
+                                size="small"
+                                loading={neighborsPending}
+                                to={previousObservationId ? observationUrl(previousObservationId) : undefined}
+                                disabledReason={
+                                    previousObservationId || neighborsPending
+                                        ? undefined
+                                        : neighborsFiltered
+                                          ? 'No previous observation matching your filters'
+                                          : 'No newer observation'
+                                }
+                                tooltip={
+                                    <>
+                                        {neighborsFiltered
+                                            ? 'Previous observation matching your filters'
+                                            : 'Previous (newer) observation for this scanner'}{' '}
+                                        <KeyboardShortcut k />
+                                    </>
+                                }
+                                data-attr="vision-observation-prev"
+                            >
+                                Previous
+                            </LemonButton>
+                            <LemonButton
+                                sideIcon={<IconArrowRight />}
+                                type="secondary"
+                                size="small"
+                                loading={neighborsPending}
+                                to={nextObservationId ? observationUrl(nextObservationId) : undefined}
+                                disabledReason={
+                                    nextObservationId || neighborsPending
+                                        ? undefined
+                                        : neighborsFiltered
+                                          ? 'No next observation matching your filters'
+                                          : 'No older observation'
+                                }
+                                tooltip={
+                                    <>
+                                        {neighborsFiltered
+                                            ? 'Next observation matching your filters'
+                                            : 'Next (older) observation for this scanner'}{' '}
+                                        <KeyboardShortcut j />
+                                    </>
+                                }
+                                data-attr="vision-observation-next"
+                            >
+                                Next
+                            </LemonButton>
+                            <ObservationNotesButton />
+                            <ObservationShareButton
+                                observationId={observation.id}
+                                sessionRecordingId={observation.session_id}
+                                playerKey={playerKey}
+                            />
+                            <ReplayVisionFeedbackButton />
+                        </>
+                    )
                 }
             />
 

@@ -1,6 +1,9 @@
 import json
 import asyncio
+import logging
 from pathlib import Path
+from types import SimpleNamespace
+from typing import cast
 from uuid import UUID, uuid4
 
 import pytest
@@ -10,7 +13,8 @@ from django.db import OperationalError, transaction
 
 from asgiref.sync import sync_to_async
 from parameterized import parameterized
-from pydantic import BaseModel, Field, JsonValue
+from pydantic import BaseModel, Field, JsonValue, ValidationInfo, field_validator
+from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.models import Integration, Organization, Team
 from posthog.models.user import User
@@ -24,6 +28,8 @@ from products.tasks.backend.logic.services.custom_prompt_internals import (
     AgentTurnFailed,
     CustomPromptSandboxContext,
     EmptyAgentTurnError,
+    RepositoryContextUnavailable,
+    SandboxRunFailed,
     TurnPollResult,
     TurnPollTimeout,
     _create_task_and_trigger,
@@ -35,6 +41,7 @@ from products.tasks.backend.logic.services.custom_prompt_multi_turn_runner impor
     _EMPTY_TURN_RETRY_NUDGE,
     MultiTurnSession,
 )
+from products.tasks.backend.logic.services.startup_failure import AgentStartupFailed
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.tests.agent_log_fixtures import (
     FakeTaskRun,
@@ -60,6 +67,15 @@ class _Resp(BaseModel):
 
 class _DefaultedResp(BaseModel):
     values: list[str] = Field(default_factory=list)
+
+
+class _ContextResp(_Resp):
+    @field_validator("value")
+    @classmethod
+    def value_matches_context(cls, value: str, info: ValidationInfo) -> str:
+        if info.context is None or value != info.context["expected_value"]:
+            raise ValueError("value must match the validation context")
+        return value
 
 
 class TestPollForTurnEmptyEndTurn:
@@ -180,22 +196,120 @@ class TestPollForTurnStaleSalvage:
     turn still emitting near the deadline isn't cut off. Tests patch the budget and floor small."""
 
     @pytest.mark.asyncio
-    async def test_salvages_last_message_when_end_turn_never_arrives(self):
+    @pytest.mark.parametrize("deadline", [None, 30.0])
+    async def test_salvages_last_message_when_end_turn_never_arrives(self, deadline: float | None) -> None:
         # Final message + null-cost usage_update, no end_turn — the prod failure shape.
         log = "\n".join([_agent_message_line("close-out summary"), _usage_update_line(165000)])
         fake = FakeTaskRun()
+        now = [0.0]
+
+        async def sleep(delay: float) -> None:
+            now[0] += delay
+
         with (
             patch("posthog.storage.object_storage.read", return_value=log),
-            patch("asyncio.sleep", new=AsyncMock()),
+            patch("asyncio.sleep", side_effect=sleep),
+            patch(
+                "products.tasks.backend.logic.services.custom_prompt_internals.time.monotonic",
+                side_effect=lambda: now[0],
+            ),
             patch("products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 10),
             patch("products.tasks.backend.logic.services.custom_prompt_internals.MAX_POLL_SECONDS", 30),
             patch("products.tasks.backend.logic.services.custom_prompt_internals.STALE_TURN_SALVAGE_SECONDS", 15),
             patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake),
         ):
-            turn = await poll_for_turn(fake, skip_lines=0)
+            turn = await poll_for_turn(fake, skip_lines=0, poll_deadline=deadline)
 
         assert turn.last_message == "close-out summary"
         assert turn.total_lines == 2
+
+    @pytest.mark.asyncio
+    async def test_reads_completed_turn_on_the_final_poll_interval(self) -> None:
+        now = [0.0]
+        fake = FakeTaskRun()
+        partial = _agent_message_line("working")
+        complete = "\n".join([partial, _agent_message_line("done"), _end_turn_line()])
+
+        async def sleep(delay: float) -> None:
+            now[0] += delay
+
+        def read(*args: object, **kwargs: object) -> str:
+            return complete if now[0] >= 25 else partial
+
+        with (
+            patch("posthog.storage.object_storage.read", side_effect=read),
+            patch("asyncio.sleep", side_effect=sleep),
+            patch(
+                "products.tasks.backend.logic.services.custom_prompt_internals.time.monotonic",
+                side_effect=lambda: now[0],
+            ),
+            patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake),
+        ):
+            turn = await poll_for_turn(fake, poll_deadline=25.0)
+        assert turn.last_message == "done"
+        assert turn.total_lines == 3
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("slow_io", ["storage", "heartbeat"])
+    async def test_recovers_after_io_exhausts_the_deadline(self, slow_io: str) -> None:
+        now = [0.0]
+        fake = FakeTaskRun()
+        log = "\n".join([_agent_message_line("done"), _usage_update_line(165000)])
+        reads = 0
+        heartbeats = 0
+
+        async def sleep(delay: float) -> None:
+            now[0] += delay
+
+        def read(*args: object, **kwargs: object) -> str:
+            nonlocal reads
+            reads += 1
+            if slow_io == "storage" and reads == 2:
+                now[0] += 60
+            return log
+
+        async def heartbeat(*args: object) -> None:
+            nonlocal heartbeats
+            heartbeats += 1
+            if slow_io == "heartbeat" and heartbeats == 2:
+                now[0] += 60
+
+        handle = MagicMock(signal=AsyncMock(side_effect=heartbeat))
+        with (
+            patch("posthog.storage.object_storage.read", side_effect=read),
+            patch("asyncio.sleep", side_effect=sleep),
+            patch(
+                "products.tasks.backend.logic.services.custom_prompt_internals.time.monotonic",
+                side_effect=lambda: now[0],
+            ),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.STALE_TURN_SALVAGE_SECONDS", 15),
+            patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake),
+        ):
+            turn = await poll_for_turn(fake, poll_deadline=30.0, workflow_handle=handle)
+        assert turn.last_message == "done"
+        assert turn.total_lines == 2
+
+    @pytest.mark.asyncio
+    async def test_final_poll_read_has_a_timeout(self) -> None:
+        async def blocked_read(*args: object) -> None:
+            await asyncio.Event().wait()
+
+        with (
+            patch(
+                "products.tasks.backend.logic.services.custom_prompt_internals.sync_to_async", return_value=blocked_read
+            ),
+            patch(
+                "products.tasks.backend.logic.services.custom_prompt_internals._refresh_task_run",
+                new=AsyncMock(return_value=FakeTaskRun()),
+            ),
+            patch(
+                "products.tasks.backend.logic.services.custom_prompt_internals.time",
+                SimpleNamespace(monotonic=lambda: 0.0),
+            ),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.FINAL_POLL_READ_SECONDS", 0.01),
+        ):
+            with pytest.raises(TurnPollTimeout):
+                await asyncio.wait_for(poll_for_turn(FakeTaskRun(), poll_deadline=0.0), timeout=1)
 
     @pytest.mark.asyncio
     async def test_salvages_dropped_finalization_after_active_work(self):
@@ -307,20 +421,33 @@ class TestPollForTurnStaleSalvage:
                 await poll_for_turn(fake, skip_lines=0)
 
     @pytest.mark.asyncio
-    async def test_max_poll_seconds_overrides_module_budget(self):
-        # A caller-supplied max_poll_seconds bounds the loop instead of the module MAX_POLL_SECONDS:
-        # the module value is left larger, so the elapsed in the timeout error proves the override won.
-        log = _agent_message_line("intermediate")  # no fingerprint — always times out
+    @pytest.mark.parametrize("deadline", [None, 25.0, 0.0])
+    async def test_max_poll_seconds_overrides_module_budget(self, deadline: float | None) -> None:
+        log = _agent_message_line("intermediate")
         fake = FakeTaskRun()
+        now = [0.0]
+
+        async def sleep(delay: float) -> None:
+            now[0] += delay
+
+        def read(*args: object, **kwargs: object) -> str:
+            now[0] += 7
+            return log
+
         with (
-            patch("posthog.storage.object_storage.read", return_value=log),
-            patch("asyncio.sleep", new=AsyncMock()),
+            patch("posthog.storage.object_storage.read", side_effect=read),
+            patch("asyncio.sleep", side_effect=sleep),
+            patch(
+                "products.tasks.backend.logic.services.custom_prompt_internals.time.monotonic",
+                side_effect=lambda: now[0],
+            ),
             patch("products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 10),
             patch("products.tasks.backend.logic.services.custom_prompt_internals.MAX_POLL_SECONDS", 100),
             patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake),
         ):
-            with pytest.raises(RuntimeError, match="after 30s"):
-                await poll_for_turn(fake, skip_lines=0, max_poll_seconds=30)
+            with pytest.raises(TurnPollTimeout) as error:
+                await poll_for_turn(fake, skip_lines=0, max_poll_seconds=30, poll_deadline=deadline)
+        assert error.value.elapsed == (30 if deadline is None else int(now[0]))
 
     @pytest.mark.asyncio
     async def test_salvage_reassembles_chunked_message(self):
@@ -1015,6 +1142,59 @@ class TestPollForTurnSurfacesAgentError:
     the exception, so a caller separates a retryable provider outage from a scout defect without
     matching the message text."""
 
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "reason,retryability,error_type,transient",
+        [
+            ("proxy_invalid", "requires_action", "SandboxExecutionError", False),
+            (None, "unknown", "SandboxExecutionError", True),
+            (None, "unknown", None, False),
+            ("session_held_by_background", "transient", None, True),
+        ],
+    )
+    async def test_startup_failure_survives_without_session_logs(self, reason, retryability, error_type, transient):
+        fake_task_run = FakeTaskRun(
+            status="failed",
+            state={
+                "failure_error_type": error_type,
+                "startup_failure": {
+                    "provider": "claude",
+                    "phase": "sdk_initialization",
+                    "reason": reason,
+                    "retryability": retryability,
+                },
+            },
+        )
+        with (
+            patch("posthog.storage.object_storage.read", return_value=None),
+            patch("asyncio.sleep", new=AsyncMock()),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 0),
+            patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake_task_run),
+        ):
+            with pytest.raises(AgentStartupFailed) as error:
+                await poll_for_turn(fake_task_run, skip_lines=0)
+
+        assert error.value.failure.reason == reason
+        assert error.value.failure.retryability == retryability
+        assert error.value.task_id == fake_task_run.task_id
+        assert error.value.run_id == fake_task_run.id
+        assert isinstance(error.value, SandboxRunFailed)
+        assert error.value.error_type == error_type
+        assert error.value.transient is transient
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("failure", ["RepositoryAccessError", "RepositoryCloneError", "GitHubAuthenticationError"])
+    async def test_repository_failure_survives_the_task_boundary(self, failure):
+        run = FakeTaskRun(status="failed", error_message="Activity task failed", state={"failure_error_type": failure})
+        with (
+            patch("posthog.storage.object_storage.read", return_value=""),
+            patch("asyncio.sleep", new=AsyncMock()),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 0),
+            patch("products.tasks.backend.models.TaskRun.objects.get", return_value=run),
+        ):
+            with pytest.raises(RepositoryContextUnavailable, match=failure):
+                await poll_for_turn(run)
+
     @parameterized.expand(
         [
             ("upstream_provider_failure", "API Error: 429 rate_limit_error", True),
@@ -1114,11 +1294,22 @@ class TestPollForTurnSurfacesAgentError:
         assert exc_info.value.retryable_upstream is False
 
     @pytest.mark.asyncio
-    async def test_missing_structured_error_keeps_generic_behavior(self):
+    @pytest.mark.parametrize(
+        "state,expected_error_type,expected_transient",
+        [
+            (None, None, False),
+            ({"startup_failure": {"reason": "proxy_invalid", "retryability": "requires_action"}}, None, False),
+            ({"failure_error_type": "RepositoryCloneError"}, "RepositoryCloneError", True),
+            ({"failure_error_type": "RepositoryAccessError"}, "RepositoryAccessError", False),
+        ],
+    )
+    async def test_missing_structured_error_keeps_generic_behavior(
+        self, state, expected_error_type, expected_transient
+    ):
         # No _posthog/error line: the drain must keep today's generic message and
         # must not touch TaskRun.error_message.
         turn = [_user_message_line("summarize"), _usage_update_line(0)]
-        fake_task_run = FakeTaskRun(status="failed", error_message="Activity task failed")
+        fake_task_run = FakeTaskRun(status="failed", error_message="Activity task failed", state=state)
 
         persist = AsyncMock()
         with (
@@ -1137,6 +1328,9 @@ class TestPollForTurnSurfacesAgentError:
         assert "Activity task failed" in str(exc_info.value)
         # No agent classification to carry, so the generic failure stays untyped.
         assert not isinstance(exc_info.value, AgentTurnFailed)
+        assert isinstance(exc_info.value, SandboxRunFailed)
+        assert exc_info.value.error_type == expected_error_type
+        assert exc_info.value.transient is expected_transient
         persist.assert_not_awaited()
         assert fake_task_run.error_message == "Activity task failed"
 
@@ -1183,8 +1377,75 @@ class TestMultiTurnSessionRetry:
         return session
 
     @pytest.mark.asyncio
-    async def test_happy_path_no_retry(self):
+    @pytest.mark.parametrize("first_reply", ["private-reply-text", '{"value":', '{"value": "private-value"}'])
+    @pytest.mark.parametrize("retry_reply", [None, '{"value": "ok"}', '{"value": "still-invalid"}'])
+    async def test_json_retry_preserves_schema_and_context(
+        self, first_reply: str, retry_reply: str | None, caplog: pytest.LogCaptureFixture
+    ) -> None:
         session = self._make_session()
+        replies = [first_reply] + ([retry_reply] if retry_reply is not None else [])
+        poll = AsyncMock(
+            side_effect=[
+                TurnPollResult(last_message=reply, full_log=None, total_lines=index * 10, printed_lines=index * 5)
+                for index, reply in enumerate(replies, start=1)
+            ]
+        )
+        with (
+            caplog.at_level(logging.WARNING),
+            patch("products.tasks.backend.logic.services.custom_prompt_multi_turn_runner.poll_for_turn", new=poll),
+        ):
+            validation_context: dict[str, object] = {"expected_value": "ok"}
+            if retry_reply == '{"value": "ok"}':
+                result = await session.send_followup(
+                    "question",
+                    _ContextResp,
+                    json_retry_prompt="Return valid JSON",
+                    validation_context=validation_context,
+                )
+                assert result.value == "ok"
+            else:
+                with pytest.raises(ValueError):
+                    await session.send_followup(
+                        "question",
+                        _ContextResp,
+                        json_retry_prompt="Return valid JSON" if retry_reply is not None else None,
+                        validation_context=validation_context,
+                    )
+
+        assert poll.await_count == len(replies)
+        if retry_reply is not None:
+            assert poll.await_args_list[1].kwargs["skip_lines"] == 10
+            assert cast(AsyncMock, session._workflow_handle).signal.await_args_list[1].args[1] == "Return valid JSON"
+            assert "asking for JSON once" in caplog.text
+        assert "private-reply-text" not in caplog.text
+        assert "private-value" not in caplog.text
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("during_retry", [False, True])
+    @pytest.mark.parametrize(
+        "failure", [RuntimeError("poll failed"), ValueError("poll failed"), asyncio.CancelledError()]
+    )
+    async def test_json_retry_propagates_execution_failures(self, during_retry: bool, failure: BaseException) -> None:
+        session = self._make_session()
+        responses = (
+            [TurnPollResult(last_message="prose", full_log=None, total_lines=10, printed_lines=5), failure]
+            if during_retry
+            else [failure]
+        )
+        poll = AsyncMock(side_effect=responses)
+        with patch("products.tasks.backend.logic.services.custom_prompt_multi_turn_runner.poll_for_turn", new=poll):
+            with pytest.raises(type(failure)) as raised:
+                await session.send_followup("question", _Resp, json_retry_prompt="Return valid JSON")
+
+        assert raised.value is failure
+        assert poll.await_count == len(responses)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("deadline,turns", [(None, 1), (float("inf"), 2), (0.0, 1)])
+    @pytest.mark.parametrize("json_retry_prompt", [None, "Return valid JSON"])
+    async def test_happy_path_no_retry(self, deadline: float | None, turns: int, json_retry_prompt: str | None) -> None:
+        session = self._make_session()
+        session.poll_deadline = deadline
         agent_response = json.dumps({"value": "ok"})
 
         with patch(
@@ -1192,12 +1453,19 @@ class TestMultiTurnSessionRetry:
             new=AsyncMock(
                 return_value=TurnPollResult(last_message=agent_response, full_log=None, total_lines=10, printed_lines=5)
             ),
-        ):
-            result = await session.send_followup("hello", _Resp, label="unit")
+        ) as poll:
+            if deadline == 0.0:
+                with pytest.raises(TimeoutError):
+                    await session.send_followup("hello", _Resp, label="unit", json_retry_prompt=json_retry_prompt)
+                cast(AsyncMock, session._workflow_handle).signal.assert_not_awaited()
+                poll.assert_not_awaited()
+                return
+            for _ in range(turns):
+                result = await session.send_followup("hello", _Resp, label="unit", json_retry_prompt=json_retry_prompt)
+                assert result == _Resp(value="ok")
 
-        assert result == _Resp(value="ok")
-        # Signal sent exactly once on happy path
-        assert session._workflow_handle.signal.await_count == 1  # type: ignore[union-attr]
+        assert all(call.kwargs["poll_deadline"] == deadline for call in poll.await_args_list)
+        assert session._workflow_handle.signal.await_count == turns  # type: ignore[union-attr]
 
     @pytest.mark.asyncio
     async def test_retries_once_on_empty_end_turn(self):
@@ -1950,3 +2218,18 @@ class TestPollForTurnConnectionDrop:
                 await poll_for_turn(FakeTaskRun(), skip_lines=0)
 
         assert get_mock.call_count == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("origin", [Task.OriginProduct.SIGNAL_REPORT, Task.OriginProduct.SIGNALS_SCOUT])
+@pytest.mark.parametrize("rpc_status", [None, RPCStatusCode.NOT_FOUND, RPCStatusCode.UNAVAILABLE])
+async def test_pipeline_session_releases_activity_slot_after_signalling(
+    origin: str, rpc_status: RPCStatusCode | None
+) -> None:
+    handle = AsyncMock()
+    if rpc_status is not None:
+        handle.signal.side_effect = RPCError("completion signal failed", rpc_status, b"")
+    session = MultiTurnSession(task=MagicMock(origin_product=origin), task_run=MagicMock(), _workflow_handle=handle)
+    await session.end()
+    handle.signal.assert_awaited_once()
+    handle.result.assert_not_awaited()

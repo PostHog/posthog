@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 import importlib
 from datetime import timedelta
+from typing import TYPE_CHECKING
 
 from django.conf import settings
 
@@ -19,7 +20,6 @@ from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
-from products.signals.backend.custom_agent.base import AIDataProcessingNotApprovedError, CustomSignalAgent
 from products.signals.backend.custom_agent.loader import import_agent_class, validate_agent_class_identity
 from products.signals.backend.custom_agent.schemas import (
     CustomAgentRunHandle,
@@ -28,6 +28,9 @@ from products.signals.backend.custom_agent.schemas import (
     validate_run_id,
     validated_identifier,
 )
+
+if TYPE_CHECKING:
+    from products.signals.backend.custom_agent.base import CustomSignalAgent
 
 logger = structlog.get_logger(__name__)
 
@@ -101,6 +104,9 @@ async def arun_agent(
     # without org-level consent. `team.organization` may be a deferred FK access.
     organization = await database_sync_to_async(lambda: team.organization)()
     if not organization.is_ai_data_processing_approved:
+        # The agent base imports Temporal helpers, so importing it at module load creates a cycle.
+        from products.signals.backend.custom_agent.base import AIDataProcessingNotApprovedError
+
         raise AIDataProcessingNotApprovedError(
             f"Organization {organization.id} has not approved AI data processing; "
             f"refusing to launch custom signal agent for team {team_id}"

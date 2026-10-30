@@ -1,9 +1,12 @@
+from datetime import date
 from ipaddress import IPv4Address, IPv6Address
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
 from unittest.mock import MagicMock, patch
+
+from clickhouse_driver.columns.datecolumn import DateColumn
 
 from posthog.hogql.query_stats import query_stats_scope
 
@@ -16,7 +19,7 @@ from posthog.clickhouse.client.connection import (
 )
 from posthog.clickhouse.client.execute import query_with_columns, sync_execute
 from posthog.clickhouse.client.limit import ConcurrencySlot, RateLimit, get_llm_analytics_rate_limiter
-from posthog.clickhouse.query_tagging import AccessMethod, Product, tags_context
+from posthog.clickhouse.query_tagging import AccessMethod, Feature, Product, tags_context
 
 
 @pytest.fixture
@@ -65,6 +68,20 @@ def test_process_query_task_workload_routing(
 
 
 @pytest.mark.parametrize(
+    "access_method,expected_workload",
+    [
+        (None, Workload.ONLINE),
+        (AccessMethod.PERSONAL_API_KEY, Workload.OFFLINE),
+    ],
+)
+def test_celery_cache_warming_workload_routing(client_from_pool, access_method, expected_workload):
+    with tags_context(kind="celery", feature=Feature.CACHE_WARMUP, access_method=access_method):
+        sync_execute("SELECT 1", flush=False)
+
+    assert client_from_pool.call_args[0][0] == expected_workload
+
+
+@pytest.mark.parametrize(
     "workload,expected_workload",
     [
         (Workload.DEFAULT, Workload.ENDPOINTS),
@@ -103,15 +120,19 @@ def test_llm_analytics_ch_user_routing(client_from_pool, product, kind, tag_id, 
 
 
 @pytest.mark.parametrize(
-    "tagged_ch_user,requested_ch_user,expected_ch_user",
+    "tagged_ch_user,feature,requested_ch_user,expected_ch_user",
     [
-        (ClickHouseUser.ALERTS_PLATFORM_INSIGHT, ClickHouseUser.DEFAULT, ClickHouseUser.ALERTS_PLATFORM_INSIGHT),
-        (None, ClickHouseUser.DEFAULT, ClickHouseUser.DEFAULT),
-        (ClickHouseUser.ALERTS_PLATFORM_INSIGHT, ClickHouseUser.META, ClickHouseUser.META),
+        (ClickHouseUser.ALERTS_PLATFORM_INSIGHT, None, ClickHouseUser.DEFAULT, ClickHouseUser.ALERTS_PLATFORM_INSIGHT),
+        (None, None, ClickHouseUser.DEFAULT, ClickHouseUser.DEFAULT),
+        (ClickHouseUser.ALERTS_PLATFORM_INSIGHT, None, ClickHouseUser.META, ClickHouseUser.META),
+        (ClickHouseUser.EXPERIMENTS, Feature.CACHE_WARMUP, ClickHouseUser.DEFAULT, ClickHouseUser.EXPERIMENTS),
+        (None, Feature.CACHE_WARMUP, ClickHouseUser.DEFAULT, ClickHouseUser.CACHE_WARMUP),
     ],
 )
-def test_tagged_ch_user_routing(client_from_pool, tagged_ch_user, requested_ch_user, expected_ch_user):
-    with tags_context(product=Product.PRODUCT_ANALYTICS, kind="temporal", id="alerts", ch_user=tagged_ch_user):
+def test_tagged_ch_user_routing(client_from_pool, tagged_ch_user, feature, requested_ch_user, expected_ch_user):
+    with tags_context(
+        product=Product.PRODUCT_ANALYTICS, feature=feature, kind="temporal", id="alerts", ch_user=tagged_ch_user
+    ):
         sync_execute("SELECT 1", flush=False, ch_user=requested_ch_user)
 
     assert client_from_pool.call_args[0][3] == expected_ch_user
@@ -237,3 +258,22 @@ def test_query_with_columns_removes_columns_by_type(types, row, expected):
         rows = query_with_columns("SELECT *", column_types_to_remove=("IPv4", "IPv6"))
 
     assert rows == [expected]
+
+
+@pytest.mark.parametrize(
+    "raw_day_number_hex,expected",
+    [
+        ("aeba0500", date(2998, 1, 1)),
+        ("8c29f5ff", date(25, 5, 17)),
+    ],
+)
+def test_sync_execute_decodes_date32_outside_driver_default_range(raw_day_number_hex, expected):
+    # RowBinary keeps the raw day number, the same way ClickHouse 26.9+ passes through out-of-range
+    # Parquet and CAST values. The driver's default lookup table stops at 1900-2299.
+    lookup_size = len(DateColumn.date_lut)
+
+    rows = sync_execute(f"SELECT d FROM format(RowBinary, 'd Date32', unhex('{raw_day_number_hex}'))", flush=False)
+
+    assert rows == [(expected,)]
+    # The lookup is shared by every query in the process, so out-of-range days must not be cached in it.
+    assert len(DateColumn.date_lut) == lookup_size

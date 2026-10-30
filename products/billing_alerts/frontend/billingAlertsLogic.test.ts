@@ -8,14 +8,18 @@ import { initKeaTests } from '~/test/init'
 import { expectLogic } from '~/test/keaTestUtils'
 import type { OrganizationType } from '~/types'
 
+import * as generatedApi from 'products/billing/frontend/generated/api'
+import type {
+    BillingAlertConfigurationApi,
+    PaginatedBillingAlertConfigurationListApi,
+} from 'products/billing/frontend/generated/api.schemas'
+
 import {
     CHECK_NOW_CONFIRMATION_DESCRIPTION,
     billingAlertsLogic,
     mergeUniqueAlerts,
     openBillingAlertCheckNowConfirmation,
 } from './billingAlertsLogic'
-import * as generatedApi from './generated/api'
-import type { BillingAlertConfigurationApi, PaginatedBillingAlertConfigurationListApi } from './generated/api.schemas'
 
 const alert = (id: string): BillingAlertConfigurationApi => ({ id }) as BillingAlertConfigurationApi
 const organization = (id: string): OrganizationType =>

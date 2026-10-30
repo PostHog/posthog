@@ -232,6 +232,13 @@ _INCREMENTAL_INPUTS: dict[str, Any] = {
     "db_incremental_field_last_value": _INCREMENTAL_START,
     "sync_type": ExternalDataSchemaSyncType.INCREMENTAL,
 }
+# A usable unique index, so only the incremental sync keeps the read off the keyset walk.
+_INCREMENTAL_TABLE = (
+    _INCREMENTAL_COLUMNS,
+    ["id"],
+    [_index([("id", "int", False)], clustered=True, primary=True)],
+    _INCREMENTAL_ROWS,
+)
 
 
 @pytest.fixture
@@ -399,6 +406,7 @@ class TestIncrementalResume:
     def test_interrupted_read_resumes_from_the_last_written_value(self, serve, stop_after, write_last):
         server = serve(_INCREMENTAL_COLUMNS, ["id"], [], _INCREMENTAL_ROWS)
         uninterrupted = _read({}, **_INCREMENTAL_INPUTS)
+        assert server.queries[-1][0].endswith("ORDER BY [updated_at] ASC")
 
         store: dict[str, str] = {}
         first = _read(store, stop_after=stop_after, write_last=write_last, **_INCREMENTAL_INPUTS)
@@ -408,9 +416,45 @@ class TestIncrementalResume:
         merged = {row["id"]: row for row in first + resumed}
         assert sorted(merged.values(), key=lambda row: row["id"]) == sorted(uninterrupted, key=lambda row: row["id"])
         assert store == {}
+        assert server.queries[-1][0].endswith("ORDER BY [updated_at] ASC")
         # Rows at the checkpoint value are read again. Rows below it are not.
         written_batches = stop_after if write_last else stop_after - 1
         if written_batches:
             checkpoint = first[-1]["updated_at"]
             assert server.queries[-1][1]["incremental_value"] == checkpoint
             assert min(row["updated_at"] for row in resumed) == checkpoint
+
+    @pytest.mark.parametrize(
+        "table,input_overrides,expected_ascending,expected_resume",
+        [
+            pytest.param(_INCREMENTAL_TABLE, _INCREMENTAL_INPUTS, True, True, id="incremental_merge"),
+            pytest.param(
+                _INCREMENTAL_TABLE,
+                {**_INCREMENTAL_INPUTS, "sync_type": ExternalDataSchemaSyncType.APPEND},
+                True,
+                False,
+                id="incremental_append",
+            ),
+            pytest.param(
+                # No `id` column: the source takes a column of that name as the primary key.
+                ([("code", "int"), ("updated_at", "datetime2")], None, [], []),
+                _INCREMENTAL_INPUTS,
+                True,
+                False,
+                id="incremental_without_primary_key",
+            ),
+            pytest.param(_TABLES["bigint_key"], {}, False, True, id="full_refresh_keyset"),
+            pytest.param(_TABLES["no_key"], {}, False, False, id="full_refresh_single_query"),
+        ],
+    )
+    def test_only_the_incremental_single_query_claims_ascending_order(
+        self, serve, table, input_overrides: dict[str, Any], expected_ascending: bool, expected_resume: bool
+    ):
+        serve(*table)
+
+        source, _ = _build({}, **input_overrides)
+
+        assert (source.sort_mode, source.supports_resume) == (
+            "asc" if expected_ascending else None,
+            expected_resume,
+        )

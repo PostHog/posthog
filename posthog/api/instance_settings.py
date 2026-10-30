@@ -124,6 +124,15 @@ class InstanceSettingsSerializer(serializers.Serializer):
     editable = serializers.BooleanField(read_only=True)
     is_secret = serializers.BooleanField(read_only=True)
 
+    def validate_value(self, value: Any) -> Any:
+        if self.instance is not None and self.instance.key == "CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS":
+            # Every query parses this list, so a value that fails to parse would fail every query on the instance.
+            if not isinstance(value, str) or not re.fullmatch(r"\s*(\d+\s*(,\s*\d+\s*)*)?", value):
+                raise serializers.ValidationError(
+                    "Enter project IDs separated by commas, or leave it empty to switch no project."
+                )
+        return value
+
     def update(self, instance: InstanceSettingHelper, validated_data: dict[str, Any]) -> InstanceSettingHelper:
         if instance.key not in SETTINGS_ALLOWING_API_OVERRIDE:
             raise serializers.ValidationError("This setting cannot be updated from the API.", code="no_api_override")

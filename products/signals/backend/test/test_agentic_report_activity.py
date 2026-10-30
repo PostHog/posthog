@@ -3,7 +3,7 @@ import random
 import asyncio
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 from unittest.mock import AsyncMock, Mock, patch
@@ -15,8 +15,10 @@ import pytest_asyncio
 from asgiref.sync import sync_to_async
 from parameterized import parameterized
 from pydantic import ValidationError
+from temporalio.exceptions import ApplicationError
 
-from posthog.models import Organization, Team, User
+from posthog.models import Integration, Organization, Team, User
+from posthog.models.integration import GitHubIntegrationError
 from posthog.models.organization import OrganizationMembership
 from posthog.models.scoping import team_scope
 from posthog.models.user_integration import UserIntegration
@@ -43,6 +45,7 @@ from products.signals.backend.models import (
 from products.signals.backend.repo_corrections import SCOUT_REPOSITORY_REASON
 from products.signals.backend.report_charts import ReportChart
 from products.signals.backend.report_generation.research import (
+    RESEARCH_JSON_RETRY_PROMPT,
     ActionabilityAssessment,
     ActionabilityChoice,
     ActionabilityUpdate,
@@ -60,13 +63,15 @@ from products.signals.backend.report_generation.research import (
 )
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.report_metrics import REPORT_METRIC_GOAL_FIELDS, ReportMetric
+from products.signals.backend.startup_failure import RESEARCH_STARTUP_FAILURE, research_startup_failure
 from products.signals.backend.supersession import ImplementationResearchContext
 from products.signals.backend.temporal.agentic.report import (
     RESEARCH_MCP_SCOPES,
+    RESEARCH_SANDBOX_UNAVAILABLE_ERROR_TYPE,
     RunAgenticReportInput,
     _load_linked_report_context,
     _load_previous_research,
-    _load_resolved_report_context,
+    _load_recurrence_report_context,
     _parse_artefact_content,
     _parse_stored_charts,
     _parse_stored_metrics,
@@ -84,6 +89,14 @@ from products.signals.backend.temporal.summary import (
     mark_report_ready_activity,
 )
 from products.signals.backend.temporal.types import SignalData
+from products.tasks.backend.facade.agents import (
+    AgentStartupFailed,
+    CustomPromptSandboxContext,
+    RepositoryContextUnavailable,
+    SandboxRunFailed,
+)
+from products.tasks.backend.facade.contracts import AgentStartupFailure
+from products.tasks.backend.facade.repo_selection_types import ReportResearchContext
 from products.tasks.backend.models import Task  # tach-ignore
 
 
@@ -293,22 +306,35 @@ def _build_signals() -> list[SignalData]:
 @pytest.mark.asyncio
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    ("parent_status", "dismissal_reason", "expected"),
+    ("parent_status", "prior_status", "dismissal_reason", "expected"),
     [
-        (SignalReport.Status.RESOLVED, None, True),
-        (SignalReport.Status.SUPPRESSED, "already_fixed", True),
+        (SignalReport.Status.RESOLVED, None, None, True),
+        (SignalReport.Status.CLOSED, None, None, True),
+        (SignalReport.Status.SUPPRESSED, SignalReport.Status.CLOSED, None, True),
+        (SignalReport.Status.SUPPRESSED, None, "already_fixed", True),
+        (SignalReport.Status.SUPPRESSED, None, "wrong_repo", False),
         # Archived because nobody wants to see it, not because it was fixed: there is no prior fix
         # to reason about, so the research agent is told nothing.
-        (SignalReport.Status.SUPPRESSED, "wontfix_intentional", False),
+        (SignalReport.Status.SUPPRESSED, None, "wontfix_intentional", False),
     ],
 )
 @pytest.mark.parametrize("typed_link", [False, True])
 @pytest.mark.parametrize("safety_verdicts", [[], [False], [True], [False, True], [True, False], ["invalid"]])
-async def test_recurrence_context_comes_from_a_parent_closed_as_fixed(
-    ateam, parent_status, dismissal_reason, expected, typed_link, safety_verdicts
-):
+async def test_recurrence_context_preserves_the_predecessor_outcome(
+    ateam: Team,
+    parent_status: str,
+    prior_status: str | None,
+    dismissal_reason: str | None,
+    expected: bool,
+    typed_link: bool,
+    safety_verdicts: list[bool | str],
+) -> None:
     parent = await database_sync_to_async(SignalReport.objects.create)(
-        team=ateam, status=parent_status, title="stale chunk TypeError", summary="Imports fail after a deploy."
+        team=ateam,
+        status=parent_status,
+        status_before_suppression=prior_status,
+        title="stale chunk TypeError",
+        summary="Imports fail after a deploy.",
     )
     if dismissal_reason is not None:
         await database_sync_to_async(SignalReportArtefact.append_dismissal)(
@@ -336,13 +362,21 @@ async def test_recurrence_context_comes_from_a_parent_closed_as_fixed(
         attribution=ArtefactAttribution.system(),
     )
 
-    context = await _load_resolved_report_context(ateam.id, str(fork.id))
+    context = await _load_recurrence_report_context(ateam.id, str(fork.id))
 
     safe = not safety_verdicts or safety_verdicts[-1] is True
-    valid_link = typed_link or parent_status == SignalReport.Status.RESOLVED
-    assert context == (
-        ("stale chunk TypeError", "Imports fail after a deploy.") if expected and safe and valid_link else (None, None)
-    )
+    valid_link = typed_link or parent_status in {SignalReport.Status.RESOLVED, SignalReport.Status.CLOSED}
+    if expected and safe and valid_link:
+        assert context is not None
+        assert context.title == "stale chunk TypeError"
+        assert context.summary == "Imports fail after a deploy."
+        assert context.status == (
+            "closed"
+            if parent_status == SignalReport.Status.CLOSED or prior_status == SignalReport.Status.CLOSED
+            else "resolved"
+        )
+    else:
+        assert context is None
     assert await _load_previous_research(ateam.id, str(fork.id)) is None
 
 
@@ -582,6 +616,49 @@ async def test_load_previous_research_ignores_artefacts_from_another_team(ateam,
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
+@pytest.mark.parametrize(
+    "connection,expected",
+    [
+        ("missing", "no_integration"),
+        ("empty", "no_repositories"),
+        ("broken", "github_unavailable"),
+        ("transport_failure", "github_unavailable"),
+    ],
+)
+async def test_pilot_repository_failure_keeps_research_available(monkeypatch, ateam, connection, expected):
+    if connection != "missing":
+        await Integration.objects.acreate(
+            team=ateam,
+            kind="github",
+            integration_id="123",
+            config={"installation_id": 123},
+            errors="TOKEN_REFRESH_FAILED" if connection == "broken" else "",
+            repository_cache=[] if connection == "empty" else [{"full_name": "example/app"}],
+            repository_cache_updated_at=timezone.now(),
+        )
+    monkeypatch.setattr(
+        "products.signals.backend.temporal.agentic.select_repository._resolve_sandbox_user_id", lambda team_id: 1
+    )
+    with (
+        patch("products.signals.backend.temporal.agentic.select_repository.Heartbeater"),
+        patch(
+            "products.signals.backend.temporal.agentic.select_repository.select_repository_for_report",
+            side_effect=GitHubIntegrationError("Unavailable", status_code=503),
+        ),
+    ):
+        result = await select_repository_activity(
+            SelectRepositoryInput(
+                team_id=ateam.id, report_id=str(uuid4()), signals=_build_signals(), github_optional=True
+            )
+        )
+    assert result.repository is None
+    assert result.research_context is not None
+    assert result.research_context.mode == "data_only"
+    assert result.research_context.repository_status == expected
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
 async def test_select_repository_activity_returns_repo(monkeypatch, ateam):
     monkeypatch.setattr(
         "products.signals.backend.temporal.agentic.select_repository.persisted_repo_selection",
@@ -602,7 +679,7 @@ async def test_select_repository_activity_returns_repo(monkeypatch, ateam):
 
     with patch("products.signals.backend.temporal.agentic.select_repository.Heartbeater"):
         result = await select_repository_activity(
-            SelectRepositoryInput(team_id=ateam.id, report_id="test-report-id", signals=_build_signals())
+            SelectRepositoryInput(team_id=ateam.id, report_id=str(uuid4()), signals=_build_signals())
         )
 
     assert result.repository == "posthog/posthog"
@@ -611,8 +688,23 @@ async def test_select_repository_activity_returns_repo(monkeypatch, ateam):
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_select_repository_activity_reuses_previous_selection(monkeypatch, ateam):
+@pytest.mark.parametrize(
+    "github_optional,connected,reused",
+    [
+        (False, True, True),
+        (False, False, False),
+        (True, True, True),
+        (True, False, True),
+    ],
+)
+async def test_select_repository_activity_reuses_previous_selection(
+    monkeypatch, ateam, github_optional, connected, reused
+):
     previous = RepoSelectionResult(repository="posthog/posthog", reason="Previously selected")
+    if connected:
+        await Integration.objects.acreate(
+            team=ateam, kind="github", integration_id="123", config={"installation_id": 123}
+        )
 
     monkeypatch.setattr(
         "products.signals.backend.temporal.agentic.select_repository.persisted_repo_selection",
@@ -633,10 +725,16 @@ async def test_select_repository_activity_reuses_previous_selection(monkeypatch,
 
     with patch("products.signals.backend.temporal.agentic.select_repository.Heartbeater"):
         result = await select_repository_activity(
-            SelectRepositoryInput(team_id=ateam.id, report_id="test-report-id", signals=_build_signals())
+            SelectRepositoryInput(
+                team_id=ateam.id, report_id=str(uuid4()), signals=_build_signals(), github_optional=github_optional
+            )
         )
 
-    assert result is previous
+    if reused:
+        assert result is previous
+    else:
+        assert result.repository is None
+        assert "No GitHub integration" in result.reason
     assert not select_repo_called
 
 
@@ -647,6 +745,7 @@ async def test_select_repository_activity_retries_transient_db_drop(monkeypatch,
     # activity's early read. The retry-once guard must evict the dead connection and
     # succeed on the second attempt rather than letting it escape as error-tracking noise.
     previous = RepoSelectionResult(repository="posthog/posthog", reason="Previously selected")
+    await Integration.objects.acreate(team=ateam, kind="github", integration_id="123", config={"installation_id": 123})
     attempts = {"n": 0}
 
     def flaky_load(report_id):
@@ -662,7 +761,7 @@ async def test_select_repository_activity_retries_transient_db_drop(monkeypatch,
 
     with patch("products.signals.backend.temporal.agentic.select_repository.Heartbeater"):
         result = await select_repository_activity(
-            SelectRepositoryInput(team_id=ateam.id, report_id="test-report-id", signals=_build_signals())
+            SelectRepositoryInput(team_id=ateam.id, report_id=str(uuid4()), signals=_build_signals())
         )
 
     assert result is previous
@@ -691,7 +790,7 @@ async def test_select_repository_activity_no_repo(monkeypatch, ateam):
 
     with patch("products.signals.backend.temporal.agentic.select_repository.Heartbeater"):
         result = await select_repository_activity(
-            SelectRepositoryInput(team_id=ateam.id, report_id="test-report-id", signals=_build_signals())
+            SelectRepositoryInput(team_id=ateam.id, report_id=str(uuid4()), signals=_build_signals())
         )
 
     assert result.repository is None
@@ -734,11 +833,158 @@ async def test_select_repository_activity_does_not_raise_with_only_user_integrat
 
     with patch("products.signals.backend.temporal.agentic.select_repository.Heartbeater"):
         result = await select_repository_activity(
-            SelectRepositoryInput(team_id=ateam.id, report_id="test-report-id", signals=_build_signals())
+            SelectRepositoryInput(team_id=ateam.id, report_id=str(uuid4()), signals=_build_signals())
         )
 
     assert result.repository == "posthog/posthog"
     assert captured_user_id == [user.id], "user_id should come from the UserIntegration owner"
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize("repository", ["posthog/posthog", None])
+@pytest.mark.parametrize(
+    "sandbox_error_type,expected_transient",
+    [
+        ("RepositoryCloneError", True),
+        ("RepositoryAccessError", False),
+        ("startup_requires_action", False),
+        ("startup_unknown", False),
+        ("startup_transient", True),
+        ("startup_unknown_transient_sandbox", True),
+    ],
+)
+async def test_run_agentic_report_activity_flags_transient_sandbox_failures(
+    monkeypatch, ateam, repository, sandbox_error_type, expected_transient
+):
+    report = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam,
+        status=SignalReport.Status.IN_PROGRESS,
+        signal_count=2,
+        total_weight=1.3,
+    )
+    monkeypatch.setattr("products.signals.backend.temporal.agentic.report.resolve_user_id_for_team", lambda team_id: 1)
+    monkeypatch.setattr(
+        "products.signals.backend.temporal.agentic.report.resolve_acting_user_id_for_team", lambda team_id: 1
+    )
+
+    async def fake_run_multi_turn_research(*args, **kwargs):
+        if sandbox_error_type.startswith("startup_"):
+            requires_action = sandbox_error_type == "startup_requires_action"
+            raise AgentStartupFailed(
+                failure=AgentStartupFailure(
+                    provider="claude",
+                    phase="sdk_initialization",
+                    reason="proxy_invalid" if requires_action else None,
+                    retryability="requires_action"
+                    if requires_action
+                    else "transient"
+                    if sandbox_error_type == "startup_transient"
+                    else "unknown",
+                ),
+                task_id=str(uuid4()),
+                run_id=str(uuid4()),
+                error_type="SandboxExecutionError"
+                if sandbox_error_type == "startup_unknown_transient_sandbox"
+                else None,
+            )
+        raise SandboxRunFailed("TaskRun reached terminal status=failed", error_type=sandbox_error_type)
+
+    monkeypatch.setattr(
+        "products.signals.backend.temporal.agentic.report.run_multi_turn_research", fake_run_multi_turn_research
+    )
+
+    with patch("products.signals.backend.temporal.agentic.report.Heartbeater"):
+        with pytest.raises((ApplicationError, SandboxRunFailed)) as error:
+            await run_agentic_report_activity(
+                RunAgenticReportInput(
+                    team_id=ateam.id,
+                    report_id=str(report.id),
+                    signals=_build_signals(),
+                    repo_selection=RepoSelectionResult(repository=repository, reason="test research context"),
+                    github_optional=repository is None,
+                )
+            )
+
+    if sandbox_error_type.startswith("startup_"):
+        assert isinstance(error.value, ApplicationError)
+        assert error.value.type == (
+            RESEARCH_SANDBOX_UNAVAILABLE_ERROR_TYPE if expected_transient else RESEARCH_STARTUP_FAILURE
+        )
+        assert error.value.non_retryable is (sandbox_error_type == "startup_requires_action")
+        assert research_startup_failure(error.value) is not None
+    elif expected_transient:
+        assert isinstance(error.value, ApplicationError)
+        assert error.value.type == RESEARCH_SANDBOX_UNAVAILABLE_ERROR_TYPE
+    else:
+        assert isinstance(error.value, SandboxRunFailed)
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "repository,failure",
+    [
+        (None, None),
+        ("example/app", RepositoryContextUnavailable("RepositoryAccessError")),
+        ("example/app", RepositoryContextUnavailable("RepositoryCloneError")),
+    ],
+)
+async def test_pilot_research_persists_a_report_without_code(monkeypatch, ateam, repository, failure):
+    report = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam, status=SignalReport.Status.IN_PROGRESS
+    )
+    if repository:
+        await SignalReportArtefact.objects.acreate(
+            team=ateam,
+            report=report,
+            type="repo_selection",
+            content=RepoSelectionResult(repository=repository, reason="Reviewer pinned").model_dump_json(),
+        )
+    monkeypatch.setattr(
+        "products.signals.backend.temporal.agentic.report.resolve_acting_user_id_for_team", lambda team_id: 1
+    )
+    contexts = []
+
+    async def research(signals, context, **kwargs):
+        contexts.append(context)
+        if failure is not None and len(contexts) == 1:
+            raise failure
+        return _build_research_output()
+
+    with (
+        patch("products.signals.backend.temporal.agentic.report.Heartbeater"),
+        patch("products.signals.backend.temporal.agentic.report.run_multi_turn_research", side_effect=research),
+    ):
+        result = await run_agentic_report_activity(
+            RunAgenticReportInput(
+                team_id=ateam.id,
+                report_id=str(report.id),
+                signals=_build_signals(),
+                github_optional=True,
+                repo_selection=RepoSelectionResult(
+                    repository=repository,
+                    reason="Pilot",
+                    research_context=ReportResearchContext(
+                        mode="code" if repository else "data_only",
+                        repository_status="available" if repository else "no_integration",
+                    ),
+                ),
+            )
+        )
+    assert result.repository is None
+    assert result.title == "Onboarding funnel completion tracking may be regressing"
+    assert contexts[-1].repository is None
+    assert contexts[-1].github_read_access is False
+    assert contexts[0].github_read_access is (repository is not None)
+    assert len(contexts) == (2 if failure else 1)
+    selections = SignalReportArtefact.objects.filter(report=report, type="repo_selection")
+    assert await selections.acount() == 1
+    selection = await selections.afirst()
+    assert selection is not None
+    assert json.loads(selection.content)["repository"] == repository
+    if not repository:
+        assert json.loads(selection.content)["research_context"]["mode"] == "data_only"
 
 
 @pytest.mark.asyncio
@@ -842,6 +1088,7 @@ async def test_run_agentic_report_activity_persists_artefacts(monkeypatch, ateam
         assert repo_selection_content == {
             "repository": "posthog/posthog",
             "reason": "Single repository connected: posthog/posthog",
+            "research_context": None,
             "task_id": None,
             "autostart_eligible": True,
         }
@@ -1148,9 +1395,14 @@ async def test_run_agentic_report_activity_resolves_metrics_payload(
 @pytest.mark.django_db
 @pytest.mark.parametrize("has_previous_research", [False, True])
 @pytest.mark.parametrize("has_query", [False, True])
+@pytest.mark.parametrize("monitoring_enabled", [False, True])
 async def test_run_agentic_report_activity_supplies_existing_checks_to_reresearch(
-    monkeypatch, ateam, has_previous_research, has_query
+    monkeypatch, ateam, has_previous_research, has_query, monitoring_enabled
 ):
+    monkeypatch.setattr(
+        "products.signals.backend.report_content_gates.feature_enabled_or_false",
+        lambda flag, *args, **kwargs: monitoring_enabled if flag == "signals-report-monitoring" else False,
+    )
     report = await database_sync_to_async(SignalReport.objects.create)(
         team=ateam, status=SignalReport.Status.IN_PROGRESS, signal_count=2, total_weight=1.3
     )
@@ -1163,6 +1415,11 @@ async def test_run_agentic_report_activity_supplies_existing_checks_to_reresearc
             "query": _metric().query if has_query else None,
             "baseline_value": 40,
             "comparison": {"operator": "lte", "value": 0},
+            "monitoring": {
+                "reference_period_minutes": 10080,
+                "threshold_scaling": "fixed",
+                "baseline_period_minutes": 10080,
+            },
         },
         status=SignalReportCheck.Status.PENDING,
         next_run_at=timezone.now() + timedelta(days=7),
@@ -1186,6 +1443,9 @@ async def test_run_agentic_report_activity_supplies_existing_checks_to_reresearc
     assert previous_checks[0]["id"] == str(check.id)
     assert previous_checks[0]["approved"] is True
     assert ("baseline_value" in previous_checks[0]["config"]) is has_query
+    assert ("monitoring" in previous_checks[0]["config"]) is monitoring_enabled
+    assert research_kwargs["monitoring_enabled"] is monitoring_enabled
+    assert result.checks_monitoring_enabled is monitoring_enabled
     assert result.checks_snapshot == {str(check.id): check.updated_at.isoformat()}
 
 
@@ -1231,6 +1491,54 @@ async def test_mark_report_ready_activity_applies_charts(ateam, name, charts, ex
         assert stored == [_EXISTING_CHART]
     else:
         assert stored == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize("pending", [False, True])
+@pytest.mark.parametrize(
+    "tags,expected",
+    [
+        (["Session Replay", "!!!"], ["session-replay"]),
+        ([], []),
+        (None, ["billing", "api"]),
+    ],
+)
+async def test_report_transition_replaces_tags_with_the_prose(ateam, pending, tags, expected):
+    report = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam,
+        status=SignalReport.Status.IN_PROGRESS,
+        signal_count=2,
+        total_weight=1.3,
+        tags=["billing", "api"],
+    )
+
+    if pending:
+        await mark_report_pending_input_activity(
+            MarkReportPendingInput(
+                team_id=ateam.id,
+                report_id=str(report.id),
+                title="Title",
+                summary="Summary",
+                reason="Requires human input",
+                tags=tags,
+            )
+        )
+    else:
+        await mark_report_ready_activity(
+            MarkReportReadyInput(
+                team_id=ateam.id,
+                report_id=str(report.id),
+                title="Title",
+                summary="Summary",
+                processed_signal_count=2,
+                tags=tags,
+            )
+        )
+
+    stored = await database_sync_to_async(lambda: SignalReport.objects.get(id=report.id))()
+    assert stored.title == "Title"
+    assert stored.tags == expected
 
 
 @pytest.mark.asyncio
@@ -1463,7 +1771,16 @@ async def test_report_transition_discards_legacy_goal_fields(ateam: Team, pendin
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_run_agentic_report_activity_does_not_persist_partial_artefacts(monkeypatch, ateam):
+@pytest.mark.parametrize(
+    "error,raised_type,error_type",
+    [
+        (RuntimeError("sandbox failed"), RuntimeError, None),
+        (ValueError("No JSON in initial turn: end-turn text was prose"), ApplicationError, "output_parse_failed"),
+    ],
+)
+async def test_run_agentic_report_activity_does_not_persist_partial_artefacts(
+    monkeypatch, ateam, error: Exception, raised_type: type[Exception], error_type: str | None
+):
     report = await database_sync_to_async(SignalReport.objects.create)(
         team=ateam,
         status=SignalReport.Status.IN_PROGRESS,
@@ -1476,8 +1793,11 @@ async def test_run_agentic_report_activity_does_not_persist_partial_artefacts(mo
         lambda team_id: 1,
     )
 
-    async def fake_run_multi_turn_research(*args, **kwargs):
-        raise RuntimeError("sandbox failed")
+    contexts: list[CustomPromptSandboxContext] = []
+
+    async def fake_run_multi_turn_research(signals, context, **kwargs):
+        contexts.append(context)
+        raise error
 
     monkeypatch.setattr(
         "products.signals.backend.temporal.agentic.report.run_multi_turn_research",
@@ -1485,7 +1805,7 @@ async def test_run_agentic_report_activity_does_not_persist_partial_artefacts(mo
     )
 
     with patch("products.signals.backend.temporal.agentic.report.Heartbeater"):
-        with pytest.raises(RuntimeError, match="sandbox failed"):
+        with pytest.raises(raised_type, match=str(error)) as raised:
             await run_agentic_report_activity(
                 RunAgenticReportInput(
                     team_id=ateam.id,
@@ -1499,6 +1819,8 @@ async def test_run_agentic_report_activity_does_not_persist_partial_artefacts(mo
             lambda: SignalReportArtefact.objects.filter(report=report).count()
         )()
         assert artefact_count == 0
+    assert getattr(raised.value, "type", None) == error_type
+    assert contexts[0].disable_repo_hooks
 
 
 @pytest.mark.parametrize("enabled", [False, True])
@@ -1624,7 +1946,7 @@ async def test_run_multi_turn_research_requests_verification_note_as_the_final_a
         patch(
             "products.tasks.backend.facade.agents.MultiTurnSession.start",
             AsyncMock(return_value=(session, first_finding)),
-        ),
+        ) as start_session,
         patch("products.signals.backend.task_run_artefacts.aappend_task_run_artefact", new_callable=AsyncMock),
         patch("products.signals.backend.report_generation.research.logger.exception") as log_exception,
     ):
@@ -1638,6 +1960,7 @@ async def test_run_multi_turn_research_requests_verification_note_as_the_final_a
                 Mock(team_id=1),
                 signal_report_id="report-id",
                 metrics_enabled=_name in ("malformed_optional_checks", "revised_metric_summary"),
+                monitoring_enabled=_name == "revised_metric_summary",
             )
             assert result.effective_findings() == [first_finding]
             assert result.effective_actionability() == actionability_result
@@ -1663,6 +1986,12 @@ async def test_run_multi_turn_research_requests_verification_note_as_the_final_a
             else:
                 assert result.verification_note is None
 
+    preferred = _name in ("malformed_optional_checks", "revised_metric_summary")
+    assert ("## Prepare metric-based follow-up checks" in start_session.call_args.kwargs["prompt"]) is preferred
+    prompts = {call.kwargs["label"]: call.args[0] for call in session.send_followup.await_args_list}
+    assert ("## Metrics for follow-up checks" in prompts["presentation"]) is preferred
+    if "fix_verification" in prompts:
+        assert ("70-80% confidence" in prompts["fix_verification"]) is preferred
     labels = [call.kwargs["label"] for call in session.send_followup.await_args_list]
     assert labels == expected_labels
     if failure is asyncio.CancelledError:
@@ -1736,7 +2065,8 @@ async def test_run_multi_turn_research_survives_a_failed_supersede_turn(supersed
         "supersede": supersede_outcome,
     }
 
-    async def fake_send_followup(message, model, *, label="", validation_context=None):
+    async def fake_send_followup(message, model, *, label="", validation_context=None, json_retry_prompt=None):
+        assert json_retry_prompt == RESEARCH_JSON_RETRY_PROMPT
         outcome = by_label[label]
         if isinstance(outcome, Exception):
             raise outcome
@@ -1830,7 +2160,8 @@ async def test_run_multi_turn_research_only_asks_about_the_pr_when_actionable(ac
     }
     asked_labels: list[str] = []
 
-    async def fake_send_followup(message, model, *, label="", validation_context=None):
+    async def fake_send_followup(message, model, *, label="", validation_context=None, json_retry_prompt=None):
+        assert json_retry_prompt == RESEARCH_JSON_RETRY_PROMPT
         asked_labels.append(label)
         return by_label[label]
 

@@ -22,6 +22,8 @@ export interface FunnelStepTooltipProps {
     breakdownFilter: BreakdownFilter | null | undefined
     comparePeriodDateRange?: string | null
     aggregateConversionRate?: number | null
+    /** True when the aggregate rate covers only the breakdown values selected in the table, not the baseline. */
+    isPartialBreakdownSelection?: boolean
     /** True when the cursor is over the unfilled track area (drop-off region) rather than the bar. */
     isDropOffHover?: boolean
     /** Series color — renders a swatch dot next to the step header. */
@@ -36,6 +38,7 @@ export function FunnelStepTooltip({
     breakdownFilter,
     comparePeriodDateRange,
     aggregateConversionRate,
+    isPartialBreakdownSelection = false,
     isDropOffHover = false,
     color,
 }: FunnelStepTooltipProps): JSX.Element {
@@ -79,7 +82,10 @@ export function FunnelStepTooltip({
         }
         rows.push({ label: 'Conversion so far', value: percentage(series.conversionRates.total, 2, true) })
         if (stepIndex > 0 && aggregateConversionRate != null) {
-            rows.push({ label: 'Baseline conversion rate', value: percentage(aggregateConversionRate, 2, true) })
+            rows.push({
+                label: isPartialBreakdownSelection ? 'Conversion rate of selected values' : 'Baseline conversion rate',
+                value: percentage(aggregateConversionRate, 2, true),
+            })
         }
         if (stepIndex > 0 && series.median_conversion_time != null) {
             rows.push({

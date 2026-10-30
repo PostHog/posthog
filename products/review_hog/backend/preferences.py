@@ -14,15 +14,10 @@ from typing import cast
 
 from posthog.dataclasses import frozen
 
+from products.review_hog.backend.facade.contracts import InvalidPreference
 from products.review_hog.backend.facade.enums import DefaultReviewMode, PreferenceSource, UrgencyThreshold
 
 PreferenceValue = str | bool
-
-
-class InvalidPreference(ValueError):
-    def __init__(self, key: str, message: str) -> None:
-        super().__init__(message)
-        self.key = key
 
 
 @frozen

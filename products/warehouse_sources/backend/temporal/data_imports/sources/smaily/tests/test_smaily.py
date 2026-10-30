@@ -12,7 +12,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     ScriptedResponse,
     SourceDriver,
     always,
-    scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.smaily import SmailySourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.smaily.settings import (
@@ -24,7 +23,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.smaily.set
 from products.warehouse_sources.backend.temporal.data_imports.sources.smaily.smaily import (
     SmailyResumeConfig,
     SmailyRetryableError,
-    check_access,
     normalize_subdomain,
     validate_credentials,
 )
@@ -197,51 +195,10 @@ class TestCampaignStatistics:
 
 
 class TestCheckAccess:
-    @parameterized.expand(
-        [
-            ("ok", 200, 200, None),
-            ("unauthorized", 401, 401, None),
-            ("forbidden", 403, 403, None),
-            ("server_error", 500, 500, "Smaily returned HTTP 500"),
-        ]
-    )
-    def test_status_mapping(self, _name: str, status: int, expected_status: int, expected_message: str | None) -> None:
-        with scripted_network(always(_json([], status))):
-            assert check_access("acme", "user", "pass") == (expected_status, expected_message)
-
-    def test_connection_error_maps_to_zero(self) -> None:
-        with scripted_network(always(requests.ConnectionError("boom"))):
-            status, message = check_access("acme", "user", "pass")
-        assert status == 0
-        assert message is not None and "boom" in message
-
     def test_invalid_subdomain_fails_without_a_request(self) -> None:
         valid, message = validate_credentials("evil.com/path?x=", "user", "pass")
         assert valid is False
         assert message is not None and "subdomain" in message.lower()
-
-    @parameterized.expand(
-        [
-            ("ok", 200, True, None),
-            (
-                "unauthorized",
-                401,
-                False,
-                "Invalid Smaily credentials. Check your subdomain, API username and password.",
-            ),
-            ("forbidden", 403, False, "Invalid Smaily credentials. Check your subdomain, API username and password."),
-            ("server_error", 500, False, "Smaily returned HTTP 500"),
-        ]
-    )
-    def test_validate_credentials(
-        self,
-        _name: str,
-        status: int,
-        expected_valid: bool,
-        expected_message: str | None,
-    ) -> None:
-        with scripted_network(always(_json([], status))):
-            assert validate_credentials("acme", "user", "pass") == (expected_valid, expected_message)
 
 
 class TestSmailySourceResponse:

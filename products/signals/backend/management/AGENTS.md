@@ -3,6 +3,9 @@
 Commands for emitting signals, tracking pipeline processing, and inspecting grouping results.
 Use these to test grouping strategies against real signal data end-to-end.
 
+For offline grouping and scout safety evaluations with mocked infrastructure, use the
+[pytest suites](../../eval/AGENTS.md), which publish results to offline experiments.
+
 ## Full flow
 
 Always clean up before re-ingesting to avoid stale data mixing with new results.
@@ -71,6 +74,7 @@ python manage.py seed_refund_test_data --team-id 1
 ```
 
 `seed_inbox_data` reports are billable too (runs are recorded via the production dual-write), but their runs are created "now", so refunds on them always take the excluded path.
+`seed_inbox_data --github-optional` seeds the reports GitHub-optional research leaves without a GitHub integration: a `data_only` repo selection with no repository, and no commits, GitHub reviewers, or implementation runs.
 Environment prerequisites (feature flag, local billing service): "Testing refunds locally" in `../../ARCHITECTURE.md`.
 
 ## Re-ingesting reports
@@ -183,6 +187,15 @@ records. `--batch-size` bounds each page; the printed `--after` cursor resumes i
 The command is idempotent and does not call GitHub, change report state, or enqueue
 reviewers. See `docs/internal/signals-pr-lifecycle.md` for rollout and cleanup.
 
+## Backfilling inbox summary participants
+
+`uv run manage.py backfill_inbox_summary --team-id <id> --dry-run` previews the next
+batch of verified implementation PRs that need participant snapshots. Remove
+`--dry-run` to queue the GitHub refresh. `--limit` bounds each invocation (default
+100, maximum 1000); use the printed `--after` cursor to continue. Run it without a
+cursor again to retry missing snapshots. The worker repairs missing merge times
+before checking the seven-day window. Completed snapshots are skipped.
+
 ## Repairing a report's cached actionability
 
 `SignalReport.latest_actionability` and `latest_already_addressed` cache the two values of a report's newest `actionability_judgment` artefact, so the inbox list can sort and filter on a column instead of walking the artefact log once per report.
@@ -198,6 +211,22 @@ uv run manage.py backfill_report_actionability --team-id 1 --batch-size 100 --af
 ```
 
 Idempotent. It recomputes each report from its artefacts and writes only the rows that disagree.
+
+## Filling the cached implementation PR flags
+
+`SignalReport.has_implementation_pr` and `has_active_implementation_pr` cache `implementation_pr_report_filter`, so the inbox filters on a column.
+The receivers in `implementation_pr_cache.py` refresh them after every link write.
+Run `backfill_report_inbox_state` once after the columns ship, and again as a repair after a bulk write that bypassed Django signals.
+
+```bash
+# Every team
+uv run manage.py backfill_report_inbox_state
+
+# One team, resuming after the report id an earlier run printed
+uv run manage.py backfill_report_inbox_state --team-id 1 --after <report-id>
+```
+
+Idempotent. It writes only the rows that disagree with the live filter.
 
 ## Resuming operational scouts the setup flow paused
 
@@ -235,6 +264,22 @@ uv run manage.py reactivate_pause_errored_report_checks --apply --team-id 1
 ```
 
 Idempotent. A reactivated check no longer matches.
+
+## Building a personal inbox ranking
+
+`run_personal_inbox_ranking` builds one person's ranked inbox list with one LLM call (`../personal_ranking/`) and prints it, with each report's rank, tier and reason.
+It reads its limits from the `personal-inbox-ranking` flag payload, and `"enabled": false` there stops every build.
+
+```bash
+# Call the model, but store no PersonalInboxRanking row and capture no event
+uv run manage.py run_personal_inbox_ranking --team-id 1 --user-id 1 --dry-run
+
+# Store the row and capture `personal inbox ranking built`, with optional focus text
+uv run manage.py run_personal_inbox_ranking --team-id 1 --user-id 1 --focus "checkout errors"
+```
+
+A person with no ready activity summary still gets a list, marked `personalized: False`.
+When the model call fails or answers outside the schema, the list is in model order and `fallback_reason` says why.
 
 ## Tips
 

@@ -2,9 +2,11 @@ import './storybook.css'
 
 import { DocsContainer } from '@storybook/addon-docs/blocks'
 import type { Preview } from '@storybook/react'
-import { themes } from 'storybook/theming'
+import MockDate from 'mockdate'
 import React, { useEffect, useState } from 'react'
 import { useDarkMode } from 'storybook-dark-mode'
+
+import { themes } from 'storybook/theming'
 
 // The Docs container renders outside Storybook's preview-hooks context, so
 // `useDarkMode()` (a preview hook) can't be used here. Track the `<html>.dark`
@@ -74,6 +76,17 @@ const preview: Preview = {
         },
     },
     decorators: [
+        // Freezes the clock for stories that set `parameters.mockDate`, so
+        // date-dependent snapshots do not change from day to day.
+        (Story, { parameters }) => {
+            if (parameters.mockDate) {
+                MockDate.set(parameters.mockDate)
+            } else {
+                MockDate.reset()
+            }
+
+            return <Story />
+        },
         // Mirrors the `desktop` toolbar global onto `<body class="is-desktop">`,
         // matching how the Electron app tags its shell — lets the cursor reset
         // (and any future desktop-only styling) be previewed live.

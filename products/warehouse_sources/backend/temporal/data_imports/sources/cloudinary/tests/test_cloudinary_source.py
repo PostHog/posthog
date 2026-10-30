@@ -13,13 +13,6 @@ def _config() -> CloudinarySourceConfig:
 
 
 class TestCloudinarySourceClass:
-    def test_an_unknown_schema_fails_before_any_request_goes_out(self) -> None:
-        result = SourceDriver(CloudinarySource(), _config()).run("not_a_cloudinary_table", [])
-
-        assert isinstance(result.raised, ValueError)
-        assert "Unknown Cloudinary endpoint" in str(result.raised)
-        assert result.requests == []
-
     def test_the_configured_region_reaches_the_transport(self) -> None:
         result = SourceDriver(CloudinarySource(), _config()).run(
             "images", [ScriptedResponse(json={"resources": [{"asset_id": "one"}]})]

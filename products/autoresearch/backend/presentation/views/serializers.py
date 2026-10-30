@@ -15,6 +15,9 @@ from posthog.permissions import get_authenticator_scopes
 
 from products.autoresearch.backend.facade import api
 from products.autoresearch.backend.facade.contracts import (
+    AgentModelOption,
+    AgentModelOptions,
+    AgentReasoningEffortOption,
     AutoresearchConflict,
     Iteration,
     IterationTrailEntry,
@@ -42,6 +45,9 @@ RUN_STATUS_CHOICES = api.RUN_STATUS_CHOICES
 RUN_TYPE_CHOICES = api.RUN_TYPE_CHOICES
 BASE_RATE_SOURCE_CHOICES = api.BASE_RATE_SOURCE_CHOICES
 TRAINING_RUN_STATUS_CHOICES = api.TRAINING_RUN_STATUS_CHOICES
+KICKOFF_REASON_CHOICES = api.KICKOFF_REASON_CHOICES
+RESEARCH_INTERVAL_DAYS_CHOICES = api.RESEARCH_INTERVAL_DAYS_CHOICES
+TRAINING_PHASE_CHOICES = api.TRAINING_PHASE_CHOICES
 ITERATION_STATUS_CHOICES = api.ITERATION_STATUS_CHOICES
 SUGGESTION_PRIORITY_CHOICES = api.SUGGESTION_PRIORITY_CHOICES
 SUGGESTION_STATUS_CHOICES = api.SUGGESTION_STATUS_CHOICES
@@ -51,6 +57,7 @@ TARGET_EVENT_MAX_LENGTH = 255
 AGENT_DESCRIPTION_MAX_LENGTH = 2000
 ITERATION_SUMMARY_MAX_LENGTH = 300
 RUN_READER_SUMMARY_MAX_LENGTH = 600
+HEADLINE_MAX_LENGTH = 60
 NEXT_STEPS_MAX_ITEMS = 5
 NEXT_STEP_MAX_LENGTH = 80
 OBJECT_JSON_MAX_BYTES = 64 * 1024
@@ -217,6 +224,20 @@ class FiniteFloatField(serializers.FloatField):
         if not math.isfinite(value):
             raise serializers.ValidationError("Must be a finite number.")
         return value
+
+
+class HeadlineField(serializers.CharField):
+    """A one-line headline. Collapses whitespace and cuts to length, so a long headline never fails a run."""
+
+    def __init__(self, **kwargs: Any) -> None:
+        kwargs.setdefault("required", False)
+        kwargs.setdefault("allow_null", True)
+        kwargs.setdefault("allow_blank", True)
+        super().__init__(**kwargs)
+
+    def to_internal_value(self, data: Any) -> str:
+        value = " ".join(super().to_internal_value(data).split())
+        return value[:HEADLINE_MAX_LENGTH].rstrip()
 
 
 @extend_schema_field(
@@ -647,10 +668,65 @@ class AutoresearchPipelineSerializer(DataclassSerializer):
         min_value=-2147483648,
         max_value=2147483647,
         required=False,
-        help_text="Total training iterations allowed for the autoresearch loop.",
+        help_text="Deprecated: scheduled training no longer reads it. Use iterations_per_run.",
     )
     iteration_budget_remaining = serializers.IntegerField(
-        read_only=True, help_text="Iterations remaining in the current budget."
+        read_only=True, help_text="Deprecated: scheduled training no longer reads or spends it."
+    )
+    iterations_per_run = serializers.IntegerField(
+        read_only=True,
+        help_text=(
+            "Experiments the agent may try in each training run (1-50). Each experiment costs agent time and "
+            "queries, so a higher value costs more per run. Scheduled runs and Train now use it."
+        ),
+    )
+    research_interval_days = serializers.ChoiceField(
+        choices=RESEARCH_INTERVAL_DAYS_CHOICES,
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Days between scheduled research runs once the first burst of daily runs ends: 7, 14, 30, 60 or 90. "
+            "Null means only when asked: no scheduled research, so the only training cost comes from runs you "
+            "start and from rescue runs for a model that cannot score. A shorter interval costs more."
+        ),
+    )
+    agent_model = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="Model the training agent runs on, as set on this pipeline. Null uses the autoresearch default.",
+    )
+    agent_reasoning_effort = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="Reasoning effort for the training agent, as set on this pipeline. Null uses the autoresearch default.",
+    )
+    effective_agent_model = serializers.CharField(
+        read_only=True,
+        help_text="Model the next training run uses: agent_model, or the autoresearch default when that is null.",
+    )
+    effective_agent_reasoning_effort = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Reasoning effort the next training run uses: agent_reasoning_effort, or the autoresearch default when "
+            "that is null. Null when the model has no effort setting."
+        ),
+    )
+    training_phase = serializers.ChoiceField(
+        choices=TRAINING_PHASE_CHOICES,
+        read_only=True,
+        help_text=(
+            "explore: a research run on each scoring day until a run does not promote a better model, or until "
+            "5 research runs have run. maintain: one research run every research_interval_days."
+        ),
+    )
+    next_research_at = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Start of the UTC day from which the daily sweep can start the next scheduled research run. "
+            "Null when research_interval_days is null."
+        ),
     )
     success_auc = serializers.FloatField(
         required=False,
@@ -780,6 +856,14 @@ class AutoresearchPipelineSerializer(DataclassSerializer):
             "cadence_days",
             "iteration_budget",
             "iteration_budget_remaining",
+            "iterations_per_run",
+            "research_interval_days",
+            "agent_model",
+            "agent_reasoning_effort",
+            "effective_agent_model",
+            "effective_agent_reasoning_effort",
+            "training_phase",
+            "next_research_at",
             "success_auc",
             "plateau_iterations",
             "output_person_property",
@@ -862,7 +946,46 @@ class AutoresearchPipelineCreateSerializer(DataclassSerializer):
         required=False,
         min_value=1,
         max_value=500,
-        help_text="Total training iterations allowed for the autoresearch loop (1-500). Default: 50.",
+        help_text="Deprecated: scheduled training no longer reads it. Use iterations_per_run.",
+    )
+    iterations_per_run = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=50,
+        help_text=(
+            "Experiments the agent may try in each training run (1-50). Each experiment costs agent time and "
+            "queries, so a higher value costs more per run. Scheduled runs and Train now use it. Default: 5."
+        ),
+    )
+    research_interval_days = serializers.ChoiceField(
+        choices=RESEARCH_INTERVAL_DAYS_CHOICES,
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Days between scheduled research runs once the first burst of daily runs ends: 7, 14, 30, 60 or 90. "
+            "Null means only when asked: no scheduled research, so the only training cost comes from runs you "
+            "start and from rescue runs for a model that cannot score. A shorter interval costs more. Default: 7."
+        ),
+    )
+    agent_model = serializers.CharField(
+        required=False,
+        allow_null=True,
+        max_length=100,
+        help_text=(
+            "Model the training agent runs on, a model id from the PostHog Tasks catalogue such as "
+            "'claude-opus-5-5', 'claude-sonnet-5-5' or 'gpt-6.1-sol'. Null or omitted uses the autoresearch "
+            "default, Claude Opus 5.5. A larger model costs more per training run. Scheduled runs and Train now use it."
+        ),
+    )
+    agent_reasoning_effort = serializers.CharField(
+        required=False,
+        allow_null=True,
+        max_length=20,
+        help_text=(
+            "Reasoning effort for the training agent, such as 'low', 'medium' or 'high'. It must be one the model "
+            "supports, and without agent_model it is checked against the default model. Null or omitted uses the "
+            "autoresearch default, medium. Higher effort costs more per training run."
+        ),
     )
     success_auc = serializers.FloatField(
         required=False,
@@ -911,6 +1034,10 @@ class AutoresearchPipelineCreateSerializer(DataclassSerializer):
             "inference_population",
             "cadence_days",
             "iteration_budget",
+            "iterations_per_run",
+            "research_interval_days",
+            "agent_model",
+            "agent_reasoning_effort",
             "success_auc",
             "plateau_iterations",
             "output_person_property",
@@ -988,6 +1115,20 @@ class AutoresearchPipelineCreateSerializer(DataclassSerializer):
             )
         return derived
 
+    def _validate_agent_settings(self, team: Any, data: Any) -> None:
+        if not (self._supplied(data, "agent_model") or self._supplied(data, "agent_reasoning_effort")):
+            return
+        # A partial update is checked as the pair it leaves stored.
+        stored = api.get_pipeline_definition(team.pk, self._pipeline_id) if self._pipeline_id is not None else None
+        model = self._value(data, "agent_model", stored.agent_model if stored else None)
+        effort = self._value(data, "agent_reasoning_effort", stored.agent_reasoning_effort if stored else None)
+        model_error = api.agent_settings_error(model, None)
+        if model_error:
+            raise serializers.ValidationError({"agent_model": model_error})
+        effort_error = api.agent_settings_error(model, effort)
+        if effort_error:
+            raise serializers.ValidationError({"agent_reasoning_effort": effort_error})
+
     def validate(self, data: Any) -> Any:
         # DataclassSerializer hands us the constructed dataclass, not a dict, and it is frozen —
         # so derived values are collected here and applied with one `replace`.
@@ -1008,6 +1149,7 @@ class AutoresearchPipelineCreateSerializer(DataclassSerializer):
             updates["target_definition"] = target_definition
         if is_update:
             self._validate_model_defining_fields_unchanged(team, replace(data, **updates) if updates else data)
+        self._validate_agent_settings(team, data)
         output_person_property = self._value(data, "output_person_property")
         if not is_update and not output_person_property:
             output_person_property = self._derive_output_person_property(replace(data, **updates) if updates else data)
@@ -1220,6 +1362,11 @@ class IterationTrailSerializer(DataclassSerializer):
         allow_null=True,
         help_text="Plain-language sentence on what this experiment tried and what happened, for people. Null if not written.",
     )
+    headline = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="Short title for this experiment, for people. Null if not written.",
+    )
     model_spec = ModelSpecField(help_text="Model class and hyperparameters tried in this iteration.")
 
     class Meta:
@@ -1231,6 +1378,7 @@ class IterationTrailSerializer(DataclassSerializer):
             "train_score",
             "agent_description",
             "summary",
+            "headline",
             "model_spec",
         ]
 
@@ -1269,6 +1417,35 @@ class AutoresearchTrainingRunSerializer(DataclassSerializer):
         read_only=True,
         help_text="Run status: pending, running, completed, or failed.",
     )
+    kickoff_reason = serializers.ChoiceField(
+        choices=KICKOFF_REASON_CHOICES,
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Why the run started: explore (the first burst of daily runs), scheduled (the research interval), "
+            "rescue (the champion cannot score) or manual (a person or an agent asked). Null for older runs."
+        ),
+    )
+    agent_runtime_adapter = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="Runtime that drove the training agent, 'claude' or 'codex'. Null for older runs and runs with no task.",
+    )
+    agent_model = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="Model the training agent ran on. Null for older runs and runs with no task.",
+    )
+    agent_model_label = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="Display name of agent_model, e.g. 'Claude Opus 5.5'. Null when agent_model is null.",
+    )
+    agent_reasoning_effort = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="Reasoning effort the training agent ran at. Null for older runs, runs with no task, and models with no effort setting.",
+    )
     iteration_budget = serializers.IntegerField(
         min_value=-2147483648,
         max_value=2147483647,
@@ -1290,6 +1467,11 @@ class AutoresearchTrainingRunSerializer(DataclassSerializer):
         read_only=True,
         allow_null=True,
         help_text="One or two plain sentences on what this run learned, for people. Null if not written.",
+    )
+    headline = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="Short title for this run, for people. Null if not written.",
     )
     next_steps = serializers.ListField(
         child=serializers.CharField(),
@@ -1321,11 +1503,17 @@ class AutoresearchTrainingRunSerializer(DataclassSerializer):
             "task_run_id",
             "task_url",
             "status",
+            "kickoff_reason",
+            "agent_runtime_adapter",
+            "agent_model",
+            "agent_model_label",
+            "agent_reasoning_effort",
             "iteration_budget",
             "iteration_count",
             "best_holdout_score",
             "summary",
             "reader_summary",
+            "headline",
             "next_steps",
             "iterations",
             "error",
@@ -1358,6 +1546,11 @@ class AutoresearchIterationSerializer(DataclassSerializer):
         allow_null=True,
         help_text="Plain-language sentence on what this experiment tried and what happened, for people.",
     )
+    headline = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Short title for this experiment, for people.",
+    )
     agent_confidence = serializers.FloatField(
         required=False, allow_null=True, help_text="Agent's self-assessed confidence 0–1"
     )
@@ -1383,6 +1576,7 @@ class AutoresearchIterationSerializer(DataclassSerializer):
             "status",
             "agent_description",
             "summary",
+            "headline",
             "agent_confidence",
             "parent_suggestion",
             "created_at",
@@ -1824,7 +2018,7 @@ class StartTrainingRequestSerializer(serializers.Serializer):
         required=False,
         min_value=1,
         max_value=500,
-        help_text="Override the pipeline iteration budget for this training run.",
+        help_text="Iterations for this training run. Defaults to the pipeline's iterations_per_run.",
     )
 
 
@@ -1838,7 +2032,7 @@ class OpenTrainingRunSerializer(serializers.Serializer):
         required=False,
         min_value=1,
         max_value=500,
-        help_text="Iteration budget for this run. Defaults to the pipeline's iteration_budget if omitted.",
+        help_text="Iteration budget for this run. Defaults to the pipeline's iterations_per_run if omitted.",
     )
 
 
@@ -1892,6 +2086,12 @@ class RecordIterationSerializer(serializers.Serializer):
         help_text=(
             "One plain sentence for people on what this experiment tried and what happened. "
             f"Max {ITERATION_SUMMARY_MAX_LENGTH} characters."
+        ),
+    )
+    headline = HeadlineField(
+        help_text=(
+            f"A short title for people, at most {HEADLINE_MAX_LENGTH} characters, on what this experiment tried. "
+            "Use plain words, with no column names, SQL or model jargon. Longer text is cut, not rejected."
         ),
     )
     agent_confidence = FiniteFloatField(
@@ -1987,6 +2187,12 @@ class CompleteTrainingRunSerializer(serializers.Serializer):
         help_text=(
             "One or two plain sentences for people on what this run learned. "
             f"Max {RUN_READER_SUMMARY_MAX_LENGTH} characters."
+        ),
+    )
+    headline = HeadlineField(
+        help_text=(
+            f"A short title for people, at most {HEADLINE_MAX_LENGTH} characters, on what this run learned. "
+            "Use plain words, with no column names, SQL or model jargon. Longer text is cut, not rejected."
         ),
     )
     next_steps = serializers.ListField(
@@ -2196,6 +2402,48 @@ class CreateSuggestionSerializer(serializers.Serializer):
         default="consider",
         help_text="'try_next' asks the agent to act on this before other autonomous iterations; 'consider' is advisory context.",
     )
+
+
+# ── Training agent model serializers ──────────────────────────────────────────
+
+
+class AgentReasoningEffortOptionSerializer(DataclassSerializer):
+    value = serializers.CharField(help_text="Effort id to pass as agent_reasoning_effort, e.g. 'medium'.")
+    label = serializers.CharField(help_text="Display name, e.g. 'Medium'.")  # type: ignore[assignment]
+
+    class Meta:
+        dataclass = AgentReasoningEffortOption
+        fields = ["value", "label"]
+
+
+class AgentModelOptionSerializer(DataclassSerializer):
+    model = serializers.CharField(help_text="Model id to pass as agent_model, e.g. 'claude-sonnet-5-5'.")
+    label = serializers.CharField(help_text="Display name, e.g. 'Claude Sonnet 5.5'.")  # type: ignore[assignment]
+    runtime_adapter = serializers.CharField(help_text="Runtime that drives the model: 'claude' or 'codex'.")
+    supported_efforts = AgentReasoningEffortOptionSerializer(
+        many=True, help_text="Reasoning efforts this model supports. Empty when it has no effort setting."
+    )
+    cost_multiplier = serializers.CharField(
+        allow_null=True,
+        help_text="Token price relative to Claude Sonnet 5, e.g. '2×'. Null when no rate is known.",
+    )
+
+    class Meta:
+        dataclass = AgentModelOption
+        fields = ["model", "label", "runtime_adapter", "supported_efforts", "cost_multiplier"]
+
+
+class AgentModelOptionsSerializer(DataclassSerializer):
+    default_model = serializers.CharField(help_text="Model a pipeline with a null agent_model trains on.")
+    default_model_label = serializers.CharField(help_text="Display name of default_model.")
+    default_reasoning_effort = serializers.CharField(
+        allow_null=True, help_text="Reasoning effort a pipeline with a null agent_reasoning_effort trains at."
+    )
+    models = AgentModelOptionSerializer(many=True, help_text="Models a pipeline may set as agent_model.")
+
+    class Meta:
+        dataclass = AgentModelOptions
+        fields = ["default_model", "default_model_label", "default_reasoning_effort", "models"]
 
 
 # ── Template serializers ───────────────────────────────────────────────────────

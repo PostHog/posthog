@@ -1,5 +1,6 @@
 from typing import cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,12 +36,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.komodor.se
     API_DOCS_URL,
     AUTH_ERRORS,
     ENDPOINTS,
+    INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
 class KomodorSource(ResumableSource[KomodorSourceConfig, KomodorResumeConfig]):
+    codebase_detection = detect(env=("^KOMODOR_",))
+
     lists_tables_without_credentials = True
     supported_versions = ("v2",)
     default_version = "v2"
@@ -69,7 +73,7 @@ class KomodorSource(ResumableSource[KomodorSourceConfig, KomodorResumeConfig]):
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, {}, names)
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only=INCREMENTAL_FIELDS)
 
     def validate_credentials(
         self,
@@ -96,6 +100,7 @@ class KomodorSource(ResumableSource[KomodorSourceConfig, KomodorResumeConfig]):
             inputs.job_id,
             self.resolve_api_version(inputs.api_version),
             resumable_source_manager,
+            inputs.db_incremental_field_last_value if inputs.should_use_incremental_field else None,
         )
 
     @property
@@ -106,7 +111,7 @@ class KomodorSource(ResumableSource[KomodorSourceConfig, KomodorResumeConfig]):
             label="Komodor",
             iconPath="/static/services/komodor.png",
             caption="Create an API key in Komodor under User settings > API Keys. Select your account's region.",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

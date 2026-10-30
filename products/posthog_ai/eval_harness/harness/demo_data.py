@@ -1,13 +1,17 @@
 from __future__ import annotations
 
+import io
 import logging
 from datetime import timedelta
+
+from django.core.management import call_command
 
 from posthog.clickhouse.client import sync_execute
 
 from products.posthog_ai.eval_harness.data_setup import (
     copy_demo_data_to_new_team,
     create_core_memory,
+    create_empty_eval_project,
     ensure_master_demo_team,
 )
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext, create_skill_isolation_environment
@@ -49,8 +53,13 @@ class SandboxedDemoData:
         self.reasoning_effort = reasoning_effort
         self.sandbox_timeout_seconds = sandbox_timeout_seconds
 
-    def make_context(self, case_label: str, *, disable_bundled_skills: bool = False) -> CustomPromptSandboxContext:
-        _, team, user = copy_demo_data_to_new_team(self.master_team_id, self._django_db_blocker, label=case_label)
+    def make_context(
+        self, case_label: str, *, disable_bundled_skills: bool = False, inherit_demo_data: bool = True
+    ) -> CustomPromptSandboxContext:
+        if inherit_demo_data:
+            _, team, user = copy_demo_data_to_new_team(self.master_team_id, self._django_db_blocker, label=case_label)
+        else:
+            team, user = create_empty_eval_project(self._django_db_blocker, label=case_label)
         create_core_memory(team, self._django_db_blocker)
         sandbox_environment_id: str | None = None
         if disable_bundled_skills:
@@ -115,6 +124,10 @@ def ensure_demo_ready(
 ) -> SandboxedDemoData:
     """Seed the master Hedgebox team (once) and expose a per-case context factory."""
     master_team_id = ensure_master_demo_team(blocker)
+    with blocker.unblock():
+        # Eval tasks use the posthog_ai origin, which mints sandbox tokens under the PostHog AI
+        # OAuth app. Demo data creates only the Array app, so without this every case fails to start.
+        call_command("setup_tasks_oauth", stdout=io.StringIO())
     _ensure_event_search_columns_materialized(blocker)
     with blocker.unblock():
         rows = sync_execute(

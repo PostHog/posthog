@@ -1,5 +1,5 @@
 from datetime import UTC, date, datetime
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 import pytest
 import time_machine
@@ -25,6 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mixpanel.m
     MixpanelRetryableError,
     _check_response,
     _export_base,
+    _ingestion_base,
     _parse_retry_after,
     _query_base,
     _retry_wait,
@@ -40,10 +41,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mixpanel.s
 LOGGER = structlog.get_logger()
 
 
-def _driver() -> SourceDriver:
+def _driver(region: Literal["us", "eu", "in"] = "us") -> SourceDriver:
     return SourceDriver(
         MixpanelSource(),
-        MixpanelSourceConfig(project_id="123", service_account_username="u", service_account_secret="s", region="us"),
+        MixpanelSourceConfig(project_id="123", service_account_username="u", service_account_secret="s", region=region),
     )
 
 
@@ -137,15 +138,18 @@ class TestToDate:
 class TestRegionHosts:
     @parameterized.expand(
         [
-            ("us", "https://mixpanel.com", "https://data.mixpanel.com"),
-            ("eu", "https://eu.mixpanel.com", "https://data-eu.mixpanel.com"),
-            ("in", "https://in.mixpanel.com", "https://data-in.mixpanel.com"),
-            ("unknown", "https://mixpanel.com", "https://data.mixpanel.com"),
+            ("us", "https://mixpanel.com", "https://data.mixpanel.com", "https://api.mixpanel.com"),
+            ("eu", "https://eu.mixpanel.com", "https://data-eu.mixpanel.com", "https://api-eu.mixpanel.com"),
+            ("in", "https://in.mixpanel.com", "https://data-in.mixpanel.com", "https://api-in.mixpanel.com"),
+            ("unknown", "https://mixpanel.com", "https://data.mixpanel.com", "https://api.mixpanel.com"),
         ]
     )
-    def test_region_resolution(self, region: str, expected_query: str, expected_export: str) -> None:
+    def test_region_resolution(
+        self, region: str, expected_query: str, expected_export: str, expected_ingestion: str
+    ) -> None:
         assert _query_base(region) == expected_query
         assert _export_base(region) == expected_export
+        assert _ingestion_base(region) == expected_ingestion
 
 
 class TestCheckResponse:
@@ -308,6 +312,22 @@ class TestExportIterator:
         assert result.params("from_date") == ["2024-01-02"]
         assert [row["event"] for row in result.rows] == ["B"]
 
+    @time_machine.travel("2024-01-01", tick=False)
+    def test_browser_version_is_always_text(self) -> None:
+        lines = [
+            orjson.dumps({"event": "A", "properties": {"time": 1, "$browser_version": version}})
+            for version in (120, 120.0, 17.4, "130.0.0.0")
+        ]
+        result = _driver().run(
+            "export",
+            [_export_answer(*lines)],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=date(2024, 1, 1),
+        )
+        assert result.raised is None
+        assert [row["$browser_version"] for row in result.rows] == ["120", "120", "17.4", "130.0.0.0"]
+        assert [row["time"] for row in result.rows] == [1, 1, 1, 1]
+
 
 class TestExportStreamRetry:
     def _line(self, insert_id: str) -> bytes:
@@ -399,6 +419,37 @@ class TestExportStreamRetry:
         assert mock_request.call_count == 1
         mock_sleep.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("read_timeout", requests.ReadTimeout("stalled")),
+            ("connection_error", requests.ConnectionError("refused")),
+        ]
+    )
+    def test_does_not_refetch_when_request_gave_up(self, _name: str, error: Exception) -> None:
+        manager = FakeManager()
+        day = date(2024, 1, 1)
+        with (
+            patch.object(mp, "_request", side_effect=error) as mock_request,
+            patch.object(mp.time, "sleep") as mock_sleep,
+        ):
+            with pytest.raises(type(error)):
+                list(
+                    mp._iter_export(
+                        "us",
+                        "u",
+                        "s",
+                        "123",
+                        LOGGER,
+                        manager,  # type: ignore[arg-type]
+                        start_date=day,
+                        end_date=day,
+                        api_version=MIXPANEL_API_VERSION_V1,
+                    )
+                )
+
+        assert mock_request.call_count == 1
+        mock_sleep.assert_not_called()
+
 
 class TestEngageIterator:
     def test_paginates_with_session_id_and_saves_state(self) -> None:
@@ -449,6 +500,69 @@ class TestSingleRequestEndpoints:
         result = _driver().run("annotations", [ScriptedResponse(json={"results": [{"id": 5}]})])
         assert result.raised is None
         assert result.items == [[{"id": 5}]]
+
+    @parameterized.expand(
+        [
+            (
+                "lexicon_schemas_us",
+                "lexicon_schemas",
+                "us",
+                "https://mixpanel.com/api/app/projects/123/schemas",
+                None,
+                [
+                    {
+                        "entityType": "event",
+                        "name": "Song Played",
+                        "schemaJson": {"properties": {"genre": {"type": "string"}}},
+                    }
+                ],
+            ),
+            (
+                "lexicon_schemas_eu",
+                "lexicon_schemas",
+                "eu",
+                "https://eu.mixpanel.com/api/app/projects/123/schemas",
+                None,
+                [{"entityType": "profile", "name": "$user", "schemaJson": {"properties": {}}}],
+            ),
+            (
+                "lookup_tables_us",
+                "lookup_tables",
+                "us",
+                "https://api.mixpanel.com/lookup-tables",
+                "123",
+                [{"id": "00000000-0000-4000-8000-000000000001", "name": "Plans"}],
+            ),
+            (
+                "lookup_tables_in",
+                "lookup_tables",
+                "in",
+                "https://api-in.mixpanel.com/lookup-tables",
+                "123",
+                [{"id": "00000000-0000-4000-8000-000000000002", "name": "Stores"}],
+            ),
+        ]
+    )
+    def test_list_endpoints_read_results_from_the_region_host(
+        self,
+        _name: str,
+        endpoint: str,
+        region: Literal["us", "eu", "in"],
+        expected_url: str,
+        expected_project_param: Optional[str],
+        rows: list[dict[str, Any]],
+    ) -> None:
+        result = _driver(region).run(endpoint, [ScriptedResponse(json={"status": "ok", "results": rows})])
+        assert result.raised is None
+        assert result.urls[0].split("?", 1)[0] == expected_url
+        assert result.params("project_id") == [expected_project_param]
+        assert result.items == [rows]
+
+    @parameterized.expand([("lexicon_schemas",), ("lookup_tables",)])
+    def test_list_endpoints_yield_nothing_for_empty_results(self, endpoint: str) -> None:
+        result = _driver().run(endpoint, [ScriptedResponse(json={"status": "ok", "results": []})])
+        assert result.raised is None
+        assert result.items == []
 
 
 class TestReportEndpoints:

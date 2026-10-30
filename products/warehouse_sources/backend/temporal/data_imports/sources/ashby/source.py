@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -32,6 +33,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AshbySource(ResumableSource[AshbySourceConfig, AshbyResumeConfig]):
+    codebase_detection = detect(env=("^ASHBY_",))
+
     api_docs_url = "https://developers.ashbyhq.com"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
@@ -96,8 +99,11 @@ You can create an API key under **Admin → API Keys** in Ashby. Grant read perm
         if schema_name is not None and schema_name not in ASHBY_ENDPOINTS:
             return False, f"Unknown Ashby schema '{schema_name}'"
 
-        path = ASHBY_ENDPOINTS[schema_name].probe_path if schema_name is not None else DEFAULT_PROBE_PATH
-        status, message = check_access(config.api_key, path)
+        if schema_name is not None:
+            endpoint_config = ASHBY_ENDPOINTS[schema_name]
+            status, message = check_access(config.api_key, endpoint_config.probe_path, endpoint_config.probe_body)
+        else:
+            status, message = check_access(config.api_key, DEFAULT_PROBE_PATH)
 
         if status == 200:
             return True, None

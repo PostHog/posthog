@@ -15,7 +15,7 @@ from parameterized import parameterized
 from products.experiments.backend.admin.recalculation_admin import ExperimentMetricsRecalculationAdmin
 from products.experiments.backend.admin.recalculation_panel import build_recalculation_panel, format_duration
 from products.experiments.backend.metric_calculation.config import get_metric_calculation_config
-from products.experiments.backend.metric_calculation.results import compute_recalc_fingerprint
+from products.experiments.backend.metric_calculation.results import _recalc_fingerprint
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentMetricResult,
@@ -130,7 +130,7 @@ class TestRecalculationAdminPanel(BaseTest):
         ExperimentMetricResult.objects.create(
             experiment=exp,
             metric_uuid="m-named",
-            fingerprint=compute_recalc_fingerprint(calculation_config.calculation_key()),
+            fingerprint=_recalc_fingerprint(calculation_config.calculation_key()),
             query_from=datetime(2026, 1, 1, tzinfo=UTC),
             query_to=query_to,
             status=ExperimentMetricResult.Status.FAILED,

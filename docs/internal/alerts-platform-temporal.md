@@ -39,13 +39,23 @@ The schedule starts `alerts-platform-orchestrate` with `{}` on the orchestration
 There is no routing flag: the flow is tick → orchestration → evaluation → delivery.
 It uses SKIP overlap, a one-minute catchup window, a 50-second workflow execution timeout,
 and one workflow attempt. Creation does not trigger an immediate run; the next minute starts it.
-Delivery has no schedule: evaluation starts its delivery child.
+Delivery has no schedule of its own: evaluation starts its delivery child, and the [held-delivery sweep](#held-deliveries) starts the ones it releases.
 New schedules start unpaused. Registration updates existing schedules to this policy while retaining their state from Temporal, including manual pauses.
 To stop future ticks, pause the schedule in Temporal; resume it there when ready. Pausing does not stop workflows already running.
 Reverting the code that registers a schedule does not remove one already registered.
 
 Verify the Postgres activity result and the delivery child's completion separately.
 Parent completion does not prove either succeeded. Schedule creation also does not prove worker availability.
+
+### Slack message formatting
+
+- Sources can register a Slack renderer with `register_source_slack_renderer` through the delivery facade.
+- Insight alert firings use the same attachment and control builders as their HogFunction templates.
+- Sources without a custom renderer, and insight transitions other than firings, use the platform's default layout.
+- The Slack transport preserves attachments for later message updates. If Slack rejects a chart image, it retries without the image and retains the remaining content.
+- A renderer always sets `text`. A push notification and a screen reader read it, and an attachment does not carry it.
+- A renderer that raises is counted on `alerts_platform_slack_renderer_failures_total` and the message goes out in the platform's layout.
+- A card that lives in an attachment also stores one stand-in block. A reader from before attachments edits `blocks` and indexes its last element, so an empty list would fail that edit during a rolling deploy.
 
 ### Turning a production deployment on
 
@@ -55,7 +65,7 @@ writes a source product's rows. What it does cost is the evaluation queries its 
 ones the source's own production fleet is already running for the same alerts.
 
 The tick's work is whatever `PlatformAlertConfiguration` rows exist, and nothing creates those on its own:
-`python manage.py backfill_platform_alert_configurations [--team-id N]` for logs and `python manage.py backfill_platform_insight_alert_configurations [--team-id N]` for insight are the only writers, and both are manual.
+`python manage.py backfill_platform_alert_configurations [--team-id N]` for logs and `python manage.py backfill_platform_insight_alert_configurations [--team-id N]` for insight are the only bulk writers, and both are manual. The logs alerts API also copies one alert when it is created or turned back on, but only in a team that already has an enabled logs copy.
 So the order below puts the schedule in place while there is no demand, and load arrives when the backfill
 is run, one cohort at a time.
 
@@ -155,6 +165,9 @@ Registration never deletes a schedule, so the rollout above deletes the old ID b
 One tick is one `alerts-platform-orchestrate` execution. It takes an `OrchestrateInputs`; the schedule passes `{}` and every field defaults.
 The first run records the tick cutoff (the scheduled start time, or the workflow start time for manual runs) and a deadline 45 seconds after the run started.
 Discovery runs once per tick. The loop then starts one `alerts-platform-source-dispatch` child per source with demand, ID `{tick_id}-{source}-p{page}`, on the orchestration queue.
+The tick does not record inventory. A separate schedule, `alerts-platform-record-inventory-schedule`, starts the `alerts-platform-record-inventory` workflow every 5 minutes on the orchestration queue at the lowest Temporal priority.
+It counts configurations and alerts for every source in two queries, each with a 500 ms statement timeout, and pushes the `alerts_platform_configurations` and `alerts_platform_alerts` gauges to the PushGateway under the `alerts_platform_inventory` job.
+The push replaces the job's group, so the region holds one series per label set. A failed count is logged and the next run tries again.
 Dispatchers are part of the tick: the orchestrator awaits each dispatcher's report and keeps the default `TERMINATE` close policy on that edge.
 They run on the tick's own fleet because the tick awaits them. On the evaluation queue, an evaluation fleet with no free slots
 leaves the dispatcher unpicked, and the tick waits on a report that cannot arrive. A dispatcher starts no activities,
@@ -230,6 +243,11 @@ Flooring to the minute loses nothing that load spreading provides: `compute_shar
 whole multiples of the 60-second schedule interval, so spreading moves an alert between minutes rather
 than within one.
 
+A source can set `schedule_group` on an outcome to spread by team and group instead of by configuration, through `compute_team_shard_offset_seconds`.
+A team's alerts with one group and one cadence then share a batch key.
+Logs sets the group to the query shape (window, evaluation periods, projection eligibility), so alerts that can share a cohort query land in one batch, and alerts that cannot spread across slots.
+That keeps a batch under `MAX_COHORTS_PER_CYCLE` in the common case, where one slot per team would push a team with many shapes over it.
+
 ## Source evaluation bindings
 
 `products/alerts_platform/backend/temporal/sources.py` maps a `SourceKind` to the workflow name that evaluates it.
@@ -277,19 +295,48 @@ The failure case goes through `evaluate_alert_check` with an errored `CheckInput
 transient. A transient error advances the schedule but holds the counter, because a cluster outage must not
 disable every alert that ran during it.
 
-`suppressed` is the single definition of what holds a configuration back, and it is BROKEN alone.
+`suppressed` is the single definition of what holds a configuration back, and it is a BROKEN `check_status` alone.
 Both `discover_demand` and `due_checks` exclude on it. Discovery has to, because a broken alert that still mints
 a batch key spends the manifest bound on work its own evaluation then drops.
-It is one correlated `Exists` rather than a lookup across the relation: Django splits an excluded multi-valued
-lookup into a subquery per leaf, which would let the conditions match different alert rows once a source writes
-a real grouping key, and would bury them where Postgres cannot lift them into an anti-join.
+
+`check_status` lives on the configuration, not on an instance, for grouped and ungrouped configurations alike,
+because a failed check returns no group to attribute the failure to.
+A check that could not evaluate reports its failure on the outcome as a `CheckFailure`, with no groups, for every source.
+`record_outcomes` writes the machine's ERRORED or BROKEN onto `check_status`, leaves every instance alone, and writes one history row with the empty grouping key and the nil UUID as `alert_id`, which stands in for "no instance" because the sort key rejects Nullable.
+So a failed grouped check posts one error message, not one per group.
+The check input hands the shared machine the configuration's status in place of each instance's state while it is not OK,
+so the machine reads what it read when both shared one field.
+
+A configuration's `snooze_until` mutes every instance, and an instance's own `snooze_until` mutes one group.
+The check input and the read API show each instance the later of the two.
+`POST /api/projects/:id/platform_alerts/:id/snooze_group/` sets or clears an instance's snooze on a grouped alert the platform owns.
+Unlike a snooze of the whole alert, it leaves the group's firing open and the schedule alone, so the group's incident edges still go out.
+`record_outcomes` reads each instance's mute again when it writes a verdict, so a check that was already running when a snooze landed records its fire or resolve as muted instead of announcing it.
+
+A configuration's `grouping` holds `max_instances` (100 by default), the most instance rows it keeps.
+A source calls `check.admit(keys)` with its groups in priority order: a group that already has an instance is always admitted, so it can resolve, and new groups fill the remaining room front first.
+The count it turned away travels on the delivery as `overflowed`, and the first message of that delivery says how many groups were not tracked.
+`record_outcomes` enforces the cap again and drops a group past it, counted on `alerts_platform_groups_over_cap_total`.
+An instance that is not firing, not muted, and that no check returned for longer than both 24 hours and its cooldown is deleted, which frees its slot.
+Nothing is reaped while the configuration's checks fail, because a failed check returns no groups and every instance would look gone.
+
+Logs is the first source that groups, by `service_name` and `severity_text` only.
+A grouped logs alert leaves the batched cohort and runs `GroupedAlertCheckQuery`, one query per alert, with its open groups ordered first and the rest worst first.
+A group with no instance whose check decides nothing is left out, so a quiet service costs no row, and an open group the query does not return is checked against a zero count so it can resolve.
+
+Insight groups by breakdown value, with `keys` set to `["breakdown"]`.
+`check_alert_per_series` judges every series on its own, where production's `check_alert_for_insight` stops at the first series that breaches, and the adapter runs each value through the shared machine against its own instance.
+Only threshold alerts can group; a detector scores its series together.
 
 `alerts_platform_checks_skipped_total{source,reason}` counts these by reason.
 
 ### What a check leaves behind
 
-Every check writes one row to `platform_alert_events` in ClickHouse, including a check that
-confirmed the alert.
+Every check writes one row to `platform_alert_events` in ClickHouse for each group its outcome
+reports, including a check that confirmed the alert.
+An outcome carries what describes the whole check (the evaluation key, the failure count, `disable`,
+the next due time) once, and a `GroupOutcome` per group for what describes one instance (its state,
+firing and value). A source that does not group reports one group with the empty key.
 Postgres could not take that volume without a per-check retention flag, and a TTL'd ClickHouse
 table needs no such flag, so nothing has to decide which checks are worth keeping.
 
@@ -433,15 +480,23 @@ The path emits through Temporal's own meter, so every series carries the worker,
 the runtime attaches. `products/alerts_platform/backend/temporal/metrics.py` holds them and a source reaches them through
 `facade/platform_metrics.py`.
 
-| Metric                                                    | What it answers                                             |
-| --------------------------------------------------------- | ----------------------------------------------------------- |
-| `alerts_platform_checks_total{source,outcome}`            | How many checks the platform decided, and what they decided |
-| `alerts_platform_state_transitions_total{source,from,to}` | Which transitions it reached                                |
-| `alerts_platform_deliveries_previewed_total{source}`      | How many deliveries it recorded instead of sending          |
-| `alerts_platform_deliveries_deferred_total{source}`       | How many the payload bound left for a later tick            |
-| `alerts_platform_outcomes_recorded_total`                 | How many decisions reached the tables                       |
-| `alerts_platform_batch_duration_ms{source}`               | What one batch key costs                                    |
-| `alerts_platform_scheduler_lag_ms{source}`                | How far past its due time a check was evaluated             |
+| Metric                                                    | What it answers                                                                                                                                                                |
+| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `alerts_platform_checks_total{source,outcome}`            | How many checks the platform decided, and what they decided                                                                                                                    |
+| `alerts_platform_state_transitions_total{source,from,to}` | Which transitions it reached                                                                                                                                                   |
+| `alerts_platform_deliveries_previewed_total{source}`      | How many deliveries it recorded instead of sending                                                                                                                             |
+| `alerts_platform_deliveries_deferred_total{source}`       | How many the payload bound left for a later tick                                                                                                                               |
+| `alerts_platform_outcomes_recorded_total`                 | How many decisions reached the tables                                                                                                                                          |
+| `alerts_platform_batch_duration_ms{source}`               | What one batch key costs                                                                                                                                                       |
+| `alerts_platform_scheduler_lag_ms{source}`                | How far past its due time a check was evaluated                                                                                                                                |
+| `alerts_platform_discovery_omitted_total{source}`         | How many due batch keys a tick left out under the discovery limit                                                                                                              |
+| `alerts_platform_tick_duration_ms{deadline_reached}`      | How long a tick ran from its scheduled minute. Past 60 s, the schedule skips the next tick                                                                                     |
+| `alerts_platform_tick_start_delay_ms`                     | How late a tick's first workflow task ran after its scheduled minute                                                                                                           |
+| `alerts_platform_tick_keys`                               | How many batch keys a tick's discovery found due, including those its limits left out                                                                                          |
+| `alerts_platform_tick_schedule_actions{outcome}`          | The tick schedule's lifetime counts of started, overlap-skipped and late-dropped ticks, pushed every 5 minutes. A rise in `skipped_overlap` or `missed_catchup` is a lost tick |
+| `alerts_platform_checks_deferred_total{source}`           | How many checks a full evaluation pool turned away                                                                                                                             |
+| `alerts_platform_checks_unfinished_total{source}`         | How many admitted insight checks reached no outcome                                                                                                                            |
+| `alerts_platform_history_rows_dropped_total{source}`      | How many check rows a failed history write lost                                                                                                                                |
 
 Histogram buckets are registered in `posthog/temporal/common/worker.py`; a histogram missing from
 `ALERTS_PLATFORM_LATENCY_HISTOGRAM_METRICS` gets Prometheus defaults instead.
@@ -457,7 +512,12 @@ python manage.py backfill_platform_alert_configurations
 ```
 
 Pass `--team-id` to copy one team's configurations only.
-It is a seed, not a sync: the logs product keeps the control plane, and a later change to a logs alert reaches these tables only on the next run.
+Pass `--sample-percent` to copy a sample of teams. Logs samples whole teams, not alerts, because one query checks a cohort of a team's alerts, so a sample of alerts spread across every team costs nearly as many queries as copying all of them. The sample is chosen by team id, so a rerun copies the same teams and a larger percentage only adds teams.
+An alert the copy rejects is logged and counted as failed, and the run carries on.
+It is a seed, not a sync: the logs product keeps the control plane.
+Each logs check reads its logs alert's current filters, threshold, window, N-of-M, cooldown, quiet hours and snooze, so an edit counts from the next check without a rerun.
+A copy whose logs alert is deleted or disabled switches itself off on its next check.
+A logs alert created or turned back on is copied when the logs API commits it, but only in a team that already has an enabled logs copy. So a write in the logs product never widens a sample or undoes `--disable`, and those teams still wait for the next run.
 A second run updates rather than duplicates, because `legacy_configuration_id` carries the row each copy came from.
 A second run of either backfill, logs or insight, leaves an enabled copy's `next_check_at` alone unless it has none yet or its cadence changed, because the platform owns its schedule once the row exists. The logs product parks its own next check at the end of quiet hours, while the platform checks through them and only mutes. A new or re-enabled copy still takes the source's due time, which spreads a large copy's first checks the way the source spreads them.
 Each run also copies the logs alert's snooze onto its platform alert row, so a snoozed alert stays silent, and an alert unsnoozed since the last run is unsnoozed here too.
@@ -468,11 +528,20 @@ Insight alerts are copied the same way:
 python manage.py backfill_platform_insight_alert_configurations
 ```
 
-It copies threshold alerts on a 15-minute or slower cadence only, and skips detector alerts and the real-time cadence.
+It copies every insight alert, on every cadence.
+A real-time check gets production's real-time budget: a 7-minute evaluation with one retry inside it.
+An AI detector check runs on the AI queue, whose worker holds the model credentials, with production's retries: a check whose model call reaches no verdict is retried, and only its last attempt records the error.
+Every other check gets one 12-minute attempt.
+An AI detector check calls the model on both stacks while both run, and each call is billed to the project, so the backfill leaves AI detector alerts out.
+Pass `--include-ai-detector` to copy them, with `--team-id` or `--ids-file` for an internal project, until the insight cutover.
+An AI detector alert created or turned back on later waits for the next backfill run with the flag.
+A copy made without the flag is switched off at its next check when its alert has since moved to the AI detector.
+The AI queue's worker needs `CLICKHOUSE_ALERTS_PLATFORM_INSIGHT_USER` and its token file too, or those checks query as the worker's own ClickHouse user.
 Run it only after the evaluation worker's chart sets `CLICKHOUSE_ALERTS_PLATFORM_INSIGHT_USER` and its token file.
 Insight checks tag their queries with `ClickHouseUser.ALERTS_PLATFORM_INSIGHT`, a user of their own, so the parallel run never takes from the per-user budget of the user that production insight alerts query as.
 Without that env the tag resolves to the worker's default user, which other workloads on the same servers already push against its concurrent query limit.
 Logs checks use their own user, `alerts_platform_logs`, on the logs cluster.
+Logs checks also wait for room in a fleet-wide pool of batches, `ALERTS_PLATFORM_LOGS_MAX_INFLIGHT_BATCHES` (default 5). A batch runs its cohort queries one after another, so this bounds the parallel run's concurrent logs queries however many teams are copied. A batch the pool turns away waits on a workflow timer and tries again for up to 20 seconds, so it usually still runs within its own minute. The wait holds no worker slot, because it is a timer in the workflow rather than a sleep in the evaluation activity. A batch still without a slot after that keeps its due time and a later tick picks it up, so a pool that is too small shows up as scheduler lag for `source=logs` and as `alerts_platform_checks_deferred_total{source="logs"}`.
 
 Every copy adds ClickHouse load beside production's, so roll it out in steps.
 A full logs backfill hit ClickHouse's per-user concurrent query limit and had to be removed.
@@ -480,13 +549,44 @@ A full logs backfill hit ClickHouse's per-user concurrent query limit and had to
 1. Copy one internal team with `--team-id`, then a small sample with `--sample-percent`, for example 5. The sample is chosen by alert id, so a rerun copies the same alerts and a larger percentage only adds alerts.
 2. Watch the parallel run's ClickHouse cost in `query_log`: its `client_query_id` starts with `alerts-platform-insight:`.
 3. Watch scheduler lag for `source=insight`, and the `capacity` skip reason on the platform's skipped-check counter. Capacity skips mean ClickHouse refused the query for load.
-4. Widen the sample only while both stay flat. `ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS` caps the concurrent checks whatever the sample size.
+4. Widen the sample only while both stay flat. Two pools bound the parallel run, whatever the sample size:
+   - `ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS` caps the queries that run in ClickHouse at once. A check holds one of these slots only while its query runs. A check that gets no slot within 45 seconds records nothing and stays due for a later tick.
+   - `ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_CHECKS` caps the checks admitted at once, and defaults to the query cap. An admitted check also locks itself, so a later run never starts the same check while it runs. An admitted check holds an evaluation worker slot until it ends, including while it waits for a query slot, so keep this cap inside the workers' activity slots.
+
+   Each worker reads both caps from its own environment, so set them to the same values on every worker that runs insight checks, the AI detector worker included.
+   A batch refills the check slots its finished checks free, in rounds within its tick, so the caps limit concurrency rather than checks per minute.
+   `ALERTS_PLATFORM_INSIGHT_KEYS_PER_TICK` bounds how many teams' batches start each minute, so a larger sample can need it raised. Sixty times its value must cover the batch keys due per hour. Otherwise the checks due at the top of the hour start later and later, while ClickHouse stays idle.
+
 5. Raise that cap from its default of 10 only while the daily count of refused queries, `exception_code = 202` in `query_log`, stays flat for both `alerts_platform_insight` and the user that production insight alerts query as. The first shows the parallel run's own contention. The second shows whether it reaches production through the server-wide limit. Do not size it from per-second concurrency, which overcounts because short queries that run back to back inside one second read as concurrent. Code 202 also covers the server-wide limit, so a rise is a reason to look rather than proof that the cap caused it.
 
-To stop the parallel run, pass `--disable`, with `--team-id` to stop one team.
+To stop either parallel run, logs or insight, pass `--disable` to its backfill, with `--team-id` to stop one team.
+Pass `--ids-file` to either backfill, with one alert id per line, to copy only those alerts or, with `--disable`, to switch only their copies off. A rollout uses it to retire the alerts a comparison has enough evidence for and spend the load on the ones it still lacks.
 It switches the copies off and keeps their rows, state and history. Checks already running finish.
 Running the backfill again turns them back on at the production alert's next due time.
 An hourly alert on the platform checks on a UTC grid, while production checks it at the alert's creation minute, so the two stacks check an hourly alert at different minutes.
+
+## Held deliveries
+
+A source can hold an evaluation's delivery instead of starting it, for example while an agent investigates a firing.
+It puts the request on `PlatformAlertOutcome.held_delivery` with a reason and a deadline, and leaves it out of the deliveries it starts.
+`record_outcomes` writes the hold to `PlatformAlertDeliveryHold` in the same transaction as the outcome.
+
+`release_hold` in the facade stamps a hold once, under a row lock.
+It returns the request only for a release with `send`, and only to the releaser that won.
+That releaser starts the delivery with `start_deliveries`, so the delivery keeps its usual id, then calls `record_hold_delivery_started`.
+A retry from the same releaser gets the request back. Another releaser gets nothing.
+`reschedule_hold` moves an unreleased hold's deadline.
+`deliver_evaluation` also refuses an evaluation whose hold is unreleased or released with `suppress`.
+
+`alerts-platform-release-expired-holds-schedule` starts `alerts-platform-release-expired-holds` every minute on the delivery queue, with SKIP overlap and a 5-minute execution timeout.
+The workflow finds up to 200 holds past their deadline, releases each with `send` as the safety net, and starts their deliveries.
+It re-reads each hold's deadline and configuration under the row lock, so a hold rescheduled after the find stays held. It skips a hold another transaction has locked, and a later run finds it again.
+It also starts any released send whose delivery nobody recorded as started 5 minutes after the release, so a releaser that failed between the release and the start still delivers. It starts those with `ALLOW_DUPLICATE_FAILED_ONLY`, so a delivery that completed and lost only its start mark does not run again.
+`alerts_platform_holds_expired_total` counts only holds a run released at their deadline, not recovered starts or retries.
+It stops adding requests once they would outgrow one activity payload, and leaves the rest for the next run.
+It suppresses, rather than sends, the hold of a disabled configuration, so turning the alert back on never sends an old firing. It still sends a hold whose alert went back to its source, because the request records the owner at check time.
+The find step also deletes holds older than 90 days, which is how long the history rows they annotate live.
+A rise in `alerts_platform_holds_expired_total` means a source holds deliveries and does not release them.
 
 ## Postgres connectivity probe
 

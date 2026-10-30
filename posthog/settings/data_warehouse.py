@@ -53,10 +53,13 @@ DATA_WAREHOUSE_SOURCE_READ_TIMEOUT_SECONDS = get_from_env(
     "DATA_WAREHOUSE_SOURCE_READ_TIMEOUT_SECONDS", 300.0, type_cast=float
 )
 
-# Longest time in seconds that one source request may spend on retries, from its first failure. No
-# new try starts after it. A client can pass its own value when a vendor's rate limit window is longer.
+# Longest time in seconds that one source request may take, from the start of its first try to the
+# end of its last, with all retries and waits. Each try gets only the time that is left, so a stalled
+# vendor holds a worker for this long at most. Keep it at or below
+# DATA_WAREHOUSE_IMPORT_PREEMPTION_QUIET_PERIOD_SECONDS, the time a source gets to hand off at a worker
+# shutdown. A client can pass its own value when a vendor's rate limit window is longer.
 DATA_WAREHOUSE_SOURCE_RETRY_BUDGET_SECONDS = get_from_env(
-    "DATA_WAREHOUSE_SOURCE_RETRY_BUDGET_SECONDS", 600.0, type_cast=float
+    "DATA_WAREHOUSE_SOURCE_RETRY_BUDGET_SECONDS", 300.0, type_cast=float
 )
 
 # Longest server-provided retry delay (`Retry-After` or a rate limit reset header) in seconds that
@@ -89,6 +92,28 @@ DATA_WAREHOUSE_DELTA_S3_ALLOW_UNSAFE_RENAME = get_from_env(
 DATA_WAREHOUSE_TARGET_PARTITION_BYTES = get_from_env(
     "DATA_WAREHOUSE_TARGET_PARTITION_BYTES", 500_000_000, type_cast=int
 )
+
+# The size-driven split budget for tables that upsert on a primary key (incremental, webhook, xmin).
+# Those upserts go through deltalite, whose peak memory does not grow with partition size, while on an
+# md5 table every extra partition adds one more rewritten file to each merge. The delta-rs MERGE runs on
+# such a table only for a batch that deltalite fails, and this larger cap bounds partition size for that
+# fallback. The OOM-history trigger still splits a table whose fallback runs out of memory.
+# A value below DATA_WAREHOUSE_TARGET_PARTITION_BYTES has no effect.
+DATA_WAREHOUSE_MERGE_TARGET_PARTITION_BYTES = get_from_env(
+    "DATA_WAREHOUSE_MERGE_TARGET_PARTITION_BYTES", 2_000_000_000, type_cast=int
+)
+
+# Coarsening of md5 tables that upsert on a primary key. Such an upsert rewrites at least one file in
+# every md5 partition, so the partition count, not the partition size, sets the merge cost. For these
+# tables the coarsening path uses the merge budget above, and picks the divisor of the current count
+# nearest to TARGET, never below MIN. MIN is the memory governor's cap on the partitions that one upsert
+# merges in parallel, so a coarser table keeps all of its merge parallelism. TARGET is twice that cap,
+# so the parallel partition tasks still share the work when one partition is slow.
+# The automatic path uses this policy only when the `data-warehouse-merge-auto-coarsen` feature flag is on
+# for the schema. Otherwise it coarsens these tables on the base budget as for any other table.
+# A `stage_warehouse_coarsening` nomination always uses this policy.
+DATA_WAREHOUSE_MERGE_MD5_PARTITION_TARGET = get_from_env("DATA_WAREHOUSE_MERGE_MD5_PARTITION_TARGET", 8, type_cast=int)
+DATA_WAREHOUSE_MERGE_MD5_PARTITION_MIN = get_from_env("DATA_WAREHOUSE_MERGE_MD5_PARTITION_MIN", 4, type_cast=int)
 
 # How often each sync activity self-reports its workload (phase, buffer bytes, RSS) to the warehouse
 # Redis, for post-mortem enrichment of silent worker deaths. Zero or negative disables reporting
@@ -152,6 +177,39 @@ DATA_WAREHOUSE_FULL_VACUUM_INTERVAL_HOURS = get_from_env(
 # `optimize.compact`. deltalite streams each bin under the load slot's memory budget. A deltalite build
 # without `compact`, a table that deltalite refuses, or a deltalite failure falls back to delta-rs.
 DATA_WAREHOUSE_DELTALITE_COMPACTION = get_from_env("DATA_WAREHOUSE_DELTALITE_COMPACTION", False, type_cast=str_to_bool)
+# Row-group cap for the files deltalite writes. A merge upsert closes a row group at this many encoded
+# bytes, and a deltalite compaction closes one at this many decoded bytes, so compaction does not join
+# the row groups again. A reader fetches one whole row group before it decodes it, so smaller row groups
+# lower upsert and query memory on tables with wide rows. 0 turns the cap off and keeps deltalite's
+# defaults.
+DATA_WAREHOUSE_DELTALITE_MAX_ROW_GROUP_BYTES = get_from_env(
+    "DATA_WAREHOUSE_DELTALITE_MAX_ROW_GROUP_BYTES", 16 * 1024 * 1024, type_cast=int
+)
+# Size each deltalite reader by the largest row group of its file instead of by the whole file. The
+# writer reads the footers of the candidate files only when the whole-file sizes keep the governor's plan
+# narrow. A footer that cannot be read keeps the whole-file size. False turns the footer reads off.
+DATA_WAREHOUSE_DELTALITE_GOVERNOR_ROW_GROUP_SIZING = get_from_env(
+    "DATA_WAREHOUSE_DELTALITE_GOVERNOR_ROW_GROUP_SIZING", True, type_cast=str_to_bool
+)
+# Lets a deltalite upsert whose slice-sized plan is narrower than the widest plan borrow idle pod memory,
+# up to DATA_WAREHOUSE_DELTALITE_GOVERNOR_BORROW_MAX_SLICES slices, and run more partition workers and
+# readers. A borrow takes at most half of the free pod memory and never happens while an upsert waits for
+# room. "advisory" logs the borrowed plan and keeps the slice-sized plan. "enforce" runs the borrowed plan,
+# and needs DELTALITE_GOVERNOR_MODE=enforce. "off" computes nothing.
+DATA_WAREHOUSE_DELTALITE_GOVERNOR_BORROW = get_from_env("DATA_WAREHOUSE_DELTALITE_GOVERNOR_BORROW", "advisory")
+DATA_WAREHOUSE_DELTALITE_GOVERNOR_BORROW_MAX_SLICES = get_from_env(
+    "DATA_WAREHOUSE_DELTALITE_GOVERNOR_BORROW_MAX_SLICES", 4.0, type_cast=float
+)
+# deltalite keeps the primary keys of the data files that a merge reads or writes in a per-process cache,
+# so a later merge into the same table decides most files without a read from object storage. The cache
+# size comes from the DELTALITE_PROBE_CACHE_BYTES environment variable (default 128 MiB per process). False makes every merge read each
+# candidate file again, and needs a deltalite build that has the probe cache.
+DATA_WAREHOUSE_DELTALITE_PROBE_CACHE = get_from_env("DATA_WAREHOUSE_DELTALITE_PROBE_CACHE", True, type_cast=str_to_bool)
+# A rebuild run (first sync, reset, full refresh) compacts its own files once a compaction would remove
+# this many, so a long rebuild does not leave one post-load pass that outlasts the stuck-batch timeout.
+DATA_WAREHOUSE_REBUILD_COMPACT_MIN_REMOVABLE_FILES = get_from_env(
+    "DATA_WAREHOUSE_REBUILD_COMPACT_MIN_REMOVABLE_FILES", 20_000, type_cast=int
+)
 
 # delta-rs merge spill-to-disk. A merge decompresses the target partition into an Arrow working set that
 # can exceed the 29 GB pod limit and OOM — killing every co-tenant activity on the pod. When set, delta-rs
@@ -212,12 +270,19 @@ WAREHOUSE_SOURCES_DATABASE_URL: str = (
 # so a set must stay inside the memory slice the deltalite governor sizes per concurrent upsert
 # (memory_governor.py): with a 29 GiB pod, 16 groups in flight and a 2 GiB reserve, that slice is
 # about 1.3 GiB, of which 750 MiB goes to four partition workers. The row cap equals one extraction
-# chunk, the largest single batch the loader already takes, and the byte cap counts parquet on disk,
-# which decodes to Arrow several times its size. The count cap is only a backstop.
+# chunk, the largest single batch the loader already takes. The count cap is only a backstop.
+# When each batch records its decoded Arrow size and the pod limit is known, the copies of a set the
+# loader holds may use SLOT_SHARE of that slice, and the set's Arrow size never exceeds
+# MAX_ARROW_BYTES. Otherwise MAX_BYTES caps the parquet on disk, which decodes to Arrow several
+# times its size.
 DATA_WAREHOUSE_V3_COALESCE_MAX_BATCHES = get_from_env("DATA_WAREHOUSE_V3_COALESCE_MAX_BATCHES", 128, type_cast=int)
 DATA_WAREHOUSE_V3_COALESCE_MAX_ROWS = get_from_env("DATA_WAREHOUSE_V3_COALESCE_MAX_ROWS", 500_000, type_cast=int)
 DATA_WAREHOUSE_V3_COALESCE_MAX_BYTES = get_from_env(
     "DATA_WAREHOUSE_V3_COALESCE_MAX_BYTES", 64 * 1024 * 1024, type_cast=int
+)
+DATA_WAREHOUSE_V3_COALESCE_SLOT_SHARE = get_from_env("DATA_WAREHOUSE_V3_COALESCE_SLOT_SHARE", 0.4, type_cast=float)
+DATA_WAREHOUSE_V3_COALESCE_MAX_ARROW_BYTES = get_from_env(
+    "DATA_WAREHOUSE_V3_COALESCE_MAX_ARROW_BYTES", 512 * 1024 * 1024, type_cast=int
 )
 
 # Consecutive configuration errors (bad credentials, unknown database, unreachable host) after which

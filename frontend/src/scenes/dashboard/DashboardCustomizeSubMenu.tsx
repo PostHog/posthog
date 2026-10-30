@@ -11,19 +11,28 @@ import {
     SceneMenuBarSeparator,
     SceneMenuBarSubMenu,
 } from '~/layout/scenes/components/SceneMenuBar'
-import { DashboardTileSpacing } from '~/types'
+import { DashboardTileSpacing, TileGroupDisplay } from '~/types'
 
 import {
     DASHBOARD_GRID_COMPACTION_LABELS,
     DASHBOARD_TILE_SPACING_LABELS,
+    getTileSpacingChoices,
     DashboardGridCompaction,
+    TILE_GROUP_DISPLAY_LABELS,
 } from 'products/dashboards/frontend/dashboardCustomization'
 
 import { dashboardLogic } from './dashboardLogic'
 
 export function DashboardCustomizeSubMenu(): JSX.Element | null {
-    const { dashboard, currentLayoutSize, layoutEditMode } = useValues(dashboardLogic)
-    const { setDashboardEditing, changeDashboardTileSpacing, changeDashboardGridCompaction } =
+    const {
+        dashboard,
+        currentLayoutSize,
+        layoutEditMode,
+        tileGroupSections,
+        tileGroupDisplay,
+        dashboardGridCompactionSaving,
+    } = useValues(dashboardLogic)
+    const { setDashboardEditing, changeDashboardTileSpacing, changeDashboardGridCompaction, changeTileGroupDisplay } =
         useActions(dashboardLogic)
 
     if (!dashboard) {
@@ -56,7 +65,7 @@ export function DashboardCustomizeSubMenu(): JSX.Element | null {
                     value={dashboard.customization?.tile_spacing ?? 'standard'}
                     onValueChange={(value: unknown) => changeDashboardTileSpacing(value as DashboardTileSpacing)}
                 >
-                    {(Object.keys(DASHBOARD_TILE_SPACING_LABELS) as DashboardTileSpacing[]).map((spacing) => (
+                    {getTileSpacingChoices(dashboard.customization?.tile_spacing ?? 'standard').map((spacing) => (
                         <SceneMenuBarRadioItem
                             key={spacing}
                             value={spacing}
@@ -75,13 +84,32 @@ export function DashboardCustomizeSubMenu(): JSX.Element | null {
                             changeDashboardGridCompaction(value as DashboardGridCompaction)
                         }
                     >
-                        {Object.values(DashboardGridCompaction).map((mode) => (
+                        {[DashboardGridCompaction.Vertical, DashboardGridCompaction.Stable].map((mode) => (
                             <SceneMenuBarRadioItem
                                 key={mode}
                                 value={mode}
+                                disabled={dashboardGridCompactionSaving}
                                 data-attr={`dashboard-menubar-tile-movement-${mode}`}
                             >
                                 {DASHBOARD_GRID_COMPACTION_LABELS[mode]}
+                            </SceneMenuBarRadioItem>
+                        ))}
+                    </SceneMenuBarRadioGroup>
+                </SceneMenuBarSubMenu>
+            )}
+            {tileGroupSections.length > 0 && (
+                <SceneMenuBarSubMenu label="Show groups as">
+                    <SceneMenuBarRadioGroup
+                        value={tileGroupDisplay}
+                        onValueChange={(value: unknown) => changeTileGroupDisplay(value as TileGroupDisplay)}
+                    >
+                        {(Object.keys(TILE_GROUP_DISPLAY_LABELS) as TileGroupDisplay[]).map((display) => (
+                            <SceneMenuBarRadioItem
+                                key={display}
+                                value={display}
+                                data-attr={`dashboard-menubar-group-display-${display}`}
+                            >
+                                {TILE_GROUP_DISPLAY_LABELS[display]}
                             </SceneMenuBarRadioItem>
                         ))}
                     </SceneMenuBarRadioGroup>

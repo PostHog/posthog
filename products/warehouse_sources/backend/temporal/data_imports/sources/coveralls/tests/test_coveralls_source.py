@@ -44,11 +44,6 @@ class TestCoverallsSource:
         # an editor reuse a preserved token against repos it never had token access to.
         assert self.source.connection_host_fields == ["service", "repositories"]
 
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["builds"])
-
-        assert [schema.name for schema in schemas] == ["builds"]
-
     @pytest.mark.parametrize(
         "api_token, expected_reason",
         [

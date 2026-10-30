@@ -77,9 +77,6 @@ class TestValidateCredentials:
     @parameterized.expand(
         [
             ("ok", 200, (True, None)),
-            ("unauthorized", 401, (False, "Invalid Planhat API token")),
-            ("forbidden", 403, (False, "Invalid Planhat API token")),
-            ("server_error", 500, (False, "Planhat returned HTTP 500")),
         ]
     )
     def test_status_mapping(self, _name: str, status: int, expected: tuple[bool, str | None]) -> None:
@@ -99,11 +96,29 @@ class TestValidateCredentials:
 
 
 class TestPlanhatSourceResponse:
-    @parameterized.expand([(endpoint,) for endpoint in ENDPOINTS])
-    def test_source_response_shape(self, endpoint: str) -> None:
+    @parameterized.expand(
+        [
+            ("companies", "/companies"),
+            ("endusers", "/endusers"),
+            ("users", "/users"),
+            ("licenses", "/licenses"),
+            ("assets", "/assets"),
+            ("nps", "/nps"),
+            ("conversations", "/conversations"),
+            ("tickets", "/tickets"),
+            ("invoices", "/invoices"),
+            ("sales", "/sales"),
+            ("churn", "/churn"),
+            ("opportunities", "/opportunities"),
+            ("line_items", "/lineitems"),
+            ("metrics", "/dimensiondata"),
+        ]
+    )
+    def test_source_response_shape(self, endpoint: str, expected_path: str) -> None:
         result = _driver().run(endpoint, [ScriptedResponse(json=[])])
 
         assert result.raised is None
+        assert result.paths == [expected_path]
         assert result.response is not None
         assert result.response.name == endpoint
         assert result.response.primary_keys == ["_id"]

@@ -1,6 +1,8 @@
-import { FeatureFlagType } from '~/types'
+import { LemonDialog } from '@posthog/lemon-ui'
 
-import { getFeatureFlagDeleteBlockers } from './featureFlagDeleteDialog'
+import { FeatureFlagConfig, FeatureFlagType } from '~/types'
+
+import { getFeatureFlagDeleteBlockers, openFeatureFlagDeleteDialog } from './featureFlagDeleteDialog'
 
 const base: Partial<FeatureFlagType> = {
     key: 'my-flag',
@@ -71,5 +73,26 @@ describe('getFeatureFlagDeleteBlockers', () => {
             'Survey',
             'Session replay',
         ])
+    })
+})
+
+describe('openFeatureFlagDeleteDialog', () => {
+    afterEach(() => {
+        jest.restoreAllMocks()
+    })
+
+    it.each([
+        ['a v1 flag', { groups: [] }, 'Are you sure you want to delete "my-flag"?'],
+        [
+            'a rules v2 flag',
+            { version: 2 },
+            'Are you sure you want to delete "my-flag"? Deleting turns the flag off, and it can\'t be restored yet.',
+        ],
+    ])('warns that the delete is final for a flag that cannot be restored: %s', (_, filters, description) => {
+        const open = jest.spyOn(LemonDialog, 'open').mockImplementation(() => undefined)
+
+        openFeatureFlagDeleteDialog({ ...base, filters: filters as FeatureFlagConfig }, jest.fn())
+
+        expect(open).toHaveBeenCalledWith(expect.objectContaining({ description }))
     })
 })

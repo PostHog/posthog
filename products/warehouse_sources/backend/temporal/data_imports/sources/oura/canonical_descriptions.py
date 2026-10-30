@@ -106,6 +106,48 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "source": "Context the sample was measured in (awake, rest, sleep, session, live, workout).",
         },
     },
+    "daily_resilience": {
+        "description": "Daily resilience level, the user's long-term ability to recover from stress.",
+        "docs_url": _DOCS,
+        "columns": {
+            "id": "Unique identifier for the daily resilience summary.",
+            "day": "Calendar day the resilience record was recorded (YYYY-MM-DD).",
+            "contributors": "Breakdown of sleep recovery, daytime recovery, and stress contributing to resilience.",
+            "level": "Resilience level (limited, adequate, solid, strong, or exceptional).",
+        },
+    },
+    "daily_cardiovascular_age": {
+        "description": "Daily predicted cardiovascular (vascular) age for the user.",
+        "docs_url": _DOCS,
+        "columns": {
+            "id": "Unique identifier for the daily cardiovascular age record.",
+            "day": "Calendar day the prediction belongs to (YYYY-MM-DD).",
+            "vascular_age": "Predicted vascular age in years, in the range 18-100.",
+            "pulse_wave_velocity": "Pulse wave velocity in metres per second, derived from vascular age.",
+        },
+    },
+    "vO2_max": {
+        "description": "VO2 max estimates, a measure of cardiorespiratory fitness.",
+        "docs_url": _DOCS,
+        "columns": {
+            "id": "Unique identifier for the VO2 max estimate.",
+            "day": "Calendar day the estimate belongs to (YYYY-MM-DD).",
+            "timestamp": "ISO 8601 timestamp when the estimate was created.",
+            "vo2_max": "Estimated VO2 max value.",
+        },
+    },
+    "rest_mode_period": {
+        "description": "Periods when the user enabled rest mode, during which Oura adjusts scores and targets.",
+        "docs_url": _DOCS,
+        "columns": {
+            "id": "Unique identifier for the rest mode period.",
+            "start_day": "Calendar day rest mode started (YYYY-MM-DD).",
+            "end_day": "Calendar day rest mode ended (YYYY-MM-DD), or null while still active.",
+            "start_time": "ISO 8601 timestamp when rest mode started.",
+            "end_time": "ISO 8601 timestamp when rest mode ended, or null while still active.",
+            "episodes": "Tagged episodes logged during the rest mode period.",
+        },
+    },
     "personal_info": {
         "description": "Static profile information for the authenticated user.",
         "docs_url": _DOCS,

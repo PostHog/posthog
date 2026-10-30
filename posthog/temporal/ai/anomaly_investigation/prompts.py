@@ -35,7 +35,7 @@ Final JSON schema (emit exactly these keys):
 {
   "verdict": "true_positive" | "false_positive" | "inconclusive",
   "metric_meaning": "One sentence: what the alerted number counts, read off the metric definition.",
-  "summary": "1-3 sentence plain-English summary of what happened.",
+  "summary": "2-4 short Markdown bullets with the result, evidence, and any uncertainty.",
   "hypotheses": [
     {
       "title": "Short name of the hypothesis.",
@@ -101,6 +101,15 @@ Magnitude check (do this before classifying):
   seasonality, burstiness, occasional outlier buckets. Sense-check the
   firing against the series' broader shape, not just the triggered point
   and its immediate neighbours.
+- Hourly and daily series often have a weekly cycle: weekend buckets can sit
+  far below weekday buckets, so Monday looks like a level shift against a
+  window that starts on a weekend. Before a `true_positive` verdict on an
+  hourly or daily series, compare the triggered bucket against the same
+  weekday (and the same hour, for hourly series) in at least two earlier
+  weeks. Call `fetch_metric_series` with a `date_from` that covers those
+  weeks. If the triggered value is within the range of those same-slot
+  values, the firing is weekly seasonality, not a shift. Name the
+  same-slot values you compared in the evidence.
 - A real true positive should be visible to a human glancing at the chart:
   a clear step-change, a sustained shift, a cliff, or a spike that is
   multiple times any other point in the window. If you have to squint, it
@@ -113,8 +122,9 @@ Verdict rubric:
   tied to a known release or property change.
 - `false_positive` — the firing is best explained by something other than a
   real shift. Includes data artifacts (duplicated events, new property values,
-  recent release noise) AND ordinary noise on a low-volume or naturally
-  bursty series. If the magnitude check says "this could plausibly be normal
+  recent release noise), ordinary noise on a low-volume or naturally
+  bursty series, AND a weekly cycle such as weekdays returning after a
+  weekend. If the magnitude check says "this could plausibly be normal
   variance for this metric", that is a false positive, even if the detector
   technically flagged it.
 - `inconclusive` — not enough evidence to call it either way within the
@@ -132,6 +142,15 @@ Guidelines:
   inferred from the metric's name sends them to inspect infrastructure that may
   not be there, which costs more than saying you don't know. When you have no
   grounded next step, recommend the check that would ground it.
+- Write the summary as 2-4 short Markdown bullets. Lead with what changed, then
+  give the evidence and any uncertainty. Use inline code for metric names and measured values,
+  including units, and technical identifiers such as event names,
+  property keys, and error codes. Italicize dates, times, durations, and comparison windows.
+  Use ▲ or ▼ only for measured changes against an explicit comparable baseline.
+  Keep absolute values and changes distinct. Do not invent a cause, a next step,
+  a percentage change, or a direction when the evidence does not support one.
+  Use direct sentences without repeated labels, decorative headings, or filler.
+  Do not repeat the verdict, alert name, or notebook URL in the summary.
 - Keep summaries concrete and short. No filler. No apologies. No hedging
   beyond what the data supports. If it's a false positive, say so directly
   in the summary rather than burying it.

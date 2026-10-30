@@ -51,8 +51,6 @@ fn init_tracer(
 }
 
 async fn async_main(mut config: Config, rayon_dispatcher: RayonDispatcher) {
-    config.validate_and_fix_timeouts();
-
     // Instantiate tracing outputs following Django's DEBUG-based approach:
     //   - stdout with a level configured by the RUST_LOG envvar
     //   - OpenTelemetry if enabled, for levels INFO and higher
@@ -133,6 +131,10 @@ async fn async_main(mut config: Config, rayon_dispatcher: RayonDispatcher) {
         .with(otel_layer)
         .init();
 
+    // This call must follow tracing init. Before init, tracing has no subscriber and drops the
+    // warnings.
+    config.validate_and_fix_timeouts();
+
     // Start continuous profiling if enabled (keep _agent alive for the duration of the program)
     // NOTE: Must be after tracing is initialized so logs are visible
     let _profiling_agent = match config.continuous_profiling.start_agent() {
@@ -143,8 +145,15 @@ async fn async_main(mut config: Config, rayon_dispatcher: RayonDispatcher) {
         }
     };
 
+    // Drain for 20 s after the preStop file appears, then shut down. Kubelet sends SIGTERM
+    // only after the preStop sleep, so keep that sleep at 20 s: a shorter sleep can end the
+    // drain early, and a longer one can outlive the process and fail the preStop hook.
+    // The termination grace period must cover the 20 s drain plus the 45 s shutdown timeout.
     let mut manager = lifecycle::Manager::builder("feature-flags")
         .with_global_shutdown_timeout(Duration::from_secs(45))
+        .with_prestop_action(lifecycle::PrestopAction::Drain {
+            max: Duration::from_secs(20),
+        })
         .build();
 
     let handles = register_components(&mut manager);

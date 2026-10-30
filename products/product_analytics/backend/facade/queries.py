@@ -16,6 +16,8 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
+from posthog.clickhouse.workload import Workload
+
 from products.product_analytics.backend.facade.contracts import TrendsQueryRunResult
 
 _B = "products.product_analytics.backend.hogql_queries."
@@ -26,7 +28,6 @@ _LAZY = {
     "BoxPlotTrendsQueryRunner": "trends.boxplot_trends_query_runner",
     "CalendarHeatmapQueryRunner": "trends.calendar_heatmap_query_runner",
     "CalendarHeatmapTrendsQueryRunner": "trends.calendar_heatmap_trends_query_runner",
-    "FunnelCorrelationQueryRunner": "funnels.funnel_correlation_query_runner",
     "FunnelsQueryRunner": "funnels.funnels_query_runner",
     "LifecycleQueryRunner": "lifecycle.lifecycle_query_runner",
     "PathsQueryRunner": "paths.paths_query_runner",
@@ -36,6 +37,7 @@ _LAZY = {
     "StickinessQueryRunner": "stickiness.stickiness_query_runner",
     "TrendsDisplay": "trends.display",
     "TrendsQueryRunner": "trends.trends_query_runner",
+    "trends_actors_date_window": "trends.trends_actors_date_window",
     "anchored_segment_to_funnels_query": "paths_v2.funnel_converter",
     "edge_to_funnels_query": "paths_v2.funnel_converter",
     "get_properties_chain": "trends.utils",
@@ -48,6 +50,7 @@ __all__ = sorted((*_LAZY, "run_cached_trends_query"))
 
 
 if TYPE_CHECKING:
+    from posthog.clickhouse.client.connection import ClickHouseUser
     from posthog.models import Team
 
     # Static view for mypy and IDEs only; runtime resolves through __getattr__ below, so these
@@ -70,6 +73,9 @@ if TYPE_CHECKING:
     from products.product_analytics.backend.hogql_queries.trends.slope_graph_trends_query_runner import (  # noqa: F401
         SlopeGraphTrendsQueryRunner,
     )
+    from products.product_analytics.backend.hogql_queries.trends.trends_actors_date_window import (  # noqa: F401
+        trends_actors_date_window,
+    )
     from products.product_analytics.backend.hogql_queries.trends.trends_query_runner import (  # noqa: F401
         TrendsQueryRunner,
     )
@@ -77,7 +83,13 @@ if TYPE_CHECKING:
 
 
 def run_cached_trends_query(
-    *, query: dict[str, Any], team: Team, max_execution_time_seconds: int, cache_age_seconds: int
+    *,
+    query: dict[str, Any],
+    team: Team,
+    max_execution_time_seconds: int,
+    cache_age_seconds: int,
+    ch_user: ClickHouseUser | None = None,
+    workload: Workload = Workload.DEFAULT,
 ) -> TrendsQueryRunResult:
     """Run a Trends query through the blocking recent-cache path."""
 
@@ -92,6 +104,8 @@ def run_cached_trends_query(
         query=query,
         team=team,
         hogql_settings=HogQLGlobalSettings(max_execution_time=max_execution_time_seconds),
+        ch_user=ch_user,
+        workload=workload,
     )
     runner.is_query_service = is_api_key_access_method(get_query_tag_value("access_method"))
     response = runner.run(

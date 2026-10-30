@@ -5,9 +5,12 @@ from urllib.parse import urlsplit
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sync_window import SyncWindow
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.finnhub.settings import (
@@ -85,7 +88,7 @@ def _to_date(value: Any) -> date:
     raise ValueError(f"Cannot coerce incremental value {value!r} to a date")
 
 
-@retry(
+@retry_with_deadline(
     retry=retry_if_exception_type((FinnhubRetryableError, requests.ReadTimeout, requests.ConnectionError)),
     stop=stop_after_attempt(6),
     wait=wait_exponential_jitter(initial=2, max=60),
@@ -205,10 +208,9 @@ def _emit(rows: list[dict[str, Any]], symbol: str | None, config: FinnhubEndpoin
         for row in rows:
             row[config.symbol_field] = symbol
     if config.incremental_fields:
-        # Guarantee ascending order so the declared `sort_mode="asc"` matches the data the
-        # incremental watermark is checkpointed against, regardless of the API's response order.
-        # The watermark field is required, so a row missing it is a hard error rather than a
-        # silent epoch-0 sort that would corrupt the checkpoint.
+        # Sort the rows of one request, regardless of the API's response order. The watermark
+        # field is required, so a row missing it is a hard error rather than a silent epoch-0
+        # sort.
         watermark = config.incremental_fields[0]["field"]
         rows.sort(key=lambda r: r[watermark])
     return rows
@@ -298,9 +300,7 @@ def finnhub_source(
         partition_mode="datetime" if config.partition_key else None,
         partition_format="month" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
-        # Only the incremental endpoints get a sorted data contract — full-refresh endpoints
-        # emit in whatever order the API returns, so don't promise ascending order there.
-        sort_mode="asc" if config.incremental_fields else None,
+        # No sort_mode: each ticker is one request, so the row order starts again for each ticker.
     )
 
 

@@ -1,14 +1,23 @@
 import os
 from datetime import UTC, datetime
 
+import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
+
+from django.test import SimpleTestCase
 
 import dagster
 from parameterized import parameterized
 
 from posthog.schema import MarketingAnalyticsDrillDownLevel
 
+from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.query_log_archive import (
+    DISTRIBUTED_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL,
+    SHARDED_QUERY_LOG_ARCHIVE_V3_TABLE,
+    SHARDED_QUERY_LOG_ARCHIVE_V3_TABLE_SQL,
+)
 from posthog.dags.common import chunk_ranges
 from posthog.models import Organization, Team
 
@@ -26,15 +35,18 @@ from products.marketing_analytics.dags.marketing_precompute import (
     SELECTED_TEAM_IDS_ENV_VAR,
     SHARDS_ENV_VAR,
     TEAM_CONCURRENCY_ENV_VAR,
+    _recently_active_team_ids,
     get_selected_team_ids,
     marketing_precompute_job,
     split_marketing_precompute_teams_op,
     warm_selected_teams,
 )
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 _ENSURE = "products.marketing_analytics.dags.marketing_precompute.ensure_precomputed"
 _ACTIVE = "products.marketing_analytics.dags.marketing_precompute._recently_active_team_ids"
 _IS_CLOUD = "products.marketing_analytics.dags.marketing_precompute.is_cloud"
+_SYNC_EXECUTE = "products.marketing_analytics.dags.marketing_precompute.sync_execute"
 _FF = "products.marketing_analytics.backend.hogql_queries.marketing_analytics_config.feature_enabled_or_false"
 _DB = "products.marketing_analytics.dags.marketing_precompute.Database"
 _FACTORY = "products.marketing_analytics.dags.marketing_precompute.MarketingSourceFactory"
@@ -130,6 +142,37 @@ class TestGetSelectedTeamIds:
             assert get_selected_team_ids() == []
 
 
+@pytest.mark.usefixtures("clickhouse_database")
+class TestRecentlyActiveTeamIds(SimpleTestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        super().setUpClass()
+        sync_execute(SHARDED_QUERY_LOG_ARCHIVE_V3_TABLE_SQL())
+        sync_execute(DISTRIBUTED_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL())
+
+    def _archive_query(self, team_id: int, query_type: str, days_ago: int) -> None:
+        sync_execute(
+            f"""
+            INSERT INTO {SHARDED_QUERY_LOG_ARCHIVE_V3_TABLE}
+                (initial_query_start_time, team_id, initial_query_id, type, lc_query_type)
+            VALUES (now64(6) - toIntervalDay(%(days_ago)s), %(team_id)s, generateUUIDv4(), 'QueryFinish', %(query_type)s)
+            """,
+            {"team_id": team_id, "query_type": query_type, "days_ago": days_ago},
+        )
+
+    def test_reads_marketing_query_types_within_window_from_archive(self) -> None:
+        self._archive_query(101, "marketing_analytics_table_query", days_ago=1)
+        self._archive_query(102, "marketing_analytics_aggregated_query", days_ago=29)
+        self._archive_query(103, "web_overview_query", days_ago=1)
+        self._archive_query(104, "marketing_analytics_table_query", days_ago=31)
+        self._archive_query(0, "marketing_analytics_table_query", days_ago=1)
+
+        active = _recently_active_team_ids(30)
+        assert active is not None
+        # The archive MV also records this test run's own queries, so compare only the seeded teams.
+        assert active & {0, 101, 102, 103, 104} == {101, 102}
+
+
 class TestShardSplit:
     @parameterized.expand(
         [("one_shard", "1", 1), ("more_teams_than_shards", "3", 3), ("more_shards_than_teams", "8", 5)]
@@ -161,29 +204,45 @@ class TestConversionWarming(APIBaseTest):
         return team
 
     @parameterized.expand([("cloud", True), ("self_hosted", False)])
-    def test_unset_audience_is_goal_teams_with_the_read_flag(self, _name, cloud):
-        # Reads are precompute-only for flagged teams, so the default audience must follow the flag.
+    def test_unset_audience_is_teams_with_a_precompute_read_flag(self, _name, cloud):
+        # Reads are precompute-only for flagged teams, so the default audience must follow the flags. The
+        # conversion and cost flags roll out independently, and cost reads never write, so a team with only
+        # the cost flag on must be warmed too.
         flagged = self._make_team("flagged", goals=[_PRECOMPUTABLE_GOAL])
-        unflagged = self._make_team("unflagged", goals=[_PRECOMPUTABLE_GOAL])
+        self._make_team("unflagged", goals=[_PRECOMPUTABLE_GOAL])
         flagged_no_goals = self._make_team("flagged_no_goals", goals=[])
-        flagged_uuids = {str(flagged.uuid), str(flagged_no_goals.uuid)}
+        costs_only = self._make_team("costs_only", goals=[_PRECOMPUTABLE_GOAL])
+        costs_inactive = self._make_team("costs_inactive", goals=[])
+        costs_no_tables = self._make_team("costs_no_tables", goals=[])
+        costs_unflagged = self._make_team("costs_unflagged", goals=[])
+        for team in (costs_only, costs_inactive, costs_unflagged):
+            DataWarehouseTable.objects.create(
+                team=team, name="ads_stats", format="Parquet", url_pattern="https://example.com/ads/*.parquet"
+            )
+        conversion_uuids = {str(flagged.uuid), str(flagged_no_goals.uuid)}
+        costs_uuids = {str(costs_only.uuid), str(costs_inactive.uuid), str(costs_no_tables.uuid)}
 
         def read_flag(flag, distinct_id, *args, **kwargs):
-            return flag == "marketing-analytics-precomputation" and distinct_id in flagged_uuids
+            if flag == "marketing-analytics-precomputation":
+                return distinct_id in conversion_uuids
+            return flag == "marketing-analytics-costs-precomputation" and distinct_id in costs_uuids
 
         with (
             patch.dict(os.environ, {}, clear=False),
             patch(_IS_CLOUD, return_value=cloud),
+            patch(_SYNC_EXECUTE, return_value=[(costs_only.pk,), (costs_no_tables.pk,), (costs_unflagged.pk,)]),
             patch(_FF, side_effect=read_flag) as feature_enabled,
         ):
             os.environ.pop(SELECTED_TEAM_IDS_ENV_VAR, None)
             selected = get_selected_team_ids()
 
-        assert selected == ([flagged.pk] if cloud else [])
-        assert unflagged.pk not in selected
-        # Picking an audience is not a read, so the scan evaluates the read flag alone and records no
-        # exposure. Otherwise every goal team looks exposed to three flags, every hour.
-        assert {call.args[0] for call in feature_enabled.call_args_list} <= {"marketing-analytics-precomputation"}
+        assert selected == (sorted([flagged.pk, costs_only.pk]) if cloud else [])
+        # Picking an audience is not a read, so the scan evaluates the read flags alone and records no
+        # exposure. Otherwise every candidate team looks exposed to every flag, every hour.
+        assert {call.args[0] for call in feature_enabled.call_args_list} <= {
+            "marketing-analytics-precomputation",
+            "marketing-analytics-costs-precomputation",
+        }
         assert all(call.kwargs["send_feature_flag_events"] is False for call in feature_enabled.call_args_list)
 
     def test_auto_audience_is_recently_active_teams_with_goals(self):

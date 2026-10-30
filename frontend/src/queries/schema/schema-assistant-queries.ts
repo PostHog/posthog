@@ -1,14 +1,25 @@
+import type { FunnelLayout } from 'lib/constants'
+import type { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
+
 import {
     BehavioralPropertyFilter,
+    BinCountValue,
+    BreakdownAttributionType,
     BreakdownType,
     ChartDisplayType,
     FilterLogicalOperator,
+    FunnelConversionWindowTimeUnit,
     FunnelMathType,
+    FunnelStepReference,
+    FunnelVizType,
     IntervalType,
     LifecycleToggle,
     PathType,
     PropertyFilterType,
     PropertyOperator,
+    RetentionPeriod,
+    RetentionType,
+    StepOrderValue,
 } from '~/types'
 
 import {
@@ -19,21 +30,17 @@ import {
     ErrorTrackingOrderBy,
     ErrorTrackingQueryStatus,
     EventsNode,
+    EventsQuery,
     FunnelExclusionSteps,
-    FunnelsFilterLegacy,
     InsightNodeKind,
-    LifecycleFilterLegacy,
     MultipleBreakdownType,
     Node,
     NodeKind,
     PieChartSettings,
     type RecordingOrder,
     type RecordingOrderDirection,
-    RetentionFilterLegacy,
     StickinessComputationMode,
-    StickinessFilterLegacy,
     StickinessCriteria,
-    TrendsFilterLegacy,
     TrendsFormulaNode,
 } from './schema-general'
 import { integer, positive_integer } from './type-utils'
@@ -528,7 +535,7 @@ export interface AssistantTrendsFilter {
      * Whether to show the legend describing series and breakdowns.
      * @default false
      */
-    showLegend?: TrendsFilterLegacy['show_legend']
+    showLegend?: boolean
 
     /**
      * Formats the trends value axis. Do not use the formatting unless you are absolutely sure that formatting will match the data.
@@ -540,47 +547,47 @@ export interface AssistantTrendsFilter {
      * `currency` - formats the value as a currency, e.g., `1000` becomes `$1,000`.
      * @default numeric
      */
-    aggregationAxisFormat?: TrendsFilterLegacy['aggregation_axis_format']
+    aggregationAxisFormat?: AggregationAxisFormat
 
     /**
      * Custom prefix to add to the aggregation axis, e.g., `$` for USD dollars. You may need to add a space after prefix.
      */
-    aggregationAxisPrefix?: TrendsFilterLegacy['aggregation_axis_prefix']
+    aggregationAxisPrefix?: string
 
     /**
      * Custom postfix to add to the aggregation axis, e.g., ` clicks` to format 5 as `5 clicks`. You may need to add a space before postfix.
      * Never set a postfix that `aggregationAxisFormat` already renders: `percentage` and `percentage_scaled` already append the `%` sign, so a `%` postfix would render values as `50%%`.
      */
-    aggregationAxisPostfix?: TrendsFilterLegacy['aggregation_axis_postfix']
+    aggregationAxisPostfix?: string
 
     /**
      * Number of decimal places to show. Do not add this unless you are sure that values will have a decimal point.
      */
-    decimalPlaces?: TrendsFilterLegacy['decimal_places']
+    decimalPlaces?: number
 
     /**
      * Whether to show a value on each data point.
      * @default false
      */
-    showValuesOnSeries?: TrendsFilterLegacy['show_values_on_series']
+    showValuesOnSeries?: boolean
 
     /**
      * Whether to show a percentage of each series. Use only with
      * @default false
      */
-    showPercentStackView?: TrendsFilterLegacy['show_percent_stack_view']
+    showPercentStackView?: boolean
 
     /**
      * Whether to scale the y-axis.
      * @default linear
      */
-    yAxisScaleType?: TrendsFilterLegacy['y_axis_scale_type']
+    yAxisScaleType?: 'log10' | 'linear'
 
     /** Custom label rendered under the X axis. */
-    xAxisLabel?: TrendsFilterLegacy['x_axis_label']
+    xAxisLabel?: string
 
     /** Custom label rendered alongside the Y axis. */
-    yAxisLabel?: TrendsFilterLegacy['y_axis_label']
+    yAxisLabel?: string
 
     /**
      * Whether to show alert threshold lines on the chart.
@@ -592,13 +599,13 @@ export interface AssistantTrendsFilter {
      * Whether to show labels on each series.
      * @default false
      */
-    showLabelsOnSeries?: TrendsFilterLegacy['show_labels_on_series']
+    showLabelsOnSeries?: boolean
 
     /**
      * Whether to show multiple y-axes for different series.
      * @default false
      */
-    showMultipleYAxes?: TrendsFilterLegacy['show_multiple_y_axes']
+    showMultipleYAxes?: boolean
 
     /**
      * Only applies when `display` is `Metric`. Show the change pill next to the big number. What it
@@ -781,7 +788,7 @@ export interface AssistantFunnelsFilter {
      * `any` - order doesn't matter. Steps can be completed in any sequence.
      * @default ordered
      */
-    funnelOrderType?: FunnelsFilterLegacy['funnel_order_type']
+    funnelOrderType?: StepOrderValue
     /**
      * Defines the type of visualization to use.
      * `steps` - one bar per step with the conversion between them (default). Use for "what's the conversion rate" and "where do users drop off".
@@ -789,7 +796,7 @@ export interface AssistantFunnelsFilter {
      * `time_to_convert` - a histogram of how long users took to complete the funnel.
      * @default steps
      */
-    funnelVizType?: FunnelsFilterLegacy['funnel_viz_type']
+    funnelVizType?: FunnelVizType
     /**
      * Users may want to use exclusion events to filter out conversions in which a particular event occurred between specific steps. These events must not be included in the main sequence.
      * This doesn't exclude users who have completed the event before or after the funnel sequence, but often this is what users want. (If not sure, worth clarifying.)
@@ -803,12 +810,12 @@ export interface AssistantFunnelsFilter {
      * Controls how the funnel chart is displayed: vertically (preferred) or horizontally.
      * @default vertical
      */
-    layout?: FunnelsFilterLegacy['layout']
+    layout?: FunnelLayout
     /**
      * Use this setting only when `funnelVizType` is `time_to_convert`: number of bins to show in histogram.
      * @asType integer
      */
-    binCount?: FunnelsFilterLegacy['bin_count']
+    binCount?: BinCountValue
     /**
      * Controls a time frame value for a conversion to be considered. Select a reasonable value based on the user's query.
      * If needed, this can be practically unlimited by setting a large value, though it's rare to need that.
@@ -821,12 +828,12 @@ export interface AssistantFunnelsFilter {
      * Use in combination with `funnelWindowInterval`. The default value is 14 days.
      * @default day
      */
-    funnelWindowIntervalUnit?: FunnelsFilterLegacy['funnel_window_interval_unit']
+    funnelWindowIntervalUnit?: FunnelConversionWindowTimeUnit
     /**
      * Whether conversion shown in the graph should be across all steps or just relative to the previous step.
      * @default total
      */
-    funnelStepReference?: FunnelsFilterLegacy['funnel_step_reference']
+    funnelStepReference?: FunnelStepReference
     /**
      * Use this field only if the user explicitly asks to aggregate the funnel by unique sessions.
      * @default null
@@ -840,7 +847,7 @@ export interface AssistantFunnelsFilter {
      * `step` - the breakdown value is the property value found at a specific step defined by `breakdownAttributionValue`.
      * @default first_touch
      */
-    breakdownAttributionType?: FunnelsFilterLegacy['breakdown_attribution_type']
+    breakdownAttributionType?: BreakdownAttributionType
     /**
      * When `breakdownAttributionType` is `step`, this is the step number (0-indexed) to attribute the breakdown value to.
      * @asType integer
@@ -941,8 +948,9 @@ export interface AssistantRetentionFilter {
      * Recurring retention counts a user as part of a cohort if they performed the cohort event during that time period, irrespective of it was their first time or not.
      * First time retention only counts a user as part of the cohort if it was their first time performing the cohort event.
      */
-    retentionType?: RetentionFilterLegacy['retention_type']
-    retentionReference?: RetentionFilterLegacy['retention_reference']
+    retentionType?: RetentionType
+    /** Whether retention is with regard to initial cohort size, or that of the previous period. */
+    retentionReference?: 'total' | 'previous'
     /**
      * How many intervals to show in the chart. The default value is 8 (meaning 7 periods after initial cohort).
      * @default 8
@@ -958,14 +966,14 @@ export interface AssistantRetentionFilter {
      * Retention period, the interval to track cohorts by.
      * @default Day
      */
-    period?: RetentionFilterLegacy['period']
+    period?: RetentionPeriod
     /** Whether an additional series should be shown, showing the mean conversion for each period across cohorts. */
-    meanRetentionCalculation?: RetentionFilterLegacy['mean_retention_calculation']
+    meanRetentionCalculation?: 'simple' | 'weighted' | 'none'
     /**
      * Whether retention should be rolling (aka unbounded, cumulative).
      * Rolling retention means that a user coming back in period 5 makes them count towards all the previous periods.
      */
-    cumulative?: RetentionFilterLegacy['cumulative']
+    cumulative?: boolean
     /**
      * The time window mode to use for retention calculations.
      */
@@ -1095,13 +1103,13 @@ export interface AssistantStickinessFilter {
      * Whether to show the legend describing series.
      * @default false
      */
-    showLegend?: StickinessFilterLegacy['show_legend']
+    showLegend?: boolean
 
     /**
      * Whether to show a value on each data point.
      * @default false
      */
-    showValuesOnSeries?: StickinessFilterLegacy['show_values_on_series']
+    showValuesOnSeries?: boolean
 
     /**
      * Filter which intervals count based on event frequency within each interval.
@@ -1182,6 +1190,7 @@ export interface AssistantPathsFilter {
      * `custom_event` - custom events (any event not starting with `$`). Path values are event names.
      * `hogql` - custom HogQL expression defined in `pathsHogQLExpression`. Path values come from evaluating the expression.
      * You can combine multiple types. If not specified, all events are included without type filtering.
+     * Paths never include `$feature_flag_called` events, whichever types are set.
      */
     includeEventTypes?: PathType[]
     /**
@@ -1307,7 +1316,7 @@ export interface AssistantLifecycleFilter {
      * Whether to show a value on each data point.
      * @default false
      */
-    showValuesOnSeries?: LifecycleFilterLegacy['show_values_on_series']
+    showValuesOnSeries?: boolean
     /**
      * Lifecycles that have been removed from display are not included in this array.
      * Available values: `new`, `returning`, `resurrecting`, `dormant`.
@@ -1321,7 +1330,7 @@ export interface AssistantLifecycleFilter {
      * Whether to show the legend describing series.
      * @default false
      */
-    showLegend?: LifecycleFilterLegacy['show_legend']
+    showLegend?: boolean
     /**
      * Whether the lifecycle bars should be stacked.
      * @default true
@@ -1824,6 +1833,17 @@ export interface AssistantInsightVizNode {
     kind: NodeKind.InsightVizNode
     /** Product analtycs query objects like TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery */
     source: Record<string, any>
+    /** Chart rendering options. */
+    vizSpecificOptions?: AssistantVizSpecificOptions
+}
+
+export interface AssistantPieChartOptions {
+    /** Hide the total on a pie chart. */
+    hideAggregation?: boolean
+}
+
+export interface AssistantVizSpecificOptions {
+    ActionsPie?: AssistantPieChartOptions
 }
 
 /**
@@ -1864,30 +1884,35 @@ export interface AssistantDataVisualizationAxisDisplaySettings {
     /** Which Y axis this numeric series should use. Use `right` for a secondary Y axis. */
     yAxisPosition?: 'left' | 'right'
     /**
-     * Override how this individual series is rendered, independent of the chart-level `display` type.
-     * Use this to mix series types — e.g. plot one series as `bar` and overlay another as `line`.
-     * `auto` follows the chart-level display type.
+     * Chart type. `auto` uses `display`.
      */
     displayType?: 'auto' | 'line' | 'bar' | 'area'
     /** Draw a linear trend line for this series. Only meaningful for line, bar, and area charts. */
     trendLine?: boolean
-    /** Custom label for this series, shown in the legend and tooltips instead of the column name. */
+    /** Series label in legends and tooltips; replaces the column name. */
     label?: string
     /** Custom color for this series as a hex string (e.g. `#1d4aff`). */
     color?: string
+    /**
+     * Keep this series out of the tooltip's total row, e.g. a target line over stacked bars.
+     * A bar series still stacks, so set `displayType` to `line` for a series drawn over the stack.
+     */
+    excludeFromTotal?: boolean
+    /**
+     * Per-series override of chart-level `showValuesOnSeries`. `show` labels this series even when the
+     * chart setting is off, `hide` leaves it unlabeled when the setting is on, `auto` follows the chart.
+     */
+    valueLabels?: 'auto' | 'show' | 'hide'
 }
 
 export interface AssistantDataVisualizationAxisFormatting {
     /** Text prepended to each value (e.g. `$`). */
     prefix?: string
-    /** Text appended to each value (e.g. ` ms`). Leave unset when `style` is `percent`, which already appends the `%` sign. */
+    /** Value suffix (e.g. ` ms`). Omit for `percent`, which adds `%`. */
     suffix?: string
     /**
-     * Number formatting style.
-     * - `none` — no formatting.
-     * - `number` — thousands separators (e.g. `1,234`).
-     * - `short` — abbreviated large numbers (e.g. `1.2k`, `3.4M`).
-     * - `percent` — multiply the value by 100 and append a `%` sign, so pass a 0-1 ratio (`a / b`, not `100.0 * a / b`). Never pair it with a `%` suffix, which renders `47.3%%`.
+     * `none`: unformatted; `number`: thousands separators; `short`: abbreviations (1.2k, 3.4M).
+     * `percent`: multiplies by 100 and adds `%`. Pass a 0–1 ratio (`a / b`) and omit the `%` suffix to avoid doubling it.
      */
     style?: 'none' | 'number' | 'short' | 'percent'
     /** Number of decimal places to display. */
@@ -1906,6 +1931,19 @@ export interface AssistantDataVisualizationAxis {
     column: string
     /** Optional series settings. Only applies to Y-axis series. */
     settings?: AssistantDataVisualizationAxisSettings
+}
+
+export interface AssistantDataVisualizationColumnSettings {
+    /** Number-formatting settings for the values in this column. */
+    formatting?: AssistantDataVisualizationAxisFormatting
+}
+
+/** A column with number formatting only. Series display settings apply only to Y-axis series. */
+export interface AssistantDataVisualizationColumn {
+    /** Name of a column returned by the SQL query. */
+    column: string
+    /** Optional number formatting for this column. */
+    settings?: AssistantDataVisualizationColumnSettings
 }
 
 export interface AssistantDataVisualizationGoalLine {
@@ -1959,7 +1997,7 @@ export interface AssistantDataVisualizationChartSettings {
      * Column used as the X axis. Typically a time bucket or categorical column, but `ScatterPlot`
      * plots two measures against each other, so it needs a numeric column here too.
      */
-    xAxis?: AssistantDataVisualizationAxis
+    xAxis?: AssistantDataVisualizationColumn
     /** Label rendered under the X axis. */
     xAxisLabel?: string
     /** One or more numeric columns plotted as Y series. */
@@ -1998,7 +2036,7 @@ export interface AssistantDataVisualizationChartSettings {
 
 export interface AssistantDataVisualizationTableSettings {
     /** Columns to display and their order. Omit to show every column returned by the query. */
-    columns?: AssistantDataVisualizationAxis[]
+    columns?: AssistantDataVisualizationColumn[]
     /** Column names to pin to the left of the table. */
     pinnedColumns?: string[]
     /** Transpose rows and columns. */
@@ -2018,19 +2056,12 @@ export interface AssistantDataVisualizationNode {
     /** HogQL query object that produces the rows to visualize. */
     source: Record<string, any>
     /**
-     * Visualization type. Defaults to `ActionsTable` when omitted.
-     *
-     * Guidance:
-     * - Single-value result (one numeric column, one row) → `BoldNumber`.
-     * - Headline number with its change over time (KPI, scorecard) → `Metric`.
-     * - Time series → `ActionsLineGraph` or `ActionsAreaGraph`.
-     * - Parts of one whole → `ActionsPie`, `ActionsDonut` or `ActionsProportionBar`.
-     * - Categorical comparison → `ActionsBar` or `ActionsStackedBar`.
-     * - Ranking of categories by one value (top N, horizontal bars) → `ActionsBarValue`.
-     * - Two-dimensional aggregation → `TwoDimensionalHeatmap`.
-     * - Relationship between two numeric measures, one point per row → `ScatterPlot`.
-     * - Distribution summaries from pre-aggregated SQL rows → `BoxPlot` with `chartSettings.boxPlot`.
-     * - Otherwise → `ActionsTable`.
+     * Chart type (default `ActionsTable`): `BoldNumber` = one value; `Metric` = KPI;
+     * `ActionsLineGraph` / `ActionsAreaGraph` = time series;
+     * `ActionsPie` / `ActionsDonut` / `ActionsProportionBar` = shares;
+     * `ActionsBar` / `ActionsStackedBar` = categories; `ActionsBarValue` = horizontal rankings;
+     * `TwoDimensionalHeatmap` = 2D aggregates; `ScatterPlot` = two measures;
+     * `BoxPlot` = distribution summaries with `chartSettings.boxPlot`.
      */
     display?: AssistantDataVisualizationDisplayType
     /** Chart configuration. Ignored when `display` is `ActionsTable` or `BoldNumber`. */
@@ -2039,12 +2070,16 @@ export interface AssistantDataVisualizationNode {
     tableSettings?: AssistantDataVisualizationTableSettings
 }
 
-// `MCPInsightSerializer.validate_query` wraps these two shapes server-side before it saves the
-// insight, so a query straight out of a `query-*` tool can be passed through unchanged. Both carry
+// `MCPInsightSerializer.validate_query` wraps these shapes server-side before it saves the
+// insight, so a query straight out of a `query-*` tool can be passed through unchanged. Each carries
 // an index signature because zod strips every key the schema does not declare, which would send
 // `{ kind }` alone to the endpoint and save an empty insight.
+// A metrics query is saved bare and is not wrapped. It shares this shape because a separate union
+// member puts `insight-update` over the claude.ai tool schema size limit.
+export type AssistantMetricsNodeKind = NodeKind.MetricsQuery | NodeKind.MetricsHistogramQuery
+
 export interface AssistantBareInsightQuery {
-    kind: InsightNodeKind
+    kind: InsightNodeKind | AssistantMetricsNodeKind
     [key: string]: unknown
 }
 
@@ -2055,8 +2090,36 @@ export interface AssistantBareHogQLQuery {
     [key: string]: unknown
 }
 
+export interface AssistantEventsQuery {
+    kind: NodeKind.EventsQuery
+    /** Event columns as HogQL expressions. */
+    select: EventsQuery['select']
+    // The backend validates EventsQuery fields. Preserve filters and options without expanding the tool schema.
+    [key: string]: unknown
+}
+
+export interface AssistantDataTableNode {
+    kind: NodeKind.DataTableNode
+    source: AssistantEventsQuery
+    [key: string]: unknown
+}
+
+export interface AssistantBIVisualizationNode {
+    kind: NodeKind.BIVisualizationNode
+    source: AssistantBareHogQLQuery
+    /** Complete worksheet configuration, including shelves and filters. Validated by the insight API. */
+    config: Record<string, unknown>
+    // Preserve display settings without expanding recursive worksheet filters in the tool schema.
+    [key: string]: unknown
+}
+
+// Zod fills in omitted kinds and takes the first matching union branch. Match events sources
+// before the generic insight wrapper so inferred tables keep their kind and table settings.
 export type InsightQuery =
+    | AssistantDataTableNode
+    | AssistantBIVisualizationNode
     | AssistantInsightVizNode
     | AssistantDataVisualizationNode
     | AssistantBareInsightQuery
     | AssistantBareHogQLQuery
+    | AssistantEventsQuery

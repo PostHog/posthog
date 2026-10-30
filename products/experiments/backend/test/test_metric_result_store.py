@@ -14,7 +14,7 @@ from products.experiments.backend.metric_calculation.config import (
 )
 from products.experiments.backend.metric_calculation.results import (
     MetricResultStore,
-    compute_recalc_fingerprint,
+    _recalc_fingerprint,
     previous_completed_metric_result,
 )
 from products.experiments.backend.models.experiment import (
@@ -35,22 +35,22 @@ def test_recalc_fingerprint_is_deterministic_for_a_given_config():
     # pins the same query_to, so a run-dependent fingerprint produced a new value each run and collided on the
     # (experiment, metric_uuid, query_to) unique constraint. Same config in, same fingerprint out, every run.
     config_fp = "a" * 64
-    assert compute_recalc_fingerprint(config_fp) == compute_recalc_fingerprint(config_fp)
+    assert _recalc_fingerprint(config_fp) == _recalc_fingerprint(config_fp)
 
 
 def test_recalc_fingerprint_differs_from_the_bare_config_fingerprint():
     # It must stay distinct from the config fingerprint the timeseries workflow stores, so recalc rows never
     # leak into the timeseries read (which filters by the bare config fingerprint).
     config_fp = "b" * 64
-    assert compute_recalc_fingerprint(config_fp) != config_fp
+    assert _recalc_fingerprint(config_fp) != config_fp
 
 
 def test_recalc_fingerprint_differs_per_config():
-    assert compute_recalc_fingerprint("c" * 64) != compute_recalc_fingerprint("d" * 64)
+    assert _recalc_fingerprint("c" * 64) != _recalc_fingerprint("d" * 64)
 
 
 def test_recalc_fingerprint_is_sha256_hex_length():
-    assert len(compute_recalc_fingerprint("e" * 64)) == 64
+    assert len(_recalc_fingerprint("e" * 64)) == 64
 
 
 def _stored_result(samples: int) -> dict[str, Any]:
@@ -109,13 +109,11 @@ class TestMetricResultStore(BaseTest):
                 )
             case "timeseries":
                 return _samples(store.timeseries("m1", key, timezone=ZoneInfo("UTC")).by_day.get(_WINDOW_DAY))
-            case "last_completed":
-                return _samples(store.last_completed("m1"))
             case "previous_completed":
                 return _samples(store.previous_completed("m1", key, before=_WINDOW + timedelta(days=1)))
-            case "current_outcomes":
-                summary = MetricResultStore.current_outcomes({experiment.id: "m1"})[experiment.id]
-                assert summary.baseline_samples is not None
+            case "current_outcome":
+                summary = store.current_outcome(calculation_config)
+                assert summary is not None and summary.baseline_samples is not None
                 return [int(summary.baseline_samples)]
         raise AssertionError(f"unknown reader {reader}")
 
@@ -126,9 +124,8 @@ class TestMetricResultStore(BaseTest):
                 "for_run",
                 "latest_daily_point",
                 "timeseries",
-                "last_completed",
                 "previous_completed",
-                "current_outcomes",
+                "current_outcome",
             )
             for tie in ("newer_write_wins", "higher_id_wins_between_equal_writes")
         ]
@@ -138,7 +135,7 @@ class TestMetricResultStore(BaseTest):
         calculation_config = get_metric_calculation_config(experiment, "m1")
         assert calculation_config is not None
         fingerprint = (
-            compute_recalc_fingerprint(calculation_config.calculation_key())
+            _recalc_fingerprint(calculation_config.calculation_key())
             if reader == "for_run"
             else calculation_config.calculation_key()
         )
@@ -174,6 +171,28 @@ class TestMetricResultStore(BaseTest):
         assert list(timeseries.by_day) == [_WINDOW_DAY]
         assert _samples(timeseries.by_day[_WINDOW_DAY]) == [2]
 
+    def test_the_current_outcome_is_the_row_whose_data_ends_last(self) -> None:
+        experiment = self._experiment()
+        calculation_config = get_metric_calculation_config(experiment, "m1")
+        assert calculation_config is not None
+        key = calculation_config.calculation_key()
+        # A backfill that ran at 10:00 on 9 January stamps that day with the end of the day.
+        self._row(experiment, key, query_to=_WINDOW, completed_at=_WINDOW - timedelta(hours=14), samples=1)
+        # A recalculation run at 14:00 on the same day holds newer data under an earlier query_to.
+        self._row(
+            experiment,
+            _recalc_fingerprint(key),
+            query_to=_WINDOW - timedelta(hours=10),
+            completed_at=_WINDOW - timedelta(hours=9, minutes=55),
+            samples=2,
+        )
+        # A backfill of 8 January written after both, so the write time alone picks it.
+        self._row(
+            experiment, key, query_to=_WINDOW - timedelta(days=1), completed_at=_WINDOW - timedelta(hours=9), samples=3
+        )
+
+        assert self._read("current_outcome", experiment, calculation_config) == [2]
+
     @parameterized.expand([("own_team", True), ("other_team", False)])
     def test_previous_completed_metric_result_reads_only_the_callers_team(self, _name: str, own_team: bool) -> None:
         experiment = self._experiment()
@@ -191,3 +210,134 @@ class TestMetricResultStore(BaseTest):
         )
 
         assert result == (_stored_result(7) if own_team else None)
+
+    def _run(self, experiment: Experiment, status: str) -> ExperimentMetricsRecalculation:
+        return ExperimentMetricsRecalculation.objects.create(
+            team=self.team, experiment=experiment, metric_uuids=["m1"], status=status, query_to=_WINDOW
+        )
+
+    def _write(self, writer: str, experiment: Experiment, calculation_config: MetricCalculationConfig) -> None:
+        store = MetricResultStore(experiment_id=experiment.id)
+        key = calculation_config.calculation_key()
+        match writer:
+            case "run_result":
+                run = self._run(experiment, ExperimentMetricsRecalculation.Status.IN_PROGRESS)
+                store.record_run_result(
+                    str(run.id),
+                    calculation_config,
+                    window=_WINDOW,
+                    query_from=_START,
+                    result=_stored_result(9),
+                    query_id="q",
+                )
+            case "run_failure":
+                run = self._run(experiment, ExperimentMetricsRecalculation.Status.IN_PROGRESS)
+                store.record_run_failure(
+                    str(run.id),
+                    calculation_config,
+                    window=_WINDOW,
+                    query_from=_START,
+                    error_message="boom",
+                    query_id="q",
+                )
+            case "daily_point":
+                store.record_daily_point("m1", key, window=_WINDOW, query_from=_START, result=_stored_result(9))
+            case "daily_failure":
+                store.record_daily_failure("m1", key, window=_WINDOW, query_from=_START, error_message="boom")
+            case "sync_copy":
+                point = ExperimentMetricResult(result=_stored_result(9))
+                store.copy_into_sync_run(
+                    _WINDOW, [(calculation_config, point)], query_from=_START, completed_at=_WINDOW
+                )
+            case _:
+                raise AssertionError(f"unknown writer {writer}")
+
+    @parameterized.expand(
+        [
+            ("run_result", True, ExperimentMetricResult.Status.COMPLETED),
+            ("run_failure", True, ExperimentMetricResult.Status.FAILED),
+            ("daily_point", False, ExperimentMetricResult.Status.COMPLETED),
+            ("sync_copy", True, ExperimentMetricResult.Status.COMPLETED),
+        ]
+    )
+    def test_a_write_takes_over_the_row_that_holds_its_window_under_another_fingerprint(
+        self, writer: str, salted: bool, status: str
+    ) -> None:
+        experiment = self._experiment()
+        calculation_config = get_metric_calculation_config(experiment, "m1")
+        assert calculation_config is not None
+        self._row(experiment, "another-fingerprint", query_to=_WINDOW, completed_at=_WINDOW, samples=1)
+
+        self._write(writer, experiment, calculation_config)
+
+        row = ExperimentMetricResult.objects.get(experiment=experiment, metric_uuid="m1", query_to=_WINDOW)
+        key = calculation_config.calculation_key()
+        assert row.fingerprint == (_recalc_fingerprint(key) if salted else key)
+        assert row.status == status
+        if status == ExperimentMetricResult.Status.COMPLETED:
+            assert (row.result, row.error_message) == (_stored_result(9), None)
+        else:
+            assert (row.result, row.error_message, row.completed_at) == (None, "boom", None)
+
+    @parameterized.expand([("held_by_a_recalculation", True), ("held_by_the_same_daily_key", False)])
+    def test_a_daily_failure_replaces_a_completed_row_only_under_its_own_key(
+        self, _name: str, held_by_recalculation: bool
+    ) -> None:
+        experiment = self._experiment()
+        calculation_config = get_metric_calculation_config(experiment, "m1")
+        assert calculation_config is not None
+        key = calculation_config.calculation_key()
+        held_fingerprint = _recalc_fingerprint(key) if held_by_recalculation else key
+        self._row(experiment, held_fingerprint, query_to=_WINDOW, completed_at=_WINDOW, samples=1)
+
+        self._write("daily_failure", experiment, calculation_config)
+
+        row = ExperimentMetricResult.objects.get(experiment=experiment, metric_uuid="m1", query_to=_WINDOW)
+        if held_by_recalculation:
+            assert (row.fingerprint, row.status, _samples(row)) == (
+                held_fingerprint,
+                ExperimentMetricResult.Status.COMPLETED,
+                [1],
+            )
+            assert self._read("for_run", experiment, calculation_config) == [1]
+        else:
+            assert (row.fingerprint, row.status, row.result, row.error_message) == (
+                key,
+                ExperimentMetricResult.Status.FAILED,
+                None,
+                "boom",
+            )
+
+    @parameterized.expand(
+        [
+            (ExperimentMetricsRecalculation.Status.FAILED,),
+            (ExperimentMetricsRecalculation.Status.COMPLETED,),
+            (None,),
+        ]
+    )
+    def test_a_run_write_skips_a_terminal_or_missing_recalculation(self, status: str | None) -> None:
+        experiment = self._experiment()
+        calculation_config = get_metric_calculation_config(experiment, "m1")
+        assert calculation_config is not None
+        run = self._run(experiment, ExperimentMetricsRecalculation.Status.IN_PROGRESS)
+        if status is None:
+            ExperimentMetricsRecalculation.objects.filter(id=run.id).delete()
+        else:
+            ExperimentMetricsRecalculation.objects.filter(id=run.id).update(status=status)
+        self._row(experiment, "fingerprint-from-the-superseding-run", query_to=_WINDOW, completed_at=_WINDOW, samples=1)
+
+        MetricResultStore(experiment_id=experiment.id).record_run_failure(
+            str(run.id),
+            calculation_config,
+            window=_WINDOW,
+            query_from=_START,
+            error_message="the orphan's late failure",
+            query_id=None,
+        )
+
+        row = ExperimentMetricResult.objects.get(experiment=experiment, metric_uuid="m1", query_to=_WINDOW)
+        assert (row.fingerprint, row.status, row.error_message) == (
+            "fingerprint-from-the-superseding-run",
+            ExperimentMetricResult.Status.COMPLETED,
+            None,
+        )

@@ -1,3 +1,5 @@
+from collections.abc import Callable
+from functools import partial
 from typing import TYPE_CHECKING, cast
 
 from posthog.schema_enums import InCohortVia, PropertyGroupsMode
@@ -9,6 +11,7 @@ if TYPE_CHECKING:
 
 from posthog.hogql import ast
 from posthog.hogql.base import _T_AST
+from posthog.hogql.compilation import bounded_compilation
 from posthog.hogql.constants import SQL_TARGET_DIALECTS, HogQLDialect, HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
@@ -31,6 +34,7 @@ from posthog.hogql.printer.snowflake import SnowflakePrinter
 from posthog.hogql.resolver import ResolverFactory, resolve_types
 from posthog.hogql.transforms.events_predicate_pushdown import apply_events_predicate_pushdown, events_pushdown_enabled
 from posthog.hogql.transforms.events_read_in_order import order_events_reads_by_sort_key
+from posthog.hogql.transforms.flag_calls_from_flag_evaluations import resolve_flag_calls_from_flag_evaluations
 from posthog.hogql.transforms.in_cohort import resolve_in_cohorts, resolve_in_cohorts_conjoined
 from posthog.hogql.transforms.json_property_pushdown import (
     has_rewritable_json_extract,
@@ -38,7 +42,9 @@ from posthog.hogql.transforms.json_property_pushdown import (
 )
 from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
 from posthog.hogql.transforms.logical_property_lowering import lower_property_access
+from posthog.hogql.transforms.materialized_ctes import materialize_repeated_ctes
 from posthog.hogql.transforms.metrics_time_bucket_bounds import add_metrics_time_bucket_bounds
+from posthog.hogql.transforms.negated_person_filters import rewrite_negated_person_filters
 from posthog.hogql.transforms.projection_pushdown import pushdown_projections
 from posthog.hogql.transforms.property_types import PropertySwapper, build_property_swapper
 from posthog.hogql.transforms.type_aware_simplification import (
@@ -89,6 +95,7 @@ def to_printed_hogql(
     )[0]
 
 
+@bounded_compilation
 def prepare_and_print_ast(
     node: _T_AST,
     context: HogQLContext,
@@ -96,6 +103,7 @@ def prepare_and_print_ast(
     stack: list[ast.SelectQuery] | None = None,
     settings: HogQLGlobalSettings | None = None,
     pretty: bool = False,
+    prepared_ast_transform: Callable[[_T_AST], _T_AST] | None = None,
 ) -> tuple[str, _T_AST | None]:
     previous_type_observability = context.type_observability
     context.type_observability = create_hogql_type_observability(
@@ -115,6 +123,8 @@ def prepare_and_print_ast(
             if context.type_observability is not None:
                 context.type_observability.result = "empty"
             return "", None
+        if prepared_ast_transform is not None:
+            prepared_ast = prepared_ast_transform(prepared_ast)
 
         if dialect == "trino":
             from posthog.hogql.transforms.trino.transpiler import (  # noqa: PLC0415 -- load the optional backend only for Trino compilation
@@ -174,6 +184,7 @@ def prepare_and_print_ast(
         context.type_observability = previous_type_observability
 
 
+@bounded_compilation
 def prepare_ast_for_printing(
     node: _T_AST,  # node is mutated
     context: HogQLContext,
@@ -254,13 +265,17 @@ def prepare_ast_for_printing(
             resolve_in_cohorts_conjoined(node, dialect, context, stack, resolver_factory=resolver_factory)
 
     with context.timings.measure("resolve_types"):
-        node = resolve_types(
-            node,
-            context,
+        resolve = partial(
+            resolve_types,
+            context=context,
             dialect=dialect,
-            scopes=[node.type for node in stack if node.type is not None] if stack else None,
+            scopes=[scope.type for scope in stack if scope.type is not None] if stack else None,
             resolver_factory=resolver_factory,
         )
+        if dialect == "clickhouse":
+            node = resolve_flag_calls_from_flag_evaluations(node, context, resolve)
+        else:
+            node = resolve(node)
 
     # Project constant-key JSONExtractString on argMax lazy tables (groups/persons) into the
     # aggregate, so it does not materialize the whole JSON blob per row. Rewrites the call to a
@@ -277,6 +292,21 @@ def prepare_ast_for_printing(
                 scopes=[scope.type for scope in stack if scope.type is not None] if stack else None,
                 resolver_factory=resolver_factory,
             )
+
+    # This rewrite needs resolved types to find the persons-join fields. It must run before lazy-table resolution, so
+    # that lazy-table resolution never adds the persons join when the rewrite removes every field that reads it.
+    if dialect == "clickhouse" and context.modifiers.negatedPersonFiltersNotIn:
+        with context.timings.measure("rewrite_negated_person_filters"):
+            rewritten = rewrite_negated_person_filters(node, context)
+        if rewritten is not None:
+            with context.timings.measure("resolve_types_after_negated_person_filters"):
+                node = resolve_types(
+                    rewritten,
+                    context,
+                    dialect=dialect,
+                    scopes=[scope.type for scope in stack if scope.type is not None] if stack else None,
+                    resolver_factory=resolver_factory,
+                )
 
     # Modifier drives the production rollout (per-team override / staged default); the context flag
     # remains as the direct opt-in for tests and internal callers.
@@ -306,6 +336,17 @@ def prepare_ast_for_printing(
         # Pushdown mutates SelectQueryType.columns, staling cached CTE tables. Drop them so a
         # wrongly pruned column fails loudly at compile time instead of emitting broken SQL.
         context.cte_database_table_cache.clear()
+
+    if dialect == "clickhouse" and context.modifiers.materializeRepeatedCTEs:
+        from django.conf import (
+            settings as django_settings,  # noqa: PLC0415 -- deployment capability is read only on opt-in compilation
+        )
+
+        if django_settings.HOGQL_MATERIALIZED_CTE_SUPPORTED and (
+            settings is None or settings.enable_analyzer is not False
+        ):
+            with context.timings.measure("materialize_repeated_ctes"):
+                materialize_repeated_ctes(node, context)
 
     if dialect == "trino":
         with context.timings.measure("trino_structural_lowering"):
@@ -457,6 +498,7 @@ def prepare_ast_for_printing(
     return node
 
 
+@bounded_compilation
 def print_prepared_ast(
     node: _T_AST,
     context: HogQLContext,

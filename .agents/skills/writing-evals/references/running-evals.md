@@ -26,9 +26,11 @@ The required variables depend on the selected suite and runtime:
 
 | Selection           | Required variables                                              |
 | ------------------- | --------------------------------------------------------------- |
-| Every suite         | `BRAINTRUST_API_KEY`, `LLM_GATEWAY_ANTHROPIC_API_KEY`           |
+| Every suite         | `LLM_GATEWAY_ANTHROPIC_API_KEY`                                 |
 | Any sandboxed suite | `SANDBOX_JWT_PRIVATE_KEY` in addition to the variables above    |
 | Codex runtime       | `LLM_GATEWAY_OPENAI_API_KEY` in addition to the variables above |
+
+Autoevals judges additionally need `OPENAI_API_KEY`. They use a direct OpenAI client, honoring `OPENAI_BASE_URL` when explicitly configured. Braintrust is used locally and needs no API key.
 
 The local-development sandbox JWT key ships in `.env.example` and is normally copied into `.env` as part of repository setup.
 Use that key only for local development, never for production.

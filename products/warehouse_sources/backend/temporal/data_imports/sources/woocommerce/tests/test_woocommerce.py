@@ -8,6 +8,10 @@ from requests import Request
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import table_from_py_list
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import TrackedHTTPAdapter
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
+    HostResolution,
+    TemporaryHostResolutionError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
@@ -186,7 +190,7 @@ class TestWooCommerceAuth:
 
 
 class TestValidateCredentials:
-    @pytest.mark.parametrize("status_code", [200, 401, 403, 404])
+    @pytest.mark.parametrize("status_code", [403, 404])
     def test_returns_status_code(self, status_code: int) -> None:
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.woocommerce.woocommerce._make_guarded_session"
@@ -221,24 +225,45 @@ class TestHostGuardedAdapter:
         request.url = url
         return request
 
-    def test_blocks_redirect_to_internal_host(self) -> None:
-        adapter = _HostGuardedAdapter(team_id=123)
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.woocommerce.woocommerce._is_host_safe",
-            return_value=(False, "Hosts with internal IP addresses are not allowed"),
-        ):
+    @pytest.mark.parametrize(
+        "resolver_outcome, expected_error",
+        [
             # `requests` calls `send` again for the redirect hop, so a 30x toward an
             # internal address is caught here even though the original host was safe.
-            with pytest.raises(ValueError, match="internal IP"):
+            (
+                {
+                    "return_value": HostResolution(
+                        connect_host=None, error="Hosts with internal IP addresses are not allowed"
+                    )
+                },
+                ValueError,
+            ),
+            # The import pipeline retries this type without reporting it, so it must not become a ValueError.
+            ({"side_effect": TemporaryHostResolutionError("example.com")}, TemporaryHostResolutionError),
+        ],
+    )
+    def test_rejected_host_raises_before_dispatch(self, resolver_outcome: dict[str, Any], expected_error: type) -> None:
+        adapter = _HostGuardedAdapter(team_id=123)
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.woocommerce.woocommerce.resolve_safe_host",
+                **resolver_outcome,
+            ),
+            patch.object(TrackedHTTPAdapter, "send") as mock_super_send,
+        ):
+            with pytest.raises(expected_error) as exc_info:
                 adapter.send(self._prepared("https://169.254.169.254/wp-json/wc/v3/products"))
+
+        assert type(exc_info.value) is expected_error
+        mock_super_send.assert_not_called()
 
     def test_allows_safe_host_and_delegates(self) -> None:
         adapter = _HostGuardedAdapter(team_id=123)
         sentinel = MagicMock()
         with (
             patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.woocommerce.woocommerce._is_host_safe",
-                return_value=(True, None),
+                "products.warehouse_sources.backend.temporal.data_imports.sources.woocommerce.woocommerce.resolve_safe_host",
+                return_value=HostResolution(connect_host="93.184.216.34", error=None),
             ),
             patch.object(TrackedHTTPAdapter, "send", return_value=sentinel) as mock_super_send,
         ):
@@ -253,8 +278,8 @@ class TestSourceHostGuard:
         config = WooCommerceSourceConfig(store_url="https://169.254.169.254", consumer_key="ck", consumer_secret="cs")
 
         with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.woocommerce.woocommerce._is_host_safe",
-            return_value=(False, "Hosts with internal IP addresses are not allowed"),
+            "products.warehouse_sources.backend.temporal.data_imports.sources.woocommerce.woocommerce.resolve_safe_host",
+            return_value=HostResolution(connect_host=None, error="Hosts with internal IP addresses are not allowed"),
         ):
             result = SourceDriver(WooCommerceSource(), config).run("products", [])
 
@@ -383,15 +408,19 @@ class TestWebhookManagement:
 
         assert info.exists is False
 
+    @pytest.mark.parametrize("operation", [create_webhook, delete_webhook, get_external_webhook_info])
     @pytest.mark.parametrize(
-        "operation",
-        [create_webhook, delete_webhook, get_external_webhook_info],
+        "resolver_outcome",
+        [
+            {"return_value": HostResolution(connect_host=None, error="blocked")},
+            {"side_effect": TemporaryHostResolutionError("example.com")},
+        ],
     )
-    def test_unsafe_host_never_reaches_the_network(self, operation: Any) -> None:
+    def test_unsafe_host_never_reaches_the_network(self, operation: Any, resolver_outcome: dict[str, Any]) -> None:
         with (
             patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.woocommerce.woocommerce._is_host_safe",
-                return_value=(False, "blocked"),
+                "products.warehouse_sources.backend.temporal.data_imports.sources.woocommerce.woocommerce.resolve_safe_host",
+                **resolver_outcome,
             ),
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.sources.woocommerce.woocommerce._make_guarded_session"

@@ -39,6 +39,31 @@ class TestElectricityMapsCredentialValidation:
         assert message is not None and malformed in message
         assert network.requests_log == []
 
+    @pytest.mark.parametrize("pricing_nodes", [None, " , "])
+    def test_rejects_locational_marginal_price_schema_without_pricing_nodes(self, pricing_nodes: str | None) -> None:
+        config = ElectricityMapsSourceConfig(api_token="token", zones="DE", pricing_nodes=pricing_nodes)
+        with scripted_network([]) as network:
+            is_valid, message = ElectricityMapsSource().validate_credentials(
+                config, team_id=1, schema_name="locational_marginal_price_day_ahead"
+            )
+
+        assert is_valid is False
+        assert message is not None and "pricing node" in message
+        assert network.requests_log == []
+
+    @pytest.mark.parametrize(("pricing_nodes", "expected_blocked"), [(None, True), ("CORTINA_1_N106", False)])
+    def test_schema_picker_flags_locational_marginal_price_without_pricing_nodes(
+        self, pricing_nodes: str | None, expected_blocked: bool
+    ) -> None:
+        config = ElectricityMapsSourceConfig(api_token="token", zones="DE", pricing_nodes=pricing_nodes)
+
+        permissions = ElectricityMapsSource().get_endpoint_permissions(
+            config, team_id=1, endpoints=["carbon_intensity", "locational_marginal_price_day_ahead"]
+        )
+
+        assert permissions["carbon_intensity"] is None
+        assert (permissions["locational_marginal_price_day_ahead"] is not None) is expected_blocked
+
     def test_delegates_normalized_zones_to_the_api_probe(self) -> None:
         config = ElectricityMapsSourceConfig(api_token="token", zones="de, dk-dk1")
         with scripted_network([ScriptedResponse(status=200), ScriptedResponse(status=200)]) as network:

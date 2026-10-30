@@ -11,8 +11,11 @@ import {
     LemonTag,
     Link,
 } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import { pluralize } from 'lib/utils/strings'
@@ -447,6 +450,7 @@ export function PullRequestDetailScene(): JSX.Element {
         frictionFailed,
     } = useValues(pullRequestDetailLogic)
     const { number } = useMountedLogic(pullRequestDetailLogic).props
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const {
         loadLifecycle,
         loadPrCost,
@@ -494,28 +498,55 @@ export function PullRequestDetailScene(): JSX.Element {
                 repo={`${repoOwner}/${repoName}`}
                 actions={
                     githubUrl && pullRequest ? (
-                        <>
-                            <LemonButton
-                                type="secondary"
-                                size="small"
-                                to={withCurrentScope(
-                                    urls.engineeringAnalyticsCIExplorer(repoOwner, repoName, pullRequest.number),
-                                    sourceId
-                                )}
-                                data-attr="pull-request-open-ci-explorer"
-                            >
-                                View in CI explorer
-                            </LemonButton>
-                            <LemonButton
-                                type="secondary"
-                                size="small"
-                                to={githubUrl}
-                                targetBlank
-                                sideIcon={<IconExternal />}
-                            >
-                                View on GitHub
-                            </LemonButton>
-                        </>
+                        todayRailNav ? (
+                            <div className="flex flex-wrap items-center gap-2">
+                                <Button
+                                    variant="outline"
+                                    render={
+                                        <LinkPrimitive
+                                            to={withCurrentScope(
+                                                urls.engineeringAnalyticsCIExplorer(
+                                                    repoOwner,
+                                                    repoName,
+                                                    pullRequest.number
+                                                ),
+                                                sourceId
+                                            )}
+                                        />
+                                    }
+                                    data-attr="pull-request-open-ci-explorer"
+                                >
+                                    View in CI explorer
+                                </Button>
+                                <Button variant="outline" render={<LinkPrimitive to={githubUrl} target="_blank" />}>
+                                    View on GitHub
+                                    <IconExternal />
+                                </Button>
+                            </div>
+                        ) : (
+                            <>
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    to={withCurrentScope(
+                                        urls.engineeringAnalyticsCIExplorer(repoOwner, repoName, pullRequest.number),
+                                        sourceId
+                                    )}
+                                    data-attr="pull-request-open-ci-explorer"
+                                >
+                                    View in CI explorer
+                                </LemonButton>
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    to={githubUrl}
+                                    targetBlank
+                                    sideIcon={<IconExternal />}
+                                >
+                                    View on GitHub
+                                </LemonButton>
+                            </>
+                        )
                     ) : undefined
                 }
             />

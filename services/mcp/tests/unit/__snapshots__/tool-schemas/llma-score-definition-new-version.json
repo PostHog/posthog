@@ -173,6 +173,11 @@
             "description": "Updated scorer name, saved with this version.",
             "maxLength": 255,
             "type": "string"
+        },
+        "short_name": {
+            "description": "Updated compact label, saved with this version.",
+            "maxLength": 40,
+            "type": "string"
         }
     },
     "required": ["id", "config"],

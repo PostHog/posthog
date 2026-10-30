@@ -2,13 +2,16 @@ import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.openrouter.settings import (
@@ -19,19 +22,29 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.openrouter
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 REQUEST_TIMEOUT = 60
-MAX_OFFSET_PAGES = 10_000
+MAX_PAGES = 10_000
 
 
 class OpenRouterRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+class OpenRouterPageCapError(Exception):
+    pass
+
+
+@dataclasses.dataclass(frozen=False)
 class OpenRouterResumeConfig:
-    # Offset already fetched for offset-paginated endpoints (api_keys/organization_members/workspaces).
+    # Offset already fetched for offset-paginated endpoints (api_keys/organization_members/workspaces),
+    # or within the current parent for fan-out endpoints.
     offset: int | None = None
     # Last fully-synced UTC day (YYYY-MM-DD) for the /activity day-by-day pull.
     date: str | None = None
+    # `after` cursor of the next page for cursor-paginated endpoints (batches).
+    after: str | None = None
+    # Fan-out endpoints walk parent ids sorted. This is the last parent with yielded rows; `offset` is
+    # set while that parent still has child pages left.
+    parent_id: str | None = None
 
 
 def _headers(api_key: str) -> dict[str, str]:
@@ -45,7 +58,7 @@ def _build_url(path: str, params: Optional[dict[str, Any]] = None) -> str:
     return url
 
 
-@retry(
+@retry_with_deadline(
     retry=retry_if_exception_type(
         (
             OpenRouterRetryableError,
@@ -175,8 +188,8 @@ def _get_offset_rows(
     offset = resume.offset if resume is not None and resume.offset else 0
 
     # Hard cap as a runaway guard in case an endpoint ignores `offset` and re-serves the same page.
-    for _ in range(MAX_OFFSET_PAGES):
-        params: dict[str, Any] = {"offset": offset}
+    for _ in range(MAX_PAGES):
+        params: dict[str, Any] = {**config.params, "offset": offset}
         if config.pagination == "offset_limit":
             params["limit"] = config.page_size
 
@@ -197,7 +210,162 @@ def _get_offset_rows(
         # Save AFTER yielding so a crash re-yields the last page (merge dedupes on the primary key).
         resumable_source_manager.save_state(OpenRouterResumeConfig(offset=offset))
     else:
-        logger.warning(f"OpenRouter: hit the {MAX_OFFSET_PAGES}-page cap for {config.name}; stopping pagination")
+        logger.warning(f"OpenRouter: hit the {MAX_PAGES}-page cap for {config.name}; stopping pagination")
+
+
+def _get_cursor_rows(
+    session: requests.Session,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[OpenRouterResumeConfig],
+    config: OpenRouterEndpointConfig,
+) -> Iterator[list[dict[str, Any]]]:
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    after = resume.after if resume is not None else None
+
+    for _ in range(MAX_PAGES):
+        params: dict[str, Any] = {**config.params, "limit": config.page_size}
+        if after:
+            params["after"] = after
+
+        data = _fetch(session, _build_url(config.path, params), headers, logger)
+        rows = data.get("data") or []
+        next_after = data.get("last_id") if data.get("has_more") else None
+
+        if rows and next_after:
+            resumable_source_manager.save_state(OpenRouterResumeConfig(after=next_after))
+        if rows:
+            yield rows
+
+        if not rows or not next_after:
+            break
+        after = next_after
+    else:
+        # A full refresh that stops here would replace the table without the older rows.
+        raise OpenRouterPageCapError(f"OpenRouter: hit the {MAX_PAGES}-page cap for {config.name} with pages left")
+
+
+def _list_parent_ids(
+    session: requests.Session,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[OpenRouterResumeConfig],
+    parent: OpenRouterEndpointConfig,
+) -> list[str]:
+    ids: set[str] = set()
+    offset = 0
+    for _ in range(MAX_PAGES):
+        params: dict[str, Any] = dict(parent.params)
+        if parent.pagination is not None:
+            params["offset"] = offset
+            if parent.pagination == "offset_limit":
+                params["limit"] = parent.page_size
+
+        data = _fetch(session, _build_url(parent.path, params), headers, logger)
+        rows = data.get("data") or []
+        ids.update(str(row["id"]) for row in rows if row.get("id"))
+        resumable_source_manager.safe_point()
+
+        if parent.pagination is None or not rows:
+            break
+        if parent.pagination == "offset_limit" and len(rows) < parent.page_size:
+            break
+        offset += len(rows)
+    else:
+        # Fanning out over a partial parent list would replace the child table without the rest.
+        raise OpenRouterPageCapError(f"OpenRouter: hit the {MAX_PAGES}-page cap listing {parent.name}")
+
+    # Sorted, so the saved parent id marks the same point in the list on a resumed attempt.
+    return sorted(ids)
+
+
+def _get_child_pages(
+    session: requests.Session,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+    config: OpenRouterEndpointConfig,
+    parent_id: str,
+    offset: int,
+) -> Iterator[tuple[list[dict[str, Any]], int | None]]:
+    """Yield each child page of one parent with the offset to resume from, or None after the last page."""
+    path = config.path.replace("{parent_id}", quote(parent_id, safe="/:"))
+    for _ in range(MAX_PAGES):
+        params: dict[str, Any] = dict(config.params)
+        if config.pagination is not None:
+            params["offset"] = offset
+            if config.pagination == "offset_limit":
+                params["limit"] = config.page_size
+
+        try:
+            data = _fetch(session, _build_url(path, params), headers, logger)
+        except requests.HTTPError as e:
+            # The parent was deleted after we listed it.
+            if e.response is not None and e.response.status_code == 404:
+                yield [], None
+                return
+            raise
+
+        page = data.get("data")
+        if config.child_rows_key is not None:
+            page = page.get(config.child_rows_key) if isinstance(page, dict) else None
+        page = page or []
+        if config.parent_id_column is not None:
+            page = [{**row, config.parent_id_column: parent_id} for row in page]
+
+        is_last = (
+            config.pagination is None
+            or not page
+            or (config.pagination == "offset_limit" and len(page) < config.page_size)
+        )
+        offset += len(page)
+        yield page, None if is_last else offset
+        if is_last:
+            return
+
+    raise OpenRouterPageCapError(f"OpenRouter: hit the {MAX_PAGES}-page cap for {config.name} of {parent_id}")
+
+
+def _get_fan_out_rows(
+    session: requests.Session,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[OpenRouterResumeConfig],
+    config: OpenRouterEndpointConfig,
+    parent: OpenRouterEndpointConfig,
+) -> Iterator[list[dict[str, Any]]]:
+    # A saved parent id with an offset is a parent we stopped partway through; without one it's finished.
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    resume_parent = resume.parent_id if resume is not None else None
+    resume_offset = resume.offset if resume is not None else None
+
+    parent_ids = _list_parent_ids(session, headers, logger, resumable_source_manager, parent)
+    for parent_id in parent_ids:
+        offset = 0
+        if resume_parent is not None:
+            if parent_id < resume_parent or (parent_id == resume_parent and resume_offset is None):
+                continue
+            if parent_id == resume_parent and resume_offset is not None:
+                offset = resume_offset
+
+        for page, next_offset in _get_child_pages(session, headers, logger, config, parent_id, offset):
+            resumable_source_manager.save_state(OpenRouterResumeConfig(parent_id=parent_id, offset=next_offset))
+            if page:
+                yield page
+            else:
+                resumable_source_manager.safe_point()
+
+
+def _get_task_classification_rows(
+    session: requests.Session,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+    config: OpenRouterEndpointConfig,
+) -> Iterator[list[dict[str, Any]]]:
+    data = _fetch(session, _build_url(config.path, config.params), headers, logger).get("data") or {}
+    snapshot = {"as_of": data.get("as_of"), "window_days": data.get("window_days")}
+    rows = [{**row, **snapshot} for row in data.get("classifications") or []]
+    if rows:
+        yield rows
 
 
 def _get_single_rows(
@@ -240,6 +408,14 @@ def get_rows(
             should_use_incremental_field,
             db_incremental_field_last_value,
         )
+    elif config.fan_out_parent is not None:
+        yield from _get_fan_out_rows(
+            session, headers, logger, resumable_source_manager, config, OPENROUTER_ENDPOINTS[config.fan_out_parent]
+        )
+    elif config.task_classifications:
+        yield from _get_task_classification_rows(session, headers, logger, config)
+    elif config.pagination == "cursor":
+        yield from _get_cursor_rows(session, headers, logger, resumable_source_manager, config)
     elif config.pagination is not None:
         yield from _get_offset_rows(session, headers, logger, resumable_source_manager, config)
     else:
@@ -268,8 +444,8 @@ def openrouter_source(
         ),
         primary_keys=config.primary_keys,
         # /activity yields days oldest-first and offset pages advance forward, so the watermark
-        # checkpoints safely after each batch.
-        sort_mode="asc",
+        # checkpoints safely after each batch. /batches is newest-first.
+        sort_mode=config.sort_mode,
         partition_count=1,
         partition_size=1,
         partition_mode="datetime" if config.partition_key else None,

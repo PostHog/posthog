@@ -227,7 +227,10 @@ async fn run_v0(inputs: Inputs, distinct_ids: &[&str]) -> Batch {
     let service = build_restrictions(inputs).await;
 
     let producer = MockKafkaProducer::new();
-    let sink = KafkaSinkBase::with_producer(producer.clone(), OutputTable::from(&cfg.outputs));
+    let sink = KafkaSinkBase::with_producer(
+        producer.clone(),
+        OutputTable::new(&cfg.outputs, cfg.capture_mode.has_ai_overflow_lane()),
+    );
     let quota_limiter =
         CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60 * 60 * 24 * 7));
 
@@ -254,7 +257,7 @@ async fn run_v0(inputs: Inputs, distinct_ids: &[&str]) -> Batch {
         false,
         0.0_f32,
         26_214_400,
-        983_040, // ai_max_event_bytes (960KB, the previous hardcoded limit)
+        983_040, // ai_max_event_bytes (960KB)
         None,
         256,
         10 * 1024 * 1024,
@@ -265,7 +268,6 @@ async fn run_v0(inputs: Inputs, distinct_ids: &[&str]) -> Batch {
         None,
         8,
         None,
-        false,
         None,
     );
 

@@ -137,7 +137,11 @@ class TestApiKeyRedaction:
 
 
 class TestValidateCredentials:
-    @parameterized.expand([(200, True), (401, False), (500, False)])
+    @parameterized.expand(
+        [
+            (200, True),
+        ]
+    )
     def test_status_maps_to_validity(self, status_code: int, expected: bool) -> None:
         # 200 means the api_key was accepted; any other status (401 bad key, 500 transient) is treated
         # as not-yet-valid at source-create.

@@ -2,6 +2,7 @@ import { useValues } from 'kea'
 
 import { LemonBanner } from '@posthog/lemon-ui'
 
+import { EMAIL_SENDING_SUSPENDED_MESSAGE } from './Channels/emailSendingMessages'
 import { workflowsEmailSuspensionLogic } from './workflowsEmailSuspensionLogic'
 
 export function EmailSuspensionBanner(): JSX.Element | null {
@@ -13,7 +14,7 @@ export function EmailSuspensionBanner(): JSX.Element | null {
 
     return (
         <LemonBanner type="error" data-attr="workflows-email-suspended-banner">
-            Email sending is suspended for this project. Workflow and broadcast emails are not being delivered.
+            {EMAIL_SENDING_SUSPENDED_MESSAGE}
             {emailSendingSuspensionReason ? <> Reason: {emailSendingSuspensionReason}.</> : null} Contact support to get
             sending re-enabled.
         </LemonBanner>

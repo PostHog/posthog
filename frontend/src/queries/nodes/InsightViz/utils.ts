@@ -15,7 +15,7 @@ import {
     NodeKind,
 } from '~/queries/schema/schema-general'
 import { isInsightQueryWithSeries, setLatestVersionsOnQuery } from '~/queries/utils'
-import { ActionType, DashboardTile, DashboardType, InsightModel, InsightType } from '~/types'
+import { ActionType, InsightModel, InsightType } from '~/types'
 
 import { ProductAnalyticsInsightNodeKind, getNodeKindToDefaultQuery } from '../InsightQuery/defaults'
 
@@ -66,19 +66,6 @@ export const getCachedResults = (
     }
 
     return cachedInsight
-}
-
-/**
- * Backfill the deprecated `dashboards` field from `dashboard_tiles`.
- *
- * Session-authenticated callers already never receive `dashboards`, and token callers will stop
- * receiving it too, so derive it here to keep the remaining readers working whether or not the
- * response still carries the field.
- */
-export function getQueryBasedInsightModel<T extends InsightModel | Partial<InsightModel>>(insight: T): T {
-    const dashboards =
-        insight.dashboards ?? insight.dashboard_tiles?.filter((tile) => !tile.deleted).map((tile) => tile.dashboard_id)
-    return { ...insight, ...(dashboards ? { dashboards } : {}) }
 }
 
 export const queryFromKind = (
@@ -134,24 +121,6 @@ export const getDefaultQuery = (
     }
 
     throw new Error('encountered unexpected type for view')
-}
-
-/** Backfill the deprecated `dashboards` field on each tile's insight. */
-export const getQueryBasedDashboard = (dashboard: DashboardType | null): DashboardType | null => {
-    if (dashboard == null) {
-        return null
-    }
-
-    return {
-        ...dashboard,
-        tiles: dashboard.tiles?.map(
-            (tile) =>
-                ({
-                    ...tile,
-                    ...(tile.insight != null ? { insight: getQueryBasedInsightModel(tile.insight) } : {}),
-                }) as DashboardTile
-        ),
-    }
 }
 
 // Statuses whose responses carry an actionable validation message: 400 (bad query), 512 (query

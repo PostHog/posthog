@@ -255,6 +255,14 @@ class TestGetRows:
                 {"total_count": 3, "workflow_runs": [{"id": 1}]},
                 {},
             ),
+            (
+                "workflow_jobs",
+                {"total_count": 3, "jobs": [{"id": 1}, {"id": 2}]},
+                {"total_count": 3, "jobs": [{"id": 3}]},
+                {},
+            ),
+            ("tags", [{"id": 3}, {"id": 2}], [{"id": 1}], {"X-Total-Count": "3"}),
+            ("collaborators", [{"id": 1}, {"id": 2}], [{"id": 3}], {"X-Total-Count": "3"}),
         ],
     )
     @mock.patch(f"{_MODULE}.PAGE_SIZE", 2)
@@ -274,11 +282,18 @@ class TestGetRows:
         assert "page=2" in urls[1]
         assert result.saved_states == [GiteaResumeConfig(next_url=urls[1])]
 
-    def test_workflow_runs_not_found_raises_actions_unavailable(self) -> None:
-        result = _driver().run("workflow_runs", [ScriptedResponse(status=404, json={"message": "Not Found"})])
+    @pytest.mark.parametrize(
+        "endpoint, expected_error",
+        [
+            ("workflow_runs", "Gitea Actions runs are unavailable"),
+            ("workflow_jobs", "Gitea Actions jobs are unavailable"),
+        ],
+    )
+    def test_actions_endpoint_not_found_raises_actions_unavailable(self, endpoint: str, expected_error: str) -> None:
+        result = _driver().run(endpoint, [ScriptedResponse(status=404, json={"message": "Not Found"})])
 
         assert isinstance(result.raised, ValueError)
-        assert "Gitea Actions runs are unavailable" in str(result.raised)
+        assert expected_error in str(result.raised)
 
 
 class TestFanOut:

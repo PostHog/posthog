@@ -2,6 +2,7 @@ from typing import Optional, cast
 
 import requests
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -36,6 +37,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class CodySource(ResumableSource[CodySourceConfig, CodyResumeConfig]):
+    codebase_detection = detect(env=("^CODY_", "^SRC_ACCESS_TOKEN$", "^SRC_ENDPOINT$"), npm=("@sourcegraph/cody",))
+
     api_docs_url = "https://sourcegraph.com/docs/analytics/api"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
@@ -57,7 +60,7 @@ class CodySource(ResumableSource[CodySourceConfig, CodyResumeConfig]):
             name=ExternalDataSourceType.CODY,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Cody",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Sourcegraph Analytics access token to pull Cody and Sourcegraph usage reports into the PostHog Data warehouse.
 
 Sourcegraph Analytics is available to Sourcegraph Enterprise customers. Create an access token at [analytics.sourcegraph.com/access-tokens](https://analytics.sourcegraph.com/access-tokens). The instance URL is your Sourcegraph instance's host, e.g. `example.sourcegraphcloud.com`.

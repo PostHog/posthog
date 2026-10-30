@@ -20,7 +20,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.grafana.gr
     ANNOTATIONS_LIMIT,
     BASIC_AUTH,
     DASHBOARD_VERSIONS_PAGE_SIZE,
-    DEFAULT_PAGE_SIZE,
     MAX_RESPONSE_BYTES,
     TOKEN_AUTH,
     GrafanaAuth,
@@ -34,6 +33,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.grafana.gr
     get_endpoint_permissions,
     normalize_host,
     validate_credentials,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.grafana.settings import (
+    DEFAULT_PAGE_SIZE,
+    LIBRARY_ELEMENTS_PAGE_SIZE,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.grafana.source import GrafanaSource
 
@@ -145,6 +148,9 @@ class TestExtractItems:
             (None, None, []),
             ("nonsense", None, []),
             ({"teams": "nonsense"}, "teams", []),
+            ({"result": {"elements": [{"uid": "p1"}], "totalCount": 1}}, "result.elements", [{"uid": "p1"}]),
+            ({"result": None}, "result.elements", []),
+            ({"result": [{"uid": "p1"}]}, "result.elements", []),
         ],
     )
     def test_extract_items(self, data, data_key, expected):
@@ -287,6 +293,20 @@ class TestGetEndpointPermissions:
         assert results["dashboard_versions"] is not None and "dashboards:write" in results["dashboard_versions"]
         assert all("{" not in request.path for request in network.requests_log)
 
+    @pytest.mark.parametrize(
+        "endpoint, path, expected_reason",
+        [
+            # An Enterprise-only API is missing on OSS, so the table picker says why it can't sync.
+            ("roles", "/api/access-control/roles", "Roles are only available on Grafana Enterprise and Grafana Cloud."),
+            # Other tables keep treating a 404 as reachable rather than as a missing scope.
+            ("alert_rules", "/api/v1/provisioning/alert-rules", None),
+        ],
+    )
+    def test_not_found_reason(self, endpoint, path, expected_reason):
+        with scripted_network(route({path: [ScriptedResponse(status=404, body=b"not found")]})):
+            results = get_endpoint_permissions("https://x.grafana.net", _token_auth(), None, 1, [endpoint])
+        assert results == {endpoint: expected_reason}
+
     def test_network_blip_is_not_a_missing_scope(self):
         with scripted_network(always(ConnectionResetError("boom"))) as network:
             results = get_endpoint_permissions("https://x.grafana.net", _token_auth(), None, 1, ["dashboards"])
@@ -302,6 +322,20 @@ class TestPagedRows:
         assert result.raised is None
         assert result.params("page") == ["3"]
         assert result.rows == [{"uid": "d1"}]
+
+    def test_library_elements_walk_nested_pages_at_their_own_page_size(self):
+        full_page = [{"uid": f"p{i}"} for i in range(LIBRARY_ELEMENTS_PAGE_SIZE)]
+        result = _driver().run(
+            "library_elements",
+            [
+                ScriptedResponse(json={"result": {"elements": full_page, "page": 1}}),
+                ScriptedResponse(json={"result": {"elements": [{"uid": "last"}], "page": 2}}),
+            ],
+        )
+        assert result.raised is None
+        assert result.params("page") == ["1", "2"]
+        assert result.params("perPage") == [str(LIBRARY_ELEMENTS_PAGE_SIZE)] * 2
+        assert len(result.rows) == LIBRARY_ELEMENTS_PAGE_SIZE + 1
 
     def test_unpaginated_endpoint_single_request(self):
         result = _driver().run("datasources", [ScriptedResponse(json=[{"uid": "ds1"}, {"uid": "ds2"}])])
@@ -356,6 +390,41 @@ class TestFanOutRows:
         )
         assert result.raised is None
         assert result.items == [[{"uid": "d2", "version": 1}]]
+
+    @pytest.mark.parametrize(
+        "endpoint, parent_path, child_path, parent_key",
+        [
+            ("dashboard_permissions", "/api/search", "/api/access-control/dashboards/r1", "dashboardUid"),
+            ("folder_permissions", "/api/folders", "/api/access-control/folders/r1", "folderUid"),
+        ],
+    )
+    def test_resource_permissions_keyed_by_subject(self, endpoint, parent_path, child_path, parent_key):
+        grants = [
+            {"id": 0, "userId": 7, "userLogin": "jo", "isInherited": False, "permission": "Edit"},
+            {"id": 0, "userId": 7, "userLogin": "jo", "isInherited": True, "permission": "Edit"},
+            {"id": 0, "teamId": 3, "team": "ops", "isInherited": True, "permission": "View"},
+            {"id": 12, "builtInRole": "Admin", "isInherited": False, "permission": "Admin"},
+            # Grafana appends an implicit Admin grant when access control enforcement is off.
+            {"builtInRole": "Admin", "isInherited": False, "permission": "Admin"},
+            {"id": 0, "roleName": "managed:custom", "permission": "View"},
+        ]
+        result = _driver().run(
+            endpoint,
+            route(
+                {
+                    parent_path: [ScriptedResponse(json=[{"uid": "r1"}])],
+                    child_path: [ScriptedResponse(json=grants)],
+                }
+            ),
+        )
+        assert result.raised is None
+        assert [(row[parent_key], row["subject"], row["isInherited"], row["permission"]) for row in result.rows] == [
+            ("r1", "user:7", False, "Edit"),
+            ("r1", "user:7", True, "Edit"),
+            ("r1", "team:3", True, "View"),
+            ("r1", "role:Admin", False, "Admin"),
+            ("r1", "role:managed:custom", False, "View"),
+        ]
 
     def test_resumes_from_saved_parent_index(self):
         result = _driver().run(

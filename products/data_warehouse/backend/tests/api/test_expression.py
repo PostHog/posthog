@@ -2,7 +2,7 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError as DRFValidationError
@@ -267,10 +267,12 @@ class TestExpressionApi(APIBaseTest):
                     "password": "password",
                 },
             ),
+            ("managed_trino", "Postgres", {}),
         ]
     )
+    @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_connection_scoped_expression_saves_in_source_dialect(
-        self, _name: str, source_type: str, job_inputs: dict[str, object]
+        self, _name: str, source_type: str, job_inputs: dict[str, object], _flag: MagicMock
     ) -> None:
         source = ExternalDataSource.objects.create(
             team=self.team,
@@ -282,12 +284,27 @@ class TestExpressionApi(APIBaseTest):
             prefix="direct",
             job_inputs=job_inputs,
         )
+        if _name == "managed_trino":
+            source.prefix = "managed_warehouse"
+            source.direct_query_enabled = True
+            source.connection_metadata = {
+                "engine": "duckdb",
+                "system_managed": True,
+                "credential_kind": "duckgres_service",
+                "lifecycle_generation": 1,
+            }
+            source.save(update_fields=["prefix", "direct_query_enabled", "connection_metadata"])
         DataWarehouseTable.objects.create(
             name="events",
             format="Parquet",
             team=self.team,
             external_data_source=source,
-            url_pattern="",
+            url_pattern="direct://trino" if _name == "managed_trino" else "",
+            options={
+                "direct_trino_catalog": "example",
+                "direct_trino_schema": "public",
+                "direct_trino_table": "events",
+            },
             columns={
                 "id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "valid": True},
                 "team_id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "valid": True},

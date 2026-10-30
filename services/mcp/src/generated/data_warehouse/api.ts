@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 23 enabled ops
+ * PostHog API - MCP 25 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -616,6 +616,33 @@ export const WarehouseSavedQueriesMaterializeCreateBody = () => zod
     .describe('Body of the `materialize` action: which cadence to enable materialization at.')
 
 /**
+ * Resume materialization suspended after repeated failures.
+ *
+ * Scheduled runs skip a suspended model and everything downstream of it, so it cannot succeed
+ * its way back on its own.
+ */
+export const WarehouseSavedQueriesResumeCreateParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this data warehouse saved query.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const WarehouseSavedQueriesResumeCreateBody = () => zod
+    .object({
+        engine: zod
+            .enum(['clickhouse', 'trino'])
+            .describe('\* `clickhouse` - ClickHouse\n\* `trino` - Trino')
+            .optional()
+            .describe(
+                "Resume only this engine's materialization: 'clickhouse' or 'trino' (the managed warehouse). Omit it to resume every engine the query is suspended on.\n\n\* `clickhouse` - ClickHouse\n\* `trino` - Trino"
+            ),
+    })
+    .describe('Body of the `resume` action.')
+
+/**
  * Undo materialization, revert back to the original view.
  * (i.e. delete the materialized table and the schedule)
  */
@@ -744,6 +771,7 @@ export const WarehouseSavedQueriesRunCreateParams = () => zod.object({
 })
 
 export const warehouseSavedQueriesRunCreateBodyFullRefreshDefault = false
+export const warehouseSavedQueriesRunCreateBodyEngineDefault = `clickhouse`
 
 export const WarehouseSavedQueriesRunCreateBody = () => zod
     .object({
@@ -752,6 +780,20 @@ export const WarehouseSavedQueriesRunCreateBody = () => zod
             .default(warehouseSavedQueriesRunCreateBodyFullRefreshDefault)
             .describe(
                 'Rebuild the whole table instead of updating it incrementally. Has no effect on a view that is not incremental. This is how you reprocess history after changing what the query means without changing its text, or after upstream data was corrected.'
+            ),
+        direction: zod
+            .enum(['upstream', 'downstream'])
+            .describe('\* `upstream` - Upstream\n\* `downstream` - Downstream')
+            .optional()
+            .describe(
+                'Run this view with all upstream dependencies or all downstream dependents. Omit this field to run only this view. You cannot use it with full_refresh.\n\n\* `upstream` - Upstream\n\* `downstream` - Downstream'
+            ),
+        engine: zod
+            .enum(['clickhouse', 'trino'])
+            .describe('\* `clickhouse` - ClickHouse\n\* `trino` - Trino')
+            .default(warehouseSavedQueriesRunCreateBodyEngineDefault)
+            .describe(
+                "Where to build the views. 'clickhouse' (the default) refreshes the tables that queries read. 'trino' builds the same views on the organization's managed warehouse only, and leaves the ClickHouse tables as they are. 'trino' returns 403 when the organization has no managed warehouse, and 409 while another managed warehouse run of these views is in progress.\n\n\* `clickhouse` - ClickHouse\n\* `trino` - Trino"
             ),
     })
     .describe('Body of the `run` action.')
@@ -767,6 +809,48 @@ export const WarehouseSavedQueriesRunHistoryRetrieveParams = () => zod.object({
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
+
+/**
+ * Report whether a query can be materialized incrementally, without running it.
+ *
+ * Parses the SQL only, so it is cheap enough to call from the editor as the user types. Lets
+ * the editor explain why the incremental option is unavailable before anything is saved.
+ */
+export const WarehouseSavedQueriesCheckIncrementalCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const warehouseSavedQueriesCheckIncrementalCreateBodyQueryMax = 262144
+
+export const warehouseSavedQueriesCheckIncrementalCreateBodyLookbackSecondsMin = 0
+export const warehouseSavedQueriesCheckIncrementalCreateBodyLookbackSecondsMax = 2592000
+
+export const WarehouseSavedQueriesCheckIncrementalCreateBody = () => zod
+    .object({
+        query: zod
+            .string()
+            .max(warehouseSavedQueriesCheckIncrementalCreateBodyQueryMax)
+            .describe('The HogQL query to check.'),
+        incremental_key: zod
+            .string()
+            .nullish()
+            .describe('Output column whose advancing value marks rows as new. Omit to only list candidates.'),
+        unique_key: zod
+            .array(zod.string())
+            .nullish()
+            .describe('Output columns that identify a row. Must include every GROUP BY column.'),
+        lookback_seconds: zod
+            .number()
+            .min(warehouseSavedQueriesCheckIncrementalCreateBodyLookbackSecondsMin)
+            .max(warehouseSavedQueriesCheckIncrementalCreateBodyLookbackSecondsMax)
+            .optional()
+            .describe('How far back before the watermark to re-read each run, to pick up late-arriving data.'),
+    })
+    .describe('Body of the `check_incremental` action: a query and an optional config to check it against.')
 
 /**
  * Create, Read, Update and Delete Warehouse Tables.

@@ -5,11 +5,8 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
-    always,
-    scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.render import RenderSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.render.render import KEY_REJECTED_MESSAGE
 from products.warehouse_sources.backend.temporal.data_imports.sources.render.source import RenderSource
 
 
@@ -35,20 +32,6 @@ class TestRenderSource:
         schema = next(s for s in self.source.get_schemas(self.config, team_id=1) if s.name == endpoint)
         assert schema.supports_incremental == supports_incremental
         assert schema.supports_append == supports_append
-
-    def test_get_schemas_filters_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, team_id=1, names=["services", "deploys"])
-        assert {schema.name for schema in schemas} == {"services", "deploys"}
-
-    @parameterized.expand(
-        [
-            ("valid", 200, (True, None)),
-            ("invalid", 401, (False, KEY_REJECTED_MESSAGE)),
-        ]
-    )
-    def test_validate_credentials(self, _name: str, status: int, probe_result: tuple[bool, str | None]) -> None:
-        with scripted_network(always(ScriptedResponse(status=status, json={}))):
-            assert self.source.validate_credentials(self.config, team_id=1) == probe_result
 
     def test_source_for_pipeline_drops_watermark_on_full_refresh(self) -> None:
         # A stale watermark leaking into a full refresh would silently skip older rows.

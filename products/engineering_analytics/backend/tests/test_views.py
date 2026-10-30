@@ -31,6 +31,7 @@ from products.engineering_analytics.backend.logic.views.source_schema import (
     DEPOT_JOB_ATTEMPTS_COLUMNS,
     PULL_REQUESTS_COLUMNS,
     TRUNK_QUARANTINED_TESTS_COLUMNS,
+    TRUNK_QUARANTINED_TESTS_V1_COLUMNS,
     WORKFLOW_JOBS_COLUMNS,
     WORKFLOW_RUNS_COLUMNS,
 )
@@ -294,6 +295,21 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
                     (907, "abc123", 101991, "success", 1),
                     (908, "abc123", 101991, "success", 2),
                 )
+            ]
+            # A merge-queue gate for PR 101991, tested through gate PR 101993, handed its commit to Depot.
+            + [
+                _run_row(
+                    909,
+                    "Backend CI",
+                    "gat123",
+                    "completed",
+                    "success",
+                    "2026-09-24 14:50:00",
+                    "2026-09-24 15:05:00",
+                    pr_number=101993,
+                    head_branch="trunk-merge/pr-101991/aaaa",
+                    actor="trunk-io[bot]",
+                )
             ],
         )
         jobs_table = self._create_table(
@@ -326,13 +342,20 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
                     completed="2026-09-01 14:02:00",
                 ),
                 _job_row(9083, 908, "Django Tests Pass", "success", head_sha="abc123", run_attempt=2),
+                _job_row(9091, 909, "Hand off backend tests to Depot CI", "success", head_sha="gat123"),
+                _job_row(9092, 909, "Django Tests Pass", "success", head_sha="gat123"),
             ],
         )
 
         prs_table = self._create_table(
             "github_pull_requests",
             PULL_REQUESTS_COLUMNS,
-            [_pr_row(101991, "octocat", "open", 0, "2026-09-24T14:00:00Z", head_ref="feature/depot")],
+            [
+                _pr_row(101991, "octocat", "open", 0, "2026-09-24T14:00:00Z", head_ref="feature/depot"),
+                _pr_row(
+                    101993, "trunk-io[bot]", "open", 1, "2026-09-24T14:30:00Z", head_ref="trunk-merge/pr-101991/aaaa"
+                ),
+            ],
         )
 
         def attempt(
@@ -463,6 +486,25 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
                     workflow_status="failed",
                     job_key="ci-backend.yml:wait-for-handoff",
                 ),
+                *(
+                    attempt(
+                        attempt_id,
+                        1,
+                        "finished",
+                        "2026-09-24T14:52:00.000Z",
+                        "2026-09-24T14:53:00.000Z",
+                        job_id=job_id,
+                        run_id="7777777777",
+                        workflow_id="8888888888",
+                        ref="refs/pull/101993/merge",
+                        head_sha="gat123",
+                        job_key=job_key,
+                    )
+                    for attempt_id, job_id, job_key in (
+                        ("g7h8j9k0l1", "g1h2j3k4l5", "ci-backend.yml:wait-for-handoff"),
+                        ("g7h8j9k0l2", "g1h2j3k4l6", "ci-backend.yml:turbo-tests:matrix-38"),
+                    )
+                ),
                 # Synced before the source moved to another repository, so no read of this one keeps it.
                 attempt(
                     "k3w9v2rq8b",
@@ -494,6 +536,16 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
             (908, "Backend CI", "success", 101991, "main", 900, "PostHog", 2),
             (80213453736890, "Backend CI on Depot", "success", 101991, "feature/depot", 600, "PostHog", 2),
             (101808620689656, "Backend CI on Depot", "failure", 101991, "feature/depot", 600, "PostHog", 1),
+            (
+                142532068965517,
+                "Backend CI on Depot",
+                "success",
+                101991,
+                "trunk-merge/pr-101991/aaaa",
+                600,
+                "PostHog",
+                1,
+            ),
             (223978965517241, "Monitor", "success", 0, "master", 600, "PostHog", 1),
             (244340689655172, "Timing", "failure", 0, "master", 600, "PostHog", 1),
         ]
@@ -509,6 +561,7 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
             (908,),
             (80213453736890,),
             (101808620689656,),
+            (142532068965517,),
             (223978965517241,),
             (244340689655172,),
         ]
@@ -553,6 +606,74 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
                 f"FROM ({view.build_query(jobs_table=jobs, runs_table=runs)}) AS j "
                 "WHERE native_attempt_id = '3v4pbsqvfc'"
             ) == [("depot_ci", "427q556wmn", "6n4tghls33", "3v4pbsqvfc")]
+
+    @parameterized.expand(
+        [
+            ("queue_bot_gate_pr", "trunk-io[bot]", 101991, 1),
+            ("spoofed_branch_shape", "mallory", 117864, 0),
+        ]
+    )
+    def test_depot_merge_queue_gate_run_resolves_to_the_landed_pr(
+        self, _name: str, gate_pr_author: str, expected_pr_number: int, expected_is_merge_queue: int
+    ) -> None:
+        runs_table = self._create_table(
+            "github_workflow_runs",
+            WORKFLOW_RUNS_COLUMNS,
+            [
+                _run_row(
+                    901, "Backend CI", "abc123", "completed", "success", "2026-09-24 14:50:00", "2026-09-24 15:05:00"
+                )
+            ],
+        )
+        prs_table = self._create_table(
+            "github_pull_requests",
+            PULL_REQUESTS_COLUMNS,
+            [
+                _pr_row(
+                    117864,
+                    gate_pr_author,
+                    "open",
+                    1,
+                    "2026-09-24T14:00:00Z",
+                    head_ref="trunk-merge/pr-101991/1b92e8cf-acbf-4658-8071-4cf622123da8",
+                )
+            ],
+        )
+        depot_table = self._create_table(
+            "depot_job_attempts",
+            DEPOT_JOB_ATTEMPTS_COLUMNS,
+            [
+                {
+                    "run_id": "427q556wmn",
+                    "run_workflow_count": 1,
+                    "repo": "PostHog/posthog",
+                    "ref": "refs/pull/117864/merge",
+                    "head_sha": "abc123",
+                    "sha": "",
+                    "workflow_id": "6n4tghls33",
+                    "workflow_name": "Backend CI on Depot",
+                    "workflow_status": "failed",
+                    "workflow_created_at": "2026-09-24T14:51:17.948Z",
+                    "workflow_started_at": "2026-09-24T14:51:18.000Z",
+                    "workflow_finished_at": "2026-09-24T15:01:18.000Z",
+                    "job_id": "p4kd9tq2xs",
+                    "job_key": "ci-backend.yml:django-tests",
+                    "job_display_name": "Django Tests Pass on Depot",
+                    "attempt_id": "zf6sbbn2wh",
+                    "attempt": 1,
+                    "attempt_status": "failed",
+                    "attempt_started_at": "2026-09-24T14:53:00.000Z",
+                    "attempt_finished_at": "2026-09-24T14:55:00.000Z",
+                    "sandbox_id": "sandbox",
+                }
+            ],
+        )
+        depot = depot_ci.DepotJobAttempts(table=depot_table, repository="PostHog/posthog")
+        runs = depot_ci.with_depot_runs(runs_table, depot, prs_table, None)
+
+        assert self._select(
+            f"SELECT pr_number, is_merge_queue FROM ({workflow_runs.build_query(runs)}) AS r WHERE ci_engine = 'depot_ci'"
+        ) == [(expected_pr_number, expected_is_merge_queue)]
 
     def test_pull_requests_view_handles_null_user(self) -> None:
         # The real source lands user as Nullable(String), NULL for a PR by a deleted GitHub account.
@@ -740,39 +861,58 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
         )
         assert rows[0] == ("completed", None, None, "", "", 0, None)
 
-    def test_trunk_quarantined_tests_view_labels_runners_and_reconstructs_paths(self) -> None:
+    @parameterized.expand([("v1_shape", False), ("v2_shape", True)])
+    def test_trunk_quarantined_tests_view_labels_runners_and_reconstructs_paths(
+        self, _name: str, v2_shape: bool
+    ) -> None:
         # Trunk overloads `parent` per uploader, and ownership is resolved from the source_path and
-        # crate this view reads out of it, so getting either wrong unattributes the whole board.
+        # crate this view reads out of it, so getting either wrong unattributes the whole board. A
+        # table keeps the v1 shape until its source moves to the v2 API and resyncs.
         table_name = self._create_table(
             "trunkio_quarantinedtests",
-            TRUNK_QUARANTINED_TESTS_COLUMNS,
+            TRUNK_QUARANTINED_TESTS_COLUMNS if v2_shape else TRUNK_QUARANTINED_TESTS_V1_COLUMNS,
             [
                 _quarantined_row(
                     file="posthog/api/test/test_person.py",
                     name="test_merge",
                     classname="posthog.api.test.test_person.TestPerson",
                     parent="pytest",
+                    v2_shape=v2_shape,
                 ),
                 _quarantined_row(
                     file="",
                     name="k3s_integration",
                     classname="personhog-coordination",
                     parent="personhog-coordination::k3s_integration",
+                    v2_shape=v2_shape,
                 ),
-                _quarantined_row(file="src/cdp/cdp.test.ts", name="routes", classname="", parent="src/cdp/cdp.test.ts"),
+                _quarantined_row(
+                    file="src/cdp/cdp.test.ts",
+                    name="routes",
+                    classname="",
+                    parent="src/cdp/cdp.test.ts",
+                    v2_shape=v2_shape,
+                ),
             ],
         )
-        rows = self._select(
-            f"SELECT runner, nodeid, source_path, crate FROM ({trunk_quarantined_tests.build_query(table_name)}) AS q "
-            "ORDER BY runner"
-        )
+        query = trunk_quarantined_tests.build_query(table_name, v2_shape=v2_shape)
+        rows = self._select(f"SELECT runner, nodeid, source_path, crate, trunk_url FROM ({query}) AS q ORDER BY runner")
+
+        def url(name: str) -> str | None:
+            return (
+                f"https://app.trunk.io/example/flaky-tests/collections/collection/tests/case-{name}"
+                if v2_shape
+                else None
+            )
+
         assert rows == [
-            ("jest", "src/cdp/cdp.test.ts::routes", "src/cdp/cdp.test.ts", ""),
+            ("jest", "src/cdp/cdp.test.ts::routes", "src/cdp/cdp.test.ts", "", url("routes")),
             (
                 "pytest",
                 "posthog/api/test/test_person.py::TestPerson::test_merge",
                 "posthog/api/test/test_person.py",
                 "",
+                url("test_merge"),
             ),
-            ("rust", "personhog-coordination::k3s_integration", "", "personhog-coordination"),
+            ("rust", "personhog-coordination::k3s_integration", "", "personhog-coordination", url("k3s_integration")),
         ]

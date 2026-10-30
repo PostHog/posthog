@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -37,6 +38,17 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class GoCardlessSource(ResumableSource[GoCardlessSourceConfig, GoCardlessResumeConfig]):
+    codebase_detection = detect(
+        env=("^GOCARDLESS_",),
+        script_hosts=("pay.gocardless.com",),
+        npm=("gocardless-nodejs", "@gocardless/react-dropin"),
+        pypi=("gocardless-pro",),
+        composer=("gocardless/gocardless-pro", "gocardless/gocardless", "gocardless/gocardless-pro-php"),
+        go=("github.com/gocardless/gocardless-pro-go",),
+        maven=("com.gocardless:gocardless-pro", "com.gocardless:gocardless-java", "com.gocardless:gocardlesssdk"),
+        rubygems=("gocardless_pro", "gocardless"),
+    )
+
     supported_versions = ("2015-07-06",)
     default_version = "2015-07-06"
     api_docs_url = "https://developer.gocardless.com/api-reference"
@@ -73,7 +85,7 @@ class GoCardlessSource(ResumableSource[GoCardlessSourceConfig, GoCardlessResumeC
 Create a read-only access token in the [GoCardless dashboard](https://manage.gocardless.com/developers) under Developers > Create > Access token. Sandbox and live environments use separate hosts and tokens — make sure the environment matches your token.""",
             iconPath="/static/services/gocardless.png",
             docsUrl="https://posthog.com/docs/cdp/sources/gocardless",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

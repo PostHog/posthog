@@ -35,6 +35,18 @@ class MollieResumeConfig:
     fanout_state: Optional[dict[str, Any]] = None
 
 
+def _only_payments_with_captures(payment: dict[str, Any]) -> dict[str, Any] | list[dict[str, Any]]:
+    # Mollie sets amountCaptured only on payments whose method supports captures. Dropping the
+    # other payments saves one captures request per payment that can never have a capture.
+    return payment if payment.get("amountCaptured") is not None else []
+
+
+# Per-child filters on the fan-out parent rows, keyed by the child endpoint name.
+_PARENT_DATA_MAPS: dict[str, Callable[[dict[str, Any]], dict[str, Any] | list[dict[str, Any]]]] = {
+    "captures": _only_payments_with_captures,
+}
+
+
 def _source_response(endpoint: str, config: MollieEndpointConfig, items: Callable[[], Iterable[Any]]) -> SourceResponse:
     return SourceResponse(
         name=endpoint,
@@ -84,6 +96,7 @@ def mollie_source(
             fanout=config.fanout,
             client_config=client_config,
             parent_endpoint_extra={"data_selector": f"_embedded.{parent_config.embedded_key}"},
+            parent_data_map=_PARENT_DATA_MAPS.get(endpoint),
             child_endpoint_extra={"data_selector": f"_embedded.{config.embedded_key}"},
             path_format_values={},
             team_id=team_id,

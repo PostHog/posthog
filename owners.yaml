@@ -3,7 +3,7 @@ owners: []
 # Team slugs below are GitHub teams in this organization.
 github_org: PostHog
 # Automation that a team can redirect or silence under `notifications:`.
-producers: [stamphog, visual_review, flaky_report]
+producers: [stamphog, visual_review, flaky_report, mcp_tool_health]
 # services/mcp generate-tools reads every YAML file in a product's mcp/ directory.
 reserved_dirs: ['products/**/mcp/**']
 # A product manifest already lists its owners, so it counts as an ownership file.
@@ -85,8 +85,9 @@ rules:
       owners: team-ingestion
     - match: '/bin/start-llm-gateway'
       owners: [team-devex, team-agent-infrastructure]
+      sensitive: true
     - match: '/cli/'
-      owners: team-error-tracking
+      owners: team-growth
     - match: '/docs/onboarding/ai-observability/'
       owners: team-ai-observability
     - match: '/docs/published/handbook/engineering/developing-locally.md'
@@ -95,6 +96,8 @@ rules:
           - '/frontend/src/lib/lemon-ui/'
           - '/frontend/src/lib/ui/'
       owners: platform-ux
+    - match: '/hog/'
+      owners: team-growth
     - match: '/nodejs/tests/'
       owners: team-ingestion
     - match: '/packages/quill/'
@@ -125,6 +128,7 @@ rules:
     # setup receivers and frozen dataclass baselines) stay out, so that the review requests
     # stay rare.
     - match:
+          - '/.github/scripts/check-no-new-ee-files.py'
           - '/.github/scripts/migration-deletion-allowlist.txt'
           - '/.semgrep/rules/devex/'
           - '/.semgrep/rules/security/prefer-codegen-api.*'
@@ -173,8 +177,6 @@ rules:
       owners: ai-research
     - match: '/posthog/test/test_feature_flag_analytics.py'
       owners: team-feature-flags
-    - match: '/services/llm-gateway/'
-      owners: team-agent-infrastructure
     - match:
           - '/packages/owners-yaml/'
           - '/tools/hogli-commands/'
@@ -185,9 +187,12 @@ rules:
       owners: team-devex
     - match: '/tools/query-performance-ai/'
       owners: team-analytics-platform
-    # A new product, provider, domain, or top-level package shapes the monorepo layout.
-    # The rule names who owns that decision and claims none of the files inside.
+    # A new root file or folder, product, provider, domain, or top-level package shapes
+    # the monorepo layout. The rule names who owns that decision and claims none of the
+    # files inside. '/*' matches only entries directly in the root, because '*' does not
+    # cross '/'.
     - match:
+          - '/*'
           - '/products/*'
           - '/posthog/ingress/*'
           - '/posthog/egress/*'
@@ -195,4 +200,5 @@ rules:
           - '/services/*'
           - '/packages/*'
           - '/cli/*'
+          - '/hog/*'
       additions: team-devex

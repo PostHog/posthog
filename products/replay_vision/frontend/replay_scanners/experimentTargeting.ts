@@ -1,3 +1,4 @@
+import { resolveFilterTestAccounts } from 'scenes/experiments/exposureContract'
 import { getExperimentVariants } from 'scenes/experiments/utils'
 
 import { NodeKind, type RecordingsQuery } from '~/queries/schema/schema-general'
@@ -75,6 +76,22 @@ export function scannerExperimentScope(scanner: ReplayScanner | null | undefined
     return { experimentId: targeting.experiment_id, variants: targeting.variant ? [targeting.variant] : null }
 }
 
+/**
+ * New-scanner wizard params that rebuild a legacy-targeted scanner as an experiment scanner, with the
+ * same experiment, variant, and recording filters. The prompt stays behind: a monitor or classifier
+ * question is not a useful focus for variant summaries. Null when the scanner has no legacy targeting.
+ */
+export function legacyTargetingUpgradeParams(scanner: ReplayScanner): Record<string, string> | null {
+    const targeting = scanner.experiment_targeting
+    if (scanner.scanner_type === 'experiment' || !targeting?.experiment_id) {
+        return null
+    }
+    return {
+        ...experimentScannerParams({ experimentId: targeting.experiment_id, variantKey: targeting.variant ?? null }),
+        ...(scanner.query ? { filters: JSON.stringify(scanner.query) } : {}),
+    }
+}
+
 /** The variants a scope watches, as a short phrase: "test variant", "a, b variants", or the fallback. */
 export function scopeVariantsLabel(scope: ScannerExperimentScope, everyVariant: string): string {
     if (!scope.variants?.length) {
@@ -93,7 +110,7 @@ export function scopeVariantsLabel(scope: ScannerExperimentScope, everyVariant: 
 export function experimentScannerQuery(experiment: Experiment): Pick<RecordingsQuery, 'kind' | 'filter_test_accounts'> {
     return {
         kind: NodeKind.RecordingsQuery,
-        filter_test_accounts: experiment.exposure_criteria?.filterTestAccounts ?? false,
+        filter_test_accounts: resolveFilterTestAccounts(experiment.exposure_criteria),
     }
 }
 
@@ -157,8 +174,8 @@ export function buildExperimentTargeting(context: ExperimentScannerContext): Sca
 }
 
 /**
- * Turns a fresh (or freshly templated) scanner into an experiment scanner for the context: the
- * experiment type, a scoped name, and the experiment's test-account setting. A template's type and
+ * Turns a fresh (or freshly drafted) scanner into an experiment scanner for the context: the
+ * experiment type, a scoped name, and the experiment's test-account setting. Any other type and
  * prompt give way, because only the experiment type compares variants.
  */
 export function prefillScannerForExperiment(

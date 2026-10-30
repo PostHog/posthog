@@ -7,7 +7,7 @@ use tracing::info;
 
 use crate::metric_consts::{
     STORE_CACHED_BYTES, STORE_CACHE_EVICTIONS, STORE_CACHE_EVICTION_RUNS, STORE_CACHE_HITS,
-    STORE_CACHE_MISSES, SYMBOL_SET_LARGE_PARSE_WAIT_MS,
+    STORE_CACHE_MISSES, SYMBOL_SET_LARGE_PARSE_WAIT_MS, SYMBOL_SET_PARSE_INPUT_BYTES,
 };
 
 use super::{chunk_id::SymbolSetCacheKey, Fetcher, ParsePermit, Parser, Provider};
@@ -26,30 +26,92 @@ pub struct Caching<P> {
     parse_limiter: Option<ParseLimiter>,
 }
 
-// Bounds how many large symbol sets are parsed at once. A parse can need many times the
-// fetched size in transient memory, and the cache budget does not count it. Clones share
-// one set of permits, so a single limiter covers every provider it is given to.
+// The parse memory budget is counted in MiB, because a tokio semaphore can acquire at most
+// `u32::MAX` permits in one call.
+const PARSE_BUDGET_UNIT_BYTES: usize = 1 << 20;
+
+// Bounds the transient memory of large symbol set parses. A parse can need many times its
+// decompressed size, and the cache budget does not count it. Each large parse reserves its
+// estimated peak memory from a shared budget. It also reserves at least an equal share of the
+// budget, so no more than `max_concurrent_large_parses` run at once. A parse estimated above
+// the whole budget reserves all of it and runs alone. Clones share one budget, so a single
+// limiter covers every provider it is given to.
 #[derive(Clone)]
 pub struct ParseLimiter {
     large_parse_bytes: usize,
+    memory_multiplier: usize,
+    budget_units: u32,
+    min_units: u32,
     permits: Arc<Semaphore>,
 }
 
 impl ParseLimiter {
-    pub fn new(large_parse_bytes: usize, max_concurrent_large_parses: usize) -> Self {
+    pub fn new(
+        large_parse_bytes: usize,
+        max_concurrent_large_parses: usize,
+        memory_budget_bytes: usize,
+        memory_multiplier: usize,
+    ) -> Self {
+        assert!(
+            large_parse_bytes > 0,
+            "SYMBOL_SET_LARGE_PARSE_BYTES must be positive"
+        );
+        assert!(
+            max_concurrent_large_parses > 0,
+            "SYMBOL_SET_MAX_CONCURRENT_LARGE_PARSES must be positive"
+        );
+        assert!(
+            memory_budget_bytes > 0,
+            "SYMBOL_SET_PARSE_MEMORY_BUDGET_BYTES must be positive"
+        );
+        assert!(
+            memory_multiplier > 0,
+            "SYMBOL_SET_PARSE_MEMORY_MULTIPLIER must be positive"
+        );
+        let budget_units = units_for_bytes(memory_budget_bytes);
+        let max_concurrent = u32::try_from(max_concurrent_large_parses).unwrap_or(u32::MAX);
         Self {
             large_parse_bytes,
-            permits: Arc::new(Semaphore::new(max_concurrent_large_parses.max(1))),
+            memory_multiplier,
+            budget_units,
+            min_units: budget_units.div_ceil(max_concurrent),
+            permits: Arc::new(Semaphore::new(budget_units as usize)),
         }
     }
 
-    async fn acquire(&self, required: bool) -> ParsePermit {
-        if !required {
-            return ParsePermit::none();
-        }
-        // UNWRAP - we never close the semaphore
-        ParsePermit::limited(self.permits.clone().acquire_owned().await.unwrap())
+    // Returns None when the parse is small enough to skip the limiter. When the decompressed
+    // size is unknown, the parse counts as large and at least as big as its fetched size.
+    fn estimate_parse_bytes(
+        &self,
+        input_bytes: Option<usize>,
+        fetched_bytes: usize,
+    ) -> Option<usize> {
+        let input_bytes = match input_bytes {
+            Some(bytes) if bytes < self.large_parse_bytes => return None,
+            Some(bytes) => bytes,
+            None => fetched_bytes.max(self.large_parse_bytes),
+        };
+        Some(input_bytes.saturating_mul(self.memory_multiplier))
     }
+
+    async fn acquire(&self, estimated_bytes: Option<usize>) -> ParsePermit {
+        let Some(estimated_bytes) = estimated_bytes else {
+            return ParsePermit::none();
+        };
+        let units = units_for_bytes(estimated_bytes).clamp(self.min_units, self.budget_units);
+        // UNWRAP - we never close the semaphore
+        ParsePermit::limited(
+            self.permits
+                .clone()
+                .acquire_many_owned(units)
+                .await
+                .unwrap(),
+        )
+    }
+}
+
+fn units_for_bytes(bytes: usize) -> u32 {
+    u32::try_from(bytes.div_ceil(PARSE_BUDGET_UNIT_BYTES)).unwrap_or(u32::MAX)
 }
 
 impl<P> Caching<P>
@@ -105,12 +167,19 @@ where
         let fetched_bytes = found.byte_count();
         let set_type = set_type_name::<P::Set>();
 
+        let parse_input_bytes = found.parse_input_bytes();
+        if let Some(bytes) = parse_input_bytes {
+            metrics::histogram!(SYMBOL_SET_PARSE_INPUT_BYTES, "kind" => set_type)
+                .record(bytes as f64);
+        }
+        let estimated_parse_bytes = self
+            .parse_limiter
+            .as_ref()
+            .and_then(|limiter| limiter.estimate_parse_bytes(parse_input_bytes, fetched_bytes));
+
         let wait_start = Instant::now();
         let permit = match &self.parse_limiter {
-            Some(limiter) => {
-                let required = found.requires_parse_permit(limiter.large_parse_bytes);
-                limiter.acquire(required).await
-            }
+            Some(limiter) => limiter.acquire(estimated_parse_bytes).await,
             None => ParsePermit::none(),
         };
         let wait_ms = wait_start.elapsed().as_millis() as u64;
@@ -118,21 +187,31 @@ where
             metrics::histogram!(SYMBOL_SET_LARGE_PARSE_WAIT_MS).record(wait_ms as f64);
         }
 
-        if fetched_bytes >= LARGE_FETCHED_BYTES {
-            info!(
-                team_id,
-                cache_key, set_type, fetched_bytes, wait_ms, "Parsing large symbol set"
-            );
-        }
-        let parse_start = Instant::now();
-        let parsed = self.inner.parse(found, permit).await?;
-        let bytes = parsed.byte_count();
-        if fetched_bytes >= LARGE_FETCHED_BYTES || bytes >= LARGE_PARSED_BYTES {
+        let log_large_parse = fetched_bytes >= LARGE_FETCHED_BYTES
+            || parse_input_bytes.is_some_and(|bytes| bytes >= LARGE_PARSED_BYTES);
+        if log_large_parse {
             info!(
                 team_id,
                 cache_key,
                 set_type,
                 fetched_bytes,
+                parse_input_bytes,
+                estimated_parse_bytes,
+                wait_ms,
+                "Parsing large symbol set"
+            );
+        }
+        let parse_start = Instant::now();
+        let parsed = self.inner.parse(found, permit).await?;
+        let bytes = parsed.byte_count();
+        if log_large_parse || bytes >= LARGE_PARSED_BYTES {
+            info!(
+                team_id,
+                cache_key,
+                set_type,
+                fetched_bytes,
+                parse_input_bytes,
+                estimated_parse_bytes,
                 cached_bytes = bytes,
                 parse_ms = parse_start.elapsed().as_millis() as u64,
                 "Parsed large symbol set"
@@ -241,8 +320,9 @@ struct CachedSymbolSet {
 pub trait Countable {
     fn byte_count(&self) -> usize;
 
-    fn requires_parse_permit(&self, threshold: usize) -> bool {
-        self.byte_count() >= threshold
+    // The size of the data the parser works on, after any decompression. None means unknown.
+    fn parse_input_bytes(&self) -> Option<usize> {
+        Some(self.byte_count())
     }
 }
 
@@ -257,10 +337,10 @@ impl Countable for Bytes {
         self.len()
     }
 
-    fn requires_parse_permit(&self, threshold: usize) -> bool {
+    fn parse_input_bytes(&self) -> Option<usize> {
         match posthog_symbol_data::symbol_data_known_decompressed_size(self) {
-            Ok(Some(size)) => size.max(self.len()) >= threshold,
-            Ok(None) | Err(_) => true,
+            Ok(Some(size)) => Some(size.max(self.len())),
+            Ok(None) | Err(_) => None,
         }
     }
 }
@@ -438,8 +518,16 @@ mod tests {
     }
 
     #[tokio::test(flavor = "current_thread")]
-    async fn parse_limiter_bounds_only_large_parses() {
-        for (fetched_bytes, expected_max) in [(100, 1), (99, 3)] {
+    async fn parse_limiter_bounds_large_parses_by_count_and_memory() {
+        // (fetched_bytes, max_concurrent, memory_multiplier, expected_max). The budget is
+        // 3 MiB, so a 100 byte input times 20_000 estimates 2 MiB and runs alone.
+        for (fetched_bytes, max_concurrent, memory_multiplier, expected_max) in [
+            (100, 1, 1, 1),
+            (99, 1, 1, 3),
+            (100, 2, 1, 1),
+            (100, 3, 1, 3),
+            (100, 3, 20_000, 1),
+        ] {
             let max_in_flight = Arc::new(AtomicUsize::new(0));
             let provider = SizedProvider {
                 fetched_bytes,
@@ -447,8 +535,12 @@ mod tests {
                 max_in_flight: max_in_flight.clone(),
             };
             let cache = Arc::new(Mutex::new(SymbolSetCache::new(1 << 20)));
-            let caching =
-                Caching::new(provider, cache).with_parse_limiter(ParseLimiter::new(100, 1));
+            let caching = Caching::new(provider, cache).with_parse_limiter(ParseLimiter::new(
+                100,
+                max_concurrent,
+                3 << 20,
+                memory_multiplier,
+            ));
 
             futures::future::join_all(
                 (0..3).map(|i| caching.lookup(1, OrChunkId::<Url>::chunk_id(format!("set-{i}")))),
@@ -458,7 +550,8 @@ mod tests {
             assert_eq!(
                 max_in_flight.load(Ordering::SeqCst),
                 expected_max,
-                "fetched_bytes = {fetched_bytes}"
+                "fetched_bytes = {fetched_bytes}, max_concurrent = {max_concurrent}, \
+                 memory_multiplier = {memory_multiplier}"
             );
         }
 
@@ -470,7 +563,7 @@ mod tests {
             .unwrap(),
         );
         assert!(compressed.len() < 100);
-        assert!(compressed.requires_parse_permit(100));
+        assert!(compressed.parse_input_bytes().unwrap() >= 200);
 
         let mut raw_zip = Cursor::new(Vec::new());
         {
@@ -482,7 +575,7 @@ mod tests {
             writer.finish().unwrap();
         }
         let raw_zip = Bytes::from(raw_zip.into_inner());
-        assert!(raw_zip.requires_parse_permit(raw_zip.len() + 1));
+        assert_eq!(raw_zip.parse_input_bytes(), None);
     }
 
     #[tokio::test]
@@ -495,7 +588,7 @@ mod tests {
             started: started_tx,
             release: release.clone(),
         };
-        let limiter = ParseLimiter::new(1, 1);
+        let limiter = ParseLimiter::new(1, 1, 1 << 20, 1);
         let caching = Arc::new(
             Caching::new(provider, Arc::new(Mutex::new(SymbolSetCache::new(1024))))
                 .with_parse_limiter(limiter.clone()),

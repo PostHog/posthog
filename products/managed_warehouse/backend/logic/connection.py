@@ -1,9 +1,10 @@
-"""Expose a managed Duckgres warehouse in the SQL editor as a Postgres connection.
+"""Expose a managed warehouse in the SQL editor using a stable source identity.
 
-Each member team gets a Postgres ``ExternalDataSource`` whose short-lived Duckgres
-credential is resolved when a connection is opened. Duckgres root sees every schema in
-the warehouse, so the connection discovers and exposes the whole org catalog without
-per-team namespace configuration. Setup happens in two steps:
+The persisted Postgres source identity remains compatible with existing saved queries
+and lifecycle jobs. The organization's Data ops flag selects Trino or Duckgres at
+connection acquisition and schema discovery. Both use organization warehouse grants,
+so discovery exposes the whole org catalog without per-team namespace configuration.
+Setup happens in two steps:
 
 1. ``ensure_managed_warehouse_direct_source`` creates the source row after explicit
    successful provision or onboarding, so the connection appears immediately.
@@ -34,8 +35,9 @@ from posthog.dataclasses import frozen
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 
-from products.data_warehouse.backend.facade.api import reconcile_postgres_schemas
+from products.data_warehouse.backend.facade.api import reconcile_managed_trino_schemas, reconcile_postgres_schemas
 from products.managed_warehouse.backend.facade.contracts import ManagedWarehouseSourceAuth
+from products.managed_warehouse.backend.logic.sql_editor import managed_warehouse_sql_editor_uses_trino
 from products.managed_warehouse.backend.logic.sql_editor_credentials import (
     MANAGED_WAREHOUSE_SERVICE_CREDENTIAL_KIND,
     resolve_managed_warehouse_postgres_connection,
@@ -49,7 +51,8 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSchema,
     ExternalDataSource,
 )
-from products.warehouse_sources.backend.facade.source_management import SourceRegistry
+from products.warehouse_sources.backend.facade.source_inputs import SourceInputsStore, UnreadableSourceInputsError
+from products.warehouse_sources.backend.facade.source_management import SourceRegistry, SourceSchema
 from products.warehouse_sources.backend.facade.types import (
     ExternalDataSourceAccessMethod,
     ExternalDataSourceCreatedVia,
@@ -161,7 +164,7 @@ def _set_dynamic_source_auth(source: ExternalDataSource, *, lifecycle_generation
     source.access_method = ExternalDataSourceAccessMethod.DIRECT
     source.direct_query_enabled = True
     source.connection_metadata = _dynamic_source_metadata(lifecycle_generation=lifecycle_generation)
-    source.job_inputs = {}
+    SourceInputsStore.assign(source, {})
     source.deleted = False
     source.deleted_at = None
     source.save(
@@ -263,14 +266,14 @@ def _ensure_managed_source_locked(
         if tombstoned_legacy is not None:
             return _set_dynamic_source_auth(tombstoned_legacy, lifecycle_generation=lifecycle_generation)
 
-    return ExternalDataSource.objects.create(
+    return SourceInputsStore.create(
         source_id=str(uuid4()),
         connection_id=str(uuid4()),
         destination_id=str(uuid4()),
         team_id=team_id,
         status=ExternalDataSourceStatus.RUNNING,
         source_type=ExternalDataSourceType.POSTGRES,
-        job_inputs={},
+        inputs={},
         prefix=MANAGED_WAREHOUSE_SOURCE_PREFIX,
         description=MANAGED_WAREHOUSE_SOURCE_DESCRIPTION,
         access_method=ExternalDataSourceAccessMethod.DIRECT,
@@ -294,6 +297,22 @@ def _locked_source_lifecycle(organization_id: str | UUID) -> ManagedWarehouseSou
     return ManagedWarehouseSourceLifecycle.objects.select_for_update().get(pk=lifecycle.pk)
 
 
+def reserve_internal_warehouse(*, organization_id: str | UUID) -> bool:
+    with transaction.atomic():
+        lifecycle = _locked_source_lifecycle(organization_id)
+        if not lifecycle.internal_only and (
+            lifecycle.generation > 0
+            and lifecycle.desired_active
+            or DuckgresServer.objects.filter(organization_id=organization_id).exists()
+        ):
+            return False
+        lifecycle.internal_only = True
+        lifecycle.background_loading_enabled = True
+        lifecycle.desired_active = True
+        lifecycle.save(update_fields=["internal_only", "background_loading_enabled", "desired_active"])
+        return True
+
+
 def get_active_managed_warehouse_source_generation(*, organization_id: str | UUID) -> int | None:
     """Capture the current active generation before onboarding an additional team."""
     with transaction.atomic():
@@ -307,17 +326,31 @@ def get_managed_warehouse_source_generation(*, organization_id: str | UUID) -> i
         return _locked_source_lifecycle(organization_id).generation
 
 
-def activate_managed_warehouse_source_lifecycle(*, organization_id: str | UUID, expected_generation: int) -> int | None:
+def activate_managed_warehouse_source_lifecycle(
+    *, organization_id: str | UUID, expected_generation: int, internal_only: bool = False
+) -> int | None:
     """Conditionally advance after provision, unless a newer lifecycle operation won."""
     with transaction.atomic():
         lifecycle = _locked_source_lifecycle(organization_id)
-        if lifecycle.generation != expected_generation:
+        if lifecycle.generation != expected_generation or (
+            lifecycle.internal_only and lifecycle.desired_active and not internal_only
+        ):
             return None
         was_inactive = not lifecycle.desired_active
         lifecycle.generation += 1
         lifecycle.desired_active = True
+        lifecycle.internal_only = internal_only
+        lifecycle.background_loading_enabled = internal_only
         lifecycle.legacy_conversion_generation = lifecycle.generation if was_inactive else None
-        lifecycle.save(update_fields=["generation", "desired_active", "legacy_conversion_generation"])
+        lifecycle.save(
+            update_fields=[
+                "generation",
+                "desired_active",
+                "internal_only",
+                "background_loading_enabled",
+                "legacy_conversion_generation",
+            ]
+        )
         return lifecycle.generation
 
 
@@ -350,7 +383,7 @@ def ensure_managed_warehouse_direct_source(
     Team.objects.only("id", "organization_id").get(id=team_id, organization_id=organization_id)
     with transaction.atomic():
         lifecycle = _locked_source_lifecycle(organization_id)
-        if not lifecycle.desired_active or lifecycle.generation != expected_generation:
+        if not lifecycle.desired_active or lifecycle.internal_only or lifecycle.generation != expected_generation:
             return None
         # Deliberately NOT select_for_update: FOR UPDATE on a posthog_team row blocks the
         # FK KEY SHARE lock every team-scoped INSERT takes, so a long hold here stalls all
@@ -368,6 +401,7 @@ def _reconcile_managed_warehouse_source(*, team_id: int, organization_id: str | 
     lifecycle_snapshot = _lifecycle_snapshot(organization_id)
     if not lifecycle_snapshot.desired_active:
         return
+    trino_enabled = managed_warehouse_sql_editor_uses_trino(organization_id)
     with transaction.atomic():
         # Plain read on purpose — see ensure_managed_warehouse_direct_source for why the
         # team row must never be locked from these periodic sweeps.
@@ -381,47 +415,28 @@ def _reconcile_managed_warehouse_source(*, team_id: int, organization_id: str | 
         source_id = source.id
         source_api_version = source.api_version
         credential_kind = _credential_kind(source)
+        use_trino = source.is_dynamic_managed_warehouse and trino_enabled
 
     excluded_schemas = internal_schemas()
 
-    source_impl = SourceRegistry.get_source(ExternalDataSourceType.POSTGRES)
     try:
-        dynamic_connection = resolve_managed_warehouse_postgres_connection(
-            source_auth=_source_auth(source),
-            organization_id=organization_id,
-            team_id=team_id,
-            principal=_schema_discovery_principal(team_id),
-        )
-        source_config = (
-            {
-                "host": dynamic_connection.host,
-                "port": dynamic_connection.port,
-                "database": dynamic_connection.database,
-                "user": dynamic_connection.username,
-                "password": dynamic_connection.password,
-            }
-            if dynamic_connection is not None
-            else dict(source.job_inputs or {})
-        )
-        config = source_impl.parse_config(source_config)
-        discovered = source_impl.get_schemas(
-            config,
-            team_id,
-            api_version=source_impl.resolve_api_version(source_api_version),
-            require_ssl=dynamic_connection is not None and dynamic_connection.sslmode == "require",
-        )
+        if use_trino:
+            from products.managed_warehouse.backend.logic.sql_editor_trino import (
+                discover_managed_trino_schemas,  # noqa: PLC0415 -- optional Trino drivers load only for Trino discovery
+            )
+
+            discovered = discover_managed_trino_schemas(str(organization_id), team_id)
+        else:
+            discovered = _discover_postgres_schemas(source, organization_id, team_id, source_api_version)
     except Exception:
-        # A provisioning or briefly unreachable warehouse fails here on every periodic sweep;
-        # skip and let the next run retry rather than surfacing a task error each time.
         logger.warning("Managed warehouse introspection failed; will retry", team_id=team_id, exc_info=True)
         return
     source_schemas = [schema for schema in discovered if (schema.source_schema or "") not in excluded_schemas]
+    trino_still_enabled = managed_warehouse_sql_editor_uses_trino(organization_id)
     with transaction.atomic():
         if _lifecycle_snapshot(organization_id, lock=True) != lifecycle_snapshot:
             return
-        # Plain read on purpose — this atomic block runs get_or_create loops and
-        # reconcile_postgres_schemas and can hold its locks for minutes; taking the team
-        # row here would stall every writer for the team the whole time.
+        # A team row lock would block unrelated FK inserts throughout catalog reconciliation.
         team = Team.objects.only("id").filter(id=team_id, organization_id=organization_id).first()
         if team is None:
             return
@@ -436,9 +451,9 @@ def _reconcile_managed_warehouse_source(*, team_id: int, organization_id: str | 
             )
             .first()
         )
-        if source is None:
+        if source is None or _credential_kind(source) != credential_kind:
             return
-        if _credential_kind(source) != credential_kind:
+        if use_trino != (source.is_dynamic_managed_warehouse and trino_still_enabled):
             return
 
         for schema in source_schemas:
@@ -454,7 +469,40 @@ def _reconcile_managed_warehouse_source(*, team_id: int, organization_id: str | 
                 schema_model.should_sync = True
                 schema_model.save(update_fields=["deleted", "deleted_at", "should_sync", "updated_at"])
 
-        reconcile_postgres_schemas(source=source, source_schemas=source_schemas, team_id=team_id)
+        if use_trino:
+            reconcile_managed_trino_schemas(source_id=source.id, source_schemas=source_schemas, team_id=team_id)
+        else:
+            reconcile_postgres_schemas(source=source, source_schemas=source_schemas, team_id=team_id)
+
+
+def _discover_postgres_schemas(
+    source: ExternalDataSource, organization_id: str | UUID, team_id: int, source_api_version: str | None
+) -> list[SourceSchema]:
+    source_impl = SourceRegistry.get_source(ExternalDataSourceType.POSTGRES)
+    dynamic_connection = resolve_managed_warehouse_postgres_connection(
+        source_auth=_source_auth(source),
+        organization_id=organization_id,
+        team_id=team_id,
+        principal=_schema_discovery_principal(team_id),
+    )
+    source_config = (
+        {
+            "host": dynamic_connection.host,
+            "port": dynamic_connection.port,
+            "database": dynamic_connection.database,
+            "user": dynamic_connection.username,
+            "password": dynamic_connection.password,
+        }
+        if dynamic_connection is not None
+        else SourceInputsStore.load(source)
+    )
+    config = source_impl.parse_config(source_config)
+    return source_impl.get_schemas(
+        config,
+        team_id,
+        api_version=source_impl.resolve_api_version(source_api_version),
+        require_ssl=dynamic_connection is not None and dynamic_connection.sslmode == "require",
+    )
 
 
 def reconcile_managed_warehouse_tables(*, team_id: int, organization_id: str | UUID) -> None:
@@ -510,9 +558,13 @@ def update_managed_warehouse_root_password(*, organization_id: str | UUID, passw
                 MANAGED_WAREHOUSE_PROJECT_READER_CREDENTIAL_KIND,
             }:
                 continue
-            if source.job_inputs != config:
-                source.job_inputs = config
-                source.save(update_fields=["job_inputs", "updated_at"])
+            try:
+                current = SourceInputsStore.load(source)
+            except UnreadableSourceInputsError:
+                # Malformed legacy inputs are replaced with the valid config, not left to block rotation.
+                current = None
+            if current != config:
+                SourceInputsStore.save(source, config)
 
 
 def soft_delete_managed_warehouse_sources(*, organization_id: str | UUID, expected_generation: int) -> None:

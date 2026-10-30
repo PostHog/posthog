@@ -23,15 +23,18 @@ use personhog_proto::personhog::types::v1::{
     DeleteHashKeyOverridesByTeamsResponse, DeletePersonsBatchForTeamRequest,
     DeletePersonsBatchForTeamResponse, DeletePersonsMode as ProtoDeletePersonsMode,
     DeletePersonsRequest, DeletePersonsResponse, DeleteTombstonedPersonsRequest,
-    DeleteTombstonedPersonsResponse, DistinctIdWithVersion, EnsurePersonVersionFloorsRequest,
-    EnsurePersonVersionFloorsResponse, GetDistinctIdsForPersonRequest,
-    GetDistinctIdsForPersonResponse, GetDistinctIdsForPersonsRequest,
-    GetDistinctIdsForPersonsResponse, GetGroupRequest, GetGroupResponse,
-    GetGroupTypeMappingByDashboardIdRequest, GetGroupTypeMappingByDashboardIdResponse,
-    GetGroupTypeMappingsByProjectIdRequest, GetGroupTypeMappingsByProjectIdsRequest,
-    GetGroupTypeMappingsByTeamIdRequest, GetGroupTypeMappingsByTeamIdsRequest,
-    GetGroupsBatchRequest, GetGroupsBatchResponse, GetGroupsRequest,
-    GetHashKeyOverrideContextRequest, GetHashKeyOverrideContextResponse,
+    DeleteTombstonedPersonsResponse, DistinctIdRow as ProtoDistinctIdRow, DistinctIdWithVersion,
+    DistinctIdWriteAction as ProtoDistinctIdWriteAction,
+    DistinctIdWriteOutcome as ProtoDistinctIdWriteOutcome,
+    DistinctIdWriteResult as ProtoDistinctIdWriteResult, EnsurePersonVersionFloorsRequest,
+    EnsurePersonVersionFloorsResponse, GetDistinctIdRowsRequest, GetDistinctIdRowsResponse,
+    GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonResponse,
+    GetDistinctIdsForPersonsRequest, GetDistinctIdsForPersonsResponse, GetGroupRequest,
+    GetGroupResponse, GetGroupTypeMappingByDashboardIdRequest,
+    GetGroupTypeMappingByDashboardIdResponse, GetGroupTypeMappingsByProjectIdRequest,
+    GetGroupTypeMappingsByProjectIdsRequest, GetGroupTypeMappingsByTeamIdRequest,
+    GetGroupTypeMappingsByTeamIdsRequest, GetGroupsBatchRequest, GetGroupsBatchResponse,
+    GetGroupsRequest, GetHashKeyOverrideContextRequest, GetHashKeyOverrideContextResponse,
     GetPersonByDistinctIdRequest, GetPersonByUuidRequest, GetPersonRequest, GetPersonResponse,
     GetPersonTombstonesRequest, GetPersonTombstonesResponse, GetPersonsByDistinctIdsInTeamRequest,
     GetPersonsByDistinctIdsRequest, GetPersonsByUuidsRequest, GetPersonsRequest, GroupKey,
@@ -40,16 +43,21 @@ use personhog_proto::personhog::types::v1::{
     HashKeyOverride, HashKeyOverrideContext as ProtoHashKeyOverrideContext,
     InsertCohortMembersRequest, InsertCohortMembersResponse, ListCohortMemberIdsRequest,
     ListCohortMemberIdsResponse, ListGroupsRequest, ListGroupsResponse,
-    ListPersonTombstoneQueueRequest, ListPersonTombstoneQueueResponse, PersonDistinctIds,
+    ListPersonTombstoneQueueRequest, ListPersonTombstoneQueueResponse, ListPersonsForTeamRequest,
+    ListPersonsForTeamResponse, PersonDistinctIds, PersonListEntry as ProtoPersonListEntry,
     PersonTombstoneQueueEntry, PersonVersionFloorResult, PersonWithDistinctIds,
     PersonWithTeamDistinctId, PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse,
-    PersonsResponse, SetPersonDistinctIdVersionFloorRequest,
+    PersonsResponse, RaiseOutcome as ProtoRaiseOutcome, RaisePersonVersionFloorResult,
+    RaisePersonVersionFloorsRequest, RaisePersonVersionFloorsResponse,
+    RestoreOutcome as ProtoRestoreOutcome, RestorePersonResult, RestorePersonsRequest,
+    RestorePersonsResponse, SetPersonDistinctIdVersionFloorRequest,
     SetPersonDistinctIdVersionFloorResponse, SetPersonVersionFloorRequest,
     SetPersonVersionFloorResponse, SplitPersonRequest, SplitPersonResponse,
     SplitResult as ProtoSplitResult, TeamDistinctId, TombstonedDistinctId, TombstonedPerson,
     UpdateGroupRequest, UpdateGroupResponse, UpdateGroupTypeMappingRequest,
     UpdateGroupTypeMappingResponse, UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
-    VersionFloorOutcome as ProtoVersionFloorOutcome,
+    VersionFloorOutcome as ProtoVersionFloorOutcome, WriteDistinctIdsRequest,
+    WriteDistinctIdsResponse,
 };
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
@@ -66,6 +74,9 @@ const MAX_SPLIT_BATCH_SIZE: usize = 250;
 // Version floors also run in one transaction holding
 // row locks, so they take the same cap as splits.
 const MAX_LOCKED_WRITE_BATCH_SIZE: usize = 250;
+const MAX_DISTINCT_ID_ROWS_SIZE: usize = 1000;
+const DEFAULT_LIST_PERSONS_LIMIT: i64 = 1000;
+const MAX_LIST_PERSONS_LIMIT: i64 = 10_000;
 
 use consistency::{reject_strong_consistency, to_storage_consistency};
 use error::log_and_convert_error;
@@ -1592,6 +1603,223 @@ impl PersonHogReplica for PersonHogReplicaService {
                 .collect(),
         }))
     }
+    async fn get_distinct_id_rows(
+        &self,
+        request: Request<GetDistinctIdRowsRequest>,
+    ) -> Result<Response<GetDistinctIdRowsResponse>, Status> {
+        let req = request.into_inner();
+        if req.distinct_ids.len() > MAX_DISTINCT_ID_ROWS_SIZE {
+            return Err(Status::invalid_argument(format!(
+                "Maximum {MAX_DISTINCT_ID_ROWS_SIZE} distinct ids per request"
+            )));
+        }
+        let consistency = to_storage_consistency(&req.read_options);
+        let rows = self
+            .storage
+            .get_distinct_id_rows(req.team_id, &req.distinct_ids, consistency)
+            .await
+            .map_err(|e| log_and_convert_error(e, "get_distinct_id_rows"))?;
+
+        Ok(Response::new(GetDistinctIdRowsResponse {
+            rows: rows.into_iter().map(distinct_id_row_to_proto).collect(),
+        }))
+    }
+
+    async fn list_persons_for_team(
+        &self,
+        request: Request<ListPersonsForTeamRequest>,
+    ) -> Result<Response<ListPersonsForTeamResponse>, Status> {
+        let req = request.into_inner();
+        reject_strong_consistency(&req.read_options)?;
+        let limit = match req.limit {
+            0 => DEFAULT_LIST_PERSONS_LIMIT,
+            l if (1..=MAX_LIST_PERSONS_LIMIT).contains(&l) => l,
+            _ => {
+                return Err(Status::invalid_argument(format!(
+                    "limit must be between 1 and {MAX_LIST_PERSONS_LIMIT}"
+                )))
+            }
+        };
+        let persons = self
+            .storage
+            .list_persons_for_team(
+                req.team_id,
+                req.after_person_id,
+                req.before_person_id,
+                limit,
+            )
+            .await
+            .map_err(|e| log_and_convert_error(e, "list_persons_for_team"))?;
+
+        let next_after_person_id = if persons.len() as i64 >= limit {
+            persons.last().map(|p| p.id)
+        } else {
+            None
+        };
+        Ok(Response::new(ListPersonsForTeamResponse {
+            persons: persons
+                .into_iter()
+                .map(|p| ProtoPersonListEntry {
+                    id: p.id,
+                    uuid: p.uuid.to_string(),
+                    version: p.version,
+                    is_deleted: p.is_deleted,
+                    has_live_distinct_ids: p.has_live_distinct_ids,
+                    created_at_ms: p.created_at.timestamp_millis(),
+                })
+                .collect(),
+            next_after_person_id,
+        }))
+    }
+    async fn raise_person_version_floors(
+        &self,
+        request: Request<RaisePersonVersionFloorsRequest>,
+    ) -> Result<Response<RaisePersonVersionFloorsResponse>, Status> {
+        let req = request.into_inner();
+        check_floor_batch(
+            req.floors
+                .iter()
+                .map(|f| (f.person_uuid.as_str(), f.min_version)),
+        )?;
+        let floors: Vec<(Uuid, i64)> = req
+            .floors
+            .iter()
+            .map(|f| parse_uuid(&f.person_uuid).map(|uuid| (uuid, f.min_version)))
+            .collect::<Result<_, _>>()?;
+        reject_duplicate_uuids(floors.iter().map(|(uuid, _)| *uuid))?;
+
+        let results = self
+            .storage
+            .raise_person_version_floors(req.team_id, &floors)
+            .await
+            .map_err(|e| log_and_convert_error(e, "raise_person_version_floors"))?;
+
+        Ok(Response::new(RaisePersonVersionFloorsResponse {
+            results: results
+                .into_iter()
+                .map(|r| RaisePersonVersionFloorResult {
+                    person_uuid: r.uuid.to_string(),
+                    outcome: raise_outcome_to_proto(r.outcome) as i32,
+                    version: r.version,
+                })
+                .collect(),
+        }))
+    }
+
+    async fn restore_persons(
+        &self,
+        request: Request<RestorePersonsRequest>,
+    ) -> Result<Response<RestorePersonsResponse>, Status> {
+        let req = request.into_inner();
+        check_floor_batch(
+            req.persons
+                .iter()
+                .map(|p| (p.person_uuid.as_str(), p.version)),
+        )?;
+        let persons: Vec<storage::types::RestoredPerson> = req
+            .persons
+            .iter()
+            .map(|p| {
+                let properties: serde_json::Value =
+                    serde_json::from_slice(&p.properties).map_err(|e| {
+                        Status::invalid_argument(format!("Invalid properties JSON: {e}"))
+                    })?;
+                if !properties.is_object() {
+                    return Err(Status::invalid_argument("properties must be a JSON object"));
+                }
+                Ok(storage::types::RestoredPerson {
+                    uuid: parse_uuid(&p.person_uuid)?,
+                    properties,
+                    created_at: chrono::DateTime::from_timestamp_millis(p.created_at_ms)
+                        .ok_or_else(|| Status::invalid_argument("created_at_ms out of range"))?,
+                    is_identified: p.is_identified,
+                    version: p.version,
+                    distinct_ids: p
+                        .distinct_ids
+                        .iter()
+                        .map(|d| (d.distinct_id.clone(), d.version))
+                        .collect(),
+                })
+            })
+            .collect::<Result<_, _>>()?;
+        reject_duplicate_uuids(persons.iter().map(|p| p.uuid))?;
+        check_restored_distinct_ids(&persons)?;
+
+        let results = self
+            .storage
+            .restore_persons(req.team_id, &persons)
+            .await
+            .map_err(|e| log_and_convert_error(e, "restore_persons"))?;
+
+        Ok(Response::new(RestorePersonsResponse {
+            results: results
+                .into_iter()
+                .map(|r| RestorePersonResult {
+                    person_uuid: r.uuid.to_string(),
+                    outcome: restore_outcome_to_proto(r.outcome) as i32,
+                    person_id: r.person_id,
+                    version: r.version,
+                    restored_distinct_ids: r.restored_distinct_ids,
+                })
+                .collect(),
+        }))
+    }
+
+    async fn write_distinct_ids(
+        &self,
+        request: Request<WriteDistinctIdsRequest>,
+    ) -> Result<Response<WriteDistinctIdsResponse>, Status> {
+        let req = request.into_inner();
+        check_floor_batch(
+            req.writes
+                .iter()
+                .map(|w| (w.distinct_id.as_str(), w.min_version)),
+        )?;
+        let writes: Vec<storage::types::DistinctIdWrite> = req
+            .writes
+            .iter()
+            .map(|w| {
+                let action = match ProtoDistinctIdWriteAction::try_from(w.action) {
+                    Ok(ProtoDistinctIdWriteAction::Insert) => {
+                        storage::types::DistinctIdWriteAction::Insert
+                    }
+                    Ok(ProtoDistinctIdWriteAction::Raise) => {
+                        storage::types::DistinctIdWriteAction::Raise
+                    }
+                    _ => {
+                        return Err(Status::invalid_argument(format!(
+                            "Unknown action {} for {}",
+                            w.action, w.distinct_id
+                        )))
+                    }
+                };
+                Ok(storage::types::DistinctIdWrite {
+                    distinct_id: w.distinct_id.clone(),
+                    action,
+                    person_uuid: parse_uuid(&w.person_uuid)?,
+                    min_version: w.min_version,
+                    expected_version: w.expected_version,
+                })
+            })
+            .collect::<Result<_, _>>()?;
+
+        let results = self
+            .storage
+            .write_distinct_ids(req.team_id, &writes)
+            .await
+            .map_err(|e| log_and_convert_error(e, "write_distinct_ids"))?;
+
+        Ok(Response::new(WriteDistinctIdsResponse {
+            results: results
+                .into_iter()
+                .map(|r| ProtoDistinctIdWriteResult {
+                    distinct_id: r.distinct_id,
+                    outcome: write_outcome_to_proto(r.outcome) as i32,
+                    row: r.row.map(distinct_id_row_to_proto),
+                })
+                .collect(),
+        }))
+    }
 }
 
 #[allow(clippy::result_large_err)]
@@ -1657,5 +1885,91 @@ fn tombstone_to_proto(person: storage::types::TombstonedPerson) -> TombstonedPer
                 version: did.version,
             })
             .collect(),
+    }
+}
+
+#[allow(clippy::result_large_err)]
+fn check_restored_distinct_ids(persons: &[storage::types::RestoredPerson]) -> Result<(), Status> {
+    let ids: Vec<&(String, i64)> = persons.iter().flat_map(|p| &p.distinct_ids).collect();
+    if ids.len() > MAX_DISTINCT_ID_ROWS_SIZE {
+        return Err(Status::invalid_argument(format!(
+            "At most {MAX_DISTINCT_ID_ROWS_SIZE} distinct ids per restore, got {}",
+            ids.len()
+        )));
+    }
+    let mut seen = HashSet::with_capacity(ids.len());
+    for (distinct_id, version) in ids {
+        if distinct_id.is_empty() {
+            return Err(Status::invalid_argument("distinct_id must not be empty"));
+        }
+        if *version < 0 {
+            return Err(Status::invalid_argument(format!(
+                "version must not be negative, got {version} for {distinct_id}"
+            )));
+        }
+        if !seen.insert(distinct_id.as_str()) {
+            return Err(Status::invalid_argument(format!(
+                "Duplicate distinct_id in request: {distinct_id}"
+            )));
+        }
+    }
+    Ok(())
+}
+
+#[allow(clippy::result_large_err)]
+fn reject_duplicate_uuids(uuids: impl Iterator<Item = Uuid>) -> Result<(), Status> {
+    // Two spellings of one UUID pass the string check but lock the same row.
+    let mut seen = HashSet::new();
+    for uuid in uuids {
+        if !seen.insert(uuid) {
+            return Err(Status::invalid_argument(format!(
+                "Duplicate key in request: {uuid}"
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn distinct_id_row_to_proto(row: storage::types::DistinctIdRow) -> ProtoDistinctIdRow {
+    ProtoDistinctIdRow {
+        distinct_id: row.distinct_id,
+        person_id: row.person_id,
+        person_uuid: row.person_uuid.map(|u| u.to_string()),
+        version: row.version,
+        is_deleted: row.is_deleted,
+        person_is_deleted: row.person_is_deleted,
+    }
+}
+
+fn raise_outcome_to_proto(outcome: storage::types::RaiseOutcome) -> ProtoRaiseOutcome {
+    match outcome {
+        storage::types::RaiseOutcome::Raised => ProtoRaiseOutcome::Raised,
+        storage::types::RaiseOutcome::AtOrAbove => ProtoRaiseOutcome::AtOrAbove,
+        storage::types::RaiseOutcome::NotLive => ProtoRaiseOutcome::NotLive,
+        storage::types::RaiseOutcome::Missing => ProtoRaiseOutcome::Missing,
+    }
+}
+
+fn restore_outcome_to_proto(outcome: storage::types::RestoreOutcome) -> ProtoRestoreOutcome {
+    match outcome {
+        storage::types::RestoreOutcome::Inserted => ProtoRestoreOutcome::Inserted,
+        storage::types::RestoreOutcome::ExistsLive => ProtoRestoreOutcome::ExistsLive,
+        storage::types::RestoreOutcome::ExistsTombstoned => ProtoRestoreOutcome::ExistsTombstoned,
+        storage::types::RestoreOutcome::NoDistinctId => ProtoRestoreOutcome::NoDistinctId,
+    }
+}
+
+fn write_outcome_to_proto(
+    outcome: storage::types::DistinctIdWriteOutcome,
+) -> ProtoDistinctIdWriteOutcome {
+    match outcome {
+        storage::types::DistinctIdWriteOutcome::Applied => ProtoDistinctIdWriteOutcome::Applied,
+        storage::types::DistinctIdWriteOutcome::Unchanged => ProtoDistinctIdWriteOutcome::Unchanged,
+        storage::types::DistinctIdWriteOutcome::PreconditionFailed => {
+            ProtoDistinctIdWriteOutcome::PreconditionFailed
+        }
+        storage::types::DistinctIdWriteOutcome::PersonNotLive => {
+            ProtoDistinctIdWriteOutcome::PersonNotLive
+        }
     }
 }

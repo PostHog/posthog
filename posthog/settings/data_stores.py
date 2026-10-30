@@ -298,11 +298,15 @@ elif TEST:
     SUFFIX = "_test" + XDIST_SUFFIX
 
 # Clickhouse Settings
+
 CLICKHOUSE_TEST_DB: str = "posthog" + SUFFIX
 
 CLICKHOUSE_HOST: str = os.getenv("CLICKHOUSE_HOST", "clickhouse")
 CLICKHOUSE_LOGS_HOST: str = os.getenv("CLICKHOUSE_LOGS_HOST", "clickhouse")
 CLICKHOUSE_OFFLINE_CLUSTER_HOST: str | None = os.getenv("CLICKHOUSE_OFFLINE_CLUSTER_HOST", None)
+# Workload that Workload.DEFAULT resolves to in this process. Celery tasks switch to OFFLINE per task.
+# Temporal workers and Dagster set OFFLINE so background queries are tagged with where they run.
+CLICKHOUSE_DEFAULT_WORKLOAD: str = os.getenv("CLICKHOUSE_DEFAULT_WORKLOAD", "ONLINE")
 CLICKHOUSE_MIGRATIONS_HOST: str = os.getenv("CLICKHOUSE_MIGRATIONS_HOST", CLICKHOUSE_HOST)
 CLICKHOUSE_ENDPOINTS_HOST: str = os.getenv("CLICKHOUSE_ENDPOINTS_HOST", CLICKHOUSE_HOST)
 CLICKHOUSE_USER: str = os.getenv("CLICKHOUSE_USER", "default")
@@ -339,6 +343,8 @@ CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA: bool = TEST and get_from_env(
 # query_log_archive's single data table lives on the OPS cluster; every cluster's
 # Distributed read/write tables route to it via this cluster name.
 CLICKHOUSE_OPS_CLUSTER: str = os.getenv("CLICKHOUSE_OPS_CLUSTER", "ops")
+# In deployed cloud, the live raw_sessions_v3 MergeTree is on this satellite cluster.
+CLICKHOUSE_SESSIONS_CLUSTER: str = os.getenv("CLICKHOUSE_SESSIONS_CLUSTER", "sessions")
 # Opt-in flag for the multinode ClickHouse smoke-test stack. When true, migrations
 # respect their declared NodeRole(s) instead of being collapsed to NodeRole.ALL,
 # so a per-cluster topology can actually exercise routing.
@@ -601,6 +607,17 @@ WORKFLOWS_STEP_RESUME_JWT_SECRETS = get_list(
     get_from_env("WORKFLOWS_STEP_RESUME_JWT_SECRET", "local-dev-workflows-step-resume-jwt" if DEBUG or TEST else "")
 )
 
+# Scoped JWT keys for the transactional email route (an API call sending one email from a message
+# template). The web tier mints, the plugin server verifies. Its own key per the one-key-per-surface
+# rule above. Comma-separated, newest first. Empty outside dev/test, so sends fail closed until
+# provisioned. The dev/test value must match the plugin server's default (nodejs/src/cdp/config.ts).
+WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRETS = get_list(
+    get_from_env(
+        "WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET",
+        "local-dev-workflows-transactional-email-jwt" if DEBUG or TEST else "",
+    )
+)
+
 # Signs the tokens a workflow's "Create AI task" action calls back with. The dev/test value
 # must match the plugin server's minting default so local workflows work with no setup.
 TASKS_CREATE_JWT_SECRETS = get_list(
@@ -618,6 +635,30 @@ WORKFLOW_SCOUT_RUN_JWT_SECRETS = get_list(
 # must match the plugin server's minting default.
 WORKFLOW_CLASSIFY_JWT_SECRETS = get_list(
     get_from_env("WORKFLOW_CLASSIFY_JWT_SECRET", "local-dev-workflow-classify-jwt" if DEBUG or TEST else "")
+)
+
+# Signs the tokens a workflow's Replay Vision step calls back with. Its own
+# key for the same reason as the scout one. The dev/test value must match the plugin server's minting default.
+WORKFLOW_VISION_REQUEST_JWT_SECRETS = get_list(
+    get_from_env("WORKFLOW_VISION_REQUEST_JWT_SECRET", "local-dev-workflow-vision-request-jwt" if DEBUG or TEST else "")
+)
+
+# Signs the tokens a workflow's "Add to static cohort" step calls back with. The dev/test value
+# must match the plugin server's minting default.
+WORKFLOW_ADD_TO_STATIC_COHORT_JWT_SECRETS = get_list(
+    get_from_env(
+        "WORKFLOW_ADD_TO_STATIC_COHORT_JWT_SECRET",
+        "local-dev-workflow-add-to-static-cohort-jwt" if DEBUG or TEST else "",
+    )
+)
+
+# Signs the tokens a workflow's "Opt out of messages" step calls back with. The dev/test value must match the
+# plugin server's minting default.
+WORKFLOW_MESSAGE_OPT_OUT_JWT_SECRETS = get_list(
+    get_from_env(
+        "WORKFLOW_MESSAGE_OPT_OUT_JWT_SECRET",
+        "local-dev-workflow-message-opt-out-jwt" if DEBUG or TEST else "",
+    )
 )
 
 # Verifies the scoped JWTs the CDP worker's conversations ticket actions send to the internal
@@ -731,6 +772,18 @@ CACHES["ingress_dedup"] = {
     "LOCATION": REDIS_URL,
 }
 
+CACHES["task_artifact_preview"] = {
+    **CACHES["default"],
+    "LOCATION": REDIS_URL,
+}
+
+# Metrics dashboard tiles wait for one loader to write the variable options and hold a lock while it runs.
+# A replica that lags would hide the result and the lock, so another tile would run the same query again.
+CACHES["metrics_variable_options"] = {
+    **CACHES["default"],
+    "LOCATION": REDIS_URL,
+}
+
 # Dedicated cache for the feature flags service (if configured)
 # Django only writes to this cache (never reads), so no reader URL needed
 if FLAGS_REDIS_URL:
@@ -796,6 +849,8 @@ if TEST:
     CACHES["organization_access"] = CACHES["default"]
     CACHES["cohort_dependencies"] = CACHES["default"]
     CACHES["ingress_dedup"] = CACHES["default"]
+    CACHES["task_artifact_preview"] = CACHES["default"]
+    CACHES["metrics_variable_options"] = CACHES["default"]
 
 # Cache timeout for materialized columns metadata (in seconds)
 MATERIALIZED_COLUMNS_CACHE_TIMEOUT: int = get_from_env("MATERIALIZED_COLUMNS_CACHE_TIMEOUT", 900, type_cast=int)

@@ -7,7 +7,7 @@ name: PR housekeeping
 
 on:
     pull_request:
-        types: [opened, synchronize, reopened, edited, ready_for_review, review_requested, converted_to_draft]
+        types: [opened, synchronize, reopened, edited, ready_for_review, review_requested, converted_to_draft, stacked]
 
 # Keyed by event action so a new push (synchronize) cancels the previous
 # push's run without cancelling runs fired by other event types on the PR.
@@ -35,6 +35,15 @@ jobs:
     turbo:
         if: contains(fromJSON('["opened", "synchronize", "reopened"]'), github.event.action)
         uses: ./.github/workflows/ci-turbo.yml
+
+    mobile-ci:
+        name: Mobile CI
+        # Dispatch on every PR so repository rules can require "Mobile CI Pass".
+        # Its own changes job skips the work when the diff does not touch the app.
+        if: contains(fromJSON('["opened", "synchronize", "reopened"]'), github.event.action)
+        uses: ./.github/workflows/mobile-ci.yml
+        secrets:
+            GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
 
     trunk-impacted-targets:
         # Also on ready_for_review: Trunk keys the upload to a head SHA, and a PR
@@ -73,7 +82,7 @@ jobs:
         # every push wasted the run and fought manual card moves.
         # No trunk-merge/**: the queue's copy of the PR would add a second,
         # throwaway card for work the real PR already tracks.
-        if: contains(fromJSON('["opened", "reopened", "ready_for_review", "review_requested", "converted_to_draft"]'), github.event.action) && github.event.pull_request.head.repo.full_name == github.repository && !startsWith(github.head_ref, 'trunk-merge/')
+        if: contains(fromJSON('["opened", "reopened", "ready_for_review", "review_requested", "converted_to_draft"]'), github.event.action) && github.event.pull_request.head.repo.full_name == github.repository && !startsWith(github.head_ref, 'trunk-merge/') && github.repository == 'PostHog/posthog'
         uses: PostHog/.github/.github/workflows/flags-project-board.yml@2db3d3b946aeb9e479ce9f0078139a67f8ef38ce
         permissions:
             contents: read
@@ -127,6 +136,13 @@ jobs:
         uses: ./.github/workflows/ci-migrations-service-separation-check.yml
         secrets:
             GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
+
+    stack-depth:
+        if: contains(fromJSON('["opened", "synchronize", "reopened", "stacked"]'), github.event.action)
+        uses: ./.github/workflows/pr-stack-depth.yml
+        permissions:
+            contents: read
+            pull-requests: read
 
     release-plan:
         if: contains(fromJSON('["opened", "synchronize", "reopened"]'), github.event.action)

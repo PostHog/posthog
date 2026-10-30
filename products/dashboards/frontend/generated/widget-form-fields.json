@@ -49,6 +49,13 @@
             "formFields": ["limit", "dateRange", "wrapLines", "timezone"],
             "live": false
         },
+        "metrics_table": {
+            "configSchemaExport": "metricsTableWidgetConfigSchema",
+            "configTypeExport": "MetricsTableWidgetConfig",
+            "formSchemaExport": "metricsTableWidgetFormSchema",
+            "formFields": ["limit", "dateRange"],
+            "live": false
+        },
         "notebook_widget": {
             "configSchemaExport": "notebookWidgetConfigSchema",
             "configTypeExport": "NotebookWidgetConfig",

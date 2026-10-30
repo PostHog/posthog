@@ -136,6 +136,19 @@ class TestValidateCredentials:
                 ],
                 True,
             ),
+            # Workloads take no page-size param, so the child probe sends only the parent incident id.
+            (
+                "incident_participant_workloads",
+                "incidents",
+                [{"id": "I1"}],
+                403,
+                [
+                    "https://api.incident.io/v2/incidents?page_size=1",
+                    "https://api.incident.io/v2/incidents",
+                    "https://api.incident.io/v2/incident_participant_workloads?incident_id=I1",
+                ],
+                False,
+            ),
             # No parent row to bind, so the child scope can't be probed and the parent probe decides.
             (
                 "catalog_entries",
@@ -233,6 +246,43 @@ class TestGetRows:
         assert result.params("updated_at[gte]")[1] == "2024-05-01"
         assert any("after=01C" in state.next_url for state in result.saved_states if state.next_url)
 
+    @pytest.mark.parametrize(
+        "inputs, expected_updated_at_gte",
+        [
+            ({}, None),
+            (
+                {"incremental_field": "updated_at", "db_incremental_field_last_value": "2026-05-01T10:15:00Z"},
+                "2026-05-01",
+            ),
+            (
+                {
+                    "incremental_field": "updated_at",
+                    "should_use_incremental_field": False,
+                    "db_incremental_field_last_value": "2026-05-01T10:15:00Z",
+                },
+                None,
+            ),
+        ],
+    )
+    def test_actions_incremental_request_shaping(
+        self, inputs: dict[str, Any], expected_updated_at_gte: str | None
+    ) -> None:
+        result = _driver().run(
+            "actions",
+            [
+                ScriptedResponse(json=_page_body("actions", [{"id": "01A"}], "01A")),
+                ScriptedResponse(json=_page_body("actions", [{"id": "01B"}], None)),
+            ],
+            **inputs,
+        )
+
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["01A", "01B"]
+        assert set(result.paths) == {"/v3/actions"}
+        assert result.params("after") == [None, "01A"]
+        assert result.params("updated_at[gte]") == [expected_updated_at_gte] * 2
+        assert result.params("page_size") == ["250", "250"]
+
     def test_alert_sources_drop_secret_token(self) -> None:
         body = {"alert_sources": [{"id": "01A", "name": "Datadog", "secret_token": "not-a-real-token"}]}
         result = _driver().run("alert_sources", [ScriptedResponse(json=body)])
@@ -272,6 +322,48 @@ class TestFanout:
         assert result.raised is None
         assert result.requests[1].param("entry_window_start") == "opaque-1"
         assert result.requests[1].param("entry_window_end") == "2026-03-31T12:00:00Z"
+
+    @pytest.mark.parametrize(
+        "workload_row, expected_user_id",
+        [
+            ({"user": {"id": "U1", "name": "Example User"}, "participant_type": "responder"}, "U1"),
+            ({"user": None, "participant_type": "observer"}, None),
+            ({"participant_type": "observer"}, None),
+        ],
+    )
+    def test_incident_participant_workloads_rows_carry_their_keys(
+        self, workload_row: dict[str, Any], expected_user_id: str | None
+    ) -> None:
+        result = _driver().run(
+            "incident_participant_workloads",
+            [
+                ScriptedResponse(json=_page_body("incidents", [{"id": "I1"}], "I1")),
+                ScriptedResponse(
+                    json={
+                        "incident_participant_workloads": [workload_row],
+                        "metadata": {"data_synced_at": "2026-05-01T10:00:00Z"},
+                    }
+                ),
+                ScriptedResponse(json=_page_body("incidents", [{"id": "I2"}], None)),
+                ScriptedResponse(json={"incident_participant_workloads": [], "metadata": {}}),
+            ],
+        )
+
+        assert result.raised is None
+        assert [(row["incident_id"], row["user_id"]) for row in result.rows] == [("I1", expected_user_id)]
+        assert result.rows[0]["participant_type"] == workload_row["participant_type"]
+        assert result.paths == [
+            "/v2/incidents",
+            "/v2/incident_participant_workloads",
+            "/v2/incidents",
+            "/v2/incident_participant_workloads",
+        ]
+        incident_requests = [request for request in result.requests if request.path == "/v2/incidents"]
+        assert [request.param("after") for request in incident_requests] == [None, "I1"]
+        assert {request.param("sort_by") for request in incident_requests} == {"created_at_oldest_first"}
+        workload_requests = [request for request in result.requests if request.path != "/v2/incidents"]
+        assert [request.param("incident_id") for request in workload_requests] == ["I1", "I2"]
+        assert all(request.param("page_size") is None for request in workload_requests)
 
 
 class TestIncidentIoSourceResponse:

@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -37,6 +38,19 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class RootlySource(ResumableSource[RootlySourceConfig, RootlyResumeConfig]):
+    codebase_detection = detect(
+        env=("^ROOTLY_",),
+        npm=("@rootly/pulumi",),
+        pypi=("rootly",),
+        go=(
+            "github.com/rootlyhq/rootly-go",
+            "github.com/rootlyhq/rootly-catalog-sync",
+            "github.com/rootlyhq/rootly-cli",
+            "github.com/rootlyhq/rootly-tui",
+        ),
+        swiftpm=("github.com/rootlyhq/rootly-swift",),
+    )
+
     api_docs_url = "https://docs.rootly.com/api-reference"
 
     @property
@@ -49,7 +63,7 @@ class RootlySource(ResumableSource[RootlySourceConfig, RootlyResumeConfig]):
             name=ExternalDataSourceType.ROOTLY,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Rootly",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Rootly API key to automatically pull your Rootly incident-management data into the PostHog Data warehouse.
 
 You can create an API key in your [Rootly account settings](https://rootly.com/account/api_keys). A Global-scope key can read every resource; Team- and User-scope keys only see the resources they are granted.""",
