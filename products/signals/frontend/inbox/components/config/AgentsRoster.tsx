@@ -13,6 +13,8 @@ import {
     Spinner,
 } from '@posthog/lemon-ui'
 
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTagType } from 'lib/lemon-ui/LemonTag/LemonTag'
 
 import type { CISignalsSyncStatusEnumApi } from 'products/engineering_analytics/frontend/generated/api.schemas'
@@ -22,6 +24,7 @@ import { sourceSteeringIsSet } from '../../logics/sourceSteeringModalLogic'
 import { signalSourcesLogic } from '../../signalSourcesLogic'
 import type { SourceProductDataStatus, SourceProductStatus } from '../../signalSourcesLogic'
 import { SignalSourceConfig, SignalSourceConfigStatus, SignalSourceType, linearTeamIdsFromConfig } from '../../types'
+import { SourceSpendLabel } from '../spend/SourceSpendLabel'
 import { AGENT_ROSTER_GROUPS, AgentRosterDefinition, AgentRosterGroup, AgentRosterSource } from './agentRosterMeta'
 import { DataSourceSetupModal } from './DataSourceSetupModal'
 import { LinearTeamsModal } from './LinearTeamsModal'
@@ -540,6 +543,11 @@ const AgentRow = memo(function AgentRow({
                     <span className="shrink-0 truncate text-right text-xs text-muted">
                         {enabledCount} of {entities.length} {agent.entityNoun} on
                     </span>
+                )}
+                {armed && !productOff && (
+                    <FlaggedFeature flag={FEATURE_FLAGS.SELF_DRIVING_USAGE}>
+                        <SourceSpendLabel sourceProduct={agent.sourceProduct} />
+                    </FlaggedFeature>
                 )}
                 {(loading || requiresSetup || hasMasterSwitch) && (
                     <div className={`flex shrink-0 justify-end ${warehouseSource ? 'w-20' : 'w-13'}`}>

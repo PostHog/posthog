@@ -26,6 +26,7 @@ import { REPORT_AI_PANEL, REPORT_AI_PANEL_ID, inboxTaskKickoffLogic } from '../i
 import { EnrichedReviewer, SignalReport, SignalReportStatus } from '../types'
 import { inboxBulkActionsLogic } from './inboxBulkActionsLogic'
 import { ReportTaskEntry, implementationSlotClaim, inboxReportDetailLogic } from './inboxReportDetailLogic'
+import { reportSpendLogic } from './reportSpendLogic'
 
 const REPORT = { id: 'report-1', status: 'ready', title: 'Checkout errors spiked' } as unknown as SignalReport
 
@@ -38,6 +39,148 @@ const linkedTask = (purpose: ReportTaskPurpose, status: TaskRunStatus | null, pr
     }) as unknown as ReportTaskEntry
 
 describe('inboxReportDetailLogic', () => {
+    it.each([
+        { purpose: 'research', slowUsage: false },
+        { purpose: 'implementation', slowUsage: false },
+        { purpose: 'implementation', slowUsage: true },
+    ])(
+        'loads usage once and refreshes while $purpose runs and settles (slow usage: $slowUsage)',
+        async ({ purpose, slowUsage }) => {
+            jest.useFakeTimers({
+                doNotFake: [
+                    'Date',
+                    'performance',
+                    'queueMicrotask',
+                    'setTimeout',
+                    'clearTimeout',
+                    'setImmediate',
+                    'clearImmediate',
+                    'nextTick',
+                ],
+            })
+            let status = TaskRunStatus.IN_PROGRESS
+            let amount = 125
+            let releaseSignals!: () => void
+            const pendingSignals = new Promise<void>((resolve) => {
+                releaseSignals = resolve
+            })
+            let pendingUsage: Promise<void> | undefined
+            let releaseUsage: (() => void) | undefined
+            let notifyUsageStarted = (): void => {}
+            const usageRequest = jest.fn(async () => {
+                const requestedAmount = amount
+                notifyUsageStarted()
+                await pendingUsage
+                return {
+                    generation: { total_spend: purpose === 'research' ? requestedAmount : 0, incomplete: false },
+                    implementation: {
+                        total_spend: purpose === 'implementation' ? requestedAmount : null,
+                        incomplete: false,
+                    },
+                    shared_scout_runs: { total_spend: null, incomplete: false },
+                }
+            })
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/signals/reports/:id/feedback_state/': { sentiment: null, note: '' },
+                    '/api/projects/:team_id/signals/reports/:id/artefacts/': {
+                        results: [
+                            {
+                                id: 'task-run',
+                                type: 'task_run',
+                                content: { task_id: 'active-task', product: 'signals', type: purpose },
+                                created_at: '2026-01-01T00:00:00Z',
+                            },
+                        ],
+                    },
+                    '/api/projects/:team_id/tasks/:id/': () => ({
+                        id: 'active-task',
+                        latest_run: { id: 'active-run', status },
+                    }),
+                    '/api/projects/:team_id/signals/reports/:id/checks/': { results: [] },
+                    '/api/projects/:team_id/signals/reports/:id/signals/': async () => {
+                        await pendingSignals
+                        return { signals: [] }
+                    },
+                    '/api/projects/:team_id/signals/reports/:id/spend/': usageRequest,
+                    '/api/projects/:team_id/signals/reports/available_reviewers/': [],
+                },
+            })
+            initKeaTests()
+            const usage = reportSpendLogic({ teamId: MOCK_DEFAULT_TEAM.id, reportId: REPORT.id })
+            const logic = inboxReportDetailLogic({ reportId: REPORT.id, report: REPORT })
+            usage.mount()
+            logic.mount()
+            try {
+                await expectLogic(usage).toDispatchActions(['loadSpendSuccess'])
+                expect(usageRequest).toHaveBeenCalledTimes(1)
+                releaseSignals()
+                await expectLogic(logic).toDispatchActions(['loadReportSignalsSuccess']).toFinishAllListeners()
+                await expectLogic(usage).toFinishAllListeners()
+                expect(usageRequest).toHaveBeenCalledTimes(1)
+
+                expect(logic.values.shouldPollReportTasks).toBe(true)
+                amount = 250
+                let usageStarted: Promise<void> | undefined
+                if (slowUsage) {
+                    usageStarted = new Promise<void>((resolve) => {
+                        notifyUsageStarted = resolve
+                    })
+                    pendingUsage = new Promise<void>((resolve) => {
+                        releaseUsage = resolve
+                    })
+                }
+                await expectLogic(logic, () => jest.advanceTimersByTime(5000)).toDispatchActions([
+                    'loadReportArtefacts',
+                    'loadReportTasksSuccess',
+                ])
+                if (slowUsage) {
+                    await usageStarted
+                    for (let poll = 0; poll < 2; poll++) {
+                        await expectLogic(logic, () => jest.advanceTimersByTime(5000)).toDispatchActions([
+                            'loadReportArtefacts',
+                            'loadReportTasksSuccess',
+                        ])
+                    }
+                    expect(usage.values.spendLoading).toBe(true)
+                } else {
+                    await expectLogic(usage).toFinishAllListeners()
+                }
+                expect(usageRequest).toHaveBeenCalledTimes(2)
+                expect(usage.values.spend?.[purpose === 'research' ? 'generation' : 'implementation'].total_spend).toBe(
+                    slowUsage ? 125 : 250
+                )
+
+                status = TaskRunStatus.COMPLETED
+                amount = 375
+                await expectLogic(logic, () => jest.advanceTimersByTime(5000)).toDispatchActions([
+                    'loadReportArtefacts',
+                    'loadReportTasksSuccess',
+                ])
+                if (slowUsage) {
+                    expect(usageRequest).toHaveBeenCalledTimes(2)
+                    pendingUsage = undefined
+                    releaseUsage?.()
+                }
+                await expectLogic(usage).toFinishAllListeners()
+                expect(usageRequest).toHaveBeenCalledTimes(3)
+                expect(usage.values.spend?.[purpose === 'research' ? 'generation' : 'implementation'].total_spend).toBe(
+                    375
+                )
+                expect(logic.values.shouldPollReportTasks).toBe(false)
+                jest.advanceTimersByTime(10000)
+                await expectLogic(logic).toFinishAllListeners()
+                expect(usageRequest).toHaveBeenCalledTimes(3)
+            } finally {
+                releaseSignals()
+                releaseUsage?.()
+                logic.unmount()
+                usage.unmount()
+                jest.useRealTimers()
+            }
+        }
+    )
+
     it.each([SignalReportStatus.READY, SignalReportStatus.MONITORING])(
         'orders report runs and refreshes settled tasks appropriately in %s',
         async (status) => {

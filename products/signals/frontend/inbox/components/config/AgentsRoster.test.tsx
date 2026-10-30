@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -48,6 +48,7 @@ describe('AgentsRoster', () => {
         initKeaTests()
         useMocks({
             get: {
+                '/api/projects/:team_id/signals/source_spend/': () => [200, []],
                 '/api/projects/:team_id/signals/source_configs/': () => [200, { results: [] }],
                 '/api/projects/:team_id/vision/scanners/': () => [
                     200,
@@ -66,6 +67,69 @@ describe('AgentsRoster', () => {
         })
     })
     afterEach(cleanup)
+
+    it.each([
+        { enabled: true, armed: true },
+        { enabled: true, armed: false },
+        { enabled: false, armed: true },
+    ])('gates source usage when enabled=$enabled and armed=$armed', async ({ enabled, armed }) => {
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.PRODUCT_AUTONOMY], {
+            [FEATURE_FLAGS.PRODUCT_AUTONOMY]: true,
+            [FEATURE_FLAGS.SELF_DRIVING_USAGE]: enabled,
+        })
+        const usageRequests = jest.fn()
+        useMocks({
+            get: {
+                '/api/projects/:team_id/signals/source_configs/': {
+                    results: ['issue_created', 'issue_reopened', 'issue_spiking'].map((source_type) => ({
+                        id: source_type,
+                        source_product: 'error_tracking',
+                        source_type,
+                        enabled: armed,
+                        config: {},
+                    })),
+                },
+                '/api/projects/:team_id/signals/source_spend/': () => {
+                    usageRequests()
+                    return [
+                        200,
+                        [
+                            {
+                                source_product: 'error_tracking',
+                                source_type: 'issue_created',
+                                signal_count: 1,
+                                spend: { total_spend: 125, incomplete: false },
+                            },
+                            {
+                                source_product: 'error_tracking',
+                                source_type: 'issue_spiking',
+                                signal_count: 1,
+                                spend: { total_spend: 25, incomplete: false },
+                            },
+                            {
+                                source_product: 'conversations',
+                                source_type: 'ticket',
+                                signal_count: 1,
+                                spend: { total_spend: null, incomplete: true },
+                            },
+                        ],
+                    ]
+                },
+            },
+        })
+        render(<AgentsRoster />)
+        const errorTracking = document.querySelector('[data-source="error_tracking"]') as HTMLElement
+        expect(await within(errorTracking).findByLabelText('Arm Error tracking')).toBeInTheDocument()
+        if (enabled && armed) {
+            expect(await within(errorTracking).findByText('$1.50')).toBeInTheDocument()
+            const support = document.querySelector('[data-source="conversations"]') as HTMLElement
+            expect(within(support).queryByText('Not tracked')).not.toBeInTheDocument()
+            expect(usageRequests).toHaveBeenCalledTimes(1)
+        } else {
+            expect(document.querySelector('[data-attr="source-spend"]')).toBeNull()
+            expect(usageRequests).not.toHaveBeenCalled()
+        }
+    })
 
     it('keeps connected sources in the roster and connects from the inline catalog without losing the search', async () => {
         useMocks({

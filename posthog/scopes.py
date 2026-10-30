@@ -124,6 +124,7 @@ APIScopeObject = Literal[
     "signal_scout_monitoring",
     "signal_scout_report",
     "signal_scratchpad_internal",
+    "signal_usage",
     "slack_run",
     "stamphog",
     "streamlit_app",

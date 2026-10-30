@@ -5,7 +5,8 @@ import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import { ApiError } from 'lib/api-error'
-import { FIRST_REPORT_SCOUT_NAME } from 'lib/constants'
+import { FEATURE_FLAGS, FIRST_REPORT_SCOUT_NAME } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -1412,15 +1413,21 @@ describe('scoutFleetLogic', () => {
             expect(jest.mocked(posthog.captureException).mock.calls.length > 0).toBe(reported)
         })
 
-        it('never asks for costs on behalf of a non-staff user', async () => {
+        it.each([
+            [false, false],
+            [true, true],
+        ])('skips legacy costs for staff=%s and usage=%s', async (isStaff, usageEnabled) => {
             mockSignalsScoutRunsRecentPerScout.mockResolvedValue([makeRun({ run_id: 'run-priced' })])
-            await mountAsStaff(false)
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.SELF_DRIVING_USAGE]: usageEnabled })
+            await mountAsStaff(isStaff)
 
             logic.actions.loadScoutRuns()
             await expectLogic(logic).toDispatchActions(['loadScoutRunsSuccess']).toFinishAllListeners()
 
             expect(mockSignalsScoutRunsTokenCosts).not.toHaveBeenCalled()
             expect(mockSignalsScoutRunsCosts).not.toHaveBeenCalled()
+            featureFlagLogic.unmount()
         })
 
         it('asks for per-scout cost over the roster window and rolls it up per scout', async () => {

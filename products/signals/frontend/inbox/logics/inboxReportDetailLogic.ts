@@ -92,6 +92,7 @@ import { isReportClaimable, reportClaimant, requestReportClaim } from '../utils/
 import { reportPullRequests, primaryReportPullRequest, type ReportPullRequest } from '../utils/reportPullRequests'
 import { withInboxWriteTimeout } from '../utils/writeTimeout'
 import { inboxBulkActionsLogic } from './inboxBulkActionsLogic'
+import { reportSpendLogic } from './reportSpendLogic'
 
 /** Run statuses that count as terminal. Mirrors desktop `isTerminalStatus` / `ReportTasksSection`. */
 const TERMINAL_RUN_STATUSES: TaskRunStatus[] = [TaskRunStatus.COMPLETED, TaskRunStatus.FAILED, TaskRunStatus.CANCELLED]
@@ -2196,6 +2197,14 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             cache.sidebarAlignmentPending = false
         },
         loadReportTasksSuccess: (_, __, ___, previousState) => {
+            const previousTasks = selectors.reportTasks(previousState)
+            const spendLogic = reportSpendLogic({
+                teamId: teamLogic.values.currentTeamId ?? 0,
+                reportId: props.reportId,
+            })
+            if (previousTasks !== null && spendLogic.isMounted()) {
+                spendLogic.actions.refreshSpend()
+            }
             if (
                 cache.sidebarAlignmentPending &&
                 values.selectedTab === SidePanelTab.Max &&
@@ -2215,7 +2224,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                     actions.warmReportDiscussion(values.report)
                 }
             }
-            const before = selectors.reportTasks(previousState) ?? []
+            const before = previousTasks ?? []
             const settled = (values.reportTasks ?? []).some((entry) => {
                 const run = entry.task.latest_run
                 const prior = before.find((row) => row.task.id === entry.task.id)?.task.latest_run
