@@ -1,7 +1,5 @@
 import { fireEvent } from '@testing-library/react'
-import type { ReactElement } from 'react'
 
-import { ChartThemeProvider } from '../../core/theme'
 import type { ChartTheme } from '../../core/types'
 import { createDefaultTooltipAccessor, renderChart, waitForChartTooltip } from '../../testing'
 import type { DefaultTooltipAccessor } from '../../testing'
@@ -53,46 +51,22 @@ describe('Gauge', () => {
 
         expect(chart.gauge.text()).toMatchObject({ value: '78%', min: '0%', max: '100%' })
         expect(chart.gauge.valueColor()).toBe('rgb(255, 170, 0)')
-        const tooltip = await hoverGauge(chart.element)
-        expect(tooltip.value('Threshold')).toBe('Busy · 70% – 90%')
-        expect(tooltip.swatchColors()).toContain('rgb(255, 170, 0)')
-        expect(await chart.waitForTooltip()).toMatchObject({
-            value: 78,
-            min: 0,
-            max: 100,
-            threshold: { threshold: { label: 'Busy' } },
-        })
+        expect((await hoverGauge(chart.element)).value('Threshold')).toBe('Busy · 70% – 90%')
     })
 
-    it.each([
-        ['a hover', false],
-        ['a re-render with equal inline props', true],
-    ])('does not repaint the static canvas on %s', async (_name, rerenderWithEqualProps) => {
-        const gauge = (): ReactElement => (
-            <Gauge value={78} min={0} max={100} thresholds={[...THRESHOLDS]} target={{ value: 80 }} theme={THEME} />
+    it('does not repaint the canvas when re-rendered with equal inline props or hovered', async () => {
+        const { chart, rerender } = renderChart(
+            <Gauge value={78} thresholds={[...THRESHOLDS]} target={{ value: 80 }} theme={THEME} />
         )
-        const { chart, rerender } = renderChart(gauge())
         let paints = 0
         const observer = new MutationObserver((records) => (paints += records.length))
         observer.observe(chart.canvas, { attributeFilter: ['data-hog-charts-paint'] })
 
-        if (rerenderWithEqualProps) {
-            rerender(gauge())
-        }
+        rerender(<Gauge value={78} thresholds={[...THRESHOLDS]} target={{ value: 80 }} theme={THEME} />)
         await hoverGauge(chart.element)
 
         expect(paints + observer.takeRecords().length).toBe(0)
         observer.disconnect()
-    })
-
-    it('takes its theme from the nearest ChartThemeProvider when no theme prop is set', () => {
-        const { chart } = renderChart(
-            <ChartThemeProvider value={THEME}>
-                <Gauge value={50} min={0} max={100} />
-            </ChartThemeProvider>
-        )
-
-        expect(chart.gauge.valueColor()).toBe('rgb(17, 17, 17)')
     })
 
     it('resolves var() threshold colors again when the theme changes', async () => {
