@@ -1,7 +1,11 @@
+jest.unmock('lib/utils/concurrencyController')
+
 import { MOCK_DEFAULT_ORGANIZATION_MEMBER, MOCK_SECOND_ORGANIZATION_MEMBER } from 'lib/api.mock'
 
+import { waitFor } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
 
+import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { membersLogic } from 'scenes/organization/membersLogic'
 
@@ -144,6 +148,41 @@ describe('memberOffboardingLogic', () => {
         ).toFinishAllListeners()
         expect(logic.values.keep).toEqual([resources[1].id])
         expect(logic.values.savingResourcesLoading).toBe(false)
+    })
+
+    it('limits bulk updates to five requests in flight', async () => {
+        const manyResources = Array.from({ length: 12 }, (_, index) => ({
+            ...resources[0],
+            id: `public_link:dashboard:1:${index + 1}`,
+            resource_id: String(index + 1),
+        }))
+        useMocks({ get: { '/api/organizations/:organization/members/:user/offboarding_preview/': manyResources } })
+        await expectLogic(logic, () => logic.actions.open(MOCK_SECOND_ORGANIZATION_MEMBER)).toFinishAllListeners()
+        let release = (): void => {}
+        const gate = new Promise<void>((resolve) => {
+            release = resolve
+        })
+        let active = 0
+        let peak = 0
+        const update = jest.spyOn(api, 'update').mockImplementation(async () => {
+            active++
+            peak = Math.max(peak, active)
+            await gate
+            active--
+            return {}
+        })
+        const saving = expectLogic(logic, () =>
+            logic.actions.disableResources(manyResources.map((resource) => resource.id))
+        ).toFinishAllListeners()
+        try {
+            await waitFor(() => expect(update).toHaveBeenCalledTimes(5))
+        } finally {
+            release()
+            await saving
+            update.mockRestore()
+        }
+        expect(peak).toBe(5)
+        expect(logic.values.keep).toEqual([])
     })
 
     it('summarizes the selected resource types, including selections beyond one page', async () => {

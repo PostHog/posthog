@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 
 import api, { ApiError } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { ConcurrencyController } from 'lib/utils/concurrencyController'
 import { fullNameOrEmail, pluralize } from 'lib/utils/strings'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -210,22 +211,27 @@ export const memberOffboardingLogic = kea<memberOffboardingLogicType>([
                     return false
                 }
                 const selected = (values.resources ?? []).filter((resource) => ids.includes(resource.id))
+                const concurrency = new ConcurrencyController(5)
                 const results = await Promise.allSettled(
-                    selected.map(async (resource) => {
-                        const projectId = String(resource.team_id)
-                        const resourceId = resource.resource_id
-                        const url =
-                            resource.kind === 'dashboard'
-                                ? getDashboardsSharingListUrl(projectId, Number(resourceId))
-                                : resource.kind === 'insight'
-                                  ? getInsightsSharingListUrl(projectId, Number(resourceId))
-                                  : resource.kind === 'notebook'
-                                    ? getNotebooksSharingListUrl(projectId, resourceId)
-                                    : getSessionRecordingsSharingListUrl(projectId, resourceId)
-                        // Sharing PATCH is supported by the API but not exposed by its generated client yet.
-                        await api.update(url, { enabled })
-                        return resource.id
-                    })
+                    selected.map((resource) =>
+                        concurrency.run({
+                            fn: async () => {
+                                const projectId = String(resource.team_id)
+                                const resourceId = resource.resource_id
+                                const url =
+                                    resource.kind === 'dashboard'
+                                        ? getDashboardsSharingListUrl(projectId, Number(resourceId))
+                                        : resource.kind === 'insight'
+                                          ? getInsightsSharingListUrl(projectId, Number(resourceId))
+                                          : resource.kind === 'notebook'
+                                            ? getNotebooksSharingListUrl(projectId, resourceId)
+                                            : getSessionRecordingsSharingListUrl(projectId, resourceId)
+                                // Sharing PATCH is supported by the API but not exposed by its generated client yet.
+                                await api.update(url, { enabled })
+                                return resource.id
+                            },
+                        })
+                    )
                 )
                 const savedIds = results.flatMap((result) => (result.status === 'fulfilled' ? [result.value] : []))
                 actions.setKeptResources(
