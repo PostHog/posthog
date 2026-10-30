@@ -28,7 +28,7 @@ from products.access_control.backend.facade.contracts import PropertyAccessLevel
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.product_analytics.backend.facade.contracts import TrendsQueryRunResult
 from products.signals.backend.artefact_attribution import ArtefactAttribution
-from products.signals.backend.artefact_schemas import CheckResult, Dismissal
+from products.signals.backend.artefact_schemas import CheckResult, Dismissal, NoteArtefact
 from products.signals.backend.enums import SignalSourceProduct, SignalSourceType
 from products.signals.backend.models import (
     SignalReport,
@@ -1665,7 +1665,7 @@ class TestReportCheckAPI(APIBaseTest):
         result = SignalReportArtefact.objects.get(report=report, type=SignalReportArtefact.ArtefactType.CHECK_RESULT)
         assert result.team_id == child.id
 
-    @parameterized.expand([("check_result",), ("check_observation",)])
+    @parameterized.expand([("check_result",), ("check_observation",), ("assessment",)])
     @patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True)
     def test_a_property_restricted_member_cannot_read_a_checks_query_or_measured_values(
         self, artefact_type: str, _flag: MagicMock
@@ -1699,6 +1699,17 @@ class TestReportCheckAPI(APIBaseTest):
         SignalReportCheck.objects.for_team(self.team.id).filter(id=check_id).update(
             next_run_at=timezone.now() - timedelta(minutes=1), measurement_start_at=timezone.now() - timedelta(days=32)
         )
+        if artefact_type == "assessment":
+            SignalReportArtefact.add_log(
+                team_id=self.team.id,
+                report_id=str(self.report.id),
+                content=NoteArtefact(
+                    note="The fixed-window result measured 4 enterprise pageviews.",
+                    analytics_query_context=[secret_pageviews],
+                    source_check_ids=[check_id],
+                ),
+                attribution=ArtefactAttribution.system(),
+            )
         with patch(
             _MEASURE
             if artefact_type == "check_result"
@@ -1707,7 +1718,7 @@ class TestReportCheckAPI(APIBaseTest):
         ):
             if artefact_type == "check_observation":
                 run_due_report_checks()
-            else:
+            elif artefact_type != "assessment":
                 check = SignalReportCheck.objects.for_team(self.team.id).get(id=check_id)
                 record_check_verdict(check, CheckVerdict(outcome="passed", explanation="Held.", observed_value=4.0))
         artefacts_url = f"/api/projects/{self.team.id}/signals/reports/{self.report.id}/artefacts/"
@@ -1716,10 +1727,14 @@ class TestReportCheckAPI(APIBaseTest):
             return next(
                 row["content"]
                 for row in self.client.get(artefacts_url).json()["results"]
-                if row["type"] == artefact_type
+                if row["type"] == ("note" if artefact_type == "assessment" else artefact_type)
             )
 
-        assert check_result()["observed_value"] == 4.0
+        if artefact_type == "assessment":
+            assert "4 enterprise pageviews" in check_result()["note"]
+            assert "analytics_query_context" not in check_result()
+        else:
+            assert check_result()["observed_value"] == 4.0
 
         self.organization.available_product_features = [
             {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
@@ -1740,6 +1755,10 @@ class TestReportCheckAPI(APIBaseTest):
         assert config["comparison"] == {"operator": "lte", "value": 10}
 
         hidden = check_result()
+        if artefact_type == "assessment":
+            assert "4 enterprise pageviews" not in hidden["note"]
+            assert hidden["source_check_ids"] == [check_id]
+            return
         if artefact_type == "check_result":
             assert hidden["outcome"] == "passed"
         else:

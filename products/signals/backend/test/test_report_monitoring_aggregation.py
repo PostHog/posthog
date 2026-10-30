@@ -1,17 +1,21 @@
 import json
 import time
+import asyncio
 from datetime import timedelta
 from uuid import uuid4
 
 import time_machine
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from django.db import transaction
 from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
+from temporalio.exceptions import ActivityError, CancelledError
+
+from posthog.hogql.property_access_types import RestrictedProperty
 
 from posthog.egress.limiter.policies import Priority
 from posthog.models import Team
@@ -32,16 +36,92 @@ from products.signals.backend.report_monitoring_aggregation import (
     MonitoringMemberState,
     aggregate_monitoring_members,
 )
+from products.signals.backend.report_monitoring_assessment import (
+    MonitoringAssessment,
+    exhaust_monitoring_assessment,
+    finish_monitoring_assessment,
+    poll_monitoring_assessment,
+)
 from products.signals.backend.report_monitoring_attempts import complete_implementation
 from products.signals.backend.report_monitoring_outcomes import (
     aggregate_due_monitoring_attempts,
     aggregate_monitoring_attempt,
 )
 from products.signals.backend.report_monitoring_results import MonitoringEvaluation, save_monitoring_result
+from products.signals.backend.temporal.monitoring_assessment import (
+    MonitoringAssessmentInput,
+    MonitoringAssessmentWorkflow,
+    exhaust_monitoring_assessment_activity,
+    start_monitoring_assessment,
+)
 from products.signals.backend.tracker_issues import complete_monitoring_tracker_issues
+from products.tasks.backend.models import Task, TaskRun
 
 
 class TestMonitoringAggregation(SimpleTestCase):
+    @parameterized.expand([("connection",), ("rpc",)])
+    async def test_assessment_dispatch_bounds_stalled_temporal_calls(self, stage: str) -> None:
+        async def stalled(*args: object, **kwargs: object) -> None:
+            await asyncio.Future()
+
+        client = AsyncMock()
+        connect = AsyncMock(return_value=client)
+        if stage == "connection":
+            connect.side_effect = stalled
+        else:
+            client.start_workflow.side_effect = stalled
+        with (
+            patch("products.signals.backend.temporal.monitoring_assessment.async_connect", connect),
+            self.assertRaises(TimeoutError),
+        ):
+            await start_monitoring_assessment(2, str(uuid4()), str(uuid4()), timeout_seconds=0)
+
+    @parameterized.expand(
+        [("inconclusive",), ("technical_errors",), ("collector_failure",), ("resumed",), ("cancelled",)]
+    )
+    async def test_assessment_stops_after_a_decision_or_bounded_execution_errors(self, scenario: str) -> None:
+        executions: list[int] = []
+        closures: list[str] = []
+
+        async def execute(function: object, inputs: MonitoringAssessmentInput, **options: object) -> str | bool:
+            if function == exhaust_monitoring_assessment_activity:
+                closures.append(inputs.attempt_id)
+                return True
+            executions.append(inputs.execution)
+            if scenario in {"collector_failure", "cancelled"}:
+                error = ActivityError(
+                    "Synthetic collector interruption",
+                    scheduled_event_id=1,
+                    started_event_id=2,
+                    identity="worker",
+                    activity_type="poll_monitoring_assessment_activity",
+                    activity_id="assessment",
+                    retry_state=None,
+                )
+                if scenario == "cancelled":
+                    raise error from CancelledError("Synthetic cancellation")
+                raise error
+            return (
+                "done" if scenario == "inconclusive" or (scenario == "resumed" and inputs.execution == 2) else "errored"
+            )
+
+        inputs = MonitoringAssessmentInput(
+            team_id=2, report_id=str(uuid4()), attempt_id=str(uuid4()), execution=1 if scenario == "resumed" else 0
+        )
+        with (
+            patch(
+                "products.signals.backend.temporal.monitoring_assessment.workflow.execute_activity", side_effect=execute
+            ),
+            patch("products.signals.backend.temporal.monitoring_assessment.workflow.sleep", new_callable=AsyncMock),
+        ):
+            if scenario == "cancelled":
+                with self.assertRaises(ActivityError):
+                    await MonitoringAssessmentWorkflow().run(inputs)
+            else:
+                await MonitoringAssessmentWorkflow().run(inputs)
+        assert executions == ([0, 1, 2] if scenario == "technical_errors" else [1, 2] if scenario == "resumed" else [0])
+        assert closures == ([] if scenario in {"inconclusive", "resumed", "cancelled"} else [inputs.attempt_id])
+
     @parameterized.expand(
         [
             ("empty_snapshot_is_not_success", (), "waiting"),
@@ -361,3 +441,330 @@ class TestReportMonitoringAggregation(BaseTest):
         assert self.report.status == SignalReport.Status.MONITORING
         assert self.attempt.research_requested_at is None
         assert not SignalReportMonitoringResult.objects.for_team(self.team.id).exists()
+
+    def _request_assessment(self) -> None:
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save(update_fields=["is_ai_data_processing_approved"])
+        save_monitoring_result(self._evaluation(0, "inconclusive"))
+        save_monitoring_result(self._evaluation(1, "inconclusive"))
+        assert self._aggregate() == MonitoringAggregation.ASSESSMENT_REQUIRED
+
+    @parameterized.expand([("resolution", True), ("unproven", False), ("exhausted", None)])
+    def test_assessment_decision_is_attributed_and_requests_delivery_once(
+        self, _name: str, resolved: bool | None
+    ) -> None:
+        self._request_assessment()
+        assert self.attempt is not None
+        original_results = list(
+            SignalReportMonitoringResult.objects.for_team(self.team.id).filter(attempt=self.attempt).values()
+        )
+        task = Task.objects.create(team=self.team, created_by=self.user, title="Assess saved evidence", internal=True)
+        run = TaskRun.objects.create(team=self.team, task=task, status="completed")
+        assessment = (
+            None
+            if resolved is None
+            else MonitoringAssessment(
+                resolved=resolved,
+                reasoning="The alternative fixed-window observation supports this decision.",
+                evidence_refs=["observation:synthetic"],
+            )
+        )
+        for _ in range(2):
+            assert finish_monitoring_assessment(
+                team_id=self.team.id,
+                report_id=self.report.id,
+                attempt_id=self.attempt.id,
+                assessment=assessment,
+                task_id=task.id if assessment else None,
+                run_id=run.id if assessment else None,
+            )
+        self.report.refresh_from_db()
+        self.attempt.refresh_from_db()
+        assert self.report.status == (SignalReport.Status.RESOLVED if resolved else SignalReport.Status.CLOSED)
+        assert bool(self.attempt.tracker_issue_close_requested_at) == bool(resolved)
+        assert bool(self.attempt.research_requested_at) == (not resolved)
+        assert (
+            list(SignalReportMonitoringResult.objects.for_team(self.team.id).filter(attempt=self.attempt).values())
+            == original_results
+        )
+        notes = SignalReportArtefact.objects.filter(
+            report=self.report, type="note", content__contains="after report-level assessment"
+        )
+        assert notes.count() == 1
+        note = notes.get()
+        assert str(self.attempt.id) in note.content
+        if assessment:
+            assert note.task_id == task.id
+            assert str(run.id) in note.content
+            assert "observation:synthetic" in note.content
+
+    @parameterized.expand(
+        [
+            ("failure",),
+            ("pending",),
+            ("manual",),
+            ("reopened",),
+            ("flag_off",),
+            ("archived",),
+            ("replaced",),
+            ("definition",),
+        ]
+    )
+    def test_late_assessment_cannot_override_evidence_or_lifecycle(self, change: str) -> None:
+        self._request_assessment()
+        assert self.attempt is not None
+        if change == "failure":
+            save_monitoring_result(self._evaluation(1, "failed"))
+        elif change == "pending":
+            SignalReportMonitoringResult.objects.for_team(self.team.id).filter(
+                attempt=self.attempt, report_check=self.checks[1]
+            ).delete()
+        elif change == "manual":
+            self.report.save(update_fields=self.report.transition_to(SignalReport.Status.RESOLVED))
+        elif change == "reopened":
+            self.report.save(update_fields=self.report.transition_to(SignalReport.Status.READY))
+        elif change == "flag_off":
+            self.flag.return_value = False
+        elif change == "archived":
+            self.report.save(update_fields=self.report.transition_to(SignalReport.Status.SUPPRESSED))
+        elif change == "replaced":
+            self.report.save(update_fields=self.report.transition_to(SignalReport.Status.READY))
+            replacement = complete_implementation(
+                team_id=self.team.id, report_id=self.report.id, monitoring_started_at=self.now
+            )
+            assert replacement is not None and replacement.id != self.attempt.id
+        elif change == "definition":
+            SignalReportCheck.objects.for_team(self.team.id).filter(id=self.checks[1].id).update(
+                title="A different expectation"
+            )
+        if change in {"pending", "flag_off", "archived", "definition"}:
+            assert (
+                poll_monitoring_assessment(
+                    team_id=self.team.id, report_id=self.report.id, attempt_id=self.attempt.id, execution=0
+                )
+                == "pending"
+            )
+        finish_monitoring_assessment(
+            team_id=self.team.id,
+            report_id=self.report.id,
+            attempt_id=self.attempt.id,
+            assessment=MonitoringAssessment(
+                resolved=True,
+                reasoning="Alternative evidence establishes success.",
+                evidence_refs=["observation:synthetic"],
+            ),
+            task_id=uuid4(),
+            run_id=uuid4(),
+        )
+        self.report.refresh_from_db()
+        self.attempt.refresh_from_db()
+        assert self.report.status == {
+            "failure": "closed",
+            "manual": "resolved",
+            "reopened": "ready",
+            "archived": "suppressed",
+        }.get(change, "monitoring")
+        assert self.attempt.tracker_issue_close_requested_at is None
+        assert not SignalReportArtefact.objects.filter(
+            report=self.report, type="note", content__contains="after report-level assessment"
+        ).exists()
+
+    def test_collector_recovers_saved_answer_and_ignores_a_later_task_run(self) -> None:
+        self.enterContext(patch("products.tasks.backend.facade.api.signal_workflow_completion"))
+        self._request_assessment()
+        assert self.attempt is not None
+        task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="Assess saved evidence",
+            internal=True,
+            origin_key=f"monitoring-assessment:{self.attempt.id}:0",
+        )
+        original = TaskRun.objects.create(team=self.team, task=task, status="in_progress")
+        original.state = {"monitoring_assessment_run_id": str(original.id)}
+        original.save(update_fields=["state"])
+        self.assertEqual(
+            poll_monitoring_assessment(
+                team_id=self.team.id, report_id=self.report.id, attempt_id=self.attempt.id, execution=0
+            ),
+            "pending",
+        )
+        original.output = {
+            "resolved": False,
+            "reasoning": "The available evidence does not establish resolution.",
+            "evidence_refs": [],
+        }
+        original.save(update_fields=["output"])
+        TaskRun.objects.create(
+            team=self.team,
+            task=task,
+            status="completed",
+            output={
+                "resolved": True,
+                "reasoning": "A later judgment must not replace the original.",
+                "evidence_refs": ["observation:other"],
+            },
+        )
+        for _ in range(2):
+            self.assertEqual(
+                poll_monitoring_assessment(
+                    team_id=self.team.id, report_id=self.report.id, attempt_id=self.attempt.id, execution=0
+                ),
+                "done",
+            )
+        self.report.refresh_from_db()
+        assert self.report.status == SignalReport.Status.CLOSED
+        assert Task.objects.filter(origin_key=f"monitoring-assessment:{self.attempt.id}:0").count() == 1
+
+    def test_assessment_dispatch_reuses_task_and_retries_only_invalid_execution(self) -> None:
+        self.enterContext(patch("products.tasks.backend.temporal.client.execute_task_processing_workflow"))
+        self.enterContext(patch("products.tasks.backend.facade.api.signal_workflow_completion"))
+        self._request_assessment()
+        assert self.attempt is not None
+        for _ in range(2):
+            assert (
+                poll_monitoring_assessment(
+                    team_id=self.team.id, report_id=self.report.id, attempt_id=self.attempt.id, execution=0
+                )
+                == "pending"
+            )
+        task = Task.objects.get(team=self.team, origin_key=f"monitoring-assessment:{self.attempt.id}:0")
+        assert task.json_schema is not None
+        assert "final_results" not in task.description
+        run = task.runs.get()
+        assert run.state["pending_dispatch"]["posthog_mcp_scopes"] == "signals_assessment"
+        assert "final_results" in run.state["initial_prompt_override"]
+        assert run.state["caller_ends_run"] is True
+        assert "analytics_query_context" in run.state
+        assert run.state["monitoring_assessment_run_id"] == str(run.id)
+        run.output = {"resolved": True, "reasoning": "This response lacks supporting references.", "evidence_refs": []}
+        run.status = "completed"
+        run.save(update_fields=["output", "status"])
+        assert (
+            poll_monitoring_assessment(
+                team_id=self.team.id, report_id=self.report.id, attempt_id=self.attempt.id, execution=0
+            )
+            == "pending"
+        )
+        run.completed_at = self.now - timedelta(minutes=3)
+        run.save(update_fields=["completed_at"])
+        assert (
+            poll_monitoring_assessment(
+                team_id=self.team.id, report_id=self.report.id, attempt_id=self.attempt.id, execution=0
+            )
+            == "errored"
+        )
+        self.report.refresh_from_db()
+        assert self.report.status == SignalReport.Status.MONITORING
+        assert (
+            poll_monitoring_assessment(
+                team_id=self.team.id, report_id=self.report.id, attempt_id=self.attempt.id, execution=1
+            )
+            == "pending"
+        )
+        retry = Task.objects.get(team=self.team, origin_key=f"monitoring-assessment:{self.attempt.id}:1")
+        retry_run = retry.runs.get()
+        retry_run.output = {
+            "resolved": False,
+            "reasoning": "The observations do not establish resolution.",
+            "evidence_refs": [],
+        }
+        retry_run.save(update_fields=["output"])
+        assert (
+            poll_monitoring_assessment(
+                team_id=self.team.id, report_id=self.report.id, attempt_id=self.attempt.id, execution=1
+            )
+            == "done"
+        )
+        self.report.refresh_from_db()
+        assert self.report.status == SignalReport.Status.CLOSED
+
+    def test_assessment_defers_when_consent_is_withdrawn(self) -> None:
+        self._request_assessment()
+        assert self.attempt is not None
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save(update_fields=["is_ai_data_processing_approved"])
+        assert (
+            poll_monitoring_assessment(
+                team_id=self.team.id, report_id=self.report.id, attempt_id=self.attempt.id, execution=0
+            )
+            == "pending"
+        )
+        assert not Task.objects.filter(origin_key=f"monitoring-assessment:{self.attempt.id}:0").exists()
+
+    def test_assessment_prompt_respects_the_acting_users_metric_access(self) -> None:
+        self.enterContext(patch("products.tasks.backend.temporal.client.execute_task_processing_workflow"))
+        query = {
+            "kind": "InsightVizNode",
+            "source": {
+                "kind": "TrendsQuery",
+                "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                "properties": [
+                    {"key": "secret_plan", "value": ["invented_private_tier"], "type": "event", "operator": "exact"}
+                ],
+            },
+        }
+        SignalReportCheck.objects.for_team(self.team.id).filter(report_id=self.report.id).update(
+            config={"query": query, "baseline_value": 37}, soak_minutes=30
+        )
+        for check in self.checks:
+            check.refresh_from_db()
+        self.report.save(update_fields=self.report.transition_to(SignalReport.Status.READY))
+        self.attempt = complete_implementation(
+            team_id=self.team.id, report_id=self.report.id, monitoring_started_at=self.now - timedelta(hours=1)
+        )
+        assert self.attempt is not None
+        self._request_assessment()
+        SignalReportMonitoringResult.objects.for_team(self.team.id).filter(attempt=self.attempt).update(
+            explanation="Invented restricted measurement", evidence_refs=["invented-private-reference"]
+        )
+        with patch(
+            "products.signals.backend.report_metric_access.get_restricted_properties_with_group_type_index_for_team",
+            return_value=[RestrictedProperty(name="secret_plan", property_type=1)],
+        ):
+            assert (
+                poll_monitoring_assessment(
+                    team_id=self.team.id, report_id=self.report.id, attempt_id=self.attempt.id, execution=0
+                )
+                == "pending"
+            )
+        task = Task.objects.get(team=self.team, origin_key=f"monitoring-assessment:{self.attempt.id}:0")
+        prompt = task.runs.get().state["initial_prompt_override"]
+        assert "invented_private_tier" not in prompt
+        assert "Invented restricted measurement" not in prompt
+        assert "invented-private-reference" not in prompt
+        assert "cannot read" in prompt
+        assert task.runs.get().state["analytics_query_context"] == [query, query]
+
+    def test_exhaustion_recovers_the_same_task_before_closing(self) -> None:
+        self.enterContext(patch("products.tasks.backend.facade.api.signal_workflow_completion"))
+        self._request_assessment()
+        assert self.attempt is not None
+        task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="Assess saved evidence",
+            internal=True,
+            origin_key=f"monitoring-assessment:{self.attempt.id}:0",
+        )
+        run = TaskRun.objects.create(team=self.team, task=task, status="in_progress")
+        run.state = {"monitoring_assessment_run_id": str(run.id)}
+        run.save(update_fields=["state"])
+        assert not exhaust_monitoring_assessment(
+            team_id=self.team.id, report_id=self.report.id, attempt_id=self.attempt.id
+        )
+        self.report.refresh_from_db()
+        assert self.report.status == SignalReport.Status.MONITORING
+        run.output = {
+            "resolved": True,
+            "reasoning": "Saved evidence establishes resolution.",
+            "evidence_refs": ["observation:synthetic"],
+        }
+        run.save(update_fields=["output"])
+        with patch("django.core.cache.cache.get", side_effect=RuntimeError("Synthetic cache outage")):
+            assert exhaust_monitoring_assessment(
+                team_id=self.team.id, report_id=self.report.id, attempt_id=self.attempt.id
+            )
+        self.report.refresh_from_db()
+        assert self.report.status == SignalReport.Status.RESOLVED
+        assert Task.objects.filter(origin_key__startswith=f"monitoring-assessment:{self.attempt.id}:").count() == 1

@@ -267,6 +267,7 @@ export type NewSessionMeta = {
   taskOriginProduct?: string;
   /** Workflow-action opt-in: exposes the `finish` tool to a workflow-origin run. */
   endRunWhenDone?: boolean;
+  callerEndsRun?: boolean;
   /** Keeps hooks from the repo's `.claude/settings*.json` from running. */
   disableRepoHooks?: boolean;
   /**
