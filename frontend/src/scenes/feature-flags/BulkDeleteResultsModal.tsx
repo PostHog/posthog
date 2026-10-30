@@ -139,6 +139,8 @@ export function BulkDeleteResultsModal(): JSX.Element | null {
         <LemonModal
             isOpen={resultsModalVisible}
             onClose={hideResultsModal}
+            // Closing clears the results, so a restore that then fails would have nowhere to list its flags.
+            closable={!bulkRestoreRunning}
             title="Bulk deletion results"
             width={600}
             footer={

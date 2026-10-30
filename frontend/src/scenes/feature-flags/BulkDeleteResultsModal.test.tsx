@@ -1,8 +1,10 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { Provider } from 'kea'
+import { expectLogic } from 'kea-test-utils'
 
+import { useMocks } from '~/mocks/jest'
 import { getByDataAttr, queryByDataAttr } from '~/test/byDataAttr'
 import { initKeaTests } from '~/test/init'
 
@@ -58,5 +60,31 @@ describe('BulkDeleteResultsModal', () => {
         expect(screen.getByText('Deleted 1 flag')).toBeInTheDocument()
         expect(screen.queryByText('flag-1')).not.toBeInTheDocument()
         expect(queryByDataAttr(document.body, 'bulk-restore-deleted-flags')).not.toBeInTheDocument()
+    })
+
+    it('stays open until the restore finishes', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:team/feature_flags/': { count: 0, results: [] },
+            },
+            patch: {
+                '/api/projects/:team/feature_flags/:id/': () => [500, { detail: 'Server error' }],
+            },
+        })
+        logic.actions.showResultsModal({ deleted: [deletedFlag(1)], errors: [] })
+        renderModal()
+
+        fireEvent.click(getByDataAttr(document.body, 'bulk-restore-deleted-flags'))
+        expect(screen.queryByLabelText('close')).not.toBeInTheDocument()
+        fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape', code: 'Escape', keyCode: 27 })
+        expect(logic.values.resultsModalVisible).toBe(true)
+
+        // Once the restore fails, the results list it and close again.
+        await act(async () => {
+            await expectLogic(logic).toDispatchActions(['bulkRestoreFlagsFinished'])
+        })
+        expect(screen.getByText('Failed to restore 1 flag')).toBeInTheDocument()
+        fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape', code: 'Escape', keyCode: 27 })
+        expect(logic.values.resultsModalVisible).toBe(false)
     })
 })
