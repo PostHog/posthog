@@ -166,42 +166,40 @@ function reportChart(report: FeedScoutReport, title: string): ReportChartApi | n
         : null
 }
 
-export function scoutPosts(reports: FeedScoutReport[], hiddenKeys: Record<string, true>): TodayFeedPost[] {
-    const posts: TodayFeedPost[] = []
-    for (const report of reports) {
-        const area = scoutArea(report.scout_name)
-        const key = `scout:${report.id}`
-        if (!area || !report.scout_name || hiddenKeys[key]) {
-            continue
-        }
-        const title = plainTitle(report.title ?? '')
-        // `summary_lead` keeps a bold "Evidence" label and what follows it, so the full summary is cut here instead.
-        const summary = firstSentence(report.summary || report.summary_lead || '')
-        const text = shortText(summary || title)
-        if (!text) {
-            continue
-        }
-        const name = prettifyScoutSkillName(report.scout_name)
-        const chart = reportChart(report, title)
-        posts.push({
-            key,
-            kind: 'scout',
-            author: {
-                name: `${name} scout`,
-                handle: `@${report.scout_name.replace(/^signals-scout-/, '').replace(/-/g, '_')}`,
-                product: area.product,
-            },
-            at: report.created_at,
-            text,
-            to: urls.todayReport(report.id),
-            product: area.product,
-            media: chart ? { type: 'report-chart', chart } : null,
-        })
-        if (posts.length === MAX_SCOUT_POSTS) {
-            break
-        }
+function scoutPost(report: FeedScoutReport): TodayFeedPost | null {
+    const area = scoutArea(report.scout_name)
+    if (!area || !report.scout_name) {
+        return null
     }
-    return posts
+    const title = plainTitle(report.title ?? '')
+    // `summary_lead` keeps a bold "Evidence" label and what follows it, so the full summary is cut here instead.
+    const text = shortText(firstSentence(report.summary || report.summary_lead || '') || title)
+    if (!text) {
+        return null
+    }
+    const chart = reportChart(report, title)
+    return {
+        key: `scout:${report.id}`,
+        kind: 'scout',
+        author: {
+            name: `${prettifyScoutSkillName(report.scout_name)} scout`,
+            handle: `@${report.scout_name.replace(/^signals-scout-/, '').replace(/-/g, '_')}`,
+            product: area.product,
+        },
+        at: report.created_at,
+        text,
+        to: urls.todayReport(report.id),
+        product: area.product,
+        media: chart ? { type: 'report-chart', chart } : null,
+    }
+}
+
+export function scoutPosts(reports: FeedScoutReport[], hiddenKeys: Record<string, true>): TodayFeedPost[] {
+    return reports
+        .filter((report) => !hiddenKeys[`scout:${report.id}`])
+        .map(scoutPost)
+        .filter((post): post is TodayFeedPost => !!post)
+        .slice(0, MAX_SCOUT_POSTS)
 }
 
 export function feedDays(today: Dayjs): string[] {
