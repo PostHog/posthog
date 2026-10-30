@@ -58,9 +58,11 @@ from products.signals.dags.inbox_ranking.training.dag import (
     served_object_key,
 )
 from products.signals.dags.inbox_ranking.training.families import (
+    MODEL_FAMILIES,
     NN_FAMILY,
     NN_MODEL_NAME,
     NN_WITH_PRIO_FAMILY,
+    NN_WITH_PRIO_FIXED_MODEL_NAME,
     NN_WITH_PRIO_MODEL_NAME,
     ModelFamily,
 )
@@ -262,8 +264,14 @@ _PRIO_EXPERIMENT = ModelFamily(
     expires=datetime.date(2026, 12, 31),
 )
 
+NN_WITH_PRIO_FIXED_FAMILY = next(family for family in MODEL_FAMILIES if family.name == NN_WITH_PRIO_FIXED_MODEL_NAME)
 
-@pytest.mark.parametrize("family", [NN_FAMILY, NN_WITH_PRIO_FAMILY, _PRIO_EXPERIMENT], ids=lambda family: family.name)
+
+@pytest.mark.parametrize(
+    "family",
+    [NN_FAMILY, NN_WITH_PRIO_FAMILY, _PRIO_EXPERIMENT, NN_WITH_PRIO_FIXED_FAMILY],
+    ids=lambda family: family.name,
+)
 def test_the_nn_candidate_writes_a_graph_whose_columns_follow_its_recorded_head_order(
     monkeypatch, no_side_effects, family
 ):
@@ -286,16 +294,21 @@ def test_the_nn_candidate_writes_a_graph_whose_columns_follow_its_recorded_head_
     )
 
     with dagster.build_asset_context(partition_key=day) as context:
-        nn_dag.train_candidate(context, client, "bucket", day, family)
+        asset_metadata = nn_dag.train_candidate(context, client, "bucket", day, family)
 
     metadata = json.loads(client.objects[model_object_key(PREFIX, family.name, day, METADATA_FILE)])
+    assert metadata["project_vector_kinds"] == metadata["recipe"]["project_vector_kinds"]
+    assert metadata["project_vector_kinds"] == list(family.project_vector_kinds)
+    assert {key for key in asset_metadata if key.endswith("_history_share")} == {
+        f"has_{kind}_history_share" for kind in family.project_vector_kinds
+    }
     assert metadata["model_kind"] == ONNX_MODEL_KIND
     assert metadata["feature_set"] == family.feature_set.name
     assert metadata[ONNX_OUTPUT_HEADS_KEY] == list(NN_HEAD_NAMES)
     assert model_mismatch(metadata) is None
     # Only an experiment is graded against a baseline, with one paired AUC per seed and head.
     if family.experiment:
-        assert metadata["vs_baseline"]["baseline"] == NN_MODEL_NAME
+        assert metadata["vs_baseline"]["baseline"] == family.baseline
         assert {
             name: len(grade["within_team"]["experiment_aucs"])
             == len(grade["within_team"]["baseline_aucs"])
@@ -322,7 +335,7 @@ def test_the_nn_candidate_writes_a_graph_whose_columns_follow_its_recorded_head_
     holdout = subset(table, np.flatnonzero(table.holdout.any(axis=1)))
     probabilities = onnx_probabilities(
         client.objects[model_object_key(PREFIX, family.name, day, HOLDOUT_MODEL_FILE)],
-        network_inputs(holdout, extras, labels, embeddings, family.feature_set),
+        network_inputs(holdout, extras, labels, embeddings, family.feature_set, family.project_vector_kinds),
         metadata[ONNX_OUTPUT_HEADS_KEY],
     )
     for head in metadata["heads"]:

@@ -287,6 +287,11 @@ describe('ReportCard', () => {
             hold: () => jest.spyOn(api, 'delete').mockReturnValue(new Promise<never>(() => {})),
             start: () => logic.actions.bulkUnassignMe(['r-1']),
         },
+        {
+            action: 'claim',
+            hold: () => jest.spyOn(api, 'create').mockReturnValue(new Promise<never>(() => {})),
+            start: () => logic.actions.bulkClaim(['r-1']),
+        },
     ])('locks the selection while a bulk $action is running', ({ hold, start }) => {
         const pending = hold()
         act(() => {

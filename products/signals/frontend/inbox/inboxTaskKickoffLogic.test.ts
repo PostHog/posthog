@@ -432,6 +432,27 @@ describe('inboxTaskKickoffLogic', () => {
             })
         })
 
+        it('releases a warm still in flight when another report opens its task', async () => {
+            const otherReport = makeReport({ id: 'report-other', status: SignalReportStatus.READY })
+            let settleWarm!: () => void
+            warmGate = new Promise<void>((resolve) => {
+                settleWarm = resolve
+            })
+            warmResponse = { task_id: 'warm-task', run_id: 'warm-run' }
+
+            logic.actions.openReportDiscussion(report, 'https://example.com/report')
+            logic.actions.alignReportDiscussion(otherReport, 'https://example.com/other')
+            logic.actions.openReportTask(otherReport, 'other-task', 'other-run')
+            warmGate = null
+            settleWarm()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(cancelledRuns).toEqual([
+                { taskId: 'warm-task', runId: 'warm-run', body: { only_if_awaiting_first_message: true } },
+            ])
+            expect(logic.values.reportWarmLease).toBeNull()
+        })
+
         it('keeps the warm when the same report reopens before its warm settles', async () => {
             let settleWarm!: () => void
             warmGate = new Promise<void>((resolve) => {
