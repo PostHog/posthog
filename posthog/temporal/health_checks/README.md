@@ -154,6 +154,8 @@ On each check run, for every team in the batch:
 
 Teams are split into batches of `batch_size` IDs. Up to `max_concurrent` batches run concurrently, controlled by an `asyncio.Semaphore` in the Temporal workflow. Each batch activity has a retry policy (3 attempts, 30 s initial interval, exponential backoff up to 5 min).
 
+The workflow reads team IDs one page at a time, in ID order, and continues as new between pages when its history grows. A small `batch_size` therefore makes a run longer, but it cannot make Temporal end the run early.
+
 Set the `policy` class attribute on your `HealthCheck` subclass to choose one.
 
 ## Configuration guide
@@ -228,7 +230,7 @@ Default ClickHouse settings: `max_execution_time=30`, `max_threads=2`.
 ## ClickHouse kill switch
 
 Health checks are automatically skipped when the ClickHouse kill switch is active (LIGHT or FULL).
-The `get_team_id_batches` activity returns an empty list, and the workflow completes with `total_teams: 0`.
+The `get_team_id_page` activity returns an empty page, and the workflow completes with `total_teams: 0`.
 
 ## Admin UI
 
