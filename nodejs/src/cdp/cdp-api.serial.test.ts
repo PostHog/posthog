@@ -2217,16 +2217,20 @@ describe('CDP API', () => {
             expect(mockResumeParkedSteps).not.toHaveBeenCalled()
         })
 
+        const replyShapeError =
+            'Send JSON in the form {"result": {...}}, with an optional "status" of "completed" or "failed"'
+
         it.each([
-            ['a status the caller may not set', { status: 'cancelled' }, 400],
-            ['a result that is not an object', { result: 'approved' }, 400],
-            ['a reply without a result', { status: 'completed' }, 400],
-            ['a body that is not JSON', 'approved', 400],
-            ['a body over the size cap', { result: { note: 'x'.repeat(20_000) } }, 413],
-        ])('rejects %s', async (_desc, body, status) => {
+            ['a status the caller may not set', { status: 'cancelled' }, 400, replyShapeError],
+            ['a result that is not an object', { result: 'approved' }, 400, replyShapeError],
+            ['a reply without a result', { status: 'completed' }, 400, replyShapeError],
+            ['a body that is not JSON', 'approved', 400, replyShapeError],
+            ['a body over the size cap', { result: { note: 'x'.repeat(20_000) } }, 413, 'Request entity too large'],
+        ])('rejects %s', async (_desc, body, status, error) => {
             const res = await supertest(app).post(callbackPath()).send(body)
 
             expect(res.status).toEqual(status)
+            expect(res.body.error).toEqual(error)
             expect(mockResumeParkedSteps).not.toHaveBeenCalled()
         })
 

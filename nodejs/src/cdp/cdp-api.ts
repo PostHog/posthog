@@ -55,6 +55,7 @@ import { IdempotencyKeys } from './services/hogflows/idempotency-keys'
 import {
     WORKFLOW_STEP_CALLBACK_MAX_BODY_BYTES,
     WORKFLOW_STEP_CALLBACK_PATH,
+    WORKFLOW_STEP_CALLBACK_SHAPE_ERROR,
     WorkflowStepCallbackSchema,
     WorkflowStepCallbacks,
 } from './services/hogflows/step-callback'
@@ -1569,7 +1570,7 @@ export class CdpApi {
             }
             const parsed = WorkflowStepCallbackSchema.safeParse(req.body ?? {})
             if (!parsed.success) {
-                return res.status(400).json({ error: parsed.error.issues[0]?.message ?? 'Invalid request body' })
+                return res.status(400).json({ error: WORKFLOW_STEP_CALLBACK_SHAPE_ERROR })
             }
 
             const outcomes = await this.batchResolverProducer.resumeParkedSteps(callback.teamId, [
