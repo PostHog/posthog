@@ -20,7 +20,12 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.replay_vision.backend.error_kinds import IneligibleSessionKind
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
 from products.replay_vision.backend.temporal.decorators import track_activity
-from products.replay_vision.backend.temporal.errors import FailureKind, IneligibleSessionError, ScannerFailureError
+from products.replay_vision.backend.temporal.errors import (
+    FailureKind,
+    IneligibleSessionError,
+    ScannerFailureError,
+    TransientScannerFailureError,
+)
 from products.replay_vision.backend.temporal.snapshots import ScannerSnapshot
 from products.replay_vision.backend.temporal.types import ResolveExperimentVariantInputs, ResolveExperimentVariantOutput
 
@@ -97,7 +102,7 @@ def _resolve(inputs: ResolveExperimentVariantInputs) -> ResolveExperimentVariant
         if transient is not None:
             # Transient: the precomputation or cohort calculation finishes on its own, so the retry
             # policy owns this rather than the session being failed for good.
-            raise ScannerFailureError(transient, kind=FailureKind.INFRA_TRANSIENT) from exc
+            raise TransientScannerFailureError(transient) from exc
         raise IneligibleSessionError(
             f"The experiment's exposed population can't be resolved: {exc.detail}",
             kind=IneligibleSessionKind.EXPERIMENT_UNRESOLVED,
