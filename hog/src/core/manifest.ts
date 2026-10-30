@@ -1,5 +1,5 @@
 import { optionFlags, type CommandTree, type OptionSpec } from './command'
-import { GLOBAL_OPTIONS } from './context'
+import { GLOBAL_OPTIONS } from './globals'
 import { kebabCase } from './text'
 
 interface OptionEntry {
@@ -7,13 +7,16 @@ interface OptionEntry {
     description: string
     takesValue: boolean
     choices?: readonly string[]
+    repeatable?: boolean
+    env?: readonly string[]
+    config?: string
 }
 
 export interface ManifestEntry {
     name: string
     description: string
     available: boolean
-    arguments?: { name: string; description: string; required: boolean; stdin: boolean }[]
+    arguments?: { name: string; description: string; required: boolean; variadic: boolean; stdin: boolean }[]
     options?: OptionEntry[]
     scopes?: readonly string[]
     examples?: readonly string[]
@@ -27,6 +30,9 @@ function describeOptions(options: Readonly<Record<string, OptionSpec>>): OptionE
         description: spec.description,
         takesValue: spec.type === 'string',
         choices: spec.type === 'string' ? spec.choices : undefined,
+        repeatable: spec.type === 'string' && spec.multiple === true ? true : undefined,
+        env: spec.env,
+        config: spec.config,
     }))
 }
 
@@ -48,6 +54,7 @@ export function describeCommands(tree: CommandTree, prefix = ''): ManifestEntry[
                             name: kebabCase(argName),
                             description: spec.description,
                             required: spec.optional !== true,
+                            variadic: spec.variadic === true,
                             stdin: spec.stdin === true,
                         })),
                         options: describeOptions(node.options ?? {}),
@@ -57,6 +64,19 @@ export function describeCommands(tree: CommandTree, prefix = ''): ManifestEntry[
                 ]
         }
     })
+}
+
+export function describeAliases(tree: CommandTree, prefix = ''): Record<string, string> {
+    return Object.fromEntries(
+        Object.entries(tree).flatMap(([name, node]) => {
+            if (node.kind !== 'group') {
+                return []
+            }
+            const path = prefix ? `${prefix} ${name}` : name
+            const own = (node.aliases ?? []).map((alias) => [prefix ? `${prefix} ${alias}` : alias, path])
+            return [...own, ...Object.entries(describeAliases(node.commands, path))]
+        })
+    )
 }
 
 export function describeGlobalOptions(): OptionEntry[] {

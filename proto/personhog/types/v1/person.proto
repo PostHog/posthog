@@ -187,6 +187,18 @@ message UpdatePersonPropertiesResponse {
   bool updated = 2;
 }
 
+message RaisePersonVersionRequest {
+  int64 team_id = 1;
+  int64 person_id = 2;
+  int64 min_version = 3;
+}
+
+message RaisePersonVersionResponse {
+  optional Person person = 1;
+  // Whether this call wrote a document.
+  bool raised = 2;
+}
+
 // How DeletePersons removes the rows.
 enum DeletePersonsMode {
   // Same as TOMBSTONE.

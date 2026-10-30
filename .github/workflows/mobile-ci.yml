@@ -5,8 +5,8 @@ name: Mobile CI
 # installs the repo root workspace.
 #
 # "Mobile CI Pass" reports on every pull request so repository rules can require it.
-# PR housekeeping calls this workflow on each PR event, and the changes job turns
-# the run into a no-op when the diff does not touch the app. A trigger-level
+# PR housekeeping calls this workflow on each PR event. Change detection skips
+# validation when neither the app nor its imported API types changed. A trigger-level
 # paths filter would leave unrelated PRs waiting for a status that never arrives.
 
 on:
@@ -20,8 +20,6 @@ on:
         paths:
             - 'products/mobile/**'
             - '!products/mobile/**/*.md'
-            - 'products/signals/frontend/generated/api.schemas.ts'
-            - 'products/error_tracking/frontend/generated/api.schemas.ts'
             - '.github/workflows/mobile-ci.yml'
 
 concurrency:
@@ -45,6 +43,7 @@ jobs:
             # A push has no PR diff to filter: a master push already matched the
             # trigger paths, and the release caller validates its exact commit.
             mobile: ${{ steps.filter.outputs.mobile || 'true' }}
+            api_types: ${{ steps.filter.outputs.api_types || 'false' }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
@@ -67,20 +66,24 @@ jobs:
                       mobile:
                           - 'products/mobile/**'
                           - '!products/mobile/**/*.md'
+                          - '.github/workflows/mobile-ci.yml'
+                      api_types:
                           - 'products/signals/frontend/generated/api.schemas.ts'
                           - 'products/error_tracking/frontend/generated/api.schemas.ts'
-                          - '.github/workflows/mobile-ci.yml'
 
     check:
-        name: Typecheck, lint and test
+        name: Check mobile
         needs: changes
-        if: needs.changes.outputs.mobile == 'true'
+        if: needs.changes.outputs.mobile == 'true' || needs.changes.outputs.api_types == 'true'
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 15
         env:
             # Reusable workflows keep the caller's name. Only the direct master
             # trigger warms the cache; release callers must validate their commit.
             MOBILE_RUN_CHECKS: ${{ github.event_name != 'push' || github.workflow != 'Mobile CI' }}
+            # The generated API files are type-only imports, so their changes need
+            # typechecking but cannot affect mobile lint, runtime or release policy.
+            MOBILE_RUN_FULL_CHECKS: ${{ needs.changes.outputs.mobile == 'true' && (github.event_name != 'push' || github.workflow != 'Mobile CI') }}
         defaults:
             run:
                 working-directory: products/mobile
@@ -146,29 +149,29 @@ jobs:
               run: pnpm typecheck
 
             - name: Lint
-              if: env.MOBILE_RUN_CHECKS == 'true'
+              if: env.MOBILE_RUN_FULL_CHECKS == 'true'
               run: pnpm lint
 
             - name: Test
-              if: env.MOBILE_RUN_CHECKS == 'true'
+              if: env.MOBILE_RUN_FULL_CHECKS == 'true'
               run: pnpm test --ci
 
             # Workflow changes also reach branches that have not rebased onto the
             # release tooling yet. Those branches still run the existing checks.
             - name: Fetch release validation base
-              if: env.MOBILE_RUN_CHECKS == 'true' && hashFiles('products/mobile/scripts/releases/release.mjs') != '' && (github.event.pull_request.base.sha != '' || github.event.before != '')
+              if: env.MOBILE_RUN_FULL_CHECKS == 'true' && hashFiles('products/mobile/scripts/releases/release.mjs') != '' && (github.event.pull_request.base.sha != '' || github.event.before != '')
               env:
                   MOBILE_RELEASE_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
               run: git fetch --no-tags --depth=1 --filter=blob:none origin "$MOBILE_RELEASE_BASE"
 
             - name: Validate release requests
-              if: env.MOBILE_RUN_CHECKS == 'true' && hashFiles('products/mobile/scripts/releases/release.mjs') != ''
+              if: env.MOBILE_RUN_FULL_CHECKS == 'true' && hashFiles('products/mobile/scripts/releases/release.mjs') != ''
               env:
                   MOBILE_RELEASE_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
               run: pnpm release:check
 
             - name: Test release policy
-              if: env.MOBILE_RUN_CHECKS == 'true' && hashFiles('products/mobile/scripts/releases/release.mjs') != ''
+              if: env.MOBILE_RUN_FULL_CHECKS == 'true' && hashFiles('products/mobile/scripts/releases/release.mjs') != ''
               run: pnpm release:test
 
     mobile_checks:
@@ -186,7 +189,7 @@ jobs:
                     exit 1
                   fi
 
-                  if [[ "${{ needs.changes.outputs.mobile }}" != "true" ]]; then
+                  if [[ "${{ needs.changes.outputs.mobile }}" != "true" && "${{ needs.changes.outputs.api_types }}" != "true" ]]; then
                     echo "Mobile checks were skipped (no relevant changes)"
                     exit 0
                   fi

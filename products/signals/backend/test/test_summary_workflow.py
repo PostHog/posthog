@@ -205,6 +205,7 @@ class _Recorder:
         self.research_metrics = research_metrics
         self.checks_snapshot = checks_snapshot
         self.checks_summary: str | None = None
+        self.checks_error: str | None = None
         self.checks_monitoring_enabled = False
         self.selected_repository = selected_repository
         self.research_errors = list(research_errors or [])
@@ -322,6 +323,7 @@ async def _run_summary_workflow(recorder: _Recorder) -> None:
             checks_snapshot=recorder.checks_snapshot,
             checks_monitoring_enabled=recorder.checks_monitoring_enabled,
             checks_summary=recorder.checks_summary,
+            checks_error=recorder.checks_error,
         )
 
     @activity.defn(name="mark_report_pending_input_activity")
@@ -526,11 +528,13 @@ async def test_research_startup_retry_policy_and_failure_details_survive_tempora
         (ActionabilityChoice.IMMEDIATELY_ACTIONABLE, "ready"),
     ],
 )
-async def test_metric_payload_reaches_the_report_transition(choice, target):
+@pytest.mark.parametrize("checks_error", [None, "checks.0.probe_hints: too_long"])
+async def test_metric_payload_reaches_the_report_transition(choice, target, checks_error):
     metrics = [{"metric_id": "affected-users", "kind": "affected_users", "value": 12}]
     snapshot = {"check-1": "2026-10-02T12:00:00+00:00"}
     recorder = _Recorder(research_choice=choice, research_metrics=metrics, checks_snapshot=snapshot)
     recorder.checks_summary = "Expected impact matches the reconciled checks."
+    recorder.checks_error = checks_error
     recorder.checks_monitoring_enabled = True
 
     await _run_summary_workflow(recorder)
@@ -541,6 +545,7 @@ async def test_metric_payload_reaches_the_report_transition(choice, target):
     assert inputs[0].checks_snapshot == snapshot
     assert inputs[0].checks_monitoring_enabled is True
     assert inputs[0].checks_summary == recorder.checks_summary
+    assert inputs[0].checks_error == checks_error
 
 
 @pytest.mark.asyncio

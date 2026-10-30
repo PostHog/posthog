@@ -1897,6 +1897,9 @@
                     "$ref": "#/definitions/MarketingAnalyticsSearchQuery"
                 },
                 {
+                    "$ref": "#/definitions/MarketingAnalyticsRecommendationsQuery"
+                },
+                {
                     "$ref": "#/definitions/WebOverviewQuery"
                 },
                 {
@@ -12688,7 +12691,7 @@
                     "type": "string"
                 },
                 "dataComputedAt": {
-                    "description": "ISO timestamp of the oldest precompute window backing this result — surfaced as \"data as of X\".",
+                    "description": "ISO timestamp of the oldest precompute window backing this result.",
                     "type": "string"
                 },
                 "error": {
@@ -12704,6 +12707,10 @@
                 },
                 "last_refresh": {
                     "format": "date-time",
+                    "type": "string"
+                },
+                "latestDayComputedAt": {
+                    "description": "ISO timestamp of when the numbers for the most recent day in the range were computed, at this time or later. It is the oldest stamp among the precompute windows that hold that day, across costs and conversion goals. Unset when no precompute was read or a window has no stamp.",
                     "type": "string"
                 },
                 "modifiers": {
@@ -13067,6 +13074,115 @@
             ],
             "type": "object"
         },
+        "CachedMarketingAnalyticsRecommendationsQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "cache_key": {
+                    "type": "string"
+                },
+                "cache_target_age": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "calculation_trigger": {
+                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
+                    "type": "string"
+                },
+                "disclaimer": {
+                    "description": "Caveat to show with the results. The results are suggestions, and impact figures are estimates.",
+                    "type": "string"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "next_allowed_client_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "query_metadata": {
+                    "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_compare_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The resolved previous/comparison period date range, when comparing against another period"
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {
+                    "items": {
+                        "$ref": "#/definitions/MarketingAnalyticsRecommendation"
+                    },
+                    "type": "array"
+                },
+                "timezone": {
+                    "type": "string"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                },
+                "used_data_warehouse_sources": {
+                    "description": "Connector-synced data warehouse sources referenced by this query, if any.",
+                    "items": {
+                        "$ref": "#/definitions/DataWarehouseSourceUsage"
+                    },
+                    "type": "array"
+                },
+                "warnings": {
+                    "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
+                    "items": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/DataWarehouseSyncWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/AccessControlFilterWarning"
+                            }
+                        ]
+                    },
+                    "type": "array"
+                }
+            },
+            "required": [
+                "cache_key",
+                "disclaimer",
+                "is_cached",
+                "last_refresh",
+                "next_allowed_client_refresh",
+                "results",
+                "timezone"
+            ],
+            "type": "object"
+        },
         "CachedMarketingAnalyticsRetentionQueryResponse": {
             "additionalProperties": false,
             "properties": {
@@ -13362,7 +13478,7 @@
                     "type": "array"
                 },
                 "dataComputedAt": {
-                    "description": "ISO timestamp of the oldest precompute window backing this result — surfaced as \"data as of X\".",
+                    "description": "ISO timestamp of the oldest precompute window backing this result.",
                     "type": "string"
                 },
                 "error": {
@@ -13381,6 +13497,10 @@
                 },
                 "last_refresh": {
                     "format": "date-time",
+                    "type": "string"
+                },
+                "latestDayComputedAt": {
+                    "description": "ISO timestamp of when the numbers for the most recent day in the range were computed, at this time or later. It is the oldest stamp among the precompute windows that hold that day, across costs and conversion goals. Unset when no precompute was read or a window has no stamp.",
                     "type": "string"
                 },
                 "limit": {
@@ -20386,7 +20506,7 @@
                                     "type": "array"
                                 },
                                 "dataComputedAt": {
-                                    "description": "ISO timestamp of the oldest precompute window backing this result — surfaced as \"data as of X\".",
+                                    "description": "ISO timestamp of the oldest precompute window backing this result.",
                                     "type": "string"
                                 },
                                 "error": {
@@ -20398,6 +20518,10 @@
                                 },
                                 "hogql": {
                                     "description": "Generated HogQL query.",
+                                    "type": "string"
+                                },
+                                "latestDayComputedAt": {
+                                    "description": "ISO timestamp of when the numbers for the most recent day in the range were computed, at this time or later. It is the oldest stamp among the precompute windows that hold that day, across costs and conversion goals. Unset when no precompute was read or a window has no stamp.",
                                     "type": "string"
                                 },
                                 "limit": {
@@ -20478,7 +20602,7 @@
                             "additionalProperties": false,
                             "properties": {
                                 "dataComputedAt": {
-                                    "description": "ISO timestamp of the oldest precompute window backing this result — surfaced as \"data as of X\".",
+                                    "description": "ISO timestamp of the oldest precompute window backing this result.",
                                     "type": "string"
                                 },
                                 "error": {
@@ -20487,6 +20611,10 @@
                                 },
                                 "hogql": {
                                     "description": "Generated HogQL query.",
+                                    "type": "string"
+                                },
+                                "latestDayComputedAt": {
+                                    "description": "ISO timestamp of when the numbers for the most recent day in the range were computed, at this time or later. It is the oldest stamp among the precompute windows that hold that day, across costs and conversion goals. Unset when no precompute was read or a window has no stamp.",
                                     "type": "string"
                                 },
                                 "modifiers": {
@@ -26351,6 +26479,10 @@
                     "description": "The values behind the finding, such as the p-value of the sample ratio test. The keys depend on the code.",
                     "type": "object"
                 },
+                "reason": {
+                    "description": "A stable qualifier below the subcode, for example where a sample ratio mismatch is located. Null when the finding names none.",
+                    "type": ["string", "null"]
+                },
                 "severity": {
                     "$ref": "#/definitions/ExperimentExposureHealthFindingSeverity",
                     "description": "How much the problem affects the results: critical, warning, or info."
@@ -26364,7 +26496,17 @@
                     "type": "string"
                 }
             },
-            "required": ["code", "subcode", "severity", "title", "detail", "evidence", "actions", "diagnostic_ref"],
+            "required": [
+                "code",
+                "subcode",
+                "reason",
+                "severity",
+                "title",
+                "detail",
+                "evidence",
+                "actions",
+                "diagnostic_ref"
+            ],
             "type": "object"
         },
         "ExperimentExposureHealthFindingActionKind": {
@@ -35348,7 +35490,7 @@
             "additionalProperties": false,
             "properties": {
                 "dataComputedAt": {
-                    "description": "ISO timestamp of the oldest precompute window backing this result — surfaced as \"data as of X\".",
+                    "description": "ISO timestamp of the oldest precompute window backing this result.",
                     "type": "string"
                 },
                 "error": {
@@ -35357,6 +35499,10 @@
                 },
                 "hogql": {
                     "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "latestDayComputedAt": {
+                    "description": "ISO timestamp of when the numbers for the most recent day in the range were computed, at this time or later. It is the oldest stamp among the precompute windows that hold that day, across costs and conversion goals. Unset when no precompute was read or a window has no stamp.",
                     "type": "string"
                 },
                 "modifiers": {
@@ -36124,6 +36270,227 @@
             "maxItems": 2,
             "minItems": 2,
             "type": "array"
+        },
+        "MarketingAnalyticsRecommendation": {
+            "additionalProperties": false,
+            "properties": {
+                "action": {
+                    "type": "string"
+                },
+                "campaign": {
+                    "description": "The campaign a search term recommendation applies to, when it applies to one.",
+                    "type": ["string", "null"]
+                },
+                "currency": {
+                    "type": ["string", "null"]
+                },
+                "impact": {
+                    "description": "Monthly money impact in the account currency. Null when the rule has no money impact.",
+                    "type": ["number", "null"]
+                },
+                "impactDirection": {
+                    "$ref": "#/definitions/MarketingAnalyticsRecommendationImpactDirection"
+                },
+                "impactType": {
+                    "$ref": "#/definitions/MarketingAnalyticsRecommendationImpactType"
+                },
+                "level": {
+                    "$ref": "#/definitions/MarketingAnalyticsRecommendationLevel"
+                },
+                "reason": {
+                    "type": "string"
+                },
+                "rule": {
+                    "$ref": "#/definitions/MarketingAnalyticsRecommendationRule"
+                },
+                "subject": {
+                    "description": "The campaign name or the search term the recommendation is about.",
+                    "type": "string"
+                }
+            },
+            "required": ["rule", "level", "subject", "action", "reason", "impactDirection", "impactType"],
+            "type": "object"
+        },
+        "MarketingAnalyticsRecommendationImpactDirection": {
+            "enum": ["save", "gain", "invest", "keep"],
+            "type": "string"
+        },
+        "MarketingAnalyticsRecommendationImpactType": {
+            "enum": ["measured", "estimated"],
+            "type": "string"
+        },
+        "MarketingAnalyticsRecommendationLevel": {
+            "enum": ["campaign", "search_term"],
+            "type": "string"
+        },
+        "MarketingAnalyticsRecommendationRule": {
+            "enum": [
+                "budget_constrained",
+                "brand_leak",
+                "scale_campaign",
+                "review_campaign",
+                "policy_limited",
+                "brand_overlap",
+                "content_gap",
+                "keyword_gap",
+                "spend_without_conversions",
+                "striking_distance"
+            ],
+            "type": "string"
+        },
+        "MarketingAnalyticsRecommendationsQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange"
+                },
+                "kind": {
+                    "const": "MarketingAnalyticsRecommendationsQuery",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "response": {
+                    "$ref": "#/definitions/MarketingAnalyticsRecommendationsQueryResponse"
+                },
+                "sources": {
+                    "description": "Tables to read. Omit to read every synced Google Ads and Google Search Console source in the project.",
+                    "items": {
+                        "$ref": "#/definitions/MarketingAnalyticsRecommendationsSource"
+                    },
+                    "type": "array"
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        },
+        "MarketingAnalyticsRecommendationsQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "disclaimer": {
+                    "description": "Caveat to show with the results. The results are suggestions, and impact figures are estimates.",
+                    "type": "string"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_compare_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The resolved previous/comparison period date range, when comparing against another period"
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {
+                    "items": {
+                        "$ref": "#/definitions/MarketingAnalyticsRecommendation"
+                    },
+                    "type": "array"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                },
+                "used_data_warehouse_sources": {
+                    "description": "Connector-synced data warehouse sources referenced by this query, if any.",
+                    "items": {
+                        "$ref": "#/definitions/DataWarehouseSourceUsage"
+                    },
+                    "type": "array"
+                },
+                "warnings": {
+                    "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
+                    "items": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/DataWarehouseSyncWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/AccessControlFilterWarning"
+                            }
+                        ]
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["disclaimer", "results"],
+            "type": "object"
+        },
+        "MarketingAnalyticsRecommendationsSource": {
+            "additionalProperties": false,
+            "properties": {
+                "campaignImpressionShareTable": {
+                    "description": "Google Ads daily campaign impression share table.",
+                    "type": "string"
+                },
+                "campaignStatsTable": {
+                    "description": "Google Ads daily campaign stats table.",
+                    "type": "string"
+                },
+                "campaignTable": {
+                    "description": "Google Ads campaign table.",
+                    "type": "string"
+                },
+                "customerTable": {
+                    "description": "Google Ads customer table, used for the account currency.",
+                    "type": "string"
+                },
+                "performanceMaxSearchTermTable": {
+                    "description": "Google Ads search term table for Performance Max campaigns.",
+                    "type": "string"
+                },
+                "queryTable": {
+                    "description": "Google Search Console table with one row per query, or per query and page.",
+                    "type": "string"
+                },
+                "searchTermKeywordTable": {
+                    "description": "Google Ads search term table split by the keyword that matched each term.",
+                    "type": "string"
+                },
+                "searchTermTable": {
+                    "description": "Google Ads search term table for Search campaigns.",
+                    "type": "string"
+                },
+                "sitesTable": {
+                    "description": "Google Search Console sites table, used to infer the brand name.",
+                    "type": "string"
+                },
+                "sourceType": {
+                    "$ref": "#/definitions/MarketingAnalyticsRecommendationsSourceType"
+                }
+            },
+            "required": ["sourceType"],
+            "type": "object"
+        },
+        "MarketingAnalyticsRecommendationsSourceType": {
+            "enum": ["GoogleAds", "GoogleSearchConsole"],
+            "type": "string"
         },
         "MarketingAnalyticsRetentionCell": {
             "additionalProperties": false,
@@ -36938,7 +37305,7 @@
                     "type": "array"
                 },
                 "dataComputedAt": {
-                    "description": "ISO timestamp of the oldest precompute window backing this result — surfaced as \"data as of X\".",
+                    "description": "ISO timestamp of the oldest precompute window backing this result.",
                     "type": "string"
                 },
                 "error": {
@@ -36950,6 +37317,10 @@
                 },
                 "hogql": {
                     "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "latestDayComputedAt": {
+                    "description": "ISO timestamp of when the numbers for the most recent day in the range were computed, at this time or later. It is the oldest stamp among the precompute windows that hold that day, across costs and conversion goals. Unset when no precompute was read or a window has no stamp.",
                     "type": "string"
                 },
                 "limit": {
@@ -40325,6 +40696,7 @@
                 "MarketingAnalyticsAttributionPathsQuery",
                 "MarketingAnalyticsRetentionQuery",
                 "MarketingAnalyticsSearchQuery",
+                "MarketingAnalyticsRecommendationsQuery",
                 "ExperimentMetric",
                 "ExperimentQuery",
                 "ExperimentExposureQuery",
@@ -44684,7 +45056,7 @@
                             "type": "array"
                         },
                         "dataComputedAt": {
-                            "description": "ISO timestamp of the oldest precompute window backing this result — surfaced as \"data as of X\".",
+                            "description": "ISO timestamp of the oldest precompute window backing this result.",
                             "type": "string"
                         },
                         "error": {
@@ -44696,6 +45068,10 @@
                         },
                         "hogql": {
                             "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "latestDayComputedAt": {
+                            "description": "ISO timestamp of when the numbers for the most recent day in the range were computed, at this time or later. It is the oldest stamp among the precompute windows that hold that day, across costs and conversion goals. Unset when no precompute was read or a window has no stamp.",
                             "type": "string"
                         },
                         "limit": {
@@ -44776,7 +45152,7 @@
                     "additionalProperties": false,
                     "properties": {
                         "dataComputedAt": {
-                            "description": "ISO timestamp of the oldest precompute window backing this result — surfaced as \"data as of X\".",
+                            "description": "ISO timestamp of the oldest precompute window backing this result.",
                             "type": "string"
                         },
                         "error": {
@@ -44785,6 +45161,10 @@
                         },
                         "hogql": {
                             "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "latestDayComputedAt": {
+                            "description": "ISO timestamp of when the numbers for the most recent day in the range were computed, at this time or later. It is the oldest stamp among the precompute windows that hold that day, across costs and conversion goals. Unset when no precompute was read or a window has no stamp.",
                             "type": "string"
                         },
                         "modifiers": {
@@ -45251,6 +45631,75 @@
                         }
                     },
                     "required": ["results"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "disclaimer": {
+                            "description": "Caveat to show with the results. The results are suggestions, and impact figures are estimates.",
+                            "type": "string"
+                        },
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
+                        "hogql": {
+                            "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers",
+                            "description": "Modifiers used when performing the query"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "resolved_compare_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The resolved previous/comparison period date range, when comparing against another period"
+                        },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
+                        },
+                        "results": {
+                            "items": {
+                                "$ref": "#/definitions/MarketingAnalyticsRecommendation"
+                            },
+                            "type": "array"
+                        },
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        },
+                        "used_data_warehouse_sources": {
+                            "description": "Connector-synced data warehouse sources referenced by this query, if any.",
+                            "items": {
+                                "$ref": "#/definitions/DataWarehouseSourceUsage"
+                            },
+                            "type": "array"
+                        },
+                        "warnings": {
+                            "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
+                            "items": {
+                                "anyOf": [
+                                    {
+                                        "$ref": "#/definitions/DataWarehouseSyncWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/AccessControlFilterWarning"
+                                    }
+                                ]
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["disclaimer", "results"],
                     "type": "object"
                 },
                 {
@@ -46334,7 +46783,7 @@
                             "type": "array"
                         },
                         "dataComputedAt": {
-                            "description": "ISO timestamp of the oldest precompute window backing this result — surfaced as \"data as of X\".",
+                            "description": "ISO timestamp of the oldest precompute window backing this result.",
                             "type": "string"
                         },
                         "error": {
@@ -46346,6 +46795,10 @@
                         },
                         "hogql": {
                             "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "latestDayComputedAt": {
+                            "description": "ISO timestamp of when the numbers for the most recent day in the range were computed, at this time or later. It is the oldest stamp among the precompute windows that hold that day, across costs and conversion goals. Unset when no precompute was read or a window has no stamp.",
                             "type": "string"
                         },
                         "limit": {
@@ -46426,7 +46879,7 @@
                     "additionalProperties": false,
                     "properties": {
                         "dataComputedAt": {
-                            "description": "ISO timestamp of the oldest precompute window backing this result — surfaced as \"data as of X\".",
+                            "description": "ISO timestamp of the oldest precompute window backing this result.",
                             "type": "string"
                         },
                         "error": {
@@ -46435,6 +46888,10 @@
                         },
                         "hogql": {
                             "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "latestDayComputedAt": {
+                            "description": "ISO timestamp of when the numbers for the most recent day in the range were computed, at this time or later. It is the oldest stamp among the precompute windows that hold that day, across costs and conversion goals. Unset when no precompute was read or a window has no stamp.",
                             "type": "string"
                         },
                         "modifiers": {
@@ -50948,6 +51405,9 @@
                     "$ref": "#/definitions/MarketingAnalyticsSearchQuery"
                 },
                 {
+                    "$ref": "#/definitions/MarketingAnalyticsRecommendationsQuery"
+                },
+                {
                     "$ref": "#/definitions/DataVisualizationNode"
                 },
                 {
@@ -51668,6 +52128,11 @@
                     "type": "string"
                 },
                 "date_to": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "read_from": {
+                    "description": "The earliest timestamp the query reads, when only its first interval depends on rows from before date_from. Lifecycle sets it to the start of the interval before the range.",
                     "format": "date-time",
                     "type": "string"
                 }

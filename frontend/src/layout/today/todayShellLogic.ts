@@ -10,10 +10,11 @@ import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isUnderPath, removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { fromPostHogProducts } from 'scenes/analytics/analyticsUtils'
 import { libraryTypeForPath } from 'scenes/library/libraryUtils'
-import { PhaiViewMode, maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
+import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { settingsSectionSceneForPath } from 'scenes/settings/settingsSectionScenes'
 import { urls } from 'scenes/urls'
 
+import type { PhaiViewMode } from '~/layout/ai/aiPanelIds'
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { getNavProductPages, navProductHrefForPath } from '~/layout/panel-layout/navbar/tabs/navProductItems'
 import { FileSystemImport } from '~/queries/schema/schema-general'
@@ -53,7 +54,7 @@ export function todayNewChatUrl(effectivePhaiView: PhaiViewMode): string {
 const RAIL_PANE_HOMES: Partial<Record<TodayRailPane, (effectivePhaiView: PhaiViewMode) => string>> = {
     home: () => urls.projectHomepage(),
     spaces: todayNewChatUrl,
-    analytics: () => urls.analyticsProductHome(),
+    analytics: () => urls.analyticsList(),
     settings: () => urls.settings('project'),
 }
 

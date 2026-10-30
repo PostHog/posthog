@@ -167,7 +167,7 @@ const SourceMarketingAnalyticsDashboard = (): JSX.Element => {
     if (!dataWarehouseSources) {
         return (
             <>
-                <h2 className="max-w-3xl w-full mx-auto mt-6 mb-0">Ad performance</h2>
+                <h2 className="mt-6 mb-0">Ad performance</h2>
                 {featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_SOURCE_ONBOARDING] ? (
                     <SourceSetupPanel
                         state={sourcesLoadError ? 'error' : 'checking'}
@@ -209,22 +209,8 @@ const SourceMarketingAnalyticsDashboard = (): JSX.Element => {
             {!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_SOURCE_ONBOARDING] && hasSyncedMarketingSources && (
                 <MarketingAnalyticsSourceStatusBanner />
             )}
-            <h2
-                className={
-                    hasSyncedMarketingSources || hasSearchConsole ? 'mt-6 mb-0' : 'max-w-3xl w-full mx-auto mt-6 mb-0'
-                }
-            >
-                Ad performance
-            </h2>
+            <h2 className="mt-6 mb-0">Ad performance</h2>
             <DetectedSources compact={hasSearchConsole && !hasSyncedMarketingSources} dismissible />
-            {!!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS] &&
-                !dataWarehouseSources?.results.some((source) =>
-                    ['GoogleAds', 'BingAds', 'GoogleSearchConsole'].includes(source.source_type)
-                ) && (
-                    <DashboardSetupPrompt kind="sources">
-                        {(dismissButton) => <SearchConsoleSource headerAction={dismissButton} />}
-                    </DashboardSetupPrompt>
-                )}
             <DashboardConversionRecommendations />
             {hasSources && hasSyncedMarketingSources && (
                 <div className="mt-4 grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-x-4 gap-y-12">
@@ -233,6 +219,14 @@ const SourceMarketingAnalyticsDashboard = (): JSX.Element => {
                     ))}
                 </div>
             )}
+            {!!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS] &&
+                !dataWarehouseSources?.results.some((source) =>
+                    ['GoogleAds', 'BingAds', 'GoogleSearchConsole'].includes(source.source_type)
+                ) && (
+                    <DashboardSetupPrompt kind="sources">
+                        {(dismissButton) => <SearchConsoleSource headerAction={dismissButton} />}
+                    </DashboardSetupPrompt>
+                )}
         </>
     )
 }
