@@ -208,6 +208,19 @@ class EventViewSet(
             params["after"] = timestamp
         return request.build_absolute_uri(f"{request.path}?{urllib.parse.urlencode(params)}")
 
+    @staticmethod
+    def _parse_limit_param(request: request.Request, is_csv_request: bool) -> int:
+        raw_limit = request.GET.get("limit")
+        if not raw_limit:
+            return QUERY_DEFAULT_EXPORT_LIMIT if is_csv_request else DEFAULT_RETURNED_ROWS
+        try:
+            limit = int(raw_limit)
+        except ValueError:
+            raise serializers.ValidationError({"limit": "A valid integer is required."})
+        if limit < 0:
+            raise serializers.ValidationError({"limit": "Ensure this value is greater than or equal to 0."})
+        return limit
+
     @extend_schema(
         description="""
         This endpoint allows you to list and filter events.
@@ -274,18 +287,9 @@ class EventViewSet(
     )
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         tag_queries(product=ProductKey.PRODUCT_ANALYTICS, feature=Feature.QUERY)
+        is_csv_request = self.request.accepted_renderer.format == "csv"
+        limit = min(self._parse_limit_param(request, is_csv_request), EVENT_LIST_MAX_LIMIT)
         try:
-            is_csv_request = self.request.accepted_renderer.format == "csv"
-
-            if self.request.GET.get("limit", None):
-                limit = int(self.request.GET.get("limit"))  # type: ignore
-            elif is_csv_request:
-                limit = QUERY_DEFAULT_EXPORT_LIMIT
-            else:
-                limit = DEFAULT_RETURNED_ROWS
-
-            limit = min(limit, EVENT_LIST_MAX_LIMIT)
-
             try:
                 offset = int(request.GET["offset"]) if request.GET.get("offset") else 0
             except ValueError:

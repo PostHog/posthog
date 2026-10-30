@@ -1031,6 +1031,13 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/events/?limit=50000").json()
         assert len(response["results"]) == 2
 
+    @parameterized.expand([("non_numeric", "abc"), ("negative", "-1")])
+    def test_list_rejects_bad_limit(self, _name: str, limit: str) -> None:
+        response = self.client.get(f"/api/projects/{self.team.id}/events/?limit={limit}")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "limit"
+
     @patch("posthog.api.event.get_persons_mapped_by_distinct_id")
     def test_list_without_include_person_skips_person_lookup(self, mock_get_persons):
         _create_person(team=self.team, distinct_ids=["1"], is_identified=True)
