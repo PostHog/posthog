@@ -16,6 +16,7 @@ from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsPerson
 from posthog.hogql.database.schema.groups import GroupsTable
 from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
 from posthog.hogql.escape_sql import escape_hogql_identifier
+from posthog.hogql.functions.clickhouse.json import JSON_KEY_PATH_FUNCTIONS, JSON_TYPED_PATH_FUNCTIONS
 from posthog.hogql.helpers.timestamp_visitor import parse_zoned_datetime_string
 from posthog.hogql.property_metadata import load_property_metadata
 from posthog.hogql.property_planner import PropertySourceKind, plan_property_access
@@ -239,7 +240,7 @@ class PropertySwapper(CloningVisitor):
         )
 
     def visit_call(self, node: ast.Call):
-        rewritten = self._try_rewrite_json_extract_to_mat_column(node)
+        rewritten = self._rewrite_json_property_call(node)
         if rewritten is not None:
             return rewritten
 
@@ -303,19 +304,21 @@ class PropertySwapper(CloningVisitor):
             ),
         )
 
-    def _try_rewrite_json_extract_to_mat_column(self, node: ast.Call) -> ast.Expr | None:
-        """Rewrite safe direct JSON property extraction to avoid reading the raw JSON blob.
+    def _rewrite_json_property_call(self, node: ast.Call) -> ast.Expr | None:
+        """A JSON function on `properties` with a constant first key reads that key instead of the whole document.
 
-        When users write raw JSONExtractString(properties, '$foo') in HogQL, ClickHouse otherwise decompresses the full
-        properties JSON blob. Under the native JSON events schema, scalar extracts with constant string paths become
-        direct JSON subcolumn reads plus an explicit cast. Under the legacy schema, simple extracts still rewrite through
-        property access only when that can resolve to an equivalent materialized column.
+        On the native events table `properties` is a JSON column, so a JSON function over it needs the document rebuilt
+        as text from every subcolumn, once per row. With a constant first key, only that key's value is serialized and
+        the function runs on it, for the same answer at a fraction of the cost. The ClickHouse property resolver later
+        removes even that serialization for string, float and Bool extraction (`_rewrite_scalar_json_extract`).
 
-        Complex typed JSONExtract(...) values are left alone because ClickHouse's native JSON subcolumn access exposes
-        leaf values reliably, but not every object/array path round-trips as a standalone subcolumn value.
+        The read is marked `as_json`, so the metadata pass leaves it unconverted and the JSON function determines
+        conversion and defaults. `JSONHas` keeps the whole document: a key holding JSON null and a missing key read the
+        same from a subcolumn, but `JSONHas` tells them apart. Legacy calls rewrite only when an equivalent materialized
+        column exists.
         """
         property_path = self._simple_json_extract_property_path(node)
-        if node.name not in ("JSONExtract", "JSONExtractRaw", *_JSON_EXTRACT_SCALAR_CASTS):
+        if node.name not in JSON_KEY_PATH_FUNCTIONS or node.name == "JSONHas":
             return None
         if not node.args:
             return None
@@ -324,6 +327,15 @@ class PropertySwapper(CloningVisitor):
         field_arg = node.args[0]
         if isinstance(field_arg, ast.Alias):
             field_arg = field_arg.expr
+        if (
+            self.context.uses_new_events_schema()
+            and isinstance(field_arg, ast.Call)
+            and field_arg.name == "toString"
+            and len(field_arg.args) == 1
+        ):
+            field_arg = field_arg.args[0]
+            if isinstance(field_arg, ast.Alias):
+                field_arg = field_arg.expr
         if not isinstance(field_arg, ast.Field):
             return None
 
@@ -405,14 +417,14 @@ class PropertySwapper(CloningVisitor):
 
     @staticmethod
     def _simple_json_extract_property_path(node: ast.Call) -> list[str | int] | None:
-        if node.name == "JSONExtract":
+        if node.name in JSON_TYPED_PATH_FUNCTIONS:
             if len(node.args) < 3:
                 return None
             type_arg = node.args[-1]
             if not isinstance(type_arg, ast.Constant) or not isinstance(type_arg.value, str):
                 return None
             path_args = node.args[1:-1]
-        elif node.name in _JSON_EXTRACT_SCALAR_CASTS or node.name == "JSONExtractRaw":
+        elif node.name in JSON_KEY_PATH_FUNCTIONS:
             path_args = node.args[1:]
         else:
             return None
@@ -429,7 +441,7 @@ class PropertySwapper(CloningVisitor):
 
     @staticmethod
     def _json_extract_first_key(node: ast.Call) -> str | int | None:
-        path_args = node.args[1:-1] if node.name == "JSONExtract" else node.args[1:]
+        path_args = node.args[1:-1] if node.name in JSON_TYPED_PATH_FUNCTIONS else node.args[1:]
         if not path_args or not isinstance(path_args[0], ast.Constant):
             return None
         first_key = path_args[0].value
@@ -468,7 +480,7 @@ class PropertySwapper(CloningVisitor):
                 order_by=node.order_by,
                 filter_expr=node.filter_expr,
             )
-        property_field = ast.Field(
+        property_value = ast.Field(
             start=node.start,
             end=node.end,
             chain=[*field_arg.chain, first_key],
@@ -478,7 +490,7 @@ class PropertySwapper(CloningVisitor):
         )
         property_document: ast.Expr = ast.Call(
             name="toJSONString",
-            args=[property_field],
+            args=[property_value],
             type=ast.StringType(nullable=True),
         )
         property_document = ast.Call(
@@ -490,9 +502,7 @@ class PropertySwapper(CloningVisitor):
             type=ast.StringType(nullable=False),
         )
 
-        # Keep ClickHouse's JSONExtract implementation as the source of truth for coercion and
-        # default-value semantics. Only replace the full document with the first requested
-        # property's serialized value, then apply any remaining path components unchanged.
+        # Keep remaining indices on the JSON function: integer indices can address both arrays and object members.
         return ast.Call(
             start=node.start,
             end=node.end,
