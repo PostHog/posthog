@@ -83,6 +83,9 @@ _BASE64_PATTERN = re.compile(r"[A-Za-z0-9+/]*={0,2}")
 
 
 def _decode_verify_arg(value: str, encoding: str, expected_bytes: int) -> bytes | None:
+    # Hex is the longest valid form, so anything longer is rejected before the regex runs on it.
+    if len(value) > expected_bytes * 2:
+        return None
     if not (_HEX_PATTERN if encoding == "hex" else _BASE64_PATTERN).fullmatch(value):
         return None
     try:

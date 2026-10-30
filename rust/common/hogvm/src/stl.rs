@@ -1230,7 +1230,15 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                         "ed25519Verify takes 3 or 4 arguments".to_string(),
                     ));
                 }
-                let encoding = encoding_arg(vm, &args, 3)?;
+                let encoding = match args.get(3).map(|v| v.deref(&vm.heap)).transpose()? {
+                    None | Some(HogLiteral::Null) => "hex".to_string(),
+                    Some(HogLiteral::String(s)) => s.to_string(),
+                    Some(other) => {
+                        return Err(VmError::NativeCallFailed(format!(
+                            "ed25519Verify: encoding must be 'hex' or 'base64', got {other:?}"
+                        )))
+                    }
+                };
                 if encoding != "hex" && encoding != "base64" {
                     return Err(VmError::NativeCallFailed(format!(
                         "ed25519Verify: encoding must be 'hex' or 'base64', got '{encoding}'"
@@ -2761,6 +2769,10 @@ fn encoding_arg(vm: &HogVM, args: &[HogValue], idx: usize) -> Result<String, VmE
 
 fn decode_verify_arg(value: &str, encoding: &str, expected_bytes: usize) -> Option<Vec<u8>> {
     let value = value.trim();
+    // Hex is the longest valid form, so anything longer is rejected before the input is scanned.
+    if value.len() > expected_bytes * 2 {
+        return None;
+    }
     let bytes = if encoding == "hex" {
         if !value.len().is_multiple_of(2) || !value.bytes().all(|b| b.is_ascii_hexdigit()) {
             return None;

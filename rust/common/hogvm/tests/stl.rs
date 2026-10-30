@@ -243,6 +243,19 @@ fn ed25519_verify_matches_rfc8032() {
         let args: Vec<_> = args.iter().map(|a| str_lit(a)).collect();
         assert_eq!(run(call("ed25519Verify", &args)), json!(expected), "{name}");
     }
+
+    let mut bc = vec![json!("_H"), json!(1)];
+    bc.extend(call(
+        "ed25519Verify",
+        &[str_lit("r"), str_lit(sig), str_lit(key), int_lit(0)],
+    ));
+    bc.push(json!(OP_RETURN));
+    let ctx = ExecutionContext::with_defaults(Program::new(bc).expect("valid program"))
+        .with_globals(json!({}));
+    assert!(
+        sync_execute(&ctx, false).is_err(),
+        "a non-string encoding errors, as in Python and TS"
+    );
 }
 
 #[test]

@@ -110,6 +110,10 @@ const HEX_PATTERN = /^(?:[0-9a-fA-F]{2})*$/
 const BASE64_PATTERN = /^[A-Za-z0-9+/]*={0,2}$/
 
 function decodeVerifyArg(value: string, encoding: 'hex' | 'base64', expectedBytes: number): Buffer | null {
+    // Hex is the longest valid form, so anything longer is rejected before the regex runs on it.
+    if (value.length > expectedBytes * 2) {
+        return null
+    }
     if (!(encoding === 'hex' ? HEX_PATTERN : BASE64_PATTERN).test(value)) {
         return null
     }
