@@ -23,7 +23,6 @@ from products.signals.backend.models import (
     SignalTeamConfig,
 )
 from products.skills.backend.models.skills import LLMSkill, LLMSkillOwner
-from products.tasks.backend.facade.repo_selection_types import ReportResearchContext
 
 
 class TestDefaultOwner(BaseTest):
@@ -156,25 +155,14 @@ class TestDefaultOwner(BaseTest):
         assert entry["user_uuid"] == str(self.user.uuid)
         assert entry["is_default_owner"] is True
 
-    @parameterized.expand(
-        [
-            ("code_available", ReportResearchContext(mode="code", repository_status="available"), False),
-            (
-                "no_github_integration",
-                ReportResearchContext(mode="data_only", repository_status="no_integration"),
-                True,
-            ),
-        ]
-    )
-    def test_assigns_only_when_self_driving_cannot_read_code(
-        self, _name: str, availability: ReportResearchContext, assigned: bool
-    ) -> None:
+    @parameterized.expand([("code_available", True, False), ("no_code_access", False, True)])
+    def test_assigns_only_when_self_driving_cannot_read_code(self, _name: str, has_code: bool, assigned: bool) -> None:
         self._activated_by(self.user)
         self._reviewers([])
 
         with (
             patch("products.signals.backend.default_owner.default_owner_fallback_enabled", return_value=True),
-            patch("products.signals.backend.default_owner.team_code_availability", return_value=availability),
+            patch("products.signals.backend.default_owner.team_has_code_access", return_value=has_code),
         ):
             assert assign_default_owner(self.team, str(self.report.id)) is assigned
 

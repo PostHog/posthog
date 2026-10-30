@@ -16,7 +16,6 @@ from posthog.models.team.team import Team
 from posthog.ph_client import feature_enabled_or_false
 
 from products.signals.backend.models import SignalTeamConfig
-from products.tasks.backend.facade.repo_selection_types import ReportResearchContext
 
 logger = structlog.get_logger(__name__)
 
@@ -114,23 +113,18 @@ class ResearchAccessPolicy:
         }
 
 
-def team_code_availability(team_id: int) -> ReportResearchContext:
+def team_has_code_access(team_id: int) -> bool:
     """Whether Self-driving can read this team's code.
 
-    `data_only` is what "running Self-driving without GitHub" means: no installation, none that
-    still reaches a repository, or none healthy enough to use. Answered from Postgres alone, so a
-    caller on a per-report path can afford it.
+    False is what "running Self-driving without GitHub" means: no installation, none that still
+    reaches a repository, or none healthy enough to use. This is the branch that decides whether
+    report research runs in `code` or `data_only` mode, so a caller that gates on code access must
+    use it rather than test for an installation itself. Answered from Postgres alone, so a caller
+    on a per-report path can afford it.
     """
     # The repo-selection agent is not importable at django.setup().
     from products.tasks.backend.facade.repo_selection import resolve_team_github_integration  # noqa: PLC0415
 
-    integrations = list(Integration.objects.filter(team_id=team_id, kind="github"))
-    if not integrations:
-        return ReportResearchContext(mode="data_only", repository_status="no_integration")
-    if all(item.repository_cache_updated_at and item.repository_cache == [] for item in integrations):
-        return ReportResearchContext(mode="data_only", repository_status="no_repositories")
     # `team_only` because the personal and org-owner fallbacks would make a team that never
     # connected GitHub itself look connected.
-    if resolve_team_github_integration(team_id, team_only=True) is None:
-        return ReportResearchContext(mode="data_only", repository_status="github_unavailable")
-    return ReportResearchContext(mode="code", repository_status="available")
+    return resolve_team_github_integration(team_id, team_only=True) is not None
