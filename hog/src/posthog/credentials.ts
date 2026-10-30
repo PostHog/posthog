@@ -161,7 +161,7 @@ export async function resolveCredentials(
             throw new HogError(
                 'host_mismatch',
                 `posthog.json sets the host to ${configHost}, but your credentials are for ${host}.`,
-                `Pass --host ${configHost} or set HOG_HOST to send your credentials there, or log in to that host with \`hog auth login\`.`,
+                `Pass --host ${configHost} or set HOG_HOST to send your credentials there, or log in to that host with \`hog auth login --host ${configHost}\`.`,
                 EXIT_USAGE
             )
         }

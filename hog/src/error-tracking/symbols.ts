@@ -375,7 +375,7 @@ export async function downloadSymbolSet(
         `No symbol set has the ID ${id}.`
     )) as { url: string }
     try {
-        const response = await fetcher(url, { timeoutMs: DOWNLOAD_TIMEOUT_MS })
+        const response = await fetcher(url, { timeoutMs: DOWNLOAD_TIMEOUT_MS, skipRateLimit: true })
         if (!response.ok) {
             throw new HogError('download_failed', `The symbol set download failed with status ${response.status}.`)
         }

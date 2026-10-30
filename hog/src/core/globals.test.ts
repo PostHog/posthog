@@ -58,6 +58,22 @@ describe('global options', () => {
         expect(result.elapsedMs).toBe(0)
     })
 
+    test('a rate limit leaves signed storage URLs alone, as posthog-cli does', async () => {
+        const result = await runHog(['et', 'download', '0192f0a0-0000-7000-8000-000000000001', '--rate-limit', '1'], {
+            env: { ...AGENT, ...TEST_CREDENTIALS },
+            respond: (url) =>
+                url.endsWith('/download/')
+                    ? { status: 200, body: { url: 'https://storage.example.com/symbol-set' } }
+                    : { status: 500, body: {} },
+        })
+
+        expect(result.requests.map((request) => new URL(request.url).host)).toEqual([
+            'ph.example.com',
+            'storage.example.com',
+        ])
+        expect(result.elapsedMs).toBe(0)
+    })
+
     test('HOG_DEBUG prints each request without its query string', async () => {
         const result = await runHog(['endpoints', 'list'], {
             env: { ...AGENT, ...TEST_CREDENTIALS, HOG_DEBUG: 'true' },

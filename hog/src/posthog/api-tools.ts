@@ -7,7 +7,7 @@ import type {
 } from '@posthog/mcp/src/cli/library-types'
 
 import type { Context } from '@/core/context'
-import { HogError } from '@/core/errors'
+import { EXIT_USAGE, HogError } from '@/core/errors'
 import { VERSION } from '@/version'
 
 import { ApiError } from './api'
@@ -98,6 +98,15 @@ export async function apiConnection(
     ctx: Context,
     scope: { projectId?: string | undefined; organizationId?: string | undefined } = {}
 ): Promise<ApiConnection> {
+    // An empty ID, often an unset shell variable, would fall back to another project silently.
+    for (const [flag, value] of [
+        ['--project-id', scope.projectId],
+        ['--organization-id', scope.organizationId],
+    ] as const) {
+        if (value !== undefined && value.trim() === '') {
+            throw new HogError('invalid_input', `${flag} is empty.`, `Pass an ID, or leave out ${flag}.`, EXIT_USAGE)
+        }
+    }
     const credentials = await ctx.credentials()
     // The saved project can belong to another organization, so an organization override drops it.
     const projectId = scope.projectId ?? (scope.organizationId ? undefined : credentials.projectId)
@@ -177,11 +186,18 @@ export async function grantedScopes(ctx: Context, library: ApiToolLibrary): Prom
         }
         throw error
     }
+    // The abort also ends the request, so a stalled lookup doesn't keep the process alive after the output.
+    const deadline = new AbortController()
     let timer: ReturnType<typeof setTimeout> | undefined
     const stalled = new Promise<undefined>((resolve) => {
-        timer = setTimeout(() => resolve(undefined), SCOPE_LOOKUP_MS)
+        timer = setTimeout(() => {
+            deadline.abort()
+            resolve(undefined)
+        }, SCOPE_LOOKUP_MS)
     })
-    const lookup = library.keyAccess(connection).then((result) => (result.ok ? result.value.scopes : undefined))
+    const lookup = library
+        .keyAccess(connection, { signal: deadline.signal })
+        .then((result) => (result.ok ? result.value.scopes : undefined))
     try {
         return await Promise.race([lookup, stalled])
     } finally {

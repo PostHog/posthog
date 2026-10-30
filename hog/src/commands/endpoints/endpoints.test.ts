@@ -185,6 +185,20 @@ describe('hog endpoints', () => {
         ).toEqual(changed)
     })
 
+    test('pull escapes terminal control characters in the PostHog side of a preview', async () => {
+        const edited = { ...TRENDS, description: '\u001b]52;c;eA==\u0007Weekly signups' }
+
+        const result = await runHog(['endpoints', 'pull', 'weekly', '--dry-run'], {
+            stdoutIsTTY: true,
+            env: { ...TEST_CREDENTIALS, NO_COLOR: '1' },
+            files: { '/work/weekly.yaml': PULLED_WEEKLY },
+            respond: server([edited]),
+        })
+
+        expect(result.stdout).toContain('\\x1b]52;c;eA==\\x07Weekly signups')
+        expect(result.stdout).not.toContain('\u001b')
+    })
+
     test('push asks agents for --yes before it changes anything', async () => {
         const result = await runHog(['endpoints', 'push', 'new.yaml'], {
             env: AGENT,
@@ -201,12 +215,15 @@ describe('hog endpoints', () => {
             files: {
                 '/work/endpoints/a.yaml': [
                     'name: by-country',
-                    'query: SELECT count() FROM events WHERE properties.$geoip_country_code = {variables.country}',
+                    'query: SELECT count() FROM events WHERE properties.$geoip_country_code = {variables.country} AND properties.region IN {variables.regions}',
                     'variables:',
                     '  - name: country',
                     // posthog-cli writes lowercase types, and PostHog only accepts its own names.
                     '    type: string',
                     '    default: US',
+                    '  - name: regions',
+                    '    type: array',
+                    '    default: [eu, us]',
                     'materialization:',
                     '  enabled: true',
                     '  schedule: 1hour',
@@ -216,7 +233,19 @@ describe('hog endpoints', () => {
             },
             respond: server([], (url, body) =>
                 url === `${BASE}insight_variables/` && body
-                    ? { status: 201, body: { id: 'var-2', name: 'country', code_name: 'country', type: 'String' } }
+                    ? {
+                          status: 201,
+                          body:
+                              (body as { code_name: string }).code_name === 'country'
+                                  ? { id: 'var-2', name: 'country', code_name: 'country', type: 'String' }
+                                  : {
+                                        id: 'var-3',
+                                        name: 'regions',
+                                        code_name: 'regions',
+                                        type: 'List',
+                                        is_multi: true,
+                                    },
+                      }
                     : url === `${BASE}endpoints/` && body
                       ? { status: 201, body: { ...endpoint('by-country', {}), ui_url: 'https://ph.example.com/e' } }
                       : undefined
@@ -225,13 +254,18 @@ describe('hog endpoints', () => {
         expect(result.exitCode).toBe(1)
         expect(result.requests.filter((request) => request.method === 'POST').map((request) => request.body)).toEqual([
             { name: 'country', code_name: 'country', type: 'String', default_value: 'US' },
+            // An array default makes a multiple-selection list, or PostHog keeps only its first value.
+            { name: 'regions', code_name: 'regions', type: 'List', default_value: ['eu', 'us'], is_multi: true },
             {
                 name: 'by-country',
                 description: '',
                 query: {
                     kind: 'HogQLQuery',
-                    query: 'SELECT count() FROM events WHERE properties.$geoip_country_code = {variables.country}',
-                    variables: { 'var-2': { variableId: 'var-2', code_name: 'country', value: 'US' } },
+                    query: 'SELECT count() FROM events WHERE properties.$geoip_country_code = {variables.country} AND properties.region IN {variables.regions}',
+                    variables: {
+                        'var-2': { variableId: 'var-2', code_name: 'country', value: 'US' },
+                        'var-3': { variableId: 'var-3', code_name: 'regions', value: ['eu', 'us'] },
+                    },
                 },
                 is_materialized: true,
                 data_freshness_seconds: 3600,
