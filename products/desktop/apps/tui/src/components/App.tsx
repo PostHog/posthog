@@ -30,6 +30,7 @@ import {
 import type { LocalSession } from "../local";
 import type { PiControl } from "../models";
 import type { MouseEvents } from "../mouse";
+import { loadPrefs, savePrefs } from "../prefs";
 import type { CloudRuns } from "../runs";
 import { statusChips } from "../status";
 import type { WorkList } from "../work";
@@ -75,6 +76,9 @@ export function App({
   const layoutFrom = useRef(layoutFile);
   // Tasks this app just started or resumed; they win until the list shows the same run.
   const [fresh, setFresh] = useState<Map<string, Task>>(new Map());
+  const [narrowSidebar, setNarrowSidebar] = useState(
+    () => loadPrefs().narrowSidebar,
+  );
   // Names given with /rename, shown at once and kept until the work list shows them too.
   const [titles, setTitles] = useState<Map<string, string>>(new Map());
   const {
@@ -280,6 +284,10 @@ export function App({
     scrollPane,
     control,
     paneAtDrop,
+    toggleSidebar: () => {
+      setNarrowSidebar(!narrowSidebar);
+      savePrefs({ narrowSidebar: !narrowSidebar });
+    },
     notice,
   });
   useTerminalInput(mouse, { ...pointer, onKey });
@@ -347,6 +355,7 @@ export function App({
         focused={sidebarFocused}
         selectedIndex={sidebar.selectedIndex}
         activePaneId={workspace.focusedPaneId}
+        narrow={narrowSidebar}
       />
       {area.hasMeasured && (
         <DividerColumn x={-1} y={0} height={area.height} glyph={glyph} />

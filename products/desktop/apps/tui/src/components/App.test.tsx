@@ -23,6 +23,7 @@ import {
 import type { LocalSession } from "../local";
 import { type PiControl, STARTING_MODEL } from "../models";
 import type { MouseEvents } from "../mouse";
+import { loadPrefs } from "../prefs";
 import { type CloudRuns, emptyRunView } from "../runs";
 import { renderInTerminal } from "../testing";
 import type { WorkList } from "../work";
@@ -485,6 +486,39 @@ describe("App", () => {
       );
     } finally {
       instance.unmount();
+    }
+  });
+
+  it("narrows the sidebar with Ctrl+B and keeps it narrow, without losing other preferences", async () => {
+    saveLayout(initialLayout());
+    const mouse: MouseEvents = new EventEmitter();
+    const { instance, output, type } = renderInTerminal(
+      <App
+        session={null}
+        login={async () => {}}
+        logout={() => {}}
+        mouse={mouse}
+      />,
+    );
+    try {
+      await vi.waitFor(() => expect(output()).toContain("^N new"));
+      mouse.emit("keys", "/local");
+      mouse.emit("keys", "\r");
+      await vi.waitFor(() => expect(loadPrefs().newChatPlace).toBe("local"));
+      // App keys reach Ink through the terminal, as MouseInput forwards them.
+      mouse.emit("keys", "\x02");
+      type("\x02");
+      await vi.waitFor(() => expect(loadPrefs().narrowSidebar).toBe(true));
+      expect(loadPrefs().newChatPlace).toBe("local");
+      // All tasks shrinks to its glyph, which the wide sidebar never draws.
+      await vi.waitFor(() =>
+        expect(stripTerminalSequences(output())).toContain(" ≡ "),
+      );
+    } finally {
+      instance.unmount();
+      rmSync(join(homedir(), ".config", "posthog-tui", "prefs.json"), {
+        force: true,
+      });
     }
   });
 

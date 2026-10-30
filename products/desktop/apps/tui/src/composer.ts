@@ -30,6 +30,8 @@ const APP_KEYS: KeyId[] = [
   "ctrl+c",
   "ctrl+d",
   "ctrl+n",
+  "ctrl+b",
+  "super+b",
   "ctrl+k",
   "super+k",
   "ctrl+q",
