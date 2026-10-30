@@ -233,6 +233,11 @@ fn ed25519_verify_matches_rfc8032() {
         ("tampered message", &["s", sig, key], false),
         ("short key", &["r", sig, &key[..62]], false),
         ("not hex", &["r", sig, &format!("zz{}", &key[2..])], false),
+        (
+            "junk base64",
+            &["r", &format!("!!!{sig_b64}"), key_b64, "base64"],
+            false,
+        ),
     ];
     for (name, args, expected) in cases {
         let args: Vec<_> = args.iter().map(|a| str_lit(a)).collect();

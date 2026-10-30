@@ -49,4 +49,7 @@
 "ed25519Verify", 3, 2, "print", 2, 35, 32, "ed25519Verify(short key):", 32, "r", 36, 5, 36, 4, 33, 1, 33, 62, 2,
 "substring", 3, 2, "ed25519Verify", 3, 2, "print", 2, 35, 32, "ed25519Verify(not hex):", 32, "r", 36, 5, 32, "zz", 36,
 4, 33, 3, 33, 62, 2, "substring", 3, 2, "concat", 2, 2, "ed25519Verify", 3, 2, "print", 2, 35, 32,
+"ed25519Verify(junk base64):", 32, "r", 32, "!!!", 32,
+"kqAJqfDUyrhyDoILX2QlQKKye1QWUD+Ps3YiI+vbadoIWsHkPhWZbkWPNhPQ8R2MOHsurrQwKu6wDSkWErsMAA==", 2, "concat", 2, 32,
+"PUAXw+hDiVqStwqnTRt+vJyYLM8uxJaMwM1V8Sr0Zgw=", 32, "base64", 2, "ed25519Verify", 4, 2, "print", 2, 35, 32,
 "ed25519Verify(null):", 31, 36, 5, 36, 4, 2, "ed25519Verify", 3, 2, "print", 2, 35, 35, 35, 35, 35, 35, 35]

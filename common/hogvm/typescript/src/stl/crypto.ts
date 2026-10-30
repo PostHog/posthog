@@ -104,8 +104,12 @@ export function sha256HmacBase64Key(
 // DER prefix of an Ed25519 SubjectPublicKeyInfo. Node only imports public keys in a container format.
 const ED25519_SPKI_PREFIX = Buffer.from('302a300506032b6570032100', 'hex')
 
+// Buffer.from skips characters outside the alphabet, so check the whole string first. Python and Rust use the same patterns.
+const HEX_PATTERN = /^(?:[0-9a-fA-F]{2})*$/
+const BASE64_PATTERN = /^[A-Za-z0-9+/]*={0,2}$/
+
 function decodeVerifyArg(value: string, encoding: 'hex' | 'base64', expectedBytes: number): Buffer | null {
-    if (encoding === 'hex' && !/^(?:[0-9a-fA-F]{2})*$/.test(value)) {
+    if (!(encoding === 'hex' ? HEX_PATTERN : BASE64_PATTERN).test(value)) {
         return null
     }
     const bytes = Buffer.from(value, encoding)
@@ -126,6 +130,10 @@ export function ed25519Verify(
     }
     if (encoding !== 'hex' && encoding !== 'base64') {
         throw new HogVMException(`ed25519Verify: encoding must be 'hex' or 'base64', got '${encoding}'`, 'data')
+    }
+    // The browser REPL passes crypto-browserify, which has no Ed25519. Failing loudly beats reporting every signature as invalid.
+    if (typeof crypto.createPublicKey !== 'function' || typeof crypto.verify !== 'function') {
+        throw new HogVMException('ed25519Verify is not supported in this runtime.', 'contract')
     }
     if (typeof message !== 'string' || typeof signature !== 'string' || typeof publicKey !== 'string') {
         return false

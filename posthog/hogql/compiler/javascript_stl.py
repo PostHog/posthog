@@ -380,7 +380,7 @@ STL_FUNCTIONS: dict[str, list[str | list[str]]] = {
         [],
     ],
     "ed25519Verify": [
-        "function ed25519Verify (message, signature, publicKey, encoding, options) { return 'ed25519Verify not implemented' }",
+        "function ed25519Verify (message, signature, publicKey, encoding, options) { throw new Error('ed25519Verify is not supported here') }",
         [],
     ],
     "isIPAddressInRange": [

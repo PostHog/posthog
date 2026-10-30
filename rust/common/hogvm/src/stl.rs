@@ -2771,6 +2771,15 @@ fn decode_verify_arg(value: &str, encoding: &str, expected_bytes: usize) -> Opti
             .collect::<Result<Vec<u8>, _>>()
             .ok()?
     } else {
+        // Same rule as the TS and Python runtimes: the standard alphabet, then at most two padding characters.
+        let data = value.trim_end_matches('=');
+        if value.len() - data.len() > 2
+            || !data
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'+' || b == b'/')
+        {
+            return None;
+        }
         base64_decode_bytes(value).ok()?
     };
     (bytes.len() == expected_bytes).then_some(bytes)

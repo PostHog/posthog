@@ -77,11 +77,16 @@ def sha256HmacBase64Key(key: str, data: str, encoding: Literal["hex", "base64", 
     return encode_digest(encoding, digest)
 
 
+# b64decode skips characters outside the alphabet, so check the whole string first. TS and Rust use the same patterns.
+_HEX_PATTERN = re.compile(r"(?:[0-9a-fA-F]{2})*")
+_BASE64_PATTERN = re.compile(r"[A-Za-z0-9+/]*={0,2}")
+
+
 def _decode_verify_arg(value: str, encoding: str, expected_bytes: int) -> bytes | None:
+    if not (_HEX_PATTERN if encoding == "hex" else _BASE64_PATTERN).fullmatch(value):
+        return None
     try:
         if encoding == "hex":
-            if not re.fullmatch(r"(?:[0-9a-fA-F]{2})*", value):
-                return None
             decoded = bytes.fromhex(value)
         else:
             decoded = base64.b64decode(value + "==")
