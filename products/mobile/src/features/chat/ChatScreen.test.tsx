@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen } from '@testing-library/react-native'
-import { ChatSheet } from './ChatSheet'
+import { ChatScreen } from './ChatScreen'
 import { useSession } from './session/useSession'
 import { useChatDraft } from './useChatDraft'
 
@@ -20,6 +20,7 @@ jest.mock(
 jest.mock('react-native-keyboard-controller', () => jest.requireActual('react-native-keyboard-controller/jest'))
 jest.mock('@/auth/useProjectScope', () => ({ useProjectScope: () => ({ host: 'https://example.com', projectId: 1 }) }))
 jest.mock('@/demo/demoMode', () => ({ useDataMode: () => 'live' }))
+jest.mock('@/features/chats/hooks', () => ({ useArchiveChat: () => ({ archive: jest.fn() }) }))
 jest.mock('../inbox/hooks', () => ({ useInboxItems: () => ({ data: [] }) }))
 jest.mock('../handoff/useRunOptions', () => ({
     useRunDefaults: () => undefined,
@@ -78,13 +79,13 @@ describe('chat send preparation', () => {
             reset,
             dismissNotice: jest.fn(),
         })
-        const view = render(<ChatSheet source={{ entry: 'compose', origin: null }} onClosed={jest.fn()} />)
+        const view = render(<ChatScreen source={{ entry: 'compose', origin: null }} onBack={jest.fn()} />)
         fireEvent.press(screen.getByTestId('chat-send'))
         expect(beginSend).toHaveBeenCalled()
         if (transition === 'unmount') {
             view.unmount()
         } else {
-            fireEvent.press(screen.getByTestId(transition === 'new' ? 'chat-new' : 'chat-close'))
+            fireEvent.press(screen.getByTestId(transition === 'new' ? 'chat-new' : 'chat-back'))
         }
         await act(async () => {
             finishStorage(settle)

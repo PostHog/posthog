@@ -918,7 +918,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         split_findings = [
-            (finding["subcode"], finding["evidence"].get("reason"))
+            (finding["subcode"], finding["reason"])
             for finding in response.json()["findings"]
             if finding["code"] == "split_changed_mid_run"
         ]
