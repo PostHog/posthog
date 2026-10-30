@@ -10,6 +10,7 @@ import { OnboardingStepKey, type SDK } from '~/types'
 import { wizardRunIsActive } from 'products/wizard/frontend/lib/wizardRunDisplay'
 import { onboardingWizardRunLogic } from 'products/wizard/frontend/views/onboarding/onboardingWizardRunLogic'
 import { WizardInstallSync } from 'products/wizard/frontend/views/onboarding/WizardInstallSync'
+import { WizardOnboardingCloudRun } from 'products/wizard/frontend/views/onboarding/WizardOnboardingCloudRun'
 
 import { OnboardingStep } from '../../../OnboardingStep'
 import { useWizardCommand } from '../../../shared/useWizardCommand'
@@ -32,12 +33,21 @@ function OnboardingInstallOptions({
     compact?: boolean
 }): JSX.Element {
     const { isCloudOrDev } = useWizardCommand()
+    const { cloudRunProps } = useValues(wizardInstallStepLogic)
+    const { subcommand, description, supports } = wizardOverrides ?? {}
+    const localBlock = (
+        <WizardCommandBlock
+            subcommand={subcommand}
+            description={description ?? (compact ? 'Run this in your project folder. No API key needed.' : undefined)}
+            hog={compact ? null : undefined}
+        />
+    )
     return (
         <div className="flex flex-col gap-4">
             {isCloudOrDev && (
                 <div className="pb-2">
-                    {wizardOverrides?.supports ? (
-                        <WizardFrameworkBadges items={wizardOverrides.supports} />
+                    {supports ? (
+                        <WizardFrameworkBadges items={supports} />
                     ) : compact ? (
                         <WizardFrameworkIcons />
                     ) : (
@@ -45,14 +55,11 @@ function OnboardingInstallOptions({
                     )}
                 </div>
             )}
-            <WizardCommandBlock
-                subcommand={wizardOverrides?.subcommand}
-                description={
-                    wizardOverrides?.description ??
-                    (compact ? 'Run this in your project folder. No API key needed.' : undefined)
-                }
-                hog={compact ? null : undefined}
-            />
+            {!subcommand && cloudRunProps ? (
+                <WizardOnboardingCloudRun {...cloudRunProps}>{localBlock}</WizardOnboardingCloudRun>
+            ) : (
+                localBlock
+            )}
         </div>
     )
 }

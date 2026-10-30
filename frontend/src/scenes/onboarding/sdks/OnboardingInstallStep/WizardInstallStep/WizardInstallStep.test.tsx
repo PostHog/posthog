@@ -8,8 +8,13 @@ import { Provider } from 'kea'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import type { PreflightStatus } from '~/types'
 
 import type { WizardRunApi } from 'products/wizard/frontend/generated/api.schemas'
 import { wizardRunSyncLogic } from 'products/wizard/frontend/logics/wizardRunSyncLogic'
@@ -108,6 +113,11 @@ describe('WizardInstallStep with wizardOverrides', () => {
     })
 
     it('shows the ai-observability command and blocks Continue until installation completes', async () => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WIZARD_ONBOARDING_CLOUD_RUNS_ENABLED]: true })
+        preflightLogic.actions.loadPreflightSuccess({
+            cloud: true,
+            wizard_cloud_run_available: true,
+        } as PreflightStatus)
         const sync = wizardRunSyncLogic({ projectId: String(MOCK_DEFAULT_TEAM.id) })
         sync.mount()
         await expectLogic(sync).toFinishAllListeners()
@@ -130,8 +140,57 @@ describe('WizardInstallStep with wizardOverrides', () => {
         expect(await screen.findByText((t) => t.includes('ai-observability') && t.includes('npx'))).toBeInTheDocument()
         expect(document.querySelector('[data-attr="mock-continue"]')).toHaveAttribute('aria-disabled', 'true')
         expect(document.querySelector('[data-attr="wizard-install-sync"]')).toBeNull()
+        expect(screen.queryByText('Open a pull request')).not.toBeInTheDocument()
         sync.unmount()
     })
+
+    it.each([
+        [false, false],
+        [false, true],
+        [true, false],
+        [true, true],
+    ])(
+        'shows cloud setup only with the boolean flag and keeps local setup available (compact=%s, enabled=%s)',
+        async (compact, enabled) => {
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/integrations/': { results: [] },
+                    '/api/projects/:team_id/wizard/registry/': {
+                        results: [
+                            {
+                                id: 'posthog-integration',
+                                supported_environments: ['cloud'],
+                            },
+                        ],
+                    },
+                },
+            })
+            await expectLogic(preflightLogic).toFinishAllListeners()
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.WIZARD_ONBOARDING_CLOUD_RUNS_ENABLED]: enabled,
+            })
+            preflightLogic.actions.loadPreflightSuccess({
+                cloud: true,
+                wizard_cloud_run_available: true,
+            } as PreflightStatus)
+            render(
+                <Provider>
+                    <WizardInstallStep
+                        {...AIO_PROPS}
+                        wizardOverrides={{ ...AIO_PROPS.wizardOverrides!, subcommand: '' }}
+                        compact={compact}
+                    />
+                </Provider>
+            )
+            if (enabled) {
+                expect(await screen.findByText('Connect GitHub')).toBeInTheDocument()
+                fireEvent.click(screen.getByText('Run it yourself'))
+            } else {
+                expect(screen.queryByText('Open a pull request')).not.toBeInTheDocument()
+            }
+            expect(screen.getByLabelText('Copy wizard command')).toBeInTheDocument()
+        }
+    )
 
     it.each([false, true])(
         'allows continuing during setup and keeps result actions in onboarding (compact=%s)',

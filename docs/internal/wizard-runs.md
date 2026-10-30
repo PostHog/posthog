@@ -79,6 +79,15 @@ Run details load only tasks into shared state and use the dialog's existing arti
 
 ### Onboarding state
 
+The boolean flag `wizard-onboarding-cloud-runs-enabled` adds cloud and local tabs to both the standard and simple installation steps.
+Cloud setup also requires `wizard_cloud_run_available` and a Cloud or development instance.
+Users connect GitHub, select a repository, and start the `posthog-integration` program through the Wizard Runs API.
+GitHub authorization returns to the active installation step.
+Creation retries use the same idempotency key until the repository changes or the request succeeds.
+The creation response enters shared run state immediately, so progress and Continue do not wait for discovery.
+Disabling the flag hides new cloud setup controls but keeps existing run progress and results visible.
+Dedicated program steps continue to use their local commands.
+
 Entering onboarding records its start time in local storage, scoped to the project and user.
 The initial time uses the server's HTTP Date header to avoid browser clock skew, falling back to browser time when unavailable.
 Only `posthog-integration` runs created at or after that time can replace the installation instructions.
