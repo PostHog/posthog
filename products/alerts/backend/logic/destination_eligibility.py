@@ -8,9 +8,9 @@ HogFunction API writes on the first change it records. A template's stock text c
 so comparing with what the code builds today would read an old, unedited function as edited.
 
 The first snapshot is the stock content only when the function was created with stock inputs. The
-logs alert API creates every logs destination that way. The HogFunction editor that insight alerts
-use lets a person change the message before the first save. So for insight the first inputs are also
-compared with every default an insight alert path has shipped.
+HogFunction editor and API let a person write their own message before the first save, for insight
+and logs destinations alike. So the first inputs are also compared with every default that the alert
+paths of the source have shipped.
 """
 
 from __future__ import annotations
@@ -66,6 +66,13 @@ _INPUT_HOLD_BACKS: Final[dict[str, dict[str, DestinationHoldBack]]] = {
 STOCK_INPUT_VALUES: Final[dict[str, dict[str, list[Any]]]] = json.loads(
     (Path(__file__).parent / "destination_stock_inputs.json").read_text()
 )
+# Every value the logs alert API writes as a default, by template and input key. When a logs message
+# changes, add the new value and keep the old one, because functions built with it still exist.
+LOGS_STOCK_INPUT_VALUES: Final[dict[str, dict[str, list[Any]]]] = json.loads(
+    (Path(__file__).parent / "logs_destination_stock_inputs.json").read_text()
+)
+# Matches the logs events that `GENERIC_API_EDITABLE_ALERT_EVENT_SCOPES` in cdp names.
+_LOGS_ALERT_EVENT_PREFIX: Final = "$logs_alert_"
 _NOT_SENT_INPUTS: Final = frozenset({"debug"})
 
 _DERIVED_FILTER_KEYS: Final = ("bytecode", "bytecode_error", "bytecode_contract", "transpiled")
@@ -146,8 +153,7 @@ def _classify(
 ) -> tuple[DestinationEligibility, ...]:
     if not functions:
         return ()
-    # Insight destinations are built in an editor, so the first revision can already hold an edit.
-    stock = STOCK_INPUT_VALUES if not set(allowed_event_ids).isdisjoint(INSIGHT_ALERT_EVENT_IDS) else {}
+    stock = _stock_input_values(allowed_event_ids)
     first_revisions: dict[UUID, HogFunctionRevision] = {
         revision.hog_function_id: revision
         for revision in HogFunctionRevision.objects.for_team(team_id)
@@ -160,11 +166,25 @@ def _classify(
         DestinationEligibility(
             hog_function_id=function.id,
             template_id=function.template_id,
-            hold_backs=_hold_backs(function, first_revisions.get(function.id), stock.get(function.template_id or "")),
+            # A template missing from the list was never a default of the source, so every message it holds is an edit.
+            hold_backs=_hold_backs(
+                function,
+                first_revisions.get(function.id),
+                None if stock is None else stock.get(function.template_id or "", {}),
+            ),
             code_hash=hashlib.md5((function.hog or "").encode(), usedforsecurity=False).hexdigest(),
         )
         for function in functions
     )
+
+
+def _stock_input_values(allowed_event_ids: Collection[str]) -> dict[str, dict[str, list[Any]]] | None:
+    # The first revision of an insight or logs destination can already hold an edit.
+    if not set(allowed_event_ids).isdisjoint(INSIGHT_ALERT_EVENT_IDS):
+        return STOCK_INPUT_VALUES
+    if any(event_id.startswith(_LOGS_ALERT_EVENT_PREFIX) for event_id in allowed_event_ids):
+        return LOGS_STOCK_INPUT_VALUES
+    return None
 
 
 def bucket_for(eligibility: DestinationEligibility) -> DestinationBucket:
@@ -297,6 +317,9 @@ def _stock_hold_backs(
         if value in (None, "") or _is_stock_value(inputs, key, stock):
             continue
         found.extend(_key_hold_backs(template_id, key, value))
+    # Without a body the webhook template sends none, but native delivery always sends one.
+    if template_id == WebhookDestination.template_id and input_value(inputs, "body") in (None, ""):
+        found.append(DestinationHoldBack.WEBHOOK_BODY)
     return found
 
 
