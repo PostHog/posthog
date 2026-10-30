@@ -2608,7 +2608,6 @@ describe('dashboardLogic', () => {
                 name: 'a failed layout save',
                 act: async (): Promise<void> => {
                     const firstTile = logic.values.dashboard!.tiles[0]
-                    // The autosave after the move is the save that fails.
                     jest.spyOn(api, 'update').mockRejectedValueOnce(new Error('network down'))
                     logic.actions.stageLayouts({
                         sm: logic.values.layouts.sm?.map((layout) =>
@@ -2903,7 +2902,6 @@ describe('dashboardLogic', () => {
                             finishSave = resolve
                         })
                 )
-                // Staging autosaves, so the first move's save is the one held open.
                 const save = expectLogic(logic, () => {
                     logic.actions.stageLayouts(firstDraft)
                 }).toFinishAllListeners()
@@ -2925,7 +2923,6 @@ describe('dashboardLogic', () => {
                 await save
                 await expectLogic(logic).toFinishAllListeners()
 
-                // The edit made during the first save goes out in a save of its own.
                 const lastPayload = (api.update as jest.Mock).mock.calls.at(-1)[1]
                 const savedFirstTile = lastPayload.tiles.find((tile: DashboardTile) => tile.id === firstTile.id)
                 expect(savedFirstTile.layouts.sm.x).toEqual(
@@ -5634,8 +5631,7 @@ describe('dashboardLogic', () => {
             const firstTile = logic.values.dashboard!.tiles[0]
             const layouts = logic.values.layouts
             const changedX = (layouts.sm?.find((layout) => layout.i === String(firstTile.id))?.x ?? 0) + 1
-            // The move autosaves, so the duplicate below gets its own response. Like the API, the save
-            // answers with whole tiles, so the widget tile is still a widget tile when the duplicate lands.
+            // Like the API, the autosave answers with whole tiles, so the widget tile stays a widget tile.
             jest.spyOn(api, 'update').mockImplementationOnce(async (_url, payload: any) => ({
                 ...logic.values.dashboard!,
                 tiles: logic.values.dashboard!.tiles.map((tile) => ({

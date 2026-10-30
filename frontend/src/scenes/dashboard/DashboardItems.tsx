@@ -217,7 +217,6 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         [DashboardPlacement.Dashboard, DashboardPlacement.ProjectHomepage, DashboardPlacement.Builtin].includes(
             placement
         )
-    // Editors move and resize tiles in place, and each change saves on its own.
     const canEditLayout = !!dashboard && canEditDashboard && isEditablePlacement && !isMobileView
     const className = clsx(
         'mb-8',

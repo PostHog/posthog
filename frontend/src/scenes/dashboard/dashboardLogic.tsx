@@ -5896,8 +5896,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             actions.saveEditModeChanges('colors')
         },
         stageLayouts: () => {
-            // Saves go out one after another and skip a layout the save before already stored. Saving at once,
-            // rather than after a pause, also means leaving the dashboard straight after a drop keeps the drop.
+            // Not debounced: leaving the dashboard straight after a drop must still keep the drop.
             if (values.hasUnsavedLayoutChanges) {
                 actions.saveEditModeChanges('layout')
             }
