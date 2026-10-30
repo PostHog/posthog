@@ -415,7 +415,7 @@ def _insights_source(
     if resume is not None and resume.since and resume.until:
         windows = [SyncWindow(start=resume.since, end=resume.until)]
         next_start = date.fromisoformat(resume.until) + timedelta(days=1)
-        if next_start.isoformat() <= full_window.end:
+        if next_start <= date.fromisoformat(full_window.end):
             windows += _split_insights_window(SyncWindow(start=next_start.isoformat(), end=full_window.end))
     else:
         windows = _split_insights_window(full_window)
@@ -463,16 +463,19 @@ def _insights_source(
     first_resource = window_resource(windows[0], resume.cursor if resume is not None else None)
 
     def pages() -> Iterator[Any]:
-        resource = first_resource
         for index, window in enumerate(windows):
+            resource = first_resource
             if index > 0:
-                resource = window_resource(window, None)
-            yield from resource
-            if index + 1 < len(windows):
-                next_window = windows[index + 1]
+                # Every row of the earlier windows is already yielded, so a resume can start here.
                 resumable_source_manager.save_state(
-                    OpenAIAdsResumeConfig(cursor=None, since=next_window.start, until=next_window.end)
+                    OpenAIAdsResumeConfig(cursor=None, since=window.start, until=window.end)
                 )
+                resumable_source_manager.safe_point()
+                resource = window_resource(window, None)
+            # This wrapper hides the framework's own safe points, and a window can hold no rows.
+            for page in resource:
+                yield page
+                resumable_source_manager.safe_point()
 
     return _source_response(
         config, lambda: _retry_forbidden_server_errors(pages()), column_hints=first_resource.column_hints
