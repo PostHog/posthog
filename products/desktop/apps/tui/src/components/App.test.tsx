@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PiChats } from "../chats";
 import { initialLayout, openTask, saveLayout } from "../layout";
 import type { LocalSession } from "../local";
-import type { PiControl } from "../models";
+import { type PiControl, STARTING_MODEL } from "../models";
 import type { MouseEvents } from "../mouse";
 import { type CloudRuns, emptyRunView } from "../runs";
 import { renderInTerminal } from "../testing";
@@ -128,6 +128,79 @@ describe("App", () => {
       await vi.waitFor(() =>
         expect(output()).toContain("from the local agent"),
       );
+    } finally {
+      instance.unmount();
+      rmSync(sessions, { recursive: true });
+    }
+  });
+
+  it("names the model a new chat starts on, before any /model pick", async () => {
+    saveLayout(initialLayout());
+    const { instance, output } = renderInTerminal(
+      <App
+        session={{
+          work: {
+            listRecent: () => new Promise(() => {}),
+          } as unknown as WorkList,
+          runs: { prefetch: async () => {} } as unknown as CloudRuns,
+          chats: {} as PiChats,
+          control: () => ({}) as PiControl,
+          startLocal: () => Promise.reject(new Error("no local")),
+        }}
+        login={async () => {}}
+        logout={() => {}}
+      />,
+    );
+    try {
+      await vi.waitFor(() =>
+        expect(output()).toContain(`New chat · ${STARTING_MODEL.name}`),
+      );
+    } finally {
+      instance.unmount();
+    }
+  });
+
+  it("names the model a live chat reports, not the one it would start on", async () => {
+    const sessions = join(homedir(), ".config", "posthog-tui", "local");
+    mkdirSync(sessions, { recursive: true });
+    writeFileSync(join(sessions, "t3.jsonl"), "");
+    saveLayout(openTask(initialLayout(), "t3"));
+    const local = {
+      watch: (onView: (view: typeof emptyRunView) => void) => {
+        onView({ ...emptyRunView, loaded: true, status: "in_progress" });
+        return () => {};
+      },
+      watchPrompts: () => () => {},
+      stop: async () => {},
+      control: {
+        models: async () => ({
+          available: [],
+          current: { provider: "posthog", id: "gpt-6.1-sol", name: "Sol 6.1" },
+        }),
+        commands: async () => [],
+      },
+    } as unknown as LocalSession;
+
+    const { instance, output } = renderInTerminal(
+      <App
+        session={{
+          work: {
+            listRecent: async () => ({
+              tasks: [{ id: "t3", title: "Local", runtime: "pi" } as Task],
+              hasMore: false,
+            }),
+          } as unknown as WorkList,
+          runs: { prefetch: async () => {} } as unknown as CloudRuns,
+          chats: {} as PiChats,
+          control: () => ({}) as PiControl,
+          startLocal: async () => local,
+        }}
+        login={async () => {}}
+        logout={() => {}}
+      />,
+    );
+    try {
+      await vi.waitFor(() => expect(output()).toContain("Local · Sol 6.1"));
     } finally {
       instance.unmount();
       rmSync(sessions, { recursive: true });

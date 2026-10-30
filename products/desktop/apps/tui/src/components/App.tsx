@@ -141,7 +141,7 @@ export function App({
     flashNotice,
   });
 
-  const { openModelSheet, onRunLive, modelName } = useModels({
+  const { openModelSheet, onRunLive, onChatStarted, modelName } = useModels({
     layout,
     isLocal,
     localSessions,
@@ -174,6 +174,7 @@ export function App({
     modalFor,
     openModal,
     openModelSheet,
+    onChatStarted,
     runShell,
     notice,
     login,

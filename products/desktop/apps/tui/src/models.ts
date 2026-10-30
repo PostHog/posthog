@@ -2,6 +2,7 @@ import {
   type PiRemoteRpcClient,
   RemotePiRpcClient,
 } from "@posthog/agent/pi/remote-rpc-client";
+import { SESSION_START_MODEL_ID } from "@posthog/harness/extensions/posthog-provider/model-catalog";
 import { isOfferedModel } from "@posthog/shared/model-catalog";
 import type { Sheet } from "./sheet";
 import type { ShellResult } from "./shell";
@@ -97,6 +98,12 @@ const choice = (model: { provider: string; id: string }): ModelChoice => ({
   provider: model.provider,
   id: model.id,
   name: shortModelName(model.id),
+});
+
+// TUI chats pin no model and pi tasks take no saved defaults, so cloud and local runs both start here.
+export const STARTING_MODEL = choice({
+  provider: HARNESS_PROVIDER,
+  id: SESSION_START_MODEL_ID,
 });
 
 // The live run's own pi session, reached the same way the desktop app reaches it.
