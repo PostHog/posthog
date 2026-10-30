@@ -241,6 +241,20 @@ function skippedResult(check: InsightDataCheckApi): string {
     return reason ? `Not checked, because ${reason}` : 'Not checked'
 }
 
+function passedResult(check: InsightDataCheckApi, filtersTestAccounts: boolean): string {
+    if (check.key === 'internal_users' && filtersTestAccounts) {
+        if (!check.missed_by_filter) {
+            return 'Filtered out'
+        }
+        const missed = missedUserCount(check)
+        return `Filtered out, except ${missed ? pluralize(missed, 'user') : 'some users'}`
+    }
+    if (check.key === 'local_development' && (check.share ?? 0) >= LOCAL_APP_SHARE) {
+        return `${amountOf(check)} of these events, so they come from your app`
+    }
+    return check.events ? `Almost none (${eventCount(check)} events)` : 'None found'
+}
+
 // The server skips the bot check whenever the insight's filters read traffic type, and cannot tell when the rule
 // comes from the project's filter.
 export function botsFilteredOut(
@@ -264,17 +278,7 @@ export function dataCheckText(
         return { name, result: skippedResult(check) }
     }
     if (check.level === 'passed') {
-        if (check.key === 'internal_users' && filtersTestAccounts) {
-            if (!check.missed_by_filter) {
-                return { name, result: 'Filtered out' }
-            }
-            const missed = missedUserCount(check)
-            return { name, result: `Filtered out, except ${missed ? pluralize(missed, 'user') : 'some users'}` }
-        }
-        if (check.key === 'local_development' && (check.share ?? 0) >= LOCAL_APP_SHARE) {
-            return { name, result: `${amountOf(check)} of these events, so they come from your app` }
-        }
-        return { name, result: check.events ? `Almost none (${eventCount(check)} events)` : 'None found' }
+        return { name, result: passedResult(check, filtersTestAccounts) }
     }
     return { name, result: `${amountOf(check)} of these events` }
 }
