@@ -36,7 +36,7 @@ export function ShareBarChart<T>({
     totalCalls: number
     theme: ChartTheme
     tooltip: (ctx: TooltipContext<ShareMeta<T>>) => JSX.Element | null
-    /** Fill the height the parent gives and scroll the rows, instead of growing with them. The parent must be a flex column. */
+    /** Fill the parent's height and scroll the rows. The parent must be a flex column. */
     fillHeight?: boolean
     label?: string
 }): JSX.Element {
@@ -88,9 +88,7 @@ export function ShareBarChart<T>({
             </div>
         )
     }
-    // The absolute scroller adds no height to the card, so a chart beside it in the same grid row sets
-    // the row height. min-h-60 applies when the cards stack and no sibling sets a height. It must stay
-    // below the height of the share-over-time card, or the list stretches that card again.
+    // The absolute scroller adds no height, so the chart beside it sets the row height. Keep min-h-60 below that chart's height.
     return (
         <div className="relative min-h-60 flex-1">
             <div

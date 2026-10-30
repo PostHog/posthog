@@ -100,9 +100,7 @@ export function ShareOverTimeChart({
                 empty={failed ? <LoadErrorMessage /> : <NoDataMessage />}
             >
                 <div className="flex min-h-[300px] flex-1 flex-col">
-                    {/* The legend shares this column with the plot, so a legend with many models would shrink the
-                        plot. The minimum is on the plot instead, and the card grows with the legend. The `!` is
-                        needed to beat the chart's own min-h-0. */}
+                    {/* The minimum is on the plot so a wrapping legend grows the card instead of shrinking the plot. `!` beats the chart's min-h-0. */}
                     <TimeSeriesLineChart
                         series={chartSeries}
                         labels={labels}
