@@ -19,6 +19,7 @@ from products.alerts_platform.backend.delivery.legacy_webhook import LEGACY_WEBH
 from products.alerts_platform.backend.delivery.message import AlertMessage
 from products.alerts_platform.backend.delivery.thread_store import ThreadBusy
 from products.alerts_platform.backend.delivery.transport import DeliveryError, MessageHandle
+from products.alerts_platform.backend.facade.api import create_alert_destinations
 from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
     AlertDestinationData,
@@ -31,9 +32,10 @@ from products.alerts_platform.backend.facade.contracts import (
     IncidentAction,
     LegacyEventEmission,
     MessageLink,
+    NewAlertDestination,
     SourceKind,
 )
-from products.alerts_platform.backend.facade.enums import HoldRelease
+from products.alerts_platform.backend.facade.enums import HoldRelease, PlatformAlertOwner
 from products.alerts_platform.backend.models import PlatformAlertConfiguration, PlatformAlertDeliveryHold
 from products.alerts_platform.backend.tests.recorded_metrics import recorded_metrics
 
@@ -369,6 +371,51 @@ class TestDeliverEvaluation(APIBaseTest):
         )
 
         assert [m.headline for channel, m in RecordingTransport.sends if channel == "C-1"] == chat_headlines
+        assert [m.incident_action for channel, m in RecordingTransport.sends if channel == "R-1"] == [action]
+
+    @parameterized.expand(
+        [
+            ("firing", AlertEventKind.FIRING, IncidentAction.TRIGGER, "Log alert 'API errors' is firing"),
+            ("resolved", AlertEventKind.RESOLVED, IncidentAction.RESOLVE, "Log alert 'API errors' is resolved"),
+        ]
+    )
+    def test_an_alert_whose_destinations_the_platform_owns_sends_to_its_enabled_rows(
+        self, _name: str, kind: AlertEventKind, action: IncidentAction, headline: str
+    ) -> None:
+        configuration = PlatformAlertConfiguration.objects.for_team(self.team.id).create(
+            id=CONFIGURATION_ID,
+            team=self.team,
+            name="API errors",
+            source_kind=SourceKind.LOGS,
+            check_interval_minutes=5,
+            destinations_owner=PlatformAlertOwner.PLATFORM,
+        )
+        both = (AlertEventKind.FIRING, AlertEventKind.RESOLVED)
+        create_alert_destinations(
+            team_id=self.team.id,
+            configuration_id=configuration.id,
+            destinations=(
+                NewAlertDestination(data=SLACK, event_kinds=both),
+                NewAlertDestination(
+                    data=cast(AlertDestinationData, {**SLACK, "slack_channel_id": "C-off"}),
+                    event_kinds=both,
+                    enabled=False,
+                ),
+                NewAlertDestination(data=PAGERDUTY, event_kinds=(AlertEventKind.FIRING,)),
+            ),
+        )
+        hog_function = [_group(cast(AlertDestinationData, {**SLACK, "slack_channel_id": "C-hog"}))]
+
+        self._run(
+            _announcement(_transition(kind)),
+            {FIRING_EVENT: hog_function, RESOLVED_EVENT: hog_function, OPENED_EVENT: hog_function},
+            incident_actions={"": action},
+            owned_by_platform=True,
+        )
+
+        assert [(channel, m.headline) for channel, m in RecordingTransport.sends if channel != "R-1"] == [
+            ("C-1", headline)
+        ]
         assert [m.incident_action for channel, m in RecordingTransport.sends if channel == "R-1"] == [action]
 
     @parameterized.expand([("owned_by_the_platform", True, "posthog-alert-legacy-1"), ("live_delivery", False, None)])
