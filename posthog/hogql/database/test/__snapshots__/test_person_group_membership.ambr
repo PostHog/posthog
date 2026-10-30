@@ -1,0 +1,9 @@
+# serializer version: 1
+# name: TestMembershipSchema.test_membership_is_namespaced_and_team_guarded
+  '''
+  SELECT person_group_membership.distinct_id AS distinct_id
+  FROM person_group_membership
+  WHERE and(equals(person_group_membership.team_id, 99999), equals(person_group_membership.group_key, %(hogql_val_0)s))
+  LIMIT 50000
+  '''
+# ---

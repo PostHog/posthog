@@ -500,7 +500,7 @@ class Resolver(CloningVisitor):
         super().__init__()
         # Each SELECT query creates a new scope (type). Store all of them in a list as we traverse the tree.
         self.scopes: list[ast.SelectQueryType] = scopes or []
-        self.ctes: dict[str, ast.CTE] = {}
+        self.ctes: dict[str, ast.CTE] = {name: cte for scope in self.scopes for name, cte in (scope.ctes or {}).items()}
         self.current_view_depth: int = 0
         self._compilation_budget = compilation_budget.get() or CompilationBudget()
         self._resolving_saved_views: set[str] = set()
