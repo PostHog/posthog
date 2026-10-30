@@ -99,7 +99,12 @@ export class HogFunctionMonitoringService {
         hogFunctionMonitoringPendingMessages.set(0)
 
         // Only starts the sends. Delivery runs in the background, so a slow capture-logs cannot hold up the Kafka flush.
-        this.internalLogsProducer?.flush()
+        // The catch makes sure a producer bug can never stop the log_entries write below.
+        try {
+            this.internalLogsProducer?.flush()
+        } catch (error) {
+            captureException(error)
+        }
 
         await Promise.all([
             this.appMetricsAggregator.flush().catch((error) => {
