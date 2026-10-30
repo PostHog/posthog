@@ -8,12 +8,6 @@ import { membersLogic } from 'scenes/organization/membersLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import {
-    getDashboardsSharingListUrl,
-    getInsightsSharingListUrl,
-    getNotebooksSharingListUrl,
-    getSessionRecordingsSharingListUrl,
-} from '~/generated/core/api'
 import { OrganizationMemberType } from '~/types'
 
 import { membersDestroy, membersOffboardingPreviewRetrieve } from 'products/platform_features/frontend/generated/api'
@@ -212,18 +206,20 @@ export const memberOffboardingLogic = kea<memberOffboardingLogicType>([
                 const selected = (values.resources ?? []).filter((resource) => ids.includes(resource.id))
                 const results = await Promise.allSettled(
                     selected.map(async (resource) => {
-                        const projectId = String(resource.team_id)
                         const resourceId = resource.resource_id
-                        const url =
-                            resource.kind === 'dashboard'
-                                ? getDashboardsSharingListUrl(projectId, Number(resourceId))
-                                : resource.kind === 'insight'
-                                  ? getInsightsSharingListUrl(projectId, Number(resourceId))
-                                  : resource.kind === 'notebook'
-                                    ? getNotebooksSharingListUrl(projectId, resourceId)
-                                    : getSessionRecordingsSharingListUrl(projectId, resourceId)
-                        // Sharing PATCH is supported by the API but not exposed by its generated client yet.
-                        await api.update(url, { enabled })
+                        await api.sharing.update(
+                            {
+                                teamId: resource.team_id,
+                                ...(resource.kind === 'dashboard'
+                                    ? { dashboardId: Number(resourceId) }
+                                    : resource.kind === 'insight'
+                                      ? { insightId: Number(resourceId) }
+                                      : resource.kind === 'notebook'
+                                        ? { notebookShortId: resourceId }
+                                        : { recordingId: resourceId }),
+                            },
+                            { enabled }
+                        )
                         return resource.id
                     })
                 )
