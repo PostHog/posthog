@@ -1,6 +1,8 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.db import connection
+
 from parameterized import parameterized
 from rest_framework import status
 
@@ -8,6 +10,13 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.logs.backend.models import LogsExclusionRule
+from products.logs.backend.presentation.views.sampling_api import LogsSamplingRuleViewSet
+
+ACCESS_CHECK = "products.logs.backend.presentation.views.sampling_api.UserAccessControl.check_access_level_for_resource"
+
+
+def deny_tracing_only(resource, required_level=None, *args, **kwargs):
+    return resource != "tracing"
 
 
 class TestLogsSamplingRulesAPI(APIBaseTest):
@@ -364,3 +373,70 @@ class TestLogsSamplingRulesAPI(APIBaseTest):
         )
 
         assert response.status_code == expected_status, response.json()
+
+    @parameterized.expand(
+        [
+            ("create", "post", None),
+            ("update", "patch", {"name": "renamed"}),
+            ("delete", "delete", None),
+            ("reorder", "reorder", None),
+        ]
+    )
+    def test_span_rule_writes_need_tracing_editor_access(self, _label, method, body):
+        rule = self.client.post(self.base_url, self._payload(source="spans"), format="json").json()
+
+        with patch(ACCESS_CHECK, side_effect=deny_tracing_only):
+            if method == "post":
+                response = self.client.post(self.base_url, self._payload(source="spans"), format="json")
+            elif method == "reorder":
+                response = self.client.post(
+                    f"{self.base_url}reorder/?source=spans", {"ordered_ids": [rule["id"]]}, format="json"
+                )
+            else:
+                response = getattr(self.client, method)(f"{self.base_url}{rule['id']}/", body, format="json")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        assert LogsExclusionRule.objects.filter(team_id=self.team.id, source="spans").count() == 1
+        assert LogsExclusionRule.objects.get(id=rule["id"]).name == rule["name"]
+
+    def test_log_rule_writes_do_not_need_tracing_access(self):
+        with patch(ACCESS_CHECK, side_effect=deny_tracing_only):
+            response = self.client.post(self.base_url, self._payload(), format="json")
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+    def test_updating_a_rule_resolves_scopes_without_recursing(self):
+        rule = self.client.post(self.base_url, self._payload(), format="json").json()
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="logs", user=self.user, secure_value=hash_key_value(key_value), scopes=["logs:write"]
+        )
+
+        original = LogsSamplingRuleViewSet.dangerously_get_required_scopes
+        with patch.object(
+            LogsSamplingRuleViewSet, "dangerously_get_required_scopes", autospec=True, side_effect=original
+        ) as spy:
+            response = self.client.patch(
+                f"{self.base_url}{rule['id']}/",
+                {"name": "renamed"},
+                format="json",
+                HTTP_AUTHORIZATION=f"Bearer {key_value}",
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert spy.call_count < 5
+
+    def test_a_row_written_without_source_is_a_log_rule(self):
+        # Workers on the previous release insert rows without the column during a rolling deploy.
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO logs_logsexclusionrule
+                    (id, team_id, name, enabled, priority, rule_type, scope_attribute_filters, config, version,
+                     created_at, updated_at)
+                VALUES (gen_random_uuid(), %s, 'old worker', false, 0, 'path_drop', '[]', '{}', 1, now(), now())
+                """,
+                [self.team.id],
+            )
+
+        assert LogsExclusionRule.objects.get(name="old worker").source == "logs"

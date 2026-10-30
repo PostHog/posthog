@@ -2052,8 +2052,6 @@ export const logsSamplingRulesCreateBodyScopeServiceMax = 512
 
 export const logsSamplingRulesCreateBodyScopePathPatternMax = 1024
 
-export const logsSamplingRulesCreateBodySourceDefault = `logs`
-
 export const LogsSamplingRulesCreateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(logsSamplingRulesCreateBodyNameMax).describe('User-visible label for this rule.'),
     enabled: zod
@@ -2099,7 +2097,7 @@ export const LogsSamplingRulesCreateBody = /* @__PURE__ */ zod.object({
     source: zod
         .enum(['logs', 'spans'])
         .describe('\* `logs` - Logs\n\* `spans` - Spans')
-        .default(logsSamplingRulesCreateBodySourceDefault)
+        .optional()
         .describe(
             'Record source the rule filters: `logs` (default) runs in the logs pipeline, `spans` in the traces pipeline. Immutable after creation. Span rules support path_drop and rate_limit only.\n\n\* `logs` - Logs\n\* `spans` - Spans'
         ),
@@ -2113,8 +2111,6 @@ export const logsSamplingRulesUpdateBodyPriorityMin = 0
 export const logsSamplingRulesUpdateBodyScopeServiceMax = 512
 
 export const logsSamplingRulesUpdateBodyScopePathPatternMax = 1024
-
-export const logsSamplingRulesUpdateBodySourceDefault = `logs`
 
 export const LogsSamplingRulesUpdateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(logsSamplingRulesUpdateBodyNameMax).describe('User-visible label for this rule.'),
@@ -2161,7 +2157,7 @@ export const LogsSamplingRulesUpdateBody = /* @__PURE__ */ zod.object({
     source: zod
         .enum(['logs', 'spans'])
         .describe('\* `logs` - Logs\n\* `spans` - Spans')
-        .default(logsSamplingRulesUpdateBodySourceDefault)
+        .optional()
         .describe(
             'Record source the rule filters: `logs` (default) runs in the logs pipeline, `spans` in the traces pipeline. Immutable after creation. Span rules support path_drop and rate_limit only.\n\n\* `logs` - Logs\n\* `spans` - Spans'
         ),
@@ -2175,8 +2171,6 @@ export const logsSamplingRulesPartialUpdateBodyPriorityMin = 0
 export const logsSamplingRulesPartialUpdateBodyScopeServiceMax = 512
 
 export const logsSamplingRulesPartialUpdateBodyScopePathPatternMax = 1024
-
-export const logsSamplingRulesPartialUpdateBodySourceDefault = `logs`
 
 export const LogsSamplingRulesPartialUpdateBody = /* @__PURE__ */ zod.object({
     name: zod
@@ -2229,7 +2223,7 @@ export const LogsSamplingRulesPartialUpdateBody = /* @__PURE__ */ zod.object({
     source: zod
         .enum(['logs', 'spans'])
         .describe('\* `logs` - Logs\n\* `spans` - Spans')
-        .default(logsSamplingRulesPartialUpdateBodySourceDefault)
+        .optional()
         .describe(
             'Record source the rule filters: `logs` (default) runs in the logs pipeline, `spans` in the traces pipeline. Immutable after creation. Span rules support path_drop and rate_limit only.\n\n\* `logs` - Logs\n\* `spans` - Spans'
         ),

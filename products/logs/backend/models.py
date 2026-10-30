@@ -508,7 +508,10 @@ class LogsExclusionRule(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields
     config = models.JSONField(default=dict)
     # Record source the rule filters. Immutable after create: it decides which consumer (logs or traces)
     # evaluates the rule. The default keeps pre-existing rows as log rules.
-    source = models.CharField(max_length=16, choices=RecordSource.choices, default=RecordSource.LOGS)
+    # db_default keeps inserts from workers on the previous release valid during a rolling deploy.
+    source = models.CharField(
+        max_length=16, choices=RecordSource.choices, default=RecordSource.LOGS, db_default=RecordSource.LOGS
+    )
     version = models.PositiveIntegerField(default=1)
 
     class Meta:

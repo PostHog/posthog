@@ -9,7 +9,7 @@ from drf_spectacular.utils import extend_schema
 from pydantic import ValidationError as PydanticValidationError
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -20,6 +20,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
 from posthog.models.user import User
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.logs.backend.models import LogsExclusionRule
 from products.logs.backend.presentation.filter_group_validation import (
     MAX_FILTER_GROUP_DEPTH,
@@ -87,7 +88,9 @@ class LogsSamplingRuleSerializer(serializers.ModelSerializer):
     # `source` collides with DRF's Field.source typing (the attribute lookup), hence the ignore.
     source: serializers.ChoiceField = serializers.ChoiceField(  # type: ignore[assignment]
         choices=LogsExclusionRule.RecordSource.choices,
-        default=LogsExclusionRule.RecordSource.LOGS,
+        # No serializer default: a generated client would then fill `logs` into every update body and trip
+        # the immutability check on span rules. `validate()` applies the default on create only.
+        required=False,
         help_text=(
             "Record source the rule filters: `logs` (default) runs in the logs pipeline, `spans` in the traces "
             "pipeline. Immutable after creation. Span rules support path_drop and rate_limit only."
@@ -123,8 +126,9 @@ class LogsSamplingRuleSerializer(serializers.ModelSerializer):
         if self.instance is not None:
             if "source" in self.initial_data and attrs.get("source") != self.instance.source:
                 raise ValidationError({"source": "source is immutable after creation. Create a new rule instead."})
-            # A PUT that omits `source` would otherwise write the default over a spans rule.
             attrs["source"] = self.instance.source
+        else:
+            attrs.setdefault("source", LogsExclusionRule.RecordSource.LOGS)
         rule_type = attrs.get("rule_type")
         if rule_type is None and self.instance is not None:
             rule_type = self.instance.rule_type
@@ -277,7 +281,7 @@ class LogsSamplingRuleSerializer(serializers.ModelSerializer):
 
 
 class LogsSamplingRuleSourceQuerySerializer(serializers.Serializer):
-    source = serializers.ChoiceField(
+    source: serializers.ChoiceField = serializers.ChoiceField(  # type: ignore[assignment]
         choices=LogsExclusionRule.RecordSource.choices,
         default=LogsExclusionRule.RecordSource.LOGS,
         required=False,
@@ -316,12 +320,29 @@ class LogsSamplingRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             # drf-spectacular calls this with a mock request during schema generation.
             data = getattr(request, "data", None) or {}
             return data.get("source") == LogsExclusionRule.RecordSource.SPANS
-        try:
-            instance = self.get_object()
-        except Exception:
-            # Schema generation has no resolved team, and a 404 has no spans rule to gate.
+        rule_id = self.kwargs.get(self.lookup_field)
+        if not isinstance(rule_id, str):
+            # Schema generation has no rule id.
             return False
-        return instance.source == LogsExclusionRule.RecordSource.SPANS
+        try:
+            # Not get_object(): its object permission check resolves scopes again and recurses into this hook.
+            source = (
+                LogsExclusionRule.objects.filter(team_id=self.team_id, id=rule_id)
+                .values_list("source", flat=True)
+                .first()
+            )
+        except Exception:
+            # Schema generation has no resolved team, and a malformed id has no spans rule to gate.
+            return False
+        return source == LogsExclusionRule.RecordSource.SPANS
+
+    def _assert_tracing_access_for_span_rules(self, source: str) -> None:
+        # A span rule drops trace data, and AccessControlPermission only checks the view's `logs` scope.
+        if source != LogsExclusionRule.RecordSource.SPANS:
+            return
+        user_access_control = UserAccessControl(user=cast(User, self.request.user), team=self.team)
+        if not user_access_control.check_access_level_for_resource("tracing", "editor"):
+            raise PermissionDenied("Managing span drop rules requires editor access to tracing.")
 
     def _requested_source(self) -> str:
         query = LogsSamplingRuleSourceQuerySerializer(data=self.request.query_params)
@@ -341,6 +362,7 @@ class LogsSamplingRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def perform_create(self, serializer: serializers.BaseSerializer) -> None:
         s = cast(LogsSamplingRuleSerializer, serializer)
         user = cast(User, self.request.user)
+        self._assert_tracing_access_for_span_rules(s.validated_data["source"])
         max_priority = LogsExclusionRule.objects.filter(
             team_id=self.team_id, source=s.validated_data["source"]
         ).aggregate(m=Max("priority"))["m"]
@@ -366,6 +388,7 @@ class LogsSamplingRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def perform_update(self, serializer: serializers.BaseSerializer) -> None:
         s = cast(LogsSamplingRuleSerializer, serializer)
         user = cast(User, self.request.user)
+        self._assert_tracing_access_for_span_rules(cast(LogsExclusionRule, s.instance).source)
         instance = cast(LogsExclusionRule, s.save())
         LogsExclusionRule.objects.filter(pk=instance.pk, team_id=self.team_id).update(version=F("version") + 1)
         instance.refresh_from_db(fields=["version", "updated_at"])
@@ -378,6 +401,7 @@ class LogsSamplingRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
 
     def perform_destroy(self, instance: LogsExclusionRule) -> None:
+        self._assert_tracing_access_for_span_rules(instance.source)
         user = cast(User, self.request.user)
         report_user_action(
             user,
@@ -403,6 +427,7 @@ class LogsSamplingRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         ordered_ids = serializer.validated_data["ordered_ids"]
         source = self._requested_source()
+        self._assert_tracing_access_for_span_rules(source)
         team_rule_ids = set(
             LogsExclusionRule.objects.filter(team_id=self.team_id, source=source).values_list("id", flat=True)
         )

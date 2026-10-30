@@ -14,6 +14,7 @@ class Migration(migrations.Migration):
             name="source",
             field=models.CharField(
                 choices=[("logs", "Logs"), ("spans", "Spans")],
+                db_default="logs",
                 default="logs",
                 max_length=16,
             ),
