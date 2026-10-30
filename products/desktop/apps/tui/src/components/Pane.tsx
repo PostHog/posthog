@@ -36,6 +36,7 @@ import {
   todayLines,
 } from "../today";
 import {
+  PENDING_ID,
   type PendingShell,
   queuedMessage,
   type TranscriptLine,
@@ -289,9 +290,18 @@ export function Pane({
   useEffect(() => {
     if (delivery && pending) onUndelivered(delivery.at, delivery.sandboxGone);
   }, [delivery?.at, pending]);
+  // A resend of the same words would match the log's old copy at once, so only a user line that arrived after the
+  // message went pending counts as its echo.
+  const lastUser = transcript.lines.findLast((line) => line.kind === "user");
+  const userBeforePending = useRef<string | null>(null);
+  if (pending === null) userBeforePending.current = null;
+  else if (userBeforePending.current === null)
+    userBeforePending.current = lastUser?.id ?? "";
   const echoed =
     pending !== null &&
-    transcript.lines.findLast((line) => line.kind === "user")?.text === pending;
+    lastUser?.text === pending &&
+    lastUser.id !== PENDING_ID &&
+    lastUser.id !== userBeforePending.current;
   // biome-ignore lint/correctness/useExhaustiveDependencies: fires once the chat shows the message
   useEffect(() => {
     if (echoed) onDelivered?.();
