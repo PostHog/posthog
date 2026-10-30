@@ -5,7 +5,7 @@ import { useValues } from 'kea'
 
 import { ProfilePicture, Tooltip } from '@posthog/lemon-ui'
 
-import { membersLogic } from 'scenes/organization/membersLogic'
+import { membersLogic } from '~/models/membersLogic'
 
 import { RichContentNodeType } from './types'
 

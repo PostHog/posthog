@@ -22,7 +22,7 @@ import { logsExportLogic } from 'products/logs/frontend/components/LogsViewer/lo
 import { QueryFailedOverlay } from 'products/logs/frontend/components/QueryFailedOverlay'
 import { VirtualizedLogsList } from 'products/logs/frontend/components/VirtualizedLogsList/VirtualizedLogsList'
 import { virtualizedLogsListLogic } from 'products/logs/frontend/components/VirtualizedLogsList/virtualizedLogsListLogic'
-import { traceDialogLogic } from 'products/tracing/frontend/components/TraceDialog/traceDialogLogic'
+import { traceDialogOpenLogic } from 'products/tracing/frontend/components/TraceDialog/traceDialogOpenLogic'
 
 import { LogDetailsModal } from './LogDetailsModal'
 import { logDetailsModalLogic } from './LogDetailsModal/logDetailsModalLogic'
@@ -144,7 +144,7 @@ function LogsViewerContent({
         togglePrettifyLog,
     } = useActions(logsViewerLogic)
     const { orderBy, sparklineCollapsed, facetRailCollapsed, viewMode } = useValues(logsViewerConfigLogic)
-    const { isOpen: isTraceDialogOpen } = useValues(traceDialogLogic)
+    const { isOpen: isTraceDialogOpen } = useValues(traceDialogOpenLogic)
     const { setOrderBy, toggleSparklineCollapsed } = useActions(logsViewerConfigLogic)
     const {
         logsLoading,

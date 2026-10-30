@@ -102,6 +102,14 @@ const oversizedPlaceholderHtml = (bytes: number): string => {
 // Stored instead of the body when the template is marked sensitive, so the person view still shows the send.
 const SENSITIVE_PLACEHOLDER_HTML = `<!doctype html><meta charset="utf-8"><div style="padding:1rem;font-family:ui-sans-serif,system-ui,sans-serif;color:#555;max-width:640px;margin:2rem auto"><h3 style="margin:0 0 0.5rem">Email body not stored</h3><p style="margin:0">This email was sent. Its template is marked sensitive, so PostHog doesn't keep a copy of its content.</p></div>`
 
+// Stored instead of the rendered notification when the push step is marked sensitive.
+const SENSITIVE_PUSH_PLACEHOLDER_HTML = `<!doctype html><meta charset="utf-8"><div style="padding:1rem;font-family:ui-sans-serif,system-ui,sans-serif;color:#555;max-width:640px;margin:2rem auto"><h3 style="margin:0 0 0.5rem">Notification content not stored</h3><p style="margin:0">This push notification was sent. Its step is marked sensitive, so PostHog doesn't keep a copy of its content.</p></div>`
+
+const sensitivePushTitle = (invocation: CyclotronJobInvocationHogFunction): string => {
+    const title = invocation.hogFunction.inputs?.title?.value
+    return typeof title === 'string' && title ? title : 'Title not stored'
+}
+
 const sensitiveSubject = (invocation: CyclotronJobInvocationHogFunction): string => {
     const subject = invocation.hogFunction.inputs?.email?.value?.subject
     return typeof subject === 'string' ? subject : 'Subject not stored'
@@ -192,6 +200,7 @@ export class MessageAssetsService {
         if (platforms.length === 0) {
             return null
         }
+        const sensitive = invocation.hogFunction.metadata?.sensitive === true
         return {
             team_id: invocation.teamId,
             function_kind: 'hog_flow',
@@ -205,12 +214,14 @@ export class MessageAssetsService {
             // The person, not the providers that carried it, so the Assets tab's RECIPIENT column means
             // the same thing for push as it does for email. Per-channel outcomes stay in the run log.
             recipient: recipient.distinctId,
-            subject: payload.title,
+            // Like a sensitive email's subject, the unrendered title still names the notification without
+            // the values it carried.
+            subject: sensitive ? sensitivePushTitle(invocation) : payload.title,
             status: 'sent',
             sent_at: isoMicroseconds(new Date()),
             version: microsecondsSinceEpoch(),
             is_deleted: 0,
-            html: renderPushPreviewHtml(payload),
+            html: sensitive ? SENSITIVE_PUSH_PLACEHOLDER_HTML : renderPushPreviewHtml(payload),
         }
     }
 
