@@ -19,8 +19,14 @@ export const VisualReviewReposListParams = () => zod.object({
         ),
 })
 
+export const visualReviewReposListQueryLimitMax = 1000
+
 export const VisualReviewReposListQueryParams = () => zod.object({
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod
+        .number()
+        .max(visualReviewReposListQueryLimitMax)
+        .optional()
+        .describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
@@ -86,9 +92,15 @@ export const VisualReviewReposQuarantineListParams = () => zod.object({
         ),
 })
 
+export const visualReviewReposQuarantineListQueryLimitMax = 1000
+
 export const VisualReviewReposQuarantineListQueryParams = () => zod.object({
     identifier: zod.string().optional().describe('Filter by identifier (returns full history)'),
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod
+        .number()
+        .max(visualReviewReposQuarantineListQueryLimitMax)
+        .optional()
+        .describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     run_type: zod.string().optional().describe('Filter by run type'),
 })
@@ -248,8 +260,14 @@ export const VisualReviewReposRunsListParams = () => zod.object({
     repo_id: zod.string(),
 })
 
+export const visualReviewReposRunsListQueryLimitMax = 1000
+
 export const VisualReviewReposRunsListQueryParams = () => zod.object({
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod
+        .number()
+        .max(visualReviewReposRunsListQueryLimitMax)
+        .optional()
+        .describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     review_state: zod
         .enum(['clean', 'needs_review', 'processing', 'stale'])
@@ -283,10 +301,16 @@ export const VisualReviewRunsListParams = () => zod.object({
         ),
 })
 
+export const visualReviewRunsListQueryLimitMax = 1000
+
 export const VisualReviewRunsListQueryParams = () => zod.object({
     branch: zod.string().optional().describe('Filter by branch name'),
     commit_sha: zod.string().optional().describe('Filter by full commit SHA'),
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod
+        .number()
+        .max(visualReviewRunsListQueryLimitMax)
+        .optional()
+        .describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     pr_number: zod.number().optional().describe('Filter by GitHub PR number'),
     review_state: zod
@@ -464,13 +488,19 @@ export const VisualReviewRunsSnapshotHistoryListParams = () => zod.object({
         ),
 })
 
+export const visualReviewRunsSnapshotHistoryListQueryLimitMax = 1000
+
 export const VisualReviewRunsSnapshotHistoryListQueryParams = () => zod.object({
     identifier: zod
         .string()
         .describe(
             'Identifier of the snapshot to look up, for example a Storybook story id plus theme. Read it from the `identifier` field of a snapshot in the run. It is a name rather than a UUID, and it is required in addition to the run id in the path.'
         ),
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod
+        .number()
+        .max(visualReviewRunsSnapshotHistoryListQueryLimitMax)
+        .optional()
+        .describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
@@ -555,13 +585,19 @@ export const VisualReviewRunsToleratedHashesListParams = () => zod.object({
         ),
 })
 
+export const visualReviewRunsToleratedHashesListQueryLimitMax = 1000
+
 export const VisualReviewRunsToleratedHashesListQueryParams = () => zod.object({
     identifier: zod
         .string()
         .describe(
             'Identifier of the snapshot to look up, for example a Storybook story id plus theme. Read it from the `identifier` field of a snapshot in the run. It is a name rather than a UUID, and it is required in addition to the run id in the path.'
         ),
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod
+        .number()
+        .max(visualReviewRunsToleratedHashesListQueryLimitMax)
+        .optional()
+        .describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 

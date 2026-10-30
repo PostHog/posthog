@@ -144224,6 +144224,7 @@ export namespace Schemas {
     export type VisualReviewReposListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -144239,6 +144240,7 @@ export namespace Schemas {
     identifier?: string;
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -144298,6 +144300,7 @@ export namespace Schemas {
     export type VisualReviewReposRunsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -144346,6 +144349,7 @@ export namespace Schemas {
     commit_sha?: string;
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -144383,6 +144387,7 @@ export namespace Schemas {
     identifier: string;
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -144425,6 +144430,7 @@ export namespace Schemas {
     identifier: string;
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**

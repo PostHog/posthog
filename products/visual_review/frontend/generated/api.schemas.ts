@@ -769,6 +769,7 @@ export interface PaginatedToleratedHashEntryListApi {
 export type VisualReviewReposListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -784,6 +785,7 @@ export type VisualReviewReposQuarantineListParams = {
     identifier?: string
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -843,6 +845,7 @@ export type VisualReviewReposTolerationPileupsRetrieveParams = {
 export type VisualReviewReposRunsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -891,6 +894,7 @@ export type VisualReviewRunsListParams = {
     commit_sha?: string
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -928,6 +932,7 @@ export type VisualReviewRunsSnapshotHistoryListParams = {
     identifier: string
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -970,6 +975,7 @@ export type VisualReviewRunsToleratedHashesListParams = {
     identifier: string
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
