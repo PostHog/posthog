@@ -36,7 +36,7 @@ _TOOLS_CALL_ID = 3
 # MCP protocol version we claim to speak. Kept in sync with what the PostHog
 # MCP reference client sends; bump when the spec changes in a backwards-
 # incompatible way.
-_PROTOCOL_VERSION = "2024-11-05"
+_PROTOCOL_VERSION = "2025-06-18"
 _CLIENT_INFO: dict[str, Any] = {"name": "posthog-mcp-store", "version": "1.0"}
 
 # Each handshake step should return in well under a second.

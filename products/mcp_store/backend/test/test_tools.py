@@ -232,7 +232,9 @@ class TestFetchUpstreamTools(ClickhouseTestMixin, APIBaseTest):
         # Verify the handshake order and that the session id rode along on later calls.
         assert client.post.call_count == 3
         init_call, notify_call, list_call = client.post.call_args_list
-        assert json.loads(init_call.kwargs["content"])["method"] == "initialize"
+        init_body = json.loads(init_call.kwargs["content"])
+        assert init_body["method"] == "initialize"
+        assert init_body["params"]["protocolVersion"] == "2025-06-18"
         assert "Mcp-Session-Id" not in init_call.kwargs["headers"]
         assert json.loads(notify_call.kwargs["content"])["method"] == "notifications/initialized"
         assert notify_call.kwargs["headers"]["Mcp-Session-Id"] == "sess-1"
