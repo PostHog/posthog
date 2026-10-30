@@ -109,10 +109,18 @@ async function readImportGraph() {
     for (const [file, input] of Object.entries(result.metafile.inputs)) {
         files[file] = {
             bytes: input.bytes,
-            staticImports: input.imports.filter((i) => i.kind === 'import-statement' && !i.external).map((i) => i.path),
+            staticImports: input.imports
+                .filter((i) => i.kind === 'import-statement' && !i.external && !isAssetPath(i.path))
+                .map((i) => i.path),
         }
     }
     return files
+}
+
+// The `empty` loader keeps asset files out of the bundle, but esbuild still records the import edge
+// in the metafile. An asset carries no feature code, so it must not count as an upward import.
+function isAssetPath(importPath) {
+    return ASSET_EXTENSIONS.includes(path.extname(importPath).toLowerCase())
 }
 
 function staticReach(files, root) {
