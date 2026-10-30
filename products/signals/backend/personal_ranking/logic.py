@@ -168,7 +168,7 @@ def _client(team: Team, user: User, now: datetime.datetime, config: PersonalRank
         "signals",
         ai_product=AI_PRODUCT,
         trace_id=trace_id_from_seed(f"{AI_PRODUCT}:{team.id}:{user.id}:{now.isoformat()}"),
-        properties={"team_id": str(team.id)},
+        properties={"team_id": str(team.id), "user_id": str(user.id), "prompt_version": str(PROMPT_VERSION)},
         distinct_id=PIPELINE_DISTINCT_ID,
     )
     # One attempt: a retry would run past the timeout, and the fallback list is always there.
