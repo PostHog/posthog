@@ -45,6 +45,11 @@ export const RELEASE_OPTIONS = {
         placeholder: 'build',
         description: 'A build number, added to the version as version+build',
     },
+    infoPlist: {
+        type: 'string',
+        placeholder: 'path',
+        description: 'iOS: read the name, version and build the flags leave unset from this Info.plist',
+    },
     releaseMode: {
         type: 'string',
         choices: ['event', 'symbol-set'],
@@ -90,6 +95,7 @@ interface RawOptions {
     releaseName?: string
     releaseVersion?: string
     build?: string
+    infoPlist?: string
     releaseMode?: 'event' | 'symbol-set'
     mapId?: string
     force?: boolean
@@ -140,6 +146,7 @@ export function readOptions(options: RawOptions, env: Env): ErrorTrackingOptions
         kind: options.kind,
         mapId: options.mapId,
         release: { name: options.releaseName, version: options.releaseVersion, build: options.build },
+        infoPlist: options.infoPlist,
         releaseMode,
         publicPathPrefix: options.publicPathPrefix,
         force: options.force === true,

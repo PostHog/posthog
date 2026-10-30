@@ -22,6 +22,9 @@ The commands `posthog-cli` keeps under `exp` (`query`, `endpoints`, `logs`, `tas
 | `hog error-tracking clone <from> <to>`  | Copies the chunk ID from Metro's map to the map Hermes composed, for React Native.                                      |
 | `hog error-tracking upload [paths...]`  | Uploads symbols for readable stack traces: JavaScript sourcemaps, Hermes maps, ProGuard mappings, dSYMs and ELF files.  |
 | `hog error-tracking process [paths...]` | Runs `inject`, then `upload`. Use it in CI after the build.                                                             |
+| `hog error-tracking release`            | Finds or creates the release for this build. `-o text` prints just its ID.                                              |
+| `hog error-tracking download <id/ref>`  | Downloads a symbol set from PostHog and unpacks it.                                                                     |
+| `hog error-tracking extract <file>`     | Unpacks a symbol set file.                                                                                              |
 | `hog config check`, `hog config schema` | Check `posthog.json` against its schema, or print the schema.                                                           |
 | `hog commands`                          | Lists every command, its arguments, options and scopes.                                                                 |
 | Everything else                         | Not ported yet. Exits with code 1 and prints the `posthog-cli` command to run instead, with the same arguments.         |
