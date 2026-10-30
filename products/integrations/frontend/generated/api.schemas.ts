@@ -258,6 +258,19 @@ export const IntegrationKindEnumApi = {
 } as const
 
 /**
+ * * `oauth` - OAuth
+ * * `token` - Token
+ * * `credentials` - Credentials
+ */
+export type IntegrationAuthTypeEnumApi = (typeof IntegrationAuthTypeEnumApi)[keyof typeof IntegrationAuthTypeEnumApi]
+
+export const IntegrationAuthTypeEnumApi = {
+    Oauth: 'oauth',
+    Token: 'token',
+    Credentials: 'credentials',
+} as const
+
+/**
  * * `connected` - connected
  * * `unavailable` - unavailable
  */
@@ -274,6 +287,12 @@ export const InstallationStatusEnumApi = {
 export interface IntegrationConfigApi {
     readonly id: number
     kind: IntegrationKindEnumApi
+    /** How this integration authenticates with the provider: `oauth` for a connection the provider manages (an OAuth grant or an app installation), `token` for one static secret, or `credentials` for several typed-in fields. A kind can have several auth types.
+     *
+     * * `oauth` - OAuth
+     * * `token` - Token
+     * * `credentials` - Credentials */
+    readonly auth_type: IntegrationAuthTypeEnumApi
     config?: unknown
     readonly created_at: string
     readonly created_by: UserBasicApi
@@ -332,6 +351,12 @@ export interface SlackChannelsResponseApi {
 export interface PatchedIntegrationConfigApi {
     readonly id?: number
     kind?: IntegrationKindEnumApi
+    /** How this integration authenticates with the provider: `oauth` for a connection the provider manages (an OAuth grant or an app installation), `token` for one static secret, or `credentials` for several typed-in fields. A kind can have several auth types.
+     *
+     * * `oauth` - OAuth
+     * * `token` - Token
+     * * `credentials` - Credentials */
+    readonly auth_type?: IntegrationAuthTypeEnumApi
     config?: unknown
     readonly created_at?: string
     readonly created_by?: UserBasicApi
@@ -346,6 +371,210 @@ export interface PatchedIntegrationConfigApi {
     readonly installation_shared?: boolean | null
     /** GitHub only, null otherwise. `unavailable` means the App was uninstalled or suspended on GitHub and PostHog can no longer mint tokens for it; `connected` otherwise. */
     readonly installation_status?: InstallationStatusEnumApi | null
+}
+
+/**
+ * * `not_started` - Not started
+ * * `pending` - Waiting for DNS records
+ * * `records_found` - Records found, waiting for verification
+ * * `verified` - Verified
+ * * `temporary_failure` - Temporary failure
+ * * `failed` - Failed
+ */
+export type EmailDomainSetupStatusEnumApi =
+    (typeof EmailDomainSetupStatusEnumApi)[keyof typeof EmailDomainSetupStatusEnumApi]
+
+export const EmailDomainSetupStatusEnumApi = {
+    NotStarted: 'not_started',
+    Pending: 'pending',
+    RecordsFound: 'records_found',
+    Verified: 'verified',
+    TemporaryFailure: 'temporary_failure',
+    Failed: 'failed',
+} as const
+
+/**
+ * * `domain_added` - Domain added
+ * * `records_found` - DNS records found
+ * * `verified` - Verified
+ */
+export type EmailDomainSetupStepKeyEnumApi =
+    (typeof EmailDomainSetupStepKeyEnumApi)[keyof typeof EmailDomainSetupStepKeyEnumApi]
+
+export const EmailDomainSetupStepKeyEnumApi = {
+    DomainAdded: 'domain_added',
+    RecordsFound: 'records_found',
+    Verified: 'verified',
+} as const
+
+/**
+ * * `done` - Done
+ * * `pending` - Pending
+ * * `failed` - Failed
+ */
+export type EmailDomainSetupStepStateEnumApi =
+    (typeof EmailDomainSetupStepStateEnumApi)[keyof typeof EmailDomainSetupStepStateEnumApi]
+
+export const EmailDomainSetupStepStateEnumApi = {
+    Done: 'done',
+    Pending: 'pending',
+    Failed: 'failed',
+} as const
+
+export interface EmailDomainStatusStepApi {
+    /** The setup step: domain_added (SES knows the domain), records_found (every DNS record is published), verified (SES verified the domain and the sender can send).
+     *
+     * * `domain_added` - Domain added
+     * * `records_found` - DNS records found
+     * * `verified` - Verified */
+    key: EmailDomainSetupStepKeyEnumApi
+    /** Progress of this step.
+     *
+     * * `done` - Done
+     * * `pending` - Pending
+     * * `failed` - Failed */
+    state: EmailDomainSetupStepStateEnumApi
+}
+
+/**
+ * * `verification` - Domain ownership
+ * * `dkim` - DKIM signing
+ * * `spf` - SPF
+ * * `mail_from_mx` - MAIL FROM MX
+ * * `mail_from_spf` - MAIL FROM SPF
+ * * `dmarc` - DMARC
+ */
+export type EmailDomainSetupRecordKindEnumApi =
+    (typeof EmailDomainSetupRecordKindEnumApi)[keyof typeof EmailDomainSetupRecordKindEnumApi]
+
+export const EmailDomainSetupRecordKindEnumApi = {
+    Verification: 'verification',
+    Dkim: 'dkim',
+    Spf: 'spf',
+    MailFromMx: 'mail_from_mx',
+    MailFromSpf: 'mail_from_spf',
+    Dmarc: 'dmarc',
+} as const
+
+/**
+ * * `TXT` - TXT
+ * * `CNAME` - CNAME
+ * * `MX` - MX
+ */
+export type EmailDomainSetupRecordTypeEnumApi =
+    (typeof EmailDomainSetupRecordTypeEnumApi)[keyof typeof EmailDomainSetupRecordTypeEnumApi]
+
+export const EmailDomainSetupRecordTypeEnumApi = {
+    Txt: 'TXT',
+    Cname: 'CNAME',
+    Mx: 'MX',
+} as const
+
+/**
+ * * `pending` - Not found yet
+ * * `found` - Found in DNS
+ * * `verified` - Verified
+ */
+export type EmailDomainSetupRecordStatusEnumApi =
+    (typeof EmailDomainSetupRecordStatusEnumApi)[keyof typeof EmailDomainSetupRecordStatusEnumApi]
+
+export const EmailDomainSetupRecordStatusEnumApi = {
+    Pending: 'pending',
+    Found: 'found',
+    Verified: 'verified',
+} as const
+
+export interface EmailDomainStatusRecordApi {
+    /** What the record does: verification proves domain ownership, dkim signs email, spf and mail_from_spf list SES as an allowed sender, mail_from_mx routes bounces, dmarc sets the policy for unauthenticated mail.
+     *
+     * * `verification` - Domain ownership
+     * * `dkim` - DKIM signing
+     * * `spf` - SPF
+     * * `mail_from_mx` - MAIL FROM MX
+     * * `mail_from_spf` - MAIL FROM SPF
+     * * `dmarc` - DMARC */
+    kind: EmailDomainSetupRecordKindEnumApi
+    /** Full DNS name to create the record at, including the domain. */
+    hostname: string
+    /** DNS record type.
+     *
+     * * `TXT` - TXT
+     * * `CNAME` - CNAME
+     * * `MX` - MX */
+    type: EmailDomainSetupRecordTypeEnumApi
+    /** Value to publish. For an SPF record, add the include to an existing SPF record instead of creating a second one. For DMARC, any existing v=DMARC1 record counts. */
+    value: string
+    /**
+     * MX priority. Null for other record types.
+     * @nullable
+     */
+    priority: number | null
+    /** pending: not found in DNS yet. found: published in DNS, SES has not confirmed it yet. verified: SES confirmed the record, or for DMARC a v=DMARC1 record exists.
+     *
+     * * `pending` - Not found yet
+     * * `found` - Found in DNS
+     * * `verified` - Verified */
+    status: EmailDomainSetupRecordStatusEnumApi
+}
+
+export interface EmailDomainStatusApi {
+    /** Overall setup status. records_found means every record is published and SES has not confirmed yet. temporary_failure means SES could not see the records, usually because DNS changes have not spread yet. failed means SES gave up after 72 hours; start verification again.
+     *
+     * * `not_started` - Not started
+     * * `pending` - Waiting for DNS records
+     * * `records_found` - Records found, waiting for verification
+     * * `verified` - Verified
+     * * `temporary_failure` - Temporary failure
+     * * `failed` - Failed */
+    status: EmailDomainSetupStatusEnumApi
+    /** Whether the sender can send email. Set by email/verify once SES verifies the domain. */
+    verified: boolean
+    /** When SES and DNS were read. Responses are cached for 10 seconds unless refresh is set. */
+    checked_at: string
+    /** The three setup steps, in order. */
+    steps: EmailDomainStatusStepApi[]
+    /** DNS records to publish at the domain's DNS host, with the status of each. Empty when status is not_started. */
+    records: EmailDomainStatusRecordApi[]
+}
+
+/**
+ * * `success` - Success
+ * * `pending` - Pending
+ * * `failed` - Failed
+ */
+export type EmailDomainVerificationStatusEnumApi =
+    (typeof EmailDomainVerificationStatusEnumApi)[keyof typeof EmailDomainVerificationStatusEnumApi]
+
+export const EmailDomainVerificationStatusEnumApi = {
+    Success: 'success',
+    Pending: 'pending',
+    Failed: 'failed',
+} as const
+
+export interface EmailDomainVerificationRecordApi {
+    /** What the record does: verification, dkim, mail_from or dmarc. */
+    type: string
+    /** DNS record type: TXT, CNAME or MX. */
+    recordType: string
+    /** DNS name to create the record at. */
+    recordHostname: string
+    /** Value to publish. */
+    recordValue: string
+    /** success once SES or DNS confirms the record, else pending. */
+    status: string
+    /** MX priority. Only set on MX records. */
+    priority?: number
+}
+
+export interface EmailDomainVerificationApi {
+    /** success when SES verified the domain and its senders are now marked verified.
+     *
+     * * `success` - Success
+     * * `pending` - Pending
+     * * `failed` - Failed */
+    status: EmailDomainVerificationStatusEnumApi
+    /** DNS records the domain needs. */
+    dnsRecords: EmailDomainVerificationRecordApi[]
 }
 
 export interface IntegrationAssigneeApi {
@@ -418,6 +647,16 @@ export interface GitHubReposRefreshResponseApi {
     installation_status: InstallationStatusEnumApi
 }
 
+export interface GitHubRepositoryAccessResponseApi {
+    /** Whether a live GitHub request confirmed repository access. */
+    available: boolean
+}
+
+export interface ErrorResponseApi {
+    /** Error message */
+    error: string
+}
+
 export interface GitHubTeamApi {
     /** GitHub team numeric identifier. */
     id: number
@@ -460,6 +699,31 @@ export interface LinearTeamsResponseApi {
     teams: LinearTeamApi[]
 }
 
+export interface PushTokenSubscriptionApi {
+    /**
+     * The person's distinct ID in this project.
+     * @maxLength 200
+     */
+    distinct_id: string
+    /**
+     * The APNs device token or FCM registration token of one device.
+     * @maxLength 4096
+     */
+    device_token: string
+}
+
+export interface PushTokenImportRequestApi {
+    /** Up to 1000 devices to register on this push channel. List a person once per device. */
+    subscriptions: PushTokenSubscriptionApi[]
+}
+
+export interface PushTokenImportResponseApi {
+    /** Number of devices stored on their person. */
+    imported: number
+    /** Distinct IDs with at least one device that was not stored. Send those rows again. */
+    failed_distinct_ids: string[]
+}
+
 export interface SlackUserApi {
     /** Slack member ID (e.g. U0123ABC) — post to it to open a direct message. */
     id: string
@@ -479,6 +743,36 @@ export interface SlackUsersResponseApi {
     lastRefreshedAt?: string | null
     /** Whether more members match the current search beyond this page. */
     has_more?: boolean
+}
+
+export interface EmailDomainConnectProviderApi {
+    /** Domain Connect endpoint of the provider. */
+    endpoint: string
+    /** Display name of the provider. */
+    name: string
+}
+
+export interface EmailDomainDnsHostApi {
+    /** Name of the company that hosts the domain's DNS, such as Cloudflare. */
+    name: string
+    /** Link to the DNS settings page at that host. */
+    dns_settings_url: string
+}
+
+export interface EmailDomainConnectCheckApi {
+    /** Whether the domain's DNS provider supports automatic setup through Domain Connect. */
+    supported: boolean
+    /**
+     * Domain Connect provider that hosts the domain. Null when not supported.
+     * @nullable
+     */
+    provider_name: string | null
+    /** Providers the user can pick manually when automatic detection fails. Empty when supported. */
+    available_providers: EmailDomainConnectProviderApi[]
+    /** The detected DNS host of the root domain, from its nameservers. Null when unknown. */
+    dns_host: EmailDomainDnsHostApi | null
+    /** Email tools that already send for the root domain, detected from SPF and DKIM records. Best effort, empty when none are found or when include_email_setup is off. */
+    existing_email_tools: string[]
 }
 
 /**
@@ -904,6 +1198,13 @@ export type IntegrationsChannelsRetrieveParams = {
     search?: string
 }
 
+export type IntegrationsEmailStatusRetrieveParams = {
+    /**
+     * Skip the 10 second status cache and read SES and DNS again. Use it after changing DNS records.
+     */
+    refresh?: boolean
+}
+
 export type IntegrationsGithubAssigneesRetrieveParams = {
     /**
      * Repository name, or owner/name, whose assignable users to list.
@@ -959,6 +1260,14 @@ export type IntegrationsGithubReposRetrieveParams = {
      * Optional case-insensitive repository name search query.
      */
     search?: string
+}
+
+export type IntegrationsGithubRepositoryAccessRetrieveParams = {
+    /**
+     * Repository in owner/repo format. Omit to check access to any repository.
+     * @minLength 1
+     */
+    repository?: string
 }
 
 export type IntegrationsGithubTeamsRetrieveParams = {
@@ -1034,4 +1343,16 @@ export type IntegrationsUsersRetrieveParams = {
      * Look up one member directly by Slack member ID (e.g. U0123ABC). When set, `search`, `limit`, and `offset` are ignored and the response holds at most that member.
      */
     user_id?: string
+}
+
+export type IntegrationsDomainConnectCheckRetrieveParams = {
+    /**
+     * Domain to check, such as mail.example.com. Its root domain is checked.
+     * @minLength 1
+     */
+    domain: string
+    /**
+     * Also look up the DNS host and the email tools that already send for the domain. Email domain setup needs these. Leave it off for other setups, because the lookups add DNS queries.
+     */
+    include_email_setup?: boolean
 }

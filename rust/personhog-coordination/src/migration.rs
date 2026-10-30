@@ -13,8 +13,8 @@ use crate::protocol::migration::{
 use crate::store::PersonhogStore;
 use crate::strategy::{AssignmentStrategy, Member, PlacementPolicy};
 use crate::types::{
-    AssignmentPrecondition, HandoffPhase, HandoffReplacement, HandoffState, MigrationPhase,
-    MigrationRequest, MigrationState, PodStatus, RegisteredPod,
+    AssignmentPrecondition, Generation, HandoffPhase, HandoffReplacement, HandoffState,
+    MigrationPhase, MigrationRequest, MigrationState, PodStatus, RegisteredPod,
 };
 use crate::util;
 
@@ -536,8 +536,6 @@ async fn admission_refusal(
     let reason = match store.get_changelog_config().await? {
         None => Some("config_not_seeded"),
         Some(live) if live.target() != request.from => Some("from_is_not_the_live_config"),
-        // The protocol is checked with at most one draining generation.
-        Some(live) if !live.draining.is_empty() => Some("generation_still_draining"),
         _ if request.to.topic == request.from.topic => Some("same_topic"),
         _ if members
             .iter()
@@ -557,14 +555,107 @@ async fn admission_refusal(
         .then_some("topic_already_retired"))
 }
 
-/// The only way a saga starts: it waits, holding nothing, until the fleet is quiet,
-/// then starts in a transaction that proves no handoff appeared meanwhile.
+/// What the coordinator's retire pass did.
+pub enum Retirement {
+    /// A generation left the config; the next pass sees the new config.
+    Retired,
+    /// Generations still draining, each with the groups that have not reported it.
+    Waiting(Vec<String>),
+    /// Nothing drains.
+    Clear,
+}
+
+/// Retires the oldest draining generation once every gated group has reported
+/// it drained. Runs only while no saga exists; the retire's transaction requires that too.
+pub async fn retire_drained(store: &PersonhogStore) -> Result<Retirement> {
+    let Some((config, mod_revision)) = store.get_changelog_config_with_mod_revision().await? else {
+        return Ok(Retirement::Clear);
+    };
+    let reports = store.list_drain_reports().await?;
+    // A topic never returns to the config once it leaves `draining`, so a report
+    // for any other topic is late and safe to drop.
+    let stale: HashSet<&str> = reports
+        .iter()
+        .map(|r| r.topic.as_str())
+        .filter(|topic| config.draining.iter().all(|g| g.topic != *topic))
+        .collect();
+    for topic in stale {
+        store.delete_drain_reports_for(topic).await?;
+        counter!("personhog_changelog_drain_reports_swept_total").increment(1);
+    }
+
+    let mut generations = config.draining.clone();
+    generations.sort_by_key(|g| g.epoch);
+    let missing: Vec<(&Generation, Vec<&str>)> = generations
+        .iter()
+        .map(|generation| {
+            let groups = config
+                .gated_groups()
+                .filter(|group| {
+                    !reports
+                        .iter()
+                        .any(|r| r.topic == generation.topic && r.group == *group)
+                })
+                .collect();
+            (generation, groups)
+        })
+        .collect();
+    // Set on every pass between sagas; during a saga nothing can retire.
+    gauge!("personhog_changelog_retire_waiting_groups").set(
+        missing
+            .iter()
+            .map(|(_, groups)| groups.len())
+            .sum::<usize>() as f64,
+    );
+
+    if let Some((generation, _)) = missing.iter().find(|(_, groups)| groups.is_empty()) {
+        if store
+            .retire_changelog_topic(&config, mod_revision, &generation.topic)
+            .await?
+        {
+            counter!("personhog_changelog_retires_total", "trigger" => "auto").increment(1);
+            tracing::info!(
+                topic = %generation.topic,
+                groups = ?config.gated_groups().collect::<Vec<_>>(),
+                "retired a drained changelog generation"
+            );
+        }
+        return Ok(Retirement::Retired);
+    }
+    let waiting: Vec<String> = missing
+        .iter()
+        .map(|(generation, groups)| {
+            format!(
+                "{}: waiting on drain reports from {}",
+                generation.topic,
+                groups.join(", ")
+            )
+        })
+        .collect();
+    Ok(if waiting.is_empty() {
+        Retirement::Clear
+    } else {
+        Retirement::Waiting(waiting)
+    })
+}
+
+/// Registers the retire metrics at zero, so the first retire shows as an increase.
+pub fn register_retire_metrics() {
+    counter!("personhog_changelog_retires_total", "trigger" => "auto").increment(0);
+    counter!("personhog_changelog_drain_reports_swept_total").increment(0);
+    gauge!("personhog_changelog_retire_waiting_groups").set(0.0);
+}
+
+/// The only way a saga starts: it waits, holding nothing, until no generation
+/// drains and the fleet is quiet, then starts in a transaction that proves no
+/// handoff appeared meanwhile.
 pub async fn consider_request(
     store: &PersonhogStore,
     members: &[Member],
     pods: &[RegisteredPod],
     request: MigrationRequest,
     mod_revision: i64,
+    draining: Vec<String>,
 ) -> Result<()> {
     let now_ms = util::now_millis();
     // The expiry runs on the coordinator's clock, from its first sighting.
@@ -589,6 +680,20 @@ pub async fn consider_request(
             counter!("personhog_migration_requests_rejected_total", "reason" => reason)
                 .increment(1);
             tracing::warn!(migration = %request.id, reason, "migration request rejected");
+        }
+        return Ok(());
+    }
+    // The protocol is checked with at most one draining generation.
+    if !draining.is_empty() {
+        if draining != request.waiting {
+            tracing::info!(migration = %request.id, waiting = ?draining, "migration waiting for a generation to retire");
+            let waiting = MigrationRequest {
+                waiting: draining,
+                ..request
+            };
+            store
+                .update_migration_request(&waiting, mod_revision)
+                .await?;
         }
         return Ok(());
     }

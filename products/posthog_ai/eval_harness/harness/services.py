@@ -288,6 +288,7 @@ def start_mcp_server(
     skill_archive_url: str | None,
     *,
     exec_skills_enabled: bool,
+    skill_archive_sha256: str | None = None,
 ) -> Callable[[], None]:
     """Start the MCP server as a subprocess for the eval session.
 
@@ -300,6 +301,8 @@ def start_mcp_server(
     """
     if exec_skills_enabled and skill_archive_url is None:
         raise ValueError("skill_archive_url is required when exec skills are enabled")
+    if exec_skills_enabled and skill_archive_sha256 is None:
+        raise ValueError("skill_archive_sha256 is required when exec skills are enabled")
 
     mcp_dir = Path(settings.BASE_DIR) / "services" / "mcp"
     if not (mcp_dir / "node_modules").exists():
@@ -328,16 +331,25 @@ def start_mcp_server(
         # legacy notebooks-create / notebooks-retrieve pair, which the two surfaces
         # being mutually exclusive makes unavoidable — an eval of the legacy tools
         # needs its own lever, not this one. mcp-exec-skills follows the run's
-        # skill delivery mode.
+        # skill delivery mode. dashboard-widgets gates the widget batch tools that
+        # the dashboard widget evals exercise.
         "FEATURE_FLAG_OVERRIDES": json.dumps(
-            {"revamped-py-notebooks": True, MCP_EXEC_SKILLS_FEATURE_FLAG: exec_skills_enabled}
+            {
+                "revamped-py-notebooks": True,
+                "dashboard-widgets": True,
+                MCP_EXEC_SKILLS_FEATURE_FLAG: exec_skills_enabled,
+            }
         ),
     }
 
     # Never let a shell-level archive URL contaminate the bundled-skills baseline.
     env.pop("POSTHOG_MCP_SKILLS_URL", None)
+    env.pop("POSTHOG_MCP_SKILLS_SHA256", None)
+    env.pop("POSTHOG_MCP_LOCAL_SKILLS_URL", None)
     if exec_skills_enabled and skill_archive_url is not None:
         env["POSTHOG_MCP_SKILLS_URL"] = skill_archive_url
+        assert skill_archive_sha256 is not None
+        env["POSTHOG_MCP_SKILLS_SHA256"] = skill_archive_sha256
 
     logger.info(
         "Starting MCP server (Hono runtime) on port %d (API: %s, exec skills: %s)",
@@ -483,25 +495,26 @@ def start_personhog() -> Callable[[], None]:
     return stop
 
 
-def build_local_skills(*, set_bind_mount_env: bool) -> Path:
-    """Build local skills once per run and return the built dist dir.
+def build_local_skills(*, set_bind_mount_env: bool, output_dir: Path | None = None) -> Path:
+    """Build rendered skills from this checkout.
 
-    Uses a content-hash cache so repeat runs skip the build when nothing has
-    changed, keeping the base image stable while letting eval authors iterate on
-    skills without rebuilding it.
+    Eval runs supply a private output directory so shared builds cannot enter the snapshot.
 
     Depends on ``DEBUG=True`` being active while the skill renderer runs — some
     template helpers (e.g. HogQL example rendering) guard on that setting. The
     harness sets ``DEBUG=1`` in the environment before ``django.setup()``, so
     that ordering holds by the time this runs.
+
+    A failed build raises instead of reusing an older ``dist/skills``: the cache
+    would pin the new source hash onto the old output, and every later run would
+    silently give the agent skills from another branch or edit.
     """
-    cache = LocalSkillsCache()
-    dist_dir = cache.ensure_built()
+    cache = LocalSkillsCache(output_dir=output_dir)
+    source_hash = cache.source_sha256
+    dist_dir = cache.ensure_built(allow_stale=False)
+    if cache.source_sha256 != source_hash:
+        raise RuntimeError("Skill sources changed during the eval build")
     if set_bind_mount_env:
-        # Only ``DockerSandbox.create`` reads this to bind-mount the built skills.
-        # Under the modal provider the locally built skills are instead baked into
-        # the Modal image by the DEBUG ``from_dockerfile`` build, so setting it
-        # there would be inert.
         os.environ[ENV_LOCAL_SKILLS_HOST_PATH] = str(dist_dir)
     return dist_dir
 

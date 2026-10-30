@@ -23,6 +23,7 @@ from unittest import mock
 from django.test import SimpleTestCase
 from django.utils import timezone
 
+import grpc
 from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 from rest_framework import status
@@ -318,6 +319,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             created_at=timezone.now() - timedelta(days=1),
             immediate=True,
         )
+        PropertyDefinition.objects.create(team=self.team, name="Email", type=PropertyDefinition.Type.PERSON)
         by_name = _create_person(
             team=self.team,
             distinct_ids=["0198f3c1-6c2a-7a5b-9d41-9a1b2c3d4e61"],
@@ -1465,8 +1467,14 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             self.validation_error_response("required", "This field is required.", "properties"),
         )
 
+    @parameterized.expand(
+        [
+            ("key_and_value", {"key": "foo", "value": "bar"}, {"foo": "bar"}),
+            ("properties_object", {"properties": {"foo": "bar", "baz": 1}}, {"foo": "bar", "baz": 1}),
+        ]
+    )
     @mock.patch("posthog.api.person.capture_internal")
-    def test_new_update_single_person_property(self, mock_capture) -> None:
+    def test_new_update_person_properties(self, _name, payload, expected, mock_capture) -> None:
         person = _create_person(
             team=self.team,
             distinct_ids=["some_distinct_id"],
@@ -1474,8 +1482,9 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             immediate=True,
         )
 
-        self.client.post(f"/api/person/{person.uuid}/update_property", {"key": "foo", "value": "bar"})
+        response = self.client.post(f"/api/person/{person.uuid}/update_property", payload, format="json")
 
+        self.assertEqual(response.status_code, 202)
         mock_capture.assert_called_once_with(
             token=self.team.api_token,
             event_name="$set",
@@ -1483,10 +1492,49 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             distinct_id="some_distinct_id",
             timestamp=mock.ANY,
             properties={
-                "$set": {"foo": "bar"},
+                "$set": expected,
             },
             process_person_profile=True,
         )
+
+    @mock.patch("posthog.api.person.capture_internal")
+    def test_update_person_properties_rejects_an_oversized_payload(self, mock_capture) -> None:
+        person = _create_person(
+            team=self.team,
+            distinct_ids=["some_distinct_id"],
+            properties={"$browser": "whatever"},
+            immediate=True,
+        )
+
+        response = self.client.post(
+            f"/api/person/{person.uuid}/update_property",
+            {"properties": {f"key_{i}": "x" * 2000 for i in range(500)}},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        mock_capture.assert_not_called()
+
+    @mock.patch("posthog.api.person.PersonViewSet._get_non_writable_person_properties")
+    def test_update_person_properties_rejects_a_non_writable_key_anywhere_in_the_object(
+        self, mock_non_writable
+    ) -> None:
+        mock_non_writable.return_value = {"locked"}
+        person = _create_person(
+            team=self.team,
+            distinct_ids=["some_distinct_id"],
+            properties={"$browser": "whatever"},
+            immediate=True,
+        )
+
+        response = self.client.post(
+            f"/api/person/{person.uuid}/update_property",
+            {"properties": {"writable": "ok", "locked": "nope"}},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("locked", response.json()["detail"])
 
     @parameterized.expand(
         [
@@ -2417,6 +2465,36 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         person_after = get_person_by_uuid(self.team.pk, shared_uuid)
         assert person_after is not None
         assert person_after.version is not None and person_after.version > 105
+
+    @parameterized.expand(
+        [
+            ("mark_held_by_another_operation", grpc.StatusCode.FAILED_PRECONDITION, (), 409),
+            ("row_lock_timed_out", grpc.StatusCode.DEADLINE_EXCEEDED, (("x-db-timeout", "lock_timeout"),), 409),
+            ("statement_timed_out", grpc.StatusCode.DEADLINE_EXCEEDED, (("x-db-timeout", "statement_timeout"),), 503),
+            ("personhog_deadline", grpc.StatusCode.DEADLINE_EXCEEDED, (), 503),
+            ("personhog_unavailable", grpc.StatusCode.UNAVAILABLE, (), 503),
+        ]
+    )
+    def test_reset_person_distinct_id_asks_for_a_retry_on_a_busy_person_or_an_unavailable_service(
+        self, _name: str, code: grpc.StatusCode, trailing: tuple[tuple[str, str], ...], status: int
+    ) -> None:
+        failure = grpc.RpcError()
+        failure.code = mock.MagicMock(return_value=code)
+        failure.trailing_metadata = mock.MagicMock(return_value=trailing)
+
+        with mock.patch("posthog.api.person.repair_distinct_id", side_effect=failure):
+            response = self.client.post(
+                f"/api/projects/{self.team.pk}/persons/reset_person_distinct_id/", {"distinct_id": "busy"}
+            )
+
+        assert response.status_code == status
+        assert (
+            response.json()["detail"]
+            == {
+                409: "This person is being updated right now. Try again in a few seconds.",
+                503: "Person data is temporarily unavailable. Try again in a minute.",
+            }[status]
+        )
 
     @mock.patch(
         f"{posthog.models.person.divergence.repairs.__name__}.create_person_distinct_id",

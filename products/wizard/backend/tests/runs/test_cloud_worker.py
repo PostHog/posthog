@@ -48,6 +48,7 @@ from products.wizard.backend.logic.workers.service import (
     prepare_local_wizard,
     provision_wizard_worker,
 )
+from products.wizard.backend.logic.workers.wizard_error_output import WizardErrorLine
 from products.wizard.backend.observability.tracing import wizard_span
 
 
@@ -452,7 +453,7 @@ def test_execute_wizard_surfaces_wizard_error_code(get_sandbox_class: MagicMock)
     with pytest.raises(WizardWorkerExecutionError) as error:
         execute_wizard(request)
 
-    assert error.value.wizard_error_code == "PHW_DETECT_NO_POSTHOG_SDK"
+    assert error.value.wizard_error == WizardErrorLine(code="PHW_DETECT_NO_POSTHOG_SDK", message="Missing SDK")
 
 
 @patch("products.wizard.backend.logic.workers.service.stage_publishable_changes")

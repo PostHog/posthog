@@ -4,6 +4,7 @@ from temporalio import activity
 from posthog.temporal.common.utils import close_db_connections
 
 from products.slack_app.backend.services.slack_messages import post_slack_ephemeral, post_slack_thread_reply
+from products.slack_app.backend.services.workspace_integrations import require_workspace_integration
 from products.slack_app.backend.temporal.types import (
     PostHogCodeSlackMentionCommandResult,
     PostHogCodeSlackMentionCommandWorkflowInputs,
@@ -23,17 +24,13 @@ def create_posthog_code_routing_rule_activity(
     rule_text: str,
     repository: str,
 ) -> None:
-    from posthog.models.integration import Integration, SlackIntegration
+    from posthog.models.integration import SlackIntegration
     from posthog.models.repo_routing_rule import RepoRoutingRule
 
     from products.slack_app.backend.api import _extract_explicit_repo, _get_full_repo_names
     from products.slack_app.backend.services.commands import reject_invalid_rule_text
 
-    integration = Integration.objects.select_related("team", "team__organization").get(
-        id=inputs.integration_id,
-        kind="slack",
-        integration_id=inputs.slack_team_id,
-    )
+    integration = require_workspace_integration(inputs.integration_id, inputs.slack_team_id)
     slack = SlackIntegration(integration)
 
     rejection = reject_invalid_rule_text(integration.team_id, rule_text)

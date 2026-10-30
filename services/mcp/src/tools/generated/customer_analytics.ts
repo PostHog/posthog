@@ -98,6 +98,7 @@ const accountRelationshipDefinitionsList = (): ToolBase<
             query: {
                 limit: params.limit,
                 offset: params.offset,
+                pagination: params.pagination,
             },
         })
         const filtered = {
@@ -869,6 +870,7 @@ const customPropertyDefinitionsList = (): ToolBase<
             query: {
                 limit: params.limit,
                 offset: params.offset,
+                pagination: params.pagination,
             },
         })
         const filtered = {
@@ -1319,12 +1321,6 @@ const customerTasksPartialUpdate = (): ToolBase<
         if (params.account_id !== undefined) {
             body['account_id'] = params.account_id
         }
-        if (params.name !== undefined) {
-            body['name'] = params.name
-        }
-        if (params.description !== undefined) {
-            body['description'] = params.description
-        }
         if (params.assigned_to_id !== undefined) {
             body['assigned_to_id'] = params.assigned_to_id
         }
@@ -1333,6 +1329,12 @@ const customerTasksPartialUpdate = (): ToolBase<
         }
         if (params.status !== undefined) {
             body['status'] = params.status
+        }
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        if (params.description !== undefined) {
+            body['description'] = params.description
         }
         const result = await context.api.request<Schemas.CustomerTask>({
             method: 'PATCH',
@@ -1828,6 +1830,41 @@ const featureRequestsHistoryList = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_requests/${encodeURIComponent(String(params.id))}/history/`,
         })
         return await withPostHogUrl(context, result, '/customer_analytics')
+    },
+})
+
+const FeatureRequestsLinkGithubCreateSchema = () => {
+    const FeatureRequestsLinkGithubCreateBody = orvalSchemas.FeatureRequestsLinkGithubCreateBody()
+    const FeatureRequestsLinkGithubCreateParams = orvalSchemas.FeatureRequestsLinkGithubCreateParams()
+    return FeatureRequestsLinkGithubCreateParams.omit({ project_id: true }).extend(
+        FeatureRequestsLinkGithubCreateBody.shape
+    )
+}
+
+const featureRequestsLinkGithubCreate = (): ToolBase<
+    ReturnType<typeof FeatureRequestsLinkGithubCreateSchema>,
+    WithPostHogUrl<Schemas.FeatureRequest>
+> => ({
+    name: 'feature-requests-link-github-create',
+    schema: FeatureRequestsLinkGithubCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof FeatureRequestsLinkGithubCreateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.integration_id !== undefined) {
+            body['integration_id'] = params.integration_id
+        }
+        if (params.issue_url !== undefined) {
+            body['issue_url'] = params.issue_url
+        }
+        if (params.expected_version !== undefined) {
+            body['expected_version'] = params.expected_version
+        }
+        const result = await context.api.request<Schemas.FeatureRequest>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_requests/${encodeURIComponent(String(params.id))}/link_github/`,
+            body,
+        })
+        return await withPostHogUrl(context, result, `/customer_analytics/feature-requests/${result.id}`)
     },
 })
 
@@ -2327,6 +2364,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'feature-requests-archive-create': featureRequestsArchiveCreate,
     'feature-requests-create': featureRequestsCreate,
     'feature-requests-history-list': featureRequestsHistoryList,
+    'feature-requests-link-github-create': featureRequestsLinkGithubCreate,
     'feature-requests-list': featureRequestsList,
     'feature-requests-partial-update': featureRequestsPartialUpdate,
     'feature-requests-remove-evidence-create': featureRequestsRemoveEvidenceCreate,

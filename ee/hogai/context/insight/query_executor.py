@@ -71,6 +71,7 @@ from posthog.exceptions import (
     QueryRanConcurrently,
 )
 from posthog.hogql_queries.query_runner import BLOCKING_EXECUTION_MODES, ExecutionMode
+from posthog.hogql_queries.utils.result_series import get_action_names
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
 
@@ -646,6 +647,12 @@ class AssistantQueryExecutor:
             logger.warning(f"{TIMING_LOG_PREFIX} aexecute_query completed successfully in {total_elapsed:.3f}s")
         return response_dict
 
+    async def _get_action_names(self, query: BaseModel) -> dict[int, str | None]:
+        # The formatters label an action series by the action's current name, which only the database holds.
+        return await database_sync_to_async(get_action_names, thread_sensitive=False)(
+            self._team, query.model_dump(mode="json")
+        )
+
     async def _compress_results(
         self,
         query: AnyPydanticModelQuery | AnyAssistantGeneratedQuery,
@@ -698,6 +705,7 @@ class AssistantQueryExecutor:
                         self._utc_now_datetime,
                         resolved_date_range=response.get("resolved_date_range"),
                         resolved_compare_date_range=response.get("resolved_compare_date_range"),
+                        action_names=await self._get_action_names(query),
                     ).format()
             elif isinstance(query, AssistantFunnelsQuery | FunnelsQuery):
                 formatter_name = "FunnelResultsFormatter"
@@ -706,13 +714,17 @@ class AssistantQueryExecutor:
                 result = await database_sync_to_async(formatter.format, thread_sensitive=False)()
             elif isinstance(query, AssistantLifecycleQuery | LifecycleQuery):
                 formatter_name = "LifecycleResultsFormatter"
-                result = LifecycleResultsFormatter(query, response["results"]).format()
+                result = LifecycleResultsFormatter(
+                    query, response["results"], action_names=await self._get_action_names(query)
+                ).format()
             elif isinstance(query, AssistantPathsQuery | PathsQuery):
                 formatter_name = "PathsResultsFormatter"
                 result = PathsResultsFormatter(response["results"]).format()
             elif isinstance(query, AssistantStickinessQuery | StickinessQuery):
                 formatter_name = "StickinessResultsFormatter"
-                result = StickinessResultsFormatter(query, response["results"]).format()
+                result = StickinessResultsFormatter(
+                    query, response["results"], action_names=await self._get_action_names(query)
+                ).format()
             elif isinstance(query, AssistantRetentionQuery | RetentionQuery):
                 formatter_name = "RetentionResultsFormatter"
                 result = RetentionResultsFormatter(query, response["results"]).format()

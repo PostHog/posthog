@@ -28,12 +28,14 @@ You author reports directly via the report channel (`scout-emit-report` / `scout
 ## Quick close-out: is this team big enough to have gaps?
 
 If `top_events` in the project profile is null or shows fewer than ~5 events firing above 100/day, the project is too quiet for observability-gap analysis to surface real recommendations.
+The traffic floor gates recommendations for _new_ coverage only.
+A live insight that cannot show current data is broken at any traffic level, so run the bounded dead-insight check (family 2, "Dead insight") before this close-out, and on every run that inherits it.
 `top_events` counts are windowed (each row carries `window_days`), not lifetime, so before closing out on thinness rule out a capture gap: a project whose ingestion recently went dark reads identically to one that never had traffic. If the counts look suspiciously thin for a team that otherwise looks active (configured integrations, saved insights, recent activity), confirm with a direct `execute-sql` over a longer window (e.g. 30d) rather than trusting the profile snapshot — a temporary gap is a capture problem for another surface, not a genuine absence of volume. Only when the low volume holds across that wider window, write one scratchpad entry:
 
 - key: `not-applicable:observability_gaps:team{team_id}`
 - content: brief note ("checked at {timestamp}, top_events count <5 above 100/day, too quiet for gap analysis")
 
-Close out empty. Future observability-gaps runs read this entry cold and short-circuit in seconds. Re-running with the same key idempotently refreshes the timestamp — the entry stays until the team grows into meaningful volume, at which point the next run rewrites or deletes it.
+Close out empty, after the dead-insight check. Future observability-gaps runs read this entry cold, run only the dead-insight check, and close out in minutes. Re-running with the same key idempotently refreshes the timestamp — the entry stays until the team grows into meaningful volume, at which point the next run rewrites or deletes it.
 
 ## Quick close-out: is this team already saturated?
 
@@ -95,6 +97,21 @@ Direct calls:
 
 Strong signal: the insight is live (recent `last_modified_at`, or pinned to a live dashboard via `system.dashboard_tiles`) AND its primary event has 0 firings in 7d AND a similar-named event is firing > 100/day. Note `system.insights` exposes `last_modified_at` but has **no** `last_viewed_at` column — prove "live" by modification recency or a live dashboard tile, not view recency.
 
+This rename check needs a replacement event. When no similar-named event fires, the insight can still be dead — use the next check.
+
+**Dead insight — no replacement.** A live insight whose events never existed or stopped with no successor. This check has no traffic floor, so it also runs on a project the low-volume close-out would end.
+
+- **Live** — same test as the rename check: `last_modified_at` in the last 30 days, or a tile on a dashboard that is not deleted.
+- **Dead** — _every_ event series is absent from the taxonomy (`read-data-schema kind=events`) or has 0 firings across the last 30 complete project-timezone days. Thirty days of silence separates a dead insight from a recent capture break, which is the error-tracking scout's territory.
+- **Read the full query first** (`insight-get`), not the `ILIKE` hit:
+  - Resolve each action series to its steps' events. An action with one live step is live.
+  - One live series makes the insight live. A union of a dead and a live event is a historical union, not a dead insight.
+  - Property filters, cohorts, and breakdowns can empty a chart whose events fire. That is outside this check: test event firings only.
+  - Data warehouse series and raw SQL insights are out of scope.
+- **Exclude** the campaign, incident-scaffolding, and legacy-union disqualifiers below, and intentional archives: a fixed past date range, or a name, description, or dashboard that marks the insight as archived, legacy, or deprecated. An insight created in the last 7 days on an absent event can be built ahead of a launch — park it with a `watch:` entry instead of filing.
+
+Recommend investigation or repair: confirm the event is gone on purpose, then update or retire the insight. Do not name a replacement event unless the rename check found one, and never recommend deleting the insight. Bundle a run's dead insights into one report under `report:observability_gaps:dead-insights`, and add later finds to it with `append_evidence`.
+
 #### 3. Critical event with no alerts configured
 
 Some events name themselves — `payment_failed`, `signup_failed`, `*_error`, `*_blocked`. If they fire at all and no alert exists, that's a gap. Use the project's own patterns: search the event vocabulary for terms like `failed`, `error`, `blocked`, `denied`, `rejected`, `timeout`, `crashed`.
@@ -150,14 +167,14 @@ A finding here recommends an action, not surfaces a problem. The generic report 
 Required elements in every report:
 
 - **Specific event(s) / insight(s) / dashboard(s)** — entity IDs in the evidence list so a human can click straight to them.
-- **Volume + reach numbers** — the gap matters because of _N_ events affecting _M_ users; quote both.
+- **Volume + reach numbers** — the gap matters because of _N_ events affecting _M_ users; quote both. For a dead insight, quote the 30-day zero per event series and the dashboards that still show the insight.
 - **Suggested action** — "create a trends insight on event X" / "update insight Y to point at event Z" / "add insight A to dashboard B" / "configure an alert on event C". Concrete is better than abstract.
 - **Why now** — if this gap has existed for weeks, why is it surfacing now? Because volume just crossed a threshold? Because a new event class emerged? Volume + recency is the dedupe key.
 
 The bar trades off:
 
-- **Volume threshold** — gap is structurally interesting only at scale. Below 100/day, the recommendation is noise.
-- **Stable-not-spurious** — gap has been present for at least 7 **complete days in the project timezone**. Avoid flagging events that just appeared yesterday; a partial current day or a deploy-day spike can fake stability.
+- **Volume threshold** — gap is structurally interesting only at scale. Below 100/day, the recommendation is noise. The dead-insight check is exempt: its evidence is zero firings, not volume.
+- **Stable-not-spurious** — gap has been present for at least 7 **complete days in the project timezone**. Avoid flagging events that just appeared yesterday; a partial current day or a deploy-day spike can fake stability. A dead insight needs 30 complete days of silence instead.
 - **No prior coverage** — search `popular_insights` and `existing_inbox_reports` before authoring. If a previous run already recommended this gap, edit-or-skip.
 
 Then, for each candidate that clears the bar:

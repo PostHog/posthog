@@ -136,4 +136,59 @@ describe("SessionInitialization", () => {
     expect(stdout.listenerCount("data")).toBe(0);
     expect(vi.getTimerCount()).toBe(0);
   });
+
+  it.each([
+    ["proxy_invalid", "requires_action"],
+    ["worktree_unverified", "transient"],
+    ["org_verify_failed", "unknown"],
+    ["sandbox_required_unavailable", "requires_action"],
+    ["provider_not_allowed", "requires_action"],
+    ["org_config_required_unavailable", "unknown"],
+    ["org_config_refused", "requires_action"],
+    ["future_provider_reason", "unknown"],
+    [null, "unknown"],
+  ])(
+    "preserves structured %s through an SDK rejection",
+    async (reason, retryability) => {
+      const stdout = new PassThrough();
+      const monitor = new SessionInitialization(vi.fn());
+      monitor.observe(stdout);
+      const line = `${JSON.stringify({
+        type: "result",
+        subtype: "error_during_execution",
+        startup_failure_reason: reason,
+      })}\n`;
+      stdout.write(line.slice(0, 19));
+      stdout.write(line.slice(19));
+
+      await expect(
+        monitor.wait(Promise.reject(new Error("SDK initialization failed"))),
+      ).rejects.toThrow("SDK initialization failed");
+
+      expect(monitor.failure).toEqual({
+        provider: "claude",
+        phase: "sdk_initialization",
+        reason: reason === "future_provider_reason" ? null : reason,
+        retryability,
+      });
+      expect(stdout.listenerCount("data")).toBe(0);
+    },
+  );
+
+  it.each([
+    "proxy_invalid: the proxy setting is invalid\n",
+    `${JSON.stringify({ type: "assistant", startup_failure_reason: "proxy_invalid" })}\n`,
+    `${JSON.stringify({ type: "result", subtype: "success", startup_failure_reason: "proxy_invalid" })}\n`,
+    `${JSON.stringify({ type: "result", subtype: "error_during_execution", errors: ["proxy_invalid"] })}\n`,
+  ])("does not classify unrelated output %s", async (output) => {
+    const stdout = new PassThrough();
+    const monitor = new SessionInitialization(vi.fn());
+    monitor.observe(stdout);
+    stdout.write(output);
+    expect(monitor.failure).toMatchObject({
+      reason: null,
+      retryability: "unknown",
+    });
+    await monitor.wait(Promise.resolve());
+  });
 });

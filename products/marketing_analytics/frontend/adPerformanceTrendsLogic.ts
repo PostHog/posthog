@@ -45,11 +45,17 @@ export const adPerformanceTrendsLogic: LogicWrapper<adPerformanceTrendsLogicType
     })),
     selectors({
         sparklines: [
-            (s) => [s.response, s.responseLoading, s.responseError],
-            (response, loading, error): Partial<Record<validColumnsForTiles, AdPerformanceSparkline>> =>
+            (s, p) => [s.response, s.responseLoading, s.responseError, p.query],
+            (
+                response,
+                loading,
+                error,
+                query: TrendsQuery
+            ): Partial<Record<validColumnsForTiles, AdPerformanceSparkline>> =>
                 loading || error
                     ? {}
                     : adPerformanceSparklines(
+                          query,
                           ((response as TrendsQueryResponse | null)?.results ?? []) as TrendResult[]
                       ),
         ],

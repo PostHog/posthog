@@ -93,11 +93,14 @@ jobs:
         steps:
             - name: Ask Trunk which jobs this diff needs
               continue-on-error: true
-              uses: trunk-io/dynamic-ci@7e3af9331e8ebdfe0c71ba7d0ff6b7424dde8c57 # v1
+              uses: trunk-io/dynamic-ci@5bfe63e878e3ec8bf14c0fa3b7e250685e668d75 # v0.1.6
               with:
                   token: ${{ secrets.TRUNK_API_TOKEN }}
 
     changes:
+        permissions:
+            contents: read
+            pull-requests: read
         runs-on: ubuntu-24.04
         # 7 not 5: the debounce step below sleeps up to 60s, so widen the budget to
         # keep ample headroom. A timeout here skips Playwright, which the aggregator
@@ -106,12 +109,15 @@ jobs:
         # Run on master push, manual dispatch, and on ready internal-repo PRs.
         # Drafts skip E2E (see the trigger comment); the `Playwright tests pass`
         # aggregator treats skipped as success, and drafts can't merge anyway.
+        # Push and schedule runs only belong in this repo. Mirrors run CI on their own PRs only.
         if: |
+            (github.repository == 'PostHog/posthog' || (github.event_name != 'push' && github.event_name != 'schedule')) && (
             github.event_name == 'push' ||
             github.event_name == 'workflow_dispatch' ||
             (github.event.pull_request.head.repo.full_name == github.repository &&
              (github.event.pull_request.draft != true ||
               startsWith(github.head_ref, 'trunk-merge/')))
+            )
         name: Determine need to run E2E checks
         outputs:
             # Debounce can veto a PR run whose SHA has already been superseded (see below).
@@ -145,7 +151,7 @@ jobs:
 
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               id: app-token
-              if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+              if: github.repository == 'PostHog/posthog' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
               with:
                   client-id: ${{ vars.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
@@ -168,6 +174,10 @@ jobs:
                         - 'posthog/!(temporal/**)/**'
                         # The personhog gRPC stubs the backend's person reads go through
                         - 'packages/personhog-proto/**'
+                        # quill workspace packages (charts, primitives, components) compile into the frontend bundle
+                        - 'packages/quill/**'
+                        # The setup step builds the plugin transpiler from source
+                        - 'common/plugin_transpiler/**'
                         - 'bin/*'
                         - frontend/**/*
                         - package.json
@@ -175,7 +185,9 @@ jobs:
                         - uv.lock
                         - .github/clickhouse-versions.json
                         - docker-compose.dev.yml
-                        - Dockerfile
+                        # docker-compose.dev.yml extends the base file, and the job adds the profiles file
+                        - docker-compose.base.yml
+                        - docker-compose.profiles.yml
                         # Spec-selection selector + map: changes must run the suite (they're
                         # force-full anyway) so the map validation step actually executes.
                         - tools/playwright_spec_selection.py
@@ -311,8 +323,8 @@ jobs:
               env:
                   BASE_REF: ${{ github.event.pull_request.base.ref }}
                   IS_PR: ${{ github.event_name == 'pull_request' }}
-                  # Manual cache-bust knob — keep in sync with SCHEMA_CACHE_EPOCH in
-                  # ci-backend.yml, which saves these caches on master pushes.
+                  # Keep SCHEMA_CACHE_EPOCH in sync with .depot/workflows/ci-backend.yml
+                  # so both workflows use the same schema cache keys.
                   SCHEMA_CACHE_EPOCH: v2
               run: |
                   if [ "$IS_PR" != "true" ]; then
@@ -354,11 +366,9 @@ jobs:
                   if [ "$GITHUB_EVENT_NAME" != "workflow_dispatch" ] && [ "$HEAD_AGE_SECONDS" -lt 86400 ]; then
                       echo "prefix_key=posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-" >> $GITHUB_OUTPUT
                   fi
-                  # Shared migration-set key: mirrors the save-side computation in
-                  # ci-backend.yml (same inputs, hash, and prefix) so it hits whenever
-                  # the ref's migration files match a saved master schema — far more
-                  # stable than the per-SHA key, which needs that exact commit's cache
-                  # to still be alive.
+                  # Match the inputs, hash, and prefix in .depot/workflows/ci-backend.yml.
+                  # The migration-set key lets refs with identical migrations share a schema
+                  # dump even after a per-SHA cache expires.
                   MIG_FILES=$(git ls-tree -r --format='%(objectname) %(path)' "$REF" \
                       | grep -E '/migrations/[^/]+\.py$|^[0-9a-f]+ uv\.lock$' \
                       | grep -vE '/(clickhouse|async_migrations)/migrations/' \
@@ -625,7 +635,7 @@ jobs:
               id: setup-uv
               uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               with:
-                  version: '0.12.13'
+                  version: '0.13.4'
                   enable-cache: true
                   cache-dependency-glob: uv.lock
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
@@ -833,10 +843,9 @@ jobs:
 
             - name: Prime posthog_e2e_test from cached schema
               # Schema dump is from master's `posthog` db but schemas are db-name agnostic.
-              # Hogli's db:restore-schema-fresh DROPs+CREATEs the target db, restores the
-              # schema, and runs ensure_migration_defaults to seed RunPython data that's
-              # missing from a schema-only dump. The migrate step below still runs and
-              # layers any newer migrations on top — the cache just skips the bulk of
+              # Hogli's db:restore-schema-fresh DROPs+CREATEs the target db and restores the
+              # schema. The migrate step below layers any newer migrations on top and
+              # seeds the RunPython data a schema-only dump lacks. The cache just skips the bulk of
               # the historical migration work. Treat cache/restore problems as misses:
               # restore-schema-fresh leaves a fresh empty db on failure, so the migrate
               # step below runs the full history.
@@ -977,22 +986,36 @@ jobs:
                   echo "test_seconds=$(( $(date +%s) - start ))" >> "$GITHUB_OUTPUT"
                   exit "$rc"
 
-            - name: Verify changed Playwright tests are stable
+            # The stability script diffs from the merge-base of BASE_SHA and HEAD so a PR on
+            # an older master doesn't inherit specs changed only on master. The merge-base
+            # must be reachable from *both* tips: this job checks out HEAD at depth 1, so
+            # deepen both histories (depth=1000 + blob:none mirrors the merge-base fetches
+            # in the `changes` job). If the branch point is still out of reach, the script
+            # warns and falls back to BASE_SHA — bounded by its own test-run budget guard.
+            # Its own step, so the token reaches git alone: the next step runs PR code,
+            # and the checkout persists no credentials for the same reason. The one-off
+            # header keeps the token out of .git/config; a private copy of the repository
+            # refuses an anonymous fetch.
+            - name: Deepen history for the stability check
               if: steps.playwright-tests.outcome == 'success' && github.event_name == 'pull_request'
               shell: bash
               env:
                   BASE_SHA: ${{ github.event.pull_request.base.sha }}
                   HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+                  GH_TOKEN: ${{ github.token }}
               run: |
-                  # The script diffs from the merge-base of BASE_SHA and HEAD so a PR on an
-                  # older master doesn't inherit specs changed only on master. The merge-base
-                  # must be reachable from *both* tips: this job checks out HEAD at depth 1, so
-                  # deepen both histories (depth=1000 + blob:none mirrors the merge-base fetches
-                  # in the `changes` job). If the branch point is still out of reach, the script
-                  # warns and falls back to BASE_SHA — bounded by its own test-run budget guard.
-                  git fetch --no-tags --prune --depth=1000 --filter=blob:none origin "$BASE_SHA"
-                  git fetch --no-tags --depth=1000 --filter=blob:none origin "$HEAD_SHA"
-                  .github/scripts/verify-playwright-new-tests-and-snapshots.sh "$BASE_SHA" 10
+                  auth_header="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')"
+                  git -c "http.https://github.com/.extraheader=$auth_header" \
+                      fetch --no-tags --prune --depth=1000 --filter=blob:none origin "$BASE_SHA"
+                  git -c "http.https://github.com/.extraheader=$auth_header" \
+                      fetch --no-tags --depth=1000 --filter=blob:none origin "$HEAD_SHA"
+
+            - name: Verify changed Playwright tests are stable
+              if: steps.playwright-tests.outcome == 'success' && github.event_name == 'pull_request'
+              shell: bash
+              env:
+                  BASE_SHA: ${{ github.event.pull_request.base.sha }}
+              run: .github/scripts/verify-playwright-new-tests-and-snapshots.sh "$BASE_SHA" 10
 
             # Visual Review: create run + upload snapshots directly from the test job.
             # Completion happens in handle-screenshots so the baseline lands in the same commit as PNGs.
@@ -1000,7 +1023,7 @@ jobs:
             # workspace root here, so this is a separate entry. No restore-keys.
             - name: Restore VR CLI build
               id: restore-vr-cli
-              if: always() && (github.repository != 'PostHog/posthog' || github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push')
+              if: always() && github.repository == 'PostHog/posthog' && (github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push')
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: |
@@ -1012,7 +1035,7 @@ jobs:
             # in ci-storybook.yml.
             - name: Build VR CLI
               id: build-vr-cli
-              if: always() && (github.repository != 'PostHog/posthog' || github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push') && steps.restore-vr-cli.outputs.cache-hit != 'true'
+              if: always() && github.repository == 'PostHog/posthog' && (github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push') && steps.restore-vr-cli.outputs.cache-hit != 'true'
               timeout-minutes: 8
               shell: bash
               working-directory: products/visual_review/cli
@@ -1079,33 +1102,12 @@ jobs:
                     --baseline playwright/snapshots.yml \
                     --token "$VR_TOKEN"
 
-            - name: Verify snapshots against the baseline offline
+            # playwright/snapshots.yml carries no hashes: Playwright baselines live in Visual
+            # Review alone, so a repository without a Visual Review run has nothing to compare
+            # its screenshots against. Say so instead of failing on the empty baseline.
+            - name: Report that Visual Review did not run
               if: ${{ !cancelled() && github.repository != 'PostHog/posthog' }}
-              shell: bash
-              run: |
-                  set +e
-                  node products/visual_review/cli/dist/cli/src/index.js verify --partial \
-                    --dir playwright/__snapshots__/ \
-                    --baseline playwright/snapshots.yml > /tmp/vr-verify.log 2>&1
-                  status=$?
-                  set -e
-                  cat /tmp/vr-verify.log
-                  {
-                      echo "### Offline snapshot check"
-                      echo
-                      echo "This run has no Visual Review run, so it compares its screenshots with \`playwright/snapshots.yml\` offline."
-                      echo "This fallback accepts only an exact pixel match. It does not know the tolerated hashes or the quarantine of Visual Review, so a flaky snapshot can also fail it."
-                      echo
-                      echo '```'
-                      cat /tmp/vr-verify.log
-                      echo '```'
-                  } >> "$GITHUB_STEP_SUMMARY"
-                  if [ "$status" -ne 0 ] && grep -q 'Baseline mismatch' /tmp/vr-verify.log; then
-                      echo "::error title=Snapshots differ from the baseline::These screenshots do not match playwright/snapshots.yml. This run has no Visual Review run, so this offline fallback accepts only an exact pixel match. Update the baseline after reviewing the change. The job log lists the snapshots that differ."
-                  elif [ "$status" -ne 0 ]; then
-                      echo "::error title=Offline snapshot check failed::The offline snapshot check could not compare the screenshots. The job log shows the error."
-                  fi
-                  exit "$status"
+              run: echo "::notice title=Playwright screenshots not verified::Visual Review runs only in PostHog/posthog, and playwright/snapshots.yml holds no baseline hashes to compare against offline. The screenshots of this run are verified when the change reaches PostHog/posthog."
 
             # ── Artifacts on failure / always ─────────────────────────────────────
             - name: Capture docker logs
@@ -1174,8 +1176,6 @@ jobs:
               continue-on-error: true
               if: ${{ !cancelled() && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true' }}
               uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
-              env:
-                  TRUNK_HIDE_TEST_COLLECTION_LINKS: 'true'
               with:
                   junit-paths: playwright/junit-results.xml
                   org-slug: posthog-inc

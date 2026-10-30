@@ -1,4 +1,4 @@
-import { getColumnInsertText, getSidebarAddJoinSourceTableName } from './QueryDatabase'
+import { getColumnInsertText, getQueryDatabaseTreeData, getSidebarAddJoinSourceTableName } from './QueryDatabase'
 
 describe('QueryDatabase', () => {
     describe('getColumnInsertText', () => {
@@ -47,6 +47,31 @@ describe('QueryDatabase', () => {
             ['unknown row types do not expose add join', undefined, 'mystery', undefined, null],
         ])('%s', (_name, recordType, itemName, tableName, expected) => {
             expect(getSidebarAddJoinSourceTableName(recordType, itemName, tableName)).toEqual(expected)
+        })
+    })
+
+    describe('getQueryDatabaseTreeData', () => {
+        const displayedTreeData = [{ id: 'views', name: 'Views' }]
+        const extraTreeSections = [
+            {
+                id: 'dataframes',
+                name: 'Dataframes',
+                children: [
+                    { id: 'orders', name: 'orders' },
+                    { id: 'revenue', name: 'revenue' },
+                ],
+            },
+        ]
+
+        test.each([
+            ['', ['orders', 'revenue', 'Views']],
+            ['orders', ['orders', 'Views']],
+        ])('keeps matching embedded sections for search %p', (searchText, expectedNames) => {
+            const treeData = getQueryDatabaseTreeData(displayedTreeData, extraTreeSections, searchText)
+
+            expect(treeData.flatMap((item) => item.children?.map((child) => child.name) ?? item.name)).toEqual(
+                expectedNames
+            )
         })
     })
 })

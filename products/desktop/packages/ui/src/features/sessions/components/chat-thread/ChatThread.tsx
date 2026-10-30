@@ -1,7 +1,6 @@
 import {
   Check,
   Copy,
-  Robot,
   Scroll,
   ThumbsDown,
   ThumbsUp,
@@ -93,7 +92,6 @@ import { GitActionResult } from "@posthog/ui/features/sessions/components/GitAct
 import { isUserInitiatedConversationItem } from "@posthog/ui/features/sessions/components/isUserInitiatedConversationItem";
 import { mergeConversationItems } from "@posthog/ui/features/sessions/components/mergeConversationItems";
 import { InjectedBlockChips } from "@posthog/ui/features/sessions/components/session-update/InjectedBlockChips";
-import { MentionChip } from "@posthog/ui/features/sessions/components/session-update/parseFileMentions";
 import { SessionUpdateView } from "@posthog/ui/features/sessions/components/session-update/SessionUpdateView";
 import { UserShellExecuteView } from "@posthog/ui/features/sessions/components/session-update/UserShellExecuteView";
 import { splitUserMessage } from "@posthog/ui/features/sessions/components/session-update/userMessageDisplay";
@@ -379,12 +377,7 @@ function UserBubble({
   attachments?: UserMessageAttachment[];
   keyboardFocused?: boolean;
 }) {
-  // A message relayed from another agent run renders as an incoming agent
-  // message (start-aligned, outlined, provenance chip) instead of masquerading
-  // as something this run's user typed. The envelope boilerplate never renders;
-  // only the sender-authored body flows into the normal pipeline below.
   const {
-    peerAgentMessage,
     blocks,
     displayContent,
     attachments: visibleAttachments,
@@ -393,37 +386,29 @@ function UserBubble({
     [content, attachments],
   );
   const visibleBlocks = useVisibleInjectedBlocks(blocks);
-  // Provenance is never flag-gated: a peer message must not read as the user's.
-  const showHeaderChips = !!peerAgentMessage || visibleBlocks.length > 0;
+  const showHeaderChips = visibleBlocks.length > 0;
   const taskId = useSessionTaskId();
 
   const footerRevealed = useContext(FooterRevealContext);
 
   return (
     <MessageContextMenu value={displayContent}>
-      <ChatMessage align={peerAgentMessage ? "start" : "end"} className="group">
+      <ChatMessage align="end" className="group">
         <ChatMessageContent className="gap-1">
           {showHeaderChips && (
             <ChatMessageHeader className="flex-wrap gap-1 px-0">
-              {peerAgentMessage && (
-                <MentionChip
-                  icon={<Robot size={12} />}
-                  label={`From agent: ${peerAgentMessage.senderTaskTitle}`}
-                />
-              )}
               <InjectedBlockChips blocks={visibleBlocks} taskId={taskId} />
             </ChatMessageHeader>
           )}
           {visibleAttachments.length > 0 && (
-            <div className={peerAgentMessage ? "self-start" : "self-end"}>
+            <div className="self-end">
               <UserMessageAttachments attachments={visibleAttachments} />
             </div>
           )}
           {/* The brief is the whole message, so stripping it leaves nothing to put in a bubble. */}
           {!!displayContent && (
             <ChatBubble
-              align={peerAgentMessage ? "start" : "end"}
-              variant={peerAgentMessage ? "outline" : "default"}
+              align="end"
               className={cn(
                 "rounded-lg ring-(--gray-11) ring-0 ring-inset transition-shadow",
                 keyboardFocused && "ring-[3px]",

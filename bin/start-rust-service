@@ -88,6 +88,8 @@ case "$RS_SVC" in
     export DATABASE_URL="${DATABASE_URL:-$DEFAULT_PG}"
     # `ai` mode produces to the AI lane as its main topic, matching prod capture-ai
     export CAPTURE_MODE=ai
+    # Keep AI events under the local Kafka 1MB message limit (see docker-compose.base.yml)
+    export AI_MAX_EVENT_BYTES=900000
     export LOG_LEVEL=debug
     export DEBUG=1
     export DEV_RUST_SVC_OVERRIDE=capture # we want to run the same "capture" binary in a separate mode

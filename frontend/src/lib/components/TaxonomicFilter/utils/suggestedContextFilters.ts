@@ -8,11 +8,6 @@ import {
     TaxonomicFilterGroupType,
 } from 'lib/components/TaxonomicFilter/types'
 
-/*
- * The legacy `infiniteListLogic` picker and the rebuild both call these helpers,
- * so a change to recent or pinned behavior reaches both.
- */
-
 /** Recents whose source group is one of the picker's groups, with operators the
  *  host can't represent filtered out, and (when selecting a key only) deduped by
  *  storage key, so the picker stops surfacing recents that belong to a
@@ -40,10 +35,13 @@ export function filterRecentsForContext(
             return false
         }
         const excludedForGroup = excludedOperators?.[item._recentContext.sourceGroupType]
-        if (excludedForGroup?.length) {
+        if (excludedForGroup) {
             const propertyFilter = item._recentContext.propertyFilter
             const operator = propertyFilter && 'operator' in propertyFilter ? propertyFilter.operator : undefined
-            if (operator && excludedForGroup.includes(operator)) {
+            if (typeof excludedForGroup === 'function' && propertyFilter && excludedForGroup(propertyFilter)) {
+                return false
+            }
+            if (Array.isArray(excludedForGroup) && operator && excludedForGroup.includes(operator)) {
                 return false
             }
         }

@@ -105,6 +105,7 @@ describe('NativeDestinationExecutorService', () => {
                       "Content-Type": "application/json",
                       "User-Agent": "PostHog.com/1.0",
                     },
+                    "maxResponseBytes": 5242880,
                     "method": "POST",
                   },
                 ]
@@ -170,6 +171,7 @@ describe('NativeDestinationExecutorService', () => {
                       "Content-Type": "application/json",
                       "User-Agent": "PostHog.com/1.0",
                     },
+                    "maxResponseBytes": 5242880,
                     "method": "POST",
                   },
                 ]
@@ -190,6 +192,31 @@ describe('NativeDestinationExecutorService', () => {
                 state: expect.any(Object),
                 teamId: 1,
             })
+        })
+
+        it('retries a retryable status whose body is over the size cap', async () => {
+            const invocation = createExampleNativeInvocation(
+                createHogFunction({ name: 'Plugin test', template_id: 'native-webhook' }),
+                inputs
+            )
+            const tooLarge = Object.assign(new Error('Response body is larger than the 5242880 byte limit'), {
+                name: 'ResponseTooLargeError',
+            })
+            mockFetch.mockResolvedValue({
+                status: 503,
+                json: () => Promise.reject(tooLarge),
+                text: () => Promise.reject(tooLarge),
+                headers: {},
+                dump: () => Promise.resolve(),
+            })
+
+            const result = await service.execute(invocation)
+
+            expect(result.finished).toBe(false)
+            expect(result.invocation.queueMetadata).toEqual({ tries: 1 })
+            expect(result.logs.map((x) => x.message)).toContainEqual(
+                expect.stringContaining('HTTP request failed with status 503 (Response body is larger than')
+            )
         })
 
         it('should retry retryable fetch errors', async () => {
@@ -231,6 +258,7 @@ describe('NativeDestinationExecutorService', () => {
                       "Content-Type": "application/json",
                       "User-Agent": "PostHog.com/1.0",
                     },
+                    "maxResponseBytes": 5242880,
                     "method": "POST",
                   },
                 ]

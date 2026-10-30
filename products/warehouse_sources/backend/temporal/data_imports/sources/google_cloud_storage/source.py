@@ -1,4 +1,4 @@
-from typing import cast
+from typing import Any, cast
 
 from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
@@ -8,21 +8,27 @@ from products.warehouse_sources.backend.facade.source_config import (
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.config import (
-    AUTO_REGION,
     DiscoveryOptions,
     ObjectStoreConfig,
     ObjectStoreProvider,
-    normalize_prefix,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.fields import (
     FEATURE_FLAG,
     KEYWORDS,
     discovery_options_from,
     file_option_fields,
-    folder_fields,
     secret_field,
     source_caption,
     text_field,
+    url_field,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.locations import (
+    GCS_EXAMPLE_URL,
+    parse_gcs_url,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.self_managed import (
+    SelfManagedCredential,
+    SelfManagedLocation,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.source_base import (
     ObjectStorageSource,
@@ -45,6 +51,7 @@ class GoogleCloudStorageSource(ObjectStorageSource[GoogleCloudStorageSourceConfi
 
     api_docs_url = "https://cloud.google.com/storage/docs/interoperability"
     requires_team_feature_flag = FEATURE_FLAG
+    self_managed_service = "gcs"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -52,21 +59,28 @@ class GoogleCloudStorageSource(ObjectStorageSource[GoogleCloudStorageSourceConfi
 
     @property
     def connection_host_fields(self) -> list[str]:
-        # The bucket picks where the stored key is sent, so changing it must re-require the key.
-        return ["bucket"]
+        # The URL picks the bucket the stored key is sent to, so changing it must re-require the key.
+        return ["url_pattern"]
 
     def object_store_config(self, config: GoogleCloudStorageSourceConfig) -> ObjectStoreConfig:
-        return ObjectStoreConfig(
-            provider=ObjectStoreProvider.GCS,
-            bucket=config.bucket.strip(),
-            region=AUTO_REGION,
+        return ObjectStoreConfig.from_url(
+            ObjectStoreProvider.GCS,
+            parse_gcs_url(config.url_pattern),
             access_key_id=config.access_key_id.strip(),
             secret_access_key=config.secret_access_key.strip(),
-            prefix=normalize_prefix(config.path),
         )
 
     def discovery_options(self, config: GoogleCloudStorageSourceConfig) -> DiscoveryOptions:
         return discovery_options_from(config)
+
+    def self_managed_connection_inputs(
+        self, location: SelfManagedLocation, credential: SelfManagedCredential
+    ) -> dict[str, Any]:
+        return {
+            "url_pattern": f"https://storage.googleapis.com/{location.bucket}/",
+            "access_key_id": credential.access_key,
+            "secret_access_key": credential.access_secret,
+        }
 
     @property
     def get_source_config(self) -> SourceConfig:
@@ -82,8 +96,7 @@ class GoogleCloudStorageSource(ObjectStorageSource[GoogleCloudStorageSourceConfi
             fields=cast(
                 list[FieldType],
                 [
-                    text_field("bucket", "Bucket", "my-company-exports"),
-                    *folder_fields("bucket"),
+                    url_field(GCS_EXAMPLE_URL),
                     text_field(
                         "access_key_id",
                         "HMAC access key",

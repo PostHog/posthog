@@ -144,3 +144,25 @@ class TestHasLogsAPI(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(response.json(), {"hasLogs": False})
             self.assertEqual(mock_runner.return_value.run.call_count, 2)
+
+    def test_session_query_skips_scan_for_team_without_logs(self):
+        cache.clear()
+        payload = {"query": {"dateRange": {"date_from": "-1h"}, "sessionId": "some-session"}}
+
+        with (
+            patch("products.logs.backend.has_logs_query_runner.HasLogsQueryRunner") as mock_has_logs,
+            patch("products.logs.backend.presentation.views.api.LogsQueryRunner") as mock_logs_runner,
+        ):
+            mock_has_logs.return_value.run.return_value = False
+
+            for _ in range(2):
+                response = self.client.post(f"/api/projects/{self.team.id}/logs/query", payload, format="json")
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+                self.assertEqual(response.json()["results"], [])
+
+            mock_logs_runner.assert_not_called()
+            self.assertEqual(mock_has_logs.return_value.run.call_count, 1)
+
+            # The empty-state poll ignores the negative cache, so it notices the first log straight away.
+            self.client.get(f"/api/projects/{self.team.id}/logs/has_logs")
+            self.assertEqual(mock_has_logs.return_value.run.call_count, 2)

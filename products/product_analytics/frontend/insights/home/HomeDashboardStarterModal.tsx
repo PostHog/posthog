@@ -1,9 +1,10 @@
-import { IconChevronRight, IconDashboard, IconHome, IconSparkles, IconStack } from '@posthog/icons'
+import { IconChevronRight, IconCopy, IconDashboard, IconHome, IconSparkles, IconStack } from '@posthog/icons'
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 
 export interface HomeDashboardStarterModalProps {
     isOpen: boolean
     onClose: () => void
+    onCopyPostHogHome: () => void
     onTalkToAI: () => void
     onStartFromTemplate: () => void
     onChooseExisting: () => void
@@ -17,6 +18,7 @@ export interface HomeDashboardStarterModalProps {
 export function HomeDashboardStarterModal({
     isOpen,
     onClose,
+    onCopyPostHogHome,
     onTalkToAI,
     onStartFromTemplate,
     onChooseExisting,
@@ -28,6 +30,16 @@ export function HomeDashboardStarterModal({
 }: HomeDashboardStarterModalProps): JSX.Element {
     const creationDisabledReason = creatingWithAI ? 'Creating your dashboard…' : undefined
     const choices = [
+        {
+            title: 'Copy and edit the default dashboard',
+            description:
+                'Copy the charts on this page so you can edit, add, or remove them. You can reset to the PostHog default at any time.',
+            icon: <IconCopy />,
+            onClick: onCopyPostHogHome,
+            dataAttr: 'home-dashboard-copy-posthog-home',
+            loading: false,
+            disabledReason: creationDisabledReason,
+        },
         {
             title: 'Talk to PostHog AI',
             description: 'Describe what you want to track and let PostHog AI build it.',
@@ -48,7 +60,7 @@ export function HomeDashboardStarterModal({
         },
         {
             title: 'Choose an existing dashboard',
-            description: 'Use one of this project’s dashboards for Home.',
+            description: 'Show one of this project’s dashboards on this page.',
             icon: <IconDashboard />,
             onClick: onChooseExisting,
             dataAttr: 'home-dashboard-choose-existing',
@@ -61,8 +73,8 @@ export function HomeDashboardStarterModal({
         <LemonModal
             isOpen={isOpen}
             onClose={onClose}
-            title="Make my own dashboard"
-            description="Choose how to get started, or use a dashboard you already have."
+            title="Customize this dashboard"
+            description="Copy the default dashboard to edit it, or show a different dashboard on this page."
             width="38rem"
             maxWidth="calc(100vw - 2rem)"
             data-attr="home-dashboard-starter-modal"
@@ -101,9 +113,9 @@ export function HomeDashboardStarterModal({
                         data-attr="home-dashboard-restore-posthog-home"
                     >
                         <span className="flex min-w-0 flex-col gap-0.5 py-1">
-                            <span className="font-semibold">Use PostHog Home</span>
+                            <span className="font-semibold">Reset to PostHog default</span>
                             <span className="whitespace-normal text-xs font-normal text-secondary">
-                                Return to the ready-made product analytics overview.
+                                Go back to the default product analytics dashboard.
                             </span>
                         </span>
                     </LemonButton>

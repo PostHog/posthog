@@ -4,7 +4,8 @@ import time
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Literal
+from functools import partial
+from typing import Literal, TypeVar
 from urllib.parse import quote
 
 from django.conf import settings
@@ -19,6 +20,7 @@ from posthog.redis import get_client
 from posthog.slack.formatting import channel_id_from_target, escape_slack_mrkdwn
 from posthog.slack.markdown import SLACK_MARKDOWN_TEXT_MAX_LEN, slack_markdown_block
 
+from products.signals.backend.assignment_flags import assignment_side_effects_allowed
 from products.signals.backend.models import SignalReport, SignalReportSlackThread, SignalScoutEmission, SignalScoutRun
 from products.signals.backend.report_urls import ReportLinkSource, build_report_url
 from products.signals.backend.scout_harness.slack_charts import (
@@ -35,6 +37,7 @@ from products.signals.backend.slack_formatting import (
     prepare_slack_markdown,
     split_markdown_by_headings,
     strip_chart_references,
+    truncate_slack_text,
 )
 from products.signals.backend.slack_report_threads import (
     record_report_slack_thread,
@@ -45,6 +48,7 @@ from products.slack_app.backend.facade.api import slack_followup_invite
 
 logger = structlog.get_logger(__name__)
 
+_MESSAGE_TOO_LONG_ERROR_CODE = "msg_blocks_too_long"
 _PERMANENT_SLACK_ERROR_CODES = frozenset(
     {
         "account_inactive",
@@ -55,6 +59,9 @@ _PERMANENT_SLACK_ERROR_CODES = frozenset(
         "is_archived",
         "messages_tab_disabled",
         "missing_scope",
+        # Permanent only once `_send_shortening_markdown` has resent the message with less text:
+        # a retry rebuilds the same payload from the same report, so it can only fail again.
+        _MESSAGE_TOO_LONG_ERROR_CODE,
         "not_authed",
         "not_in_channel",
         "org_login_required",
@@ -71,9 +78,14 @@ _BLOCK_REJECTION_ERROR_CODES = frozenset({"invalid_blocks", "invalid_blocks_form
 # chat.update answers with one of these when the earlier message is gone or can no longer change.
 # The delivery then posts a new message, as it did before the first post.
 _STALE_MESSAGE_ERROR_CODES = frozenset(
-    {"message_not_found", "cant_update_message", "edit_window_closed", "channel_not_found"}
+    {"message_not_found", "cant_update_message", "edit_window_closed", "channel_not_found", "is_inactive"}
 )
+# Slack does not say how far over its markdown budget a rejected message went, so the resend keeps
+# half of the budget.
+_SHORTENED_MARKDOWN_TEXT_MAX_LEN = SLACK_MARKDOWN_TEXT_MAX_LEN // 2
 _SCOUT_SLACK_REPLY_PACE_SECONDS = 1
+
+_SlackResult = TypeVar("_SlackResult")
 
 ScoutSlackOutputType = Literal["finding", "report"]
 ScoutSlackReplyRetryScheduler = Callable[[int, list[list[dict]], int, str, str], None]
@@ -294,15 +306,19 @@ def post_scout_emission_to_slack(
     client = slack.client
     try:
         _ensure_dm_recipient_eligible(slack, channel_id)
-        client.chat_postMessage(
-            channel=channel_id,
-            blocks=blocks,
-            text=fallback,
-            # The queue derives one delivery_id per recipient, so each DM keeps its own
-            # Slack idempotency key instead of every recipient sharing the emission id.
-            client_msg_id=delivery_id,
-            unfurl_links=False,
-            unfurl_media=False,
+        _send_shortening_markdown(
+            lambda message_blocks: client.chat_postMessage(
+                channel=channel_id,
+                blocks=message_blocks,
+                text=fallback,
+                # The queue derives one delivery_id per recipient, so each DM keeps its own
+                # Slack idempotency key instead of every recipient sharing the emission id.
+                client_msg_id=delivery_id,
+                unfurl_links=False,
+                unfurl_media=False,
+            ),
+            blocks,
+            delivery_id=delivery_id,
         )
     except SlackApiError as exc:
         error_code = slack_api_error_code(exc)
@@ -312,6 +328,32 @@ def post_scout_emission_to_slack(
                 error_code=error_code,
             ) from exc
         raise
+
+
+def _shorten_markdown_blocks(blocks: list[dict]) -> list[dict]:
+    return [
+        {**block, "text": truncate_slack_text(block["text"], _SHORTENED_MARKDOWN_TEXT_MAX_LEN)}
+        if block.get("type") == "markdown" and isinstance(block.get("text"), str)
+        else block
+        for block in blocks
+    ]
+
+
+def _send_shortening_markdown(
+    send: Callable[[list[dict]], _SlackResult], blocks: list[dict], *, delivery_id: str
+) -> _SlackResult:
+    """Send the blocks, and send them again with shorter markdown if Slack says they are too long.
+
+    Slack counts its markdown budget in its own way, so text inside our budget can still go over.
+    The report link stays in the message, so a reader still reaches the full text in PostHog."""
+    try:
+        return send(blocks)
+    except SlackApiError as exc:
+        shortened = _shorten_markdown_blocks(blocks)
+        if slack_api_error_code(exc) != _MESSAGE_TOO_LONG_ERROR_CODE or shortened == blocks:
+            raise
+        logger.warning("signals_scout.slack_message_shortened", delivery_id=delivery_id)
+        return send(shortened)
 
 
 def _report_header(report: SignalReport) -> str:
@@ -598,7 +640,10 @@ def _post_scout_report_thread_replies(
             # in this worker, but do not send it as one burst that consumes a retry per section.
             time.sleep(_SCOUT_SLACK_REPLY_PACE_SECONDS)
         try:
-            _remember(chunk_index, _post_reply(chunk_index, blocks))
+            _remember(
+                chunk_index,
+                _send_shortening_markdown(partial(_post_reply, chunk_index), blocks, delivery_id=delivery_id),
+            )
         except Exception as exc:
             error_code = slack_api_error_code(exc) if isinstance(exc, SlackApiError) else None
             logger.warning(
@@ -653,7 +698,8 @@ def _post_scout_report_lead_message(
 
     A chart Slack cannot fetch takes the whole message down, so on any deployment Slack cannot reach
     a chart-bearing report would never arrive. The prose and the report link are the message; the
-    charts are the extra, and the report still draws every one of them in the inbox."""
+    charts are the extra, and the report still draws every one of them in the inbox. A message Slack
+    finds too long is posted again with a shorter summary for the same reason."""
 
     def _post(message_blocks: list[dict]) -> SlackResponse:
         if update_ts is not None:
@@ -667,19 +713,22 @@ def _post_scout_report_lead_message(
             unfurl_media=False,
         )
 
-    try:
-        return _post(blocks)
-    except SlackApiError as exc:
-        error_code = slack_api_error_code(exc)
-        if error_code not in _BLOCK_REJECTION_ERROR_CODES or not has_chart_blocks(blocks):
-            raise
-        logger.warning(
-            "signals_scout.slack_report_charts_rejected",
-            channel=channel_id,
-            delivery_id=delivery_id,
-            error_code=error_code,
-        )
-        return _post(strip_chart_blocks(blocks))
+    def _post_without_rejected_charts(message_blocks: list[dict]) -> SlackResponse:
+        try:
+            return _post(message_blocks)
+        except SlackApiError as exc:
+            error_code = slack_api_error_code(exc)
+            if error_code not in _BLOCK_REJECTION_ERROR_CODES or not has_chart_blocks(message_blocks):
+                raise
+            logger.warning(
+                "signals_scout.slack_report_charts_rejected",
+                channel=channel_id,
+                delivery_id=delivery_id,
+                error_code=error_code,
+            )
+            return _post(strip_chart_blocks(message_blocks))
+
+    return _send_shortening_markdown(_post_without_rejected_charts, blocks, delivery_id=delivery_id)
 
 
 def post_scout_report_to_slack(
@@ -768,6 +817,9 @@ def post_scout_report_to_slack(
             report_id=str(report.id),
             delivery_id=delivery_id,
         )
+        return
+
+    if not assignment_side_effects_allowed(team_id=report.team_id, report_id=str(report.id)):
         return
 
     # The build can hold the worker for the whole render budget, long enough for the workspace to be

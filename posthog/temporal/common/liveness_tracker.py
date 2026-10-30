@@ -6,15 +6,19 @@ import dataclasses
 from collections.abc import Callable
 from typing import Any
 
-from temporalio import activity
+from temporalio import activity, workflow
 from temporalio.worker import (
     ActivityInboundInterceptor,
     ActivityOutboundInterceptor,
     ExecuteActivityInput,
     ExecuteWorkflowInput,
     Interceptor,
+    StartActivityInput,
+    StartChildWorkflowInput,
+    StartLocalActivityInput,
     WorkflowInboundInterceptor,
     WorkflowInterceptorClassInput,
+    WorkflowOutboundInterceptor,
 )
 
 from posthog.dataclasses import frozen
@@ -217,12 +221,40 @@ class _LivenessActivityInboundInterceptor(ActivityInboundInterceptor):
         )
 
 
+class _LivenessWorkflowOutboundInterceptor(WorkflowOutboundInterceptor):
+    """Records liveness each time workflow code schedules work.
+
+    A worker that polls only workflow tasks runs no activities, and a long workflow can run for longer
+    than the health check's idle limit before it returns. Each scheduled activity or child workflow
+    shows that the worker still completes workflow tasks.
+    """
+
+    def __init__(self, next: WorkflowOutboundInterceptor, tracker: LivenessTracker):
+        super().__init__(next)
+        self._tracker = tracker
+
+    def start_activity(self, input: StartActivityInput) -> workflow.ActivityHandle[Any]:
+        self._tracker.record_workflow_execution()
+        return super().start_activity(input)
+
+    def start_local_activity(self, input: StartLocalActivityInput) -> workflow.ActivityHandle[Any]:
+        self._tracker.record_workflow_execution()
+        return super().start_local_activity(input)
+
+    async def start_child_workflow(self, input: StartChildWorkflowInput) -> workflow.ChildWorkflowHandle[Any, Any]:
+        self._tracker.record_workflow_execution()
+        return await super().start_child_workflow(input)
+
+
 class _LivenessWorkflowInterceptor(WorkflowInboundInterceptor):
     _tracker: LivenessTracker
 
     def __init__(self, next: WorkflowInboundInterceptor):
         super().__init__(next)
         self._tracker = get_liveness_tracker()
+
+    def init(self, outbound: WorkflowOutboundInterceptor) -> None:
+        super().init(_LivenessWorkflowOutboundInterceptor(outbound, self._tracker))
 
     async def execute_workflow(self, input: ExecuteWorkflowInput) -> Any:
         try:

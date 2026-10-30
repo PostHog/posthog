@@ -52,8 +52,10 @@ Work top-down, stopping at `proposed` for everything (a human promotes later):
    have seen reused at least twice. Give each a `description` (the load-bearing field) of 1-2 short
    sentences under 300 characters: what the number is and its grain, plus any inclusion or exclusion
    that changes it. Leave out source tables or views, lineage, column lists, and comparisons with
-   other metrics, and never narrate the query. Query rationale goes in `reasoning`,
-   the mechanics in the definition. Also give a `unit`, and a definition when one exists. A definition
+   other metrics, and never narrate the query. `reasoning` holds why the definition is shaped this way,
+   in 1-3 short sentences: the main design decisions and trade-offs. Leave out the use case, who asked,
+   run results, and edit history. The mechanics go in the definition. Also give a `unit`, and a
+   definition when one exists. A definition
    can be an executable query, or - when the calculation needs judgment or steps that don't reduce to a
    single query - an agent-calculated markdown definition
    (`{kind: 'MarkdownDefinition', markdown: '<numbered steps>'}`).
