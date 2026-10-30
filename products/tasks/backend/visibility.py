@@ -5,6 +5,8 @@ posthog.api.file_system.registrations, which loads at django.setup()) don't pull
 tasks API surface. Its module-scope imports reach jsonschema and the modal SDK.
 """
 
+from typing import cast
+
 from django.db.models import Exists, OuterRef, Q
 
 from products.tasks.backend.models import Channel, Task
@@ -39,10 +41,9 @@ def _creator_q(user_id: int | None) -> Q:
     return Q(pk__in=[]) if user_id is None else Q(created_by_id=user_id)
 
 
-def _visible_channel_q(user_id: int | None, channel_ref: str) -> Q:
-    if isinstance(user_id, OuterRef):
-        user_id = OuterRef(user_id)
-    return Q(Exists(Channel.objects.unscoped().filter(Channel.visible_to_q(user_id), pk=OuterRef(channel_ref))))
+def _visible_channel_q(user_id: int | OuterRef | None, channel_ref: str) -> Q:
+    channel_user_id = cast(int, OuterRef(user_id)) if isinstance(user_id, OuterRef) else user_id
+    return Q(Exists(Channel.objects.unscoped().filter(Channel.visible_to_q(channel_user_id), pk=OuterRef(channel_ref))))
 
 
 def scout_trial_visibility_q(user_id: int | None) -> Q:
