@@ -269,11 +269,26 @@ describe('InstructionsFormatter', () => {
             { name: 'only project-get', tools: ['project-get'], project: true, groups: false },
             { name: 'only execute-sql', tools: ['execute-sql'], project: false, groups: true },
             { name: 'neither lookup tool', tools: [], project: false, groups: false },
+            {
+                name: 'the switch tools too',
+                tools: ['project-get', 'switch-project', 'switch-organization', 'projects-get', 'organizations-get'],
+                project: true,
+                groups: false,
+            },
+            {
+                name: 'switch-project without its lookups',
+                tools: ['project-get', 'switch-project'],
+                project: true,
+                groups: false,
+            },
         ])('names only the env lookup tools the roster has: $name', ({ tools, project, groups }) => {
             const ctx = { ...fullCtx, tools: tools.map((name) => ({ name, category: 'Core' })) }
             const result = new InstructionsFormatter().buildExecCommandReference(ctx)
             expect(result.includes(ENV_POINTER)).toBe(project)
             expect(result.includes(GROUP_TYPES_POINTER)).toBe(groups)
+            expect(result.includes('call `switch-project` or `switch-organization`')).toBe(
+                tools.includes('organizations-get')
+            )
             expect(result.includes('### Active environment')).toBe(project || groups)
         })
 

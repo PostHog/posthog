@@ -217,6 +217,17 @@ class TaskProcessingContext:
         return [self.repository] if self.repository else []
 
     @property
+    def github_access_repositories(self) -> list[str]:
+        """Repositories the run's GitHub token covers: the cloned ones plus any granted at creation.
+
+        Only token minting reads this. Remote rewrites and cloning stay on ``repositories``.
+        """
+        access = (self.state or {}).get("github_access_repositories")
+        if isinstance(access, list) and access and all(isinstance(repository, str) for repository in access):
+            return access
+        return self.repositories
+
+    @property
     def github_read_access(self) -> bool:
         """Run that asked to be downscoped to a read-only GitHub token (see Task.create_and_run).
 

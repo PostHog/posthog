@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+from functools import partial
 from uuid import UUID
 
 from django.db import transaction
@@ -12,12 +13,26 @@ from products.signals.backend.models import SignalReport, SignalReportCheck, Sig
 from products.signals.backend.report_check_evidence import EvidenceStatus
 from products.signals.backend.report_content_gates import team_report_monitoring_enabled
 from products.signals.backend.report_monitoring_attempts import check_definition_version, current_monitoring_attempt
+from products.signals.backend.report_monitoring_outcomes import aggregate_monitoring_attempt_safely
 
 MONITORING_RESULT_ELIGIBLE_STATUSES = (
     *SignalReportCheck.OPEN_STATUSES,
     SignalReportCheck.Status.ERRORED,
     SignalReportCheck.Status.EXPIRED,
 )
+LEGACY_MONITORING_TERMINAL_STATUSES = (
+    SignalReportCheck.Status.PASSED,
+    SignalReportCheck.Status.FAILED,
+    SignalReportCheck.Status.INCONCLUSIVE,
+)
+
+
+def monitoring_result_check_eligible(check: SignalReportCheck, attempt_id: UUID) -> bool:
+    return check.status in MONITORING_RESULT_ELIGIBLE_STATUSES or (
+        check.kind == SignalReportCheck.Kind.AGENT
+        and check.status in LEGACY_MONITORING_TERMINAL_STATUSES
+        and check.legacy_monitoring_attempt_id == attempt_id
+    )
 
 
 class InvalidMonitoringResult(ValueError):
@@ -117,7 +132,7 @@ def save_monitoring_result(evaluation: MonitoringEvaluation) -> SignalReportMoni
         now = timezone.now()
         if not team_report_monitoring_enabled(evaluation.team_id):
             raise InvalidMonitoringResult("Monitoring is disabled.")
-        if check is None or check.status not in MONITORING_RESULT_ELIGIBLE_STATUSES:
+        if check is None or not monitoring_result_check_eligible(check, attempt.id):
             raise InvalidMonitoringResult("The check was cancelled or already completed.")
         if check_definition_version(check) != evaluation.definition_version:
             raise InvalidMonitoringResult("The authored definition changed.")
@@ -130,7 +145,7 @@ def save_monitoring_result(evaluation: MonitoringEvaluation) -> SignalReportMoni
             raise InvalidMonitoringResult("The soak must finish before evaluation and acceptance.")
         if results.filter(outcome__in=[SignalReportCheck.Outcome.PASSED, SignalReportCheck.Outcome.FAILED]).exists():
             raise MonitoringResultConflict("The check already has an accepted verdict for this attempt.")
-        return results.create(
+        result = results.create(
             team_id=evaluation.team_id,
             report_id=report.id,
             attempt_id=attempt.id,
@@ -147,3 +162,12 @@ def save_monitoring_result(evaluation: MonitoringEvaluation) -> SignalReportMoni
             explanation=evaluation.explanation,
             evidence_refs=list(evaluation.evidence_refs),
         )
+        transaction.on_commit(
+            partial(
+                aggregate_monitoring_attempt_safely,
+                team_id=evaluation.team_id,
+                report_id=evaluation.report_id,
+                attempt_id=evaluation.attempt_id,
+            )
+        )
+        return result

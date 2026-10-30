@@ -28,7 +28,7 @@ use crate::clickhouse::{ResourceError, ScanSkipReason};
 use crate::observability::metrics::{
     CHUNKS_POISONED, CLICKHOUSE_RESOURCE_ERRORS, EVENTS_SKIPPED, HOGVM_ERRORS,
     PERSON_CONDITIONS_SHORTCUT, PERSON_ROWS_PRUNED, PERSON_SCAN_FILTER, PRUNE_REASON_IRRELEVANT,
-    RUN_BREAKER_TRIPS,
+    RUN_BREAKER_TRIPS, TILES_SKIPPED,
 };
 use crate::store::runs::RunKind;
 
@@ -60,6 +60,7 @@ pub fn prime_zero_series() {
     for outcome in ScanFilterOutcome::ALL {
         counter!(PERSON_SCAN_FILTER, "outcome" => outcome.as_str()).increment(0);
     }
+    counter!(TILES_SKIPPED).increment(0);
 }
 
 #[cfg(test)]
@@ -78,7 +79,8 @@ mod tests {
 
         // The readings a validation run is gated on: malformed blobs skipped, HogVM aborts on an
         // unresolvable reference, chunks dead-lettered at the attempt cap, persons pruned as
-        // irrelevant, and whether the person key filter applied or was refused as too long.
+        // irrelevant, whether the person key filter applied or was refused as too long, and
+        // behavioral tiles skipped for a newer day.
         for series in [
             format!("{EVENTS_SKIPPED}{{reason=\"globals_parse_error\"}} 0"),
             format!("{HOGVM_ERRORS}{{class=\"unknown_ref\"}} 0"),
@@ -90,6 +92,7 @@ mod tests {
             format!("{PERSON_SCAN_FILTER}{{outcome=\"none\"}} 0"),
             format!("{PERSON_SCAN_FILTER}{{outcome=\"too_long\"}} 0"),
             format!("{PERSON_CONDITIONS_SHORTCUT} 0"),
+            format!("{TILES_SKIPPED} 0"),
         ] {
             assert!(
                 rendered.contains(&series),

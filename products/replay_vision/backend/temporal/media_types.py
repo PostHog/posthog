@@ -83,8 +83,6 @@ class PreparedFrame(BaseModel, frozen=True):
     small_media_asset_id: int | None = None
     object_id: str
     video_start_ms: int
-    # Unused, kept so a worker on the previous release can still decode this payload.
-    rec_start_ms: int | None = None
 
 
 class PrepareObservationMediaOutput(BaseModel, frozen=True):

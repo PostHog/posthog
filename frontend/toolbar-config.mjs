@@ -22,19 +22,19 @@ const toolbarPublicPathOverride = process.env.TOOLBAR_PUBLIC_PATH
 // without side effects. If the upstream logic adds new connect() values, the shim
 // will silently return undefined — keep shims in sync when connect contracts change.
 const shimmedModules = {
-    'scenes/userLogic': 'src/toolbar/shims/userLogic.ts',
-    'scenes/organization/membersLogic': 'src/toolbar/shims/membersLogic.ts',
-    'scenes/sceneLogic': 'src/toolbar/shims/sceneLogic.ts',
-    'scenes/teamLogic': 'src/toolbar/shims/teamLogic.ts',
-    'lib/logic/featureFlagLogic': 'src/toolbar/shims/featureFlagLogic.ts',
+    'scenes/userLogic': 'src/toolbar/shared/shims/userLogic.ts',
+    'scenes/organization/membersLogic': 'src/toolbar/shared/shims/membersLogic.ts',
+    'scenes/sceneLogic': 'src/toolbar/shared/shims/sceneLogic.ts',
+    'scenes/teamLogic': 'src/toolbar/shared/shims/teamLogic.ts',
+    'lib/logic/featureFlagLogic': 'src/toolbar/shared/shims/featureFlagLogic.ts',
     // Survey question labels load from an authenticated endpoint the toolbar can't reach, so
     // the shim keeps its shared consumers (PropertyKeyInfo, taxonomy helpers) out of the app zone.
-    'scenes/surveys/surveyQuestionLabelsLogic': 'src/toolbar/shims/surveyQuestionLabelsLogic.ts',
-    // Not a kea shim: the toolbar's parity-tested urls duplicate (see src/toolbar/urls.ts).
+    'scenes/surveys/surveyQuestionLabelsLogic': 'src/toolbar/shared/shims/surveyQuestionLabelsLogic.ts',
+    // Not a kea shim: the toolbar's parity-tested urls duplicate (see src/toolbar/shared/urls.ts).
     // Toolbar code imports it directly; this entry covers lib/ components shared with the
     // app (TZLabel, Link, HeatmapEventsPanel), whose scenes/urls import would otherwise pull
     // every product manifest into the bundle.
-    'scenes/urls': 'src/toolbar/urls.ts',
+    'scenes/urls': 'src/toolbar/shared/urls.ts',
 }
 
 // Modules replaced with an inert proxy that logs access in debug mode
@@ -138,7 +138,7 @@ function createToolbarModulePlugin(dirname, extraDeniedPatterns = []) {
 
 // The toolbar ships as two artifacts:
 //
-//   dist/toolbar.js          — a tiny classic-script loader (src/toolbar/loader.ts). posthog-js
+//   dist/toolbar.js          — a tiny classic-script loader (src/toolbar/floating/loader.ts). posthog-js
 //                              injects it with a plain <script> tag on customer pages and calls
 //                              window.ph_load_toolbar on load; the loader then import()s the app.
 //   dist/toolbar/            — the real app: an ESM entry (toolbar-app-<hash>.js, hashless copy
@@ -160,7 +160,7 @@ export function getToolbarAppBuildConfig(dirname) {
         // Named 'Toolbar' so the metafile lands at toolbar-esbuild-meta.json, which
         // bin/check-toolbar-graph.mjs and bin/check-toolbar-size.mjs read.
         name: 'Toolbar',
-        entryPoints: { 'toolbar-app': 'src/toolbar/index.tsx' },
+        entryPoints: { 'toolbar-app': 'src/toolbar/floating/index.tsx' },
         format: 'esm',
         splitting: true,
         outdir: path.resolve(dirname, 'dist', 'toolbar'),
@@ -230,7 +230,7 @@ export async function finalizeToolbarBuild(dirname, buildResponse) {
 
     await esbuildBuild({
         absWorkingDir: dirname,
-        entryPoints: ['src/toolbar/loader.ts'],
+        entryPoints: ['src/toolbar/floating/loader.ts'],
         bundle: true,
         // ESM output keeps the runtime-dynamic import() untouched; with no static
         // imports/exports of its own, the file still parses as a classic script.
@@ -264,6 +264,7 @@ const TOOLBAR_EXTENSION_BUILD_DIR = 'toolbar-extension-build'
 const TOOLBAR_EXTENSION_ICONS = {
     16: 'icons/favicon-16x16.png',
     32: 'icons/favicon-32x32.png',
+    128: 'icons/posthog-128x128.png',
     192: 'icons/android-chrome-192x192.png',
 }
 
@@ -363,9 +364,19 @@ function buildToolbarExtensionManifest(browser) {
             default_icon: TOOLBAR_EXTENSION_ICONS,
             open_at_install: false,
         }
-        // Firefox needs an add-on ID for MV3 storage, and 128 is the first release that grants Manifest V3 host
-        // permissions at install.
-        manifest.browser_specific_settings = { gecko: { id: 'toolbar@posthog.com', strict_min_version: '128.0' } }
+        // Firefox needs an add-on ID for MV3 storage, and addons.mozilla.org never lets the ID change after the first
+        // upload. 140 is the first release that asks the user at install for the data collection declared here.
+        manifest.browser_specific_settings = {
+            gecko: {
+                id: 'toolbar@posthog.com',
+                strict_min_version: '140.0',
+                // Keep in sync with the "Data collection" section of src/toolbar/extension/README.md.
+                data_collection_permissions: {
+                    required: ['authenticationInfo', 'browsingActivity', 'websiteContent'],
+                    optional: ['technicalAndInteraction'],
+                },
+            },
+        }
         // Firefox runs Manifest V3 background code as an event page, not as a service worker.
         manifest.background = { scripts: ['background.js'] }
     } else {
