@@ -171,6 +171,8 @@ class TestDreamingLane(BaseTest):
         assert context.initial_permission_mode == "full-access"
         assert context.posthog_mcp_scopes == [*dreaming.MCP_READ_SCOPES, dreaming.CONTEXT_LAYER_INTERNAL_SCOPE]
         assert trigger_mock.call_args.kwargs["ai_stage"] == dreaming.DREAM_AI_STAGE
+        assert trigger_mock.call_args.kwargs["origin_product"] == "context_layer"
+        assert trigger_mock.call_args.kwargs["internal"] is True
         prompt = trigger_mock.call_args.args[0]
         assert prompt.startswith(
             "This is the first dream: review the last 7 days of organizational activity. Treat this as a seed run:"

@@ -113,7 +113,7 @@ MINTABLE_PRODUCTS = frozenset(
     }
 )
 
-BACKGROUND_AGENTS_ORIGINS = frozenset({"autoresearch", "business_knowledge", "task_analysis"})
+BACKGROUND_AGENTS_ORIGINS = frozenset({"autoresearch", "business_knowledge", "context_layer", "task_analysis"})
 
 # Exempt from the background run-duration cap, so their tokens need the longer interactive
 # ceiling. Mirrors the stages `Task.create_run` stamps.

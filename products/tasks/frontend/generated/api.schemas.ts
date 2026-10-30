@@ -1464,6 +1464,7 @@ export interface PaginatedTaskListItemListApi {
  * * `space_setup` - Space Setup
  * * `business_knowledge` - Business Knowledge
  * * `metrics_import` - Metrics Import
+ * * `context_layer` - Context Layer
  */
 export type TaskOriginProductEnumApi = (typeof TaskOriginProductEnumApi)[keyof typeof TaskOriginProductEnumApi]
 
@@ -1494,6 +1495,7 @@ export const TaskOriginProductEnumApi = {
     SpaceSetup: 'space_setup',
     BusinessKnowledge: 'business_knowledge',
     MetricsImport: 'metrics_import',
+    ContextLayer: 'context_layer',
 } as const
 
 /**
@@ -1574,7 +1576,8 @@ export interface TaskCreateApi {
      * * `workflow` - Workflow
      * * `space_setup` - Space Setup
      * * `business_knowledge` - Business Knowledge
-     * * `metrics_import` - Metrics Import */
+     * * `metrics_import` - Metrics Import
+     * * `context_layer` - Context Layer */
     origin_product?: TaskOriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -1810,7 +1813,8 @@ export interface TaskWriteApi {
      * * `workflow` - Workflow
      * * `space_setup` - Space Setup
      * * `business_knowledge` - Business Knowledge
-     * * `metrics_import` - Metrics Import */
+     * * `metrics_import` - Metrics Import
+     * * `context_layer` - Context Layer */
     origin_product?: TaskOriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -1947,7 +1951,8 @@ export interface PatchedTaskWriteApi {
      * * `workflow` - Workflow
      * * `space_setup` - Space Setup
      * * `business_knowledge` - Business Knowledge
-     * * `metrics_import` - Metrics Import */
+     * * `metrics_import` - Metrics Import
+     * * `context_layer` - Context Layer */
     origin_product?: TaskOriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -5223,6 +5228,7 @@ export type SandboxCustomImagesListParams = {
      * * `space_setup` - Space Setup
      * * `business_knowledge` - Business Knowledge
      * * `metrics_import` - Metrics Import
+     * * `context_layer` - Context Layer
      * @minLength 1
      */
     origin_product?: SandboxCustomImagesListOriginProduct
@@ -5258,6 +5264,7 @@ export const SandboxCustomImagesListOriginProduct = {
     SpaceSetup: 'space_setup',
     BusinessKnowledge: 'business_knowledge',
     MetricsImport: 'metrics_import',
+    ContextLayer: 'context_layer',
 } as const
 
 export type SandboxListParams = {
@@ -5405,6 +5412,7 @@ export type TasksListParams = {
      * * `space_setup` - Space Setup
      * * `business_knowledge` - Business Knowledge
      * * `metrics_import` - Metrics Import
+     * * `context_layer` - Context Layer
      * @minLength 1
      */
     exclude_origin_product?: TasksListExcludeOriginProduct
@@ -5555,6 +5563,7 @@ export const TasksListExcludeOriginProduct = {
     SpaceSetup: 'space_setup',
     BusinessKnowledge: 'business_knowledge',
     MetricsImport: 'metrics_import',
+    ContextLayer: 'context_layer',
 } as const
 
 export type TasksListInternal = (typeof TasksListInternal)[keyof typeof TasksListInternal]
