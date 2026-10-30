@@ -682,6 +682,9 @@ services:
             file: docker-compose.base.yml
             service: personhog-router-leader
         logging: *default-logging
+        environment:
+            IDENTITY_ENABLED: 'true'
+            IDENTITY_URL: 'http://personhog-identity:50055'
         depends_on:
             etcd:
                 condition: service_healthy
