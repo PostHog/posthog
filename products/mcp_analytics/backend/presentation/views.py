@@ -13,6 +13,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.mixins import ValidatedRequest, validated_request
+from posthog.api.pagination import page_link, previous_offset
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
 from posthog.models.user import User
@@ -55,7 +56,7 @@ class MCPAnalyticsPagination(LimitOffsetPagination):
 
 
 class MCPSessionPagination(LimitOffsetPagination):
-    """Returns ``{results, has_next}`` instead of a count-based envelope. The list is an
+    """Returns ``{next, previous, results, has_next}`` without a ``count``. The list is an
     on-the-fly ClickHouse aggregate with no cheap total, so ``has_next`` comes from the
     logic layer over-fetching one row rather than a count query.
     """
@@ -63,14 +64,33 @@ class MCPSessionPagination(LimitOffsetPagination):
     default_limit = MCP_SESSION_LIST_DEFAULT_LIMIT
     max_limit = MCP_SESSION_LIST_MAX_LIMIT
 
-    def get_paginated_response(self, data: Any, *, has_next: bool = False) -> Response:
-        return Response({"results": data, "has_next": has_next})
+    def get_page_response(self, request: Request, data: Any, *, offset: int, limit: int, has_next: bool) -> Response:
+        return Response(
+            {
+                "next": page_link(request, self.offset_query_param, offset + limit) if has_next else None,
+                "previous": page_link(request, self.offset_query_param, previous_offset(offset, limit)),
+                "results": data,
+                "has_next": has_next,
+            }
+        )
 
     def get_paginated_response_schema(self, schema: dict) -> dict:
         return {
             "type": "object",
-            "required": ["results", "has_next"],
+            "required": ["next", "previous", "results", "has_next"],
             "properties": {
+                "next": {
+                    "type": "string",
+                    "format": "uri",
+                    "nullable": True,
+                    "description": "URL of the next page, or null on the last page.",
+                },
+                "previous": {
+                    "type": "string",
+                    "format": "uri",
+                    "nullable": True,
+                    "description": "URL of the previous page, or null on the first page.",
+                },
                 "results": schema,
                 "has_next": {
                     "type": "boolean",
@@ -197,8 +217,10 @@ class MCPSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         )
         serializer = self.get_serializer(page.results, many=True)
         # Instantiate the concrete class (not self.pagination_class()) so the typed
-        # get_paginated_response(has_next=...) is visible to the type checker.
-        return MCPSessionPagination().get_paginated_response(serializer.data, has_next=page.has_next)
+        # get_page_response(...) is visible to the type checker.
+        return MCPSessionPagination().get_page_response(
+            request, serializer.data, offset=params["offset"], limit=params["limit"], has_next=page.has_next
+        )
 
     @validated_request(
         query_serializer=MCPSessionToolCallsQuerySerializer,
@@ -220,7 +242,9 @@ class MCPSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             user=cast(User, request.user),
         )
         serializer = MCPToolCallSerializer(page.results, many=True)
-        return MCPSessionPagination().get_paginated_response(serializer.data, has_next=page.has_next)
+        return MCPSessionPagination().get_page_response(
+            request, serializer.data, offset=params["offset"], limit=params["limit"], has_next=page.has_next
+        )
 
     @extend_schema(
         operation_id="mcp_analytics_sessions_generate_intent",
