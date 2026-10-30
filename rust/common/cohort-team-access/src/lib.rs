@@ -27,8 +27,8 @@ const ACCESS_ROWS_SQL: &str = "SELECT team_id, level FROM cohort_realtime_team_a
 const POLL_INTERVAL: Duration = Duration::from_secs(15);
 const POLL_JITTER: Duration = Duration::from_secs(3);
 
-/// Zero until the first accepted read, then set only when the poller accepts one. So a staleness
-/// alert covers a reader that never loaded, and failed and refused reads.
+/// Zero until the first poll succeeds, then set only when a poll succeeds. So a staleness alert
+/// covers a reader that never loaded, and failed polls, including those that keep a regressed row.
 /// The charts allowlist of metrics that alerts can read matches the `posthog_cohort_` prefix.
 const LAST_SUCCESS: &str = "posthog_cohort_team_access_last_success_timestamp_seconds";
 
@@ -39,8 +39,9 @@ pub enum PollError {
     #[error("team {team_id} has the unknown level {level:?}")]
     UnknownLevel { team_id: i32, level: String },
     /// Such a read is wrong: an empty table, another database, or a replica that lags behind the
-    /// previous read. See [`Level::may_become`].
-    #[error("the read lacks the rows of teams {0:?}, or grants them again after `off`")]
+    /// previous read. See [`Level::may_become`]. These teams keep their previous rows, and the
+    /// read's other rows still take effect, so a revoke reaches the reader even then.
+    #[error("the read lacks the rows of teams {0:?}, or grants them again after `off`, so they keep their previous rows")]
     RegressedRows(Vec<i32>),
 }
 
@@ -104,20 +105,22 @@ impl AccessRows {
         self.0.values().filter(|level| level.processes()).count()
     }
 
-    /// Teams whose row in `read` is a change that [`Level::may_become`] rules out.
-    fn regressed_in(&self, read: &Self) -> Vec<i32> {
-        let mut regressed: Vec<i32> = self
-            .0
-            .iter()
-            .filter(|&(team_id, level)| !level.may_become(read.0.get(team_id).copied()))
-            .map(|(team_id, _)| *team_id)
-            .collect();
+    /// Puts back the `previous` row of each team whose row here is a change that
+    /// [`Level::may_become`] rules out, and returns those teams.
+    fn restore_regressed(&mut self, previous: &Self) -> Vec<i32> {
+        let mut regressed = Vec::new();
+        for (&team_id, &level) in &previous.0 {
+            if !level.may_become(self.0.get(&team_id).copied()) {
+                self.0.insert(team_id, level);
+                regressed.push(team_id);
+            }
+        }
         regressed.sort_unstable();
         regressed
     }
 }
 
-/// Answers whether a team processes, from the rows of the last read the poller accepted.
+/// Answers whether a team processes, from the rows the poller stored last.
 #[derive(Debug)]
 pub struct TeamAccess {
     env: TeamAllowlist,
@@ -164,7 +167,7 @@ impl TeamAccess {
     }
 }
 
-/// The only writer of its [`TeamAccess`]. It checks each read against the rows it accepted last,
+/// The only writer of its [`TeamAccess`]. It checks each read against the rows it stored last,
 /// which is sound only while one poller swaps the rows, so it is not `Clone`.
 #[derive(Debug)]
 pub struct TeamAccessPoller {
@@ -176,10 +179,11 @@ impl TeamAccessPoller {
     ///
     /// # Errors
     ///
-    /// Fails when the query fails or times out, when a row has a level this crate does not know, and
-    /// when the read lacks a row of the previous accepted read or grants one of its `off` rows again.
-    /// The previous rows stay in place after an error, so a row deleted or granted again by hand
-    /// makes every later read fail until the service restarts.
+    /// Fails when the query fails or times out, or when a row has a level this crate does not know.
+    /// The previous rows then stay in place. Also fails when the read lacks a row that the reader
+    /// holds, or grants one of its `off` rows again. Only those teams keep their previous rows.
+    /// So a row deleted or granted again by hand keeps its old state, and fails every later poll,
+    /// until the service restarts.
     pub async fn poll(&mut self, pool: &PgPool) -> Result<usize, PollError> {
         let mut transaction = pool.begin().await?;
         sqlx::query(QUERY_TIMEOUT_SQL)
@@ -192,21 +196,22 @@ impl TeamAccessPoller {
         self.accept(AccessRows::parse(fetched)?)
     }
 
-    fn accept(&mut self, read: AccessRows) -> Result<usize, PollError> {
-        if let Some(previous) = self.access.rows.load().as_deref() {
-            let regressed = previous.regressed_in(&read);
-            if !regressed.is_empty() {
-                return Err(PollError::RegressedRows(regressed));
-            }
-        }
+    fn accept(&mut self, mut read: AccessRows) -> Result<usize, PollError> {
+        let regressed = match self.access.rows.load().as_deref() {
+            Some(previous) => read.restore_regressed(previous),
+            None => Vec::new(),
+        };
         let granted = read.granted();
         self.access.rows.store(Some(Arc::new(read)));
+        if !regressed.is_empty() {
+            return Err(PollError::RegressedRows(regressed));
+        }
         gauge!(LAST_SUCCESS).set(now_unix_seconds());
         Ok(granted)
     }
 
-    /// Polls every `POLL_INTERVAL ± POLL_JITTER` until shutdown. A failed poll keeps the previous
-    /// rows and waits for the next tick.
+    /// Polls every `POLL_INTERVAL ± POLL_JITTER` until shutdown. After a failed poll it waits for
+    /// the next tick.
     ///
     /// Register `handle` without a liveness deadline: a database outage must not stop a service that
     /// can keep working on the rows it has.
@@ -218,7 +223,7 @@ impl TeamAccessPoller {
                 _ = handle.shutdown_recv() => break,
                 _ = tokio::time::sleep(next_interval()) => match self.poll(&pool).await {
                     Ok(granted) => debug!(granted_teams = granted, "team access polled"),
-                    Err(err) => warn!(error = %err, "team access poll failed; keeping the previous rows"),
+                    Err(err) => warn!(error = %err, "team access poll failed"),
                 },
             }
         }
@@ -290,24 +295,19 @@ mod tests {
     }
 
     #[test]
-    fn a_read_that_lost_a_row_or_regranted_an_off_row_is_refused_and_the_previous_rows_keep_serving(
-    ) {
+    fn a_read_that_lost_a_row_or_regranted_an_off_row_keeps_those_rows_and_applies_the_others() {
         let (access, mut poller) = TeamAccess::new(env_only(&[]));
         assert_eq!(poller.accept(rows(&[])).unwrap(), 0);
         assert!(access.is_loaded());
         poller
-            .accept(rows(&[(5, "off"), (6, "processing"), (7, "off")]))
+            .accept(rows(&[(5, "off"), (6, "processing"), (7, "processing")]))
             .unwrap();
 
-        let lost_rows = poller.accept(rows(&[(5, "off")]));
-        assert!(matches!(lost_rows, Err(PollError::RegressedRows(teams)) if teams == [6, 7]));
-        let revoke_not_replayed =
-            poller.accept(rows(&[(5, "processing"), (6, "processing"), (7, "off")]));
-        assert!(
-            matches!(revoke_not_replayed, Err(PollError::RegressedRows(teams)) if teams == [5])
-        );
-        assert!(!access.processing(5));
-        assert!(access.processing(6));
+        let regressed = poller.accept(rows(&[(5, "processing"), (6, "off"), (8, "processing")]));
+        assert!(matches!(regressed, Err(PollError::RegressedRows(teams)) if teams == [5, 7]));
+        for (team_id, expected) in [(5, false), (6, false), (7, true), (8, true)] {
+            assert_eq!(access.processing(team_id), expected, "team {team_id}");
+        }
     }
 
     #[test]

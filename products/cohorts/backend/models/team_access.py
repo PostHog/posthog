@@ -26,8 +26,8 @@ class RealtimeCohortTeamAccess(models.Model):
     Rows are never deleted: a revoke sets `off`, and a team deletion leaves the row (`DO_NOTHING`).
     So when a team's row appears on one read and is missing on a later one, the later read failed.
     A reader treats that as an error, not as a revoke. The Rust readers also treat `off` as final.
-    So after a row is deleted, or granted again after `off`, by hand, they refuse every read until
-    they restart.
+    So after a row is deleted, or granted again after `off`, by hand, they keep that team's old row
+    until they restart.
     """
 
     # db_constraint=False: a real FK constraint would take a SHARE ROW EXCLUSIVE lock on
