@@ -9,6 +9,21 @@
  */
 import * as zod from 'zod'
 
+/**
+ * Sets how long every project without its own window keeps events. Events older than the window are deleted on the next monthly cleanup and can't be restored. Organization admins only.
+ * @summary Set the organization's events retention window
+ */
+
+export const OrganizationEventsRetentionUpdateBody = /* @__PURE__ */ zod.object({
+    retention_months: zod
+        .number()
+        .min(1)
+        .nullable()
+        .describe(
+            "The window in months. Events older than this are deleted on the next monthly cleanup and can't be restored. Null removes the window."
+        ),
+})
+
 export const columnConfigurationsCreateBodyContextKeyMax = 255
 
 export const columnConfigurationsCreateBodyNameMax = 255
@@ -191,6 +206,21 @@ export const ElementsPartialUpdateBody = /* @__PURE__ */ zod.object({
     order: zod.number().min(elementsPartialUpdateBodyOrderMin).max(elementsPartialUpdateBodyOrderMax).nullish(),
 })
 
+/**
+ * Sets how long this project keeps events, overriding the organization's window. Events older than the window are deleted on the next monthly cleanup and can't be restored. Organization admins only.
+ * @summary Set the events retention window for a project
+ */
+
+export const EventsRetentionUpdateBody = /* @__PURE__ */ zod.object({
+    retention_months: zod
+        .number()
+        .min(1)
+        .nullable()
+        .describe(
+            "The window in months. Events older than this are deleted on the next monthly cleanup and can't be restored. Null removes the window."
+        ),
+})
+
 export const InsightsCreateBody = /* @__PURE__ */ zod
     .record(zod.string(), zod.unknown())
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
@@ -292,6 +322,76 @@ export const InsightsCancelCreateBody = /* @__PURE__ */ zod
 export const InsightsDataChecksCreateBody = /* @__PURE__ */ zod
     .record(zod.string(), zod.unknown())
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
+
+/**
+ * Classify what most likely caused each moment on a chart. The caller sends chapters of facts that it computed from the chart's data, and gets back one cause from a fixed list for each chapter, with a confidence. The numbers stay with the caller: this endpoint runs no query and reads no insight. Without a decision model on the instance, the list is empty. The organization must approve AI data processing.
+ */
+export const insightsExplainCreateBodySeriesLabelMax = 200
+
+export const insightsExplainCreateBodyInsightNameDefault = ``
+export const insightsExplainCreateBodyInsightNameMax = 400
+
+export const insightsExplainCreateBodyOverviewDefault = ``
+export const insightsExplainCreateBodyOverviewMax = 600
+
+export const insightsExplainCreateBodyChaptersItemIdMax = 64
+
+export const insightsExplainCreateBodyChaptersItemTitleMax = 200
+
+export const insightsExplainCreateBodyChaptersItemSummaryMax = 600
+
+export const insightsExplainCreateBodyChaptersItemEvidenceItemMax = 600
+
+export const insightsExplainCreateBodyChaptersItemEvidenceMax = 6
+
+export const insightsExplainCreateBodyChaptersMax = 8
+
+export const InsightsExplainCreateBody = /* @__PURE__ */ zod.object({
+    series_label: zod
+        .string()
+        .max(insightsExplainCreateBodySeriesLabelMax)
+        .describe('Name of the series that the explanation follows.'),
+    insight_name: zod
+        .string()
+        .max(insightsExplainCreateBodyInsightNameMax)
+        .default(insightsExplainCreateBodyInsightNameDefault)
+        .describe('Name of the insight. Blank for an insight that has no name yet.'),
+    overview: zod
+        .string()
+        .max(insightsExplainCreateBodyOverviewMax)
+        .default(insightsExplainCreateBodyOverviewDefault)
+        .describe('The computed facts of the whole chart, such as its typical level, its range and how it ends.'),
+    chapters: zod
+        .array(
+            zod.object({
+                id: zod
+                    .string()
+                    .max(insightsExplainCreateBodyChaptersItemIdMax)
+                    .describe('Identifier of the chapter. The response returns the chapter under the same one.'),
+                title: zod
+                    .string()
+                    .max(insightsExplainCreateBodyChaptersItemTitleMax)
+                    .describe("What the chapter is about, for example 'A peak on October 2'."),
+                summary: zod
+                    .string()
+                    .max(insightsExplainCreateBodyChaptersItemSummaryMax)
+                    .describe(
+                        'The computed facts of the chapter in one or two sentences, with their numbers and dates.'
+                    ),
+                evidence: zod
+                    .array(zod.string().max(insightsExplainCreateBodyChaptersItemEvidenceItemMax))
+                    .max(insightsExplainCreateBodyChaptersItemEvidenceMax)
+                    .optional()
+                    .describe(
+                        'Findings about the cause of the chapter, one sentence each. Empty when nothing was found. At most 6.'
+                    ),
+            })
+        )
+        .max(insightsExplainCreateBodyChaptersMax)
+        .describe(
+            'The chapters of the explanation in reading order. At most 8. Empty when nothing stands out on the chart.'
+        ),
+})
 
 /**
  * Generate an AI-suggested name and description for an insight based on its query configuration.

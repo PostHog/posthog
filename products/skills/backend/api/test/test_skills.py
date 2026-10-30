@@ -132,7 +132,13 @@ class TestLLMSkillAPI(APIBaseTest):
                 "license": "Apache-2.0",
                 "compatibility": "Requires Python 3.12+",
                 "allowed_tools": ["Bash", "Read"],
-                "metadata": {"author": "test-org", "version": "1.0"},
+                "metadata": {
+                    "author": "test-org",
+                    "version": "1.0",
+                    "seeded_by": "example-harness",
+                    "canonical_hash": "example-hash",
+                    "source": "example-source",
+                },
             },
             format="json",
         )
@@ -143,6 +149,7 @@ class TestLLMSkillAPI(APIBaseTest):
         assert data["compatibility"] == "Requires Python 3.12+"
         assert data["allowed_tools"] == ["Bash", "Read"]
         assert data["metadata"] == {"author": "test-org", "version": "1.0"}
+        assert LLMSkill.objects.get(team=self.team, name="full-skill").metadata == data["metadata"]
 
     @parameterized.expand(
         [
@@ -3500,12 +3507,18 @@ class TestSkillContentDigests(APIBaseTest):
             # A jsonb column keeps object keys sorted by length and then bytewise, so these come
             # back in neither the written order nor alphabetical order. The digest is stamped
             # before the insert, so it has to describe bytes that do not depend on that order.
-            metadata={"seeded_by": "review_hog", "source": "products/skills", "nested": {"z": "1", "a": "2"}},
+            metadata={
+                "seeded_by": "example-harness",
+                "canonical_hash": "example-hash",
+                "source": "example-source",
+                "nested": {"z": "1", "a": "2"},
+            },
             files=[{"path": "references/guide.md", "content": "# Guía ✅"}],
         )
 
         # `create_skill` returns the stored row, which is what the store renders its SKILL.md from.
         assert created.skill_md_sha256 == self._digest_of(created.rendered_skill_md())
+        assert created.metadata == {"nested": {"z": "1", "a": "2"}}
         assert created.skill_md_size == len(created.rendered_skill_md().encode())
         created_file = LLMSkillFile.objects.get(skill=created)
         assert created_file.content_sha256 == self._digest_of("# Guía ✅")

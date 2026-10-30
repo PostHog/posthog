@@ -1,5 +1,6 @@
 import type {
   SignalReport,
+  SignalReportSectionCountsParams,
   SignalReportsQueryParams,
   SignalReportsResponse,
 } from "@posthog/shared/types";
@@ -21,6 +22,8 @@ export const inboxReportKeys = {
     [...inboxReportKeys.all, "list", params ?? {}] as const,
   infiniteList: (params?: SignalReportsQueryParams) =>
     [...inboxReportKeys.all, "infinite-list", params ?? {}] as const,
+  sectionCounts: (params?: SignalReportSectionCountsParams) =>
+    [...inboxReportKeys.all, "section-counts", params ?? {}] as const,
   detail: (reportId: string) =>
     [...inboxReportKeys.all, reportId, "detail"] as const,
   artefacts: (reportId: string) =>

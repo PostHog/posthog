@@ -3,7 +3,7 @@ import posthog from 'posthog-js'
 
 import { IconBrackets, IconSidePanel, IconSparkles, IconWrench } from '@posthog/icons'
 
-import { RenderKeybind } from 'lib/components/Shortcuts/ShortcutMenu'
+import { RenderKeybind } from 'lib/components/Shortcuts/RenderKeybind'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'

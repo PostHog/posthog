@@ -28,17 +28,39 @@ export const LongSlugId: Story = { ...wide, args: { traceId: 'support-chat-sessi
 export const WithClusters: Story = { ...wide, args: { clusters: FIXTURE_CLUSTERS_CHIP } }
 export const Narrow: Story = { args: { clusters: FIXTURE_CLUSTERS_CHIP }, decorators: [withWidth(420)] }
 export const WithFeedback: Story = {
-    args: { feedback: { chip: { total: 6 }, onClick: () => {} } },
+    args: { feedback: { chip: { total: 6, thumbsUp: 0, thumbsDown: 0 }, onClick: () => {} } },
+    decorators: [withWidth(420)],
+}
+export const WithThumbsFeedback: Story = {
+    args: { feedback: { chip: { total: 6, thumbsUp: 3, thumbsDown: 1 }, onClick: () => {} } },
     decorators: [withWidth(420)],
 }
 
 export const WithGitBranch: Story = {
     ...wide,
-    args: { git: { branch: 'feat/billing-answers', repo: 'acme/support-bot' } },
+    args: { git: { branch: 'feat/billing-answers', repo: 'acme/support-bot', pullRequest: null } },
 }
 export const NarrowWithLongGitBranch: Story = {
     decorators: [withWidth(420)],
     args: {
-        git: { branch: 'carol/feat-answer-billing-questions-with-invoice-history-and-seat-changes', repo: null },
+        git: {
+            branch: 'carol/feat-answer-billing-questions-with-invoice-history-and-seat-changes',
+            repo: null,
+            pullRequest: null,
+        },
+    },
+}
+export const WithGitPullRequest: Story = {
+    ...wide,
+    args: {
+        git: {
+            branch: 'feat/billing-answers',
+            repo: 'acme/support-bot',
+            pullRequest: {
+                number: 42,
+                title: 'Answer billing questions',
+                href: '/engineering-analytics/repos/acme/support-bot/pull-requests/42',
+            },
+        },
     },
 }
