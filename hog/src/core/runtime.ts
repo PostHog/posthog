@@ -11,9 +11,10 @@ import { clackPrompts, type Prompts } from './prompts'
 export type Env = Readonly<Record<string, string | undefined>>
 
 // `timeoutMs` starts when the request leaves, so time spent waiting for --rate-limit doesn't count.
+// `skipRateLimit` marks a signed storage URL, which posthog-cli's --rate-limit doesn't count either.
 export type RuntimeFetch = (
     input: string | URL | Request,
-    init?: RequestInit & { timeoutMs?: number }
+    init?: RequestInit & { timeoutMs?: number; skipRateLimit?: boolean }
 ) => Promise<Response>
 
 // Everything a command touches outside its own arguments. Tests build one by hand,
@@ -79,7 +80,7 @@ export function processRuntime(): Runtime {
         writeStderr: (text) => {
             process.stderr.write(text)
         },
-        fetch: (input, { timeoutMs, ...init } = {}) =>
+        fetch: (input, { timeoutMs, skipRateLimit: _skipRateLimit, ...init } = {}) =>
             globalThis.fetch(
                 input,
                 timeoutMs === undefined ? init : { ...init, signal: AbortSignal.timeout(timeoutMs) }
