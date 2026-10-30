@@ -8,7 +8,16 @@ import type { Task } from "@posthog/shared";
 import { renderToString } from "ink";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PiChats } from "../chats";
-import { initialLayout, openTask, saveLayout } from "../layout";
+import {
+  activeWorkspace,
+  focusPane,
+  initialLayout,
+  loadLayout,
+  openTask,
+  paneIds,
+  saveLayout,
+  splitFocused,
+} from "../layout";
 import type { LocalSession } from "../local";
 import { type PiControl, STARTING_MODEL } from "../models";
 import type { MouseEvents } from "../mouse";
@@ -360,6 +369,41 @@ describe("App", () => {
         expect(drawnSince(picked)).toContain("^N new · ^S split"),
       );
       expect(drawnSince(picked)).toContain("Fix the flaky test");
+    } finally {
+      instance.unmount();
+    }
+  });
+
+  it.each([
+    ["the pane under the pointer", 0, "right"],
+    ["the focused pane when the pointer report is stale", 1_000, "left"],
+  ])("drops a file into %s", async (_, reportAge, expected) => {
+    const split = splitFocused(initialLayout(), "row");
+    const [left, right] = paneIds(activeWorkspace(split).root);
+    saveLayout(focusPane(split, left));
+    const mouse: MouseEvents = new EventEmitter();
+    const { instance, output } = renderInTerminal(
+      <App
+        session={null}
+        login={async () => {}}
+        logout={() => {}}
+        mouse={mouse}
+      />,
+    );
+    try {
+      await vi.waitFor(() => expect(output()).toContain("Type a message"));
+      const now = Date.now();
+      const clock = vi.spyOn(Date, "now").mockReturnValue(now);
+      // Ghostty reports the pointer just before it pastes the dropped path.
+      mouse.emit("move", { column: 90, row: 5 });
+      clock.mockReturnValue(now + reportAge);
+      mouse.emit("keys", "\x1b[200~/tmp/dropped.png\x1b[201~");
+      clock.mockRestore();
+      await vi.waitFor(() =>
+        expect(activeWorkspace(loadLayout()).focusedPaneId).toBe(
+          expected === "right" ? right : left,
+        ),
+      );
     } finally {
       instance.unmount();
     }

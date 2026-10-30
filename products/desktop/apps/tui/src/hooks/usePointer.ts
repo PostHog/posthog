@@ -42,8 +42,13 @@ export interface Pointer {
   onRelease: (at: Click) => void;
   onMove: (at: Click) => void;
   onWheel: (at: Wheel) => void;
+  // The pane a file was just dropped on: Ghostty reports the pointer a few milliseconds before it pastes the path.
+  paneAtDrop: () => string | undefined;
   boxes: ScreenBoxes;
 }
+
+// Long enough for the report that comes with a drop, short enough that a pointer moved before a typed paste does not count.
+const DROP_REPORT_MS = 200;
 
 // Mouse input: clicks, hover, the wheel, and a drag that selects chat text and copies it on release.
 export function usePointer({
@@ -68,6 +73,7 @@ export function usePointer({
   flashNotice: (text: string) => void;
 }): Pointer {
   const sidebarBox = useRef<DOMElement | null>(null);
+  const lastMove = useRef<{ at: Click; time: number } | null>(null);
   const paneBoxes = useRef(new Map<string, DOMElement>());
   const chatBoxes = useRef(new Map<string, DOMElement>());
   const prChips = useRef(
@@ -165,6 +171,7 @@ export function usePointer({
       flashNotice("Copied to clipboard");
     },
     onMove: (move) => {
+      lastMove.current = { at: move, time: Date.now() };
       let changed = false;
       for (const [paneId, element] of chatBoxes.current) {
         const box = boxOf(element);
@@ -176,6 +183,12 @@ export function usePointer({
     onWheel: (wheel) => {
       const paneId = paneHit(wheel);
       if (paneId) scrollPane(paneId, wheel.delta * 3);
+    },
+    paneAtDrop: () => {
+      const move = lastMove.current;
+      return move && Date.now() - move.time <= DROP_REPORT_MS
+        ? paneHit(move.at)
+        : undefined;
     },
     boxes: {
       sidebar: sidebarBox,
