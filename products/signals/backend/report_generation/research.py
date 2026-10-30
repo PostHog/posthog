@@ -450,6 +450,13 @@ _MONITORING_METRIC_CHECK_GUIDANCE = """- Make every effort to complete `config.m
   without a formula: the target scales by elapsed minutes / reference_period_minutes. Choose `fixed`
   explicitly for rates, averages, distinct counts, or other targets that keep the same bound. Never infer
   scaling from the number's display format. Supply the baseline period whenever baseline_value is present.
+  Distinguish implementation targets from minimum sample requirements. A traffic count used only to
+  decide whether there is enough evidence must set `config.monitoring.purpose` to `minimum_evidence`,
+  use `threshold_scaling: fixed`, and supply a positive whole-number `gte` sample threshold on one
+  unsampled raw event or action count, without a formula. Missing that threshold is inconclusive and
+  requests scout assessment after the fixed soak; it never proves the implementation failed. Keep the
+  implementation's success criterion as a separate check. Ordinary success targets use `expectation`
+  (the default). A rationale saying "inconclusive" does not change the executable definition.
   If required facts remain unknown, explain what is missing in the rationale and omit monitoring rather
   than invent them. Preserve the bounded relative query
   and whole-window comparison for existing Resolved behavior. This only defines the measurement; it does
