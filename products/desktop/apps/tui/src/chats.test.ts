@@ -90,6 +90,31 @@ describe("PiChats", () => {
     expect(started.latest_run?.status).toBe("queued");
   });
 
+  it.each([
+    ["Claude Code", "claude", true],
+    ["Codex", "codex", true],
+    ["pi", "pi", false],
+  ])(
+    "keeps watching a new %s cloud run until its agent starts, so the sandbox's token request is answered",
+    async (_, harness, held) => {
+      const { chats, agentRestarted } = setup({ canReopen: true });
+      const before = Date.now();
+
+      await chats.start("Go", [], undefined, harness as never);
+
+      if (held) {
+        expect(agentRestarted).toHaveBeenCalledWith(
+          "t1",
+          "r1",
+          expect.any(Number),
+        );
+        expect(agentRestarted.mock.calls[0][2]).toBeLessThanOrEqual(before);
+      } else {
+        expect(agentRestarted).not.toHaveBeenCalled();
+      }
+    },
+  );
+
   it("starts a Claude Code cloud run in the mode picked for it", async () => {
     const { api, chats } = setup();
 

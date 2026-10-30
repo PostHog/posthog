@@ -85,7 +85,7 @@ const RUN_ENDED =
 const STILL_ACTIVE = /already active/i;
 const FINISHED = ["completed", "failed", "cancelled"];
 
-// Waits for a run brought back with resume_in_cloud to have its agent running again, after `since` (epoch ms).
+// Watches a run until its agent reports in after `since` (epoch ms): one brought back with resume_in_cloud, or a new one.
 export type AgentRestarted = (
   taskId: string,
   runId: string,
@@ -146,6 +146,10 @@ export class PiChats {
       pendingUserMessage: prompt,
       ...pendingArtifacts(artifactIds),
     });
+    // A Claude Code or Codex sandbox asks the client for its plan's token once it boots, and only a watched
+    // run answers. The panes' watch follows the user, so this one stays on the run until its agent is up.
+    if (harness !== "pi")
+      this.agentRestarted?.(task.id, run.id, Date.now()).catch(() => {});
     return started.latest_run ? started : { ...started, latest_run: run };
   }
 
