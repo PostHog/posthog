@@ -301,7 +301,7 @@ export class ClaudeLocalSession implements LocalAgent {
       reply.taskRunId,
       reply.toolCallId,
       reply.optionId,
-      undefined,
+      reply.customInput,
       reply.answers,
     );
   }

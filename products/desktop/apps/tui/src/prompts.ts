@@ -44,6 +44,8 @@ export type PromptReply =
       optionId: string;
       // Each question's picked label, by question; the tool reads these, not the option id.
       answers?: Record<string, string>;
+      // What the user typed for an option that asks what to do instead.
+      customInput?: string;
     };
 
 const PERMISSIONS: { label: string; decision: McpToolPermissionDecision }[] = [
@@ -65,6 +67,23 @@ export const promptId = (prompt: AgentPrompt): string =>
 export const takesText = (prompt: AgentPrompt): boolean =>
   prompt.kind === "dialog" &&
   (prompt.request.method === "input" || prompt.request.method === "editor");
+
+// An option such as "No, and tell the agent what to do differently" takes its text from the composer.
+export const wantsText = (prompt: AgentPrompt, index: number): boolean =>
+  prompt.kind === "acp" &&
+  (prompt.request.options[index]?._meta as { customInput?: boolean })
+    ?.customInput === true;
+
+export function feedbackSheet(prompt: AgentPrompt, index: number): Sheet {
+  return {
+    title:
+      prompt.kind === "acp"
+        ? (prompt.request.options[index]?.name ?? prompt.request.title)
+        : "",
+    items: [],
+    footer: "Type what to do instead below and press Enter · Esc to reject",
+  };
+}
 
 // The questions a Claude Code prompt asks, or none for a plain permission.
 export const questionsOf = (prompt: AgentPrompt): AcpQuestion[] =>
@@ -128,6 +147,7 @@ export function promptReply(
   prompt: AgentPrompt,
   answer: number | string | null,
   answered: Record<string, string> = {},
+  customInput?: string,
 ): PromptReply {
   if (prompt.kind === "acp") {
     const { taskRunId, toolCallId, options } = prompt.request;
@@ -159,6 +179,7 @@ export function promptReply(
       taskRunId,
       toolCallId,
       optionId: (chosen ?? options[0]).optionId,
+      ...(customInput && { customInput }),
     };
   }
   if (prompt.kind === "permission")
