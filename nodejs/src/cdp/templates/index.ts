@@ -49,6 +49,8 @@ import { template as retainTemplate } from './_destinations/retain/retain.templa
 import { template as slackTemplate } from './_destinations/slack/slack.template'
 import { template as snapchatAdsTemplate } from './_destinations/snapchat_ads/snapchat.template'
 import { template as tiktokAdsTemplate } from './_destinations/tiktok_ads/tiktok.template'
+import { template as textkitTrackTemplate } from './_destinations/textkit/textkit-track.template'
+import { template as textkitTemplate } from './_destinations/textkit/textkit.template'
 import { template as twilioTemplate } from './_destinations/twilio/twilio.template'
 import { template as unifyTemplate } from './_destinations/unify/unify.template'
 import { template as webhookTemplate } from './_destinations/webhook/webhook.template'
@@ -133,6 +135,8 @@ export const HOG_FUNCTION_TEMPLATES_DESTINATIONS: HogFunctionTemplate[] = [
     unifyTemplate,
     closeTemplate,
     retainTemplate,
+    textkitTemplate,
+    textkitTrackTemplate,
 ]
 
 export const HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS: HogFunctionTemplate[] = [
