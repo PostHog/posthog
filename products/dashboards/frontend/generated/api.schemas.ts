@@ -10858,15 +10858,6 @@ export interface DataColorThemeApi {
     readonly created_by: UserBasicApi
 }
 
-export interface PaginatedDataColorThemeListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: DataColorThemeApi[]
-}
-
 export interface PatchedDataColorThemeApi {
     readonly id?: number
     /** @maxLength 100 */
@@ -11450,14 +11441,3 @@ export const DashboardsWidgetCatalogRetrieveWidgetTypeItem = {
     SessionReplayList: 'session_replay_list',
     SurveyResults: 'survey_results',
 } as const
-
-export type DataColorThemesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}

@@ -4740,6 +4740,13 @@ export namespace Schemas {
       properties?: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter)[] | null;
     }
 
+    export interface ActionListResponse {
+      /** Number of actions that match the filters. Without `limit`, it is `offset` plus the number of actions returned. */
+      count: number;
+      /** Actions on this page, or every matching action without `limit`. */
+      results: Action[];
+    }
+
     export interface ActionReference {
       /** Resource type: insight, experiment, cohort, or hog_function */
       type: string;
@@ -24099,6 +24106,25 @@ export namespace Schemas {
          */
       base_version?: number | null;
     }
+
+    export interface ChannelPage {
+      /** Number of channels the requester can access. */
+      count: number;
+      /**
+         * URL of the next page, or null on the last page.
+         * @nullable
+         */
+      next: string | null;
+      /**
+         * URL of the previous page, or null on the first page.
+         * @nullable
+         */
+      previous: string | null;
+      /** Channels on this page. */
+      results: ChannelDTO[];
+    }
+
+    export type ChannelListResponse = ChannelDTO[] | ChannelPage;
 
     export interface ChannelMembersWrite {
       /**
@@ -77116,15 +77142,6 @@ export namespace Schemas {
       results: AccountTrackRuleRunView[];
     }
 
-    export interface PaginatedActionList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: Action[];
-    }
-
     export interface PaginatedActivityLogList {
       /** @nullable */
       next?: string | null;
@@ -77346,15 +77363,6 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: ChangeRequest[];
-    }
-
-    export interface PaginatedChannelDTOList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: ChannelDTO[];
     }
 
     export interface PaginatedChannelFeedMessageDTOList {
@@ -77585,15 +77593,6 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: DataCatalogRelationshipProposal[];
-    }
-
-    export interface PaginatedDataColorThemeList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: DataColorTheme[];
     }
 
     export interface PaginatedDataDeletionRequestList {
@@ -80188,76 +80187,6 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: SessionRecordingExternalRef[];
-    }
-
-    export type SessionRecordingExternalReferencesItem = { [key: string]: unknown };
-
-    export interface SessionRecording {
-      readonly id: string;
-      /** @nullable */
-      readonly distinct_id: string | null;
-      readonly viewed: boolean;
-      readonly viewers: readonly string[];
-      readonly recording_duration: number;
-      /** @nullable */
-      readonly active_seconds: number | null;
-      /** @nullable */
-      readonly inactive_seconds: number | null;
-      /** @nullable */
-      readonly start_time: string | null;
-      /** @nullable */
-      readonly end_time: string | null;
-      /** @nullable */
-      readonly click_count: number | null;
-      /** @nullable */
-      readonly keypress_count: number | null;
-      /** @nullable */
-      readonly mouse_activity_count: number | null;
-      /** @nullable */
-      readonly console_log_count: number | null;
-      /** @nullable */
-      readonly console_warn_count: number | null;
-      /** @nullable */
-      readonly console_error_count: number | null;
-      /** @nullable */
-      readonly start_url: string | null;
-      person?: MinimalPerson;
-      /** @nullable */
-      readonly retention_period_days: number | null;
-      /** @nullable */
-      readonly expiry_time: string | null;
-      /** @nullable */
-      readonly recording_ttl: number | null;
-      /** @nullable */
-      readonly snapshot_source: string | null;
-      /** @nullable */
-      readonly snapshot_library: string | null;
-      readonly ongoing: boolean;
-      /** @nullable */
-      readonly activity_score: number | null;
-      /** Load external references (linked issues) for this recording */
-      readonly external_references: readonly SessionRecordingExternalReferencesItem[];
-      /** Whether this recording matched the filters of the listing query that returned it. False only when a recording requested via session_recording_id was included despite not matching the filters. */
-      readonly matches_filters: boolean;
-      /**
-         * Total stored size of the recording's snapshot data in bytes. Only populated when the recording's metadata is loaded, e.g. on retrieve; null in list responses.
-         * @nullable
-         */
-      readonly total_size: number | null;
-      /**
-         * Number of captured rrweb events in the recording. Only populated when the recording's metadata is loaded, e.g. on retrieve; null in list responses.
-         * @nullable
-         */
-      readonly event_count: number | null;
-    }
-
-    export interface PaginatedSessionRecordingList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: SessionRecording[];
     }
 
     /**
@@ -110870,6 +110799,67 @@ export namespace Schemas {
       date_to: string;
     }
 
+    export type SessionRecordingExternalReferencesItem = { [key: string]: unknown };
+
+    export interface SessionRecording {
+      readonly id: string;
+      /** @nullable */
+      readonly distinct_id: string | null;
+      readonly viewed: boolean;
+      readonly viewers: readonly string[];
+      readonly recording_duration: number;
+      /** @nullable */
+      readonly active_seconds: number | null;
+      /** @nullable */
+      readonly inactive_seconds: number | null;
+      /** @nullable */
+      readonly start_time: string | null;
+      /** @nullable */
+      readonly end_time: string | null;
+      /** @nullable */
+      readonly click_count: number | null;
+      /** @nullable */
+      readonly keypress_count: number | null;
+      /** @nullable */
+      readonly mouse_activity_count: number | null;
+      /** @nullable */
+      readonly console_log_count: number | null;
+      /** @nullable */
+      readonly console_warn_count: number | null;
+      /** @nullable */
+      readonly console_error_count: number | null;
+      /** @nullable */
+      readonly start_url: string | null;
+      person?: MinimalPerson;
+      /** @nullable */
+      readonly retention_period_days: number | null;
+      /** @nullable */
+      readonly expiry_time: string | null;
+      /** @nullable */
+      readonly recording_ttl: number | null;
+      /** @nullable */
+      readonly snapshot_source: string | null;
+      /** @nullable */
+      readonly snapshot_library: string | null;
+      readonly ongoing: boolean;
+      /** @nullable */
+      readonly activity_score: number | null;
+      /** Load external references (linked issues) for this recording */
+      readonly external_references: readonly SessionRecordingExternalReferencesItem[];
+      /** Whether this recording matched the filters of the listing query that returned it. False only when a recording requested via session_recording_id was included despite not matching the filters. */
+      readonly matches_filters: boolean;
+      /**
+         * Total stored size of the recording's snapshot data in bytes. Only populated when the recording's metadata is loaded, e.g. on retrieve; null in list responses.
+         * @nullable
+         */
+      readonly total_size: number | null;
+      /**
+         * Number of captured rrweb events in the recording. Only populated when the recording's metadata is loaded, e.g. on retrieve; null in list responses.
+         * @nullable
+         */
+      readonly event_count: number | null;
+    }
+
     export interface SessionRecordingBulkDeleteRequest {
       /**
          * Session IDs of the recordings to delete (max 100 per call).
@@ -110919,6 +110909,17 @@ export namespace Schemas {
       console_log_capture_enabled: boolean;
       /** True when the recording started longer ago than the console log retention period. The recording can still exist after its console log entries are deleted. Entries expire one at a time, so a recording close to the retention period can already miss its earliest entries while this is false. */
       logs_expired: boolean;
+    }
+
+    export interface SessionRecordingListResponse {
+      /** Recordings on this page. */
+      results: SessionRecording[];
+      /** Whether more recordings match the query after this page. */
+      has_next: boolean;
+      /** Version of the listing response format. */
+      version: number;
+      /** Cursor for the next page. Send it back as `after` to load the next page. Absent when the query does not page by cursor or there is no next page. */
+      next_cursor?: string;
     }
 
     export type SessionReplayListWidgetCatalogEntryOpenApiWidgetType = typeof SessionReplayListWidgetCatalogEntryOpenApiWidgetType[keyof typeof SessionReplayListWidgetCatalogEntryOpenApiWidgetType];
@@ -132137,6 +132138,19 @@ export namespace Schemas {
     page?: number;
     };
 
+    export type CohortsCalculationHistoryRetrieveParams = {
+    /**
+     * Number of calculation runs to return. Defaults to 100.
+     * @minimum 1
+     */
+    limit?: number;
+    /**
+     * Number of calculation runs to skip. Defaults to 0.
+     * @minimum 0
+     */
+    offset?: number;
+    };
+
     export type CohortsPersonsRetrieveParams = {
     format?: CohortsPersonsRetrieveFormat;
     /**
@@ -133251,17 +133265,6 @@ export namespace Schemas {
      * Only relationships involving this table on either side.
      */
     table_name?: string;
-    };
-
-    export type DataColorThemesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
     };
 
     export type DataDeletionRequestsListParams = {

@@ -15,6 +15,7 @@ import type {
     CohortUsedInResponseApi,
     CohortUsedInWorkflowsBlockApi,
     CohortsActivityRetrieveParams,
+    CohortsCalculationHistoryRetrieveParams,
     CohortsListParams,
     CohortsPersonsRetrieveParams,
     CohortsStaffListParams,
@@ -305,16 +306,33 @@ export const cohortsBlockingWorkflowsRetrieve = async (
     })
 }
 
-export const getCohortsCalculationHistoryRetrieveUrl = (projectId: string, id: number) => {
-    return `/api/projects/${projectId}/cohorts/${id}/calculation_history/`
+export const getCohortsCalculationHistoryRetrieveUrl = (
+    projectId: string,
+    id: number,
+    params?: CohortsCalculationHistoryRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/cohorts/${id}/calculation_history/?${stringifiedParams}`
+        : `/api/projects/${projectId}/cohorts/${id}/calculation_history/`
 }
 
 export const cohortsCalculationHistoryRetrieve = async (
     projectId: string,
     id: number,
+    params?: CohortsCalculationHistoryRetrieveParams,
     options?: RequestInit
 ): Promise<void> => {
-    return apiMutator<void>(getCohortsCalculationHistoryRetrieveUrl(projectId, id), {
+    return apiMutator<void>(getCohortsCalculationHistoryRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })

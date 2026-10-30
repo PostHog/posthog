@@ -824,6 +824,19 @@ export type CohortsActivityRetrieveParams = {
     page?: number
 }
 
+export type CohortsCalculationHistoryRetrieveParams = {
+    /**
+     * Number of calculation runs to return. Defaults to 100.
+     * @minimum 1
+     */
+    limit?: number
+    /**
+     * Number of calculation runs to skip. Defaults to 0.
+     * @minimum 0
+     */
+    offset?: number
+}
+
 export type CohortsPersonsRetrieveParams = {
     format?: CohortsPersonsRetrieveFormat
     /**

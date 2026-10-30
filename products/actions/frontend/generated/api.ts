@@ -10,6 +10,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     ActionApi,
+    ActionListResponseApi,
     ActionReferenceApi,
     ActionSelectorMatchChangeApi,
     ActionsBulkUpdateTagsCreateParams,
@@ -23,7 +24,6 @@ import type {
     ActionsUpdateParams,
     BulkUpdateTagsRequestApi,
     BulkUpdateTagsResponseApi,
-    PaginatedActionListApi,
     PatchedActionApi,
 } from './api.schemas'
 
@@ -64,8 +64,8 @@ export const actionsList = async (
     projectId: string,
     params?: ActionsListParams,
     options?: RequestInit
-): Promise<PaginatedActionListApi> => {
-    return apiMutator<PaginatedActionListApi>(getActionsListUrl(projectId, params), {
+): Promise<ActionListResponseApi> => {
+    return apiMutator<ActionListResponseApi>(getActionsListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

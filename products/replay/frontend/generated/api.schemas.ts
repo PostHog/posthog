@@ -271,13 +271,15 @@ export interface SessionRecordingApi {
     readonly event_count: number | null
 }
 
-export interface PaginatedSessionRecordingListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
+export interface SessionRecordingListResponseApi {
+    /** Recordings on this page. */
     results: SessionRecordingApi[]
+    /** Whether more recordings match the query after this page. */
+    has_next: boolean
+    /** Version of the listing response format. */
+    version: number
+    /** Cursor for the next page. Send it back as `after` to load the next page. Absent when the query does not page by cursor or there is no next page. */
+    next_cursor?: string
 }
 
 export type PatchedSessionRecordingApiExternalReferencesItem = { [key: string]: unknown }

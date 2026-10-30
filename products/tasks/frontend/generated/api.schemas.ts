@@ -490,14 +490,24 @@ export interface ChannelDTOApi {
     readonly system_role: ChannelSystemRoleEnumApi | null
 }
 
-export interface PaginatedChannelDTOListApi {
+export interface ChannelPageApi {
+    /** Number of channels the requester can access. */
     count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
+    /**
+     * URL of the next page, or null on the last page.
+     * @nullable
+     */
+    next: string | null
+    /**
+     * URL of the previous page, or null on the first page.
+     * @nullable
+     */
+    previous: string | null
+    /** Channels on this page. */
     results: ChannelDTOApi[]
 }
+
+export type ChannelListResponseApi = ChannelDTOApi[] | ChannelPageApi
 
 /**
  * * `public` - public
