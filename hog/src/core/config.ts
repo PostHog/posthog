@@ -41,6 +41,12 @@ const ErrorTracking = z
             })
             .optional()
             .describe('The release every uploaded symbol set belongs to.'),
+        releaseMode: z
+            .enum(['event', 'symbol-set'])
+            .optional()
+            .describe(
+                'JavaScript only: put the release in the bundle (event, the default) or in the symbol set. --release-mode and HOG_RELEASE_MODE override it.'
+            ),
         sources: z
             .array(Source)
             .optional()
@@ -63,7 +69,30 @@ export type SchemaLanguage = z.infer<typeof SchemaLanguage>
 export const PostHogConfig = z
     .strictObject({
         $schema: z.string().optional().describe('The JSON schema for this file.'),
+        host: z
+            .url()
+            .optional()
+            .describe(
+                'The PostHog host for this project, like https://eu.posthog.com. `hog auth login` uses it, and other commands stop when your credentials are for another host. --host and HOG_HOST override it.'
+            ),
         errorTracking: ErrorTracking.optional(),
+        cli: z
+            .strictObject({
+                noFail: z
+                    .boolean()
+                    .optional()
+                    .describe('Exit with code 0 when a command fails, like --no-fail. HOG_NO_FAIL overrides it.'),
+                rateLimit: z
+                    .number()
+                    .int()
+                    .positive()
+                    .optional()
+                    .describe(
+                        'The most requests hog sends per minute, like --rate-limit. HOG_RATE_LIMIT overrides it.'
+                    ),
+            })
+            .optional()
+            .describe('Defaults for global options. Flags and HOG_ environment variables override them.'),
         endpoints: z
             .strictObject({
                 dir: z

@@ -18,13 +18,18 @@ export interface ParityResult {
     files?: Record<string, string | null>
 }
 
+// posthog-cli reads the POSTHOG_CLI_ names and hog the HOG_ ones, so both CLIs get the same credentials.
 function environment(serverUrl: string, home: string): Record<string, string> {
     return {
         HOME: home,
         POSTHOG_HOME: home,
+        HOG_HOME: home,
         POSTHOG_CLI_API_KEY: 'phx_parity',
         POSTHOG_CLI_PROJECT_ID: '1',
         POSTHOG_CLI_HOST: serverUrl,
+        HOG_API_KEY: 'phx_parity',
+        HOG_PROJECT_ID: '1',
+        HOG_HOST: serverUrl,
         NO_COLOR: '1',
     }
 }

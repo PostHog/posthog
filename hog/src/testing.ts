@@ -31,6 +31,7 @@ export interface FakeRuntime extends Runtime {
     requests: { method: string; url: string; body: unknown }[]
     files: Record<string, string>
     opened: string[]
+    tls: { verify: boolean }
 }
 
 function fakePrompts(answers: string[]): Prompts {
@@ -57,6 +58,7 @@ export function fakeRuntime(options: FakeRuntimeOptions = {}): FakeRuntime {
     const requests: FakeRuntime['requests'] = []
     const files = { ...options.files }
     const opened: string[] = []
+    const tls = { verify: true }
     // A clock that only moves when hog sleeps, so polling runs instantly.
     let clock = Date.UTC(2026, 0, 1)
     return {
@@ -134,6 +136,9 @@ export function fakeRuntime(options: FakeRuntimeOptions = {}): FakeRuntime {
             return true
         },
         prompts: fakePrompts([...(options.answers ?? [])]),
+        skipTlsVerification: () => {
+            tls.verify = false
+        },
         loadApiTools: async () => {
             if (!options.apiTools) {
                 throw new Error('This test loads the API tools without passing apiTools')
@@ -145,14 +150,15 @@ export function fakeRuntime(options: FakeRuntimeOptions = {}): FakeRuntime {
         requests,
         files,
         opened,
+        tls,
     }
 }
 
 // Credentials that pass validation, plus NO_COLOR so text output has no escape codes.
 export const TEST_CREDENTIALS = {
-    POSTHOG_CLI_API_KEY: 'phx_test',
-    POSTHOG_CLI_PROJECT_ID: '7',
-    POSTHOG_CLI_HOST: 'https://ph.example.com',
+    HOG_API_KEY: 'phx_test',
+    HOG_PROJECT_ID: '7',
+    HOG_HOST: 'https://ph.example.com',
     NO_COLOR: '1',
 }
 
@@ -163,12 +169,15 @@ export interface HogRun {
     requests: FakeRuntime['requests']
     files: Record<string, string>
     opened: string[]
+    elapsedMs: number
+    tls: { verify: boolean }
     json: () => any
     error: () => any
 }
 
 export async function runHog(argv: string[], options: FakeRuntimeOptions = {}): Promise<HogRun> {
     const runtime = fakeRuntime(options)
+    const start = runtime.now()
     const exitCode = await run(argv, runtime)
     return {
         exitCode,
@@ -177,6 +186,8 @@ export async function runHog(argv: string[], options: FakeRuntimeOptions = {}): 
         requests: runtime.requests,
         files: runtime.files,
         opened: runtime.opened,
+        elapsedMs: runtime.now() - start,
+        tls: runtime.tls,
         json: () => JSON.parse(runtime.stdout()),
         error: () => JSON.parse(runtime.stderr()).error,
     }
