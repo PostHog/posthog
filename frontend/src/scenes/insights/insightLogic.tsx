@@ -115,6 +115,18 @@ function reportInsightSaved(
 
 export const UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES = 3
 
+/**
+ * The numeric ID of the insight. While its state is still loading (for example, right after a save), only the
+ * short ID may be known, so the ID is looked up from it.
+ */
+async function resolveInsightId(insight: Partial<InsightModel>): Promise<number> {
+    const insightId = insight.id || (insight.short_id ? await getInsightId(insight.short_id) : undefined)
+    if (!insightId) {
+        throw new Error('Cannot update insight: unable to resolve insight id')
+    }
+    return insightId
+}
+
 export const createEmptyInsight = (shortId: InsightShortId | `new-${string}` | 'new'): Partial<InsightModel> => ({
     short_id: shortId !== 'new' && !shortId.startsWith('new-') ? (shortId as InsightShortId) : undefined,
     name: undefined,
@@ -180,6 +192,33 @@ export interface insightLogicActions {
         value: true
     } // tagsModel
     addProductIntent: (properties: ProductIntentProperties) => ProductIntentProperties // teamLogic
+    addInsightToDashboard: (
+        dashboardId: number,
+        callback?: () => void
+    ) => {
+        callback: (() => void) | undefined
+        dashboardId: number
+    }
+    addInsightToDashboardFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    addInsightToDashboardSuccess: (
+        insight: InsightModel<Node<Record<string, any>>>,
+        payload?: {
+            callback: (() => void) | undefined
+            dashboardId: number
+        }
+    ) => {
+        insight: InsightModel<Node<Record<string, any>>>
+        payload?: {
+            callback: (() => void) | undefined
+            dashboardId: number
+        }
+    }
     confirmDeleteInsight: (dashboardId: number | null) => {
         dashboardId: number | null
     }
@@ -330,6 +369,33 @@ export interface insightLogicActions {
     }
     reloadSavedInsights: () => {
         value: true
+    }
+    removeInsightFromDashboard: (
+        dashboardId: number,
+        callback?: () => void
+    ) => {
+        callback: (() => void) | undefined
+        dashboardId: number
+    }
+    removeInsightFromDashboardFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    removeInsightFromDashboardSuccess: (
+        insight: InsightModel<Node<Record<string, any>>>,
+        payload?: {
+            callback: (() => void) | undefined
+            dashboardId: number
+        }
+    ) => {
+        insight: InsightModel<Node<Record<string, any>>>
+        payload?: {
+            callback: (() => void) | undefined
+            dashboardId: number
+        }
     }
     saveAs: (
         redirectToViewMode?: boolean,
@@ -651,6 +717,8 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             insightUpdate,
             callback,
         }),
+        addInsightToDashboard: (dashboardId: number, callback?: () => void) => ({ dashboardId, callback }),
+        removeInsightFromDashboard: (dashboardId: number, callback?: () => void) => ({ dashboardId, callback }),
         setInsightMetadata: (
             metadataUpdate: Partial<Pick<InsightModel, 'name' | 'description' | 'tags' | 'favorited'>>
         ) => ({
@@ -736,15 +804,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     if (!Object.entries(insightUpdate).length) {
                         return values.insight
                     }
-                    // Resolve the numeric ID. When updateInsight races with loadInsight
-                    // (e.g. adding to a dashboard right after save), values.insight.id
-                    // may still be undefined. Fall back to resolving via short_id.
-                    const insightId =
-                        values.insight.id ||
-                        (values.insight.short_id ? await getInsightId(values.insight.short_id) : undefined)
-                    if (!insightId) {
-                        throw new Error('Cannot update insight: unable to resolve insight id')
-                    }
+                    const insightId = await resolveInsightId(values.insight)
                     const response = await insightsApi.update(insightId, insightUpdate)
                     // Call the callback before breakpoint so it fires even if a newer loader
                     // action was dispatched while the API call was in flight. The API call
@@ -763,6 +823,35 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     )
                     dashboardsModel.actions.updateDashboardInsight(updatedInsight, removedDashboards)
                     values.insight.short_id && refreshTreeItem('insight', String(values.insight.short_id))
+                    return updatedInsight
+                },
+                addInsightToDashboard: async ({ dashboardId, callback }, breakpoint) => {
+                    const insightId = await resolveInsightId(values.insight)
+                    const tile = await insightsApi.addToDashboard(insightId, dashboardId)
+                    // Before the breakpoint, so the callback runs even when a newer loader action superseded this one.
+                    callback?.()
+                    breakpoint()
+                    const updatedInsight = {
+                        ...values.insight,
+                        dashboard_tiles: [
+                            ...(values.insight.dashboard_tiles || []).filter((t) => t.dashboard_id !== dashboardId),
+                            tile,
+                        ],
+                    } as InsightModel
+                    dashboardsModel.actions.updateDashboardInsight(updatedInsight)
+                    return updatedInsight
+                },
+                removeInsightFromDashboard: async ({ dashboardId, callback }, breakpoint) => {
+                    await insightsApi.removeFromDashboard(values.insight, dashboardId)
+                    callback?.()
+                    breakpoint()
+                    const updatedInsight = {
+                        ...values.insight,
+                        dashboard_tiles: (values.insight.dashboard_tiles || []).filter(
+                            (t) => t.dashboard_id !== dashboardId
+                        ),
+                    } as InsightModel
+                    dashboardsModel.actions.updateDashboardInsight(updatedInsight, [dashboardId])
                     return updatedInsight
                 },
                 setInsightMetadata: async ({ metadataUpdate }, breakpoint) => {
@@ -927,8 +1016,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                 return {
                     ...state,
                     dashboard_tiles: state.dashboard_tiles?.filter((tile) => tile.dashboard_id !== id),
-                    // An unsaved insight must not ask to be placed on the deleted dashboard. A saved insight has
-                    // no `dashboards`, and an `undefined` one would replace the list a write builds from the tiles.
+                    // An unsaved insight must not be placed on the deleted dashboard when it is saved.
                     ...(state.dashboards ? { dashboards: state.dashboards.filter((d: number) => d !== id) } : {}),
                 }
             },
@@ -948,6 +1036,14 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                 updateInsightSuccess: (_, { insight }) => ({
                     ...insight,
                     query: insight.query || null,
+                }),
+                addInsightToDashboardSuccess: (state, { insight }) => ({
+                    ...state,
+                    dashboard_tiles: insight.dashboard_tiles,
+                }),
+                removeInsightFromDashboardSuccess: (state, { insight }) => ({
+                    ...state,
+                    dashboard_tiles: insight.dashboard_tiles,
                 }),
                 setInsightMetadataSuccess: (state, { insight }) => ({
                     ...state,
@@ -1166,13 +1262,11 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             const insightNumericId =
                 values.insight.id || (values.insight.short_id ? await getInsightId(values.insight.short_id) : undefined)
             const { name, description, favorited, deleted, tags } = values.insight
-            // A new insight carries the dashboards to place it on. A saved one sends back the dashboards
-            // it sits on. While its tiles are not loaded it sends nothing, because an empty list would
-            // take it off every dashboard.
-            const currentDashboards = values.insight.dashboard_tiles
+            // A new insight goes on the dashboards it was started from. A saved one keeps the dashboards it
+            // sits on, because the save does not change them.
+            const dashboards = insightNumericId
                 ? liveDashboardIds(values.insight.dashboard_tiles)
-                : undefined
-            const dashboards = insightNumericId ? currentDashboards : values.insight.dashboards
+                : values.insight.dashboards
 
             let savedInsight: InsightModel
 
@@ -1186,16 +1280,15 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     query: values.query,
                     deleted,
                     saved: true,
-                    dashboards,
                     tags,
                 }
 
                 savedInsight = insightNumericId
                     ? await insightsApi.update(insightNumericId, insightRequest)
-                    : await insightsApi.create({
-                          ...insightRequest,
-                          _create_in_folder: folder ?? getLastNewFolder(),
-                      })
+                    : await insightsApi.create(
+                          { ...insightRequest, _create_in_folder: folder ?? getLastNewFolder() },
+                          dashboards ?? []
+                      )
                 actions.reloadSavedInsights() // Load insights afresh
 
                 const alertsLogic = insightAlertsLogic.findMounted({

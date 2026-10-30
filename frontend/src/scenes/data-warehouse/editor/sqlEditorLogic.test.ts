@@ -3538,8 +3538,8 @@ describe('sqlEditorLogic', () => {
         })
 
         it.each([
-            { name: 'passes dashboards to insightsApi.create when a dashboardId is set', dashboardId: DASHBOARD_ID },
-            { name: 'does not pass dashboards to insightsApi.create when no dashboardId is set', dashboardId: null },
+            { name: 'creates the insight on the dashboard when a dashboardId is set', dashboardId: DASHBOARD_ID },
+            { name: 'creates the insight on no dashboard when no dashboardId is set', dashboardId: null },
         ])('$name', async ({ dashboardId }) => {
             const createSpy = jest.spyOn(insightsApi, 'create').mockResolvedValue(MOCK_INSIGHT)
 
@@ -3567,28 +3567,15 @@ describe('sqlEditorLogic', () => {
                 saved: true,
                 query: { source: { query: 'SELECT 42 AS unrun_edit' } },
             })
-            if (dashboardId !== null) {
-                expect(createPayload.dashboards).toEqual([dashboardId])
-            } else {
-                expect(createPayload).not.toHaveProperty('dashboards')
-            }
+            expect(createPayload).not.toHaveProperty('dashboards')
+            expect(createSpy.mock.calls[0][1]).toEqual(dashboardId !== null ? [dashboardId] : [])
         })
 
-        // The update path unions the target dashboard with the insight's existing links from
-        // dashboard_tiles, deduped.
-        it.each([
-            {
-                name: 'merges the dashboard with existing dashboard_tiles links',
-                dashboardTiles: [{ id: 1, dashboard_id: 7 }],
-                expected: [7, DASHBOARD_ID],
-            },
-            {
-                name: 'does not duplicate a dashboard the insight is already linked to',
-                dashboardTiles: [{ id: 1, dashboard_id: DASHBOARD_ID }],
-                expected: [DASHBOARD_ID],
-            },
-        ])('$name', async ({ dashboardTiles, expected }) => {
+        it('saving an existing insight from a dashboard flow places it on that dashboard', async () => {
             const updateSpy = jest.spyOn(insightsApi, 'update').mockResolvedValue(MOCK_INSIGHT)
+            const addToDashboardSpy = jest
+                .spyOn(insightsApi, 'addToDashboard')
+                .mockResolvedValue({ id: 2, dashboard_id: DASHBOARD_ID })
 
             logic = sqlEditorLogic({
                 tabId: TAB_ID,
@@ -3601,7 +3588,7 @@ describe('sqlEditorLogic', () => {
 
             const insightOnDashboards = {
                 ...MOCK_INSIGHT,
-                dashboard_tiles: dashboardTiles,
+                dashboard_tiles: [{ id: 1, dashboard_id: 7 }],
             } as InsightModel
             logic.actions.editInsight(MOCK_INSIGHT_QUERY.source.query, insightOnDashboards)
             await expectLogic(logic)
@@ -3616,8 +3603,8 @@ describe('sqlEditorLogic', () => {
             expect(updateSpy).toHaveBeenCalledTimes(1)
             const [, updatePayload] = updateSpy.mock.calls[0]
             expect(updatePayload.query).toMatchObject({ source: { query: 'SELECT 42 AS unrun_edit' } })
-            // Order-independent: only the set of linked dashboards matters.
-            expect([...(updatePayload.dashboards ?? [])].sort()).toEqual([...expected].sort())
+            expect(updatePayload).not.toHaveProperty('dashboards')
+            expect(addToDashboardSpy).toHaveBeenCalledWith(MOCK_INSIGHT.id, DASHBOARD_ID)
         })
     })
 
