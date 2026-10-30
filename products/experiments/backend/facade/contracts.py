@@ -521,6 +521,30 @@ class RunningExperiment:
 
 
 @frozen
+class RecentExperiment:
+    """One of a team's most recently modified experiments."""
+
+    id: int
+    name: str
+    archived: bool
+    start_date: datetime | None
+    end_date: datetime | None
+    feature_flag_key: str
+    updated_at: datetime
+
+
+@frozen
+class ExperimentOrientation:
+    """A team's experiment counts and its most recently modified experiments. Deleted experiments are left out."""
+
+    total_count: int
+    # Started, not ended, and not archived.
+    running_count: int
+    # Most recently modified first.
+    recent: tuple[RecentExperiment, ...]
+
+
+@frozen
 class ExperimentChanged:
     """One save or delete of an experiment, as `connect_experiment_changed` receivers get it."""
 
