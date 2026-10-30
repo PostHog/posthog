@@ -215,7 +215,12 @@ const meta: Meta<typeof HogFlowEditorPanel> = {
 }
 export default meta
 
-function PanelStory({ mode, selectedNodeId, layout = 'floating', workflow = PANEL_WORKFLOW }: PanelStoryProps): JSX.Element {
+function PanelStory({
+    mode,
+    selectedNodeId,
+    layout = 'floating',
+    workflow = PANEL_WORKFLOW,
+}: PanelStoryProps): JSX.Element {
     const { originalWorkflow } = useValues(workflowLogic(LOGIC_PROPS))
     const { nodes } = useValues(hogFlowEditorLogic(LOGIC_PROPS))
     const { setWorkflowValues } = useActions(workflowLogic(LOGIC_PROPS))
@@ -327,7 +332,7 @@ export const EmailHeader: StoryFn<PanelStoryProps> = (args) => {
 }
 EmailHeader.args = { mode: 'build', selectedNodeId: 'email', workflow: SENDER_WORKFLOW }
 EmailHeader.parameters = {
-    featureFlags: [FEATURE_FLAGS.WORKFLOWS_TRIGGER_VOLUME_ESTIMATE, FEATURE_FLAGS.WORKFLOWS_EMAIL_HEADER],
+    featureFlags: [FEATURE_FLAGS.WORKFLOWS_EMAIL_HEADER],
 }
 
 export const ConditionalBranch: StoryFn<PanelStoryProps> = Template.bind({})

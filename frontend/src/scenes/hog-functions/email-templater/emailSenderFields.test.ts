@@ -40,7 +40,16 @@ describe('emailSenderFields', () => {
 
     test.each([
         ['adds the domain to a local part', 'security', 'security@example.com'],
-        ['keeps a templated local part on the domain', '{{ variables.team }}', '{{ variables.team }}@example.com'],
+        [
+            'keeps a templated local part on the domain',
+            'team-{{ variables.team }}',
+            'team-{{ variables.team }}@example.com',
+        ],
+        [
+            'keeps a lone template expression as the whole address',
+            '{{ event.properties.sender }}',
+            '{{ event.properties.sender }}',
+        ],
         ['keeps an address that already has a domain', 'security@example.org', 'security@example.org'],
         ['clears the address when the input is empty', '  ', undefined],
     ])('%s', (_name, localPart, expected) => {

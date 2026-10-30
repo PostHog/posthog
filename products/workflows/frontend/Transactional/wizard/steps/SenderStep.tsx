@@ -70,6 +70,7 @@ export function SenderStep(): JSX.Element {
                 dataAttrPrefix="transactional-email"
                 onChangeFrom={(next) => updateEmail({ from: next })}
                 onChangeReplyTo={(replyTo) => updateEmail({ replyTo })}
+                onClear={() => updateEmail({ from: { ...from, name: undefined, email: undefined }, replyTo: '' })}
             />
         </div>
     )

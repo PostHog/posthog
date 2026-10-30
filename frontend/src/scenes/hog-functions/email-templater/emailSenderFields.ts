@@ -60,7 +60,12 @@ export function addressFromLocalPart(localPart: string, domain: string): string 
     if (!trimmed) {
         return undefined
     }
-    return trimmed.includes('@') || !domain ? trimmed : `${trimmed}@${domain}`
+    return trimmed.includes('@') || !domain || isSingleTemplateExpression(trimmed) ? trimmed : `${trimmed}@${domain}`
+}
+
+// A lone `{{ ... }}` can fill a whole address, such as `{{ event.properties.sender_email }}`, so the domain is not added to it.
+export function isSingleTemplateExpression(value: string): boolean {
+    return /^\{\{[^{}]*\}\}$/.test(value.trim())
 }
 
 // Mirrors the send path, which ignores a custom address that fails these checks and sends from the

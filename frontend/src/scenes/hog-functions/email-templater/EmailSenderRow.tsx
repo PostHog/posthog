@@ -19,7 +19,7 @@ import { emailTemplaterLogic } from './emailTemplaterLogic'
 /** The From row: pick senders in one click, and set a custom name, address, or reply-to only when needed. */
 export function EmailSenderRow(): JSX.Element {
     const { emailTemplate, logicProps } = useValues(emailTemplaterLogic)
-    const { setEmailTemplateValue } = useActions(emailTemplaterLogic)
+    const { setEmailTemplateValue, clearCustomSender } = useActions(emailTemplaterLogic)
     const { integrations, integrationsLoading } = useValues(integrationsLogic)
     const senderRotationEnabled = useFeatureFlag('WORKFLOWS_EMAIL_SENDER_ROTATION')
     const [isEditing, setIsEditing] = useState(false)
@@ -111,6 +111,7 @@ export function EmailSenderRow(): JSX.Element {
                         dataAttrPrefix={dataAttrPrefix}
                         onChangeFrom={(next) => setEmailTemplateValue('from', next)}
                         onChangeReplyTo={(next) => setEmailTemplateValue('replyTo', next)}
+                        onClear={clearCustomSender}
                         onDone={() => onVisibilityChange(false)}
                     />
                 }
