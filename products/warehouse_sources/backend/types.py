@@ -3,6 +3,7 @@
 
 from products.warehouse_sources.backend.facade.types import (
     DIRECT_ENGINE_BY_SOURCE_TYPE as DIRECT_ENGINE_BY_SOURCE_TYPE,
+    CDCEngine as CDCEngine,
     DataWarehouseManagedViewSetKind as DataWarehouseManagedViewSetKind,
     DataWarehouseTableCreatedVia as DataWarehouseTableCreatedVia,
     DataWarehouseTableFormat as DataWarehouseTableFormat,

@@ -78,6 +78,8 @@ import { FeatureFlagRequestBlocklist } from 'products/feature_flags/frontend/Fea
 import { LogsAlertingSection } from 'products/logs/frontend/components/LogsAlerting/LogsAlertingSection'
 import { LogsMetricRulesSection } from 'products/logs/frontend/components/LogsMetricRules/LogsMetricRulesSection'
 import { LogsSamplingSection } from 'products/logs/frontend/components/LogsSampling/LogsSamplingSection'
+import { OrganizationEventsRetentionSetting } from 'products/product_analytics/frontend/settings/OrganizationEventsRetentionSetting'
+import { ProjectEventsRetentionSetting } from 'products/product_analytics/frontend/settings/ProjectEventsRetentionSetting'
 import { TracingRetentionSettingsBlock } from 'products/tracing/frontend/components/TracingRetention/TracingRetentionSettings'
 import { HeatmapCaptureSettings } from 'products/web_analytics/frontend/heatmaps/components/HeatmapCaptureSettings'
 import { HeatmapScreenshotCookieSettings } from 'products/web_analytics/frontend/heatmaps/components/HeatmapScreenshotCookieSettings'
@@ -1408,6 +1410,12 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['url', 'regex', 'normalize', 'path analysis'],
             },
             {
+                id: 'project-events-retention',
+                title: 'Events retention',
+                component: <ProjectEventsRetentionSetting />,
+                keywords: ['events', 'retention', 'deletion', 'delete', 'months', 'compliance'],
+            },
+            {
                 id: 'human-friendly-comparison-periods',
                 title: 'Human friendly comparison periods',
                 description:
@@ -2333,6 +2341,12 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'When enabled, new projects will automatically have "Discard client IP data" turned on. This is recommended for GDPR compliance. Existing projects are not affected.',
                 component: <OrgIPAnonymizationDefault />,
                 keywords: ['ip', 'anonymize', 'gdpr', 'privacy', 'geolocation'],
+            },
+            {
+                id: 'organization-events-retention',
+                title: 'Events retention',
+                component: <OrganizationEventsRetentionSetting />,
+                keywords: ['events', 'retention', 'deletion', 'delete', 'months', 'compliance'],
             },
             {
                 id: 'organization-member-notice',

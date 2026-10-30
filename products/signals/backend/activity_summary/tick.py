@@ -8,6 +8,7 @@ import asyncio
 import datetime
 import dataclasses
 from collections import Counter
+from typing import Any
 
 from django.conf import settings
 from django.utils import timezone
@@ -28,6 +29,7 @@ from posthog.temporal.common.utils import close_db_connections
 
 from products.signals.backend.activity_summary.config import read_config
 from products.signals.backend.activity_summary.logic import (
+    CALLED_MODEL_STATUSES,
     MAX_SKIP_BACKOFF,
     MAX_VERSIONS,
     VIEW_UPDATE_INTERVAL,
@@ -61,6 +63,8 @@ logger = structlog.get_logger(__name__)
 TICK_WORKFLOW_NAME = "activity-summary-tick"
 EMBEDDING_DOCUMENT_TYPE = "activity_summary"
 EMBEDDING_RENDERING = "summary_text"
+# Where a summary came from: the tick, or a build as of a past date.
+SOURCE_LIVE = "live"
 
 # Stop reasons of a tick. Null when the tick updated every due pair.
 STOP_MAX_PAIRS_PER_TICK = "max_pairs_per_tick"
@@ -228,23 +232,42 @@ def plan_tick(limit: int | None, now: datetime.datetime) -> ActivitySummaryTickP
     )
 
 
-def _emit_embedding(team_id: int, user_id: int) -> None:
+def emit_summary_embedding(
+    team_id: int,
+    *,
+    content: str,
+    document_type: str,
+    document_id: str,
+    timestamp: datetime.datetime,
+    metadata: dict[str, Any],
+) -> None:
     # Deferred so importing the tick does not load the Kafka and ClickHouse chain behind the producer.
     from posthog.api.embedding_worker import emit_embedding_request  # noqa: PLC0415
 
+    emit_embedding_request(
+        content=content,
+        team_id=team_id,
+        product=EMBEDDING_PRODUCT,
+        document_type=document_type,
+        rendering=EMBEDDING_RENDERING,
+        document_id=document_id,
+        # The models of the report embeddings, so both share one vector space.
+        models=[model.value for model in EmbeddingModelName],
+        timestamp=timestamp,
+        metadata=metadata,
+    )
+
+
+def _emit_embedding(team_id: int, user_id: int) -> None:
     stored = UserActivitySummary.objects.for_team(team_id).filter(user_id=user_id).first()
     if stored is None or not stored.summary_text or stored.generated_at is None:
         return
-    emit_embedding_request(
+    emit_summary_embedding(
+        team_id,
         content=stored.summary_text,
-        team_id=team_id,
-        product=EMBEDDING_PRODUCT,
         document_type=EMBEDDING_DOCUMENT_TYPE,
-        rendering=EMBEDDING_RENDERING,
         # One vector per user per day, so an analysis can read the vector a user had on a given day.
         document_id=f"{user_id}:{stored.generated_at.date().isoformat()}",
-        # The models of the report embeddings, so both share one vector space.
-        models=[model.value for model in EmbeddingModelName],
         timestamp=stored.generated_at,
         metadata={
             "prompt_version": stored.prompt_version,
@@ -254,7 +277,9 @@ def _emit_embedding(team_id: int, user_id: int) -> None:
     )
 
 
-def _capture_generated(team_id: int, user_id: int, update: ActivitySummaryUpdate, trigger: str | None) -> None:
+def capture_generated(
+    team_id: int, user_id: int, update: ActivitySummaryUpdate, trigger: str | None, *, source: str = SOURCE_LIVE
+) -> None:
     team = Team.objects.only("uuid", "organization_id").get(id=team_id)
     # Counts and accounting only. The summary and the rendered input are user content.
     ph_background_capture()(
@@ -276,6 +301,7 @@ def _capture_generated(team_id: int, user_id: int, update: ActivitySummaryUpdate
             "inputs_used": update.inputs_used,
             "rebuilt": update.rebuilt,
             "trigger": trigger,
+            "source": source,
         },
         groups={"organization": str(team.organization_id), "project": str(team.uuid)},
     )
@@ -306,7 +332,7 @@ def run_pair(input: ActivitySummaryPairInput, *, last_attempt: bool = True) -> A
             max_versions=input.max_versions,
             max_skip_backoff=datetime.timedelta(hours=input.max_skip_backoff_hours),
         )
-        called_model = update.status in (UpdateStatus.OK, UpdateStatus.FAILED)
+        called_model = update.status in CALLED_MODEL_STATUSES
     except Exception as error:
         if not last_attempt:
             raise
@@ -324,9 +350,9 @@ def run_pair(input: ActivitySummaryPairInput, *, last_attempt: bool = True) -> A
             _emit_embedding(input.team_id, input.user_id)
         except Exception:
             logger.exception("activity_summary_embedding_failed", team_id=input.team_id, user_id=input.user_id)
-    if update.status in (UpdateStatus.OK, UpdateStatus.FAILED) and input.capture_events:
+    if update.status in CALLED_MODEL_STATUSES and input.capture_events:
         try:
-            _capture_generated(input.team_id, input.user_id, update, input.trigger)
+            capture_generated(input.team_id, input.user_id, update, input.trigger)
         except Exception:
             logger.exception("activity_summary_capture_failed", team_id=input.team_id, user_id=input.user_id)
     return ActivitySummaryPairResult(

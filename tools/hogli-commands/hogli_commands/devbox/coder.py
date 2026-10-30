@@ -1153,19 +1153,23 @@ def get_default_workspace_prefix() -> str:
 
 def _list_workspaces(*, timeout: float | None = None) -> list[dict[str, Any]]:
     """Return raw workspace payloads from the Coder CLI."""
+    return _fetch_workspaces(timeout=timeout) or []
+
+
+def _fetch_workspaces(*, timeout: float | None = None) -> list[dict[str, Any]] | None:
     try:
         result = _run(["coder", "list", "--output", "json"], capture_output=True, timeout=timeout)
     except subprocess.TimeoutExpired:
-        return []
+        return None
     if result.returncode != 0:
-        return []
+        return None
 
     try:
         workspaces = json.loads(result.stdout)
     except json.JSONDecodeError:
-        return []
+        return None
 
-    return workspaces if isinstance(workspaces, list) else []
+    return workspaces if isinstance(workspaces, list) else None
 
 
 def extract_workspace_label(workspace_name: str) -> str | None:
@@ -1208,8 +1212,16 @@ def region_from_workspace_name(workspace_name: str) -> str:
 
 def list_user_workspaces() -> list[dict[str, Any]]:
     """Return all workspaces belonging to the current user with the devbox prefix."""
+    return fetch_user_workspaces() or []
+
+
+def fetch_user_workspaces() -> list[dict[str, Any]] | None:
+    """Like ``list_user_workspaces``, but ``None`` when Coder could not list workspaces."""
+    workspaces = _fetch_workspaces()
+    if workspaces is None:
+        return None
     prefix = get_default_workspace_prefix()
-    return [ws for ws in _list_workspaces() if ws.get("name") == prefix or ws.get("name", "").startswith(f"{prefix}-")]
+    return [ws for ws in workspaces if ws.get("name") == prefix or ws.get("name", "").startswith(f"{prefix}-")]
 
 
 def get_workspace(name: str, workspaces: list[dict[str, Any]] | None = None) -> dict[str, Any] | None:
@@ -1834,6 +1846,20 @@ def exec_replace(name: str, command: list[str]) -> None:
     which would split a token like ``"uname -sm"`` back into two.
     """
     _execvp("ssh", ["ssh", _ssh_host_alias(name), shlex.join(command)])
+
+
+def run_in_workspace(name: str, command: list[str], *, timeout: float) -> subprocess.CompletedProcess[str]:
+    """Run one command in the workspace like :func:`exec_replace`, but capture its result.
+
+    For callers that must act on the remote exit code and output instead of
+    handing the terminal over to the command.
+    """
+    return subprocess.run(
+        ["ssh", _ssh_host_alias(name), shlex.join(command)],
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+    )
 
 
 def coder_ssh_alias_configured(name: str) -> bool:

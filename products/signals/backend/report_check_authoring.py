@@ -479,7 +479,12 @@ def cancel_check(
     check: SignalReportCheck,
     *,
     reason: Literal[
-        "stopped_by_person", "stopped_by_scout", "replaced_by_research", "replaced_by_request", "no_check_lane"
+        "stopped_by_person",
+        "stopped_by_scout",
+        "replaced_by_research",
+        "replaced_by_request",
+        "no_check_lane",
+        "monitoring_completed",
     ],
     attribution: ArtefactAttribution,
     from_statuses: Sequence[str] = SignalReportCheck.OPEN_STATUSES,

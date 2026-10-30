@@ -62,6 +62,7 @@ class AvailableFeature(StrEnum):
     XAA_AUTHENTICATION = "xaa_authentication"
     POSTHOG_CODE_USAGE = "posthog_code_usage"
     TOOLBAR_HEATMAPS = "toolbar_heatmaps"
+    PERSONAL_API_KEYS = "personal_api_keys"
 
 
 TREND_FILTER_TYPE_ACTIONS = "actions"
@@ -300,7 +301,12 @@ LOGIN_METHODS = [
     {
         "key": "google-oauth2",
         "display": "Google OAuth",
-        "backends": ["google-oauth2", "ee.api.authentication.CustomGoogleOAuth2"],
+        # The `ee.` path is only carried by sessions issued before the move to `posthog.api.sso`.
+        "backends": [
+            "google-oauth2",
+            "posthog.api.sso.CustomGoogleOAuth2",
+            "ee.api.authentication.CustomGoogleOAuth2",
+        ],
     },
     {
         "key": "github",
@@ -315,7 +321,8 @@ LOGIN_METHODS = [
     {
         "key": "saml",
         "display": "SAML",
-        "backends": ["saml", "ee.api.authentication.MultitenantSAMLAuth"],
+        # The `ee.` path is only carried by sessions issued before the move to `posthog.api.sso`.
+        "backends": ["saml", "posthog.api.sso.MultitenantSAMLAuth", "ee.api.authentication.MultitenantSAMLAuth"],
     },
     {
         "key": "oidc",
