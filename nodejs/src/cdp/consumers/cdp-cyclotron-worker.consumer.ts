@@ -1,3 +1,5 @@
+import { Histogram } from 'prom-client'
+
 import { instrumented } from '~/common/tracing/tracing-utils'
 import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
@@ -14,6 +16,14 @@ import {
 import { isLegacyPluginHogFunction, isNativeHogFunction, isSegmentPluginHogFunction } from '../utils'
 import { dualWrite } from '../utils/dual-store'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
+
+// The existing batch histogram starts at 25 ms, which hides a change of a few ms.
+const cyclotronWorkerPhaseDuration = new Histogram({
+    name: 'cdp_cyclotron_worker_phase_duration_seconds',
+    help: 'Wall time of one phase of a cyclotron worker batch. invocations blocks the dequeue loop, while background and monitoring_flush overlap the next batch.',
+    labelNames: ['queue', 'phase'],
+    buckets: [0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10],
+})
 
 /**
  * CDP worker that consumes and processes hog function / hogflow jobs.
@@ -198,16 +208,23 @@ export class CdpCyclotronWorker<
         // batch would otherwise blow past stallTimeoutMs and get poisoned.
         const stopHeartbeat = this.startPeriodicHeartbeat(invocations)
 
+        const endInvocations = cyclotronWorkerPhaseDuration.startTimer({ queue: this.queue, phase: 'invocations' })
         let invocationResults: CyclotronJobInvocationResult[]
         try {
             invocationResults = await this.processInvocations(invocations)
         } catch (e) {
             stopHeartbeat()
             throw e
+        } finally {
+            endInvocations()
         }
 
         // NOTE: We can queue and publish all metrics in the background whilst processing the next batch of invocations
-        const backgroundTask = this.runBackgroundTasks(invocationResults).finally(stopHeartbeat)
+        const endBackground = cyclotronWorkerPhaseDuration.startTimer({ queue: this.queue, phase: 'background' })
+        const backgroundTask = this.runBackgroundTasks(invocationResults).finally(() => {
+            endBackground()
+            stopHeartbeat()
+        })
 
         return { backgroundTask, invocationResults }
     }
@@ -236,11 +253,14 @@ export class CdpCyclotronWorker<
 
     @instrumented({ key: 'cdpConsumer.backgroundTask.monitoringFlush', timeoutMs: 15_000, sendException: false })
     private async flushMonitoring(invocationResults: CyclotronJobInvocationResult[]): Promise<void> {
+        const end = cyclotronWorkerPhaseDuration.startTimer({ queue: this.queue, phase: 'monitoring_flush' })
         try {
             await this.invocationResultsService.queueInvocationResultsAndFlush(invocationResults)
         } catch (err) {
             captureException(err)
             logger.error('Error processing invocation results', { err })
+        } finally {
+            end()
         }
     }
 
