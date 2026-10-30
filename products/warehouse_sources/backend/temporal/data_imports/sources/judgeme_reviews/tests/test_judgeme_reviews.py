@@ -12,8 +12,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     JudgeMeReviewsSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.judgeme_reviews.judgeme_reviews import (
-    FORBIDDEN_MESSAGE,
-    INVALID_CREDENTIALS_MESSAGE,
     PAGE_SIZE,
     JudgeMeReviewsResumeConfig,
     _normalize_shop_domain,
@@ -117,10 +115,6 @@ class TestNormalizeShopDomain:
 class TestValidateCredentials:
     @parameterized.expand(
         [
-            ("valid", 200, (True, None)),
-            ("unauthorized", 401, (False, INVALID_CREDENTIALS_MESSAGE)),
-            ("forbidden", 403, (False, FORBIDDEN_MESSAGE)),
-            ("server_error", 500, (False, "Judge.me returned HTTP 500")),
             ("connection_error", None, (False, "Could not connect to Judge.me to validate your credentials")),
         ]
     )

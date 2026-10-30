@@ -52,7 +52,7 @@ class EasypromosSource(ResumableSource[EasypromosSourceConfig, EasypromosResumeC
             name=ExternalDataSourceType.EASYPROMOS,
             category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="Easypromos",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["promotions", "contests", "giveaways"],
             caption="""Enter your Easypromos access token to sync your promotions data into the PostHog Data warehouse.
 

@@ -179,7 +179,7 @@ class RaygunSource(ResumableSource[RaygunSourceConfig, RaygunResumeConfig]):
             name=ExternalDataSourceType.RAYGUN,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Raygun",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption=RAYGUN_CAPTION,
             iconPath="/static/services/raygun.png",
             docsUrl="https://posthog.com/docs/cdp/sources/raygun",

@@ -3,6 +3,7 @@ import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
 import type { DataColorTheme } from 'lib/colors'
+import { consumePersonsModalClick } from 'lib/components/ResultMenu/personsModalCapture'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { cohortSavedToast } from 'scenes/cohorts/cohortSavedToast'
@@ -39,6 +40,7 @@ import { retentionToActorsQuery } from './queries'
 import { retentionLogic } from './retentionLogic'
 import { retentionPeopleLogic } from './retentionPeopleLogic'
 import { ProcessedRetentionPayload } from './types'
+import { formatRetentionCohortLabel } from './utils'
 
 const DEFAULT_RETENTION_LOGIC_KEY = 'default_retention_key'
 
@@ -351,10 +353,25 @@ export const retentionModalLogic = kea<retentionModalLogicType>([
         },
     })),
     listeners(({ actions, values }) => ({
-        openModal: ({ rowIndex, breakdownValue }: { rowIndex: number; breakdownValue?: string | number | null }) => {
+        openModal: ({ rowIndex, breakdownValue, columnIndex }) => {
             // Backstop for render surfaces that don't check canOpenPersonModal before dispatching:
             // custom aggregation targets can't resolve actors, so don't fire the query.
             if (!values.canOpenPersonModal) {
+                return
+            }
+            const row = values.selectedRow
+            if (
+                row &&
+                values.actorsQuery &&
+                consumePersonsModalClick({
+                    title: row.date
+                        ? `${formatRetentionCohortLabel(row, values.retentionFilter?.period)} Cohort`
+                        : row.label,
+                    rowsQuery: { kind: NodeKind.DataTableNode, source: values.actorsQuery, full: true },
+                    open: () => actions.openModal(rowIndex, breakdownValue, columnIndex),
+                })
+            ) {
+                actions.closeModal()
                 return
             }
             actions.loadPeople(rowIndex, breakdownValue)

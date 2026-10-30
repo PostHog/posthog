@@ -71,7 +71,7 @@ class GreenhouseSource(ResumableSource[GreenhouseSourceConfig, GreenhouseResumeC
             name=ExternalDataSourceType.GREENHOUSE,
             category=DataWarehouseSourceCategory.HR___RECRUITING,
             label="Greenhouse",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Greenhouse Harvest credentials to automatically pull your Greenhouse recruiting data into the PostHog Data warehouse.
 
 Create credentials in Greenhouse under **Configure → Dev Center → API Credential Management**.

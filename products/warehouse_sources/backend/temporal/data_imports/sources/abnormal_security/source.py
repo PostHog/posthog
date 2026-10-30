@@ -65,7 +65,7 @@ class AbnormalSecuritySource(ResumableSource[AbnormalSecuritySourceConfig, Abnor
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Abnormal Security (Abnormal AI)",
             iconPath="/static/services/abnormal_security.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption=(
                 "Create an API token in [Abnormal Settings > Integrations > Abnormal REST API]"
                 "(https://portal.abnormalsecurity.com/home/settings/integrations). "

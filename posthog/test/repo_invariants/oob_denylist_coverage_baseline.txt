@@ -1,5 +1,3 @@
-nodejs/src/cdp/services/messaging/email-validation.service.ts
-nodejs/src/common/utils/request.ts
 nodejs/src/ingestion/pipelines/errortracking/cymbal/client.ts
 posthog/api/proxy_record_diagnostics.py
 posthog/api/utils.py
@@ -15,5 +13,4 @@ products/tasks/backend/logic/services/agent_command.py
 products/warehouse_sources/backend/temporal/data_imports/pipelines/pipeline_v3/destinations_load/writers/postgres.py
 products/warehouse_sources/backend/temporal/data_imports/sources/salesforce/auth.py
 products/workflows/backend/providers/ses.py
-rust/common/dns/src/lib.rs
 rust/cymbal/src/modes/processing/stages/resolution/remote/dns.rs

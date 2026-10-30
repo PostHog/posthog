@@ -7,7 +7,7 @@ import { useChartTheme } from 'lib/charts/hooks'
 import type { HighlightMoverApi } from 'products/today/frontend/generated/api.schemas'
 
 import { TodayChange } from './TodayChange'
-import { useTodayTonePalette } from './TodaySparkline'
+import { useTodayTonePalette } from './todayTone'
 
 export function TodayPulseMovers({
     movers,

@@ -52,7 +52,7 @@ class ImpactPartnerSource(ResumableSource[ImpactPartnerSourceConfig, ImpactPartn
             category=DataWarehouseSourceCategory.ADVERTISING,
             keywords=["impact.com", "impact radius", "publisher", "affiliate"],
             label="impact.com Partner",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your impact.com Account SID and Auth Token to pull the data your partner (publisher) account sees into the PostHog Data warehouse.
 
 Find these in impact.com under **Settings > Technical > API**. Create a Read-Only access token, then copy its Account SID and Auth Token below.

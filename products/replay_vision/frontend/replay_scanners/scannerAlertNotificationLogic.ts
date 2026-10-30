@@ -40,9 +40,10 @@ export interface scannerAlertNotificationLogicValues {
     destinationGroups: VisionAlertDestinationGroup[]
     existingHogFunctions: HogFunctionType[]
     existingHogFunctionsLoading: boolean
-    firstSlackIntegration: IntegrationType | undefined
     integrationsFailed: boolean
     pendingNotifications: PendingVisionAlertNotification[]
+    selectedSlackIntegration: IntegrationType | undefined
+    selectedSlackIntegrationId: number | null
     selectedType: VisionAlertNotificationType
     slackChannelValue: string | null
     urlInput: AlertNotificationUrlInput | undefined
@@ -102,6 +103,9 @@ export interface scannerAlertNotificationLogicActions {
     setPendingNotifications: (notifications: PendingVisionAlertNotification[]) => {
         notifications: PendingVisionAlertNotification[]
     }
+    setSelectedSlackIntegrationId: (selectedSlackIntegrationId: number | null) => {
+        selectedSlackIntegrationId: number | null
+    }
     setSelectedType: (selectedType: VisionAlertNotificationType) => {
         selectedType: VisionAlertNotificationType
     }
@@ -118,15 +122,21 @@ export interface scannerAlertNotificationLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         autoSavesDestinations: (arg: string | undefined) => boolean
-        firstSlackIntegration: (slackIntegrations: IntegrationType[] | undefined) => IntegrationType | undefined
+        selectedSlackIntegration: (
+            slackIntegrations: IntegrationType[] | undefined,
+            selectedSlackIntegrationId: number | null
+        ) => IntegrationType | undefined
         urlInput: (selectedType: VisionAlertNotificationType) => AlertNotificationUrlInput | undefined
         addDisabledReason: (
             selectedType: VisionAlertNotificationType,
-            firstSlackIntegration: IntegrationType | undefined,
+            selectedSlackIntegration: IntegrationType | undefined,
             slackChannelValue: string | null,
             webhookUrl: string
         ) => string | undefined
-        destinationGroups: (existingHogFunctions: HogFunctionType[]) => VisionAlertDestinationGroup[]
+        destinationGroups: (
+            existingHogFunctions: HogFunctionType[],
+            slackIntegrations: IntegrationType[] | undefined
+        ) => VisionAlertDestinationGroup[]
     }
 }
 
@@ -156,6 +166,9 @@ export const scannerAlertNotificationLogic = kea<scannerAlertNotificationLogicTy
         deleteExistingDestination: (group: VisionAlertDestinationGroup) => ({ group }),
         createPendingHogFunctions: (alertId: string) => ({ alertId }),
         setSelectedType: (selectedType: VisionAlertNotificationType) => ({ selectedType }),
+        setSelectedSlackIntegrationId: (selectedSlackIntegrationId: number | null) => ({
+            selectedSlackIntegrationId,
+        }),
         setSlackChannelValue: (slackChannelValue: string | null) => ({ slackChannelValue }),
         setWebhookUrl: (webhookUrl: string) => ({ webhookUrl }),
     }),
@@ -182,6 +195,13 @@ export const scannerAlertNotificationLogic = kea<scannerAlertNotificationLogicTy
             null as string | null,
             {
                 setSlackChannelValue: (_, { slackChannelValue }) => slackChannelValue,
+                setSelectedSlackIntegrationId: () => null,
+            },
+        ],
+        selectedSlackIntegrationId: [
+            null as number | null,
+            {
+                setSelectedSlackIntegrationId: (_, { selectedSlackIntegrationId }) => selectedSlackIntegrationId,
             },
         ],
         webhookUrl: [
@@ -223,9 +243,14 @@ export const scannerAlertNotificationLogic = kea<scannerAlertNotificationLogicTy
             () => [(_, props: ScannerAlertNotificationLogicProps) => props.alertId],
             (alertId: string | undefined): boolean => !!alertId,
         ],
-        firstSlackIntegration: [
-            (s) => [s.slackIntegrations],
-            (slackIntegrations: IntegrationType[] | undefined): IntegrationType | undefined => slackIntegrations?.[0],
+        selectedSlackIntegration: [
+            (s) => [s.slackIntegrations, s.selectedSlackIntegrationId],
+            (
+                slackIntegrations: IntegrationType[] | undefined,
+                selectedSlackIntegrationId: number | null
+            ): IntegrationType | undefined =>
+                slackIntegrations?.find((integration) => integration.id === selectedSlackIntegrationId) ??
+                slackIntegrations?.[0],
         ],
         urlInput: [
             (s) => [s.selectedType],
@@ -235,39 +260,41 @@ export const scannerAlertNotificationLogic = kea<scannerAlertNotificationLogicTy
                     : undefined,
         ],
         addDisabledReason: [
-            (s) => [s.selectedType, s.firstSlackIntegration, s.slackChannelValue, s.webhookUrl],
+            (s) => [s.selectedType, s.selectedSlackIntegration, s.slackChannelValue, s.webhookUrl],
             (
                 selectedType: VisionAlertNotificationType,
-                firstSlackIntegration: IntegrationType | undefined,
+                selectedSlackIntegration: IntegrationType | undefined,
                 slackChannelValue: string | null,
                 webhookUrl: string
             ): string | undefined => {
                 if (selectedType !== VISION_ALERT_NOTIFICATION_TYPE_SLACK) {
                     return webhookUrl ? undefined : 'Enter a webhook URL'
                 }
-                if (!firstSlackIntegration) {
+                if (!selectedSlackIntegration) {
                     return 'Connect Slack first'
                 }
                 return slackChannelValue ? undefined : 'Select a Slack channel'
             },
         ],
         destinationGroups: [
-            (s) => [s.existingHogFunctions],
-            (hogFunctions: HogFunctionType[]): VisionAlertDestinationGroup[] =>
-                groupVisionAlertDestinations(hogFunctions),
+            (s) => [s.existingHogFunctions, s.slackIntegrations],
+            (
+                hogFunctions: HogFunctionType[],
+                slackIntegrations: IntegrationType[] | undefined
+            ): VisionAlertDestinationGroup[] => groupVisionAlertDestinations(hogFunctions, slackIntegrations),
         ],
     }),
 
     listeners(({ actions, values, props }) => ({
         addSelectedNotification: () => {
             if (values.selectedType === VISION_ALERT_NOTIFICATION_TYPE_SLACK) {
-                if (!values.slackChannelValue || !values.firstSlackIntegration) {
+                if (!values.slackChannelValue || !values.selectedSlackIntegration) {
                     return
                 }
                 const [channelId, channelLabel] = values.slackChannelValue.split('|')
                 actions.addPendingNotification({
                     type: VISION_ALERT_NOTIFICATION_TYPE_SLACK,
-                    slackWorkspaceId: values.firstSlackIntegration.id,
+                    slackWorkspaceId: values.selectedSlackIntegration.id,
                     slackChannelId: channelId,
                     slackChannelName: channelLabel?.replace('#', '') ?? channelId,
                 })
@@ -288,9 +315,24 @@ export const scannerAlertNotificationLogic = kea<scannerAlertNotificationLogicTy
                 actions.createPendingHogFunctions(props.alertId)
             }
         },
-        loadIntegrationsSuccess: () => {
-            if (!values.firstSlackIntegration) {
+        loadIntegrationsSuccess: ({ integrations }) => {
+            const availableSlackIntegrations = integrations.filter((integration) => integration.kind === 'slack')
+            const availableIds = new Set(availableSlackIntegrations.map((integration) => integration.id))
+            if (values.selectedSlackIntegrationId === null || !availableIds.has(values.selectedSlackIntegrationId)) {
+                actions.setSelectedSlackIntegrationId(availableSlackIntegrations[0]?.id ?? null)
+            }
+            if (availableSlackIntegrations.length === 0) {
                 actions.setSelectedType(VISION_ALERT_NOTIFICATION_TYPE_WEBHOOK)
+            }
+
+            // A new alert creates its destinations on submit, so a staged notification for a disconnected workspace would fail then.
+            const stillValidPending = values.pendingNotifications.filter(
+                (notification) =>
+                    notification.type !== VISION_ALERT_NOTIFICATION_TYPE_SLACK ||
+                    availableIds.has(notification.slackWorkspaceId)
+            )
+            if (stillValidPending.length !== values.pendingNotifications.length) {
+                actions.setPendingNotifications(stillValidPending)
             }
         },
         deleteExistingDestination: async ({ group }) => {

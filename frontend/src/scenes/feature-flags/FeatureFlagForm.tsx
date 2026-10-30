@@ -49,6 +49,7 @@ import {
     Spinner,
     Tooltip,
 } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import { approvalsGateLogic } from 'lib/approvals/approvalsGateLogic'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
@@ -208,6 +209,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
     const { tags: availableTags } = useValues(tagsModel)
     const { isApprovalRequired } = useValues(approvalsGateLogic)
     const { allCohorts } = useValues(cohortsModel)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const hasEvaluationContexts = useFeatureFlag('FLAG_EVALUATION_TAGS') // NB: the tag was named "flag-evaluation-tags" before we renamed the concept – i.e. this powers evaluation contexts even though the name implies tags
     const isNewFeatureFlag = id === 'new' || id === undefined
     const requiresApprovalToEnable = isNewFeatureFlag && isApprovalRequired(ApprovalActionKey.FEATURE_FLAG_ENABLE)
@@ -222,6 +224,15 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
             startNewFlagDisabled()
         }
     }, [requiresApprovalToEnable, featureFlag.active, startNewFlagDisabled])
+
+    const cancelEditing = (): void => {
+        if (isEditingFlag) {
+            editFeatureFlag(false)
+            loadFeatureFlag()
+        } else {
+            router.actions.push(urls.featureFlags())
+        }
+    }
 
     const handleShowImplementation = (): void => {
         setShowImplementation(true)
@@ -435,32 +446,41 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                             : undefined
                     }
                     actions={
-                        <>
-                            <LemonButton
-                                data-attr="cancel-feature-flag"
-                                type="secondary"
-                                size="small"
-                                onClick={() => {
-                                    if (isEditingFlag) {
-                                        editFeatureFlag(false)
-                                        loadFeatureFlag()
-                                    } else {
-                                        router.actions.push(urls.featureFlags())
-                                    }
-                                }}
-                            >
-                                Cancel
-                            </LemonButton>
-                            <LemonButton
-                                type="primary"
-                                data-attr="save-feature-flag"
-                                htmlType="submit"
-                                form="feature-flag"
-                                size="small"
-                            >
-                                Save
-                            </LemonButton>
-                        </>
+                        todayRailNav ? (
+                            <>
+                                <Button data-attr="cancel-feature-flag" variant="outline" onClick={cancelEditing}>
+                                    Cancel
+                                </Button>
+                                <Button
+                                    variant="primary"
+                                    data-attr="save-feature-flag"
+                                    type="submit"
+                                    form="feature-flag"
+                                >
+                                    Save
+                                </Button>
+                            </>
+                        ) : (
+                            <>
+                                <LemonButton
+                                    data-attr="cancel-feature-flag"
+                                    type="secondary"
+                                    size="small"
+                                    onClick={cancelEditing}
+                                >
+                                    Cancel
+                                </LemonButton>
+                                <LemonButton
+                                    type="primary"
+                                    data-attr="save-feature-flag"
+                                    htmlType="submit"
+                                    form="feature-flag"
+                                    size="small"
+                                >
+                                    Save
+                                </LemonButton>
+                            </>
+                        )
                     }
                 />
 

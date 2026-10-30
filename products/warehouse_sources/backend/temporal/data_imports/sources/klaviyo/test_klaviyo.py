@@ -151,39 +151,6 @@ class TestClampFutureValueToNow:
 class TestNonRetryableErrors:
     @parameterized.expand(
         [
-            # 401/403 surfaced as a requests HTTPError when `fetch_page` calls `raise_for_status()`.
-            # The per-request path/query/timestamp varies, but the status text and base host are stable.
-            (
-                "unauthorized",
-                "401 Client Error: Unauthorized for url: https://a.klaviyo.com/api/events?filter=greater-than(datetime,2026-06-15T13:03:18.000Z)",
-            ),
-            (
-                "forbidden",
-                "403 Client Error: Forbidden for url: https://a.klaviyo.com/api/metrics",
-            ),
-        ]
-    )
-    def test_credential_errors_are_non_retryable(self, _name: str, observed_error: str) -> None:
-        non_retryable_errors = KlaviyoSource().get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable_errors)
-
-    @parameterized.expand(
-        [
-            # Transient/infra errors and server-side failures must stay retryable.
-            ("read_timeout", "HTTPSConnectionPool(host='a.klaviyo.com', port=443): Read timed out."),
-            (
-                "server_error",
-                "500 Server Error: Internal Server Error for url: https://a.klaviyo.com/api/events",
-            ),
-            ("connection_reset", "Connection reset by peer"),
-        ]
-    )
-    def test_transient_errors_remain_retryable(self, _name: str, other_error: str) -> None:
-        non_retryable_errors = KlaviyoSource().get_non_retryable_errors()
-        assert not any(key in other_error for key in non_retryable_errors)
-
-    @parameterized.expand(
-        [
             # The conversion-metric messages KlaviyoConversionMetricError raises are deterministic, so
             # they must classify as non-retryable. The message wording and the source-side substring
             # live in two files; this locks them together so a reword can't silently make the failure

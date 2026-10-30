@@ -61,7 +61,7 @@ Works with n8n Cloud and self-hosted instances. Enter your instance URL (e.g. `h
 Some tables (users, projects, project users, folders, variables) require an owner/admin key or an Enterprise plan; deselect them if your key can't access them.""",
             iconPath="/static/services/n8n.png",
             docsUrl="https://posthog.com/docs/cdp/sources/n8n",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

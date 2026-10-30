@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Literal, Optional
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
     DependentEndpointConfig,
@@ -15,6 +15,10 @@ PER_PAGE = 250
 # ignoring it keeps the fan-out going instead of failing the whole table. Page views also only
 # exist for calls placed to a session tracker.
 _CHILD_404_IGNORE: list[ResponseAction] = [{"status_code": 404, "action": "ignore"}]
+
+_CALL_SUMMARY_FIELDS = (
+    "total_calls,missed_calls,answered_calls,first_time_callers,average_duration,formatted_average_duration,leads"
+)
 
 
 @dataclass(frozen=True)
@@ -40,6 +44,15 @@ class CallRailEndpointConfig:
     should_sync_default: bool = True
     # Set for endpoints reached once per parent row rather than once per account.
     fanout: Optional[DependentEndpointConfig] = None
+    # Static query params, such as `fields=` for columns the API only returns on request.
+    extra_params: dict[str, str] = field(default_factory=dict)
+    # Set for listings that fall back to CallRail's `recent` window (the last 7 days) when sent no
+    # dates, so they get an explicit range that covers the retention period instead.
+    retention_window: bool = False
+    # Set for the vendor-computed report endpoints, which take one calendar-month date window per
+    # request instead of pages. A "summary" report carries no date on its rows, so each row gets the
+    # window it covers.
+    report: Optional[Literal["timeseries", "summary"]] = None
 
     @property
     def requires_account(self) -> bool:
@@ -65,6 +78,15 @@ _PAGE_VIEWS_FANOUT = DependentEndpointConfig(
     child_response_actions=_CHILD_404_IGNORE,
 )
 
+_CALLER_IDS_FANOUT = DependentEndpointConfig(
+    parent_name="companies",
+    resolve_param="company_id",
+    resolve_field="id",
+    include_from_parent=["id"],
+    parent_field_renames={"id": "company_id"},
+    child_response_actions=_CHILD_404_IGNORE,
+)
+
 _LEAD_TIMELINE_FANOUT = DependentEndpointConfig(
     parent_name="leads",
     resolve_param="lead_id",
@@ -82,6 +104,8 @@ _LEAD_TIMELINE_FANOUT = DependentEndpointConfig(
 # `start_date` date filter that narrows on a stable timestamp (Calls -> start_time,
 # Form submissions -> submitted_at). For those we advertise exactly that one field as the
 # incremental cursor so the cursor, the `sort=` field, and the `start_date` filter all agree.
+# The report endpoints (calls and form summaries, calls timeseries) take the same date filter and
+# advance on the date of the window they cover.
 # The remaining resources are mutable configuration objects or lack a usable server-side date
 # filter, so they ship full refresh only.
 CALLRAIL_ENDPOINTS: dict[str, CallRailEndpointConfig] = {
@@ -110,6 +134,40 @@ CALLRAIL_ENDPOINTS: dict[str, CallRailEndpointConfig] = {
             },
         ],
     ),
+    "calls_summary": CallRailEndpointConfig(
+        name="calls_summary",
+        path="/a/{account_id}/calls/summary.json",
+        response_key="grouped_results",
+        primary_keys=["period_start", "key"],
+        supports_incremental=True,
+        report="summary",
+        extra_params={"group_by": "source", "fields": _CALL_SUMMARY_FIELDS},
+        incremental_fields=[
+            {
+                "label": "period_start",
+                "type": IncrementalFieldType.Date,
+                "field": "period_start",
+                "field_type": IncrementalFieldType.Date,
+            },
+        ],
+    ),
+    "calls_timeseries": CallRailEndpointConfig(
+        name="calls_timeseries",
+        path="/a/{account_id}/calls/timeseries.json",
+        response_key="data",
+        primary_keys=["date"],
+        supports_incremental=True,
+        report="timeseries",
+        extra_params={"interval": "day", "fields": _CALL_SUMMARY_FIELDS},
+        incremental_fields=[
+            {
+                "label": "date",
+                "type": IncrementalFieldType.Date,
+                "field": "date",
+                "field_type": IncrementalFieldType.Date,
+            },
+        ],
+    ),
     "companies": CallRailEndpointConfig(
         name="companies",
         path="/a/{account_id}/companies.json",
@@ -130,6 +188,23 @@ CALLRAIL_ENDPOINTS: dict[str, CallRailEndpointConfig] = {
                 "type": IncrementalFieldType.DateTime,
                 "field": "submitted_at",
                 "field_type": IncrementalFieldType.DateTime,
+            },
+        ],
+    ),
+    "form_submissions_summary": CallRailEndpointConfig(
+        name="form_submissions_summary",
+        path="/a/{account_id}/forms/summary.json",
+        response_key="grouped_results",
+        primary_keys=["period_start", "key"],
+        supports_incremental=True,
+        report="summary",
+        extra_params={"group_by": "source", "fields": "total_forms,first_forms,leads"},
+        incremental_fields=[
+            {
+                "label": "period_start",
+                "type": IncrementalFieldType.Date,
+                "field": "period_start",
+                "field_type": IncrementalFieldType.Date,
             },
         ],
     ),
@@ -170,6 +245,20 @@ CALLRAIL_ENDPOINTS: dict[str, CallRailEndpointConfig] = {
             },
         ],
     ),
+    "outbound_caller_ids": CallRailEndpointConfig(
+        name="outbound_caller_ids",
+        # `company_id` is a required query param, bound per company row by the fan-out.
+        path="/a/{account_id}/caller_ids.json?company_id={company_id}",
+        response_key="caller_ids",
+        partition_key="created_at",
+        primary_keys=["company_id", "id"],
+        fanout=_CALLER_IDS_FANOUT,
+        # One request per company against a 1,000/hour account-wide budget, so leave it to the user
+        # to opt in rather than enabling it on every new connection.
+        should_sync_default=False,
+        # The parent companies listing is not windowed, so a full refresh sees every caller ID.
+        incremental_fields=[],
+    ),
     "page_views": CallRailEndpointConfig(
         name="page_views",
         path="/a/{account_id}/calls/{call_id}/page_views.json",
@@ -193,6 +282,16 @@ CALLRAIL_ENDPOINTS: dict[str, CallRailEndpointConfig] = {
                 "field_type": IncrementalFieldType.DateTime,
             },
         ],
+    ),
+    "sms_threads": CallRailEndpointConfig(
+        name="sms_threads",
+        path="/a/{account_id}/sms-threads.json",
+        response_key="sms_threads",
+        # The listing takes no sort param and returns the thread with the newest message first. Its
+        # date filter is not documented as narrowing on a stable field, so this is full refresh.
+        retention_window=True,
+        extra_params={"fields": "last_message_at"},
+        incremental_fields=[],
     ),
     "text_messages": CallRailEndpointConfig(
         name="text_messages",
@@ -229,6 +328,8 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
 
 SHOULD_SYNC_DEFAULT: dict[str, bool] = {name: config.should_sync_default for name, config in CALLRAIL_ENDPOINTS.items()}
 
-# A fan-out child accumulates one row per parent row per sync under append, so these tables offer
-# incremental merge only.
-MERGE_ONLY = tuple(name for name, config in CALLRAIL_ENDPOINTS.items() if config.fanout is not None)
+# A fan-out child accumulates one row per parent row per sync under append, and a report re-reads
+# the current month on every sync, so these tables offer incremental merge only.
+MERGE_ONLY = tuple(
+    name for name, config in CALLRAIL_ENDPOINTS.items() if config.fanout is not None or config.report is not None
+)

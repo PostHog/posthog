@@ -18,7 +18,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
     DEFAULT_RETRY,
     TrackedHTTPAdapter,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
+    TemporaryHostResolutionError,
+    _is_host_safe,
+    resolve_safe_host,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
     rest_api_resource,
@@ -75,17 +79,25 @@ def _base_url(store_url: str) -> str:
     return f"{normalize_store_url(store_url)}{WOOCOMMERCE_API_BASE_PATH}"
 
 
+def _check_host_safe(host: str, team_id: int) -> None:
+    """Raise `ValueError` for a host that resolves to an internal/private address.
+
+    A resolver blip raises `TemporaryHostResolutionError` instead, so the import pipeline
+    retries it without reporting it as a bug.
+    """
+    resolution = resolve_safe_host(host, team_id)
+    if resolution.connect_host is None:
+        raise ValueError(resolution.error or "WooCommerce store host is not allowed")
+
+
 def _assert_host_safe(store_url: str, team_id: int) -> None:
     """Block SSRF: reject store URLs that resolve to internal/private hosts.
 
     The store URL is fully user-controlled and drives server-side requests, so it
-    must be vetted before any outbound call. `_is_host_safe` is a no-op on
-    self-hosted instances and blocks private/internal IPs on PostHog Cloud.
+    must be vetted before any outbound call. The check is a no-op on self-hosted
+    instances and blocks private/internal IPs on PostHog Cloud.
     """
-    host = urlparse(normalize_store_url(store_url)).hostname or ""
-    is_safe, error = _is_host_safe(host, team_id)
-    if not is_safe:
-        raise ValueError(error or "WooCommerce store host is not allowed")
+    _check_host_safe(urlparse(normalize_store_url(store_url)).hostname or "", team_id)
 
 
 class _HostGuardedAdapter(TrackedHTTPAdapter):
@@ -111,10 +123,7 @@ class _HostGuardedAdapter(TrackedHTTPAdapter):
         cert: bytes | str | tuple[bytes | str, bytes | str] | None = None,
         proxies: Mapping[str, str] | None = None,
     ) -> Response:
-        host = urlparse(request.url or "").hostname or ""
-        is_safe, error = _is_host_safe(host, self._team_id)
-        if not is_safe:
-            raise ValueError(error or "WooCommerce store host is not allowed")
+        _check_host_safe(urlparse(request.url or "").hostname or "", self._team_id)
         return super().send(request, stream=stream, timeout=timeout, verify=verify, cert=cert, proxies=proxies)
 
 
@@ -384,7 +393,7 @@ def _list_webhooks(
                 auth=auth,
                 timeout=REQUEST_TIMEOUT_SECONDS,
             )
-        except (RequestException, ValueError) as e:
+        except (RequestException, ValueError, TemporaryHostResolutionError) as e:
             return [], f"Could not reach your WooCommerce store to list webhooks: {e}"
 
         if not response.ok:
@@ -425,7 +434,7 @@ def create_webhook(
     """
     try:
         _assert_host_safe(store_url, team_id)
-    except ValueError as e:
+    except (ValueError, TemporaryHostResolutionError) as e:
         return WebhookCreationResult(success=False, error=str(e))
 
     existing, error = _list_webhooks(store_url, consumer_key, consumer_secret, team_id)
@@ -453,7 +462,7 @@ def create_webhook(
 
         try:
             response = session.post(target, json=payload, auth=auth, timeout=REQUEST_TIMEOUT_SECONDS)
-        except (RequestException, ValueError) as e:
+        except (RequestException, ValueError, TemporaryHostResolutionError) as e:
             error = f"Could not reach your WooCommerce store to create webhooks: {e}"
         else:
             if response.ok:
@@ -475,7 +484,7 @@ def delete_webhook(
     """Delete every webhook on the store that delivers to `webhook_url`."""
     try:
         _assert_host_safe(store_url, team_id)
-    except ValueError as e:
+    except (ValueError, TemporaryHostResolutionError) as e:
         return WebhookDeletionResult(success=False, error=str(e))
 
     existing, error = _list_webhooks(store_url, consumer_key, consumer_secret, team_id)
@@ -498,7 +507,7 @@ def delete_webhook(
                 auth=auth,
                 timeout=REQUEST_TIMEOUT_SECONDS,
             )
-        except (RequestException, ValueError) as e:
+        except (RequestException, ValueError, TemporaryHostResolutionError) as e:
             return WebhookDeletionResult(success=False, error=f"Could not reach your WooCommerce store: {e}")
 
         if not response.ok:
@@ -513,7 +522,7 @@ def get_external_webhook_info(
     """Report the webhooks currently registered on the store for `webhook_url`."""
     try:
         _assert_host_safe(store_url, team_id)
-    except ValueError as e:
+    except (ValueError, TemporaryHostResolutionError) as e:
         return ExternalWebhookInfo(exists=False, url=webhook_url, error=str(e))
 
     existing, error = _list_webhooks(store_url, consumer_key, consumer_secret, team_id)

@@ -71,9 +71,9 @@ class Entity(PropertyMixin):
     math_property_revenue_currency: Optional["RevenueCurrencyPropertyConfig"]
     math_hogql: Optional[str]
     math_group_type_index: Optional[GroupTypeIndex]
-    # Index is not set at all by default (meaning: access = AttributeError) - it's populated in EntitiesMixin.entities
+    # Index is not set at all by default (meaning: access = AttributeError) - it's populated in parse_entities
     # Used for identifying entities within a single query during query building,
-    # which generally uses Entity objects processed by EntitiesMixin
+    # which generally uses Entity objects processed by parse_entities
     # The clean room way to do this would be passing the index _alongside_ the object, but OOP abuse is much less work
     index: int
 

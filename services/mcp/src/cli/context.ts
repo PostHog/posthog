@@ -9,7 +9,7 @@ import { resolveScopePreset } from '@/lib/scope-preset'
 import { SessionManager } from '@/lib/SessionManager'
 import { StateManager } from '@/lib/StateManager'
 import { sanitizeHeaderValue } from '@/lib/utils'
-import type { Context, Env, State } from '@/tools/types'
+import type { Context, Env, PinnedActiveContext, State } from '@/tools/types'
 
 import type { CliConfig } from './config'
 
@@ -30,7 +30,7 @@ const pendingAnalytics = new Set<Promise<void>>()
 export async function flushAnalytics(timeoutMs = 2000): Promise<void> {
     try {
         await Promise.race([
-            Promise.allSettled([...pendingAnalytics]),
+            Promise.allSettled(pendingAnalytics),
             new Promise((resolve) => setTimeout(resolve, timeoutMs).unref()),
         ])
         await getPostHogClient().shutdown(timeoutMs)
@@ -44,11 +44,17 @@ export async function buildCliContext(config: CliConfig): Promise<Context> {
     const fallbackDistinctId = `posthog-cli:${identityKey}`
     // Set by the Rust wrapper; joins these events to its telemetry for the same run.
     const cliInvocationId = process.env.POSTHOG_CLI_INVOCATION_ID
-    const cache = new MemoryCache<State>(`cli:${identityKey}:${config.host}`)
-    await cache.setMany({
-        ...(config.organizationId ? { orgId: config.organizationId } : {}),
-        ...(config.projectId ? { projectId: config.projectId } : {}),
-    })
+    const sessionId = randomUUID()
+    const cache = new MemoryCache<State>(`cli:${identityKey}:${config.host}:${sessionId}`)
+    const pinned: PinnedActiveContext | undefined =
+        config.organizationId || config.projectId
+            ? {
+                  pin: { organizationId: config.organizationId, projectId: config.projectId },
+                  sessionScoped: false,
+                  orgId: config.organizationId,
+                  projectId: config.projectId,
+              }
+            : undefined
 
     let privateResponse = false
     const api = new ApiClient({
@@ -62,9 +68,8 @@ export async function buildCliContext(config: CliConfig): Promise<Context> {
             privateResponse = true
         },
     })
-    const stateManager = new StateManager(cache, api)
+    const stateManager = new StateManager(cache, api, pinned)
     const sessionManager = new SessionManager(cache)
-    const sessionId = randomUUID()
 
     const context: Context = {
         api,

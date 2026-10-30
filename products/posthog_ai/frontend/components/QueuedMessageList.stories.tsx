@@ -10,7 +10,7 @@ const meta: Meta<typeof QueuedMessageList> = {
     title: 'Products/PostHog AI/QueuedMessageList',
     component: QueuedMessageList,
     tags: ['autodocs'],
-    render: ({ messages, steerPending, held }) => {
+    render: ({ messages, steerPending, hold }) => {
         const [queue, setQueue] = useState<QueuedMessage[]>(messages)
         return (
             <div className="max-w-180 mx-auto p-4">
@@ -20,7 +20,7 @@ const meta: Meta<typeof QueuedMessageList> = {
                     onRemove={(id) => setQueue((q) => q.filter((m) => m.id !== id))}
                     onSteer={() => setQueue([])}
                     steerPending={steerPending}
-                    held={held}
+                    hold={hold}
                 />
             </div>
         )
@@ -39,9 +39,9 @@ export const WaitingForApproval: Story = {
     parameters: { testOptions: { waitForLoadersToDisappear: false } },
 }
 
-/** A Stop or a failed send leaves the message staged. Nothing sends it until the user steers it. */
+/** A Stop leaves the message staged. Nothing sends it until the user steers it. */
 export const Held: Story = {
-    args: { messages: [{ id: '1', content: 'Also break it down by browser' }], held: true },
+    args: { messages: [{ id: '1', content: 'Also break it down by browser' }], hold: 'cancelled' },
 }
 
 export const Multiple: Story = {

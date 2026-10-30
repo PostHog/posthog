@@ -53,7 +53,7 @@ class BlandAISource(ResumableSource[BlandAISourceConfig, BlandAIResumeConfig]):
             name=ExternalDataSourceType.BLANDAI,
             category=DataWarehouseSourceCategory.COMMUNICATION,
             label="Bland AI",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption=(
                 "Enter your Bland AI API key to sync your AI phone calls, transcripts, and "
                 "conversational pathways into the PostHog Data warehouse. Find your key in the "

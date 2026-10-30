@@ -113,10 +113,30 @@ describe('ReportExpectedImpact', () => {
         jest.restoreAllMocks()
     })
 
-    function renderMeasurements(checks: SignalReportCheckApi[]): void {
+    function renderMeasurements(checks: SignalReportCheckApi[], reportStatus = report.status): void {
         logic.actions.loadReportChecksSuccess(checks)
-        render(<ReportExpectedImpact report={report} reportUrl="https://example.com/report-1" />)
+        render(
+            <ReportExpectedImpact
+                report={{ ...report, status: reportStatus }}
+                reportUrl="https://example.com/report-1"
+            />
+        )
     }
+
+    it.each([
+        [SignalReportStatus.READY, true],
+        [SignalReportStatus.PENDING_INPUT, true],
+        [SignalReportStatus.RESOLVED, false],
+        [SignalReportStatus.SUPPRESSED, false],
+    ] as const)('shows the measurement label for a %s report', (reportStatus, proposed) => {
+        renderMeasurements([check, { ...check, id: 'approved', approved_at: '2026-09-30T00:00:00Z' }], reportStatus)
+
+        expect(
+            screen
+                .getAllByText(/^(Proposed measurement|Approved measurement|Paused)$/)
+                .map((label) => label.textContent)
+        ).toEqual(proposed ? ['Proposed measurement', 'Approved measurement'] : ['Paused', 'Paused'])
+    })
 
     it.each(['linear', 'fixed'] as const)(
         'keeps the chart and collapses the %s Monitoring definition',
@@ -147,6 +167,7 @@ describe('ReportExpectedImpact', () => {
             ])
             expect(screen.getByText('Measurement window: since Monitoring starts.')).toBeInTheDocument()
             expect(screen.getByText('Target reference period: 7 days.')).toBeInTheDocument()
+            expect(screen.getByText('Check observation window after implementation: 14 days.')).toBeInTheDocument()
             expect(screen.getByText('· Measured over 14 days')).toBeInTheDocument()
             expect(
                 screen.getByText(

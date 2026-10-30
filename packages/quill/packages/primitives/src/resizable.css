@@ -18,7 +18,7 @@
     .quill-resizable__handle[aria-orientation='vertical']::after {
         inset-block: 0;
         inset-inline-start: 50%;
-        width: 4px;
+        width: var(--quill-resizable-hit-size, 4px);
         transform: translateX(-50%);
     }
 
@@ -35,7 +35,7 @@
     .quill-resizable__handle[aria-orientation='horizontal']::after {
         inset-block-start: 50%;
         inset-inline: 0;
-        height: 4px;
+        height: var(--quill-resizable-hit-size, 4px);
         transform: translateY(-50%);
     }
 

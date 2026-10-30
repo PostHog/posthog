@@ -47,8 +47,9 @@ class RateLimitError(LLMError):
 
 
 class RetryableRateLimitError(RateLimitError):
-    def __init__(self, message: str, retry_after: str | None = None) -> None:
+    def __init__(self, message: str, retry_after: str | None = None, *, status: int = 429) -> None:
         super().__init__(message)
+        self.status = status
         self.retry_after: float | None = None
         if retry_after:
             try:
@@ -181,7 +182,7 @@ class ModelPermissionError(LLMError):
         super().__init__(msg)
 
 
-def provider_error_detail(error: Exception | None) -> str | None:
+def provider_error_detail(error: BaseException | None) -> str | None:
     """The provider's own sentence, without the SDK's `Error code: NNN - {...}` wrapper.
 
     `str(e)` on an OpenAI or Anthropic error embeds the whole response dict, so read the parsed

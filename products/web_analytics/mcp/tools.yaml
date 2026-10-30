@@ -22,6 +22,7 @@ tools:
             JSON array of the spots you want to inspect (the `pointer_relative_x` / `pointer_y` values from
             `heatmaps-list`), plus the same page/date filters. Returns the underlying per-session interactions so you
             can open the session recordings that produced a hotspot.
+        reads_ingested_data: events
     heatmaps-list:
         operation: heatmaps_list
         enabled: true
@@ -50,6 +51,7 @@ tools:
             distinct coordinates, so the default page plus the `fold` summary is usually enough for analysis — raise
             `limit` or page with `offset` only if you need more, and check `has_more` to know when the list is
             truncated.
+        reads_ingested_data: events
     heatmaps-saved-create:
         operation: saved_create
         enabled: true
@@ -229,6 +231,7 @@ tools:
             (bool, default true) query params — pass `days=30` to summarize the last month, or `compare=false` to skip
             the period-over-period comparison for a faster response. Use this to answer questions like "how are my web
             analytics?", "how did the site do last week?", or "what's my traffic looking like this month?".
+        reads_ingested_data: events
 wrappers:
     query-web-overview:
         schema_ref: AssistantWebOverviewQuery
@@ -248,6 +251,7 @@ wrappers:
             - modifiers
             - samplingFactor
         use_optimized_output: false
+        reads_ingested_data: events
     query-web-stats:
         schema_ref: AssistantWebStatsTableQuery
         enabled: true
@@ -266,6 +270,7 @@ wrappers:
             - modifiers
             - samplingFactor
         use_optimized_output: false
+        reads_ingested_data: events
     query-web-vitals:
         schema_ref: AssistantWebVitalsPathBreakdownQuery
         enabled: true
@@ -284,3 +289,4 @@ wrappers:
             - modifiers
             - samplingFactor
         use_optimized_output: false
+        reads_ingested_data: events

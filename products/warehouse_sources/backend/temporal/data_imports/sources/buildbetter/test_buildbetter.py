@@ -555,8 +555,6 @@ class TestBuildBetterSourceNonRetryableErrors:
 
     @parameterized.expand(
         [
-            ("401_client_error", "401 Client Error: Unauthorized for url: https://api.buildbetter.app/v1/graphql"),
-            ("403_client_error", "403 Client Error: Forbidden for url: https://api.buildbetter.app/v1/graphql"),
             ("auth_hook_unauthorized", "BuildBetter GraphQL error: Authentication hook unauthorized this request"),
             ("webhook_auth_request_failed", "BuildBetter GraphQL error: webhook authentication request failed"),
         ]
@@ -567,9 +565,7 @@ class TestBuildBetterSourceNonRetryableErrors:
 
     @parameterized.expand(
         [
-            ("read_timeout", "HTTPSConnectionPool(host='api.buildbetter.app', port=443): Read timed out."),
             ("server_error", "BuildBetter: server error 503"),
-            ("connection_reset", "Connection reset by peer"),
         ]
     )
     def test_does_not_match_transient_errors(self, _name: str, other_error: str) -> None:

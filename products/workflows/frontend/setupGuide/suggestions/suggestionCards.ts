@@ -16,6 +16,7 @@ export interface SuggestionCard {
     weeklyCount: number
     steps: SuggestionStepKind[]
     suggestionId: string
+    premade: boolean
 }
 
 export function cardFromSuggestion(suggestion: DataSuggestionApi): SuggestionCard {
@@ -28,5 +29,6 @@ export function cardFromSuggestion(suggestion: DataSuggestionApi): SuggestionCar
         weeklyCount: suggestion.weekly_count,
         steps: suggestion.step_outline,
         suggestionId: suggestion.id,
+        premade: suggestion.premade,
     }
 }

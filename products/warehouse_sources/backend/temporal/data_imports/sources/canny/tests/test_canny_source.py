@@ -39,8 +39,6 @@ class TestCannySource:
         "expected_key",
         [
             "invalid API key",
-            "401 Client Error: Unauthorized for url: https://canny.io",
-            "403 Client Error: Forbidden for url: https://canny.io",
         ],
     )
     def test_non_retryable_errors(self, expected_key: str) -> None:

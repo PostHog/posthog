@@ -3,6 +3,7 @@ import '@testing-library/jest-dom'
 import { cleanup, render, screen } from '@testing-library/react'
 import { useActions, useValues } from 'kea'
 
+import { useForegroundStream } from '../../../hooks/useForegroundStream'
 import type { ActiveCreation } from '../../../logics/runnerPanelLogic'
 import { SidePanelRunnerImpl } from './SidePanelRunnerImpl'
 
@@ -59,5 +60,20 @@ describe('SidePanelRunnerImpl', () => {
         render(<SidePanelRunnerImpl panelId="panel" />)
 
         expect(screen.getByTestId('task-history-list')).toBeInTheDocument()
+    })
+
+    it.each([
+        { name: 'a startup stream', creation: { streamKey: 'draft-1' }, registered: 'draft-1' },
+        {
+            name: 'a run, which TaskRunChat registers',
+            creation: { streamKey: 'run-b', taskId: 'task-1', runId: 'run-b' },
+            registered: null,
+        },
+    ])('registers the foreground stream for $name', ({ creation, registered }) => {
+        setValues(creation as ActiveCreation, false)
+
+        render(<SidePanelRunnerImpl panelId="panel" />)
+
+        expect(useForegroundStream).toHaveBeenLastCalledWith(registered)
     })
 })

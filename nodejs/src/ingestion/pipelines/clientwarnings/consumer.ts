@@ -40,7 +40,10 @@ export function createClientWarningsConsumer(
                     staticDropEventTokens,
                 })
             )
-            .add('eventFilterManager', new EventFilterManagerComponent(container.postgres))
+            .add(
+                'eventFilterManager',
+                new EventFilterManagerComponent(container.postgres, { pipeline: 'clientwarnings' })
+            )
             .add(
                 'outputs',
                 new IngestionOutputsComponent(() => createOutputsRegistry().build(container.producerRegistry, config))

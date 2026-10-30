@@ -2,6 +2,7 @@
     "name": "@posthog/products-business-intelligence",
     "private": true,
     "dependencies": {
+        "@posthog/quill": "workspace:*",
         "fast-equals": "catalog:",
         "kea": "catalog:",
         "kea-loaders": "catalog:",

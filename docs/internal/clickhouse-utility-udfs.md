@@ -12,7 +12,7 @@ Invalid scalar and array `$feature_flags` values are replaced with an empty map 
 map values from failing insertion into the typed JSON column while preserving unrelated properties.
 
 See [the utility UDF README](../../clickhouse-udfs/util/README.md) for build and integration-test commands.
-The utility module and CI use Go 1.27.1, declared in `clickhouse-udfs/util/go.mod`.
+The utility module and CI use Go 1.27.3, declared in `clickhouse-udfs/util/go.mod`.
 Rebuild all utilities for Linux amd64 and arm64 with `./scripts/build.sh` whenever this version changes; CI verifies the checked-in binaries.
 Changes to `posthog/user_scripts` no longer dispatch the separate UDF publishing workflow on pushes to master.
 

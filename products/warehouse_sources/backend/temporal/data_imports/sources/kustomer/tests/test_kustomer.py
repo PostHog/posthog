@@ -2,6 +2,8 @@ from typing import Any
 
 import pytest
 
+from parameterized import parameterized
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
@@ -40,11 +42,9 @@ class TestValidateCredentials:
     @pytest.mark.parametrize(
         "status_code, expected",
         [
-            (200, True),
             # Role-scoped keys without the customers grant still 403; only 401
             # means the key itself is bad.
             (403, True),
-            (401, False),
         ],
     )
     def test_validate_credentials_status_mapping(self, status_code: int, expected: bool) -> None:
@@ -74,6 +74,9 @@ class TestRequestParams:
             # Without `user=false` only the API key owner's sessions come back.
             ("work_sessions", {"sort": "asc", "user": "false", "active": "false"}),
             ("queues", {"sort": None, "user": None}),
+            # Page-number lists take `pageSize`, not the JSON:API `page[size]`.
+            ("routing_statuses", {"pageSize": "100"}),
+            ("klasses", {"pageSize": "100", "status": None}),
         ],
     )
     def test_endpoint_request_params(self, endpoint: str, expected_params: dict[str, str | None]) -> None:
@@ -136,3 +139,75 @@ class TestPagination:
 
         assert isinstance(result.raised, ValueError)
         assert result.requests == []
+
+
+def _klass(klass_id: str, name: str) -> dict[str, Any]:
+    return {"type": "klass", "id": klass_id, "attributes": {"name": name}}
+
+
+class TestKObjectsFanout:
+    def test_walks_every_klass_and_tags_rows_with_klass_id(self) -> None:
+        result = _driver().run(
+            "kobjects",
+            [
+                _page([_klass("k1", "order"), _klass("k2", "subscription")]),
+                _page([{"id": "o1"}], next_link="/v1/klasses/order?page=2&pageSize=100&sort=asc"),
+                _page([{"id": "o2"}]),
+                _page([{"id": "s1"}]),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths == ["/v1/klasses", "/v1/klasses/order", "/v1/klasses/order", "/v1/klasses/subscription"]
+        assert result.queries[1]["sort"] == ("asc",)
+        assert result.queries[1]["pageSize"] == ("100",)
+        assert result.queries[2]["page"] == ("2",)
+        assert [(row["klass_id"], row["id"]) for row in result.rows] == [("k1", "o1"), ("k1", "o2"), ("k2", "s1")]
+        assert all("_klasses_id" not in row for row in result.rows)
+        assert result.response is not None
+        assert result.response.primary_keys == ["klass_id", "id"]
+        assert result.saved_states[-1] == KustomerResumeConfig(
+            fanout_state={
+                "completed": ["/v1/klasses/order", "/v1/klasses/subscription"],
+                "current": None,
+                "child_state": None,
+            }
+        )
+
+    @parameterized.expand(
+        [
+            ("completed_klass_skipped", ["/v1/klasses/order"], None, None, ["/v1/klasses", "/v1/klasses/subscription"]),
+            (
+                "in_progress_klass_continues_from_next_url",
+                [],
+                "/v1/klasses/order",
+                {"next_url": "https://myorg.api.kustomerapp.com/v1/klasses/order?page=3&pageSize=100&sort=asc"},
+                ["/v1/klasses", "/v1/klasses/order", "/v1/klasses/subscription"],
+            ),
+        ]
+    )
+    def test_resumes_from_fanout_state(
+        self,
+        _name: str,
+        completed: list[str],
+        current: str | None,
+        child_state: dict[str, Any] | None,
+        expected_paths: list[str],
+    ) -> None:
+        resume = KustomerResumeConfig(
+            fanout_state={"completed": completed, "current": current, "child_state": child_state}
+        )
+        result = _driver().run(
+            "kobjects",
+            [
+                _page([_klass("k1", "order"), _klass("k2", "subscription")]),
+                _page([{"id": "x1"}]),
+                _page([{"id": "x2"}]),
+            ],
+            resume_state=resume,
+        )
+
+        assert result.raised is None
+        assert result.paths == expected_paths
+        if child_state is not None:
+            assert result.urls[1] == child_state["next_url"]

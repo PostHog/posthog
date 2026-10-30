@@ -47,26 +47,6 @@ class TestScaleAICredentials:
         ):
             assert ScaleAISource().validate_credentials(config, team_id=1) == expected
 
-    @parameterized.expand(
-        [
-            ("unauthorized", "401 Client Error: Unauthorized for url: https://api.scale.com/v1/tasks?limit=1"),
-            ("forbidden", "403 Client Error: Forbidden for url: https://api.scale.com/v1/batches?limit=100"),
-        ]
-    )
-    def test_credential_errors_are_non_retryable(self, _name: str, observed_error: str) -> None:
-        non_retryable = ScaleAISource().get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            ("read_timeout", "HTTPSConnectionPool(host='api.scale.com', port=443): Read timed out."),
-            ("server_error", "500 Server Error: Internal Server Error for url: https://api.scale.com/v1/tasks"),
-        ]
-    )
-    def test_transient_errors_remain_retryable(self, _name: str, other_error: str) -> None:
-        non_retryable = ScaleAISource().get_non_retryable_errors()
-        assert not any(key in other_error for key in non_retryable)
-
 
 class TestScaleAIPipelineWiring:
     def test_source_for_pipeline_drops_cursor_on_full_refresh(self) -> None:

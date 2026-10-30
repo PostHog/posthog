@@ -1,5 +1,6 @@
 import dataclasses
-from typing import Any, Optional
+from collections.abc import Callable
+from typing import Any, Optional, cast
 from urllib.parse import urlencode
 
 from requests import Request, Response
@@ -13,6 +14,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     build_dependent_resource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
@@ -93,6 +95,23 @@ class LatticeCursorPaginator(BasePaginator):
             self._has_next_page = True
 
 
+def _nested_id(value: Any) -> Optional[str]:
+    return value.get("id") if isinstance(value, dict) else None
+
+
+def _lift_custom_attribute_ids(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        **row,
+        "custom_attribute_id": _nested_id(row.get("customAttribute")),
+        "custom_attribute_value_id": _nested_id(row.get("customAttributeValue")),
+    }
+
+
+ROW_MAPS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
+    "user_custom_attributes": _lift_custom_attribute_ids,
+}
+
+
 def _base_url(region: str) -> str:
     host = LATTICE_HOSTS.get(region)
     if host is None:
@@ -166,6 +185,9 @@ def lattice_source(
             resume_hook=save_fanout_checkpoint,
             initial_paginator_state=resume.fanout_state if resume else None,
         )
+        row_map = ROW_MAPS.get(endpoint)
+        if row_map is not None:
+            child = cast(Resource, child).add_map(row_map)
         return SourceResponse(
             name=endpoint,
             items=lambda: child,

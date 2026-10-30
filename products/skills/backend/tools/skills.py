@@ -32,7 +32,7 @@ from products.skills.backend.api.skill_services import (
 from products.skills.backend.models.skills import LLMSkill, LLMSkillFile
 
 from ee.hogai.tool import MaxTool
-from ee.hogai.tool_errors import MaxToolFatalError
+from ee.hogai.tool_errors import MaxToolFatalError, MaxToolRetryableError
 
 MAX_LIST_RESULTS = 50
 
@@ -485,14 +485,9 @@ class UpdateLLMSkillTool(MaxTool):
                 base_version=base_version,
                 version_description=(version_description or "").strip() or None,
             )
-        except (
-            LLMSkillNotFoundError,
-            LLMSkillVersionConflictError,
-            LLMSkillVersionLimitError,
-            LLMSkillFileLimitError,
-            LLMSkillDescriptionTooLongError,
-            LLMSkillEditError,
-        ) as err:
+        except (LLMSkillVersionConflictError, LLMSkillEditError, LLMSkillDescriptionTooLongError) as err:
+            raise MaxToolRetryableError(_publish_error_message(err, skill_name))
+        except (LLMSkillNotFoundError, LLMSkillVersionLimitError, LLMSkillFileLimitError) as err:
             raise MaxToolFatalError(_publish_error_message(err, skill_name))
 
         return f"Updated skill '{skill.name}' — new version v{skill.version}.", None

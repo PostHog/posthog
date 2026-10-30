@@ -76,6 +76,8 @@ TAGGABLE_MODELS: tuple[TaggableModel, ...] = (
     TaggableModel(model_label="posthog.Project", legacy_field="project", object_field=OBJECT_ID),
     TaggableModel(model_label="experiments.Experiment", legacy_field="experiment", object_field=OBJECT_ID),
     TaggableModel(model_label="tasks.Task", legacy_field="task", object_field=OBJECT_UUID),
+    TaggableModel(model_label="workflows.HogFlow", legacy_field="hog_flow", object_field=OBJECT_UUID),
+    TaggableModel(model_label="messaging.MessageTemplate", legacy_field="message_template", object_field=OBJECT_UUID),
 )
 
 _BY_LABEL: dict[str, TaggableModel] = {entry.model_label: entry for entry in TAGGABLE_MODELS}

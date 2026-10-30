@@ -12,6 +12,7 @@ from rest_framework import status
 from posthog.schema import ChartDisplayType
 
 from posthog.clickhouse.client.connection import ClickHouseUser
+from posthog.clickhouse.workload import Workload
 from posthog.constants import AvailableFeature
 
 from products.access_control.backend.facade.contracts import PropertyAccessLevel
@@ -91,8 +92,20 @@ class TestReportMetricRefreshApi(APIBaseTest):
     def _refresh(self, *reports: SignalReport):
         return self.client.post(self._url(), {"report_ids": [str(report.id) for report in reports]}, format="json")
 
-    def test_refresh_replaces_only_the_numbers_and_returns_snapshots(self) -> None:
-        report = self._report()
+    @parameterized.expand(
+        [
+            ("event", None, 17),
+            ("hogql", "properties.$browser = 'Chrome'", 17),
+            ("hogql_without_snapshot", "properties.$browser = 'Chrome'", None),
+        ]
+    )
+    def test_refresh_replaces_only_the_numbers_and_returns_snapshots(
+        self, _name: str, expression: str | None, value: float | None
+    ) -> None:
+        metric = _metric(value=value, value_at=None if value is None else "2026-08-29T12:00:00Z")
+        if expression is not None:
+            metric["query"]["source"]["series"][0]["properties"] = [{"type": "hogql", "key": expression}]
+        report = self._report(metrics=[metric])
         before = SignalReport.objects.get(id=report.id)
         measured_at = timezone.now().replace(microsecond=0)
 
@@ -114,9 +127,13 @@ class TestReportMetricRefreshApi(APIBaseTest):
         assert after.metrics[0]["query"] == before.metrics[0]["query"]
         assert (after.title, after.summary, after.updated_at) == (before.title, before.summary, before.updated_at)
 
-    def test_fresh_snapshot_is_served_without_a_query(self) -> None:
+    @parameterized.expand([("event", None), ("hogql", "properties.$browser = 'Chrome'")])
+    def test_fresh_snapshot_is_served_without_a_query(self, _name: str, expression: str | None) -> None:
         recent = (timezone.now() - timedelta(minutes=1)).isoformat()
-        report = self._report(metrics=[_metric(value_at=recent)])
+        metric = _metric(value_at=recent)
+        if expression is not None:
+            metric["query"]["source"]["series"][0]["properties"] = [{"type": "hogql", "key": expression}]
+        report = self._report(metrics=[metric])
 
         with patch(_MEASURE) as measure:
             response = self._refresh(report)
@@ -168,7 +185,10 @@ class TestReportMetricRefreshApi(APIBaseTest):
         assert response.json()["reports"][0]["metrics"][0]["value"] == 17.0
         assert SignalReport.objects.get(id=report.id).metrics[0]["value"] == 17
 
-    def test_property_restricted_member_cannot_trigger_a_shared_refresh(self) -> None:
+    @parameterized.expand([("event", None), ("hogql", "properties.secret_plan = 'enterprise'")])
+    def test_property_restricted_member_cannot_trigger_a_shared_refresh(
+        self, _name: str, expression: str | None
+    ) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.PROPERTY_ACCESS_CONTROL, "name": AvailableFeature.PROPERTY_ACCESS_CONTROL}
         ]
@@ -182,7 +202,10 @@ class TestReportMetricRefreshApi(APIBaseTest):
             organization_member=self.organization_membership,
             access_level=PropertyAccessLevel.NONE.value,
         )
-        report = self._report()
+        metric = _metric()
+        if expression is not None:
+            metric["query"]["source"]["series"][0]["properties"] = [{"type": "hogql", "key": expression}]
+        report = self._report(metrics=[metric])
 
         with patch(_MEASURE) as measure:
             response = self._refresh(report)
@@ -348,6 +371,7 @@ class TestReportMetricQueryShapes(APIBaseTest):
 
         assert run_query.call_args.kwargs["cache_age_seconds"] == 15 * 60
         assert run_query.call_args.kwargs["ch_user"] == (ch_user or ClickHouseUser.DEFAULT)
+        assert run_query.call_args.kwargs["workload"] == Workload.DEFAULT
 
     def test_skips_the_strip_when_the_deadline_passes_after_the_headline(self) -> None:
         measured_at = timezone.now()

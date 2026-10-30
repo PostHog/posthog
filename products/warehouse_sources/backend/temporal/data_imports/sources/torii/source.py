@@ -109,7 +109,7 @@ class ToriiSource(ResumableSource[ToriiSourceConfig, ToriiResumeConfig]):
             docsUrl="https://posthog.com/docs/cdp/sources/torii",
             iconPath="/static/services/torii.png",
             keywords=["saas management", "spend", "licenses", "contracts"],
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

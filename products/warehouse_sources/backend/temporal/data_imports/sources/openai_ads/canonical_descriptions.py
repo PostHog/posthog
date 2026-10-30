@@ -16,7 +16,46 @@ _INSIGHTS_COMMON_COLUMNS = {
     "cpm": "Average cost per thousand impressions, in the ad account's currency.",
 }
 
+_SEGMENT_INSIGHTS_COMMON_COLUMNS = {
+    "id": "Composite bucket identifier, unique per time bucket, campaign, and segment value.",
+    "start_time": "Start of the reporting bucket (UTC timestamp).",
+    "end_time": "End of the reporting bucket (UTC timestamp).",
+    "readable_time": "Human-readable bucket label, e.g. the bucket's calendar date for daily granularity.",
+    "currency_code": "Account currency code fetched from the ad account metadata for this sync.",
+    "campaign_id": "Identifier of the campaign the row aggregates.",
+    "campaign_name": "Name of the campaign the row aggregates.",
+}
+
+
+def _segment_metric_columns(segment: str, label: str) -> dict[str, str]:
+    return {
+        f"{segment}_impressions": f"Number of times the campaign's ads were shown for this {label} during the bucket.",
+        f"{segment}_clicks": f"Number of clicks for this {label} during the bucket.",
+        f"{segment}_spend": f"Amount spent for this {label} during the bucket, in the ad account's currency.",
+        f"{segment}_ctr": f"Click-through rate for this {label}: clicks divided by impressions.",
+        f"{segment}_cpc": f"Average cost per click for this {label}, in the ad account's currency.",
+        f"{segment}_cpm": f"Average cost per thousand impressions for this {label}, in the ad account's currency.",
+    }
+
+
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
+    "ad_account": {
+        "description": "The ad account that the API key belongs to: names, primary URL, status, timezone, currency, and brand review status.",
+        "docs_url": "https://developers.openai.com/ads/api-reference/ad-account",
+        "columns": {
+            "id": "Unique identifier for the ad account.",
+            "name": "Legal business name, kept for compatibility.",
+            "legal_name": "Legal business name.",
+            "account_name": "Internal account name shown in Ads Manager.",
+            "brand_name": "Public advertiser name shown in ads.",
+            "url": "Primary destination URL of the advertiser.",
+            "preview_url": "Preview URL of the advertiser icon, when one is available.",
+            "status": "Account status, when one is available.",
+            "timezone": "Timezone of the ad account.",
+            "currency_code": "Currency of the ad account.",
+            "review": "Brand review object, including the review status.",
+        },
+    },
     "campaigns": {
         "description": "Ad campaigns in the ad account. A campaign defines the budget, flight dates, and location targeting under which its ad groups deliver.",
         "docs_url": "https://developers.openai.com/ads/api-reference/campaigns",
@@ -104,6 +143,39 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "columns": {
             **_INSIGHTS_COMMON_COLUMNS,
             "ad_account_name": "Name of the ad account the row aggregates.",
+        },
+    },
+    "campaign_country_insights": {
+        "description": "Daily delivery metrics per campaign, split by the country where the ads were shown. Needs segmented insights enabled for the ad account.",
+        "docs_url": "https://developers.openai.com/ads/api-reference/insights",
+        "columns": {
+            **_SEGMENT_INSIGHTS_COMMON_COLUMNS,
+            **_segment_metric_columns("country", "country"),
+            "country_name": "Name of the country the row covers.",
+        },
+    },
+    "campaign_device_insights": {
+        "description": "Daily delivery metrics per campaign, split by device type. Needs segmented insights enabled for the ad account.",
+        "docs_url": "https://developers.openai.com/ads/api-reference/insights",
+        "columns": {
+            **_SEGMENT_INSIGHTS_COMMON_COLUMNS,
+            **_segment_metric_columns("device", "device type"),
+            "device_type": "Device type the row covers.",
+        },
+    },
+    "campaign_product_insights": {
+        "description": "Daily delivery metrics per campaign, split by product-feed item. Use the feed ID and item ID together to match a row to your catalog. Needs segmented insights enabled for the ad account.",
+        "docs_url": "https://developers.openai.com/ads/api-reference/insights",
+        "columns": {
+            **_SEGMENT_INSIGHTS_COMMON_COLUMNS,
+            **_segment_metric_columns("product", "product"),
+            "product_feed_id": "Identifier of the product feed the item belongs to.",
+            "item_id": "Identifier of the item in the product feed.",
+            "product_title": "Title of the product-feed item.",
+            "product_brand": "Brand of the product-feed item.",
+            "product_seller_name": "Seller name of the product-feed item.",
+            "product_price": "Price of the product-feed item.",
+            "product_availability": "Availability of the product-feed item.",
         },
     },
 }

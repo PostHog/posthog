@@ -189,7 +189,7 @@ class Auth0Source(ResumableSource[Auth0SourceConfig, Auth0ResumeConfig]):
             name=ExternalDataSourceType.AUTH0,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Auth0",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             keywords=["okta", "identity", "sso", "authentication", "ciam"],
             caption="""Enter your Auth0 tenant domain and a machine-to-machine application's credentials to pull your users, tenant logs, and tenant configuration into the PostHog Data warehouse.
 
@@ -236,6 +236,12 @@ Use your canonical tenant domain (for example `your-tenant.us.auth0.com`), not a
             HOST_NOT_ALLOWED_ERROR: "The Auth0 domain is not allowed. Use your tenant's canonical Auth0 domain.",
             PAGINATION_STALLED_ERROR: "Auth0 could not page past its 1000-result limit because too many rows share the same timestamp.",
         }
+
+    def get_retryable_errors(self) -> set[str]:
+        # `fetch` (auth0.py) already retries 429 via the tracked session's BoundedRetry, honoring
+        # Retry-After; if that budget still exhausts, Temporal retries the whole activity, so the
+        # failure is self-recovering rather than a bug to page on.
+        return {"429 Client Error"}
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
         from products.warehouse_sources.backend.temporal.data_imports.sources.auth0.canonical_descriptions import (

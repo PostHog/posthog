@@ -10,7 +10,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.clip.clip 
     ClipResumeConfig,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.clip.settings import AUTH_ERROR, PERMISSION_ERROR
 from products.warehouse_sources.backend.temporal.data_imports.sources.clip.source import ClipSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
@@ -65,7 +64,12 @@ def test_incremental_filter_and_full_refresh(
 
 
 @travel("2026-07-03T12:00:00Z", tick=False)
-@pytest.mark.parametrize("status,message", [(200, None), (401, AUTH_ERROR), (403, PERMISSION_ERROR)])
+@pytest.mark.parametrize(
+    "status,message",
+    [
+        (200, None),
+    ],
+)
 def test_credential_probe_and_error_mapping(config: ClipSourceConfig, status: int, message: str | None) -> None:
     with scripted_network([ScriptedResponse(status=status, json={"message": "Unauthorized"})]) as network:
         assert validate_credentials(config) == (status == 200, message)

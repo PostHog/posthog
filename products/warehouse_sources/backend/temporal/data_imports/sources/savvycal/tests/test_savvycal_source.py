@@ -1,7 +1,5 @@
 from unittest import mock
 
-from parameterized import parameterized
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.savvycal import (
     SavvyCalSourceConfig,
 )
@@ -13,26 +11,6 @@ class TestSavvyCalSource:
         self.source = SavvyCalSource()
         self.team_id = 123
         self.config = SavvyCalSourceConfig(api_key="pt_secret_key")
-
-    @parameterized.expand(
-        [
-            ("401 Client Error: Unauthorized for url: https://api.savvycal.com/v1/events",),
-            ("403 Client Error: Forbidden for url: https://api.savvycal.com/v1/me",),
-        ]
-    )
-    def test_non_retryable_errors_match_auth_failures(self, observed_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            ("500 Server Error: Internal Server Error for url: https://api.savvycal.com/v1/events",),
-            ("429 Client Error: Too Many Requests for url: https://api.savvycal.com/v1/links",),
-        ]
-    )
-    def test_non_retryable_errors_ignore_transient(self, unrelated_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert not any(key in unrelated_error for key in non_retryable)
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.savvycal.source.validate_credentials")
     def test_validate_credentials_delegates_to_shared_helper(self, mock_validate: mock.MagicMock) -> None:

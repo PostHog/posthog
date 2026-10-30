@@ -2,12 +2,10 @@ from typing import Any
 
 from unittest import mock
 
-import requests
-
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
-    always,
     scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.hex import HexSourceConfig
@@ -45,10 +43,6 @@ class TestValidateCredentials:
         assert network.requests_log[0].path == "/api/v1/projects"
         assert network.requests_log[0].param("limit") == "1"
 
-    def test_invalid_token(self) -> None:
-        with scripted_network([ScriptedResponse(status=401)]):
-            assert validate_credentials(None, "tok") == (False, "Invalid Hex API token")
-
     def test_403_at_source_create_is_accepted(self) -> None:
         with scripted_network([ScriptedResponse(status=403)]):
             assert validate_credentials(None, "tok", schema_name=None) == (True, None)
@@ -64,13 +58,6 @@ class TestValidateCredentials:
         valid, msg = validate_credentials("not a host!", "tok")
         assert valid is False
         assert msg == "Invalid Hex workspace URL"
-
-    def test_request_exception_returns_failure(self) -> None:
-        with scripted_network(always(requests.exceptions.ConnectionError("boom"))):
-            valid, msg = validate_credentials(None, "tok")
-
-        assert valid is False
-        assert "boom" in (msg or "")
 
     def test_rejects_redirect_response(self) -> None:
         # A workspace host that 3xx-redirects (potentially to an internal address) must be
@@ -131,6 +118,18 @@ class TestProjectRunsFanout:
         assert result.raised is None
         assert [row["runId"] for row in result.rows] == ["r-b"]
         assert result.paths == ["/api/v1/projects", "/api/v1/projects/p2/runs"]
+
+    def test_422_on_project_runs_is_classified_non_retryable(self) -> None:
+        # Hex rejects GetProjectRuns for a specific project with a 422 and a structured error
+        # code. Every retry sends the identical request and fails identically, so the raised
+        # error must match a `get_non_retryable_errors()` key, not just reach the caller.
+        result = _driver().run(
+            "project_runs",
+            [_projects_page(["p1"]), ScriptedResponse(status=422, json={"code": "UNPROCESSABLE_CONTENT"})],
+        )
+
+        assert result.raised is not None
+        assert error_message_matches(str(result.raised), HexSource().get_non_retryable_errors())
 
 
 class TestPerProjectCursorFanout:

@@ -57,6 +57,11 @@ _ENDPOINT_DESCRIPTIONS: dict[str, str] = {
     "top_filter_values": "Most frequent filter values for each filter attribute on the index. Full refresh only.",
     "top_countries": "Countries with the most searches on the index. Full refresh only.",
     "click_positions": "Clicks per position range in the index's search results. Full refresh only.",
+    "api_logs": "API requests to the application from the last seven days, newest first. Full refresh only.",
+    "ingestion_runs": "Runs of your Algolia connector tasks, with their status and outcome.",
+    "ingestion_run_events": "Events that each connector task run published, such as fetched and indexed record batches.",
+    "query_suggestions_configs": "Query Suggestions configurations on the application. Full refresh only.",
+    "query_suggestions_logs": "Log entries from the latest build of each Query Suggestions index. Full refresh only.",
 }
 
 
@@ -141,18 +146,20 @@ class AlgoliaSource(ResumableSource[AlgoliaSourceConfig, AlgoliaResumeConfig]):
             name=ExternalDataSourceType.ALGOLIA,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Algolia",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Algolia Application ID and an API key to pull your Algolia data into the PostHog Data warehouse.
 
 You can find your Application ID and create API keys in your [Algolia dashboard](https://dashboard.algolia.com/account/api-keys/all).
 
 The API key needs the ACLs for the data you want to sync:
-- `browse` — index records
-- `settings` — synonyms and query rules
-- `listIndexes` — the list of indices
-- `analytics` — search, click, conversion and revenue metrics, filter and country breakdowns, and A/B tests
+- `browse`: index records
+- `settings`: synonyms, query rules, and Query Suggestions configurations and logs
+- `listIndexes`: the list of indices
+- `analytics`: search, click, conversion and revenue metrics, filter and country breakdowns, and A/B tests
+- `logs`: API request logs
+- `addObject`, `deleteIndex` and `editSettings`: connector task runs and their events. The Ingestion API requires all three.
 
-Set the region to match where your Algolia application is hosted. It selects the analytics host used for the analytics and A/B test tables.
+Set the region to match where your Algolia application is hosted. It selects the host for the analytics, A/B test, connector and Query Suggestions tables.
 """,
             iconPath="/static/services/algolia.png",
             docsUrl="https://posthog.com/docs/cdp/sources/algolia",
@@ -177,6 +184,7 @@ Set the region to match where your Algolia application is hosted. It selects the
                     ),
                     SourceFieldInputConfig(
                         name="index_name",
+                        sync_setting=True,
                         label="Index name",
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,

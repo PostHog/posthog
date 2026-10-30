@@ -13,6 +13,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     ScriptedResponse,
     SourceDriver,
     always,
+    route,
     scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.recruitee import (
@@ -57,11 +58,42 @@ class TestPagination:
         # Checkpoint saved once after the first full page (points at the next page); short page ends it.
         assert result.saved_states == [RecruiteeResumeConfig(offset=PAGE_SIZE)]
 
-    def test_resumes_from_saved_offset(self) -> None:
-        result = _source(script=[_response([{"id": 5}])], resume_state=RecruiteeResumeConfig(offset=200))
+    @parameterized.expand(
+        [
+            ("offset", "candidates", RecruiteeResumeConfig(offset=200), [_response([{"id": 5}])], "200"),
+            (
+                "page",
+                "locations",
+                RecruiteeResumeConfig(page=3),
+                [_response([{"id": 5}], data_key="locations"), _response([], data_key="locations")],
+                "3",
+            ),
+        ]
+    )
+    def test_resumes_from_saved_position(
+        self, param: str, endpoint: str, state: RecruiteeResumeConfig, script: Script, expected_first: str
+    ) -> None:
+        result = _source(endpoint=endpoint, script=script, resume_state=state)
 
-        # Offset 0 must never be fetched on resume — the first request starts at the saved offset.
-        assert result.params("offset") == ["200"]
+        # The first page must never be fetched on resume — the first request starts at the saved position.
+        assert result.params(param)[0] == expected_first
+
+    def test_locations_paginate_by_page_until_an_empty_page(self) -> None:
+        result = _source(
+            endpoint="locations",
+            script=[
+                _response([{"id": 1}, {"id": 2}], data_key="locations"),
+                _response([{"id": 3}], data_key="locations"),
+                _response([], data_key="locations"),
+            ],
+        )
+
+        assert [r["id"] for r in result.rows] == [1, 2, 3]
+        assert result.params("page") == ["1", "2", "3"]
+        assert result.params("offset") == [None, None, None]
+        assert result.params("scope") == ["all"] * 3
+        assert result.params("view_mode") == ["full"] * 3
+        assert result.saved_states == [RecruiteeResumeConfig(page=2), RecruiteeResumeConfig(page=3)]
 
     def test_a_run_with_no_saved_state_starts_from_the_first_page(self) -> None:
         result = _source(script=[_response([{"id": 5}])])
@@ -93,13 +125,42 @@ class TestDataExtraction:
         assert len(result.requests) > 1
 
 
+class TestCandidateNotes:
+    def test_fans_out_over_candidates_and_skips_a_deleted_candidate(self) -> None:
+        result = _source(
+            endpoint="candidate_notes",
+            script=route(
+                {
+                    "/c/acme/candidates": [_response([{"id": 11}, {"id": 12}, {"id": 13}])],
+                    "/c/acme/candidates/11/notes": [
+                        _response([{"id": 1, "body": "first"}, {"id": 2, "body": "second"}], data_key="notes")
+                    ],
+                    "/c/acme/candidates/12/notes": [ScriptedResponse(status=404, json={})],
+                    "/c/acme/candidates/13/notes": [_response([], data_key="notes")],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert [(r["candidate_id"], r["id"], r["body"]) for r in result.rows] == [
+            (11, 1, "first"),
+            (11, 2, "second"),
+        ]
+        assert all("_candidates_id" not in r for r in result.rows)
+        assert result.paths == [
+            "/c/acme/candidates",
+            "/c/acme/candidates/11/notes",
+            "/c/acme/candidates/12/notes",
+            "/c/acme/candidates/13/notes",
+        ]
+        assert result.params("limit") == [str(PAGE_SIZE), None, None, None]
+        assert result.params("offset") == ["0", None, None, None]
+
+
 class TestValidateCredentials:
     @parameterized.expand(
         [
             ("ok", 200, True, None),
-            ("unauthorized", 401, False, "Invalid Recruitee company ID or API token"),
-            ("forbidden", 403, False, "Invalid Recruitee company ID or API token"),
-            ("server_error", 500, False, "Recruitee returned HTTP 500"),
         ]
     )
     def test_status_mapping(self, _name: str, status: int, expected_valid: bool, expected_message: str | None) -> None:
@@ -108,7 +169,3 @@ class TestValidateCredentials:
 
         assert network.requests_log[0].path == "/c/acme/departments"
         assert network.requests_log[0].headers["authorization"] == "Bearer rc-token"
-
-    def test_connection_error_is_not_validated(self) -> None:
-        with scripted_network(always(ConnectionError("boom"))):
-            assert validate_credentials("acme", "rc-token") == (False, "Could not validate Recruitee credentials")

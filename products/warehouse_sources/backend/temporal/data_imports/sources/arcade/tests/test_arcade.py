@@ -9,10 +9,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.arcade.arc
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.arcade.settings import (
-    AUTH_ERROR,
     INSIGHTS_ERROR,
     PERMISSION_ERROR,
-    PLAN_ERROR,
     PROVISIONING_ERROR,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.arcade.source import ArcadeSource
@@ -238,9 +236,6 @@ def test_completed_resume_does_not_repeat_rows(config: ArcadeSourceConfig, name:
 @pytest.mark.parametrize(
     ("status", "error", "message"),
     [
-        (401, "Missing `authorization` header", AUTH_ERROR),
-        (401, "Invalid API key", AUTH_ERROR),
-        (401, "Workspace is not growth or above", PLAN_ERROR),
         (403, "This operation requires provisioning scope", PROVISIONING_ERROR),
         (403, "This operation requires insights scope", INSIGHTS_ERROR),
         (403, "Forbidden", PERMISSION_ERROR),

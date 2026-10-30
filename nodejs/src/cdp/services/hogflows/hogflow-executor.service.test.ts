@@ -99,7 +99,8 @@ describe('Hogflow Executor', () => {
             hub.SITE_URL,
             new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
             emailSuppressionService,
-            new RecipientsManagerService(hub.postgres)
+            new RecipientsManagerService(hub.postgres),
+            null
         )
         const recipientTokensService = new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
         const hogExecutor = new HogExecutorAsyncService(
@@ -176,13 +177,15 @@ describe('Hogflow Executor', () => {
 
         cohortMembershipRepository = {
             getMemberCohortIds: () => Promise.resolve([]),
+            getCohortMembership: () => Promise.resolve(null),
         }
         executor = new HogFlowExecutorService(
             hogFlowFunctionsService,
             recipientPreferencesService,
             emailValidationService,
             cohortMembershipRepository,
-            hub.integrationManager
+            hub.integrationManager,
+            null
         )
     })
 
@@ -1101,6 +1104,33 @@ describe('Hogflow Executor', () => {
                 })
             })
 
+            it('a run parked before its message step was protected is protected from its next wake', async () => {
+                const hogFlow = createHogFlow({
+                    actions: {
+                        delay: { type: 'delay', config: { delay_duration: '7d' } },
+                        message: {
+                            type: 'function_push',
+                            config: { template_id: 'template-native-push', inputs: {} },
+                        } as any,
+                    },
+                    edges: [
+                        { from: 'trigger', to: 'delay', type: 'continue' },
+                        { from: 'delay', to: 'message', type: 'continue' },
+                        { from: 'message', to: 'exit', type: 'continue' },
+                    ],
+                })
+                const invocation = parkAt(hogFlow, 'delay', Duration.fromObject({ days: 1 }).toMillis())
+                expect(invocation.state.sensitive).toBeUndefined()
+                editFlow(hogFlow, (flow) => {
+                    ;(flow.actions.find((a) => a.id === 'message')!.config as any).sensitive = true
+                })
+
+                const result = await executor.execute(invocation)
+
+                expect(result.invocation.state.currentAction?.id).toBe('delay')
+                expect(result.invocation.state.sensitive).toBe(true)
+            })
+
             describe('wait_until_time_window edits', () => {
                 // The fixed test clock is 2025-01-01T00:00:00Z (a Wednesday)
                 const buildWindowFlow = (config: Record<string, any>): HogFlow =>
@@ -1532,6 +1562,148 @@ describe('Hogflow Executor', () => {
                       "Workflow exited early due to exit condition: exit_on_trigger_not_matched ([Person:person_id|John Doe] no longer matches trigger filters)",
                     ]
                 `)
+            })
+
+            const caughtUp = { inCohort: false, caughtUp: true }
+            it.each([
+                [
+                    'an entered trigger while the person is in the cohort',
+                    'entered',
+                    { inCohort: true, caughtUp: null },
+                    false,
+                    false,
+                    null,
+                    true,
+                ],
+                [
+                    'an entered trigger after the person left the cohort',
+                    'entered',
+                    { inCohort: false, caughtUp: null },
+                    true,
+                    false,
+                    'left cohort 42',
+                    true,
+                ],
+                [
+                    'a left trigger after the person rejoined the cohort',
+                    'left',
+                    { inCohort: true, caughtUp: null },
+                    true,
+                    false,
+                    'rejoined cohort 42',
+                    true,
+                ],
+                // The person can leave before any read sees them in, so the version stamp is what shows freshness.
+                [
+                    'an entered trigger whose row is past the trigger version',
+                    'entered',
+                    caughtUp,
+                    false,
+                    false,
+                    'left cohort 42',
+                    true,
+                ],
+                // The trigger moved to this cohort while the run was parked, so no enrolling write is pending.
+                [
+                    'an entered trigger that changed cohort since the run enrolled',
+                    'entered',
+                    { inCohort: false, caughtUp: false },
+                    false,
+                    false,
+                    'left cohort 42',
+                    true,
+                    7,
+                ],
+                // The membership writer lags the trigger consumer, so these reads can still show the old state.
+                [
+                    'an entered trigger the table has not caught up with',
+                    'entered',
+                    { inCohort: false, caughtUp: null },
+                    false,
+                    false,
+                    null,
+                    undefined,
+                ],
+                [
+                    'a left trigger whose row is older than the trigger version',
+                    'left',
+                    { inCohort: false, caughtUp: false },
+                    false,
+                    false,
+                    null,
+                    undefined,
+                ],
+                ['a left trigger the table has no row for yet', 'left', null, false, false, null, undefined],
+                ['a membership lookup that fails', 'entered', null, true, true, null, true],
+            ])(
+                'cohort trigger exit check: %s',
+                async (
+                    _name,
+                    transition,
+                    membership,
+                    confirmedBefore,
+                    lookupFails,
+                    expectedReason,
+                    confirmedAfter,
+                    enrolledCohortId = 42
+                ) => {
+                    hogFlow.exit_condition = 'exit_on_trigger_not_matched'
+                    hogFlow.trigger = { type: 'cohort', cohort_id: 42, transition: transition as 'entered' | 'left' }
+                    const lookup = jest.spyOn(cohortMembershipRepository, 'getCohortMembership')
+                    if (lookupFails) {
+                        lookup.mockRejectedValue(new Error('behavioral cohorts db unreachable'))
+                    } else {
+                        lookup.mockResolvedValue(membership)
+                    }
+                    const invocation = createExampleHogFlowInvocation(hogFlow, {
+                        event: {
+                            ...createHogExecutionGlobals().event,
+                            event: '$cohort_membership_changed',
+                            properties: {
+                                name: 'John Doe',
+                                cohort_id: enrolledCohortId,
+                                status: transition,
+                                $membership_version: '2026-10-20 10:00:00.000000',
+                            },
+                        },
+                    })
+                    if (confirmedBefore) {
+                        invocation.state.cohortTriggerConfirmed = true
+                    }
+
+                    const result = await executor.execute(invocation)
+
+                    if (expectedReason) {
+                        expect(result.metrics.map((m) => m.metric_name)).toEqual(['early_exit'])
+                        expect(result.logs.map((log) => log.message)).toEqual([
+                            `Workflow exited early due to exit condition: exit_on_trigger_not_matched ([Person:person_id|John Doe] ${expectedReason})`,
+                        ])
+                    } else {
+                        expect(result.metrics.map((m) => m.metric_name)).not.toContain('early_exit')
+                    }
+                    expect(lookup).toHaveBeenCalledWith(
+                        hogFlow.team_id,
+                        'person_id',
+                        42,
+                        enrolledCohortId === 42 ? '2026-10-20 10:00:00.000000' : undefined
+                    )
+                    expect(result.invocation.state.cohortTriggerConfirmed).toBe(confirmedAfter)
+                }
+            )
+
+            it('does not look up cohort membership when the exit condition ignores the trigger', async () => {
+                hogFlow.exit_condition = 'exit_only_at_end'
+                hogFlow.trigger = { type: 'cohort', cohort_id: 42, transition: 'entered' }
+                const lookup = jest.spyOn(cohortMembershipRepository, 'getCohortMembership').mockResolvedValue(null)
+                const invocation = createExampleHogFlowInvocation(hogFlow, {
+                    event: { ...createHogExecutionGlobals().event, properties: { name: 'John Doe' } },
+                })
+                invocation.state.currentAction = { id: 'function_id_1', startedAtTimestamp: Date.now() }
+
+                const result = await executor.execute(invocation)
+
+                expect(result.metrics.map((m) => m.metric_name)).not.toContain('early_exit')
+                expect(lookup).not.toHaveBeenCalled()
             })
 
             it('should exit early if exit condition is exit_on_trigger_not_matched_or_conversion', async () => {
@@ -2659,6 +2831,32 @@ describe('Hogflow Executor', () => {
             expect(result.invocation.state.variables?.response).toBeDefined()
             expect(result.invocation.state.variables?.response).toHaveProperty('status', 200)
         })
+
+        it.each([false, true])(
+            'logs stored variable values only for an unprotected run, protected: %s',
+            async (sensitive) => {
+                const hogFlow = await hogFlowBuilder({ key: 'http_status', result_path: 'status' })
+                const invocation = createExampleHogFlowInvocation(hogFlow, {
+                    event: { ...createHogExecutionGlobals().event, properties: { name: 'Test' } },
+                })
+                invocation.state.sensitive = sensitive || undefined
+                const logs: string[] = []
+                let result = await executor.execute(invocation)
+                logs.push(...result.logs.map((log) => log.message))
+                while (!result.finished) {
+                    result = await executor.execute(result.invocation)
+                    logs.push(...result.logs.map((log) => log.message))
+                }
+
+                expect(result.invocation.state.variables).toEqual({ http_status: 200 })
+                const stored = logs.find((message) => message.startsWith('Stored action result'))
+                expect(stored).toBe(
+                    sensitive
+                        ? 'Stored action result in variable(s): http_status'
+                        : 'Stored action result in variable(s): http_status = 200'
+                )
+            }
+        )
 
         it('stores extracted value via result_path', async () => {
             const hogFlow = await hogFlowBuilder({ key: 'http_status', result_path: 'status' })

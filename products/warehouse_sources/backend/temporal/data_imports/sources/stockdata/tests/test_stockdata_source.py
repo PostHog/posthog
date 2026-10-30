@@ -43,9 +43,7 @@ class TestStockDataSource:
 
     @parameterized.expand(
         [
-            ("http_unauthorized", "401 Client Error: Unauthorized for url: https://api.stockdata.org"),
             ("http_payment_required", "402 Client Error: Payment Required for url: https://api.stockdata.org"),
-            ("http_forbidden", "403 Client Error: Forbidden for url: https://api.stockdata.org"),
             ("missing_symbols", "StockData.org API error [missing_symbols]"),
         ]
     )

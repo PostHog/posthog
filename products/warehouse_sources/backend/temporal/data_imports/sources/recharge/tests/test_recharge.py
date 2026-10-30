@@ -59,6 +59,23 @@ class TestBuildInitialParams:
 
     @parameterized.expand(
         [
+            ("plans", "updated_at"),
+            ("events", "created_at"),
+            ("credit_adjustments", "updated_at"),
+            ("credit_adjustments", "created_at"),
+        ]
+    )
+    def test_incremental_on_unsortable_endpoint_omits_sort_by(self, endpoint: str, incremental_field: str) -> None:
+        params = _build_initial_params(
+            RECHARGE_ENDPOINTS[endpoint],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
+            incremental_field=incremental_field,
+        )
+        assert params == {"limit": 250, f"{incremental_field}_min": "2026-01-01T00:00:00"}
+
+    @parameterized.expand(
+        [
             ("default_endpoint_uses_max_page_size", "customers", 250),
             ("payment_methods_uses_smaller_page_size", "payment_methods", 50),
         ]
@@ -99,9 +116,6 @@ class TestValidateCredentials:
     @parameterized.expand(
         [
             ("ok", 200, True),
-            ("unauthorized", 401, False),
-            ("server_error", 500, False),
-            ("forbidden", 403, False),
         ]
     )
     def test_status_mapping(self, _name: str, status_code: int, expected_ok: bool) -> None:
@@ -113,13 +127,6 @@ class TestValidateCredentials:
             assert error is not None
         assert network.requests_log[0].path == "/token_information"
         assert network.requests_log[0].headers["x-recharge-access-token"] == "token"
-
-    def test_network_error_returns_false(self) -> None:
-        with scripted_network(always(ConnectionError("boom"))):
-            ok, error = validate_credentials("token")
-
-        assert ok is False
-        assert error is not None
 
     def test_token_is_redacted_from_captured_samples(self) -> None:
         # The `X-Recharge-Access-Token` header isn't in the shared auth-header
@@ -181,6 +188,25 @@ class TestRechargeSource:
         assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == ["id"]
-        assert response.sort_mode == "asc"
         assert response.partition_mode == "datetime"
         assert response.partition_keys == ["created_at"]
+
+    @parameterized.expand(
+        [
+            ("sorted_endpoint", "customers", "asc"),
+            ("unsorted_endpoint", "events", None),
+        ]
+    )
+    def test_sort_mode_is_asc_only_when_the_request_sorts(
+        self, _name: str, endpoint: str, expected_sort_mode: str | None
+    ) -> None:
+        response = _drive(
+            endpoint,
+            [_page(endpoint, [], None)],
+            should_use_incremental_field=True,
+            incremental_field="created_at",
+            db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
+        ).response
+
+        assert response is not None
+        assert response.sort_mode == expected_sort_mode

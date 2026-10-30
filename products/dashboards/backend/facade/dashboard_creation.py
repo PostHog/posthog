@@ -9,6 +9,7 @@ from products.dashboards.backend.dashboard_creation import (
     create_dashboard_with_tiles,
     delete_unlisted_dashboard,
     move_dashboard_tiles,
+    read_dashboard_metric_variables,
     read_dashboard_tiles,
 )
 
@@ -23,5 +24,6 @@ __all__ = [
     "create_dashboard_with_tiles",
     "delete_unlisted_dashboard",
     "move_dashboard_tiles",
+    "read_dashboard_metric_variables",
     "read_dashboard_tiles",
 ]

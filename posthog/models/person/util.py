@@ -36,14 +36,17 @@ from posthog.models.person.sql import (
 from posthog.models.utils import UUIDT
 from posthog.personhog_client.client import personhog_call, require_personhog_client
 from posthog.personhog_client.converters import proto_person_to_model
-from posthog.personhog_client.interceptor import is_transient_rpc_error
+from posthog.personhog_client.interceptor import is_transient_rpc_error, semantic_refusal_reason
 from posthog.personhog_client.metrics import PERSONHOG_TEAM_MISMATCH_TOTAL, get_client_name
 from posthog.personhog_client.proto import (
+    CONSISTENCY_LEVEL_STRONG,
     AckedPersonTombstone,
     AckPersonTombstonesRequest,
     DeletePersonsMode,
     DeletePersonsRequest,
+    DistinctIdRow,
     EnsurePersonVersionFloorsRequest,
+    GetDistinctIdRowsRequest,
     GetDistinctIdsForPersonRequest,
     GetDistinctIdsForPersonsRequest,
     GetPersonByDistinctIdRequest,
@@ -52,8 +55,12 @@ from posthog.personhog_client.proto import (
     GetPersonsByDistinctIdsInTeamRequest,
     GetPersonsByUuidsRequest,
     GetPersonTombstonesRequest,
+    ListPersonsForTeamRequest,
     ListPersonTombstoneQueueRequest,
+    PersonListEntry,
     PersonVersionFloor as PersonVersionFloorProto,
+    RaisePersonVersionFloorsRequest,
+    RaisePersonVersionRequest,
     ReadOptions,
     SetPersonDistinctIdVersionFloorRequest,
     VersionFloorOutcome as VersionFloorOutcomeProto,
@@ -774,6 +781,40 @@ def get_person_tombstones(team_id: int, person_uuids: list[UUID]) -> list[Person
     return personhog_call("get_person_tombstones", personhog_fn)
 
 
+def get_distinct_id_rows(team_id: int, distinct_ids: list[str], *, strong: bool = False) -> list[DistinctIdRow]:
+    """Mapping rows, live or tombstoned, with their owner's state. `strong` reads the primary."""
+
+    def personhog_fn() -> list[DistinctIdRow]:
+        read_options = ReadOptions(consistency=CONSISTENCY_LEVEL_STRONG) if strong else None
+        rows: list[DistinctIdRow] = []
+        for i in range(0, len(distinct_ids), 1000):
+            response = _get_client().get_distinct_id_rows(
+                GetDistinctIdRowsRequest(
+                    team_id=team_id, distinct_ids=distinct_ids[i : i + 1000], read_options=read_options
+                )
+            )
+            rows.extend(response.rows)
+        return rows
+
+    return personhog_call("get_distinct_id_rows", personhog_fn)
+
+
+def list_persons_for_team(
+    team_id: int, after_person_id: int, *, before_person_id: int | None = None, limit: int = 1000
+) -> tuple[list[PersonListEntry], int | None]:
+    """One id-ordered page of a team's persons, live and tombstoned, and the cursor for the next page."""
+
+    def personhog_fn() -> tuple[list[PersonListEntry], int | None]:
+        request = ListPersonsForTeamRequest(team_id=team_id, after_person_id=after_person_id, limit=limit)
+        if before_person_id is not None:
+            request.before_person_id = before_person_id
+        response = _get_client().list_persons_for_team(request)
+        next_after = response.next_after_person_id if response.HasField("next_after_person_id") else None
+        return list(response.persons), next_after
+
+    return personhog_call("list_persons_for_team", personhog_fn)
+
+
 def list_person_tombstone_queue(
     after: tuple[int, UUID] | None, limit: int, team_id: int | None = None
 ) -> list[QueuedPersonTombstone]:
@@ -1020,6 +1061,41 @@ def ensure_person_version_floors(team_id: int, floors: Sequence[PersonVersionFlo
         return results
 
     return personhog_call("ensure_person_version_floors", personhog_fn)
+
+
+class PersonRaiseRefused(Exception):
+    """The leader refused the raise because the person's protected properties alone exceed the size limit."""
+
+
+def raise_person_version(team_id: int, person: Person, min_version: int) -> Person | None:
+    """Raise a live person's version to at least ``min_version`` on the active write path.
+
+    Returns the person as written when the path reports it. Otherwise returns None, and the caller reads the person.
+    """
+    if settings.PERSONHOG_WRITE_PATH == "leader":
+        return personhog_call(
+            "raise_person_version", partial(_raise_person_version_on_leader, team_id, person, min_version)
+        )
+    # Claims the person's lifecycle mark, so the raise waits out an in-flight merge or delete of the person.
+    request = RaisePersonVersionFloorsRequest(
+        team_id=team_id, floors=[PersonVersionFloorProto(person_uuid=str(person.uuid), min_version=min_version)]
+    )
+    personhog_call("raise_person_version_floors", lambda: _get_client().raise_person_version_floors(request))
+    return None
+
+
+def _raise_person_version_on_leader(team_id: int, person: Person, min_version: int) -> Person | None:
+    request = RaisePersonVersionRequest(team_id=team_id, person_id=person.pk, min_version=min_version)
+    try:
+        response = _get_client().raise_person_version(request)
+    except grpc.RpcError as exc:
+        # The leader holds the person as deleted.
+        if callable(getattr(exc, "code", None)) and exc.code() == grpc.StatusCode.NOT_FOUND:
+            return None
+        if semantic_refusal_reason(exc) == "person-too-large":
+            raise PersonRaiseRefused(f"person {person.uuid} is too large to raise") from exc
+        raise
+    return proto_person_to_model(response.person)
 
 
 def set_distinct_id_version_floor(team_id: int, distinct_id: str, min_version: int) -> None:

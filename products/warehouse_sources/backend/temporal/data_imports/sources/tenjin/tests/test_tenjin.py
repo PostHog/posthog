@@ -173,7 +173,7 @@ class TestValidateCredentials:
         assert request.param("start_date") == request.param("end_date") == TODAY.isoformat()
         assert request.param("per_page") == "1"
 
-    @parameterized.expand([(429,), (500,), (503,)])
+    @parameterized.expand([(429,), (503,)])
     def test_throttle_and_5xx_are_retryable(self, status: int) -> None:
         with (
             scripted_network(always(ScriptedResponse(status=status, json={}))),

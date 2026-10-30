@@ -20,6 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.firebase.f
     FirebaseResponseTooLargeError,
     FirebaseResumeConfig,
     FirestoreIncrementalCursor,
+    _api_session,
     build_jwt_assertion,
     decode_firestore_value,
     firebase_source,
@@ -197,6 +198,23 @@ class TestAccessTokens:
         session = FakeSession(post_responses=[FakeResponse(payload=body)])
 
         assert mint_access_token(session.as_session(), credentials()) == ("tok-1", expected_lifetime)
+
+
+class TestApiSessionRetries:
+    @pytest.mark.parametrize(
+        "method,status_code,expected_retry",
+        [
+            ("POST", 503, True),
+            ("POST", 429, True),
+            ("GET", 503, True),
+            ("POST", 403, False),
+        ],
+    )
+    def test_read_only_posts_retry_transient_errors(self, method: str, status_code: int, expected_retry: bool) -> None:
+        adapter = _api_session(credentials()).get_adapter("https://firestore.googleapis.com")
+
+        assert isinstance(adapter, requests.adapters.HTTPAdapter)
+        assert adapter.max_retries.is_retry(method, status_code) is expected_retry
 
 
 class TestFirestorePagination:
@@ -674,6 +692,28 @@ class TestAuthUsersPagination:
         assert [row["localId"] for batch in batches for row in batch] == ["u1", "u2"]
         assert [state.cursor for state in manager.saved] == ["p2"]
         assert session.requests[0][1].endswith("/projects/demo-project/accounts:batchGet")
+
+    def test_service_account_without_the_auth_role_is_a_non_retryable_error(self, logger: FilteringBoundLogger) -> None:
+        # Identity Toolkit rejects a service account that lacks the IAM role to list Auth users
+        # with a 400, not a 403 — `message=INSUFFICIENT_PERMISSION` is the only stable signal.
+        session = FakeSession(
+            request_responses=[
+                FakeResponse(status_code=400, payload={"error": {"message": "INSUFFICIENT_PERMISSION"}})
+            ],
+            post_responses=[FakeResponse(payload=TOKEN_PAYLOAD)],
+        )
+        manager = FakeResumeManager()
+
+        with pytest.raises(requests.HTTPError) as exc_info:
+            list(iter_auth_users(session.as_session(), token_provider(session), credentials(), manager, logger))
+
+        matches = [
+            message
+            for pattern, message in FirebaseSource().get_non_retryable_errors().items()
+            if error_message_matches(str(exc_info.value), [pattern])
+        ]
+        assert matches and matches[0] is not None
+        assert "Firebase Authentication" in matches[0]
 
 
 def tenant(tenant_id: str) -> dict[str, Any]:

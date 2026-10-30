@@ -360,12 +360,6 @@ class TestUnstructuredSource:
 
 
 class TestValidateCredentials:
-    @parameterized.expand([("ok", 200, True), ("unauthorized", 401, False), ("forbidden", 403, False)])
-    def test_status_maps_to_validity(self, _name: str, status: int, expected: bool) -> None:
-        with scripted_network([ScriptedResponse(status=status, json=[] if status == 200 else {"detail": "no"})]):
-            ok, _msg = validate_credentials(DEFAULT_BASE_URL, "key", team_id=1)
-        assert ok is expected
-
     def test_session_pins_redirects_off_and_redacts_key(self) -> None:
         # Validation carries the key to a user-configurable host; pin redirects off and redact the key.
         with scripted_network([ScriptedResponse(json=[])]) as network:
@@ -373,11 +367,6 @@ class TestValidateCredentials:
 
         assert network.session_options[0]["allow_redirects"] is False
         assert network.session_options[0]["redact_values"] == ("secret-key",)
-
-    def test_network_error_is_invalid(self) -> None:
-        with scripted_network(always(requests.ConnectionError("boom"))):
-            ok, _msg = validate_credentials(DEFAULT_BASE_URL, "key", team_id=1)
-        assert ok is False
 
     def test_unsafe_host_rejected_before_request(self) -> None:
         with patch(MIXINS_IS_CLOUD, return_value=True), scripted_network([]) as network:

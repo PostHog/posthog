@@ -133,7 +133,7 @@ class TwitterSource(ResumableSource[TwitterSourceConfig, TwitterResumeConfig]):
             ),
             docsUrl="https://posthog.com/docs/cdp/sources/twitter",
             iconPath="/static/services/twitter.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

@@ -3,7 +3,8 @@
 Staff always may. Other users need the `inbox-model-sort` flag. It is evaluated locally, with the person and group
 properties the web client registers (`frontend/src/lib/utils/posthogIdentity.ts`), so the API agrees with the inbox
 menu without a remote flag call on every inbox request. A flag that fails to evaluate denies access.
-Raw probabilities and model metadata stay staff only.
+Users with access see the served model key, probabilities and lifts. The manifest version and the model metadata
+stay in the `ranking_score` artefacts.
 """
 
 import structlog

@@ -1,0 +1,32 @@
+{
+    "name": "@posthog/hog",
+    "version": "1.0.0-alpha.0",
+    "private": true,
+    "description": "hog, the PostHog command line. Successor to posthog-cli in cli/",
+    "bin": {
+        "hog": "./src/index.ts"
+    },
+    "type": "module",
+    "scripts": {
+        "hog": "bun --no-env-file src/index.ts",
+        "compile": "bun build --compile --no-compile-autoload-dotenv --no-compile-autoload-bunfig src/index.ts --outfile dist/hog",
+        "typecheck": "tsc --noEmit",
+        "unit": "bun test",
+        "schema": "bun scripts/write-schema.ts"
+    },
+    "dependencies": {
+        "@clack/prompts": "1.8.1",
+        "cli-table3": "0.6.5",
+        "commander": "15.0.0",
+        "pako": "2.1.0",
+        "zod": "^4.3.6"
+    },
+    "devDependencies": {
+        "@types/bun": "1.3.14",
+        "@types/pako": "2.0.4",
+        "typescript": "catalog:"
+    },
+    "engines": {
+        "bun": ">=1.3.3"
+    }
+}

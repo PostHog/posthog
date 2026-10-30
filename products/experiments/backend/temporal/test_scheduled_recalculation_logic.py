@@ -395,6 +395,24 @@ class TestScheduledRecalculationLogic(BaseTest):
             )
         self._assert_discovery_and_start_skip(experiment, None)
 
+    def test_candidates_come_oldest_scheduled_run_first(self):
+        ran_yesterday, never_ran, ran_two_days_ago = self._experiment(), self._experiment(), self._experiment()
+        with team_scope(self.team.id, canonical=True):
+            for experiment, age in [(ran_yesterday, timedelta(days=1)), (ran_two_days_ago, timedelta(days=2))]:
+                recalc = ExperimentMetricsRecalculation.objects.create(
+                    team=self.team,
+                    experiment=experiment,
+                    status=ExperimentMetricsRecalculation.Status.COMPLETED,
+                    trigger=ExperimentMetricsRecalculation.Trigger.SCHEDULED,
+                    completed_at=timezone.now() - age,
+                )
+                ExperimentMetricsRecalculation.objects.filter(id=recalc.id).update(created_at=timezone.now() - age)
+
+        with patch(FLAG_PATH, return_value=True):
+            candidates = find_scheduled_recalculation_candidates().discovery.candidates
+
+        assert [c.experiment_id for c in candidates] == [never_ran.id, ran_two_days_ago.id, ran_yesterday.id]
+
     def test_flag_helper_passes_group_properties(self):
         with patch(
             "products.experiments.backend.temporal.scheduled_recalculation_logic.feature_enabled_or_false",

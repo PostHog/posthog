@@ -3,7 +3,7 @@ import { Fragment, ReactNode, useCallback, useMemo } from 'react'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
 import { ChartPlacements } from '../../utils/chartPlacement'
-import { parseReportSummary } from '../../utils/reportSummary'
+import { isGeneratedPlanSection, parseReportSummary } from '../../utils/reportSummary'
 import { ReportChart } from './ReportChart'
 
 const PROSE_CLASS =
@@ -50,6 +50,7 @@ interface ReportSummaryBodyProps {
      */
     impactMetrics?: ReactNode
     expectedImpact?: ReactNode
+    planBlock?: ReactNode
 }
 
 /**
@@ -63,12 +64,14 @@ export function ReportSummaryBody({
     pullRequestNote,
     impactMetrics,
     expectedImpact,
+    planBlock,
 }: ReportSummaryBodyProps): JSX.Element {
     const parsed = useMemo(() => parseReportSummary(summary), [summary])
-    const hasSolutionSection = parsed.sections.some((section) => section.kind === 'solution')
-    const hasImpactSection = parsed.sections.some((section) => section.kind === 'impact')
-    const hasExpectedImpactSection = parsed.sections.some((section) => section.kind === 'expected-impact')
-    const solutionIndex = parsed.sections.findIndex((section) => section.kind === 'solution')
+    const sections = planBlock ? parsed.sections.filter((section) => !isGeneratedPlanSection(section)) : parsed.sections
+    const hasSolutionSection = sections.some((section) => section.kind === 'solution')
+    const hasImpactSection = sections.some((section) => section.kind === 'impact')
+    const hasExpectedImpactSection = sections.some((section) => section.kind === 'expected-impact')
+    const solutionIndex = sections.findIndex((section) => section.kind === 'solution')
     const impactFallback =
         impactMetrics && !hasImpactSection ? (
             <section className="flex flex-col gap-2">
@@ -93,6 +96,7 @@ export function ReportSummaryBody({
                 />
                 {impactFallback}
                 {expectedImpactFallback}
+                {planBlock}
                 {pullRequestNote}
             </div>
         )
@@ -108,7 +112,7 @@ export function ReportSummaryBody({
                     className="text-base text-primary leading-relaxed break-words [&>*+*]:mt-3.5"
                 />
             )}
-            {parsed.sections.map((section, index) => (
+            {sections.map((section, index) => (
                 <Fragment key={`${section.kind}-${section.bodyOffset}`}>
                     {index === solutionIndex && impactFallback}
                     {index === solutionIndex && expectedImpactFallback}
@@ -128,10 +132,12 @@ export function ReportSummaryBody({
                             <div className="mt-2">{implementButton}</div>
                         )}
                     </section>
+                    {index === solutionIndex && planBlock}
                 </Fragment>
             ))}
             {!hasSolutionSection && impactFallback}
             {!hasSolutionSection && expectedImpactFallback}
+            {!hasSolutionSection && planBlock}
             {!hasSolutionSection && pullRequestNote}
         </div>
     )

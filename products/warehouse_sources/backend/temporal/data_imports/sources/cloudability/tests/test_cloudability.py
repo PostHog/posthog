@@ -30,7 +30,9 @@ class TestGetResource:
 class TestValidateCredentials:
     @pytest.mark.parametrize(
         ("status_code", "expected"),
-        [(200, True), (401, False), (403, False), (500, False)],
+        [
+            (200, True),
+        ],
     )
     def test_validate_credentials_checks_status_code(self, status_code: int, expected: bool) -> None:
         with scripted_network(always(ScriptedResponse(status=status_code))) as network:

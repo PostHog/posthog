@@ -24,7 +24,6 @@ import {
     EmptyHeader,
     EmptyMedia,
     EmptyTitle,
-    Skeleton,
     Spinner,
     Text,
 } from '@posthog/quill'
@@ -47,6 +46,8 @@ import { AnalyticsFolderBreadcrumbs } from './AnalyticsFolderBreadcrumbs'
 import { AnalyticsListRow, analyticsListColumns } from './AnalyticsListColumns'
 import { AnalyticsListFilters } from './AnalyticsListFilters'
 import { analyticsListLogic, analyticsListUrlParams } from './analyticsListLogic'
+import { AnalyticsListSkeleton } from './AnalyticsListSkeleton'
+import { AnalyticsPinMenuItem } from './AnalyticsPinMenuItem'
 import { AnalyticsSpaceGlyph } from './AnalyticsSpaceGlyph'
 import { ANALYTICS_DRAG_SCOPE, ANALYTICS_TYPE_INFO, USERS_FOLDER, analyticsSpaceOfPath } from './analyticsUtils'
 import { NewAnalyticsMenu } from './NewAnalyticsMenu'
@@ -65,16 +66,6 @@ export function AnalyticsList(): JSX.Element {
     return analyticsEnabled ? <AnalyticsListContent /> : <NotFound object="page" />
 }
 
-function TableSkeleton(): JSX.Element {
-    return (
-        <div className="flex flex-col gap-2" aria-busy aria-label="Loading analytics">
-            {Array.from({ length: 6 }, (_, index) => (
-                <Skeleton key={index} className="h-9" />
-            ))}
-        </div>
-    )
-}
-
 function AnalyticsListContent(): JSX.Element {
     const {
         filters,
@@ -89,8 +80,9 @@ function AnalyticsListContent(): JSX.Element {
         mode,
         scope,
         loadedCount,
+        feedQuery,
     } = useValues(analyticsListLogic)
-    const { clearFilters, loadList, loadMore } = useActions(analyticsListLogic)
+    const { clearFilters, loadList, loadMore, setFilters } = useActions(analyticsListLogic)
     const { setNewFolderDialogOpen } = useActions(todayAnalyticsLogic)
     const { deleteItem } = useActions(projectTreeDataLogic)
     const { ref: endRef, inView: endInView } = useInView({
@@ -102,7 +94,13 @@ function AnalyticsListContent(): JSX.Element {
         scope === 'mine'
             ? urls.analyticsMine(analyticsListUrlParams(filters))
             : urls.analyticsList(analyticsListUrlParams(filters))
-    const columns = analyticsListColumns({ backUrl, showSpace: mode === 'feed' })
+    const columns = analyticsListColumns({
+        backUrl,
+        showSpace: mode === 'feed',
+        showOwner: scope !== 'mine',
+        orderBy: feedQuery.orderBy,
+        onOrderByChange: (orderBy) => setFilters({ orderBy }),
+    })
     const rows = useMemo<AnalyticsListRow[]>(
         () => [
             ...subfolders.map((folder) => ({ kind: 'folder' as const, folder })),
@@ -150,7 +148,7 @@ function AnalyticsListContent(): JSX.Element {
             )
         }
         if (listState === 'loading') {
-            return <TableSkeleton />
+            return <AnalyticsListSkeleton columns={columns} />
         }
         if (listState === 'no-matches') {
             return (
@@ -225,10 +223,7 @@ function AnalyticsListContent(): JSX.Element {
                         fullWidth
                         size="sm"
                         stickyHeader
-                        // The title column soaks up the slack, and `max-w-0` stops a long title from widening
-                        // the table past its container, so the filters above keep their width across types.
-                        // Below the minimum width the table scrolls sideways instead of squeezing the title away.
-                        className="w-full min-w-0 **:data-expand:max-w-0 **:data-[slot=table]:min-w-208"
+                        className="w-full min-w-0 **:data-expand:min-w-64 **:data-expand:max-w-0 **:data-[slot=table]:min-w-208"
                         empty={<Text size="sm">Nothing in this collection.</Text>}
                     />
                 )}
@@ -281,6 +276,14 @@ function AnalyticsListContent(): JSX.Element {
                                     <IconChevronDown />
                                 </DropdownMenuTrigger>
                                 <DropdownMenuContent align="end" className="min-w-48">
+                                    <AnalyticsPinMenuItem
+                                        target={{
+                                            type: 'folder',
+                                            ref: filters.folder!,
+                                            name: spaceName ?? topLevelSpace,
+                                        }}
+                                        dataAttr="analytics-space-pin-manage"
+                                    />
                                     <DropdownMenuItem
                                         variant="destructive"
                                         onClick={() =>

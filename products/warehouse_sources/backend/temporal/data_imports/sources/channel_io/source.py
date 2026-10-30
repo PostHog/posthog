@@ -115,7 +115,7 @@ class ChannelIOSource(ResumableSource[ChannelIOSourceConfig, ChannelIOResumeConf
             ),
             iconPath="/static/services/channel_io.png",
             docsUrl="https://posthog.com/docs/cdp/sources/channel-io",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

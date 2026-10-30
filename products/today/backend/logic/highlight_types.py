@@ -29,7 +29,7 @@ from ..facade.contracts import (
     HighlightSource,
 )
 
-# Legacy names for the sources still in highlight_sources/. New sources use the facade contract.
+# Short names for Today's own sources in today_highlights/. Other products use the facade contract.
 Candidate = HighlightCandidate
 Found = HighlightFindings
 
@@ -50,11 +50,19 @@ def property_restrictions(team: Team, user: User) -> str:
 class Context:
     """Today's `HighlightContext`. A source sees only the protocol, so these internals stay private."""
 
-    def __init__(self, team: Team, user: User, today: date, scopes: frozenset[str] | None = None) -> None:
+    def __init__(
+        self,
+        team: Team,
+        user: User,
+        today: date,
+        scopes: frozenset[str] | None = None,
+        pinned: frozenset[str] = frozenset(),
+    ) -> None:
         self.team = team
         self.user = user
         self.today = today
         self.scopes = scopes
+        self.pinned = pinned
         self.failures: list[str] = []
         self.access = UserAccessControl(user=user, team=team)
 
@@ -105,10 +113,10 @@ class Context:
             return default
 
 
-def Source(  # noqa: N802 - keeps the legacy name the sources in highlight_sources/ call
+def Source(  # noqa: N802 - reads like the HighlightSource it builds
     *, name: str, find: Callable[[Context], HighlightFindings], scopes: tuple[str, ...] = (), pulse_order: int = 0
 ) -> HighlightSource:
-    # A legacy source reads Today's own Context. Today always calls it with one, so the cast holds.
+    # Today's own sources read Today's full Context. Today always calls them with one, so the cast holds.
     return HighlightSource(
         name=name,
         find=cast(Callable[[HighlightContext], HighlightFindings], find),

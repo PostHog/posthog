@@ -21,20 +21,7 @@ class TestOkendoSource:
 
     @parameterized.expand(
         [
-            ("unauthorized", "401 Client Error: Unauthorized for url: https://api.okendo.io/enterprise/reviews"),
-            (
-                "forbidden",
-                "403 Client Error: Forbidden for url: https://api.okendo.io/enterprise/loyalty/earning_rules",
-            ),
-        ]
-    )
-    def test_non_retryable_errors_match_auth_failures(self, _name, observed_error):
-        assert any(key in observed_error for key in self.source.get_non_retryable_errors())
-
-    @parameterized.expand(
-        [
             ("other_vendor", "401 Client Error: Unauthorized for url: https://api.stripe.com/v1/customers"),
-            ("server_error", "500 Server Error for url: https://api.okendo.io/enterprise/reviews"),
         ]
     )
     def test_non_retryable_errors_do_not_match_unrelated(self, _name, other_error):

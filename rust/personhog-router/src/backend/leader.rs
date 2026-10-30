@@ -15,16 +15,17 @@ use tonic::{Code, Status};
 use tower::{Service, ServiceExt};
 
 use personhog_common::grpc::{current_client_name, SEMANTIC_REFUSAL_METADATA_KEY};
+use personhog_common::partitioning::partition_for_person;
+use personhog_coordination::changelog::LiveChangelog;
+
+use super::stash::{StashDecision, StashTable};
+use crate::config::Http2Windows;
+use crate::grpc_http::{grpc_error_response, grpc_status_code};
 
 /// Set by the leader on writes refused for a lifecycle hold. Mirrored so
 /// the router does not depend on the leader crate.
 const FENCED_METADATA_KEY: &str = "x-person-fenced";
 const FENCED_OP_ID_METADATA_KEY: &str = "x-person-fenced-op-id";
-use personhog_common::partitioning::partition_for_person;
-
-use super::stash::{StashDecision, StashTable};
-use crate::config::Http2Windows;
-use crate::grpc_http::{grpc_error_response, grpc_status_code};
 
 pub type AddressResolver = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
 
@@ -117,7 +118,7 @@ pub enum ForwardDecision {
 /// Static configuration for `LeaderBackend`. Bundles the knobs that come
 /// from `Config` so the constructor stays narrow as we add fields.
 pub struct LeaderBackendConfig {
-    pub num_partitions: u32,
+    pub changelog: LiveChangelog,
     pub timeout: Duration,
     pub num_channels: usize,
     pub http2_windows: Http2Windows,
@@ -147,9 +148,7 @@ pub struct LeaderBackend {
     /// Resolves pod_name → gRPC address.
     address_resolver: AddressResolver,
     config: LeaderBackendConfig,
-    /// Per-partition stash queue used to buffer writes during partition
-    /// handoffs. Consulted before every write; normal operation has no stash
-    /// entries and hits the dashmap miss-path once per request.
+    /// Parks leader-path requests during partition handoffs; lock-free when nothing is parked.
     stash: StashTable,
 }
 
@@ -177,8 +176,8 @@ impl LeaderBackend {
         stash: StashTable,
     ) -> Self {
         assert!(
-            config.num_partitions > 0,
-            "num_partitions must be > 0 to avoid division by zero in partition_for_person"
+            config.changelog.partitions() > 0,
+            "the changelog must have partitions to avoid division by zero in partition_for_person"
         );
         Self {
             routing_table,
@@ -195,6 +194,11 @@ impl LeaderBackend {
         self.stash.clone()
     }
 
+    /// The live config this backend routes on.
+    pub fn changelog(&self) -> &LiveChangelog {
+        &self.config.changelog
+    }
+
     /// Remove the cached gRPC channel for a pod so the next request
     /// reconnects. Called during partition handoff cutover to drop the
     /// connection to the old leader pod.
@@ -207,7 +211,7 @@ impl LeaderBackend {
     /// Compute the Kafka partition for a person using murmur2.
     /// The key is `team_id:person_id`, matching the Kafka topic key.
     pub fn partition_for_person(&self, team_id: i64, person_id: i64) -> u32 {
-        partition_for_person(team_id, person_id, self.config.num_partitions)
+        partition_for_person(team_id, person_id, self.config.changelog.partitions())
     }
 
     /// Resolve the leader gRPC channel for a given partition, building and
@@ -420,7 +424,6 @@ impl LeaderBackend {
     pub async fn forward_or_stash(
         &self,
         method: &'static str,
-        partition: u32,
         key: (i64, i64),
         headers: HeaderMap,
         frame: Bytes,
@@ -430,15 +433,37 @@ impl LeaderBackend {
         // needs to treat a replay as at-least-once.
         let mut possibly_applied = false;
         loop {
+            // Per attempt: a bounce may be the leader refusing a stale modulus.
+            let partition = self.partition_for_person(key.0, key.1);
+            // A partition born in the flip parks its writes until its first handoff drains
+            // them. The table's read lock ensures a route added later meets the stash.
+            let changelog = &self.config.changelog;
+            if let Some(floor) = changelog
+                .draining_floor()
+                .filter(|floor| partition >= *floor)
+            {
+                let table = self.routing_table.read().await;
+                if !table.contains_key(&partition) {
+                    self.stash.begin_stash(partition);
+                } else if changelog.floor_held() {
+                    let partitions = changelog.partitions();
+                    if (floor..partitions).all(|p| table.contains_key(&p)) {
+                        changelog.release_floor(floor, partitions);
+                    }
+                }
+            }
             // The stash module emits its own enqueued/rejected counters
             // at the source; we don't double-count here. It borrows the
             // frame and headers, cloning only when the request actually
             // parks, so the steady-state forward path copies nothing.
-            match self
-                .stash
-                .enqueue_or_forward(partition, method, &frame, &headers, key, possibly_applied)
-                .await
-            {
+            match self.stash.enqueue_or_forward(
+                method,
+                &frame,
+                &headers,
+                key,
+                partition,
+                possibly_applied,
+            ) {
                 StashDecision::Stashed(rx) => {
                     let response = rx.await.unwrap_or_else(|_| {
                         grpc_error_response(
@@ -543,10 +568,15 @@ mod tests {
     }
 
     use super::*;
+    use personhog_coordination::types::ChangelogConfig;
+
+    fn changelog(num_partitions: u32) -> LiveChangelog {
+        LiveChangelog::new(ChangelogConfig::new("personhog_updates", num_partitions))
+    }
 
     fn test_config(num_partitions: u32) -> LeaderBackendConfig {
         LeaderBackendConfig {
-            num_partitions,
+            changelog: changelog(num_partitions),
             timeout: Duration::from_secs(5),
             num_channels: 4,
             http2_windows: Http2Windows::default(),
@@ -564,7 +594,7 @@ mod tests {
                 num_channels,
                 ..test_config(8)
             },
-            StashTable::with_bounds(usize::MAX, usize::MAX),
+            StashTable::with_bounds(usize::MAX, usize::MAX, changelog(8)),
         );
         let partition = backend.partition_for_person(1, 42);
         routing_table
@@ -590,7 +620,7 @@ mod tests {
             routing_table,
             resolver,
             test_config(8),
-            StashTable::with_bounds(usize::MAX, usize::MAX),
+            StashTable::with_bounds(usize::MAX, usize::MAX, changelog(8)),
         );
 
         let partition = backend.partition_for_person(1, 42);
@@ -612,14 +642,12 @@ mod tests {
             routing_table,
             resolver,
             test_config(8),
-            StashTable::with_bounds(usize::MAX, usize::MAX),
+            StashTable::with_bounds(usize::MAX, usize::MAX, changelog(8)),
         );
 
-        let partition = backend.partition_for_person(1, 42);
         let (response, call_ms) = backend
             .forward_or_stash(
                 "UpdatePersonProperties",
-                partition,
                 (1, 42),
                 HeaderMap::new(),
                 Bytes::from_static(b"x"),
@@ -639,7 +667,7 @@ mod tests {
             Arc::clone(&routing_table),
             Arc::new(|_| None), // resolver returns None
             test_config(8),
-            StashTable::with_bounds(usize::MAX, usize::MAX),
+            StashTable::with_bounds(usize::MAX, usize::MAX, changelog(8)),
         );
 
         let partition = backend.partition_for_person(1, 42);
@@ -662,7 +690,7 @@ mod tests {
             Arc::clone(&routing_table),
             resolver,
             test_config(8),
-            StashTable::with_bounds(usize::MAX, usize::MAX),
+            StashTable::with_bounds(usize::MAX, usize::MAX, changelog(8)),
         );
 
         let partition = backend.partition_for_person(1, 42);
@@ -751,7 +779,7 @@ mod tests {
         let routing_table = Arc::new(RwLock::new(HashMap::new()));
         let resolver: AddressResolver = Arc::new(|_| Some("http://localhost:50053".to_string()));
         // `max_messages = 0` rejects any enqueue once the stash is open.
-        let stash = StashTable::with_bounds(0, usize::MAX);
+        let stash = StashTable::with_bounds(0, usize::MAX, changelog(8));
         let backend = LeaderBackend::new(
             Arc::clone(&routing_table),
             resolver,
@@ -762,12 +790,11 @@ mod tests {
         // Determine which partition this request lands on, then open the
         // stash for that exact partition.
         let partition = backend.partition_for_person(1, 42);
-        stash.begin_stash(partition).await;
+        stash.begin_stash(partition);
 
         let (response, call_ms) = backend
             .forward_or_stash(
                 "UpdatePersonProperties",
-                partition,
                 (1, 42),
                 HeaderMap::new(),
                 Bytes::new(),

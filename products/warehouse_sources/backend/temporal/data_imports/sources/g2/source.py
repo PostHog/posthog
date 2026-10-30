@@ -52,7 +52,7 @@ class G2Source(ResumableSource[G2SourceConfig, G2ResumeConfig]):
             name=ExternalDataSourceType.G2,
             category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="G2 (G2.com, Inc.)",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your G2 access token to pull your product's reviews and G2's product catalog into the PostHog Data warehouse.
 
 Create an account and generate an access token in the [G2 Developer Portal](https://my.g2.com/developers). Grant read access to the tables you want to sync:

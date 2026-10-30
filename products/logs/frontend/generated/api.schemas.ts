@@ -165,6 +165,10 @@ export interface SessionPropertyFilterApi {
 }
 
 export interface CohortPropertyFilterApi {
+    /** Set by the feature flag API when the cohort is deleted or does not exist. */
+    cohort_deleted?: boolean | null
+    /** Set by the feature flag API when the cohort does not exist, so it cannot be restored. */
+    cohort_missing?: boolean | null
     cohort_name?: string | null
     key?: 'id'
     label?: string | null
@@ -518,6 +522,49 @@ export const LogsAlertDestinationTypeEnumApi = {
 } as const
 
 /**
+ * * `single` - Single
+ * * `by_result_labels` - By result labels
+ */
+export type GroupingModeEnumApi = (typeof GroupingModeEnumApi)[keyof typeof GroupingModeEnumApi]
+
+export const GroupingModeEnumApi = {
+    Single: 'single',
+    ByResultLabels: 'by_result_labels',
+} as const
+
+/**
+ * * `degrade_visible` - Degrade visible
+ */
+export type OnOverflowEnumApi = (typeof OnOverflowEnumApi)[keyof typeof OnOverflowEnumApi]
+
+export const OnOverflowEnumApi = {
+    DegradeVisible: 'degrade_visible',
+} as const
+
+/**
+ * How a logs alert splits its results into instances.
+ */
+export interface LogsAlertGroupingApi {
+    /** single keeps one instance for the whole alert. by_result_labels keeps one instance per distinct value of the labels in keys, so each group fires and resolves on its own.
+     *
+     * * `single` - Single
+     * * `by_result_labels` - By result labels */
+    mode: GroupingModeEnumApi
+    /** Result labels whose values make a group, such as service_name. Empty for mode single, required for by_result_labels. Changing them deletes the existing instances and closes their notification threads without a message. */
+    keys?: string[]
+    /**
+     * Most instances the alert keeps at once. Groups past it are not tracked, and the last message says how many were left out.
+     * @minimum 1
+     * @maximum 100
+     */
+    max_instances?: number
+    /** What happens to groups past max_instances. degrade_visible names how many were left out.
+     *
+     * * `degrade_visible` - Degrade visible */
+    on_overflow?: OnOverflowEnumApi
+}
+
+/**
  * * `engineering` - Engineering
  * * `data` - Data
  * * `product` - Product Management
@@ -659,6 +706,10 @@ export interface LogsAlertConfigurationApi {
     readonly state_timeline: readonly LogsAlertStateIntervalApi[]
     /** Notification destination types configured for this alert — e.g. 'slack', 'webhook'. Empty list means no notifications will fire. One or more destinations should be added after creating an alert. */
     readonly destination_types: readonly LogsAlertDestinationTypeEnumApi[]
+    /** How the alert splits its results into instances. Mode single keeps one instance for the whole alert. Mode by_result_labels with keys service_name and/or severity_text keeps one instance per service or severity, each firing and resolving on its own, and needs threshold_operator above. Only an alert the alerts platform evaluates can group. Any other alert reads as single and rejects a different value. Omit it on update to keep the current grouping. Changing the keys deletes the existing instances and closes their notification threads without a message. */
+    grouping?: LogsAlertGroupingApi
+    /** Whether the alerts platform evaluates this alert and sends its notifications. Only such an alert can set a grouping other than single. */
+    readonly platform_owned: boolean
     /**
      * When the alert was first enabled. Null means the alert is still in draft state.
      * @nullable
@@ -831,6 +882,10 @@ export interface LogsAlertConfigurationDetailApi {
     readonly state_timeline: readonly LogsAlertStateIntervalApi[]
     /** Notification destination types configured for this alert — e.g. 'slack', 'webhook'. Empty list means no notifications will fire. One or more destinations should be added after creating an alert. */
     readonly destination_types: readonly LogsAlertDestinationTypeEnumApi[]
+    /** How the alert splits its results into instances. Mode single keeps one instance for the whole alert. Mode by_result_labels with keys service_name and/or severity_text keeps one instance per service or severity, each firing and resolving on its own, and needs threshold_operator above. Only an alert the alerts platform evaluates can group. Any other alert reads as single and rejects a different value. Omit it on update to keep the current grouping. Changing the keys deletes the existing instances and closes their notification threads without a message. */
+    grouping?: LogsAlertGroupingApi
+    /** Whether the alerts platform evaluates this alert and sends its notifications. Only such an alert can set a grouping other than single. */
+    readonly platform_owned: boolean
     /**
      * When the alert was first enabled. Null means the alert is still in draft state.
      * @nullable
@@ -933,6 +988,10 @@ export interface PatchedLogsAlertConfigurationApi {
     readonly state_timeline?: readonly LogsAlertStateIntervalApi[]
     /** Notification destination types configured for this alert — e.g. 'slack', 'webhook'. Empty list means no notifications will fire. One or more destinations should be added after creating an alert. */
     readonly destination_types?: readonly LogsAlertDestinationTypeEnumApi[]
+    /** How the alert splits its results into instances. Mode single keeps one instance for the whole alert. Mode by_result_labels with keys service_name and/or severity_text keeps one instance per service or severity, each firing and resolving on its own, and needs threshold_operator above. Only an alert the alerts platform evaluates can group. Any other alert reads as single and rejects a different value. Omit it on update to keep the current grouping. Changing the keys deletes the existing instances and closes their notification threads without a message. */
+    grouping?: LogsAlertGroupingApi
+    /** Whether the alerts platform evaluates this alert and sends its notifications. Only such an alert can set a grouping other than single. */
+    readonly platform_owned?: boolean
     /**
      * When the alert was first enabled. Null means the alert is still in draft state.
      * @nullable
@@ -990,6 +1049,36 @@ export interface LogsAlertDeleteDestinationApi {
      * @minItems 1
      */
     hog_function_ids: string[]
+}
+
+/**
+ * * `native` - Native
+ * * `hog_function` - HogFunction
+ */
+export type DeliveryPathEnumApi = (typeof DeliveryPathEnumApi)[keyof typeof DeliveryPathEnumApi]
+
+export const DeliveryPathEnumApi = {
+    Native: 'native',
+    HogFunction: 'hog_function',
+} as const
+
+export interface LogsAlertDestinationSendApi {
+    /** The HogFunction the message was sent for. It names the lifecycle event that was sent. */
+    hog_function_id: string
+    /** When the send started. */
+    sent_at: string
+    /** Which delivery path sent it. `native` is the stock message sent by the alerts platform. `hog_function` is the destination's HogFunction.
+     *
+     * * `native` - Native
+     * * `hog_function` - HogFunction */
+    path: DeliveryPathEnumApi
+    /** Whether the destination accepted the message. */
+    succeeded: boolean
+    /**
+     * Why a `native` send failed. Null when it succeeded, and for a `hog_function` send, whose reason is in the HogFunction's own logs.
+     * @nullable
+     */
+    error: string | null
 }
 
 /**
@@ -1790,7 +1879,7 @@ export const LogsGroupBySourceEnumApi = {
 } as const
 
 export interface _LogsGroupByDimensionApi {
-    /** The key this dimension groups by — an attribute key (e.g. "session_id", "service.name") or, when source is "column", one of the top-level log fields: "severity_level", "trace_id", "span_id". */
+    /** The key this dimension groups by — an attribute key (e.g. "session_id", "service.name") or, when source is "column", one of the top-level log fields: "severity_level", "service_name", "trace_id", "span_id", "pattern" (the masked message template). */
     key: string
     /** Where this dimension's key lives: "log" for log-level attributes, "resource" for resource-level attributes, "column" for top-level log fields.
      *
@@ -1824,7 +1913,7 @@ export interface _LogsGroupByBodyApi {
     searchTerm?: string
     /** Property filters applied before grouping. Same shape as the query-logs endpoint. */
     filterGroup?: _LogPropertyFilterApi[]
-    /** The key to group logs by — an attribute key (e.g. "session_id", "service.name") or, when groupBySource is "column", one of the top-level log fields: "severity_level", "trace_id", "span_id". Ignored when groupBys is provided. */
+    /** The key to group logs by — an attribute key (e.g. "session_id", "service.name") or, when groupBySource is "column", one of the top-level log fields: "severity_level", "service_name", "trace_id", "span_id", "pattern". Ignored when groupBys is provided. */
     groupBy?: string
     /** Where the grouping key lives: "log" for log-level attributes, "resource" for resource-level attributes, "column" for top-level log fields. Ignored when groupBys is provided.
      *
@@ -1870,6 +1959,8 @@ export interface _LogsGroupByGroupApi {
     log_count: number
     /** Number of matching logs in this group at severity "error" or "fatal". */
     error_count: number
+    /** ISO 8601 timestamp of the earliest matching log in this group. */
+    first_seen?: string
     /** ISO 8601 timestamp of the most recent matching log in this group. */
     last_seen: string
 }
@@ -2303,11 +2394,76 @@ export interface _LogsPatternsResponseApi {
     sparkline_buckets: _LogsPatternsSparklineBucketApi[]
 }
 
+export interface _LogsPatternsDiffBodyApi {
+    /** Date range to mine patterns from. Defaults to last hour. */
+    dateRange?: _DateRangeApi
+    /** Filter by log severity levels before mining. */
+    severityLevels?: SeverityLevelsEnumApi[]
+    /** Restrict mining to these service names. */
+    serviceNames?: string[]
+    /** Full-text search term to filter log bodies before mining. */
+    searchTerm?: string
+    /** Property filters applied before mining. Same shape as the query-logs endpoint. */
+    filterGroup?: _LogPropertyFilterApi[]
+    /** Scope mining to one person (UUID or numeric ID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id log attribute keys. */
+    personId?: string
+    /** Scope mining to one session ID. Matched server-side against the team's configured session-id log attribute keys plus the built-in conventions, in both log attributes and resource attributes. */
+    sessionId?: string
+    /**
+     * Return at most this many entries, most interesting first. Omit for all. Sets `truncated`.
+     * @minimum 1
+     * @maximum 500
+     * @nullable
+     */
+    limit?: number | null
+}
+
 export interface _LogsPatternsDiffRequestApi {
     /** The patterns query for the current (foreground) window: date range plus any severity/service/search/property filters. The same filters are applied to the baseline window. */
-    query: _LogsPatternsBodyApi
+    query: _LogsPatternsDiffBodyApi
     /** Baseline window to compare against. Omit to default to the current window shifted back exactly one week, which absorbs daily and weekly log-volume cycles. Pass an explicit range to compare against a specific period, e.g. pre-deploy or pre-incident. */
     baselineDateRange?: _DateRangeApi
+}
+
+export interface LogsAgentWindowBoundsApi {
+    /** Window start, ISO 8601 UTC with a Z suffix (inclusive). */
+    from: string
+    /** Window end, ISO 8601 UTC with a Z suffix (exclusive). */
+    to: string
+}
+
+export interface LogsAgentWindowApi {
+    /** Absolute bounds the server used for the current window. */
+    current: LogsAgentWindowBoundsApi
+    /** Absolute bounds the server used for the baseline window, when there is one. */
+    baseline?: LogsAgentWindowBoundsApi
+    /** Always "UTC". */
+    timezone: string
+}
+
+/**
+ * * `stored_patterns` - Stored Patterns
+ * * `body_mining` - Body Mining
+ */
+export type PatternsDiffSourceEnumApi = (typeof PatternsDiffSourceEnumApi)[keyof typeof PatternsDiffSourceEnumApi]
+
+export const PatternsDiffSourceEnumApi = {
+    StoredPatterns: 'stored_patterns',
+    BodyMining: 'body_mining',
+} as const
+
+/**
+ * Prefilled `query` object for that tool. Pass it as is or adjust it.
+ */
+export type LogsAgentNextCallApiQuery = { [key: string]: unknown }
+
+export interface LogsAgentNextCallApi {
+    /** MCP tool to call next, e.g. query-logs or logs-context. */
+    tool: string
+    /** One line on what the follow-up call answers. */
+    why: string
+    /** Prefilled `query` object for that tool. Pass it as is or adjust it. */
+    query: LogsAgentNextCallApiQuery
 }
 
 /**
@@ -2327,6 +2483,15 @@ export const _LogPatternDiffEntryClassificationEnumApi = {
 } as const
 
 export interface _LogPatternDiffEntryApi {
+    /** The template with variable parts masked. */
+    masked_example: string
+    /** Up to 4 services with this pattern. */
+    services: string[]
+    /**
+     * Earliest 5-minute bucket (UTC) with this pattern, up to 14 days back. Null on body mining.
+     * @nullable
+     */
+    first_seen_ever: string | null
     /** "new": appears only in the current window and clears the novelty floor (at least ~1% volume share, or any error/fatal occurrences). "rate_shift": present in both windows with the per-second rate changed by at least 2x either way, backed by enough samples on both sides to trust the estimates. "gone": cleared the floor in the baseline but absent from the current window. "unchanged" means "no confident claim", not "provably identical" — sampled mining cannot prove a below-floor template is genuinely new or gone.
      *
      * * `new` - new
@@ -2401,6 +2566,26 @@ export interface _LogsPatternsDiffWindowApi {
 }
 
 export interface _LogsPatternsDiffResponseApi {
+    /** Absolute UTC bounds of the current and baseline windows. */
+    window: LogsAgentWindowApi
+    /** stored_patterns when both windows have ≥99% of rows on the same stored version, else body_mining.
+     *
+     * * `stored_patterns` - Stored Patterns
+     * * `body_mining` - Body Mining */
+    source: PatternsDiffSourceEnumApi
+    /**
+     * Stored pattern version, null for mining.
+     * @nullable
+     */
+    pattern_version: number | null
+    /** True on the body-mining fallback: counts are sample estimates. */
+    sampled: boolean
+    /** True when `limit` cut the entry list. */
+    truncated: boolean
+    /** Caveats that limit what the diff shows. */
+    notes: string[]
+    /** Prefilled query-logs calls for the top new or shifted patterns. */
+    next: LogsAgentNextCallApi[]
     /** Classified diff entries, most interesting first: "new" (by estimated count), then "rate_shift" (by shift magnitude), then "gone", then "unchanged". A pattern in the baseline is matched to the current window by literal-content fingerprint, so a placeholder widening between runs does not read as one pattern vanishing and another appearing. */
     entries: _LogPatternDiffEntryApi[]
     /** Mining metadata for the current window. */
@@ -2764,6 +2949,21 @@ export interface LogsSamplingRuleReorderApi {
     ordered_ids: string[]
 }
 
+/**
+ * * `none` - No baseline
+ * * `previous_period` - Previous period
+ * * `previous_day` - Same window a day earlier
+ * * `previous_week` - Same window a week earlier
+ */
+export type LogsCompareModeEnumApi = (typeof LogsCompareModeEnumApi)[keyof typeof LogsCompareModeEnumApi]
+
+export const LogsCompareModeEnumApi = {
+    None: 'none',
+    PreviousPeriod: 'previous_period',
+    PreviousDay: 'previous_day',
+    PreviousWeek: 'previous_week',
+} as const
+
 export interface _LogsServicesBodyApi {
     /** Date range for the services aggregation. Defaults to last hour. */
     dateRange?: _DateRangeApi
@@ -2780,12 +2980,47 @@ export interface _LogsServicesBodyApi {
     serviceNameSearch?: string
     /** Property filters for the query. */
     filterGroup?: _LogPropertyFilterApi[]
+    /**
+     * Deployment environment, matched without case against the first set resource attribute of deployment.environment.name, deployment.environment and env. "(none)" matches logs without one.
+     * @maxLength 200
+     */
+    environment?: string
+    /** Baseline window for per-service status: the window just before, the same window a day or a week earlier, or none. Silent services (logs in the baseline, none now) only appear with a baseline.
+     *
+     * * `none` - No baseline
+     * * `previous_period` - Previous period
+     * * `previous_day` - Same window a day earlier
+     * * `previous_week` - Same window a week earlier */
+    compare?: LogsCompareModeEnumApi
 }
 
 export interface _LogsServicesRequestApi {
     /** The services aggregation query to execute. */
     query: _LogsServicesBodyApi
+    /** Explicit baseline window. Takes precedence over `query.compare`. */
+    baselineDateRange?: _DateRangeApi
 }
+
+/**
+ * * `ok` - OK
+ * * `degraded` - Error rate 5% or more
+ * * `regressed` - Error rate worse than the baseline
+ * * `improved` - Error rate better than the baseline
+ * * `recovered` - No longer degraded
+ * * `new` - No logs in the baseline
+ * * `silent` - Logs stopped
+ */
+export type LogsServiceStatusEnumApi = (typeof LogsServiceStatusEnumApi)[keyof typeof LogsServiceStatusEnumApi]
+
+export const LogsServiceStatusEnumApi = {
+    Ok: 'ok',
+    Degraded: 'degraded',
+    Regressed: 'regressed',
+    Improved: 'improved',
+    Recovered: 'recovered',
+    New: 'new',
+    Silent: 'silent',
+} as const
 
 export interface _LogsServiceSeverityBreakdownApi {
     debug: number
@@ -2803,6 +3038,40 @@ export interface _LogsServiceActiveRuleApi {
 export interface _LogsServiceAggregateApi {
     /** Service name, or "(no value)" / "(no service)" placeholder for unset entries. */
     service_name: string
+    /** ok, degraded (error rate of 5% or more), regressed or improved (error rate up or down by 1 pp and 2x), recovered (back under 5%), new (no baseline logs) or silent (baseline logs, none in the window).
+     *
+     * * `ok` - OK
+     * * `degraded` - Error rate 5% or more
+     * * `regressed` - Error rate worse than the baseline
+     * * `improved` - Error rate better than the baseline
+     * * `recovered` - No longer degraded
+     * * `new` - No logs in the baseline
+     * * `silent` - Logs stopped */
+    status?: LogsServiceStatusEnumApi
+    /** Short reason for the status, e.g. "error rate 0.4% → 3.1%". */
+    reason?: string
+    /** Error rate in percent, rounded to 1 decimal. */
+    error_rate_pct?: number
+    /**
+     * Logs in the baseline. Null without one.
+     * @nullable
+     */
+    baseline_log_count?: number | null
+    /**
+     * Error rate change against the baseline, in percentage points.
+     * @nullable
+     */
+    error_rate_delta_pp?: number | null
+    /**
+     * Log volume change against the baseline, in percent.
+     * @nullable
+     */
+    log_count_change_pct?: number | null
+    /**
+     * Latest log time (UTC). From the rollup, and for silent services, the start of the last 5-minute bucket.
+     * @nullable
+     */
+    last_seen?: string | null
     /** Total log entries from this service in the window. */
     log_count: number
     /** Count of logs at severity "error" or "fatal". */
@@ -2824,11 +3093,73 @@ export interface _LogsServicesSparklineBucketApi {
     count: number
 }
 
+/**
+ * Service rows per status.
+ */
+export type _LogsServicesSummaryApiStatusCounts = { [key: string]: number }
+
 export interface _LogsServicesSummaryApi {
     /** Number of top services included in the volume_share aggregate (up to 5). */
     top_services_count: number
     /** Combined volume share (percent) of the top services by log_count. */
     top_services_volume_share_pct: number
+    /** Service rows per status. */
+    status_counts?: _LogsServicesSummaryApiStatusCounts
+    /** True when more services matched than `services` holds. */
+    truncated?: boolean
+}
+
+/**
+ * `from` and `to` of the queried window, ISO 8601 UTC.
+ */
+export type _LogsWindowApiCurrent = { [key: string]: string }
+
+/**
+ * `from` and `to` of the baseline. Absent without one.
+ */
+export type _LogsWindowApiBaseline = { [key: string]: string }
+
+export interface _LogsWindowApi {
+    /** `from` and `to` of the queried window, ISO 8601 UTC. */
+    current: _LogsWindowApiCurrent
+    /** `from` and `to` of the baseline. Absent without one. */
+    baseline?: _LogsWindowApiBaseline
+    /** Always UTC. */
+    timezone: string
+}
+
+/**
+ * * `rollup` - Rollup
+ * * `rollup+raw` - Rollup Raw
+ * * `raw` - Raw
+ */
+export type LogsServicesSourceEnumApi = (typeof LogsServicesSourceEnumApi)[keyof typeof LogsServicesSourceEnumApi]
+
+export const LogsServicesSourceEnumApi = {
+    Rollup: 'rollup',
+    RollupRaw: 'rollup+raw',
+    Raw: 'raw',
+} as const
+
+/**
+ * Prefilled `query` for that tool.
+ */
+export type _LogsNextStepApiQuery = { [key: string]: unknown }
+
+/**
+ * Prefilled sibling `baselineDateRange` argument, for tools that take one.
+ */
+export type _LogsNextStepApiBaselineDateRange = { [key: string]: unknown }
+
+export interface _LogsNextStepApi {
+    /** MCP tool to call next. */
+    tool: string
+    /** What the call answers. */
+    why: string
+    /** Prefilled `query` for that tool. */
+    query: _LogsNextStepApiQuery
+    /** Prefilled sibling `baselineDateRange` argument, for tools that take one. */
+    baselineDateRange?: _LogsNextStepApiBaselineDateRange
 }
 
 export interface _LogsServicesResponseApi {
@@ -2840,6 +3171,16 @@ export interface _LogsServicesResponseApi {
     total_services: number
     /** Roll-up stats for the Services tab header. */
     summary?: _LogsServicesSummaryApi
+    /** Absolute UTC bounds of the window and the baseline. */
+    window?: _LogsWindowApi
+    /** rollup: 5-minute rollup only. rollup+raw: rollup plus raw logs at unaligned window edges.
+     *
+     * * `rollup` - Rollup
+     * * `rollup+raw` - Rollup Raw
+     * * `raw` - Raw */
+    source?: LogsServicesSourceEnumApi
+    /** Prefilled follow-up calls for problem services. */
+    next?: _LogsNextStepApi[]
 }
 
 /**
@@ -3052,6 +3393,15 @@ export type LogsAlertsListParams = {
     offset?: number
 }
 
+export type LogsAlertsDestinationsSendsListParams = {
+    /**
+     * HogFunction IDs of one destination group. IDs that are not this alert's are ignored.
+     * @minItems 1
+     * @maxItems 100
+     */
+    hog_function_ids: string[]
+}
+
 export type LogsAlertsEventsListParams = {
     /**
      * Number of results to return per page.
@@ -3215,8 +3565,7 @@ export type LogsValuesRetrieveParams = {
      */
     serviceNames?: string[]
     /**
-     * Search filter for attribute values
-     * @minLength 1
+     * Search filter for attribute values. Omit it or pass an empty string to list all values.
      */
     value?: string
 }
@@ -3239,3 +3588,36 @@ export type LogsViewsListParams = {
      */
     offset?: number
 }
+
+export type TasksRunsLogsRetrieveParams = {
+    /**
+     * With tail_bytes, end the window before this entry index, so a client can page back through older turns: pass the X-Log-Offset of the oldest page it holds.
+     * @minimum 0
+     */
+    before?: number
+    /**
+     * With tail_bytes, return every entry from this index to the end, with no preamble, so a client that holds the entries before it can catch up after a disconnect: pass the X-Log-Count of its last read. When those entries are too large, the response holds the latest turns as tail_bytes alone returns them, and X-Log-Offset is greater than start.
+     * @minimum 0
+     */
+    start?: number
+    /**
+     * Return only the latest turns of the log: the shortest suffix that starts at a user turn and holds at least this many bytes. The X-Log-Offset and X-Log-Count headers give the index of the first tail entry and the size of the full log. The slice starts with X-Log-Preamble earlier entries that still set run state, such as the run start, usage, mode, commands and open permission requests. X-Log-Turns-Before counts the user turns before the slice, so a client numbers turns the way the full log does.
+     * @minimum 1
+     */
+    tail_bytes?: number
+    /**
+     * 'full' returns every entry as stored. 'thread' drops the duplicate tool response copy in _meta.claudeCode.toolResponse and keeps only its decisionReason and message, for clients that render the conversation. It applies to the full log and to every slice.
+     *
+     * * `full` - full
+     * * `thread` - thread
+     * @minLength 1
+     */
+    view?: TasksRunsLogsRetrieveView
+}
+
+export type TasksRunsLogsRetrieveView = (typeof TasksRunsLogsRetrieveView)[keyof typeof TasksRunsLogsRetrieveView]
+
+export const TasksRunsLogsRetrieveView = {
+    Full: 'full',
+    Thread: 'thread',
+} as const

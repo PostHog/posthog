@@ -55,7 +55,7 @@ class TerraformCloudSource(ResumableSource[TerraformCloudSourceConfig, Terraform
             name=ExternalDataSourceType.TERRAFORMCLOUD,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="HashiCorp (HCP Terraform / Terraform Cloud)",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["tfc", "hcp", "infrastructure as code", "iac"],
             caption="""Sync organizations, projects, teams, workspaces, runs, and state versions from HCP Terraform (formerly Terraform Cloud) into the PostHog Data warehouse to analyze infrastructure change frequency, plan/apply durations, and failure rates.
 

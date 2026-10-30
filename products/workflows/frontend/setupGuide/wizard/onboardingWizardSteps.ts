@@ -17,11 +17,19 @@ export const MESSAGING_WIZARD_STEPS = ['channel', 'domain', 'opt-outs', 'sending
 export const AUTOMATION_WIZARD_STEPS = ['template', 'connect', 'create'] as const
 export const BROADCAST_WIZARD_STEPS = ['channel', 'domain', 'opt-outs', 'sending-rules', 'broadcast'] as const
 export const PUSH_WIZARD_STEP = 'push' as const
+export const REACH_WIZARD_STEP = 'reach' as const
 export type WizardStepKey =
     | (typeof MESSAGING_WIZARD_STEPS)[number]
     | (typeof AUTOMATION_WIZARD_STEPS)[number]
     | (typeof BROADCAST_WIZARD_STEPS)[number]
     | typeof PUSH_WIZARD_STEP
+    | typeof REACH_WIZARD_STEP
+
+// pinned: URL values and analytics property values of the reach step - renaming breaks links and dashboards
+export const REACH_CHANNELS = ['email', 'push'] as const
+export type ReachChannel = (typeof REACH_CHANNELS)[number]
+
+const EMAIL_WIZARD_STEPS: readonly WizardStepKey[] = ['channel', 'domain']
 
 // pinned: URL path and search params of the wizard - renaming breaks the Slack sign-in return link
 export const ONBOARDING_WIZARD_TAB = 'onboarding'
@@ -30,9 +38,19 @@ export const BLANK_START_ID = 'blank'
 /** The `template_id` the finished event reports when a data suggestion created the workflow. */
 export const DATA_SUGGESTION_START_ID = 'data_suggestion'
 
+// pinned: URL value and analytics property value of the wizard events - renaming breaks dashboards
+export const WIZARD_ENTRIES = [
+    'path_choice',
+    'messaging_setup_guide',
+    'automation_empty_state',
+    'automation_banner',
+    'broadcasts_empty_state',
+] as const
+export type WizardEntry = (typeof WIZARD_ENTRIES)[number]
+
 export function onboardingWizardUrl(
     path: WorkflowsOnboardingPath,
-    params: { step?: WizardStepKey; template?: string } = {}
+    params: { step?: WizardStepKey; template?: string; entry?: WizardEntry } = {}
 ): string {
     return combineUrl(urls.workflows(ONBOARDING_WIZARD_TAB), { path, ...params }).url
 }
@@ -43,15 +61,23 @@ export const WIZARD_STEPS: Record<WorkflowsOnboardingPath, readonly WizardStepKe
     broadcast: BROADCAST_WIZARD_STEPS,
 }
 
-/** The steps of one path. Messaging asks about push before the first journey when the project can send push.
- * Broadcasts only send email, so that path never asks. */
-export function wizardSteps(path: WorkflowsOnboardingPath, pushEnabled: boolean): readonly WizardStepKey[] {
+/** Broadcasts only send email, so that path never asks which channels to set up. */
+export function wizardSteps(
+    path: WorkflowsOnboardingPath,
+    pushEnabled: boolean,
+    reachChannels: readonly ReachChannel[] | null = null
+): readonly WizardStepKey[] {
     const steps = WIZARD_STEPS[path]
     if (path !== 'messaging' || !pushEnabled) {
         return steps
     }
-    const journeyIndex = steps.indexOf('journey')
-    return [...steps.slice(0, journeyIndex), PUSH_WIZARD_STEP, ...steps.slice(journeyIndex)]
+    const shared = steps.filter((step) => !EMAIL_WIZARD_STEPS.includes(step))
+    return [
+        REACH_WIZARD_STEP,
+        ...(reachChannels?.includes('email') ? EMAIL_WIZARD_STEPS : []),
+        ...(reachChannels?.includes('push') ? [PUSH_WIZARD_STEP] : []),
+        ...shared,
+    ]
 }
 
 export interface WizardStepCopy {
@@ -63,8 +89,14 @@ export interface WizardStepCopy {
 }
 
 export const WIZARD_STEP_COPY: Record<WizardStepKey, WizardStepCopy> = {
+    reach: {
+        label: 'Channels',
+        title: 'How do you want to reach people?',
+        description: 'Pick every channel you want to send from. Setup only asks about the ones you pick.',
+        optional: false,
+    },
     channel: {
-        label: 'Email channel',
+        label: 'Email',
         title: 'Connect the email address you send from',
         description: 'Email goes out from your own domain. Add the address that people see in their inbox.',
         optional: false,
@@ -87,21 +119,21 @@ export const WIZARD_STEP_COPY: Record<WizardStepKey, WizardStepCopy> = {
         label: 'Sending rules',
         title: 'Choose how often people hear from you',
         description:
-            'These rules apply to every workflow and broadcast in this project. The defaults keep people from getting too many marketing emails. You can change them later in Messaging settings.',
+            'These rules apply to every workflow and broadcast in this project. The defaults keep people from getting too many marketing messages. You can change them later in Messaging settings.',
         optional: false,
     },
     push: {
         label: 'Push',
-        title: 'Send push notifications too?',
+        title: 'Set up push notifications',
         description:
-            'Reach people on their phones as well as in their inbox. You can also set this up later in Messaging.',
-        optional: true,
+            'Connect the service that delivers to your app, then turn on push in the PostHog SDK. Devices register themselves when your app starts.',
+        optional: false,
     },
     journey: {
         label: 'First journey',
         title: 'Pick your first journey',
         description:
-            'Start from a template or from scratch. It opens in the editor, where you change the trigger and the emails and save it as a draft. Nothing sends until you launch it.',
+            'Start from a template or from scratch. It opens in the editor, where you change the trigger and the messages and save it as a draft. Nothing sends until you launch it.',
         optional: false,
     },
     broadcast: {

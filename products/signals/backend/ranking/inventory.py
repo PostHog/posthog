@@ -18,6 +18,7 @@ BORN_VISIBLE_STATUSES = (
     SignalReport.Status.PENDING_INPUT,
     SignalReport.Status.IN_PROGRESS,
     SignalReport.Status.RESOLVED,
+    SignalReport.Status.CLOSED,
     SignalReport.Status.MONITORING,
 )
 

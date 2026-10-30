@@ -107,6 +107,10 @@ export const DEFAULT_MODEL_PRICES: readonly ModelPriceRule[] = [
     price: { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3 },
   },
   {
+    match: /deepseek-v4\.1-flash-1017-fast/i,
+    price: { input: 0.6, output: 2.4, cacheRead: 0.014, cacheWrite: 0.6 },
+  },
+  {
     match: /deepseek/i,
     price: { input: 0.13, output: 0.26, cacheRead: 0.028, cacheWrite: 0.13 },
   },

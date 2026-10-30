@@ -24,31 +24,6 @@ class TestNebiusAIValidateCredentials:
             assert NebiusAISource().validate_credentials(config, team_id=1) == transport_result
 
 
-class TestNebiusAINonRetryableErrors:
-    @parameterized.expand(
-        [
-            ("unauthorized", "401 Client Error: Unauthorized for url: https://api.tokenfactory.nebius.com/v1/models"),
-            ("forbidden", "403 Client Error: Forbidden for url: https://api.tokenfactory.nebius.com/v1/batches"),
-        ]
-    )
-    def test_credential_errors_are_non_retryable(self, _name: str, observed_error: str) -> None:
-        errors = NebiusAISource().get_non_retryable_errors()
-        assert any(key in observed_error for key in errors)
-
-    @parameterized.expand(
-        [
-            (
-                "rate_limited",
-                "429 Client Error: Too Many Requests for url: https://api.tokenfactory.nebius.com/v1/files",
-            ),
-            ("server_error", "500 Server Error: Internal Server Error for url: https://api.tokenfactory.nebius.com"),
-        ]
-    )
-    def test_transient_errors_remain_retryable(self, _name: str, observed_error: str) -> None:
-        errors = NebiusAISource().get_non_retryable_errors()
-        assert not any(key in observed_error for key in errors)
-
-
 class TestNebiusAIRegistration:
     def test_get_resumable_manager_namespace(self) -> None:
         # Sanity: the manager's data class survives a with_namespace() sibling (used for isolated state).

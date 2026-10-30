@@ -19,7 +19,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import (
+    unreachable_vendor_message,
+    validate_via_probe,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.confluence.settings import (
     CONFLUENCE_ENDPOINTS,
@@ -237,6 +240,6 @@ def validate_credentials(
             return True, None
         return False, "Your Confluence account does not have permission to access this resource."
     if status is None:
-        return False, None
+        return False, unreachable_vendor_message("Confluence")
 
     return False, f"Confluence API returned status {status}."

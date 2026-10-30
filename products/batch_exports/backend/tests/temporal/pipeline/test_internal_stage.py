@@ -35,7 +35,16 @@ from posthog.temporal.tests.utils.events import (
 )
 
 from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination, BatchExportRun
-from products.batch_exports.backend.service import BackfillDetails, BatchExportModel, afetch_last_run_records_completed
+from products.batch_exports.backend.service import (
+    AnyBatchExportModel,
+    BackfillDetails,
+    BatchExportEventsModel,
+    BatchExportHogQLModel,
+    BatchExportModel,
+    BatchExportPersonsModel,
+    BatchExportSessionsModel,
+    afetch_last_run_records_completed,
+)
 from products.batch_exports.backend.temporal.pipeline.internal_stage import (
     BatchExportInsertIntoInternalStageInputs,
     DataIntervalInFutureError,
@@ -77,7 +86,7 @@ def mock_clickhouse_client():
 @pytest.mark.parametrize(
     "model",
     [
-        BatchExportModel(name="events", schema=None),
+        BatchExportEventsModel(),
     ],
 )
 @pytest.mark.parametrize("is_backfill", [False, True])
@@ -90,7 +99,7 @@ async def test_insert_into_stage_activity_executes_the_expected_query_for_events
     data_interval_start,
     data_interval_end,
     ateam,
-    model: BatchExportModel,
+    model: AnyBatchExportModel,
     is_backfill: bool,
     backfill_within_last_6_days: bool,
     use_native_schema: bool,
@@ -156,7 +165,7 @@ async def test_insert_into_stage_activity_executes_the_expected_query_for_events
 @pytest.mark.parametrize(
     "model",
     [
-        BatchExportModel(name="sessions", schema=None),
+        BatchExportSessionsModel(),
     ],
 )
 @pytest.mark.parametrize("data_interval_end", [TEST_DATA_INTERVAL_END])
@@ -167,7 +176,7 @@ async def test_insert_into_stage_activity_executes_the_expected_query_for_sessio
     data_interval_start,
     data_interval_end,
     ateam,
-    model: BatchExportModel,
+    model: AnyBatchExportModel,
 ):
     """Test that the insert_into_internal_stage_activity executes the expected ClickHouse query when the model is a sessions model."""
 
@@ -258,7 +267,7 @@ async def _run_activity(
     data_interval_start: dt.datetime,
     data_interval_end: dt.datetime,
     exclude_events: list[str] | None = None,
-    model: BatchExportModel | None = None,
+    model: AnyBatchExportModel | None = None,
     batch_export_id: str | None = None,
 ) -> list[dict]:
     """Get rows from the internal stage."""
@@ -301,7 +310,7 @@ async def _run_activity(
 @pytest.mark.parametrize(
     "model",
     [
-        BatchExportModel(name="events", schema=None),
+        BatchExportEventsModel(),
     ],
 )
 @pytest.mark.parametrize("data_interval_end", [TEST_DATA_INTERVAL_END])
@@ -313,7 +322,7 @@ async def test_insert_into_stage_activity_for_events_model(
     object_storage_client,
     data_interval_end,
     ateam,
-    model: BatchExportModel,
+    model: AnyBatchExportModel,
     exclude_events,
     truncate_clickhouse_tables,
 ):
@@ -339,7 +348,7 @@ async def test_insert_into_stage_activity_for_events_model(
 @pytest.mark.parametrize(
     "model",
     [
-        BatchExportModel(name="events", schema=None),
+        BatchExportEventsModel(),
     ],
 )
 @pytest.mark.parametrize("data_interval_end", [TEST_DATA_INTERVAL_END])
@@ -351,7 +360,7 @@ async def test_insert_into_stage_activity_reports_records_total_for_events_model
     object_storage_client,
     data_interval_end,
     ateam,
-    model: BatchExportModel,
+    model: AnyBatchExportModel,
     truncate_clickhouse_tables,
 ):
     """The activity reports the number of rows written to the stage, from ClickHouse's query summary."""
@@ -673,7 +682,7 @@ def assert_exported_rows_match_persons_to_export(exported_rows: list[dict], pers
 
 
 @pytest.mark.parametrize("interval", ["day"], indirect=True)
-@pytest.mark.parametrize("model", [BatchExportModel(name="persons", schema=None)])
+@pytest.mark.parametrize("model", [BatchExportPersonsModel()])
 @pytest.mark.parametrize("data_interval_end", [TEST_DATA_INTERVAL_END])
 @pytest.mark.parametrize("limited_export", [False, True])
 async def test_insert_into_stage_activity_for_persons_model(
@@ -685,7 +694,7 @@ async def test_insert_into_stage_activity_for_persons_model(
     ateam,
     test_person_properties,
     clickhouse_client,
-    model: BatchExportModel,
+    model: AnyBatchExportModel,
     limited_export: bool,
     truncate_clickhouse_tables,
 ):
@@ -1101,7 +1110,7 @@ async def test_afetch_last_run_records_completed_ignores_runs_older_than(ateam):
 
 
 @pytest.mark.parametrize("interval", ["day"], indirect=True)
-@pytest.mark.parametrize("model", [BatchExportModel(name="events", schema=None)])
+@pytest.mark.parametrize("model", [BatchExportEventsModel()])
 @pytest.mark.parametrize("data_interval_end", [TEST_DATA_INTERVAL_END])
 async def test_insert_into_stage_activity_writes_dynamic_number_of_files(
     generate_test_data,
@@ -1111,7 +1120,7 @@ async def test_insert_into_stage_activity_writes_dynamic_number_of_files(
     object_storage_client,
     data_interval_end,
     ateam,
-    model: BatchExportModel,
+    model: AnyBatchExportModel,
     truncate_clickhouse_tables,
 ):
     """A previous run's row count drives how many staging files the activity writes."""
@@ -1160,7 +1169,7 @@ async def test_insert_into_stage_activity_writes_dynamic_number_of_files(
 
 
 @pytest.mark.parametrize("interval", ["day"], indirect=True)
-@pytest.mark.parametrize("model", [BatchExportModel(name="events", schema=None)])
+@pytest.mark.parametrize("model", [BatchExportEventsModel()])
 @pytest.mark.parametrize("data_interval_end", [TEST_DATA_INTERVAL_END])
 async def test_insert_into_stage_activity_uses_static_default_without_previous_run(
     generate_test_data,
@@ -1170,7 +1179,7 @@ async def test_insert_into_stage_activity_uses_static_default_without_previous_r
     object_storage_client,
     data_interval_end,
     ateam,
-    model: BatchExportModel,
+    model: AnyBatchExportModel,
     truncate_clickhouse_tables,
 ):
     """With no previous run to estimate from, the activity writes the static-default number of files."""
@@ -1260,9 +1269,9 @@ async def _fetch_staging_query_settings(
 @pytest.mark.parametrize(
     "model",
     [
-        BatchExportModel(name="events", schema=None),
-        BatchExportModel(name="persons", schema=None),
-        BatchExportModel(name="sessions", schema=None),
+        BatchExportEventsModel(),
+        BatchExportPersonsModel(),
+        BatchExportSessionsModel(),
     ],
     ids=["events", "persons", "sessions"],
 )
@@ -1273,7 +1282,7 @@ async def test_insert_into_stage_activity_applies_settings_and_log_comment(
     clickhouse_client,
     data_interval_start,
     data_interval_end,
-    model: BatchExportModel,
+    model: AnyBatchExportModel,
 ):
     """Every model's settings and log comment reach the query ClickHouse runs.
 
@@ -1402,6 +1411,18 @@ class TestHogQLModel:
                 id="events-with-special-chars",
             ),
             pytest.param(
+                r"""
+                SELECT 'quote\' backtick` slash\\ {log_comment} %(other)s' AS `{hogql_val_0}`,
+                    event AS `{log_comment}`, distinct_id AS `{{hogql_val_0}}`
+                FROM events
+                """,
+                ["{hogql_val_0}", "{log_comment}", "{{hogql_val_0}}"],
+                lambda events, persons: [
+                    ("quote' backtick` slash\\ {log_comment} %(other)s", e["event"], e["distinct_id"]) for e in events
+                ],
+                id="formatter-shaped-aliases",
+            ),
+            pytest.param(
                 "SELECT toString(id) AS id, properties.utm_medium AS utm_medium FROM persons",
                 ["id", "utm_medium"],
                 lambda events, persons: [(p["id"], "referral") for p in persons],
@@ -1480,7 +1501,7 @@ class TestHogQLModel:
                 team_id=ateam.pk,
                 data_interval_start=data_interval_start,
                 data_interval_end=data_interval_end,
-                model=BatchExportModel(name="hogql", schema=None, hogql_query=hogql_query, user_id=auser.pk),
+                model=BatchExportHogQLModel(query=hogql_query, user_id=auser.pk, modifiers={}),
             )
 
         assert all(list(row.keys()) == expected_columns for row in exported_rows)
@@ -1521,14 +1542,13 @@ class TestHogQLModel:
                 team_id=ateam.pk,
                 data_interval_start=bounded_start,
                 data_interval_end=data_interval_end,
-                model=BatchExportModel(
-                    name="hogql",
-                    schema=None,
-                    hogql_query=(
+                model=BatchExportHogQLModel(
+                    query=(
                         "SELECT uuid AS uuid, timestamp AS timestamp FROM events "
                         "WHERE timestamp >= {data_interval_start} AND timestamp < {data_interval_end}"
                     ),
                     user_id=auser.pk,
+                    modifiers={},
                 ),
             )
 
@@ -1572,11 +1592,10 @@ class TestHogQLModel:
             team_id=ateam.pk,
             data_interval_start=data_interval_start,
             data_interval_end=data_interval_end,
-            model=BatchExportModel(
-                name="hogql",
-                schema=None,
-                hogql_query="SELECT event_id, event, distinct_id FROM events_view",
+            model=BatchExportHogQLModel(
+                query="SELECT event_id, event, distinct_id FROM events_view",
                 user_id=auser.pk,
+                modifiers={},
             ),
         )
 
@@ -1592,9 +1611,7 @@ class TestHogQLModel:
             team_id=ateam.pk,
             data_interval_start=data_interval_start,
             data_interval_end=data_interval_end,
-            model=BatchExportModel(
-                name="hogql", schema=None, hogql_query="SELECT * FROM events_view", user_id=auser.pk
-            ),
+            model=BatchExportHogQLModel(query="SELECT * FROM events_view", user_id=auser.pk, modifiers={}),
         )
         assert sorted((row["event_id"], row["event"], row["distinct_id"]) for row in exported_rows_2) == sorted(
             (e["uuid"], e["event"], e["distinct_id"]) for e in events
@@ -1633,9 +1650,7 @@ class TestHogQLModel:
                 team_id=ateam.pk,
                 data_interval_start=data_interval_start,
                 data_interval_end=data_interval_end,
-                model=BatchExportModel(
-                    name="hogql", schema=None, hogql_query="SELECT event AS event FROM events", user_id=auser.pk
-                ),
+                model=BatchExportHogQLModel(query="SELECT event AS event FROM events", user_id=auser.pk, modifiers={}),
                 batch_export_id=batch_export_id,
             )
 

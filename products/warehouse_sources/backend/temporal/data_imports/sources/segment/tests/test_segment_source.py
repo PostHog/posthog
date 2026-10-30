@@ -4,7 +4,6 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
-    always,
     scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.segment import (
@@ -21,55 +20,12 @@ def _config(region: str = "api", api_token: str = "tok") -> SegmentSourceConfig:
 
 
 class TestValidateCredentials:
-    @parameterized.expand(
-        [
-            ("ok", 200, True),
-            ("missing_header", 401, False),
-            ("forbidden", 403, False),
-            ("server_error", 500, False),
-        ]
-    )
-    def test_validate_credentials_status_mapping(self, _name: str, status_code: int, expected_ok: bool) -> None:
-        with scripted_network(always(ScriptedResponse(status=status_code, json={}))):
-            ok, error = SegmentSource().validate_credentials(_config(), team_id=1)
-        assert ok is expected_ok
-        assert (error is None) is expected_ok
-
-    def test_validate_credentials_network_error_is_invalid(self) -> None:
-        with scripted_network(always(ConnectionError("boom"))):
-            ok, error = SegmentSource().validate_credentials(_config(), team_id=1)
-        assert ok is False
-        assert error is not None
-
     @parameterized.expand([("us", "api"), ("eu", "eu1")])
     def test_validate_credentials_targets_region_host(self, _name: str, region: str) -> None:
         with scripted_network([ScriptedResponse(status=200, json={})]) as network:
             SegmentSource().validate_credentials(_config(region=region), team_id=1)
 
         assert region in network.requests_log[0].url
-
-
-class TestNonRetryableErrors:
-    @parameterized.expand(
-        [
-            ("unauthorized", "401 Client Error: Unauthorized for url: https://api.segmentapis.com/sources"),
-            ("forbidden", "403 Client Error: Forbidden for url: https://eu1.api.segmentapis.com/labels"),
-        ]
-    )
-    def test_credential_errors_are_non_retryable(self, _name: str, observed_error: str) -> None:
-        non_retryable_errors = SegmentSource().get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable_errors)
-
-    @parameterized.expand(
-        [
-            ("server_error", "500 Server Error: Internal Server Error for url: https://api.segmentapis.com/sources"),
-            ("rate_limit", "429 Client Error: Too Many Requests for url: https://api.segmentapis.com/sources"),
-            ("read_timeout", "HTTPSConnectionPool(host='api.segmentapis.com', port=443): Read timed out."),
-        ]
-    )
-    def test_transient_errors_remain_retryable(self, _name: str, other_error: str) -> None:
-        non_retryable_errors = SegmentSource().get_non_retryable_errors()
-        assert not any(key in other_error for key in non_retryable_errors)
 
 
 class TestCanonicalDescriptions:

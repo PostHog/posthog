@@ -26,12 +26,14 @@ from posthog.models.project import Project
 from posthog.models.tag import Tag
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team import Team
+from posthog.models.uploaded_media import UploadedMedia
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.test.db_context_capturing import capture_db_queries
 from posthog.test.persons import create_person, delete_person
 
 from products.customer_analytics.backend.facade.team_extension import TeamCustomerAnalyticsConfig
-from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
+from products.experiments.backend.facade.api import get_team_experiments_settings
+from products.experiments.backend.facade.testing import set_team_experiments_config
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
 
@@ -169,7 +171,43 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         duplicate_project.refresh_from_db()
         self.assertEqual(duplicate_project.product_description, "still saveable")
 
-    def test_cannot_create_second_demo_project(self):
+    @parameterized.expand(
+        [
+            ("this_environment", "this_environment", status.HTTP_200_OK),
+            ("other_environment_of_this_project", "other_environment", status.HTTP_200_OK),
+            ("other_project_in_organization", "other_project", status.HTTP_400_BAD_REQUEST),
+            ("project_in_other_organization", "other_organization", status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_logo_media_must_be_uploaded_to_this_project(self, _name: str, uploaded_to: str, expected_status: int):
+        if uploaded_to == "this_environment":
+            team = self.team
+        elif uploaded_to == "other_environment":
+            team = Team.objects.create(organization=self.organization, project=self.project, name="Staging")
+        elif uploaded_to == "other_project":
+            _, team = Project.objects.create_with_team(
+                organization=self.organization, name="Other project", initiating_user=self.user
+            )
+        else:
+            other_organization = Organization.objects.create(name="Other organization")
+            _, team = Project.objects.create_with_team(
+                organization=other_organization, name="Other project", initiating_user=None
+            )
+        media = UploadedMedia.objects.create(team=team, created_by=self.user, content_type="image/png")
+
+        response = self.client.patch(f"/api/projects/{self.project.id}/", {"logo_media_id": str(media.id)})
+
+        self.assertEqual(response.status_code, expected_status, response.json())
+        self.project.refresh_from_db()
+        if expected_status == status.HTTP_200_OK:
+            self.assertEqual(response.json()["logo_media_id"], str(media.id))
+            self.assertEqual(self.project.logo_media_id, media.id)
+        else:
+            self.assertEqual(response.json()["attr"], "logo_media_id")
+            self.assertIsNone(self.project.logo_media_id)
+
+    @patch("posthog.tasks.demo_create_data.create_data_for_demo_team.delay")
+    def test_cannot_create_second_demo_project(self, _mock_create_demo_data: MagicMock):
         # Create first demo project
         Project.objects.create_with_team(
             organization=self.organization, name="First Demo", initiating_user=self.user, team_fields={"is_demo": True}
@@ -514,7 +552,8 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             "You have reached the maximum limit of 2000 projects per organization. Contact support if you'd like access to more projects.",
         )
 
-    def test_demo_projects_not_counted_toward_limit(self):
+    @patch("posthog.tasks.demo_create_data.create_data_for_demo_team.delay")
+    def test_demo_projects_not_counted_toward_limit(self, _mock_create_demo_data: MagicMock):
         # Set project limit to 2
         self.organization.available_product_features = [
             {
@@ -627,6 +666,8 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             response = self.client.delete(f"/api/projects/{self.project.id}")
 
         self.assertEqual(response.status_code, expected_status)
+        if project_count > 1:
+            mock_get_billing.assert_not_called()
         if expected_status == status.HTTP_400_BAD_REQUEST:
             self.assertIn("active subscription", response.json()["detail"])
             self.assertTrue(Project.objects.filter(id=self.project.id).exists())
@@ -1355,7 +1396,10 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             format="json",
         )
         self.assertEqual(definition_response.status_code, status.HTTP_201_CREATED, definition_response.json())
-        default_pins = [{"kind": "custom_property", "id": definition_response.json()["id"]}]
+        default_pins = [
+            {"kind": "custom_property", "id": definition_response.json()["id"]},
+            {"kind": "account_field", "id": "stripe_customer_id"},
+        ]
 
         response = self.client.patch(
             f"/api/projects/{self.project.id}/",
@@ -1456,10 +1500,9 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         self.assertFalse(response.json()["experiment_precomputation_enabled"])
-        config = TeamExperimentsConfig.objects.get(team_id=self.project.id)
-        self.assertFalse(config.experiment_precomputation_enabled)
-        self.assertIsNone(config.precomputation_enabled_set_by)
-        self.assertTrue(config.default_cuped_enabled)
+        experiments_settings = get_team_experiments_settings(self.project.id)
+        self.assertFalse(experiments_settings.experiment_precomputation_enabled)
+        self.assertTrue(experiments_settings.default_cuped_enabled)
 
     def test_experiments_config_changes_are_logged_as_team_activity(self):
         # The first read creates the config row with defaults, which is not a change anyone made.
@@ -1486,7 +1529,7 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
 
     def test_experiments_config_created_with_non_default_values_is_logged(self):
         # The Django admin creates the row and sets values in one save, so there is no update to diff.
-        TeamExperimentsConfig.objects.create(team=self.team, default_cuped_enabled=True)
+        set_team_experiments_config(team_id=self.team.id, default_cuped_enabled=True)
 
         log = ActivityLog.objects.get(team_id=self.team.id, scope="Team", item_id=str(self.team.id))
         assert log.detail is not None
@@ -1502,8 +1545,9 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
-        config = TeamExperimentsConfig.objects.get(team_id=self.project.id)
-        self.assertEqual(config.experiment_recalculation_times, ["14:00:00", "02:00:00"])
+        self.assertEqual(
+            get_team_experiments_settings(self.project.id).experiment_recalculation_times, ("14:00:00", "02:00:00")
+        )
 
         # Old clients still PATCH the retired experiment_recalculation_time field;
         # it must be ignored, not rejected.
@@ -1513,8 +1557,9 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
-        config.refresh_from_db()
-        self.assertEqual(config.experiment_recalculation_times, ["14:00:00", "02:00:00"])
+        self.assertEqual(
+            get_team_experiments_settings(self.project.id).experiment_recalculation_times, ("14:00:00", "02:00:00")
+        )
 
         response = self.client.patch(
             f"/api/projects/{self.project.id}/experiments_config/",
@@ -1522,8 +1567,7 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
-        config.refresh_from_db()
-        self.assertIsNone(config.experiment_recalculation_times)
+        self.assertIsNone(get_team_experiments_settings(self.project.id).experiment_recalculation_times)
 
     @parameterized.expand(
         [

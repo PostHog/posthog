@@ -1,8 +1,11 @@
 import contextlib
+from datetime import timedelta
 from uuid import uuid4
 
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+from django.utils import timezone
 
 from confluent_kafka import KafkaError
 from parameterized import parameterized
@@ -232,7 +235,7 @@ class DeletePersonsProfileTests(BaseTest):
             for i, width in enumerate(widths)
         ]
         with (
-            patch("posthog.models.person.bulk_delete.QUEUED_DELETION_DISTINCT_IDS_PER_BATCH", budget),
+            patch("posthog.models.person.bulk_delete.TOMBSTONE_DISTINCT_IDS_PER_RPC", budget),
             patch(
                 "posthog.models.person.bulk_delete.tombstone_persons_in_postgres",
                 wraps=tombstone_persons_in_postgres,
@@ -340,6 +343,48 @@ class ProcessQueuedPersonDeletionTests(BaseTest):
                     organization_id=self.organization.id,
                 )
         assert ActivityLog.objects.filter(team_id=self.team.pk, scope="Person", item_id=str(p.pk)).count() == 1
+
+    @parameterized.expand(
+        [
+            # Entries written before deletions recorded their version match on the window alone.
+            ("a_retry_of_an_unversioned_recent_deletion", timedelta(hours=1), None, [None]),
+            ("a_new_deletion_after_an_unversioned_one", timedelta(hours=25), None, [None, 5]),
+            ("a_retry_of_a_recent_deletion", timedelta(hours=1), 5, [5]),
+            ("a_revived_person_deleted_again_the_same_day", timedelta(hours=1), 4, [4, 5]),
+            ("the_same_version_outside_the_window", timedelta(hours=25), 5, [5, 5]),
+        ]
+    )
+    def test_logs_a_deletion_once_per_deletion_of_the_person(
+        self, _name: str, earlier_by: timedelta, earlier_version: int | None, logged_versions: list[int | None]
+    ):
+        p = create_person(team=self.team, distinct_ids=["a"], properties={})
+        ActivityLog.objects.create(
+            team_id=self.team.pk,
+            organization_id=self.organization.id,
+            scope="Person",
+            activity="deleted",
+            item_id=str(p.pk),
+            detail=None if earlier_version is None else {"context": {"person_version": earlier_version}},
+            created_at=timezone.now() - earlier_by,
+        )
+        tombstones = [PersonTombstone(uuid=p.uuid, version=5, distinct_ids=[])]
+        with (
+            patch("posthog.models.person.bulk_delete.tombstone_persons_in_postgres", return_value=tombstones),
+            _no_publish(),
+        ):
+            process_queued_person_deletion(
+                self.team.pk,
+                [str(p.uuid)],
+                delete_profile=True,
+                delete_recordings=False,
+                actor=self.user,
+                was_impersonated=False,
+                organization_id=self.organization.id,
+            )
+        logs = ActivityLog.objects.filter(team_id=self.team.pk, scope="Person", item_id=str(p.pk)).order_by(
+            "created_at"
+        )
+        assert [((log.detail or {}).get("context") or {}).get("person_version") for log in logs] == logged_versions
 
     def test_logs_deletion_without_a_user_when_the_actor_is_gone(self):
         p = create_person(team=self.team, distinct_ids=["a"], properties={})
@@ -485,11 +530,12 @@ class ProcessQueuedPersonDeletionTests(BaseTest):
         rpc.assert_not_called()
 
     def test_runs_the_steps_per_batch_once_the_distinct_id_cap_is_reached(self):
-        p1 = create_person(team=self.team, distinct_ids=["a1", "a2", "a3"], properties={})
-        p2 = create_person(team=self.team, distinct_ids=["b1", "b2", "b3"], properties={})
+        p1 = create_person(team=self.team, distinct_ids=["a1", "a2"], properties={})
+        p2 = create_person(team=self.team, distinct_ids=["b1", "b2"], properties={})
         p3 = create_person(team=self.team, distinct_ids=["c1"], properties={})
         with (
             patch("posthog.models.person.bulk_delete.QUEUED_DELETION_DISTINCT_IDS_PER_BATCH", 4),
+            patch("posthog.models.person.bulk_delete.TOMBSTONE_DISTINCT_IDS_PER_RPC", 3),
             patch("posthog.models.person.bulk_delete.queue_person_training_deletion") as training,
             _rpc() as rpc,
             _no_publish(),
@@ -505,10 +551,11 @@ class ProcessQueuedPersonDeletionTests(BaseTest):
             )
         assert result.deleted_count == 3
         assert result.failures == []
-        # p1 and p2 fill the cap together; p3 runs in a second, smaller batch. Training deletion is one call per batch.
-        assert sorted(u for call in rpc.call_args_list for u in call.args[1]) == sorted([p1.uuid, p2.uuid, p3.uuid])
+        # p1 and p2 fill the cap together; p3 runs in a second, smaller batch. Training deletion is one call per batch,
+        # while the tombstone RPC has its own smaller cap and splits the first batch.
+        assert [call.args[1] for call in rpc.call_args_list] == [[p1.uuid], [p2.uuid], [p3.uuid]]
         assert [sorted(call.args[1]) for call in training.call_args_list] == [
-            ["a1", "a2", "a3", "b1", "b2", "b3"],
+            ["a1", "a2", "b1", "b2"],
             ["c1"],
         ]
 

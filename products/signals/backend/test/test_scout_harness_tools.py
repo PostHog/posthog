@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import uuid
 import dataclasses
+from collections.abc import Iterator
 from datetime import timedelta
+from ipaddress import ip_address
 from typing import TYPE_CHECKING
 from urllib.parse import quote
 
@@ -203,7 +205,6 @@ class TestSearchRecentRuns(BaseTest):
         assert len(hits) == MAX_RUN_SEARCH_LIMIT
 
     def test_summary_surfaces_run_metadata(self) -> None:
-        # New runs also carry accounting metadata; legacy NULL rows must still project as {}.
         routed = _create_run(self.team, metadata={"model": "@cf/zai-org/glm-5.2", "runtime_adapter": "claude"})
         legacy = _create_run(self.team, metadata=None)
         SignalScoutRun.objects.for_team(self.team.id).filter(pk=legacy.pk).update(metadata=None)
@@ -213,7 +214,6 @@ class TestSearchRecentRuns(BaseTest):
         assert by_run_id[str(routed.id)].metadata == {
             "model": "@cf/zai-org/glm-5.2",
             "runtime_adapter": "claude",
-            "spend_accounting_failed_stages": ["scout"],
         }
         assert by_run_id[str(legacy.id)].metadata == {}
 
@@ -753,6 +753,30 @@ class TestSearchScratchpad(BaseTest):
         keys = {e.key for e in results}
         # Matches on both content ('CHECKOUT' in k1) and key ('checkout-key').
         assert keys == {"k1", "checkout-key"}
+
+    @parameterized.expand(
+        [
+            ("scout_run", "signals-scout-errors", ["errors"]),
+            ("pipeline_identity", PIPELINE_AUDIENCE_REPORT_RESEARCH, ["research"]),
+        ]
+    )
+    def test_skill_name_filter_applies_before_the_limit(self, _name: str, skill_name: str, expected: list[str]) -> None:
+        remember(team_id=self.team.id, key="errors", content="v", run_id=str(_create_run(self.team).id))
+        remember(
+            team_id=self.team.id,
+            key="flags",
+            content="v",
+            run_id=str(_create_run(self.team, skill_name="signals-scout-flags").id),
+        )
+        remember(team_id=self.team.id, key="research", content="v", identity=PIPELINE_AUDIENCE_REPORT_RESEARCH)
+        remember(team_id=self.team.id, key="unattributed", content="v")
+        SignalScratchpad.objects.filter(team=self.team, key="errors").update(
+            updated_at=timezone.now() - timedelta(days=1)
+        )
+
+        results = search_scratchpad(team_id=self.team.id, skill_name=skill_name, limit=1)
+
+        assert [e.key for e in results] == expected
 
     def test_does_not_leak_memories_from_other_teams(self) -> None:
         from posthog.models import Team
@@ -1942,6 +1966,11 @@ def _no_flag_payload():
 
 
 class TestLighthouseAudit:
+    @pytest.fixture(autouse=True)
+    def mock_target_dns(self) -> Iterator[None]:
+        with patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("93.184.216.34")}):
+            yield
+
     def _audit(self, payload: dict, *, url: str = "https://posthog.com/pricing", form_factor: str = "desktop"):
         response = MagicMock(status_code=200, content=b"{}")
         response.json.return_value = payload

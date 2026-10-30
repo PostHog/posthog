@@ -8,6 +8,7 @@ import { PostHogCaptureOnViewed } from '@posthog/react'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
@@ -26,6 +27,7 @@ import { VisualReviewTabs } from '../components/VisualReviewTabs'
 import { VisualReviewTrail } from '../components/VisualReviewTrail'
 import type { SnapshotApi } from '../generated/api.schemas'
 import { repoFullNameFromParams, runPath, splitRepoFullName } from '../lib/repoPaths'
+import { QuillFinalizeRunActions } from './QuillFinalizeRunActions'
 import { VisualReviewRunSceneLogicProps, visualReviewRunSceneLogic } from './visualReviewRunSceneLogic'
 
 const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
@@ -301,6 +303,7 @@ export function VisualReviewRunScene(): JSX.Element {
         toggleCleanQuarantined,
         setAddImagesToComment,
     } = useActions(visualReviewRunSceneLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const quarantinedNavCount = sortedChangedSnapshots.filter((s: SnapshotApi) =>
         quarantinedIdentifierSet.has(s.identifier)
@@ -451,24 +454,34 @@ export function VisualReviewRunScene(): JSX.Element {
                 branch={run.branch}
                 actions={
                     !isReportingOnly && !run.approved && !run.is_stale && (reviewPending > 0 || reviewApproved > 0) ? (
-                        <div className="flex items-center gap-2">
-                            <LemonCheckbox
-                                checked={addImagesToComment}
-                                onChange={setAddImagesToComment}
-                                disabledReason={isFinalizing ? 'Finalizing…' : undefined}
-                                label="Add snapshots to the PR comment"
-                                info="The PR comment is always posted; tick this to attach the before/after snapshot images to it. Remembered for next time."
-                                data-attr="visual-review-add-images-to-comment"
+                        todayRailNav ? (
+                            <QuillFinalizeRunActions
+                                addImagesToComment={addImagesToComment}
+                                setAddImagesToComment={setAddImagesToComment}
+                                isFinalizing={isFinalizing}
+                                finalizeRun={finalizeRun}
+                                reviewPending={reviewPending}
                             />
-                            <LemonButton
-                                type="primary"
-                                onClick={finalizeRun}
-                                loading={isFinalizing}
-                                data-attr="visual-review-finalize-run"
-                            >
-                                {reviewPending > 0 ? `Approve ${reviewPending} and finalize` : 'Finalize run'}
-                            </LemonButton>
-                        </div>
+                        ) : (
+                            <div className="flex flex-wrap items-center gap-2">
+                                <LemonCheckbox
+                                    checked={addImagesToComment}
+                                    onChange={setAddImagesToComment}
+                                    disabledReason={isFinalizing ? 'Finalizing…' : undefined}
+                                    label="Add snapshots to the PR comment"
+                                    info="The PR comment is always posted; tick this to attach the before/after snapshot images to it. Remembered for next time."
+                                    data-attr="visual-review-add-images-to-comment"
+                                />
+                                <LemonButton
+                                    type="primary"
+                                    onClick={finalizeRun}
+                                    loading={isFinalizing}
+                                    data-attr="visual-review-finalize-run"
+                                >
+                                    {reviewPending > 0 ? `Approve ${reviewPending} and finalize` : 'Finalize run'}
+                                </LemonButton>
+                            </div>
+                        )
                     ) : undefined
                 }
             />
@@ -511,7 +524,7 @@ export function VisualReviewRunScene(): JSX.Element {
             <div className="border rounded-lg overflow-hidden">
                 {/* Header: summary + thumbnail strip */}
                 <div className="bg-bg-light border-b">
-                    <div className="flex items-center justify-between px-3 pt-3 pb-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2 px-3 pt-3 pb-2">
                         {initialSnapshotsLoading ? (
                             <>
                                 <LemonSkeleton className="h-4 w-40" />
@@ -520,7 +533,7 @@ export function VisualReviewRunScene(): JSX.Element {
                         ) : (
                             <>
                                 {/* Review summary (left) — what humans decided */}
-                                <span className="text-xs text-muted flex items-center gap-1.5">
+                                <span className="text-xs text-muted flex flex-wrap items-center gap-1.5">
                                     <span className="font-semibold text-default">Review</span>
                                     {[
                                         reviewPending > 0 && (
@@ -543,7 +556,7 @@ export function VisualReviewRunScene(): JSX.Element {
                                         )}
                                 </span>
                                 {/* Diff summary (right) — what the system found */}
-                                <span className="text-xs text-muted flex items-center gap-1.5">
+                                <span className="text-xs text-muted flex flex-wrap items-center gap-1.5">
                                     <span className="font-semibold text-default">Diff</span>
                                     {[
                                         diffChanged > 0 && (

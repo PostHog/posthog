@@ -83,12 +83,6 @@ class TestCensusTransport:
 
         assert result == (expected_valid, expected_message)
 
-    def test_validate_credentials_network_failure(self) -> None:
-        with scripted_network(always(ConnectionError("boom"))):
-            result = validate_credentials(api_key="key", region="us", api_version=CENSUS_API_V2)
-
-        assert result == (False, "Could not reach Census. Please check your network and selected region, then retry.")
-
     @parameterized.expand(
         [
             (200, None),

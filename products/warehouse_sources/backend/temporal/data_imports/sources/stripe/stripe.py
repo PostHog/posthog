@@ -2,8 +2,10 @@ import os
 import re
 import time
 import inspect
+import itertools
 import dataclasses
-from collections.abc import Callable, Iterable, Iterator, Mapping
+from collections.abc import Callable, Generator, Iterable, Iterator, Mapping
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Literal, Optional, Union, cast, get_args, get_type_hints
 
 import orjson
@@ -140,6 +142,11 @@ NESTED_SWEEP_CHECKPOINT_PARENTS = 5000
 # The same checkpoint also fires after this much time, because 5000 parents at one API call each can
 # take long enough that a worker shutdown waits on the sweep instead of handing it off.
 NESTED_SWEEP_CHECKPOINT_SECONDS = 60.0
+
+# An incremental read that is far behind stops after this long, and the run completes. Import
+# workers restart often, and a run that a restart interrupts loses its rows, so a longer read
+# finishes less often. A read that is not behind ends long before this.
+INCREMENTAL_RUN_SECONDS = 15 * 60
 
 _JSON_WHITESPACE = frozenset(b" \t\n\r\f\v")
 _OPEN_BRACE = ord("{")
@@ -376,7 +383,7 @@ def _call_stripe(method: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
         raise
 
 
-def _iter_cleaning_errors(objects: Iterable[Any]) -> Iterator[Any]:
+def _iter_cleaning_errors(objects: Iterable[Any]) -> Generator[Any]:
     """Iterate a Stripe listing and clean errors raised while it pages, as `_call_stripe` does.
 
     A listing wrapper such as `InvoiceListWithAllLines` makes its first request only when it is
@@ -562,6 +569,9 @@ class StripeResumeConfig:
     warehouse_row_offset: int | None = None
     warehouse_table_uri: str | None = None
     warehouse_version: int | None = None
+    # The parent's Delta table id. A reset purges and rebuilds the table at the same URI with
+    # versions from 0, so the URI and version alone can name a different table.
+    warehouse_table_id: str | None = None
 
 
 def _scrub_client_secrets(obj: Any) -> Any:
@@ -604,8 +614,10 @@ class _WarehouseParentRows:
         schema_name: str,
         parent_name: str,
         start_position: Optional["ScanPosition"],
+        table_id: Optional[str] = None,
     ) -> None:
         self._table = table
+        self.table_id = table_id
         self._columns = columns
         self._parent_name = parent_name
         self._page_size = page_size
@@ -657,7 +669,9 @@ def _flush_staging_state(
         yield table
 
 
-def _resume_state(position: Optional["ScanPosition"], parent_id: Optional[str]) -> StripeResumeConfig:
+def _resume_state(
+    position: Optional["ScanPosition"], parent_id: Optional[str], parent_pages: Optional[_WarehouseParentRows] = None
+) -> StripeResumeConfig:
     """Resume state in whichever coordinate system this sweep is walking."""
     if position is not None:
         return StripeResumeConfig(
@@ -665,6 +679,7 @@ def _resume_state(position: Optional["ScanPosition"], parent_id: Optional[str]) 
             warehouse_row_offset=position.row_offset,
             warehouse_table_uri=position.table_uri,
             warehouse_version=position.version,
+            warehouse_table_id=parent_pages.table_id if parent_pages else None,
         )
     return StripeResumeConfig(starting_after=parent_id)
 
@@ -692,9 +707,9 @@ def _nested_checkpoint(
         # Without an id there is no cursor into the parent's own pages, so the sweep can only move
         # past it. The one resource in this shape returns a single row per parent, which is
         # therefore finished by the time that row is written.
-        return _resume_state(parent_pages.position_after_current if parent_pages else None, chunk_parent)
+        return _resume_state(parent_pages.position_after_current if parent_pages else None, chunk_parent, parent_pages)
     return dataclasses.replace(
-        _resume_state(parent_pages.position_at_current if parent_pages else None, last_finished_parent),
+        _resume_state(parent_pages.position_at_current if parent_pages else None, last_finished_parent, parent_pages),
         nested_parent_id=chunk_parent,
         nested_starting_after=py_table.column("id")[-1].as_py(),
     )
@@ -727,7 +742,8 @@ def _warehouse_start_position(
     Discards state saved against another table, version or coordinate system — including
     `starting_after` cursors from a run that took the API path, which name a place in Stripe's
     ordering and mean nothing here. A discarded position restarts the sweep rather than
-    resuming somewhere arbitrary.
+    resuming somewhere arbitrary. `_reconcile_warehouse_resume` drops such state before the
+    pipeline reads it, so that restart overwrites the table instead of appending to it.
     """
     from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent import (  # noqa: PLC0415
         ScanPosition,
@@ -748,19 +764,11 @@ def _warehouse_start_position(
     return position if position.matches(table, None) else None
 
 
-def _batch_and_yield(
-    objects: Any,
-    batcher: Batcher,
-    incremental_field_name: Optional[str] = None,
-    stop_at_or_before: Optional[int] = None,
-):
-    """Batch raw Stripe objects into pa.Tables and yield them, stopping early once we reach an object
-    we already have (`stop_at_or_before`). Yielding in small batches lets the pipeline write and
-    persist the incremental watermark frequently, so progress survives a heartbeat timeout or redeploy."""
+def _batch_and_yield(objects: Any, batcher: Batcher):
+    """Batch raw Stripe objects into pa.Tables and yield them. Yielding in small batches lets the
+    pipeline write and persist the incremental watermark frequently, so progress survives a
+    heartbeat timeout or redeploy."""
     for obj in objects:
-        if stop_at_or_before is not None and incremental_field_name is not None:
-            if obj[incremental_field_name] <= stop_at_or_before:
-                break
         batcher.batch(_scrub_client_secrets(obj))
         while batcher.should_yield():
             yield batcher.get_table()
@@ -979,6 +987,7 @@ def get_rows(
     should_use_incremental_field: bool = False,
     warehouse_parent: Optional["ParentTableRef"] = None,
     include_zero_balance_customers: bool = False,
+    warehouse_table_id: Optional[str] = None,
 ):
     new_client = _client_factory(api_key, account_id, api_version)
     client = new_client(None)
@@ -1044,6 +1053,7 @@ def get_rows(
                     schema_name=endpoint,
                     parent_name=converted.schema,
                     start_position=warehouse_start,
+                    table_id=warehouse_table_id,
                 )
                 parent_rows = parent_pages
             else:
@@ -1098,7 +1108,7 @@ def get_rows(
                     or time.monotonic() - last_checkpoint_at >= NESTED_SWEEP_CHECKPOINT_SECONDS
                 )
                 if checkpoint_due and last_finished_parent is not None:
-                    position = _resume_state(last_finished_position, last_finished_parent)
+                    position = _resume_state(last_finished_position, last_finished_parent, parent_pages)
                     if batcher.should_yield(include_incomplete_chunk=True):
                         yield from _flush_staging_state(batcher, resumable_source_manager, _fixed_state(position))
                     else:
@@ -1216,11 +1226,14 @@ def get_rows(
                 last_cur = py_table.column(resource.nested_parent_param)[-1].as_py()
             else:
                 last_cur = py_table.column("id")[-1].as_py()
-            return _resume_state(parent_pages.position_after_current if parent_pages else None, last_cur)
+            return _resume_state(parent_pages.position_after_current if parent_pages else None, last_cur, parent_pages)
 
         yield from _flush_staging_state(batcher, resumable_source_manager, trailing_state)
 
         return
+
+    # The run budget covers both listings, so the clock starts before the first one.
+    incremental_started_at = time.monotonic()
 
     # check for any objects less than the minimum object we already have
     if db_incremental_field_earliest_value is not None:
@@ -1242,20 +1255,75 @@ def get_rows(
     if db_incremental_field_last_value is not None:
         logger.debug(f"Stripe: iterating latest objects from resource: created[gt] = {db_incremental_field_last_value}")
 
-        stripe_objects = _call_stripe(
-            resource.method,
-            params={
-                **default_params,
-                **resource.params,
-                f"created[gt]": db_incremental_field_last_value,
-            },
+        watermark = _coerce_incremental_cursor(db_incremental_field_last_value)
+        if watermark is None:
+            stripe_objects = _call_stripe(
+                resource.method,
+                params={**default_params, **resource.params, f"created[gt]": db_incremental_field_last_value},
+            )
+            yield from _batch_and_yield(_iter_cleaning_errors(stripe_objects.auto_paging_iter()), batcher)
+            return
+
+        latest_objects = _latest_objects_oldest_first(
+            resource,
+            {**default_params, **resource.params},
+            watermark,
+            incremental_field_name,
+            logger,
+            started_at=incremental_started_at,
         )
-        yield from _batch_and_yield(
-            _iter_cleaning_errors(stripe_objects.auto_paging_iter()),
-            batcher,
-            incremental_field_name=incremental_field_name,
-            stop_at_or_before=_coerce_incremental_cursor(db_incremental_field_last_value),
+        yield from _batch_and_yield(latest_objects, batcher)
+
+
+def _latest_objects_oldest_first(
+    resource: StripeResource,
+    params: dict[str, Any],
+    watermark: int,
+    incremental_field_name: str,
+    logger: FilteringBoundLogger,
+    started_at: float,
+) -> Iterator[Any]:
+    """Yield the objects created after `watermark`, oldest first when they fill more than a page.
+
+    Stripe lists newest first, and the watermark moves only when a run completes, so a newest-first
+    read has no safe place to stop. `ending_before` the newest object at or before the watermark
+    lists the newer objects oldest first. The newest value read is then always a safe watermark, so
+    after `INCREMENTAL_RUN_SECONDS` the read stops between two values and the run completes.
+    """
+
+    def listing(extra_params: dict[str, Any]) -> Generator[Any]:
+        return _iter_cleaning_errors(
+            _call_stripe(resource.method, params={**params, **extra_params}).auto_paging_iter()
         )
+
+    page_size = int(params.get("limit", DEFAULT_LIMIT))
+    newest_first = listing({"created[gt]": watermark})
+    first_page = list(itertools.islice(newest_first, page_size + 1))
+    anchor = next(listing({"created[lte]": watermark, "limit": 1}), None) if len(first_page) > page_size else None
+    if anchor is None:
+        # Almost every sync reads one page. Without an object at or before the watermark, for example
+        # after Stripe dropped its old events, nothing marks where an oldest-first read starts.
+        objects: Iterator[Any] = itertools.chain(first_page, newest_first)
+    else:
+        newest_first.close()
+        objects = listing({"ending_before": anchor["id"]})
+
+    last_value: int | None = None
+    for obj in objects:
+        value: int = obj[incremental_field_name]
+        # Some endpoints filter on `created` and track another field, so the watermark is checked again.
+        if value <= watermark:
+            continue
+        # The read stops only between two values, because the next sync skips the objects at the last value.
+        out_of_time = anchor is not None and time.monotonic() - started_at >= INCREMENTAL_RUN_SECONDS
+        if out_of_time and last_value is not None and value != last_value:
+            logger.warning(
+                f"Stripe: this sync read objects created up to {datetime.fromtimestamp(last_value, tz=UTC).isoformat()}. "
+                "The next sync continues from there."
+            )
+            return
+        last_value = value
+        yield obj
 
 
 # How far an invoice is through its lifecycle. An uncollectible invoice can still be paid or voided.
@@ -1439,6 +1507,76 @@ def _resolve_warehouse_parent(
     )
 
 
+def _reconcile_warehouse_resume(
+    endpoint: str,
+    warehouse_parent: Optional["ParentTableRef"],
+    resumable_source_manager: ResumableSourceManager[StripeResumeConfig],
+    logger: FilteringBoundLogger,
+) -> tuple[Optional["ParentTableRef"], Optional[str]]:
+    """The parent table this attempt sweeps and its Delta table id, after making the stored resume
+    state agree with them.
+
+    The pipeline appends every batch of an attempt that finds resume state to what the earlier
+    attempts wrote, and only an attempt that finds none overwrites the table. So a sweep that
+    restarts from its first parent while the state is still there writes every row from before the
+    interruption a second time, once per restart.
+
+    The usual cause is the parent moving on: a webhook-synced Customer table commits every drain,
+    so the next attempt resolves a newer version than its checkpoint names. That attempt is pinned
+    back to the checkpointed version while it is still readable, so the position applies again.
+    Any other state the sweep would discard — another or a rebuilt table, a version past the vacuum
+    window, a cursor from the other parent path — is dropped here, at build time, before the
+    pipeline checks for it, so the restart runs as a fresh attempt that overwrites the table.
+    """
+    if endpoint not in WAREHOUSE_PARENT_FANOUT:
+        return warehouse_parent, None
+
+    table_id: Optional[str] = None
+    if warehouse_parent is not None:
+        # noqa reason: keeps deltalake/pyarrow off the import path of every Stripe import.
+        from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent import (  # noqa: PLC0415
+            parent_table_id,
+            pin_parent_table_version,
+        )
+
+        table_id = parent_table_id(warehouse_parent)
+
+    if not resumable_source_manager.can_resume():
+        return warehouse_parent, table_id
+    resume_config = resumable_source_manager.load_state()
+    if resume_config is None:
+        return warehouse_parent, table_id
+
+    if warehouse_parent is None:
+        if resume_config.warehouse_fragment_index is None:
+            return None, None
+    elif (
+        table_id is not None
+        and resume_config.warehouse_table_id == table_id
+        and resume_config.warehouse_table_uri == warehouse_parent.uri
+        and resume_config.warehouse_version is not None
+    ):
+        pinned = pin_parent_table_version(warehouse_parent, resume_config.warehouse_version)
+        if pinned is not None and _warehouse_start_position(resume_config, pinned) is not None:
+            logger.info(
+                "Stripe: resuming the sweep on the parent version it checkpointed against",
+                endpoint=endpoint,
+                pinned_version=pinned.version,
+                latest_version=warehouse_parent.version,
+                fragment_index=resume_config.warehouse_fragment_index,
+                row_offset=resume_config.warehouse_row_offset,
+            )
+            return pinned, table_id
+
+    logger.info(
+        "Stripe: dropping resume state the sweep cannot continue from, so this attempt rewrites the table",
+        endpoint=endpoint,
+        parent_source="warehouse" if warehouse_parent is not None else "api",
+    )
+    resumable_source_manager.clear_state()
+    return warehouse_parent, table_id
+
+
 def stripe_source(
     api_key: str,
     account_id: Optional[str],
@@ -1472,6 +1610,11 @@ def stripe_source(
     webhook_only = endpoint in WEBHOOK_ONLY_ENDPOINTS
     webhook_enabled = async_to_sync(webhook_source_manager.webhook_enabled)(webhook_only=webhook_only)
     warehouse_parent = _resolve_warehouse_parent(endpoint, team_id, source_id, use_warehouse_parent)
+    warehouse_table_id: Optional[str] = None
+    if not webhook_enabled:
+        warehouse_parent, warehouse_table_id = _reconcile_warehouse_resume(
+            endpoint, warehouse_parent, resumable_source_manager, logger
+        )
 
     def items():
         if webhook_enabled:
@@ -1512,6 +1655,7 @@ def stripe_source(
             api_version=api_version,
             warehouse_parent=warehouse_parent,
             include_zero_balance_customers=include_zero_balance_customers,
+            warehouse_table_id=warehouse_table_id,
         )
 
     # A few Stripe objects carry no timestamp at all, so there is nothing to partition on — the
@@ -1524,7 +1668,7 @@ def stripe_source(
         name=endpoint,
         column_hints=column_hints,
         webhook_only=webhook_only,
-        # Stripe data is returned in descending timestamp order
+        # Stripe lists newest first. A backlog read lists oldest first, which is safe because desc mode stages the max value.
         sort_mode="desc",
         partition_count=1 if partitioned else None,  # this enables partitioning
         partition_size=1 if partitioned else None,  # this enables partitioning
@@ -1815,6 +1959,13 @@ def create_webhook(
             "Failed to create Stripe webhook",
             error=error_str,
         )
+
+        # The SDK's network-error text names the underlying exception and asks the reader to email Stripe support.
+        if isinstance(e, stripe_lib.APIConnectionError):
+            return WebhookCreationResult(
+                success=False,
+                error="PostHog couldn't reach Stripe to create the webhook. Select Try again, or set up the webhook manually below.",
+            )
 
         # Check account access before the permission branch — an account-access rejection can carry a
         # 403 and would otherwise be misclassified as a missing webhook scope.

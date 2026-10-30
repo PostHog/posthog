@@ -184,3 +184,19 @@ export function parseTurnSuggestionParams(params: unknown): TurnSuggestion | nul
 export function cadenceLabel(cadence: ScoutSuggestionCadence): string {
     return cadence === 'daily' ? 'every day' : 'every week'
 }
+
+/** The name of the thing the card creates, as the condensed card shows it under the title. */
+export function suggestionDraftName(suggestion: TurnSuggestion): string {
+    switch (suggestion.kind) {
+        case 'scout':
+            return suggestion.scout.displayName
+        case 'notebook':
+            return suggestion.notebook.title
+        case 'alert':
+            return suggestion.alert.insightName
+        case 'subscription':
+            return suggestion.subscription.insightName
+        case 'error_alert':
+            return suggestion.errorAlert.issueName
+    }
+}

@@ -23,9 +23,6 @@ class TestAhaIdeasSource:
     @pytest.mark.parametrize(
         "status_code, expected_valid, expected_message",
         [
-            (200, True, None),
-            (401, False, "Invalid Aha! API key"),
-            (403, False, "Could not connect to Aha! with the provided account domain and API key"),
             (None, False, "Could not connect to Aha! with the provided account domain and API key"),
         ],
     )

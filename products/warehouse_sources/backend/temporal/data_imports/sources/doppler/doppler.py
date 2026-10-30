@@ -6,9 +6,12 @@ from urllib.parse import quote, urlencode
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.doppler.settings import (
@@ -71,7 +74,7 @@ def _coerce_watermark(value: Any) -> datetime | None:
     return None
 
 
-@retry(
+@retry_with_deadline(
     # Doppler enforces plan-tiered per-minute read limits and returns 429 with a retry-after
     # header when exceeded; transient 5xx are retryable too.
     retry=retry_if_exception_type((DopplerRetryableError, requests.ReadTimeout, requests.ConnectionError)),

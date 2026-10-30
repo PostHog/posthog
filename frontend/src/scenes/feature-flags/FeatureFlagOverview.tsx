@@ -13,6 +13,7 @@ import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagL
 
 import { AccessControlLevel, AccessControlResourceType, FeatureFlagEvaluationRuntime, FeatureFlagType } from '~/types'
 
+import { deletedCohortDisabledReason } from 'products/feature_flags/frontend/deletedCohortFilters'
 import {
     UNSUPPORTED_CONFIG_DISABLED_REASON,
     featureFlagConfigFormat,
@@ -66,7 +67,7 @@ function TagsDisplay({ tags, evaluationContexts, flagId, hasEvaluationContexts }
  */
 export function FeatureFlagOverview({ featureFlag }: FeatureFlagOverviewProps): JSX.Element {
     const { featureFlags } = useValues(enabledFeaturesLogic)
-    const { recordingFilterForFlag, featureFlagActiveUpdateLoading } = useValues(featureFlagLogic)
+    const { recordingFilterForFlag, featureFlagActiveUpdateLoading, deletedCohortFilters } = useValues(featureFlagLogic)
     const { toggleFeatureFlagActive } = useActions(featureFlagLogic)
 
     const hasEvaluationContexts = !!featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_TAGS] // NB: the tag was named "flag-evaluation-tags" before we renamed the concept – i.e. this powers evaluation contexts even though the name implies tags
@@ -168,7 +169,9 @@ export function FeatureFlagOverview({ featureFlag }: FeatureFlagOverviewProps): 
                                             ? "You only have view access to this feature flag. To make changes, contact the flag's creator."
                                             : featureFlagConfigFormat(featureFlag.filters) === 'unsupported'
                                               ? UNSUPPORTED_CONFIG_DISABLED_REASON
-                                              : null
+                                              : !featureFlag.active
+                                                ? deletedCohortDisabledReason(deletedCohortFilters)
+                                                : null
                                     }
                                     label="Enable feature flag"
                                     bordered

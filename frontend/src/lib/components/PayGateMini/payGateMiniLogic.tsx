@@ -34,6 +34,7 @@ export interface payGateMiniLogicValues {
     featureInfoOnNextPlan: BillingFeatureType | undefined
     gateVariant: 'add-card' | 'contact-sales' | 'move-to-cloud' | null
     isAddonProduct: boolean | undefined
+    isGated: boolean
     isPaymentEntryFlow: boolean
     minimumPlanWithFeature: BillingPlanType | undefined
     nextPlanWithFeature: BillingPlanType | null | undefined
@@ -102,6 +103,12 @@ export interface payGateMiniLogicMeta {
             billing: BillingType | null
         ) => boolean
         ctaDisabledReason: (isPaymentEntryFlow: boolean, selfServeBillingDisabledReason: string | null) => string | null
+        isGated: (
+            gateVariant: 'add-card' | 'contact-sales' | 'move-to-cloud' | null,
+            productWithFeature: BillingProductV2AddonType | BillingProductV2Type | undefined,
+            featureInfo: BillingFeatureType | undefined,
+            bypassPaywall: boolean
+        ) => boolean
     }
 }
 
@@ -304,6 +311,15 @@ export const payGateMiniLogic = kea<payGateMiniLogicType>([
             (s) => [s.isPaymentEntryFlow, s.selfServeBillingDisabledReason],
             (isPaymentEntryFlow: boolean, selfServeBillingDisabledReason: string | null): string | null =>
                 isPaymentEntryFlow ? selfServeBillingDisabledReason : null,
+        ],
+        isGated: [
+            (s) => [s.gateVariant, s.productWithFeature, s.featureInfo, s.bypassPaywall],
+            (
+                gateVariant: 'add-card' | 'contact-sales' | 'move-to-cloud' | null,
+                productWithFeature: BillingProductV2AddonType | BillingProductV2Type | undefined,
+                featureInfo: import('~/types').BillingFeatureType | undefined,
+                bypassPaywall: boolean
+            ): boolean => !!gateVariant && !!productWithFeature && !!featureInfo && !bypassPaywall,
         ],
     })),
 ])

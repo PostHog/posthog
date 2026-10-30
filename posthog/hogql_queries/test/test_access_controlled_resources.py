@@ -389,7 +389,7 @@ class TestQueriedAccessControlledResources(BaseTest):
             result = queried_access_controlled_resources(
                 query, self.team, bypassed_scopes=frozenset({"warehouse_table"})
             )
-        assert result == {"warehouse_table", "notebook", "dashboard"}
+        assert result == {"notebook", "dashboard"}
 
     def test_catalog_fetch_loads_only_name_fields(self):
         source = ExternalDataSource.objects.create(

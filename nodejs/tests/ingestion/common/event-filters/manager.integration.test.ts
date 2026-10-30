@@ -2,6 +2,7 @@ import { v4 } from 'uuid'
 
 import { defaultConfig } from '~/common/config/config'
 import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
+import { IngestionPipeline } from '~/common/utils/event-ingestion-restrictions'
 import { evaluateFilterTree } from '~/ingestion/common/event-filters/evaluate'
 import { EventFilterManager, EventFilterManagerComponent } from '~/ingestion/common/event-filters/manager'
 import { and, cond, not, or } from '~/ingestion/common/event-filters/test-helpers'
@@ -48,6 +49,30 @@ async function insertRawFilter(
     )
 }
 
+async function insertPipelineOverride(
+    postgres: PostgresRouter,
+    teamId: number,
+    pipeline: IngestionPipeline,
+    dropAllEvents: boolean
+) {
+    await insertRow(postgres, 'posthog_eventfilterpipelineoverride', {
+        id: v4(),
+        team_id: teamId,
+        pipeline,
+        drop_all_events: dropAllEvents,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+    })
+}
+
+interface PipelineOverrideCase {
+    name: string
+    input: {
+        override: { pipeline: IngestionPipeline; dropAllEvents: boolean } | null
+    }
+    expected: { dropsAllEvents: boolean }
+}
+
 describe('EventFilterManager integration', () => {
     let postgres: PostgresRouter
     let teamId: number
@@ -65,14 +90,46 @@ describe('EventFilterManager integration', () => {
         await postgres.end()
     })
 
-    async function createManagerAndWaitForLoad(): Promise<{
+    async function createManagerAndWaitForLoad(pipeline: IngestionPipeline = 'analytics'): Promise<{
         manager: EventFilterManager
         stop: () => Promise<void>
     }> {
-        const scope = new EventFilterManagerComponent(postgres)
+        const scope = new EventFilterManagerComponent(postgres, { pipeline })
         const started = await scope.start()
         return { manager: started.value, stop: started.stop }
     }
+
+    it.each<PipelineOverrideCase>([
+        {
+            name: 'no override',
+            input: { override: null },
+            expected: { dropsAllEvents: false },
+        },
+        {
+            name: 'an override for this pipeline',
+            input: { override: { pipeline: 'errortracking', dropAllEvents: true } },
+            expected: { dropsAllEvents: true },
+        },
+        {
+            name: 'an override for another pipeline',
+            input: { override: { pipeline: 'analytics', dropAllEvents: true } },
+            expected: { dropsAllEvents: false },
+        },
+        {
+            name: 'an override that keeps events',
+            input: { override: { pipeline: 'errortracking', dropAllEvents: false } },
+            expected: { dropsAllEvents: false },
+        },
+    ])('reads pipeline overrides: $name', async ({ input, expected }) => {
+        if (input.override) {
+            await insertPipelineOverride(postgres, teamId, input.override.pipeline, input.override.dropAllEvents)
+        }
+
+        const { manager, stop } = await createManagerAndWaitForLoad('errortracking')
+        expect(manager.dropsAllEvents(teamId)).toBe(expected.dropsAllEvents)
+
+        await stop()
+    })
 
     it('loads a live filter from postgres and evaluates it', async () => {
         await insertFilter(postgres, teamId, 'live', cond('event_name', 'exact', '$internal'))

@@ -6,9 +6,12 @@ import json
 import posixpath
 import dataclasses
 from collections.abc import Iterator
-from typing import IO, Any, Literal, cast
+from typing import IO, TYPE_CHECKING, Any, Literal, cast
 
 from structlog.types import FilteringBoundLogger
+
+if TYPE_CHECKING:
+    import pyarrow.parquet as pq
 
 FileFormat = Literal["csv", "jsonl", "json"]
 ConfiguredFileFormat = Literal["infer", "csv", "jsonl", "json"]
@@ -120,6 +123,17 @@ def dedupe_headers(headers: list[str]) -> list[str]:
             seen[name] = 1
         result.append(name)
     return result
+
+
+def uses_brotli_compression(metadata: "pq.FileMetaData") -> bool:
+    # pyarrow decodes Brotli with a bundled copy of the C library that CVE-2026-111497 affects.
+    # A Parquet file sets the codec of each column chunk, so a file from user storage must not
+    # reach that decoder. Remove this check when pyarrow bundles Brotli 1.2.1 or later.
+    return any(
+        metadata.row_group(group).column(column).compression == "BROTLI"
+        for group in range(metadata.num_row_groups)
+        for column in range(metadata.num_columns)
+    )
 
 
 def _decompressed_stream(stream: IO[bytes], compressed: bool) -> IO[bytes]:

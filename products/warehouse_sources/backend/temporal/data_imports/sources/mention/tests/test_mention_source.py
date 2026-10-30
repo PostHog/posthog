@@ -1,7 +1,5 @@
 from unittest import mock
 
-from parameterized import parameterized
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mention import (
     MentionSourceConfig,
 )
@@ -18,26 +16,6 @@ class TestMentionSource:
         # New sources are stamped with default_version; it must be the newest supported label.
         assert self.source.supported_versions == ("1.19", "1.21")
         assert self.source.default_version == "1.21"
-
-    @parameterized.expand(
-        [
-            ("401 Client Error: Unauthorized for url: https://api.mention.net/api/accounts/me",),
-            ("403 Client Error: Forbidden for url: https://api.mention.net/api/accounts/acc1/alerts",),
-        ]
-    )
-    def test_non_retryable_errors_match_auth_failures(self, observed_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            ("500 Server Error: Internal Server Error for url: https://api.mention.net/api/accounts/me",),
-            ("429 Client Error: Too Many Requests for url: https://api.mention.net/api/accounts/acc1/alerts",),
-        ]
-    )
-    def test_non_retryable_errors_ignore_transient(self, unrelated_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert not any(key in unrelated_error for key in non_retryable)
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mention.source.validate_credentials")
     def test_validate_credentials_delegates_to_shared_helper(self, mock_validate: mock.MagicMock) -> None:

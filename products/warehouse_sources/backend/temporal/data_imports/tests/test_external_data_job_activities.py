@@ -38,7 +38,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.matomo.sou
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import (
     _CONNECTION_LIMIT_EXHAUSTED_MESSAGE,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.temporal.data_imports.sources.redshift.source import RedshiftSource
+from products.warehouse_sources.backend.types import ExternalDataJobStatus, ExternalDataSourceType
 
 
 class TestCustomerFacingError(SimpleTestCase):
@@ -194,6 +195,50 @@ class TestUpdateExternalDataJobModelActivity(BaseTest):
 
     @parameterized.expand(
         [
+            ("completed", ExternalDataJob.Status.COMPLETED, True),
+            ("failed", ExternalDataJob.Status.FAILED, False),
+            ("billing_limit", ExternalDataJob.Status.BILLING_LIMIT_REACHED, False),
+        ]
+    )
+    def test_resumes_a_schedule_paused_for_an_ad_hoc_run_only_on_completion(
+        self, _name: str, status: ExternalDataJobStatus, expect_resume: bool
+    ) -> None:
+        env = ActivityEnvironment()
+        inputs = UpdateExternalDataJobStatusInputs(
+            team_id=self.team.id,
+            job_id="019fde98-0727-0000-3f05-9991b4c84155",
+            schema_id="019fde98-0727-0000-3f05-9991b4c84156",
+            source_id="019fde98-0727-0000-3f05-9991b4c84157",
+            status=status,
+            internal_error=None,
+            latest_error=None,
+        )
+
+        with (
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.external_data_job.get_rows",
+                return_value=0,
+            ),
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.external_data_job.finish_row_tracking"
+            ),
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.external_data_job.update_external_job_status"
+            ),
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.external_data_job.resume_schedule_after_ad_hoc_run",
+                return_value=True,
+            ) as mock_resume,
+        ):
+            asyncio.run(env.run(update_external_data_job_model, inputs))
+
+        if expect_resume:
+            mock_resume.assert_called_once_with(inputs.schema_id, self.team.id, inputs.job_id)
+        else:
+            mock_resume.assert_not_called()
+
+    @parameterized.expand(
+        [
             ("handed_a_token", "run-token", ["update", "release"]),
             ("no_token", None, ["update"]),
         ]
@@ -334,17 +379,10 @@ def test_read_only_transaction_disables_the_schema_only_when_the_source_raised_i
         mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.external_data_job.update_external_job_status"
         ) as mock_update_job_status,
-        mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.external_data_job.emit_sync_alert"
-        ) as mock_emit_sync_alert,
     ):
         asyncio.run(env.run(update_external_data_job_model, inputs))
 
     assert mock_update_should_sync.called is expect_disabled
-    paused_alerts = [
-        (call.kwargs["event"].value, call.kwargs["kind"].value) for call in mock_emit_sync_alert.call_args_list
-    ]
-    assert paused_alerts == ([("$data_warehouse_sync_failed", "schema_paused")] if expect_disabled else [])
     customer_message = mock_update_job_status.call_args.kwargs["latest_error"] or ""
     assert ("tries to write to your database" in customer_message) is expect_disabled
 
@@ -450,6 +488,13 @@ def test_read_only_transaction_disables_the_schema_only_when_the_source_raised_i
             ExternalDataSourceType.MATOMO,
             "Matomo API error (retryable): status=503, url=https://matomo.example.com/index.php",
             MatomoSource().get_retry_exhausted_errors()["Matomo API error (retryable)"],
+        ),
+        # A Redshift cluster that never answered the connect keeps its schedule.
+        (
+            "redshift_connect_timeout",
+            ExternalDataSourceType.REDSHIFT,
+            "connection timeout expired",
+            RedshiftSource().get_retry_exhausted_errors()["connection timeout expired"],
         ),
     ]
 )

@@ -163,5 +163,5 @@ Use an Activations personal access token. Create one in Fivetran under your Acti
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
         )

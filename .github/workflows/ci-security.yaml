@@ -20,7 +20,8 @@ jobs:
     changes:
         runs-on: ubuntu-24.04
         timeout-minutes: 5
-        if: github.repository == 'PostHog/posthog'
+        # Push and schedule runs only belong in this repo. Mirrors run CI on their own PRs only.
+        if: (github.repository == 'PostHog/posthog' || (github.event_name != 'push' && github.event_name != 'schedule')) && (github.repository_owner == 'PostHog')
         name: Determine need to run Semgrep checks
         permissions:
             contents: read
@@ -37,6 +38,7 @@ jobs:
             desktop: ${{ steps.oversized.outputs.force_all || steps.filter.outputs.desktop || 'true' }}
             # Pushes default to 'false' because the semgrep-ci action already scans the whole tree on a push.
             scan-setup: ${{ steps.oversized.outputs.force_all || steps.filter.outputs.scan-setup || 'false' }}
+            idor-rule: ${{ steps.filter.outputs.idor-rule || 'false' }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
@@ -51,7 +53,7 @@ jobs:
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               id: app-token
               # forks can't read org secrets — fall back to github.token
-              if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+              if: github.repository == 'PostHog/posthog' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
               with:
                   client-id: ${{ vars.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
@@ -142,15 +144,22 @@ jobs:
                         - '.github/workflows/ci-security.yaml'
                       # A change to the rules or the scan setup can change findings in
                       # unchanged code, so the jobs that pass local rules scan the whole tree.
+                      # Every new team-scoped model edits the IDOR rule, so semgrep-python
+                      # scans the whole tree with that rule file only.
                       scan-setup:
                         - '.semgrep/rules/security/**'
+                        - '!.semgrep/rules/security/idor-team-scoped-models.yaml'
                         - '.github/workflows/ci-security.yaml'
+                      idor-rule:
+                        - '.semgrep/rules/security/idor-team-scoped-models.yaml'
 
     semgrep-python:
         needs: changes
         if: needs.changes.outputs.python == 'true'
         runs-on: ubuntu-24.04
-        timeout-minutes: 30
+        # A copy of the repository lands on a slower GitHub-hosted runner pool, so
+        # it gets a longer budget for the full scan.
+        timeout-minutes: ${{ github.repository == 'PostHog/posthog' && 45 || 75 }}
 
         env:
             DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
@@ -186,6 +195,28 @@ jobs:
                       --exclude-rule trailofbits.generic.redis-unencrypted-transport.redis-unencrypted-transport
                       --exclude-rule python.django.security.audit.csrf-exempt.no-csrf-exempt
                       --exclude-rule generic.html-templates.security.var-in-href.var-in-href
+                      --include /bin
+                      --include /common
+                      --include /ee
+                      --include /posthog
+                      --include /products
+                      --include /services/llm-gateway
+                      --include /services/stripe-mock
+                      --include /tools
+                      --exclude products/desktop
+                      --jobs 4
+
+            # The scan above checks only the changed files. A newly listed model can
+            # already have unscoped lookups in unchanged files. Keep the paths aligned
+            # with the scan above.
+            - name: Run the IDOR rule over the whole tree
+              if: needs.changes.outputs.idor-rule == 'true' && needs.changes.outputs.scan-setup != 'true'
+              uses: ./.github/actions/semgrep-ci
+              with:
+                  image: ${{ env.SEMGREP_IMAGE }}
+                  full-scan: 'true'
+                  args: >-
+                      --config .semgrep/rules/security/idor-team-scoped-models.yaml
                       --include /bin
                       --include /common
                       --include /ee
@@ -483,6 +514,30 @@ jobs:
                       --timeout 300 \
                       bin/ common/ docs/onboarding/ ee/ frontend/ packages/ posthog/ products/ services/ tools/
 
+            # Per-file ratchet: the INFO rule integration-model-through-sdk has a backlog, and its
+            # baseline file lists the allowed count per file. More findings than the baseline fails, and
+            # so do fewer, so each migration lowers the baseline. See .semgrep/rules/devex/README.md.
+            # Skip on unrebased branches: the rule may not exist there yet.
+            - name: Integration model ratchet (blocking)
+              run: |
+                  if [ ! -f .semgrep/rules/devex/integration-model-through-sdk.yaml ]; then
+                      echo "integration-model-through-sdk not present on this branch yet, skipping (rebase to pick it up)"
+                      exit 0
+                  fi
+                  docker run --rm -v "${{ github.workspace }}:/src" -w /src \
+                    -e SEMGREP_ENABLE_VERSION_CHECK=false \
+                    ${{ env.SEMGREP_IMAGE }} \
+                    semgrep \
+                      --config ".semgrep/rules/devex/integration-model-through-sdk.yaml" \
+                      --json \
+                      --output semgrep-integration-model.json \
+                      --metrics=off \
+                      --timeout 300 \
+                      common/ ee/ posthog/ products/
+                  python3 bin/semgrep_ratchet.py \
+                    --findings semgrep-integration-model.json \
+                    --baseline posthog/integrations/model_access_baseline.txt
+
             # Pass 3 (PRs only): fail on newly-introduced WARNING findings.
             # --baseline-commit diffs against the PR base (first parent of the
             # merge commit), so the pass-1 backlog is grandfathered while new
@@ -611,8 +666,12 @@ jobs:
         steps:
             - name: Check matrix outcome
               run: |
-                  if [[ "${{ needs.changes.result }}" != "success" ]]; then
+                  if [[ "${{ needs.changes.result }}" != "success" && "${{ needs.changes.result }}" != "skipped" ]]; then
                     echo "changes (path filter) job did not succeed - cannot trust skips."
+                    exit 1
+                  fi
+                  if [[ "${{ needs.changes.result }}" == "skipped" && "${{ github.repository != 'PostHog/posthog' && (github.event_name == 'push' || github.event_name == 'schedule') }}" != "true" ]]; then
+                    echo "changes (path filter) job was skipped - cannot trust skips."
                     exit 1
                   fi
                   if [[ "${{ needs.semgrep-python.result }}" != "success" && "${{ needs.semgrep-python.result }}" != "skipped" ]]; then

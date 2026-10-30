@@ -48,8 +48,10 @@ def test_credential_probe_does_not_wait_out_a_rate_limit_like_a_sync(config: Cri
     with scripted_network(
         always(ScriptedResponse(status=429, json={"error": True, "reason": "rate_limited"}))
     ) as network:
-        with pytest.raises(Exception):
-            CrispSource().validate_credentials(config, team_id=1)
+        assert CrispSource().validate_credentials(config, team_id=1) == (
+            False,
+            "Couldn't reach Crisp to check your credentials. Try again in a few minutes.",
+        )
     assert len(network.requests_log) <= 5
 
 

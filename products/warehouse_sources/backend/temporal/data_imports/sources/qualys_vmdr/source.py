@@ -71,7 +71,7 @@ class QualysVmdrSource(ResumableSource[QualysVmdrSourceConfig, QualysVmdrResumeC
             name=ExternalDataSourceType.QUALYSVMDR,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Qualys VMDR",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["qualys", "vmdr", "vulnerability management", "security"],
             caption="""Enter your Qualys API credentials to sync your VMDR vulnerability management data into the PostHog Data warehouse.
 

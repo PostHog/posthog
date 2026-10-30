@@ -27,6 +27,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import BoundedRetry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import probe_status_message
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.awsguardduty import (
     AwsGuarddutySourceConfig,
@@ -54,9 +55,10 @@ class AwsGuarddutyResumeConfig:
 
 
 class AwsGuarddutyError(Exception):
-    def __init__(self, code: str, message: str) -> None:
+    def __init__(self, code: str, message: str, status_code: int | None = None) -> None:
         self.code = code
         self.message = message
+        self.status_code = status_code
         super().__init__(f"AWS GuardDuty request failed: {code} - {message}")
 
 
@@ -86,7 +88,7 @@ def error_for_response(response: requests.Response) -> AwsGuarddutyError:
         if response.status_code == 400 and code in {"ThrottlingException", "TooManyRequestsException"}
         else AwsGuarddutyError
     )
-    return error_class(code, message)
+    return error_class(code, message, response.status_code)
 
 
 class AwsGuarddutyClient:
@@ -318,7 +320,7 @@ def validate_credentials(
     except AwsGuarddutyError as error:
         if schema_name is None and error.code in {"AccessDenied", "AccessDeniedException", "ForbiddenException"}:
             return True, None
-        message = permission_message(error, schema_name)
+        message = permission_message(error, schema_name) or probe_status_message("AWS GuardDuty", error.status_code)
         if message:
             return False, message
         raise

@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconBox, IconPin, IconPinFilled, IconPlus, IconSearch } from '@posthog/icons'
+import { IconBox, IconPlus, IconSearch } from '@posthog/icons'
 import {
     Button,
     Empty,
@@ -9,10 +9,6 @@ import {
     EmptyHeader,
     EmptyMedia,
     EmptyTitle,
-    InputGroup,
-    InputGroupAddon,
-    InputGroupInput,
-    InputGroupText,
     Item,
     ItemActions,
     ItemContent,
@@ -21,9 +17,7 @@ import {
     ItemMedia,
     ItemTitle,
     Skeleton,
-    Tooltip,
-    TooltipContent,
-    TooltipTrigger,
+    Spinner,
 } from '@posthog/quill'
 
 import { NotFound } from 'lib/components/NotFound'
@@ -40,6 +34,8 @@ import { todayAnalyticsLogic } from '~/layout/today/todayAnalyticsLogic'
 import { TodayAnalyticsNewFolderDialog } from '~/layout/today/TodayAnalyticsNewFolderDialog'
 
 import { AnalyticsCreateModals } from './AnalyticsCreateModals'
+import { AnalyticsPinButton } from './AnalyticsPinButton'
+import { AnalyticsSearchInput } from './AnalyticsSearchInput'
 import { AnalyticsSpaceGlyph } from './AnalyticsSpaceGlyph'
 import { AnalyticsSpace, analyticsSpacesLogic } from './analyticsSpacesLogic'
 import { AnalyticsTypeIcon } from './AnalyticsTypeIcon'
@@ -80,9 +76,6 @@ function SpaceCounts({ space, className }: { space: AnalyticsSpace; className?: 
 }
 
 function SpaceRow({ space }: { space: AnalyticsSpace }): JSX.Element {
-    const { pinnedPaths, pinning } = useValues(analyticsSpacesLogic)
-    const { togglePin } = useActions(analyticsSpacesLogic)
-    const pinned = pinnedPaths.has(space.path)
     return (
         <Item
             variant="outline"
@@ -115,32 +108,20 @@ function SpaceRow({ space }: { space: AnalyticsSpace }): JSX.Element {
             </ItemContent>
             <SpaceCounts space={space} className="hidden shrink-0 @3xl/analytics:flex" />
             <ItemActions className="relative z-10 shrink-0 self-center">
-                <Tooltip>
-                    <TooltipTrigger
-                        render={
-                            <Button
-                                variant="default"
-                                size="icon"
-                                aria-pressed={pinned}
-                                aria-label={pinned ? 'Unpin from sidebar' : 'Pin to sidebar'}
-                                loading={pinning === space.path}
-                                onClick={() => togglePin(space)}
-                                data-attr="analytics-space-star"
-                            />
-                        }
-                    >
-                        {pinned ? <IconPinFilled className="size-5 text-warning" /> : <IconPin className="size-5" />}
-                    </TooltipTrigger>
-                    <TooltipContent>{pinned ? 'Unpin from the sidebar' : 'Pin to the sidebar'}</TooltipContent>
-                </Tooltip>
+                <AnalyticsPinButton
+                    target={{ type: 'folder', ref: space.path, name: space.name }}
+                    size="icon"
+                    // pinned: tracking API, do not rename.
+                    dataAttr="analytics-space-star"
+                />
             </ItemActions>
         </Item>
     )
 }
 
 function AnalyticsSpacesContent(): JSX.Element {
-    const { spaces, visibleSpaces, spacesLoading, spacesFailed, search } = useValues(analyticsSpacesLogic)
-    const { loadSpaces, setSearch } = useActions(analyticsSpacesLogic)
+    const { spaces, visibleSpaces, spacesLoading, spacesFailed, search, pagination } = useValues(analyticsSpacesLogic)
+    const { refreshSpaces, loadMore, setSearch } = useActions(analyticsSpacesLogic)
     const { setNewFolderDialogOpen } = useActions(todayAnalyticsLogic)
 
     const newSpaceButton = (
@@ -171,18 +152,18 @@ function AnalyticsSpacesContent(): JSX.Element {
                             <EmptyDescription>Try again, and if it keeps happening contact support.</EmptyDescription>
                         </EmptyHeader>
                         <EmptyContent>
-                            <Button variant="outline" loading={spacesLoading} onClick={() => loadSpaces()}>
+                            <Button variant="outline" loading={spacesLoading} onClick={() => refreshSpaces()}>
                                 Try again
                             </Button>
                         </EmptyContent>
                     </Empty>
-                ) : spacesLoading && !spaces.length ? (
+                ) : spacesLoading && !spaces.length && !search ? (
                     <div className="flex flex-col gap-2" aria-busy>
                         {Array.from({ length: 4 }, (_, index) => (
                             <Skeleton key={index} className="h-16" />
                         ))}
                     </div>
-                ) : !spaces.length ? (
+                ) : !spaces.length && !search && !pagination.hasMore ? (
                     <Empty>
                         <EmptyHeader>
                             <EmptyTitle>No collections yet</EmptyTitle>
@@ -194,28 +175,22 @@ function AnalyticsSpacesContent(): JSX.Element {
                     </Empty>
                 ) : (
                     <>
-                        <InputGroup className="h-8 w-56 max-w-full">
-                            <InputGroupAddon align="inline-start">
-                                <InputGroupText>
-                                    <IconSearch />
-                                </InputGroupText>
-                            </InputGroupAddon>
-                            <InputGroupInput
-                                type="search"
-                                aria-label="Search collections"
-                                placeholder="Search collections"
-                                value={search}
-                                onChange={(event: React.ChangeEvent<HTMLInputElement>) => setSearch(event.target.value)}
-                                data-attr="analytics-spaces-search"
-                            />
-                        </InputGroup>
-                        {visibleSpaces.length ? (
+                        <AnalyticsSearchInput
+                            value={search}
+                            onChange={setSearch}
+                            label="Search collections"
+                            placeholder="Search collections"
+                            dataAttr="analytics-spaces-search"
+                        />
+                        {spacesLoading && !visibleSpaces.length && <Spinner aria-label="Loading collections" />}
+                        {visibleSpaces.length > 0 && (
                             <ItemGroup className="flex flex-col gap-2 pb-8">
                                 {visibleSpaces.map((space) => (
                                     <SpaceRow key={space.path} space={space} />
                                 ))}
                             </ItemGroup>
-                        ) : (
+                        )}
+                        {!visibleSpaces.length && !pagination.hasMore && !spacesLoading && (
                             <Empty>
                                 <EmptyHeader>
                                     <EmptyMedia variant="icon">
@@ -234,6 +209,16 @@ function AnalyticsSpacesContent(): JSX.Element {
                                     </Button>
                                 </EmptyContent>
                             </Empty>
+                        )}
+                        {pagination.hasMore && (
+                            <Button
+                                variant="outline"
+                                loading={spacesLoading}
+                                onClick={() => loadMore()}
+                                data-attr="analytics-spaces-load-more"
+                            >
+                                Load more
+                            </Button>
                         )}
                     </>
                 )}

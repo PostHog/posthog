@@ -4,7 +4,7 @@ from unittest import mock
 import requests
 from google.auth.exceptions import RefreshError
 
-from posthog.models.integration import Integration
+from posthog.integrations import IntegrationNotFound
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googleanalytics import (
@@ -30,7 +30,7 @@ def _config(property_id: str = "123456789", custom_reports: str | None = None) -
     "custom_reports,expected_substring",
     [
         ("not json", "valid JSON"),
-        ('{"name": "x"}', "JSON array"),
+        ('"paid_campaigns"', "JSON array"),
         ('[{"dimensions": ["a"], "metrics": ["sessions"]}]', "non-empty 'name'"),
         ('[{"name": "website_overview", "dimensions": [], "metrics": ["sessions"]}]', "already a built-in report"),
         (
@@ -56,6 +56,20 @@ def test_parse_custom_reports_rejects_invalid(custom_reports, expected_substring
     assert expected_substring in str(exc.value)
 
 
+@pytest.mark.parametrize(
+    "custom_reports",
+    [
+        '[{"name": "paid_campaigns", "dimensions": ["sessionSource"], "metrics": ["sessions"]}]',
+        '{"name": "paid_campaigns", "dimensions": ["sessionSource"], "metrics": ["sessions"]}',
+    ],
+)
+def test_parse_custom_reports_accepts_array_or_single_object(custom_reports):
+    reports = parse_custom_reports(custom_reports)
+    assert list(reports) == ["paid_campaigns"]
+    assert reports["paid_campaigns"]["dimensions"] == ["date", "sessionSource"]
+    assert reports["paid_campaigns"]["metrics"] == ["sessions"]
+
+
 def test_parse_custom_reports_invalid_json_hides_parser_detail():
     # The raw JSONDecodeError text (e.g. "Expecting value: line 1 column 1 (char 0)") is debug
     # noise for the user pasting a report, so the message stays actionable without echoing any
@@ -64,7 +78,10 @@ def test_parse_custom_reports_invalid_json_hides_parser_detail():
     with pytest.raises(CustomReportError) as exc:
         parse_custom_reports("not json")
     message = str(exc.value)
-    assert message == "Custom reports must be valid JSON. Provide a JSON array of report objects, then try again."
+    assert (
+        message
+        == "Custom reports must be valid JSON. Fix the JSON, or leave the field empty to sync only the built-in reports."
+    )
     assert "column" not in message
     assert "char" not in message
     assert "Expecting value" not in message
@@ -210,10 +227,10 @@ def test_validate_credentials_hides_unexpected_metadata_failure_detail():
 
 def test_validate_credentials_handles_missing_integration():
     # A deleted/disconnected OAuth row makes `google_analytics_session` raise the typed
-    # `Integration.DoesNotExist`; surface a reconnect message instead of the raw ORM error.
+    # `IntegrationNotFound`; surface a reconnect message instead of the raw ORM error.
     with mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.source.google_analytics_session",
-        side_effect=Integration.DoesNotExist(),
+        side_effect=IntegrationNotFound(),
     ):
         ok, message = GoogleAnalyticsSource().validate_credentials(_config(), team_id=1)
 

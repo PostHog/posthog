@@ -35,11 +35,27 @@ export type RedisV2 = {
     ) => Promise<Array<[Error | null, any]> | null>
 }
 
+// A non-fatal client can fail to connect at once, for example on a wrong password. generic-pool retries a
+// failed create immediately while a caller waits, so without this pause the pool reconnects in a tight loop.
+const NON_FATAL_CREATE_RETRY_DELAY_MS = 1000
+
 export const createRedisV2PoolFromConfig = (config: RedisPoolConfig): RedisV2 => {
+    const nonFatal = config.connection.exitOnRepeatedErrors === false
+    let lastCreateFailureAt = 0
     const pool = createPool<RedisClient>(
         {
             create: async () => {
-                const client = await createRedisFromConfig(config.connection)
+                const wait = lastCreateFailureAt + NON_FATAL_CREATE_RETRY_DELAY_MS - Date.now()
+                if (nonFatal && wait > 0) {
+                    await new Promise((resolve) => setTimeout(resolve, wait))
+                }
+                let client: Awaited<ReturnType<typeof createRedisFromConfig>>
+                try {
+                    client = await createRedisFromConfig(config.connection)
+                } catch (error) {
+                    lastCreateFailureAt = Date.now()
+                    throw error
+                }
 
                 defineLuaTokenBucketV2(client)
                 defineLuaTokenBucketV3(client)
@@ -54,6 +70,7 @@ export const createRedisV2PoolFromConfig = (config: RedisPoolConfig): RedisV2 =>
             min: config.poolMinSize,
             max: config.poolMaxSize,
             autostart: true,
+            ...(config.acquireTimeoutMillis !== undefined ? { acquireTimeoutMillis: config.acquireTimeoutMillis } : {}),
         }
     )
 
@@ -63,7 +80,14 @@ export const createRedisV2PoolFromConfig = (config: RedisPoolConfig): RedisV2 =>
             undefined,
             options.timeout
         )
-        const client = await pool.acquire()
+        let client: RedisClient
+        try {
+            client = await pool.acquire()
+        } catch (error) {
+            // A pool with acquireTimeoutMillis rejects here, and the guard must not report a delay afterwards.
+            clearTimeout(timeout)
+            throw error
+        }
 
         try {
             return await callback(client)

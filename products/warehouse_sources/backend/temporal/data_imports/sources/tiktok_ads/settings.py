@@ -28,6 +28,8 @@ METRICS_FIELDS = [
     "conversion_rate_v2",
     "conversion_rate",
     "conversion",
+    "cta_conversion",
+    "cta_purchase",
     "complete_payment",
     "total_complete_payment_rate",
     "cost_per_1000_reached",
@@ -38,6 +40,7 @@ METRICS_FIELDS = [
     "cpm",
     "ctr",
     "currency",
+    "engaged_view_15s",
     "follows",
     "frequency",
     "gross_impressions",
@@ -60,6 +63,7 @@ METRICS_FIELDS = [
     "shares",
     "spend",
     "split_test",
+    "total_landing_page_view",
     "video_play_actions",
     "video_views_p100",
     "video_views_p25",
@@ -218,6 +222,41 @@ def audience_report_config(name: str, data_level: str, dimensions: list[str], me
 
 
 TIKTOK_ADS_CONFIG: dict[str, EndpointConfig] = {
+    "advertiser_report": EndpointConfig(
+        resource={
+            "name": "advertiser_report",
+            "table_name": "advertiser_report",
+            "primary_key": ["advertiser_id", "stat_time_day"],
+            "endpoint": {
+                "path": "/report/integrated/get/",
+                "method": "GET",
+                "params": {
+                    "advertiser_id": "{advertiser_id}",
+                    "service_type": "AUCTION",
+                    "report_type": "BASIC",
+                    "data_level": "AUCTION_ADVERTISER",
+                    "dimensions": '["advertiser_id", "stat_time_day"]',
+                    "metrics": json.dumps(["spend", "cash_spend"]),
+                    "page_size": 1000,
+                    "start_date": "{start_date}",
+                    "end_date": "{end_date}",
+                },
+                "data_selector": "data.list",
+                "incremental": {
+                    "cursor_path": "stat_time_day",
+                    "start_param": "start_date",
+                    "end_param": "end_date",
+                },
+            },
+            "table_format": "delta",
+        },
+        incremental_fields=[STAT_TIME_DAY_INCREMENTAL_FIELD],
+        partition_keys=["stat_time_day"],
+        partition_mode="datetime",
+        partition_format="week",
+        endpoint_type=EndpointType.REPORT,
+        should_sync_default=False,
+    ),
     "campaigns": EndpointConfig(
         resource={
             # Docs: https://business-api.tiktok.com/portal/docs?id=1739315828649986

@@ -15,5 +15,10 @@ export function compactTimeAgo(iso: string): string {
 }
 
 export function isTaskInProgress(task: Task): boolean {
-    return task.latest_run ? IN_PROGRESS_STATUSES.has(task.latest_run.status) : false
+    const run = task.latest_run
+    if (!run || !IN_PROGRESS_STATUSES.has(run.status)) {
+        return false
+    }
+    // An interactive run stays `in_progress` between turns, so that status alone does not mean the agent works.
+    return !(run.status === TaskRunStatus.IN_PROGRESS && run.state?.mode === 'interactive')
 }

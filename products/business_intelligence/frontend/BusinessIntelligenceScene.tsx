@@ -84,6 +84,7 @@ export function BusinessIntelligenceScene({ tabId = 'bi-default' }: { tabId?: st
         navigateHierarchy,
         setSqlPreviewOpen,
         refreshInsightFromAgent,
+        runQuery,
     } = useActions(logic)
 
     const hierarchyParent = getBIHierarchyParent(worksheet)
@@ -320,6 +321,16 @@ export function BusinessIntelligenceScene({ tabId = 'bi-default' }: { tabId?: st
                                               : 'Drag or double-click a field to start. Dimensions define groups; measures calculate a value for each group.'
                                           : 'Select a table and add fields to build your worksheet.'}
                                 </span>
+                                {generatedQuery && (
+                                    <LemonButton
+                                        type="primary"
+                                        onClick={runQuery}
+                                        aria-label="Run worksheet"
+                                        data-attr="bi-run-empty-worksheet"
+                                    >
+                                        Run
+                                    </LemonButton>
+                                )}
                                 {worksheet.config.source &&
                                     !worksheet.config.rows.length &&
                                     !worksheet.config.columns.length &&
