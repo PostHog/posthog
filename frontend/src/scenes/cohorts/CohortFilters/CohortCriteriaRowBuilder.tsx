@@ -7,7 +7,6 @@ import { Field as KeaField } from 'kea-forms'
 import { IconCopy, IconTrash } from '@posthog/icons'
 import { LemonDivider, Tooltip } from '@posthog/lemon-ui'
 
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { eventsWithMoveNotice, moveAnnouncementUrl } from 'lib/components/TaxonomicFilter/utils/hiddenEvents'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -26,7 +25,7 @@ import { AnyCohortCriteriaType, BehavioralEventType, FilterLogicalOperator } fro
 import {
     FlagCallCriterionProblem,
     MAX_LOOKBACK_DAYS,
-    flagCallCriterionProblem,
+    moveNoticeProblem,
 } from 'products/cohorts/frontend/criteria/flagCallCriterionProblem'
 
 export interface CohortCriteriaRowBuilderProps {
@@ -49,17 +48,6 @@ const MOVE_NOTICE_EFFECTS: Record<FlagCallCriterionProblem, string> = {
 
 function moveNoticeText(problem: FlagCallCriterionProblem): string {
     return `Feature flag called is moving out of the events table. ${MOVE_NOTICE_EFFECTS[problem]}`
-}
-
-function moveNoticeProblem(
-    criteria: AnyCohortCriteriaType,
-    moveNoticeEvents: string[]
-): FlagCallCriterionProblem | null {
-    const namesMovingEvent =
-        (criteria.event_type === TaxonomicFilterGroupType.Events && moveNoticeEvents.includes(String(criteria.key))) ||
-        (criteria.seq_event_type === TaxonomicFilterGroupType.Events &&
-            moveNoticeEvents.includes(String(criteria.seq_event)))
-    return namesMovingEvent ? flagCallCriterionProblem(criteria) : null
 }
 
 export function CohortCriteriaRowBuilder({

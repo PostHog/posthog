@@ -1,4 +1,5 @@
 import { isEventPropertyFilter } from 'lib/components/PropertyFilters/utils'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 import { AnyCohortCriteriaType, BehavioralEventType } from '~/types'
 
@@ -35,6 +36,18 @@ export function flagCallCriterionProblem(criteria: AnyCohortCriteriaType): FlagC
         return 'filters'
     }
     return null
+}
+
+/** The problem to warn about when the criterion names one of the events that are moving, or null. */
+export function moveNoticeProblem(
+    criteria: AnyCohortCriteriaType,
+    moveNoticeEvents: string[]
+): FlagCallCriterionProblem | null {
+    const namesMovingEvent =
+        (criteria.event_type === TaxonomicFilterGroupType.Events && moveNoticeEvents.includes(String(criteria.key))) ||
+        (criteria.seq_event_type === TaxonomicFilterGroupType.Events &&
+            moveNoticeEvents.includes(String(criteria.seq_event)))
+    return namesMovingEvent ? flagCallCriterionProblem(criteria) : null
 }
 
 function windowStart(criteria: AnyCohortCriteriaType): string | null {
