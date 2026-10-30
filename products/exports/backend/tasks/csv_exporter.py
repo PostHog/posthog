@@ -24,7 +24,7 @@ from pydantic import BaseModel, ValidationError
 from requests.exceptions import HTTPError
 from rest_framework_csv.renderers import CSVRenderer
 
-from posthog.schema import FunnelVizType, NodeKind, QuerySchemaRoot
+from posthog.schema import FunnelVizType, NodeKind, QuerySchemaRoot, StepOrderValue
 
 from posthog.hogql.constants import CSV_EXPORT_BREAKDOWN_LIMIT_INITIAL, CSV_EXPORT_BREAKDOWN_LIMIT_LOW, CSV_EXPORT_LIMIT
 from posthog.hogql.errors import TableAccessDeniedError
@@ -305,6 +305,36 @@ def _returns_funnel_steps(series_query: Optional[Mapping[str, Any]]) -> bool:
     return viz_type in (None, FunnelVizType.STEPS, FunnelVizType.FLOW)
 
 
+def _funnel_step_series(series_query: Optional[Mapping[str, Any]], step_index: int) -> Optional[Mapping[str, Any]]:
+    if not series_query or series_query.get("kind") != NodeKind.FUNNELS_QUERY:
+        return None
+    # An unordered funnel's step N counts people who completed any N of the series, so no single series matches it.
+    if (series_query.get("funnelsFilter") or {}).get("funnelOrderType") == StepOrderValue.UNORDERED:
+        return None
+    series = series_query.get("series")
+    if not isinstance(series, list) or not 0 <= step_index < len(series):
+        return None
+    node = series[step_index]
+    return node if isinstance(node, Mapping) else None
+
+
+def _funnel_step_action_id(node: Optional[Mapping[str, Any]]) -> str | int | None:
+    if node is None:
+        return None
+    kind = node.get("kind")
+    if kind == NodeKind.EVENTS_NODE:
+        return node.get("event")
+    if kind == NodeKind.ACTIONS_NODE:
+        return node.get("id")
+    if kind == NodeKind.FUNNELS_DATA_WAREHOUSE_NODE:
+        return node.get("table_name")
+    return None
+
+
+def _is_all_events_series(node: Optional[Mapping[str, Any]]) -> bool:
+    return node is not None and node.get("kind") == NodeKind.EVENTS_NODE and node.get("event") is None
+
+
 def _series_query(query: dict) -> dict:
     # The runner unwraps a visualization node and runs the upgraded query, which stamps `kind` on legacy series nodes.
     upgraded = upgrade(deepcopy(query))
@@ -361,17 +391,18 @@ def _convert_response_to_csv_data(
             multiple_items = results if isinstance(first_result, list) else [results]
             # FUNNELS LIKE
             for items in multiple_items:
-                yield from (
-                    {
-                        "name": x.get("custom_name") or x.get("name", ""),
-                        "breakdown_value": _format_breakdown_value(x.get("breakdown_value")),
-                        "action_id": x.get("action_id", ""),
-                        "count": x.get("count", ""),
-                        "median_conversion_time (seconds)": x.get("median_conversion_time", ""),
-                        "average_conversion_time (seconds)": x.get("average_conversion_time", ""),
+                for step_index, step in enumerate(items):
+                    node = _funnel_step_series(series_query, step_index)
+                    name = step.get("custom_name") or step.get("name")
+                    action_id = _funnel_step_action_id(node)
+                    yield {
+                        "name": name or ("All events" if _is_all_events_series(node) else ""),
+                        "breakdown_value": _format_breakdown_value(step.get("breakdown_value")),
+                        "action_id": "" if action_id is None else action_id,
+                        "count": step.get("count", ""),
+                        "median_conversion_time (seconds)": step.get("median_conversion_time", ""),
+                        "average_conversion_time (seconds)": step.get("average_conversion_time", ""),
                     }
-                    for x in items
-                )
             return
         elif first_result.get("appearances") and first_result.get("person"):
             # RETENTION PERSONS LIKE
