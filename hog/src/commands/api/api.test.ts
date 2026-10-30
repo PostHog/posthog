@@ -99,6 +99,13 @@ describe('hog api', () => {
         ['input that is not an object', ['api', 'call', 'flag-list', '[1]'], 'invalid_json', 2],
         ['input the schema rejects', ['api', 'call', 'flag-list', '{"limit":"x"}'], 'invalid_input', 2],
         ['a destructive tool without --confirm', ['api', 'call', 'flag-delete', '{"id":1}'], 'needs_confirmation', 1],
+        ['an empty --project-id', ['api', 'call', 'flag-list', '{}', '--project-id', ''], 'invalid_input', 2],
+        [
+            'an empty --organization-id',
+            ['api', 'call', 'flag-list', '{}', '--organization-id', ' '],
+            'invalid_input',
+            2,
+        ],
     ])('call refuses %s before calling PostHog', async (_name, argv, code, exitCode) => {
         const library = fakeLibrary(['*'])
         const result = await runHog(argv, { env: TEST_CREDENTIALS, apiTools: library })
@@ -185,15 +192,17 @@ describe('hog api', () => {
     })
 
     test.each([
-        ['an unlimited key reaches the project', [], undefined, true],
-        ["a key limited to the project's organization reaches it", ['org-a'], 'org-a', true],
-        ['a key limited to another organization does not', ['org-b'], 'org-a', false],
-    ])('access: %s', async (_name, scopedOrganizations, projectOrganization, projectAllowed) => {
+        ['an unlimited key reaches the project', [], 200, undefined, true],
+        ["a key limited to the project's organization reaches it", ['org-a'], 200, 'org-a', true],
+        ['a key limited to another organization does not', ['org-b'], 200, 'org-a', false],
+        ["a key without project:read can't tell", ['org-a'], 403, undefined, null],
+    ])('access: %s', async (_name, scopedOrganizations, status, projectOrganization, projectAllowed) => {
         const result = await runHog(['api', 'access'], {
             env: TEST_CREDENTIALS,
             apiTools: fakeLibrary(['feature_flag:read', 'feature_flag:write'], { scopedOrganizations }),
-            respond: () => ({ status: 200, body: { id: 7, organization: projectOrganization } }),
+            respond: () => ({ status, body: status === 200 ? { id: 7, organization: projectOrganization } : {} }),
         })
+
         expect(result.json()).toMatchObject({
             usable: 2,
             tools: 3,
