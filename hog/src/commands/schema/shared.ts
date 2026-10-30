@@ -66,9 +66,10 @@ export function absolutePath(root: string, path: string): string {
     return isAbsolute(path) ? path : resolve(root, path)
 }
 
+// A sibling folder stays relative, as posthog-cli stored it, so the file works in any checkout.
 export function storedPath(root: string, path: string): string {
     const rel = relative(root, path)
-    return rel.startsWith('..') || isAbsolute(rel) ? path : rel
+    return isAbsolute(rel) ? path : rel
 }
 
 // Resolves a path the caller typed. A folder, or a path that ends with a slash, gets the
