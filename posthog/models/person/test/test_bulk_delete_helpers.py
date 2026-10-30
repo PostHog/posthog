@@ -321,7 +321,7 @@ class LifecycleDeletePersonsProfileTests(BaseTest):
             "get_person_tombstones",
         } == set()
         logged = ActivityLog.objects.filter(team_id=self.team.pk, scope="Person", activity="deleted")
-        assert {(log.item_id, log.detail["context"]["person_version"]) for log in logged} == {
+        assert {(log.item_id, (log.detail or {})["context"]["person_version"]) for log in logged} == {
             (str(p1.pk), 1),
             (str(p2.pk), 1),
         }
