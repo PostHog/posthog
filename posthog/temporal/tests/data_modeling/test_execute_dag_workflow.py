@@ -24,9 +24,11 @@ from posthog.temporal.data_modeling.activities import (
     NotifyDAGMaterializationFailuresInputs,
     PreemptDAGRunInputs,
     RecordSkippedDataModelingJobsInputs,
+    TrinoModelReservationInputs,
     check_team_managed_warehouse_shadow_eligibility_activity,
     get_dag_structure_activity,
     preempt_dag_run_activity,
+    reserve_trino_model_activity,
 )
 from posthog.temporal.data_modeling.activities.get_dag_structure import DAG as DAGPlan
 from posthog.temporal.data_modeling.workflows.execute_dag import (
@@ -503,6 +505,19 @@ async def stub_check_team_shadow_eligibility(_: int) -> bool:
     return False
 
 
+_reserved_by_another_run: set[str] = set()
+
+
+@temporal_activity.defn(name="reserve_trino_model_activity")
+async def stub_reserve_trino_model(inputs: TrinoModelReservationInputs) -> bool:
+    return inputs.node_id not in _reserved_by_another_run
+
+
+@temporal_activity.defn(name="release_trino_model_activity")
+async def stub_release_trino_model(_: TrinoModelReservationInputs) -> None:
+    pass
+
+
 class TestExecuteDAGWorkflow:
     async def test_handles_empty_dag(self, ateam):
         """Test that the workflow returns early with empty result when no executable nodes exist."""
@@ -519,6 +534,8 @@ class TestExecuteDAGWorkflow:
                 activities=[
                     stub_preempt_dag_run,
                     stub_check_team_shadow_eligibility,
+                    stub_reserve_trino_model,
+                    stub_release_trino_model,
                     stub_get_dag_structure,
                     stub_record_skipped_data_modeling_jobs,
                     stub_notify_dag_materialization_failures,
@@ -634,6 +651,8 @@ class TestExecuteDAGWorkflowWithMocks:
                 activities=[
                     stub_preempt_dag_run,
                     stub_check_team_shadow_eligibility,
+                    stub_reserve_trino_model,
+                    stub_release_trino_model,
                     stub_get_dag_structure,
                     stub_record_skipped_data_modeling_jobs,
                     stub_notify_dag_materialization_failures,
@@ -689,6 +708,8 @@ class TestExecuteDAGWorkflowWithMocks:
                 activities=[
                     stub_preempt_dag_run,
                     stub_check_team_shadow_eligibility,
+                    stub_reserve_trino_model,
+                    stub_release_trino_model,
                     stub_get_dag_structure,
                     stub_record_skipped_data_modeling_jobs,
                     stub_notify_dag_materialization_failures,
@@ -733,6 +754,8 @@ class TestExecuteDAGWorkflowWithMocks:
                 activities=[
                     stub_preempt_dag_run,
                     stub_check_team_shadow_eligibility,
+                    stub_reserve_trino_model,
+                    stub_release_trino_model,
                     stub_get_dag_structure,
                     stub_record_skipped_data_modeling_jobs,
                     stub_notify_dag_materialization_failures,
@@ -782,6 +805,8 @@ class TestExecuteDAGWorkflowWithMocks:
                 activities=[
                     stub_preempt_dag_run,
                     stub_check_team_shadow_eligibility,
+                    stub_reserve_trino_model,
+                    stub_release_trino_model,
                     stub_get_dag_structure,
                     stub_record_skipped_data_modeling_jobs,
                     stub_notify_dag_materialization_failures,
@@ -800,6 +825,50 @@ class TestExecuteDAGWorkflowWithMocks:
         assert node_managed_warehouse_id not in _mock_workflow_calls
         assert result.successful_nodes == 1
         assert result.skipped_nodes == 1
+
+    async def test_scheduled_trino_run_skips_a_model_a_manual_run_is_building(self):
+        dag_id = "test-dag"
+        held_id = str(uuid.uuid4())
+        free_id = str(uuid.uuid4())
+        _mock_workflow_calls.clear()
+        _reserved_by_another_run.clear()
+        _reserved_by_another_run.add(held_id)
+
+        @temporal_activity.defn(name="get_dag_structure_activity")
+        async def stub_get_dag_structure(_: GetDAGStructureInputs) -> DAGPlan:
+            return DAGPlan(nodes=[held_id, free_id], executable_nodes=[held_id, free_id], edges=[])
+
+        try:
+            async with await WorkflowEnvironment.start_time_skipping() as env:
+                async with temporalio.worker.Worker(
+                    env.client,
+                    task_queue="test-queue",
+                    workflows=[ExecuteDAGWorkflow, MockMaterializeViewWorkflow],
+                    activities=[
+                        stub_preempt_dag_run,
+                        stub_check_team_shadow_eligibility,
+                        stub_reserve_trino_model,
+                        stub_release_trino_model,
+                        stub_get_dag_structure,
+                        stub_record_skipped_data_modeling_jobs,
+                        stub_notify_dag_materialization_failures,
+                    ],
+                    workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+                ):
+                    result: ExecuteDAGResult = await env.client.execute_workflow(
+                        ExecuteDAGWorkflow.run,
+                        ExecuteDAGInputs(team_id=1, dag_id=dag_id, managed_warehouse_only=True, shadow=True),
+                        id=f"test-trino-reservation-{uuid.uuid4()}",
+                        task_queue="test-queue",
+                        execution_timeout=dt.timedelta(seconds=30),
+                    )
+        finally:
+            _reserved_by_another_run.clear()
+
+        assert _mock_workflow_calls == [free_id]
+        assert result.successful_nodes == 1
+        assert result.skipped_nodes == 1
+        assert result.failed_nodes == 0
 
     async def test_filters_by_node_ids(self):
         """Test that specifying node_ids filters which nodes are executed."""
@@ -824,6 +893,8 @@ class TestExecuteDAGWorkflowWithMocks:
                 activities=[
                     stub_preempt_dag_run,
                     stub_check_team_shadow_eligibility,
+                    stub_reserve_trino_model,
+                    stub_release_trino_model,
                     stub_get_dag_structure,
                     stub_notify_dag_materialization_failures,
                 ],
@@ -868,6 +939,8 @@ class TestExecuteDAGWorkflowWithMocks:
                 activities=[
                     stub_preempt_dag_run,
                     stub_check_team_shadow_eligibility,
+                    stub_reserve_trino_model,
+                    stub_release_trino_model,
                     stub_get_dag_structure,
                     stub_record_skipped_data_modeling_jobs,
                     stub_notify_dag_materialization_failures,
@@ -916,6 +989,8 @@ class TestExecuteDAGWorkflowWithMocks:
                 activities=[
                     stub_preempt_dag_run,
                     stub_check_team_shadow_eligibility,
+                    stub_reserve_trino_model,
+                    stub_release_trino_model,
                     stub_get_dag_structure,
                     stub_notify_dag_materialization_failures,
                 ],
@@ -972,6 +1047,8 @@ class TestExecuteDAGWorkflowWithMocks:
                 activities=[
                     stub_preempt_dag_run,
                     stub_check_team_shadow_eligibility,
+                    stub_reserve_trino_model,
+                    stub_release_trino_model,
                     stub_get_dag_structure,
                     stub_kill_switch_level,
                     stub_notify_dag_materialization_failures,
@@ -1012,6 +1089,8 @@ class TestExecuteDAGWorkflowWithMocks:
                 activities=[
                     stub_preempt_dag_run,
                     stub_check_team_shadow_eligibility,
+                    stub_reserve_trino_model,
+                    stub_release_trino_model,
                     stub_get_dag_structure,
                     stub_kill_switch_level,
                     stub_notify_dag_materialization_failures,
@@ -1057,6 +1136,8 @@ class TestExecuteDAGWorkflowWithMocks:
                 activities=[
                     stub_preempt_dag_run,
                     stub_check_team_shadow_eligibility,
+                    stub_reserve_trino_model,
+                    stub_release_trino_model,
                     stub_get_dag_structure,
                     stub_notify_dag_materialization_failures,
                 ],
@@ -1186,6 +1267,8 @@ class TestTrinoShadowRun:
                 return plan
             if fn == check_team_managed_warehouse_shadow_eligibility_activity:
                 return eligible
+            if fn == reserve_trino_model_activity:
+                return True
             return None
 
         info = MagicMock()

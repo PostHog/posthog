@@ -16,6 +16,8 @@ from posthog.temporal.data_modeling.activities import (
     publish_queryable_table_activity,
     quality_block_materialization_activity,
     record_skipped_data_modeling_jobs_activity,
+    release_trino_model_activity,
+    reserve_trino_model_activity,
     stage_queryable_files_activity,
     succeed_materialization_activity,
 )
@@ -51,4 +53,6 @@ ACTIVITIES = [
     succeed_materialization_activity,
     preempt_dag_run_activity,
     notify_dag_materialization_failures_activity,
+    reserve_trino_model_activity,
+    release_trino_model_activity,
 ]

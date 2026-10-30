@@ -70,6 +70,7 @@ async def _run_activity(
     node_ids: list[str] | None,
     workflow_status: dict[str, WorkflowExecutionStatus | Exception] | None = None,
     engine: DataModelingJobEngine | None = None,
+    spare_manually_reserved: bool = False,
 ) -> list[str]:
     """Run the activity against a stubbed Temporal client, returning the workflows it cancelled.
 
@@ -110,6 +111,7 @@ async def _run_activity(
                 team_id=team_id,
                 dag_id=DAG_ID,
                 node_ids=node_ids,
+                spare_manually_reserved=spare_manually_reserved,
                 **({"engine": engine} if engine is not None else {}),
             ),
         )
@@ -269,3 +271,19 @@ async def test_owned_workflows_are_cancelled_even_if_reaping_blows_up(ateam, tie
     assert owned.status == DataModelingJobStatus.FAILED
     assert owned.error == PREEMPTED_ERROR
     assert cancelled == [_child_workflow_id(NODE_QUARTER_HOURLY)]
+
+
+@pytest.mark.parametrize("spare_manually_reserved", [True, False])
+async def test_scheduled_trino_run_spares_builds_a_manual_run_reserved(
+    spare_manually_reserved: bool, ateam, tier_jobs
+) -> None:
+    with unittest.mock.patch(
+        "products.data_modeling.backend.logic.trino_reservations.manually_reserved_trino_models",
+        return_value={NODE_HOURLY},
+    ):
+        cancelled = await _run_activity(
+            ateam.pk, [NODE_HOURLY, NODE_MIGRATED], spare_manually_reserved=spare_manually_reserved
+        )
+
+    spared = {NODE_HOURLY} if spare_manually_reserved else set()
+    assert sorted(cancelled) == sorted(_child_workflow_id(node_id) for node_id in {NODE_HOURLY, NODE_MIGRATED} - spared)

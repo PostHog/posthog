@@ -1,25 +1,19 @@
-import json
-import time
 import asyncio
 from dataclasses import asdict
 from datetime import timedelta
-from typing import cast
 from uuid import UUID, uuid4
 
 from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
-import redis
 import structlog
-from temporalio.client import Client
 from temporalio.common import RetryPolicy, WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 
 from posthog.hogql.database.database import Database
 
 from posthog.models import User
 from posthog.rbac.query_access import assert_user_can_read_query
-from posthog.redis import get_client
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.data_modeling.activities.materialize_view_managed_warehouse import (
     is_managed_warehouse_shadow_enabled,
@@ -43,6 +37,11 @@ from products.data_modeling.backend.graph import Graph
 from products.data_modeling.backend.logic.incremental import TRINO_INCREMENTAL_SCOPE, clear_incremental_state
 from products.data_modeling.backend.logic.node_suspension import unsuspend_nodes
 from products.data_modeling.backend.logic.saved_query_dag_sync import MissingDagNodeError
+from products.data_modeling.backend.logic.trino_reservations import (
+    Liveness,
+    release_trino_reservations,
+    reserve_trino_models,
+)
 from products.data_modeling.backend.models import DataModelingJob, DataModelingJobEngine, DataModelingJobStatus, Node
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.schedule import get_v2_saved_query_ids
@@ -54,9 +53,6 @@ RELATED_RUN_EDIT_ACCESS_REFUSAL = "You need edit access to every view in this ru
 MANAGED_WAREHOUSE_UNAVAILABLE_REFUSAL = "This organization has no managed warehouse set up."
 # Long enough for the state changes that follow the start to commit before the workflow first reads them.
 MANUAL_TRINO_RUN_START_DELAY = timedelta(seconds=5)
-# A reservation younger than this counts as live even before Temporal knows its workflow, which is
-# started only after every model is reserved.
-MANUAL_TRINO_RESERVATION_START_GRACE = timedelta(minutes=1)
 TRINO_RUN_ALREADY_RUNNING_REFUSAL = "Already building on the managed warehouse: {names}. Try again once they finish."
 MODEL_NAMES_IN_REFUSAL = 5
 
@@ -215,6 +211,7 @@ def run_trino_node_materializations(
 
     dag_id = str(node.dag_id)
     temporal = sync_connect()
+    liveness = Liveness(temporal)
     inputs = ExecuteDAGInputs(
         team_id=node.team_id,
         dag_id=dag_id,
@@ -226,10 +223,10 @@ def run_trino_node_materializations(
     workflow_id = manual_trino_workflow_id(dag_id, str(uuid4()))
     # A manual run builds downstream models long after it starts, so a model is reserved for the whole run,
     # not only while its job row says Running.
-    reserved, conflicting = _reserve_models_for_trino_run(temporal, node.team_id, node_ids, workflow_id)
-    busy = _models_building_on_trino(temporal, node.team_id, node_ids)
+    reserved, conflicting = reserve_trino_models(liveness, node.team_id, node_ids, workflow_id, manual=True)
+    busy = _models_building_on_trino(liveness, node.team_id, node_ids)
     if conflicting or busy:
-        _release_trino_reservations(node.team_id, reserved, workflow_id)
+        release_trino_reservations(node.team_id, reserved, workflow_id)
         names = sorted(set(busy) | set(_model_names(node.team_id, conflicting)))
         raise MaterializationAlreadyRunningError(
             TRINO_RUN_ALREADY_RUNNING_REFUSAL.format(names=", ".join(names[:MODEL_NAMES_IN_REFUSAL]))
@@ -250,7 +247,10 @@ def run_trino_node_materializations(
             )
         )
     except Exception:
-        _release_trino_reservations(node.team_id, reserved, workflow_id)
+        # A start that timed out may still have been accepted, so keep the reservations unless Temporal
+        # confirms there is no such workflow. Kept ones are taken over once that workflow has ended.
+        if asyncio.run(workflow_has_closed(temporal, workflow_id)):
+            release_trino_reservations(node.team_id, reserved, workflow_id)
         raise
 
     try:
@@ -265,12 +265,12 @@ def run_trino_node_materializations(
     except Exception:
         # The run would otherwise start on state the caller did not ask for, while the caller sees an error.
         asyncio.run(handle.terminate("Could not prepare the models for the run"))
-        _release_trino_reservations(node.team_id, reserved, workflow_id)
+        release_trino_reservations(node.team_id, reserved, workflow_id)
         raise
     return sorted(node_ids)
 
 
-def _models_building_on_trino(temporal: Client, team_id: int, node_ids: set[str]) -> list[str]:
+def _models_building_on_trino(liveness: Liveness, team_id: int, node_ids: set[str]) -> list[str]:
     """Names of the given nodes' models that have a Trino build running now, sorted.
 
     A row whose workflow has ended is left over from a terminated or crashed run, so it doesn't count.
@@ -285,68 +285,10 @@ def _models_building_on_trino(temporal: Client, team_id: int, node_ids: set[str]
         ).values_list("saved_query__name", "workflow_id")
     )
 
-    async def live(workflow_id: str | None) -> bool:
-        return not workflow_id or not await workflow_has_closed(temporal, workflow_id)
-
-    async def live_names() -> set[str]:
-        return {name for name, workflow_id in rows if await live(workflow_id)}
-
-    return sorted(asyncio.run(live_names())) if rows else []
-
-
-def _trino_reservation_key(team_id: int, node_id: str) -> str:
-    return f"data_modeling:trino_manual_run:{team_id}:{node_id}"
-
-
-def _reserve_models_for_trino_run(
-    temporal: Client, team_id: int, node_ids: set[str], workflow_id: str
-) -> tuple[list[str], list[str]]:
-    """Reserve each model for this run. Returns the node ids reserved and those another live run holds.
-
-    Reserving in sorted order means two overlapping requests contend on the same first model, so one wins.
-    """
-    client = get_client()
-    value = json.dumps({"workflow_id": workflow_id, "at": time.time()})
-    ttl = int(TRINO_SHADOW_RUN_TIMEOUT.total_seconds())
-    reserved: list[str] = []
-    for node_id in sorted(node_ids):
-        key = _trino_reservation_key(team_id, node_id)
-        if client.set(key, value, nx=True, ex=ttl) or _take_over_stale_reservation(temporal, client, key, value, ttl):
-            reserved.append(node_id)
-        else:
-            return reserved, [node_id]
-    return reserved, []
-
-
-def _take_over_stale_reservation(temporal: Client, client: redis.Redis, key: str, value: str, ttl: int) -> bool:
-    """Replace a reservation whose run has ended. False when its run is still live or another request won."""
-    with client.pipeline() as pipe:
-        try:
-            pipe.watch(key)
-            held = cast(bytes | None, pipe.get(key))
-            if held is not None and _reservation_is_live(temporal, json.loads(held)):
-                return False
-            pipe.multi()
-            pipe.set(key, value, ex=ttl)
-            pipe.execute()
-            return True
-        except redis.WatchError:
-            return False
-
-
-def _reservation_is_live(temporal: Client, holder: dict) -> bool:
-    if time.time() - holder["at"] < MANUAL_TRINO_RESERVATION_START_GRACE.total_seconds():
-        return True
-    return not asyncio.run(workflow_has_closed(temporal, holder["workflow_id"]))
-
-
-def _release_trino_reservations(team_id: int, node_ids: list[str], workflow_id: str) -> None:
-    client = get_client()
-    for node_id in node_ids:
-        key = _trino_reservation_key(team_id, node_id)
-        held = client.get(key)
-        if held is not None and json.loads(held)["workflow_id"] == workflow_id:
-            client.delete(key)
+    # A row has no reservation time, so only Temporal decides whether its workflow is live.
+    return sorted(
+        {name for name, workflow_id in rows if not workflow_id or liveness.holds({"workflow_id": workflow_id, "at": 0})}
+    )
 
 
 def _model_names(team_id: int, node_ids: list[str]) -> list[str]:

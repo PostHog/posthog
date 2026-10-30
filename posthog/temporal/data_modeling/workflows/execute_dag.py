@@ -19,12 +19,15 @@ from posthog.temporal.data_modeling.activities import (
     PreemptDAGRunInputs,
     RecordSkippedDataModelingJobsInputs,
     SkippedDataModelingNode,
+    TrinoModelReservationInputs,
     check_team_managed_warehouse_shadow_eligibility_activity,
     get_clickhouse_kill_switch_level_activity,
     get_dag_structure_activity,
     notify_dag_materialization_failures_activity,
     preempt_dag_run_activity,
     record_skipped_data_modeling_jobs_activity,
+    release_trino_model_activity,
+    reserve_trino_model_activity,
 )
 from posthog.temporal.data_modeling.activities.utils import strip_hostname_from_error
 from posthog.temporal.data_modeling.metrics import (
@@ -58,6 +61,8 @@ KILL_SWITCH_MAX_CONCURRENT_CHILDREN = {"off": MAX_CONCURRENT_CHILDREN, "light": 
 KILL_SWITCH_RECHECK_INTERVAL = dt.timedelta(minutes=2)
 
 TRINO_SHADOW_DAG_RUN_PATCH = "data-modeling-trino-shadow-dag-run"
+# A scheduled Trino run reserves each model while it builds it, so it and a manual run never build one together.
+TRINO_MODEL_RESERVATION_PATCH = "data-modeling-trino-model-reservation"
 # Under a day, so a run that uses its whole budget still ends before the next daily shadow starts.
 TRINO_SHADOW_RUN_TIMEOUT = dt.timedelta(hours=23)
 
@@ -336,6 +341,12 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
     @temporalio.workflow.run
     async def run(self, inputs: ExecuteDAGInputs) -> ExecuteDAGResult:
         temporalio.workflow.logger.info("Starting ExecuteDAGWorkflow", extra=inputs.properties_to_log)
+        # A manual run reserved its models before it started, so only scheduled Trino runs reserve per build.
+        self.reserves_trino_models = (
+            inputs.managed_warehouse_only
+            and inputs.manually_triggered_by_id is None
+            and temporalio.workflow.patched(TRINO_MODEL_RESERVATION_PATCH)
+        )
         # NOTE: this should be handled by temporal's cancellation policy but
         # we leave this in to clean up any jobs left in a dirty state
         await temporalio.workflow.execute_activity(
@@ -345,6 +356,7 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
                 dag_id=inputs.dag_id,
                 node_ids=inputs.node_ids,
                 engine=_serving_engine(inputs),
+                spare_manually_reserved=self.reserves_trino_models,
             ),
             start_to_close_timeout=dt.timedelta(minutes=5),
             retry_policy=temporalio.common.RetryPolicy(
@@ -541,67 +553,97 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
                             skip_reason="Upstream Trino materialization unavailable",
                             trino_materialized=False,
                         )
-                    handle = await temporalio.workflow.start_child_workflow(
-                        MaterializeViewWorkflow.run,
-                        child_inputs,
-                        id=f"materialize-view-{inputs.dag_id}-{node_id}-{start_time.isoformat()}",
-                        parent_close_policy=ParentClosePolicy.REQUEST_CANCEL,
-                        retry_policy=temporalio.common.RetryPolicy(
-                            maximum_attempts=1,  # retries handled within child workflow
-                        ),
-                    )
-                    try:
-                        result: MaterializeViewWorkflowResult = await handle
-                        if trino_skip is not None and result.trino_materialized is False:
-                            skipped_trino_jobs.append(trino_skip)
-                        if result.quality_blocking_failures is not None and result.quality_blocking_failures > 0:
-                            temporalio.workflow.logger.warning(
-                                f"Node {node_id} materialized but was not published: "
-                                f"{result.quality_blocking_failures} data quality checks failed",
+
+                    async def _build() -> NodeResult:
+                        handle = await temporalio.workflow.start_child_workflow(
+                            MaterializeViewWorkflow.run,
+                            child_inputs,
+                            id=child_id,
+                            parent_close_policy=ParentClosePolicy.REQUEST_CANCEL,
+                            retry_policy=temporalio.common.RetryPolicy(
+                                maximum_attempts=1,  # retries handled within child workflow
+                            ),
+                        )
+                        try:
+                            result: MaterializeViewWorkflowResult = await handle
+                            if trino_skip is not None and result.trino_materialized is False:
+                                skipped_trino_jobs.append(trino_skip)
+                            if result.quality_blocking_failures is not None and result.quality_blocking_failures > 0:
+                                temporalio.workflow.logger.warning(
+                                    f"Node {node_id} materialized but was not published: "
+                                    f"{result.quality_blocking_failures} data quality checks failed",
+                                    extra=inputs.properties_to_log,
+                                )
+                                return NodeResult(
+                                    node_id=node_id,
+                                    success=False,
+                                    error=f"Not published: {result.quality_blocking_failures} data quality checks failed",
+                                    quality_failed=True,
+                                    quality_audited=True,
+                                )
+                            temporalio.workflow.logger.info(
+                                f"Node {node_id} materialized successfully",
+                                extra={"rows_materialized": result.rows_materialized, **inputs.properties_to_log},
+                            )
+                            return NodeResult(
+                                node_id=node_id,
+                                success=True,
+                                rows_materialized=result.rows_materialized,
+                                duration_seconds=result.duration_seconds,
+                                quality_audited=result.quality_audited,
+                                trino_materialized=result.trino_materialized,
+                            )
+                        except temporalio.exceptions.ChildWorkflowError as e:
+                            error_message = str(e.cause) if e.cause else str(e)
+                            temporalio.workflow.logger.error(
+                                f"Node {node_id} failed to materialize: {error_message}",
                                 extra=inputs.properties_to_log,
                             )
                             return NodeResult(
                                 node_id=node_id,
                                 success=False,
-                                error=f"Not published: {result.quality_blocking_failures} data quality checks failed",
-                                quality_failed=True,
-                                quality_audited=True,
+                                error=strip_hostname_from_error(error_message),
                             )
-                        temporalio.workflow.logger.info(
-                            f"Node {node_id} materialized successfully",
-                            extra={"rows_materialized": result.rows_materialized, **inputs.properties_to_log},
-                        )
+                        except Exception as e:
+                            capture_exception(e)
+                            error_str = str(e)
+                            temporalio.workflow.logger.error(
+                                f"Node {node_id} failed with unexpected error: {error_str}",
+                                extra=inputs.properties_to_log,
+                            )
+                            return NodeResult(
+                                node_id=node_id,
+                                success=False,
+                                error=strip_hostname_from_error(error_str),
+                            )
+
+                    child_id = f"materialize-view-{inputs.dag_id}-{node_id}-{start_time.isoformat()}"
+                    reservation = TrinoModelReservationInputs(
+                        team_id=inputs.team_id, node_id=node_id, workflow_id=child_id
+                    )
+                    if self.reserves_trino_models and not await temporalio.workflow.execute_activity(
+                        reserve_trino_model_activity,
+                        reservation,
+                        start_to_close_timeout=dt.timedelta(minutes=2),
+                        retry_policy=temporalio.common.RetryPolicy(maximum_attempts=3),
+                    ):
+                        # The manual run that holds it builds this model, and it is not a failure of this run.
                         return NodeResult(
                             node_id=node_id,
                             success=True,
-                            rows_materialized=result.rows_materialized,
-                            duration_seconds=result.duration_seconds,
-                            quality_audited=result.quality_audited,
-                            trino_materialized=result.trino_materialized,
+                            skipped=True,
+                            skip_reason="Being built by a manual run",
                         )
-                    except temporalio.exceptions.ChildWorkflowError as e:
-                        error_message = str(e.cause) if e.cause else str(e)
-                        temporalio.workflow.logger.error(
-                            f"Node {node_id} failed to materialize: {error_message}",
-                            extra=inputs.properties_to_log,
-                        )
-                        return NodeResult(
-                            node_id=node_id,
-                            success=False,
-                            error=strip_hostname_from_error(error_message),
-                        )
-                    except Exception as e:
-                        capture_exception(e)
-                        error_str = str(e)
-                        temporalio.workflow.logger.error(
-                            f"Node {node_id} failed with unexpected error: {error_str}",
-                            extra=inputs.properties_to_log,
-                        )
-                        return NodeResult(
-                            node_id=node_id,
-                            success=False,
-                            error=strip_hostname_from_error(error_str),
-                        )
+                    try:
+                        return await _build()
+                    finally:
+                        if self.reserves_trino_models:
+                            await temporalio.workflow.execute_activity(
+                                release_trino_model_activity,
+                                reservation,
+                                start_to_close_timeout=dt.timedelta(minutes=2),
+                                retry_policy=temporalio.common.RetryPolicy(maximum_attempts=3),
+                            )
 
             level_results = await asyncio.gather(*[_run_child(node_id) for node_id in execute_nodes])
             for nr in level_results:

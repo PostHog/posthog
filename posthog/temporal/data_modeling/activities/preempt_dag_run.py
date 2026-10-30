@@ -10,7 +10,7 @@ from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.exceptions_capture import capture_exception
 from posthog.sync import database_sync_to_async_pool
-from posthog.temporal.common.client import async_connect
+from posthog.temporal.common.client import async_connect, sync_connect
 
 from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobEngine, DataModelingJobStatus
 
@@ -27,6 +27,8 @@ class PreemptDAGRunInputs:
     node_ids: list[str] | None = None
     # Defaulted so inputs serialized before this field existed still decode.
     engine: str = DataModelingJobEngine.CLICKHOUSE
+    # A scheduled Trino run must not cancel builds of models a live manual run has reserved.
+    spare_manually_reserved: bool = False
 
 
 def _node_id_from_workflow_id(workflow_id: str, dag_id: str) -> str | None:
@@ -114,6 +116,14 @@ async def workflow_has_closed(temporal: Client, workflow_id: str) -> bool:
 
 
 @database_sync_to_async_pool
+def _manually_reserved_nodes(team_id: int, node_ids: set[str]) -> set[str]:
+    # Imported here because the reservations module imports this one.
+    from products.data_modeling.backend.logic.trino_reservations import Liveness, manually_reserved_trino_models
+
+    return manually_reserved_trino_models(Liveness(sync_connect()), team_id, node_ids)
+
+
+@database_sync_to_async_pool
 def _mark_jobs_failed(job_ids: list[str], error: str) -> int:
     return DataModelingJob.objects.filter(id__in=job_ids, status=DataModelingJobStatus.RUNNING).update(
         status=DataModelingJobStatus.FAILED,
@@ -143,6 +153,17 @@ async def preempt_dag_run_activity(inputs: PreemptDAGRunInputs) -> None:
 
     running_jobs = await _get_running_jobs_for_dag(inputs.team_id, inputs.dag_id, inputs.engine)
     partitioned = partition_running_jobs(running_jobs, inputs.dag_id, inputs.node_ids)
+    if inputs.spare_manually_reserved and partitioned.owned:
+        owned_nodes = {_node_id_from_workflow_id(job.workflow_id or "", inputs.dag_id) for job in partitioned.owned}
+        spared = await _manually_reserved_nodes(inputs.team_id, {node for node in owned_nodes if node})
+        partitioned = dataclasses.replace(
+            partitioned,
+            owned=[
+                job
+                for job in partitioned.owned
+                if _node_id_from_workflow_id(job.workflow_id or "", inputs.dag_id) not in spared
+            ],
+        )
     if not partitioned.owned and not partitioned.others:
         await logger.adebug("No previous DAG run to preempt")
         return

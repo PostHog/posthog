@@ -46,8 +46,16 @@ from .succeed_materialization import (
     SucceedMaterializationResult,
     succeed_materialization_activity,
 )
+from .trino_model_reservation import (
+    TrinoModelReservationInputs,
+    release_trino_model_activity,
+    reserve_trino_model_activity,
+)
 
 __all__ = [
+    "TrinoModelReservationInputs",
+    "release_trino_model_activity",
+    "reserve_trino_model_activity",
     "UPSTREAM_NAMES_IN_SKIP_REASON",
     "ClearCDPStagingInputs",
     "CreateDataModelingJobInputs",

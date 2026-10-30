@@ -3023,7 +3023,7 @@ class TestSavedQueryRun(APIBaseTest):
             ("workflow_ended", "busy_view", 0, True, 200),
         ]
     )
-    @patch("products.data_modeling.backend.logic.node_materialization.workflow_has_closed")
+    @patch("products.data_modeling.backend.logic.trino_reservations.workflow_has_closed")
     @patch("products.data_modeling.backend.logic.node_materialization.is_managed_warehouse_shadow_enabled")
     @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
     def test_run_on_trino_conflicts_only_with_builds_of_the_selected_models(
@@ -3073,7 +3073,7 @@ class TestSavedQueryRun(APIBaseTest):
             mock_client.start_workflow.assert_called_once()
             self.assertNotIn(DataModelingJobEngine.MANAGED_WAREHOUSE, suspension_state(node))
 
-    @patch("products.data_modeling.backend.logic.node_materialization.workflow_has_closed")
+    @patch("products.data_modeling.backend.logic.trino_reservations.workflow_has_closed")
     @patch("products.data_modeling.backend.logic.node_materialization.is_managed_warehouse_shadow_enabled")
     @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
     def test_run_on_trino_reserves_its_models_until_its_workflow_ends(
