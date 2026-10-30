@@ -302,6 +302,9 @@ export class InternalLogsProducer {
     private async attempt(source: string, teamId: number, body: string): Promise<AttemptResult> {
         try {
             const team = await this.teamManager.getTeam(teamId)
+            if (this.stopped) {
+                return { outcome: 'retry', detail: 'stopped' }
+            }
             if (!team) {
                 return { outcome: 'unknown_team', detail: String(teamId) }
             }
