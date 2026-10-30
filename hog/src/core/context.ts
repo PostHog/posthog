@@ -3,6 +3,7 @@ import { resolveCredentials, type ResolvedCredentials } from '@/posthog/credenti
 
 import type { Mode } from './agent'
 import type { CommandTree, OptionSpec, OptionValues } from './command'
+import { loadConfig, type LoadedConfig } from './config'
 import type { Prompts } from './prompts'
 import type { Runtime } from './runtime'
 
@@ -37,6 +38,7 @@ export type GlobalOptions = OptionValues<typeof GLOBAL_OPTIONS>
 export class Context {
     private api?: PostHogApi
     private resolved?: ResolvedCredentials
+    private loaded?: Promise<LoadedConfig | undefined>
 
     constructor(
         readonly runtime: Runtime,
@@ -57,6 +59,13 @@ export class Context {
     async posthog(): Promise<PostHogApi> {
         this.api ??= new PostHogApi(await this.credentials(), this.runtime.fetch)
         return this.api
+    }
+
+    // The nearest posthog.json, or undefined when there is none. Throws `invalid_config` when it
+    // doesn't match the schema.
+    config(): Promise<LoadedConfig | undefined> {
+        this.loaded ??= loadConfig(this.runtime)
+        return this.loaded
     }
 
     // Throws `not_authenticated` when there are none.

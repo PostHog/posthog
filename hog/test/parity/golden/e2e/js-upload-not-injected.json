@@ -1,0 +1,123 @@
+{
+  "exitCode": 0,
+  "requests": [
+    {
+      "method": "POST",
+      "path": "/api/projects/1/error_tracking/symbol_sets/bulk_check_upload",
+      "headers": {
+        "authorization": "Bearer phx_<key>",
+        "content-type": "application/json"
+      },
+      "body": "{\"symbol_sets\":[{\"chunk_id\":\"11111111-2222-4333-8444-555555555555\",\"release_id\":null,\"content_hash\":\"0fc402a98a41edab34970bf3a0838dd1c2e265197a0559de84901542e47d2c1f2c2d96988b30794268f84a488cea5306f1574f3d210934ab01d3032c223a5146\",\"content_length\":181},{\"chunk_id\":\"1111111122224333844455555555555F\",\"release_id\":null,\"content_hash\":\"bc523363f7feec2bbf2eb2485d6ad5f6213878ed13359cacd18cb566e445ef0b0f297c22cdb176666b727db71d7b623414ebad776a5bcaa35587144b6f4eccd3\",\"content_length\":169},{\"chunk_id\":\"not-a-uuid\",\"release_id\":null,\"content_hash\":\"9e3722a574ab6692035377ae638d639bb2590a607101f1aaed9d01bda2f568a67032694e5bbcc268aaa85f352097cbd062d2593aa1694857b786028f17922ee3\",\"content_length\":158}],\"force\":true,\"skip_on_conflict\":false}",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/api/projects/1/error_tracking/symbol_sets/bulk_start_upload",
+      "headers": {
+        "authorization": "Bearer phx_<key>",
+        "content-type": "application/json"
+      },
+      "body": "{\"symbol_sets\":[{\"chunk_id\":\"11111111-2222-4333-8444-555555555555\",\"release_id\":null,\"content_hash\":\"0fc402a98a41edab34970bf3a0838dd1c2e265197a0559de84901542e47d2c1f2c2d96988b30794268f84a488cea5306f1574f3d210934ab01d3032c223a5146\",\"content_length\":181},{\"chunk_id\":\"1111111122224333844455555555555F\",\"release_id\":null,\"content_hash\":\"bc523363f7feec2bbf2eb2485d6ad5f6213878ed13359cacd18cb566e445ef0b0f297c22cdb176666b727db71d7b623414ebad776a5bcaa35587144b6f4eccd3\",\"content_length\":169},{\"chunk_id\":\"not-a-uuid\",\"release_id\":null,\"content_hash\":\"9e3722a574ab6692035377ae638d639bb2590a607101f1aaed9d01bda2f568a67032694e5bbcc268aaa85f352097cbd062d2593aa1694857b786028f17922ee3\",\"content_length\":158}],\"upload_attempt_id\":\"<attempt-1>\",\"upload_run_id\":\"<run>\",\"force\":true,\"skip_on_conflict\":false}",
+      "status": 201
+    },
+    {
+      "method": "PUT",
+      "path": "/s3/put/symbolsets/2e299ed0-dad3-5805-bcde-4d2d98f6a808?length=181",
+      "headers": {
+        "authorization": "<none>"
+      },
+      "upload": {
+        "sha512": "83b13f16e4206535ad809eb28be15b30c72d576209bc0512a619885fc9a32aa6907a8892e3c1b0ddfcc525daf025eed1945bb5a6c0b4cb85d09290c57dd158d5",
+        "length": 181
+      },
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/s3/put/symbolsets/610d3f3c-ff95-5e10-9b99-e38c2e4de773?length=158",
+      "headers": {
+        "authorization": "<none>"
+      },
+      "upload": {
+        "sha512": "c145122acd97f6d19ee71706eb9da02d82f2a52246b0eb514a153e04dc965fb26047c78cfdf2e0e5f7a06a7d018d38db4c429ed5d2cbb99a9a73651dfbd4606d",
+        "length": 158
+      },
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/s3/put/symbolsets/a052c2f8-3aac-5499-bf9a-16e82ccaba42?length=169",
+      "headers": {
+        "authorization": "<none>"
+      },
+      "upload": {
+        "sha512": "af5009969dff06b1fd46dfe101f8a3f23a0b6ab79cfba3d3fbd57ea29334ed3dac321f9e85de4147b0639c26b5424095381db6b4cf7523265bbb94aeb244d40d",
+        "length": 169
+      },
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/api/projects/1/error_tracking/symbol_sets/bulk_finish_upload",
+      "headers": {
+        "authorization": "Bearer phx_<key>",
+        "content-type": "application/json"
+      },
+      "body": "{\"content_hashes\":{\"2e299ed0-dad3-5805-bcde-4d2d98f6a808\":\"0fc402a98a41edab34970bf3a0838dd1c2e265197a0559de84901542e47d2c1f2c2d96988b30794268f84a488cea5306f1574f3d210934ab01d3032c223a5146\",\"610d3f3c-ff95-5e10-9b99-e38c2e4de773\":\"9e3722a574ab6692035377ae638d639bb2590a607101f1aaed9d01bda2f568a67032694e5bbcc268aaa85f352097cbd062d2593aa1694857b786028f17922ee3\",\"a052c2f8-3aac-5499-bf9a-16e82ccaba42\":\"bc523363f7feec2bbf2eb2485d6ad5f6213878ed13359cacd18cb566e445ef0b0f297c22cdb176666b727db71d7b623414ebad776a5bcaa35587144b6f4eccd3\"},\"upload_attempt_id\":\"<attempt-1>\",\"upload_run_id\":\"<run>\"}",
+      "status": 201
+    }
+  ],
+  "files": {
+    "bom/a.js": "utf8:a();\n//# sourceMappingURL=a.js.map\n",
+    "bom/a.js.map": "utf8:{\"version\":3,\"sources\":[\"src/a.ts\"],\"names\":[],\"mappings\":\"CAAA\"}",
+    "cjs/a.cjs": "utf8:a();\n",
+    "cjs/a.cjs.map": "utf8:{\"version\":3,\"sources\":[\"src/a.ts\"],\"names\":[],\"mappings\":\"AAAA\"}",
+    "crlf/a.js": "utf8:a();\r\nb();\r\n//# sourceMappingURL=a.js.map\r\n",
+    "crlf/a.js.map": "utf8:{\"version\":3,\"sources\":[\"src/a.ts\"],\"names\":[],\"mappings\":\"AAAA;AACA\"}",
+    "debugid/a.js": "utf8:a();\n//# debugId=11111111-2222-4333-8444-555555555555\n//# sourceMappingURL=a.js.map\n",
+    "debugid/a.js.map": "utf8:{\"version\":3,\"sources\":[\"src/a.ts\"],\"names\":[],\"mappings\":\"AAAA\",\"debugId\":\"11111111-2222-4333-8444-555555555555\"}",
+    "debugid-malformed-source/a.js": "utf8:a();\n//# debugId=not-a-uuid\n//# sourceMappingURL=a.js.map\n",
+    "debugid-malformed-source/a.js.map": "utf8:{\"version\":3,\"sources\":[\"src/a.ts\"],\"names\":[],\"mappings\":\"AAAA\"}",
+    "debugid-simple/a.js": "utf8:a();\n//# debugId=1111111122224333844455555555555F\n//# sourceMappingURL=a.js.map\n",
+    "debugid-simple/a.js.map": "utf8:{\"version\":3,\"sources\":[\"src/a.ts\"],\"names\":[],\"mappings\":\"AAAA\"}",
+    "dotfile/.js": "utf8:a();\n",
+    "dotfile/.js.map": "utf8:{\"version\":3,\"sources\":[\"src/a.ts\"],\"names\":[],\"mappings\":\"AAAA\"}",
+    "empty-large/a.js": "utf8:a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();a();\n//# sourceMappingURL=a.js.map\n",
+    "empty-large/a.js.map": "utf8:{\"version\":3,\"sources\":[],\"names\":[],\"mappings\":\"\"}",
+    "empty-small/a.js": "utf8:a();\n//# sourceMappingURL=a.js.map\n",
+    "empty-small/a.js.map": "utf8:{\"version\":3,\"sources\":[],\"names\":[],\"mappings\":\"\"}",
+    "empty-source/a.js": "utf8:",
+    "empty-source/a.js.map": "utf8:{\"version\":3,\"sources\":[\"src/a.ts\"],\"names\":[],\"mappings\":\"\"}",
+    "encoded/maps/my map.js.map": "utf8:{\"version\":3,\"sources\":[\"src/a.ts\"],\"names\":[],\"mappings\":\"AAAA\",\"file\":\"a.js\"}",
+    "encoded/sub/a.js": "utf8:a();\n//# sourceMappingURL=../maps/my%20map.js.map\n",
+    "facebook/a.js": "utf8:a();\n//# sourceMappingURL=a.js.map\n",
+    "facebook/a.js.map": "utf8:{\"version\":3,\"sources\":[\"src/a.ts\"],\"names\":[],\"mappings\":\"AAAA\",\"x_facebook_sources\":[[{\"names\":[\"<global>\"],\"mappings\":\"AAA\"}]]}",
+    "fields/a.js": "utf8:abc();\n//# sourceMappingURL=a.js.map\n",
+    "fields/a.js.map": "utf8:{\"version\":3,\"sourceRoot\":\"/root/\",\"sources\":[null,\"b.ts\"],\"names\":[1,null,\"x\",2.5],\"mappings\":\"AAAAA,CCAAC,CAAAC\",\"x_google_ignoreList\":[1],\"ignoreList\":[1,1,0],\"x_float\":1.0,\"x_big\":1e21,\"x_neg0\":-0.0,\"x_small\":1e-7,\"x_huge\":18446744073709551615,\"x_neg\":-9223372036854775808,\"x_unicode\":\"\\u00e9\\u2028/\\/\\u0001\",\"file\":42,\"sourcesContent\":[null,null,\"extra\"]}",
+    "file-paths/a.js": "utf8:import(\"./one-BrAf3own.js\");x.js.map;\n//# sourceMappingURL=a.js.map\n",
+    "file-paths/a.js.map": "utf8:{\"version\":3,\"sources\":[\"src/a.ts\"],\"names\":[],\"mappings\":\"AAAA\",\"file\":\"https://cdn.example.com/a/b-X_1.mjs\"}",
+    "index-map/a.js": "utf8:a();\nb();\n//# sourceMappingURL=a.js.map\n",
+    "index-map/a.js.map": "utf8:{\"version\":3,\"file\":\"a.js\",\"sources\":[],\"x_custom\":1,\"sections\":[{\"offset\":{\"line\":0,\"column\":0},\"map\":{\"version\":3,\"sources\":[\"one.ts\"],\"sourceRoot\":\"webpack://\",\"names\":[\"n\"],\"mappings\":\"AAAAA\",\"sourcesContent\":[\"one\"]}},{\"offset\":{\"line\":1,\"column\":2},\"map\":{\"version\":3,\"sources\":[\"two.ts\",\"one.ts\"],\"names\":[\"n\"],\"mappings\":\"AAAAA,CCAA\"}}]}",
+    "inline/a.js": "utf8:a();\n//# sourceMappingURL=data:application/json;base64,eyJ2ZXJzaW9uIjozLCJzb3VyY2VzIjpbInNyYy9hLnRzIl0sIm5hbWVzIjpbXSwibWFwcGluZ3MiOiJBQUFBIn0=\n",
+    "jsx/a.jsx": "utf8:a();\n",
+    "jsx/a.jsx.map": "utf8:{\"version\":3,\"sources\":[\"src/a.ts\"],\"names\":[],\"mappings\":\"AAAA\"}",
+    "latin1/a.js": "base64:YSgn6ScpOwovLyMgc291cmNlTWFwcGluZ1VSTD1hLmpzLm1hcAo=",
+    "latin1/a.js.map": "utf8:{\"version\":3,\"sources\":[\"src/a.ts\"],\"names\":[],\"mappings\":\"AAAA\"}",
+    "legacy/a.js": "utf8:a();\n//@ sourceMappingURL=a.js.map\n",
+    "legacy/a.js.map": "utf8:{\"version\":3,\"sources\":[\"a\"],\"names\":[],\"mappings\":\"AAAA\",\"chunkId\":\"aaaaaaaa-0000-4000-8000-000000000000\"}",
+    "mjs/a.mjs": "utf8:a();\n//# sourceMappingURL=a.mjs.map\n",
+    "mjs/a.mjs.map": "utf8:{\"version\":3,\"sources\":[\"src/a.ts\"],\"names\":[],\"mappings\":\"AAAA\"}",
+    "multibyte/a.js": "utf8:var s='é日😀';f();\n//# sourceMappingURL=a.js.map\n",
+    "multibyte/a.js.map": "utf8:{\"version\":3,\"sources\":[\"src/a.ts\"],\"names\":[],\"mappings\":\"AAAA,UAAU,QAAQ\"}",
+    "nomap/a.js": "utf8:a();\n",
+    "nonl/a.js": "utf8:a();\nb();\n//# sourceMappingURL=a.js.map",
+    "nonl/a.js.map": "utf8:{\"version\":3,\"sources\":[\"src/a.ts\"],\"names\":[],\"mappings\":\"AAAA,EAAE;AACA;AACA;AACA\",\"sourcesContent\":[\"x\"]}",
+    "reference-not-last/a.js": "utf8:a();\n//# sourceMappingURL=a.js.map\nb();\n",
+    "reference-not-last/a.js.map": "utf8:{\"version\":3,\"sources\":[\"src/a.ts\"],\"names\":[],\"mappings\":\"AAAA;AACA\"}",
+    "sibling/a.js": "utf8:a();\n",
+    "sibling/a.js.map": "utf8:{\"version\":3,\"sources\":[\"src/a.ts\"],\"names\":[],\"mappings\":\"AAAA\"}",
+    "xssi/a.js": "utf8:a();\n//# sourceMappingURL=a.js.map\n",
+    "xssi/a.js.map": "utf8:)]}'\n{\"version\":3,\"sources\":[\"src/a.ts\"],\"names\":[],\"mappings\":\"AAAA\"}"
+  }
+}
