@@ -119,16 +119,15 @@ describe('TimeSeriesComboChart', () => {
             expect(Math.max(...ticks)).toBe(100)
         })
 
+        const AREAS = BAR_AND_LINE.map((s) => ({ ...s, type: 'area' as const }))
         it.each([
-            ['ignores yAxis.min on an axis with bars', BAR_AND_LINE, 0],
-            [
-                'honors yAxis.min on an axis without bars',
-                BAR_AND_LINE.map((s) => ({ ...s, type: 'area' as const })),
-                30,
-            ],
-        ])('%s', (_, series, expectedMinTick) => {
+            ['ignores yAxis.min on an axis with bars', BAR_AND_LINE, { min: 30 }, 0],
+            ['honors yAxis.min on an axis without bars', AREAS, { min: 30 }, 30],
+            ['ignores startAtZero: false on an axis with bars', BAR_AND_LINE, { startAtZero: false }, 0],
+            ['honors startAtZero: false on an axis without bars', AREAS, { startAtZero: false }, 40],
+        ])('%s', (_, series, yAxis, expectedMinTick) => {
             const { chart } = renderChart(
-                <TimeSeriesComboChart series={series} labels={LABELS} theme={THEME} config={{ yAxis: { min: 30 } }} />
+                <TimeSeriesComboChart series={series} labels={LABELS} theme={THEME} config={{ yAxis }} />
             )
             expect(Math.min(...chart.yTicks().map(Number))).toBe(expectedMinTick)
         })

@@ -204,7 +204,7 @@ describe('combo-scales', () => {
             [
                 'applies a secondary axis min/max to a line-only axis',
                 'right',
-                { valueBounds: { min: 500 }, axes: [{ id: 'right', valueDomain: { min: 500, max: 2000 } }] },
+                { axes: [{ id: 'right', valueDomain: { min: 500, max: 2000 } }] },
                 [500, 2000],
             ],
         ])('%s, but keeps the bar axis on a zero baseline', (_, lineAxisId, options, expectedLineDomain) => {

@@ -78,7 +78,10 @@ export function seriesValueRange(series: Series[]): SeriesValueRange {
 /** Split a {@link ValueDomain} into a pinned `[min, max]` (both ends given) and the adjustments to
  *  an auto-scaled domain (either end left open). An inverted pair is dropped rather than swapped;
  *  see {@link ValueDomain}. */
-function resolveValueDomain(valueDomain: ValueDomain | undefined): {
+function resolveValueDomain(
+    valueDomain: ValueDomain | undefined,
+    log = false
+): {
     fixed?: readonly [number, number]
     include?: readonly number[]
     bounds?: ValueDomain
@@ -90,7 +93,9 @@ function resolveValueDomain(valueDomain: ValueDomain | undefined): {
     const min = usableBound(valueDomain.min)
     const max = usableBound(valueDomain.max)
 
-    if (min !== undefined && max !== undefined) {
+    // A log domain can't hold zero, so a pair with a non-positive end stays a clamp on the auto
+    // domain, where `applyValueBounds` drops that end if the axis really is logarithmic.
+    if (min !== undefined && max !== undefined && (!log || min > 0)) {
         // Both ends pinned, so `include` has nothing left to stretch.
         return min < max ? { fixed: [min, max] } : { include }
     }
@@ -227,6 +232,19 @@ function repairDegenerateExtent(min: number, max: number): [number, number] {
     return [lo, Math.max(0, isFinite(max) ? max : 0, lo + 1)]
 }
 
+/** A value scale over a pinned `[min, max]`. A log domain can't hold zero, so a log pin with a
+ *  non-positive end falls back to linear. */
+function fixedValueScale(
+    fixed: readonly [number, number],
+    range: [number, number],
+    scaleType: 'linear' | 'log'
+): D3YScale {
+    if (scaleType === 'log' && fixed[0] > 0) {
+        return scaleLog().domain(fixed).range(range).clamp(true)
+    }
+    return scaleLinear().domain(sanitizeFixedDomain(fixed)).range(range)
+}
+
 export function createYScale(
     series: Series[],
     dimensions: ChartDimensions,
@@ -240,16 +258,11 @@ export function createYScale(
     } = {}
 ): ScaleLinear<number, number> | ScaleLogarithmic<number, number> {
     const { scaleType = 'linear', percentStack = false, valueDomain, floatBaseline = false } = options
-    const { fixed, include, bounds } = resolveValueDomain(valueDomain)
+    const { fixed, include, bounds } = resolveValueDomain(valueDomain, scaleType === 'log')
     const tickCount = yTickCountForHeight(dimensions.plotHeight)
 
     if (fixed) {
-        const range = [dimensions.plotTop + dimensions.plotHeight, dimensions.plotTop]
-        // A log axis keeps its scale when both bounds are positive; a log domain can't hold zero.
-        if (scaleType === 'log' && fixed[0] > 0 && fixed[1] > 0) {
-            return scaleLog().domain(fixed).range(range).clamp(true)
-        }
-        return scaleLinear().domain(sanitizeFixedDomain(fixed)).range(range)
+        return fixedValueScale(fixed, [dimensions.plotTop + dimensions.plotHeight, dimensions.plotTop], scaleType)
     }
 
     if (percentStack) {
@@ -823,7 +836,7 @@ function buildBarValueScale(
 ): D3YScale {
     const { fixed, include } = resolveValueDomain(valueDomain)
     if (fixed) {
-        return scaleLinear().domain(sanitizeFixedDomain(fixed)).range(valueRange)
+        return fixedValueScale(fixed, valueRange, scaleType)
     }
     if (barLayout === 'percent') {
         return scaleLinear().domain([0, 1]).nice(tickCount).range(valueRange)
