@@ -1,4 +1,4 @@
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import replace
 
 import pytest
@@ -21,6 +21,16 @@ from products.signals.backend.temporal.safety_filter import (
 )
 
 MODULE_PATH = "products.signals.backend.temporal.safety_filter"
+
+
+@pytest.fixture(autouse=True)
+def non_trial_billing() -> Iterator[None]:
+    with (
+        patch("products.signals.backend.system_one_decision.requires_trial_accounting", return_value=False),
+        patch("products.signals.backend.trial.reports.requires_trial_accounting", return_value=False),
+        patch("products.signals.backend.llm_spend.TrialLLMExecution.prepare", return_value=None),
+    ):
+        yield
 
 
 @pytest.mark.asyncio

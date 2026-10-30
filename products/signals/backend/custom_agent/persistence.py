@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from django.db import transaction
 from django.utils import timezone
@@ -37,6 +37,7 @@ def create_custom_agent_ready_report(
     task_id: str | None = None,
     agent_identifier: tuple[str, str],
     registered_artefacts: Sequence[ArtefactContent] = (),
+    reserved_report_id: UUID | None = None,
 ) -> PersistedCustomAgentReport:
     """Create a final READY report plus compatible artefacts in one transaction.
 
@@ -45,7 +46,7 @@ def create_custom_agent_ready_report(
     artefact type, queued during the run via the agent's `register_artefact`, written in queue
     order (status types route through their latest-wins append semantics).
     """
-    report_id = str(uuid4())
+    report_id = str(reserved_report_id or uuid4())
     assignment = ReviewerRules(team=Team.objects.get(id=team_id), report_id=report_id)
     with transaction.atomic():
         report = SignalReport.objects.create(
