@@ -162,14 +162,19 @@ def test_refund_fanout_keeps_payment_and_child_cursors() -> None:
     ]
 
 
-def test_refund_parameter_invalid_is_non_retryable() -> None:
-    result = driver().run(
-        "refunds",
-        [
-            ScriptedResponse(json={"data": [row("pay_one")], "has_more": False}),
-            ScriptedResponse(status=400, json={"errors": [{"code": "parameter_invalid"}]}),
-        ],
-    )
+@pytest.mark.parametrize("on_first_page", [True, False])
+def test_refund_parameter_invalid_is_non_retryable(on_first_page: bool) -> None:
+    script = [
+        ScriptedResponse(json={"data": [row("pay_one")], "has_more": False}),
+        ScriptedResponse(status=400, json={"errors": [{"code": "parameter_invalid"}]})
+        if on_first_page
+        else ScriptedResponse(json={"data": [row("ref_one")], "has_more": True}),
+    ]
+    if not on_first_page:
+        # A later/resumed page appends a cursor param after the limit; the match must not depend
+        # on query param ordering.
+        script.append(ScriptedResponse(status=400, json={"errors": [{"code": "parameter_invalid"}]}))
+    result = driver().run("refunds", script)
     assert isinstance(result.raised, HTTPError)
     assert any(pattern in str(result.raised) for pattern in PaymongoSource().get_non_retryable_errors())
 
