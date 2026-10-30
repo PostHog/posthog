@@ -521,7 +521,7 @@ def deliver_scout_slack_thread_replies(
         scout_report_slack_message(
             team_id=team_id,
             report_id=report_id,
-            slack_workspace_id=integration.integration_id,
+            slack_workspace_id=integration.integration_id or "",
             thread_ts=thread_ts,
         )
         if report_id is not None
@@ -532,7 +532,7 @@ def deliver_scout_slack_thread_replies(
         if message is not None:
             record_scout_report_slack_replies(
                 team_id=team_id,
-                slack_workspace_id=integration.integration_id,
+                slack_workspace_id=integration.integration_id or "",
                 channel=message.channel,
                 thread_ts=thread_ts,
                 reply_ts=posted,

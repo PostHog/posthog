@@ -53,6 +53,7 @@ from products.signals.backend.auto_start import (
     maybe_autostart_implementation_task,
 )
 from products.signals.backend.enums import ReportLinkKind, SignalSourceProduct, SignalSourceType
+from products.signals.backend.issue_dependencies import IssueRef
 from products.signals.backend.models import (
     MAX_SCOUT_CONTENT_REVISIONS,
     ArtefactAttribution,
@@ -1231,6 +1232,7 @@ def _link(team_id: int, source: SignalReport, target: SignalReport, kind: Report
         ("later_duplicate_of_with_pr", "duplicate_of"),
         ("depends_on_without_pr", "blocked_by_dependency"),
         ("depends_on_with_open_pr", None),
+        ("unresolved_github_issue", "blocked_by_dependency"),
         ("incoming_part_of", "plan_parent"),
         ("none", None),
     ],
@@ -1353,6 +1355,10 @@ async def test_typed_links_hold_back_autostart(link, expect_skip_reason, link_be
             return_value=AgentRuntime(),
         ),
         patch("products.signals.backend.auto_start.posthoganalytics.capture") as capture_mock,
+        patch(
+            "products.signals.backend.auto_start.resolve_issue_dependencies",
+            return_value=(IssueRef(repository="owner/repo", number=7),) if link == "unresolved_github_issue" else (),
+        ),
     ):
         outcome = await maybe_autostart_implementation_task(
             team_id=team.id,

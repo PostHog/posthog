@@ -1,1 +1,1 @@
-0220_signalteamconfig_default_slack_notification_integration
+0222_signalreport_team_updated_idx

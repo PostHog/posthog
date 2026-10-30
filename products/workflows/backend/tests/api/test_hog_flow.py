@@ -4971,7 +4971,7 @@ class TestHogFlowAPI(APIBaseTest):
         assert "Feature flags can't be used as a batch audience condition" in response.json().get("error", "")
         mock_get_batch_audience_person_ids.assert_not_called()
 
-    @override_settings(INTERNAL_API_SECRET="test-secret-123")
+    @override_settings(INTERNAL_API_SECRET="test-secret-123", WORKFLOWS_BATCH_AUDIENCE_QUERY_TIMEOUT_SECONDS=123)
     def test_internal_user_blast_radius_persons_uses_workflows_query(self):
         with patch(
             "products.workflows.backend.services.blast_radius.get_batch_audience_person_ids",
@@ -4993,6 +4993,8 @@ class TestHogFlowAPI(APIBaseTest):
         # the end of the audience, so the batch send skips every recipient after it.
         passed_settings = mock_workflows_query.call_args.kwargs["settings"]
         assert getattr(passed_settings, "timeout_overflow_mode", None) == "throw"
+        # The page query runs under the resolver's own ClickHouse cap, not the interactive 60s default.
+        assert passed_settings.max_execution_time == 123
 
     @parameterized.expand(
         [
@@ -8041,6 +8043,8 @@ class TestCreateTaskActionValidation(APIBaseTest):
             ("no_slash", "just-a-name"),
             ("too_many_slashes", "org/repo/extra"),
             ("whitespace_only", " "),
+            ("list_with_a_bad_entry", ["my-org/my-repo", "just-a-name"]),
+            ("duplicate_in_another_case", ["my-org/my-repo", "My-Org/My-Repo"]),
         ]
     )
     def test_rejects_a_repository_that_is_not_org_slash_repo(self, _name, repository):
@@ -8049,8 +8053,14 @@ class TestCreateTaskActionValidation(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json()["attr"] == "actions__1__inputs__repository"
 
-    def test_accepts_an_org_slash_repo_repository(self):
-        response = self._post_flow({"repository": {"value": "my-org/my-repo"}})
+    @parameterized.expand(
+        [
+            ("legacy_string", "my-org/my-repo"),
+            ("list", ["my-org/my-repo", "my-org/my-docs"]),
+        ]
+    )
+    def test_accepts_org_slash_repo_repositories(self, _name, repository):
+        response = self._post_flow({"repository": {"value": repository}})
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
 

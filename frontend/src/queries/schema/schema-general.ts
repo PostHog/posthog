@@ -6560,6 +6560,8 @@ export interface ExperimentExposureHealthFinding {
     code: ExperimentExposureHealthFindingCode
     /** The case within the code, when a code covers several. Null when the code has one case. */
     subcode: string | null
+    /** A stable qualifier below the subcode, for example where a sample ratio mismatch is located. Null when the finding names none. */
+    reason: string | null
     /** How much the problem affects the results: critical, warning, or info. */
     severity: ExperimentExposureHealthFindingSeverity
     /** One-line summary of the problem. */
@@ -7014,6 +7016,12 @@ export interface ResolvedDateRangeResponse {
     date_from: string
     /**  @format date-time */
     date_to: string
+    /**
+     * The earliest timestamp the query reads, when only its first interval depends on rows from before date_from.
+     * Lifecycle sets it to the start of the interval before the range.
+     * @format date-time
+     */
+    read_from?: string
 }
 
 export type MultipleBreakdownType =

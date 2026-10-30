@@ -63,6 +63,7 @@ from posthog.temporal.ai_observability.evaluation_workflow_activities import (
     emit_internal_telemetry_activity,
     fetch_evaluation_activity,
 )
+from posthog.temporal.ai_observability.judge_images import build_image_prompt
 from posthog.temporal.ai_observability.message_utils import extract_text_from_messages
 from posthog.temporal.ai_observability.metrics import increment_emit_event_outcome, increment_errors
 from posthog.temporal.ai_observability.run_evaluation import (
@@ -92,6 +93,7 @@ from products.ai_observability.backend.text_repr.formatters import (
     format_trace_text_repr,
     llm_trace_to_formatter_format,
 )
+from products.ai_observability.backend.text_repr.formatters.media_blocks import MediaMarker
 from products.ai_observability.backend.text_repr.formatters.message_formatter import has_message_content
 
 if TYPE_CHECKING:
@@ -549,7 +551,7 @@ def build_trace_system_prompt(
 {config.instructions}"""
 
 
-def format_trace_for_judge(trace: LLMTrace) -> str:
+def format_trace_for_judge(trace: LLMTrace, media_marker: MediaMarker | None = None) -> str:
     """Serialize a trace into the canonical text representation for the LLM judge.
 
     Preserve complete generation outputs before truncating them so the judge does not grade
@@ -565,6 +567,8 @@ def format_trace_for_judge(trace: LLMTrace) -> str:
         "max_length": None,
         "max_render_length": JUDGE_TRACE_MAX_CHARS,
     }
+    if media_marker is not None:
+        options["media_marker"] = media_marker
     for truncated in (False, True):
         options["truncated"] = truncated
         try:
@@ -694,14 +698,19 @@ def execute_trace_llm_judge_activity(inputs: ExecuteTraceEvaluationInputs) -> Ev
     if not _has_judge_transcript(outcome.trace):
         return _build_trace_skip_result(allows_na, "trace_not_found", output_type=output_type)
 
+    trace = outcome.trace
+    user_prompt = format_trace_for_judge(trace)
     return call_llm_judge(
         evaluation=evaluation,
         system_prompt=build_trace_system_prompt(
             prompt, allows_na, output_type=output_type, output_config=output_config
         ),
-        user_prompt=format_trace_for_judge(outcome.trace),
+        user_prompt=user_prompt,
         allows_na=allows_na,
         backfill=inputs.backfill_id is not None,
+        image_prompt=build_image_prompt(
+            evaluation, user_prompt, lambda media_marker: format_trace_for_judge(trace, media_marker)
+        ),
     )
 
 
