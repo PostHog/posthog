@@ -15,6 +15,7 @@ from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.workload import Workload
 from posthog.models import Organization, Team
 
+from products.product_analytics.backend.facade.contracts import TrendsQueryRunResult
 from products.signals.backend.models import (
     SignalReport,
     SignalReportCheck,
@@ -216,13 +217,15 @@ class TestFinalMetricExecution(BaseTest):
         denominator: int | None = None,
     ) -> None:
         member = self._member(math=math, rate_formula=rate_formula)
-        measurements = [MetricMeasurement(value=value, measured_at=self.now, series=None)]
+        source_values = None
         if denominator is not None:
-            measurements.append(MetricMeasurement(value=denominator, measured_at=self.now, series=None))
+            numerator = value * denominator / (100 if rate_formula and "100" in rate_formula else 1)
+            source_values = [denominator, numerator] if rate_formula == "B / A" else [numerator, denominator]
+        measurement = MetricMeasurement(value=value, measured_at=self.now, series=None, source_values=source_values)
         with (
             patch("products.signals.backend.report_check_telemetry.ph_background_capture") as capture,
             self.captureOnCommitCallbacks(execute=True),
-            patch(_MEASURE, side_effect=measurements) as measure,
+            patch(_MEASURE, return_value=measurement) as measure,
         ):
             summary = run_due_report_checks(now=self.now)
             self._run()
@@ -245,14 +248,11 @@ class TestFinalMetricExecution(BaseTest):
         }
         assert measure.call_args.kwargs["workload"] == Workload.OFFLINE
         assert measure.call_args.kwargs["ch_user"] == ClickHouseUser.SIGNALS
-        assert measure.call_count == len(measurements)
+        assert measure.call_count == 1
         if rate_formula:
-            denominator_query = measure.call_args_list[1].args[0]
-            denominator_index = 0 if rate_formula == "B / A" else 1
-            assert denominator_query["source"]["series"] == [query["source"]["series"][denominator_index]]
-            assert denominator_query["source"]["dateRange"] == query["source"]["dateRange"]
-            assert denominator_query["source"]["properties"] == query["source"]["properties"]
-            assert "formula" not in denominator_query["source"]["trendsFilter"]
+            assert len(query["source"]["series"]) == 2
+            assert "formula" not in query["source"]["trendsFilter"]
+            assert measure.call_args.kwargs["formula"] == rate_formula
             assert member.check.config["query"]["source"]["trendsFilter"]["formula"] == rate_formula
         assert sum([summary.passed, summary.failed, summary.inconclusive]) == 1
         self.report.refresh_from_db()
@@ -326,21 +326,20 @@ class TestFinalMetricExecution(BaseTest):
         responses = [
             RuntimeError("private query detail"),
             RuntimeError("private query detail"),
-            MetricMeasurement(value=12, measured_at=self.now, series=None)
+            MetricMeasurement(
+                value=0 if rate_formula else 12,
+                measured_at=self.now,
+                series=None,
+                source_values=[0, 12] if rate_formula else None,
+            )
             if recovered
             else RuntimeError("private query detail"),
         ]
-        if rate_formula:
-            responses = [
-                item
-                for response in responses
-                for item in [MetricMeasurement(value=0, measured_at=self.now, series=None), response]
-            ]
         with patch(_MEASURE, side_effect=responses) as measure:
             for minutes, expected_calls in [(0, 1), (4, 1), (5, 2), (19, 2), (20, 3), (120, 3)]:
                 with time_machine.travel(self.now + timedelta(minutes=minutes), tick=False):
                     self._run()
-                assert measure.call_count == expected_calls * (2 if rate_formula else 1)
+                assert measure.call_count == expected_calls
         results = list(SignalReportMonitoringResult.objects.for_team(self.team.id).order_by("created_at"))
         assert len(results) == 3 and len({result.submission_id for result in results}) == 3
         assert all(
@@ -356,21 +355,24 @@ class TestFinalMetricExecution(BaseTest):
             self._run()
         assert SignalReportMonitoringResult.objects.for_team(self.team.id).get().outcome == outcome
 
-    @parameterized.expand([("metric",), ("denominator",)])
+    @parameterized.expand([("metric",), ("rate_inputs",)])
     def test_cached_predeadline_results_cannot_establish_a_final_pass(self, stale: str) -> None:
-        member = self._member(rate_formula="A / B" if stale == "denominator" else None)
-        measurements = [MetricMeasurement(value=12, measured_at=member.window_end - timedelta(seconds=1), series=None)]
-        if stale == "denominator":
-            measurements.insert(0, MetricMeasurement(value=0, measured_at=self.now, series=None))
+        member = self._member(rate_formula="A / B" if stale == "rate_inputs" else None)
+        measurement = MetricMeasurement(
+            value=0 if stale == "rate_inputs" else 12,
+            measured_at=member.window_end - timedelta(seconds=1),
+            series=None,
+            source_values=[0, 12] if stale == "rate_inputs" else None,
+        )
         with patch(
             _MEASURE,
-            side_effect=measurements,
+            return_value=measurement,
         ):
             self._run()
         result = SignalReportMonitoringResult.objects.for_team(self.team.id).get()
         assert result.evidence_status == "insufficient" and result.expectation_matches is None
 
-    @parameterized.expand([("total", 3), ("sum", 6), ("total", 0.03, "A / B")])
+    @parameterized.expand([("total", 3), ("sum", 6), ("total", 0.03, "A / B"), ("total", 3, "A / B * 100")])
     def test_real_query_excludes_events_outside_the_fixed_window_and_population(
         self, math: str, value: float, rate_formula: str | None = None
     ) -> None:
@@ -413,16 +415,43 @@ class TestFinalMetricExecution(BaseTest):
         if rate_formula:
             assert "Denominator: 100" in result.explanation
 
-    @parameterized.expand([("count", None), ("rate_denominator", "A / B")])
+    @parameterized.expand([("count", None), ("rate_inputs", "A / B")])
     def test_budget_deferral_does_not_spend_a_technical_retry(self, _name: str, rate_formula: str | None) -> None:
         self._member(rate_formula=rate_formula)
-        responses: list[MetricMeasurement | Exception] = [MetricQueryBudgetExhausted()]
-        if rate_formula:
-            responses.insert(0, MetricMeasurement(value=0, measured_at=self.now, series=None))
-        with patch(_MEASURE, side_effect=responses):
+        with patch(_MEASURE, side_effect=MetricQueryBudgetExhausted):
             self._run()
         assert not SignalReportMonitoringResult.objects.for_team(self.team.id).exists()
         assert len(collect_due_final_metrics(self.now, limit=10)) == 1
+
+    def test_cached_empty_rate_cannot_use_a_newer_denominator_after_budget_deferral(self) -> None:
+        self._member(rate_formula="A / B")
+        deferred = False
+
+        def query_response(*, query: dict[str, object], **kwargs: object) -> TrendsQueryRunResult:
+            nonlocal deferred
+            trends_filter = query["trendsFilter"]
+            series = query["series"]
+            assert isinstance(trends_filter, dict) and isinstance(series, list)
+            cached_formula = bool(trends_filter.get("formula"))
+            if cached_formula:
+                results = [{"aggregated_value": 0}]
+            elif not deferred:
+                deferred = True
+                raise MetricQueryBudgetExhausted
+            else:
+                results = [{"aggregated_value": 10} for _ in series]
+            return TrendsQueryRunResult(results=results, last_refresh=self.now if cached_formula else timezone.now())
+
+        with patch(
+            "products.signals.backend.report_metric_refresh.run_cached_trends_query", side_effect=query_response
+        ):
+            self._run()
+            assert not SignalReportMonitoringResult.objects.for_team(self.team.id).exists()
+            with time_machine.travel(self.now + timedelta(minutes=1), tick=False):
+                self._run()
+        result = SignalReportMonitoringResult.objects.for_team(self.team.id).get()
+        assert result.outcome == "failed", result.explanation
+        assert "Denominator: 10" in result.explanation
 
     @parameterized.expand([("short", 19.9, False), ("full", 20.0, True)])
     def test_only_queries_with_the_full_timeout_can_spend_a_technical_retry(

@@ -35,10 +35,21 @@ from products.signals.backend.report_monitoring_results import MonitoringEvaluat
 logger = structlog.get_logger(__name__)
 
 
+def _metric_formula(config: MetricThresholdConfig) -> str | None:
+    assert config.query is not None
+    trends_filter = config.query["source"].get("trendsFilter") or {}
+    if nodes := trends_filter.get("formulaNodes"):
+        formula = nodes[0]["formula"] if len(nodes) == 1 else None
+    elif formulas := trends_filter.get("formulas"):
+        formula = formulas[0] if len(formulas) == 1 else None
+    else:
+        formula = trends_filter.get("formula")
+    return formula if isinstance(formula, str) else None
+
+
 def _rate_denominator_index(config: MetricThresholdConfig) -> int | None:
     assert config.query is not None
-    source = config.query["source"]
-    series = source["series"]
+    series = config.query["source"]["series"]
     if len(series) != 2 or any(
         entity.get("math") not in (None, "total")
         or entity.get("math_property") == "$session_duration"
@@ -46,14 +57,8 @@ def _rate_denominator_index(config: MetricThresholdConfig) -> int | None:
         for entity in series
     ):
         return None
-    trends_filter = source.get("trendsFilter") or {}
-    if nodes := trends_filter.get("formulaNodes"):
-        formula = nodes[0]["formula"] if len(nodes) == 1 else None
-    elif formulas := trends_filter.get("formulas"):
-        formula = formulas[0] if len(formulas) == 1 else None
-    else:
-        formula = trends_filter.get("formula")
-    if not isinstance(formula, str):
+    formula = _metric_formula(config)
+    if formula is None:
         return None
     tree = ast.parse(formula.strip().lower())
     if len(tree.body) != 1 or not isinstance(tree.body[0], ast.Expr):
@@ -167,14 +172,16 @@ def evaluate_final_metric(
     assert config.query is not None
     query = monitoring_metric_query(config.query, start=member.window_start, cutoff=member.window_end)
     queries = [query]
+    formula = None
+    denominator_index = None
     if source == "rate":
         denominator_index = _rate_denominator_index(config)
         assert denominator_index is not None
-        denominator_query = deepcopy(query)
-        denominator_query["source"]["series"] = [denominator_query["source"]["series"][denominator_index]]
+        formula = _metric_formula(config)
+        query = deepcopy(query)
         for key in ("formula", "formulas", "formulaNodes"):
-            denominator_query["source"]["trendsFilter"].pop(key, None)
-        queries.append(denominator_query)
+            query["source"]["trendsFilter"].pop(key, None)
+        queries.append(query)
     query_references = (
         "trends-query:sha256:"
         + hashlib.sha256(json.dumps(item, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
@@ -182,20 +189,17 @@ def evaluate_final_metric(
     )
     references = (f"signal-report-check:{check.id}:{member.definition_version}", *query_references)
     try:
-        measurements = [
-            measure_metric(
-                item,
-                check.report.team,
-                deadline=deadline,
-                include_series=False,
-                require_full_timeout=True,
-                ch_user=ClickHouseUser.SIGNALS,
-                workload=Workload.OFFLINE,
-            )
-            for item in queries
-        ]
-        measurement = measurements[0]
-        if any(item.measured_at < member.window_end for item in measurements):
+        measurement = measure_metric(
+            query,
+            check.report.team,
+            deadline=deadline,
+            include_series=False,
+            require_full_timeout=True,
+            ch_user=ClickHouseUser.SIGNALS,
+            workload=Workload.OFFLINE,
+            formula=formula,
+        )
+        if measurement.measured_at < member.window_end:
             return replace(
                 evaluation,
                 evidence_status="insufficient",
@@ -205,11 +209,11 @@ def evaluate_final_metric(
                 evidence_refs=references,
             )
         denominator = None
-        if source == "rate":
-            count = measurements[1].value
-            if count < 0 or count % 1 != 0:
-                raise ValueError("A rate denominator must be a non-negative integer.")
-            denominator = EvidenceCount(scope=scope, value=int(count))
+        if denominator_index is not None:
+            counts = measurement.source_values
+            if counts is None or len(counts) != 2 or any(count < 0 or count % 1 != 0 for count in counts):
+                raise ValueError("A rate needs two non-negative integer counts.")
+            denominator = EvidenceCount(scope=scope, value=int(counts[denominator_index]))
         qualification = qualify_metric_evidence(
             MetricEvidence(scope=scope, source=source, value=measurement.value, denominator=denominator),
             minimum_denominator=1 if source == "rate" else None,
@@ -236,7 +240,7 @@ def evaluate_final_metric(
     elif qualification.status == "unsupported":
         explanation = f"The final value was {measurement.value}, measured at {measurement.measured_at.isoformat()}. This value cannot establish success or failure under the metric's evidence policy."
     if denominator is not None:
-        explanation += f" Denominator: {denominator.value}, measured at {measurements[1].measured_at.isoformat()}."
+        explanation += f" Denominator: {denominator.value}, measured at {measurement.measured_at.isoformat()}."
     return replace(
         evaluation,
         evidence_status=qualification.status,
