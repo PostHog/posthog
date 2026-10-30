@@ -111,7 +111,6 @@ impl<P: PollingStrategy> Harness<P> {
         let committed = self
             .poller
             .on_drain_finished(&[p(partition)])
-            .expect("the drained slices settle")
             .map(|commit| commit.offsets)
             .unwrap_or_default();
         self.settlement.forget_partitions(&[p(partition)]);

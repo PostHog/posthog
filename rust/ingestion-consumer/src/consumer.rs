@@ -472,7 +472,7 @@ impl IngestionConsumer {
         partitions: &[TopicPartition],
         timeout: Duration,
     ) -> anyhow::Result<()> {
-        let Some(commit) = poller.on_drain_finished(partitions)? else {
+        let Some(commit) = poller.on_drain_finished(partitions) else {
             return Ok(());
         };
         for topic_partition in &commit.resume {

@@ -53,15 +53,10 @@ pub(crate) trait PollingStrategy {
 
     fn on_ticked(&mut self);
 
-    /// Submitted messages keep settling until [`Self::on_drain_finished`].
     fn on_drain_started(&mut self, topic_partitions: &[TopicPartition]);
 
-    /// Takes every frontier, for the commit before the unassign, then drops
-    /// the partitions as [`Self::on_revoked`] does, also on an error.
-    fn on_drain_finished(
-        &mut self,
-        topic_partitions: &[TopicPartition],
-    ) -> anyhow::Result<Option<Commit>>;
+    /// The commit holds every partition's frontier, not only the drained ones.
+    fn on_drain_finished(&mut self, topic_partitions: &[TopicPartition]) -> Option<Commit>;
 
     /// Every message received before the revoke belongs to the old
     /// assignment: the batcher purges it, or Kafka delivers it again from the

@@ -92,16 +92,13 @@ impl PollingStrategy for ContinuousPolling {
         report_revoked(self.collector.remove_partitions(topic_partitions) as u64);
     }
 
-    fn on_drain_finished(
-        &mut self,
-        topic_partitions: &[TopicPartition],
-    ) -> anyhow::Result<Option<Commit>> {
+    fn on_drain_finished(&mut self, topic_partitions: &[TopicPartition]) -> Option<Commit> {
         let commit = self
             .settlement
             .take_all()
             .map(|commit| self.record_commit(commit));
         self.on_revoked(topic_partitions);
-        Ok(commit)
+        commit
     }
 
     fn on_revoked(&mut self, topic_partitions: &[TopicPartition]) {

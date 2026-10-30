@@ -16,7 +16,6 @@ pub(crate) enum Event {
         partitions: Vec<TopicPartition>,
         unassign: Unassign,
     },
-    /// Still assigned until the drain finishes.
     Draining {
         revoke: RevokeId,
         partitions: Vec<TopicPartition>,
