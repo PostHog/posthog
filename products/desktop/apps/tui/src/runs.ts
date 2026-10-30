@@ -341,13 +341,16 @@ export class CloudRuns {
     const key = keyOf(taskId, runId);
     return new Promise((resolve, reject) => {
       let settled = false;
+      // Set when this wait opened the watch, rather than restarting the panes' one.
+      let opened = false;
       const finish = (error?: Error): void => {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
         this.engine.off(CloudTaskEvent.Update, listener);
-        // Watched only for this wait, so nothing is left streaming.
-        if (!this.watching.get(key)) this.engine.unwatch(taskId, runId);
+        // A watch opened only for this wait closes with it; one the panes rely on stays.
+        if (opened && !this.watching.get(key))
+          this.engine.unwatch(taskId, runId);
         if (error) reject(error);
         else resolve();
       };
@@ -382,9 +385,14 @@ export class CloudRuns {
       this.context().then(
         ({ apiHost, teamId }) => {
           if (settled) return;
-          // A watch still open counts once; restarting it keeps the count the panes expect.
-          if (this.watching.get(key)) this.engine.unwatch(taskId, runId);
-          this.engine.watch({ taskId, runId, apiHost, teamId });
+          // An open watcher still streams the run's previous life, and stops when that stream ends, so it starts
+          // over from the resumed run. Without one, a new watch also serves the panes that lost theirs.
+          if (this.engine.isWatching(taskId, runId)) {
+            void this.engine.retry(taskId, runId);
+          } else {
+            opened = true;
+            this.engine.watch({ taskId, runId, apiHost, teamId });
+          }
         },
         (error: unknown) =>
           finish(error instanceof Error ? error : new Error(String(error))),

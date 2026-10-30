@@ -45,6 +45,8 @@ function setup(sessionLogs: SessionLogs = logOf(0)) {
   const engine = Object.assign(new EventEmitter(), {
     watch: vi.fn(),
     unwatch: vi.fn(),
+    retry: vi.fn(async () => {}),
+    isWatching: vi.fn(() => false),
   });
   const runs = new CloudRuns(
     engine as unknown as CloudTaskEngine,
@@ -88,6 +90,26 @@ describe("CloudRuns.agentRestarted", () => {
 
     await restarted;
     expect(engine.unwatch).toHaveBeenCalledWith("t1", "r1");
+  });
+
+  it("restarts a watcher still streaming the run's previous life, and leaves it open for the panes", async () => {
+    const { engine, runs } = setup();
+    engine.isWatching.mockReturnValue(true);
+    const restarted = runs.agentRestarted("t1", "r1", since);
+    await vi.waitFor(() =>
+      expect(engine.retry).toHaveBeenCalledWith("t1", "r1"),
+    );
+
+    engine.emit(CloudTaskEvent.Update, {
+      taskId: "t1",
+      runId: "r1",
+      kind: "logs",
+      newEntries: [started(60)],
+    });
+
+    await restarted;
+    expect(engine.watch).not.toHaveBeenCalled();
+    expect(engine.unwatch).not.toHaveBeenCalled();
   });
 
   it("gives up when the run fails to come back", async () => {
