@@ -928,6 +928,10 @@ logger = logging.getLogger(__name__)
 # never re-seeded, TransactionTestCase tests must not mutate these tables - a
 # mutation would silently poison every later test in the process.
 _SELECTIVE_FLUSH_PRESERVED_TABLES = frozenset({"django_migrations", "django_content_type", "auth_permission"})
+# ClickHouse rows are never cleaned between tests and are isolated only by team_id (see
+# ClickhouseTestMixin). A restarted team id sequence gives a later test the team_id of an
+# earlier one, so that test reads the earlier test's events and persons.
+_SELECTIVE_FLUSH_PRESERVED_SEQUENCES = frozenset({"posthog_team_id_seq"})
 
 
 def _selective_flush(db_name: str, *, reset_sequences: bool) -> None:
@@ -995,6 +999,7 @@ def _selective_flush(db_name: str, *, reset_sequences: bool) -> None:
                 FROM pg_sequences s
                 WHERE s.schemaname = 'public'
                   AND s.last_value IS NOT NULL
+                  AND s.sequencename <> ALL(%s)
                   AND s.sequencename NOT IN (
                     SELECT seq.relname
                     FROM pg_class seq
@@ -1003,7 +1008,7 @@ def _selective_flush(db_name: str, *, reset_sequences: bool) -> None:
                     WHERE seq.relkind = 'S' AND tbl.relname = ANY(%s)
                   )
                 """,
-                [list(_SELECTIVE_FLUSH_PRESERVED_TABLES)],
+                [list(_SELECTIVE_FLUSH_PRESERVED_SEQUENCES), list(_SELECTIVE_FLUSH_PRESERVED_TABLES)],
             )
             for (seq_name,) in cursor.fetchall():
                 cursor.execute(f"ALTER SEQUENCE {quote_name(seq_name)} RESTART")

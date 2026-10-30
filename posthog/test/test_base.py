@@ -1,6 +1,7 @@
 import pytest
 from posthog.test.base import (
     QueryMatchingTest,
+    _selective_flush,
     run_clickhouse_statement_in_parallel,
     skip_clickhouse_query_snapshots,
     snapshot_clickhouse_queries,
@@ -10,7 +11,7 @@ from posthog.test.base import (
 from django.conf import settings
 from django.contrib.contenttypes.models import ContentType
 from django.db import reset_queries
-from django.test import TestCase
+from django.test import TestCase, TransactionTestCase
 
 from clickhouse_driver.errors import ServerException
 
@@ -84,3 +85,12 @@ class TestSnapshotPostgresQueriesContext(TestCase, QueryMatchingTest):
             Team.objects.exists()
 
         assert len(context.captured_queries) == 2
+
+
+class TestSelectiveFlush(TransactionTestCase):
+    def test_restarting_sequences_keeps_team_ids_unique(self) -> None:
+        before = Team.objects.increment_id_sequence()
+
+        _selective_flush("default", reset_sequences=True)
+
+        assert Team.objects.increment_id_sequence() > before
