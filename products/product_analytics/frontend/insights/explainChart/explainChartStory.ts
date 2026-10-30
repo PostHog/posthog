@@ -33,7 +33,6 @@ export function followUpContextFor(
     ]
     return {
         type: 'text',
-        key: `explain-chart-step-${insight.short_id}-${step}`,
         label: `Step ${step}: ${page.title}`,
         value: parts.filter(Boolean).join(' '),
     }
