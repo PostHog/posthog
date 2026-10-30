@@ -18,7 +18,7 @@ from posthog.dataclasses import frozen
 from posthog.models import Team
 from posthog.utils import absolute_uri
 
-from products.alerts_platform.backend.delivery import delivery_paths, episode_paths, legacy_webhook
+from products.alerts_platform.backend.delivery import delivery_paths, episode_paths, legacy_webhook, recipients
 from products.alerts_platform.backend.delivery.destinations import list_alert_destination_groups
 from products.alerts_platform.backend.delivery.discord import DiscordTransport
 from products.alerts_platform.backend.delivery.dispatch import deliver
@@ -503,7 +503,7 @@ def _subscribed_events(request: AlertDeliveryRequest, transition: AnnouncedTrans
 
 @frozen
 class _SubscribedDestination:
-    # The HogFunction that subscribed this destination to the event, which its sends are recorded under.
+    # The HogFunction or `AlertDestination` row its sends are recorded under. None for a source's own recipients.
     id: str | None
     data: AlertDestinationData
     # Whether the destination hears the events the source emits for its HogFunctions.
@@ -515,6 +515,8 @@ class _PlatformDestinations:
     """An alert's enabled `AlertDestination` rows, with the kind each of its event ids announces."""
 
     destinations: tuple[StoredAlertDestination, ...]
+    # The addresses the source's own settings name, read once per delivery.
+    recipients: tuple[str, ...]
     kind_by_event_id: dict[str, AlertEventKind]
     incident_event_ids: frozenset[str]
 
@@ -541,6 +543,12 @@ def _platform_destinations(request: AlertDeliveryRequest) -> _PlatformDestinatio
         destinations=enabled_alert_destinations(
             team_id=request.team_id, configuration_id=UUID(request.configuration_id)
         ),
+        # Recipients read messages only, so a delivery that only moves an incident skips the lookup.
+        recipients=recipients.addresses(
+            request.source, team_id=request.team_id, configuration_id=UUID(request.configuration_id)
+        )
+        if request.sends_messages
+        else (),
         kind_by_event_id={
             **{event_id: AlertEventKind(kind) for kind, event_id in request.event_ids_by_kind.items()},
             **incident_kinds,
@@ -588,9 +596,14 @@ def _platform_subscribers(event_id: str, platform: _PlatformDestinations) -> lis
     if kind is None:
         return []
     incident = event_id in platform.incident_event_ids
-    return [
+    subscribers = [
         _SubscribedDestination(id=str(destination.id), data=destination.data, receives_emitted_events=False)
         for destination in platform.destinations
         if (destination.data["type"] in INCIDENT_DESTINATION_TYPES) == incident
         and (incident or kind in destination.event_kinds)
     ]
+    # The source's recipients read messages. An incident edge is for an incident manager only.
+    if platform.recipients and not incident:
+        email: AlertDestinationData = {"type": DestinationType.EMAIL, "email_addresses": list(platform.recipients)}
+        subscribers.append(_SubscribedDestination(id=None, data=email, receives_emitted_events=False))
+    return subscribers

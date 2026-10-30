@@ -325,6 +325,7 @@ export namespace Schemas {
     export type ResolvedDateRangeResponse = {
         date_from: string;
         date_to: string;
+        read_from?: (string | null) | undefined;
     };
     export type QueryTiming = {
         /**
