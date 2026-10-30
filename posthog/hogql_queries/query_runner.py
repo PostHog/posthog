@@ -3530,9 +3530,16 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         return {}
 
     def _cache_entry_with_freshness(self, response: dict[str, Any]) -> dict[str, Any]:
+        """Adds the runner's freshness decision to a cache entry before it is stored.
+
+        A cache hit returns before the runner compiles its query, so the runner cannot work out
+        freshness again on that request. A runner that decides freshness from the compiled query
+        stores the decision under CACHE_ENTRY_FRESHNESS_KEY and reads it back on the hit.
+        """
         return response
 
     def _read_cache_entry_freshness(self, record: Any) -> None:
+        """Restores the decision that `_cache_entry_with_freshness` stored, before the response is parsed."""
         pass
 
     def _is_stale(self, last_refresh: Optional[datetime], lazy: bool = False) -> bool:
