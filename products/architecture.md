@@ -109,7 +109,7 @@ These cross the boundary as classes — allowed only under all three rules:
    A location with several subtrees may be watched one subtree at a time.
    `product_analytics` watches `backend/hogql_queries/trends/` alone, because trends is the only subtree an outside test still drives, so its funnels, retention, lifecycle, paths and stickiness runners change without re-running the suite.
    The lint reads coverage per location rather than per subtree, so it cannot hold that scope; the repo invariant `test_product_analytics_drives_only_the_watched_subtree` does, and it fails when a line names code outside the watched subtree.
-   The other locations stay in the inputs by presence until their channel (Celery task names, Temporal workflow names, Max tool names) is read the same way.
+   The other locations stay in the inputs by presence until their channel (Celery task names, Temporal workflow names, Max tool names, resource kinds) is read the same way.
 3. **Validated registration.**
    Registration points check `issubclass(cls, Base)` and reject anything else.
    Import linters (tach, import-linter) see only the import graph; _what an object is_ can only be checked at runtime, at the door.
@@ -119,7 +119,7 @@ Django models never cross, with or without an approved base.
 A model cannot be narrowed: whatever interface it presents, the object still carries managers, `save()`/`delete()`, FK descriptors that query other tables on attribute access, and reverse relations added by other apps.
 Two core registries are keyed by model class identity and are explicit, sanctioned exceptions: the team-extension registry and the file-system unfiled registry (`FileSystemSyncMixin`).
 There the class crosses for registration only, core drives only the registry's mixin methods, and the model's module must stay in the product's contract-check inputs.
-Resource transfer is a third exception, and the only one where core queries through a product's model.
+Resource transfer is a third registry exception, and unlike the other two, core queries through the product's model.
 A product declares the visitors for its models in `RESOURCE_TRANSFER_VISITORS` in `backend/resource_transfer/`.
 `posthog/models/resource_transfer/registry.py` imports that module on first use, and rejects an entry that is not a `ResourceTransferVisitor` subclass, a second visitor for a kind or a model, and a `ResourceKind` without a visitor.
 To copy a resource graph between projects, the framework reads the rows, follows their relations and creates the copies through each visitor's `get_model()`.

@@ -13,8 +13,8 @@ from posthog.models.resource_transfer.visitors.team import TeamVisitor
 from posthog.models.resource_transfer.visitors.text import TextVisitor
 from posthog.models.resource_transfer.visitors.user import UserVisitor
 
-# Visitors for models that a product owns are declared by the product, in
-# `backend/resource_transfer/`. See posthog/models/resource_transfer/registry.py.
+# A product can declare the visitors for its own models in its `backend/resource_transfer/`
+# package instead of here. See posthog/models/resource_transfer/registry.py.
 CORE_VISITORS: tuple[type[ResourceTransferVisitor], ...] = (
     ActionVisitor,
     CohortVisitor,

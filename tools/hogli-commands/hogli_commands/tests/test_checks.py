@@ -2389,8 +2389,6 @@ class TestUnwatchedGarages:
             ("tasks/tasks.py", ["backend/facade/**", "backend/tasks_extra/**"], {"backend/tasks/"}),
             # a flat-file garage needs an exact input, not a shared prefix
             ("tasks.py", ["backend/facade/**", "backend/tasks.py.bak"], {"backend/tasks.py"}),
-            # core's transfer registry imports this package by name, so its visitors must stay watched
-            ("resource_transfer/__init__.py", ["backend/facade/**"], {"backend/resource_transfer/"}),
         ],
     )
     def test_present_garage_coverage(

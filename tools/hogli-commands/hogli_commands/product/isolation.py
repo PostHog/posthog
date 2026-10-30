@@ -330,7 +330,7 @@ GARAGE_PREFIXES: tuple[str, ...] = (
 # outside the product that executes a runner (the `drives(...)` lines in the crossings baseline).
 # Such a location must stay in the inputs only while a line exists for it. The other locations are
 # reached through channels the scan does not read yet (Celery task names, Temporal workflow names,
-# Max tool names), so they stay watched by presence until their channel is scanned too.
+# Max tool names, resource kinds), so they stay watched by presence until their channel is scanned too.
 COMPUTED_WIRING_LOCATIONS: frozenset[str] = frozenset({"backend/hogql_queries/"})
 
 

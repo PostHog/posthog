@@ -1,7 +1,7 @@
 """Which visitor handles each resource kind.
 
-Core declares the visitors for its own models in `visitors/__init__.py`. A product declares the
-visitors for its models in `RESOURCE_TRANSFER_VISITORS` in `backend/resource_transfer/`, and the
+Core declares the visitors it holds in `CORE_VISITORS` in `visitors/__init__.py`. A product declares
+the visitors for its models in `RESOURCE_TRANSFER_VISITORS` in `backend/resource_transfer/`, and the
 registry imports that module through `load_product_modules`, so the transfer framework names no product.
 
 The registry builds on first use. Eager building would put every product's visitor module on the
@@ -41,7 +41,8 @@ def build_registry(declarations: Iterable[tuple[str, object]]) -> VisitorRegistr
 
     Raises when an entry is not a visitor, when a kind or a model has two visitors, or when a
     `ResourceKind` has none. A kind without a visitor would otherwise drop out of transfers and out
-    of the field snapshot tests without a failure, for example when a product's module stops loading.
+    of the field snapshot tests without a failure, for example when a product renames its
+    `backend/resource_transfer/` package or leaves a visitor out of its tuple.
     """
     by_kind: dict[str, type[ResourceTransferVisitor]] = {}
     by_model: dict[type[models.Model], type[ResourceTransferVisitor]] = {}
