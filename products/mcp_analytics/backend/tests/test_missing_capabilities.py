@@ -53,7 +53,7 @@ class TestMCPMissingCapabilitiesQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Cl
         now = datetime.now(tz=UTC)
         self._emit(intent="older ask", timestamp=now - timedelta(hours=2))
         self._emit(intent="newer ask", timestamp=now - timedelta(hours=1))
-        # Only $mcp_missing_capability is the unmet-demand signal; a tool call carrying an
+        # Only missing-capability reports are the unmet-demand signal; a tool call carrying an
         # intent is what the agent *did*, not what it couldn't do.
         self._emit(intent="a tool call intent", event="$mcp_tool_call")
         flush_persons_and_events()
@@ -77,14 +77,13 @@ class TestMCPMissingCapabilitiesQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Cl
     def test_lists_missing_capability_reports_from_either_sdk_tool(
         self, _name: str, event: str, feedback_type: str | None, listed: bool
     ) -> None:
-        self._emit(intent="export a dashboard as a PDF", event=event, feedback_type=feedback_type)
+        report = 'No tool to export a dashboard as a PDF.\n\nThe user asked for "Weekly signups" as a PDF.'
+        self._emit(intent=report, event=event, feedback_type=feedback_type)
         flush_persons_and_events()
 
         rows = self._run(search="dashboard")
 
-        assert [(row.intent, row.harness) for row in rows] == (
-            [("export a dashboard as a PDF", "Claude.ai")] if listed else []
-        )
+        assert [(row.intent, row.harness) for row in rows] == ([(report, "Claude.ai")] if listed else [])
 
     def test_date_range_excludes_older_reports(self) -> None:
         now = datetime.now(tz=UTC)

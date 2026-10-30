@@ -44,7 +44,9 @@ DEFAULT_LIMIT = 100
 MAX_LIMIT = 500
 
 # Both the result column and search expression use this property so they cannot drift.
-_REPORT_TEXT = "toString(properties.$mcp_intent)"
+# `properties.$mcp_intent` returns the raw JSON text, which keeps escapes such as `\n` and `\"`.
+# A send_feedback report puts a blank line between its summary and details, so decode the string.
+_REPORT_TEXT = "JSONExtractString(properties, '$mcp_intent')"
 
 
 class MCPMissingCapabilitiesQueryRunner(AnalyticsQueryRunner[MCPMissingCapabilitiesQueryResponse]):
