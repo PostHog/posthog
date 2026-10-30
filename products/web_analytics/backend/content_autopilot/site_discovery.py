@@ -138,6 +138,12 @@ def site_host(url: str) -> str:
     return _public_host(url).removeprefix("www.")
 
 
+def is_site_link(target: str, host: str) -> bool:
+    if target.startswith("/") and not target.startswith("//"):
+        return True
+    return bool(target_host := site_host(target)) and target_host == host
+
+
 def has_same_public_site(first_url: str, second_url: str) -> bool:
     first = site_host(first_url)
     second = site_host(second_url)

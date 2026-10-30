@@ -109,6 +109,23 @@ def _bigquery_type_of(arrow_type: pa.DataType) -> str | None:
     return None
 
 
+def _ddl_type(field: bigquery.SchemaField) -> str:
+    """The DDL type declaration an `ALTER TABLE ADD COLUMN` needs for this field.
+
+    `field.field_type` alone is only the element type: a `REPEATED` field needs `ARRAY<...>`
+    around it, and a `RECORD`/`STRUCT` field needs its subfields spelled out, recursively for a
+    nested struct or a struct inside an array.
+    """
+    base = (
+        f"STRUCT<{', '.join(f'{_backtick(sub.name)} {_ddl_type(sub)}' for sub in field.fields)}>"
+        if field.field_type in ("RECORD", "STRUCT")
+        # DDL only accepts the standard SQL type names: FLOAT has no DDL alias, unlike INTEGER
+        # (INT64) and BOOLEAN (BOOL), so an unmapped FLOAT fails the ALTER TABLE outright.
+        else _STANDARD_BIGQUERY_TYPE.get(field.field_type, field.field_type)
+    )
+    return f"ARRAY<{base}>" if field.mode == "REPEATED" else base
+
+
 class BigQueryDestinationConfigurationError(ValueError):
     """The destination's config cannot produce a valid BigQuery write."""
 
@@ -193,9 +210,11 @@ class BigQueryDestinationWriter:
         if self._ctx.integration_id is None:
             raise ValueError(f"Destination {self._ctx.destination_name} has no integration to connect with")
 
-        from posthog.models.integration import Integration  # noqa: PLC0415 — avoids a model import cycle
+        from posthog.integrations import IntegrationManager  # noqa: PLC0415 — avoids a model import cycle
 
-        integration = Integration.objects.get(id=self._ctx.integration_id, team_id=self._ctx.team_id)
+        integration = IntegrationManager.google_cloud_service_account.credentials.get(
+            self._ctx.team_id, self._ctx.integration_id
+        )
         google_cloud_integration = GoogleCloudServiceAccountIntegration(integration)
         if not google_cloud_integration.has_key():
             # Keyless means PostHog impersonates the team's service account instead of holding
@@ -404,19 +423,20 @@ class BigQueryDestinationWriter:
         temp = f"{run.table_name}__ph_tmp_{run_scope(run.run_uuid, 8)}_{ctx.batch_index}_{chunk}"
         target_ref = self._table_ref(run.table_name)
         target = self._owned_table(client, target_ref, "merge into it")
-        target_absent = target is None
         if target is not None:
             table = self._align_to_target(table, target)
 
         self._load(client, temp, table, bigquery.WriteDisposition.WRITE_TRUNCATE)
         try:
-            if target_absent:
+            if target is None:
                 # `MERGE` fails outright against a target that does not exist, and an
                 # incremental schema is on `sync_type` "incremental" from its very first run,
                 # so nothing else ever creates it. Take the schema BigQuery just derived for the
                 # scratch table rather than mapping Arrow types a second time.
                 self._create_like(client, target_ref, temp)
                 self._mark_owned(client, target_ref)
+            else:
+                self._evolve_table(client, target_ref, target.schema, temp, list(table.schema.names))
             self._merge(client, run.table_name, temp, list(table.schema.names), primary_keys)
         finally:
             client.delete_table(self._table_ref(temp), not_found_ok=True)
@@ -450,6 +470,32 @@ class BigQueryDestinationWriter:
                 ) from err
             table = table.set_column(index, pa.field(field.name, arrow_type), cast)
         return table
+
+    def _evolve_table(
+        self,
+        client: bigquery.Client,
+        target_ref: str,
+        target_schema: list[bigquery.SchemaField],
+        temp: str,
+        column_names: list[str],
+    ) -> None:
+        """Add columns the source chunk has grown, before `MERGE` can reference them.
+
+        Unlike `_load`'s `ALLOW_FIELD_ADDITION` on the plain-append path, `MERGE` does not
+        evolve the target's schema on its own, so a column new to this chunk needs adding to
+        the target first — otherwise the `MERGE` fails referencing a column T does not have.
+        Additive only, same as the other SQL writers' `_evolve_table`. Skips the extra
+        `get_table` call for the scratch table's schema when the chunk carries no column the
+        target lacks, which is the common case on an incremental sync's steady-state batches.
+        """
+        existing = {field.name for field in target_schema}
+        if all(name in existing for name in column_names):
+            return
+        additions = [field for field in client.get_table(self._table_ref(temp)).schema if field.name not in existing]
+        if not additions:
+            return
+        clauses = ", ".join(f"ADD COLUMN IF NOT EXISTS {_backtick(f.name)} {_ddl_type(f)}" for f in additions)
+        client.query(f"ALTER TABLE {_backtick(target_ref)} {clauses}").result()
 
     def _create_like(self, client: bigquery.Client, table_ref: str, model: str) -> None:
         """Create an empty table carrying another table's schema."""

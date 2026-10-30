@@ -14,37 +14,42 @@ from django.contrib.auth.models import AnonymousUser
 from django.core.cache import cache
 from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
 from django.test import (
+    AsyncClient,
     Client as DjangoClient,
     RequestFactory,
     SimpleTestCase,
 )
-from django.urls import reverse
+from django.urls import path, reverse
 
 import structlog
 from loginas import settings as la_settings
 from parameterized import parameterized
 from prometheus_client import REGISTRY
 from rest_framework import status
+from rest_framework.exceptions import ValidationError
 from social_core.backends.base import BaseAuth
 from social_core.exceptions import AuthCanceled, AuthFailed, AuthMissingParameter
 
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
+from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.constants import AvailableFeature
 from posthog.middleware import (
     ActivityLoggingMiddleware,
     Fix204Middleware,
     ManagedProxyClientIPMiddleware,
     SignedClientIPOutcome,
+    UnversionedStaticPathMiddleware,
     per_request_logging_context_middleware,
     user_logging_context_middleware,
 )
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.organization import Organization, OrganizationMembership
-from posthog.models.organization_invite import OrganizationInvite
+from posthog.models.organization_invite import InviteExpiredException, OrganizationInvite
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.settings import SITE_URL
+from posthog.run_mode import derive_run_mode
+from posthog.settings import SITE_URL, base_variables
 from posthog.utils import get_ip_address, get_trusted_client_ip
 
 from products.access_control.backend.models.access_control import AccessControl
@@ -414,6 +419,59 @@ class TestFix204Middleware(SimpleTestCase):
 
         assert response.content == b""
         assert "Content-Length" not in response.headers
+
+
+class TestUnversionedStaticPathMiddleware(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("versioned_script", "/static/1.438.12/posthog-recorder.js", "/static/posthog-recorder.js"),
+            ("prerelease_version", "/static/1.438.12-beta.1/array.js", "/static/array.js"),
+            ("nested_file", "/static/1.438.12/icons/a.png", "/static/icons/a.png"),
+            ("unversioned_script", "/static/posthog-recorder.js", "/static/posthog-recorder.js"),
+            ("hashed_asset_folder", "/static/chunks/1.2.js", "/static/chunks/1.2.js"),
+            ("version_outside_static", "/api/1.438.12/foo", "/api/1.438.12/foo"),
+        ]
+    )
+    @override_settings(CLOUD_DEPLOYMENT=None, DEBUG=False)
+    def test_rewrites_only_versioned_static_paths(self, _name: str, path: str, expected_path: str) -> None:
+        seen_paths: list[str] = []
+
+        def get_response(request: HttpRequest) -> HttpResponse:
+            seen_paths.append(request.path_info)
+            return HttpResponse()
+
+        UnversionedStaticPathMiddleware(get_response)(RequestFactory().get(path))
+
+        assert seen_paths == [expected_path]
+
+    @parameterized.expand(
+        [
+            ("us_cloud", "US", False),
+            ("eu_cloud", "EU", False),
+            ("cloud_dev", "DEV", False),
+            ("local_development", None, True),
+        ]
+    )
+    def test_never_rewrites_outside_hobby(self, _name: str, cloud_deployment: str | None, debug: bool) -> None:
+        seen_paths: list[str] = []
+
+        def get_response(request: HttpRequest) -> HttpResponse:
+            seen_paths.append(request.path_info)
+            return HttpResponse()
+
+        with override_settings(CLOUD_DEPLOYMENT=cloud_deployment, DEBUG=debug):
+            UnversionedStaticPathMiddleware(get_response)(RequestFactory().get("/static/1.438.12/array.js"))
+
+        assert seen_paths == ["/static/1.438.12/array.js"]
+
+    def test_registered_only_in_hobby_and_before_whitenoise(self) -> None:
+        middleware = list(settings.MIDDLEWARE)
+        name = "posthog.middleware.UnversionedStaticPathMiddleware"
+        registered_expected = derive_run_mode(base_variables.CLOUD_DEPLOYMENT, base_variables.DEBUG).is_hobby
+
+        assert (name in middleware) == registered_expected
+        if registered_expected:
+            assert middleware.index(name) < middleware.index("whitenoise.middleware.WhiteNoiseMiddleware")
 
 
 class TestAutoProjectMiddleware(APIBaseTest):
@@ -2156,8 +2214,10 @@ class TestActiveOrganizationMiddleware(APIBaseTest):
             ("deactivated_keeps_billing", "is_active", "/organization/billing", status.HTTP_200_OK),
             ("deactivated_keeps_stripe_return", "is_active", "/billing/authorization_status", status.HTTP_200_OK),
             ("deactivated_keeps_partner_consent", "is_active", "/agentic/authorize", status.HTTP_200_OK),
+            ("deactivated_keeps_app_context", "is_active", "/_app_context", status.HTTP_200_OK),
             ("pending_deletion_keeps_invites", "is_pending_deletion", "/signup/{invite_id}", status.HTTP_200_OK),
             ("pending_deletion_keeps_partner_consent", "is_pending_deletion", "/agentic/authorize", status.HTTP_200_OK),
+            ("pending_deletion_keeps_app_context", "is_pending_deletion", "/_app_context", status.HTTP_200_OK),
             ("pending_deletion_drops_billing", "is_pending_deletion", "/organization/billing", status.HTTP_302_FOUND),
             (
                 "pending_deletion_drops_stripe_return",
@@ -2448,6 +2508,36 @@ class TestSocialAuthExceptionMiddleware(SimpleTestCase):
                 AuthFailed(_social_auth_backend(), "access_blocked"),
                 "/login?error_code=access_blocked",
             ),
+            (
+                "expired_invite",
+                "/complete/google-oauth2/",
+                InviteExpiredException(),
+                "/login?error_code=invalid_invite",
+            ),
+            (
+                "invite_for_another_email",
+                "/complete/google-oauth2/",
+                ValidationError("This invite is intended for another email address.", code="invalid_recipient"),
+                "/login?error_code=invite_email_mismatch",
+            ),
+            (
+                "already_a_member",
+                "/complete/google-oauth2/",
+                ValidationError("You already are a member of this organization.", code="user_already_member"),
+                "/login?error_code=invite_already_member",
+            ),
+            (
+                "invite_email_already_in_org",
+                "/complete/saml/",
+                ValidationError("Another user with this email already belongs.", code="existing_email_address"),
+                "/login?error_code=invite_email_taken",
+            ),
+            (
+                "unknown_validation_code",
+                "/complete/google-oauth2/",
+                ValidationError("Something else.", code="something_else"),
+                "/login?error_code=social_login_failure",
+            ),
         ]
     )
     def test_redirects_with_expected_url(self, _name, path, exception, expected_url):
@@ -2640,6 +2730,30 @@ def test_chqueries_middleware_tags_source(user_agent, expected_source):
     assert captured["feature"] is None
 
 
+def _http_request_id_probe(request: HttpRequest) -> HttpResponse:
+    return HttpResponse(str(get_query_tags().http_request_id))
+
+
+urlpatterns = [path("api/_http_request_id_probe/", _http_request_id_probe)]
+
+
+@pytest.mark.parametrize(
+    "header_value,expected_tag",
+    [
+        pytest.param("0b8a6a4e-4c1f-4d2e-9a57-3f6f0f6c2b11", "0b8a6a4e-4c1f-4d2e-9a57-3f6f0f6c2b11", id="uuid"),
+        # django-structlog binds the client's X-Request-ID header without checking that it is a UUID.
+        pytest.param("not-a-uuid", "None", id="not_a_uuid"),
+    ],
+)
+@override_settings(ROOT_URLCONF=__name__)
+async def test_chqueries_middleware_tags_http_request_id_under_asgi(header_value, expected_tag):
+    # AsyncClient runs settings.MIDDLEWARE through the ASGI handler, as production does.
+    # There, django-structlog binds request_id on the event loop. CHQueries reads it from a worker thread.
+    response = await AsyncClient().get("/api/_http_request_id_probe/", headers={"X-Request-ID": header_value})
+
+    assert response.content.decode() == expected_tag
+
+
 @parameterized.expand(
     [
         ("api_path_emits", "/api/projects/@current/query/", True),
@@ -2792,6 +2906,81 @@ def test_chqueries_middleware_api_latency_records_on_raise():
         CHQueries(boom)(request)
 
     assert sample_count() - before == 1.0, "exception path must still record latency at status_class=error"
+
+
+@parameterized.expand(
+    [
+        ("success", "01234567-89ab-4def-8123-456789abcdef", 200, "01234567-89ab-4def-8123-456789abcdef"),
+        ("async", "0123456789AB4DEF8123456789ABCDEF", 202, "01234567-89ab-4def-8123-456789abcdef"),
+        ("auth_error", "01234567-89ab-4def-8123-456789abcdef", 401, "01234567-89ab-4def-8123-456789abcdef"),
+        ("invalid", 'user@example.com;desc="unsafe"', 400, None),
+        ("missing", None, 200, None),
+    ]
+)
+def test_chqueries_middleware_correlates_query_response(
+    name: str, request_id: str | None, status_code: int, expected_id: str | None
+) -> None:
+    from django.contrib.auth.models import AnonymousUser
+    from django.contrib.sessions.backends.signed_cookies import SessionStore
+    from django.http.response import HttpResponseBase
+    from django.urls import path
+
+    from rest_framework.request import Request
+    from rest_framework.response import Response
+
+    from posthog.api.query import QueryViewSet, get_query_request_analytics_properties
+    from posthog.event_usage import get_request_analytics_properties
+    from posthog.middleware import CHQueries
+
+    analytics_props: dict[str, object] = {}
+    view = QueryViewSet()
+    view.headers = {}
+
+    class QueryResponseRoutes:
+        urlpatterns = [path("api/projects/@current/query/", QueryViewSet.as_view({"post": "create"}))]
+
+    def get_response(request: HttpRequest) -> HttpResponseBase:
+        assert "http_request_id" not in get_request_analytics_properties(request)
+        analytics_props.update(get_query_request_analytics_properties(request))
+        response = Response(
+            {"results": []},
+            status=status_code,
+            headers={"Server-Timing": "existing;dur=5"},
+        )
+        return view.finalize_response(Request(request), response)
+
+    request = RequestFactory().get("/api/projects/@current/query/")
+    request.user = AnonymousUser()
+    request.session = SessionStore()
+    with (
+        override_settings(ROOT_URLCONF=QueryResponseRoutes),
+        structlog.contextvars.bound_contextvars(request_id=request_id),
+    ):
+        response = CHQueries(get_response)(request)
+
+    assert isinstance(response, Response)
+    assert response.status_code == status_code
+    assert response.data == {"results": []}
+    assert analytics_props.get("http_request_id") == expected_id
+    if expected_id:
+        assert response["X-Request-ID"] == expected_id
+        assert response["Server-Timing"] == f'existing;dur=5, request_id;desc="{expected_id}"'
+    else:
+        assert "X-Request-ID" not in response
+        assert response["Server-Timing"] == "existing;dur=5"
+
+
+@override_settings(CAPTURE_TIME_TO_SEE_DATA=True)
+def test_query_time_counting_middleware_preserves_request_identity() -> None:
+    from posthog.middleware import QueryTimeCountingMiddleware
+
+    request_id_timing = 'request_id;desc="01234567-89ab-4def-8123-456789abcdef"'
+    middleware = QueryTimeCountingMiddleware(
+        get_response=lambda request: HttpResponse(headers={"Server-Timing": request_id_timing})
+    )
+    response = middleware(RequestFactory().get("/api/projects/@current/insights/"))
+
+    assert response["Server-Timing"].startswith(f"{request_id_timing}, django;dur=")
 
 
 def test_query_time_counting_middleware_emits_durations_in_milliseconds() -> None:

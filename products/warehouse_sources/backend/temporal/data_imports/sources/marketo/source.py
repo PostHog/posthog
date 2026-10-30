@@ -80,7 +80,7 @@ class MarketoSource(ResumableSource[MarketoSourceConfig, MarketoResumeConfig]):
 
 In Marketo, open **Admin → Web Services** for your Munchkin account ID, then **Admin → LaunchPoint** to create a custom service and copy its client ID and secret. The service's API role needs read access to leads, activities, campaigns, and assets.
 
-Leads and activities come through Marketo's Bulk Extract API, so the first sync backfills from the start date you set below.""",
+Leads, activities, and program members backfill from the start date you set below on the first sync.""",
             iconPath="/static/services/marketo.png",
             docsUrl="https://posthog.com/docs/cdp/sources/marketo",
             releaseStatus=ReleaseStatus.BETA,
@@ -114,6 +114,7 @@ Leads and activities come through Marketo's Bulk Extract API, so the first sync 
                     ),
                     SourceFieldInputConfig(
                         name="start_date",
+                        sync_setting=True,
                         label="Start date",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,

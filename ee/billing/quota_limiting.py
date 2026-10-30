@@ -1,8 +1,9 @@
 import copy
 import json
-from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterable, Iterator, Mapping, Sequence
 from datetime import datetime, timedelta
 from enum import Enum
+from functools import lru_cache, partial
 from itertools import batched, groupby
 from time import time
 from typing import Any, Optional, TypedDict, cast
@@ -31,12 +32,16 @@ from posthog.tasks.usage_report import (
     combine_posthog_code_credits,
     convert_team_usage_rows_to_dict,
     get_self_driving_credits_used_in_period_for_org,
+    get_self_driving_credits_used_in_period_for_orgs,
     get_signals_credited_refund_credits_for_org,
     get_teams_with_api_queries_metrics,
+    get_teams_with_apm_tracing_usage_in_period,
     iter_billable_teams,
 )
 from posthog.usage_counters import UsageCounter, UsageCounterService, log_usage_counter_comparisons
 from posthog.utils import get_current_day
+
+from products.ai_observability.backend.offline_evaluation_billing import get_offline_evaluation_usage
 
 from ee.billing.quota_usage import QuotaUsageBatch, retry_quota_database_operation
 
@@ -86,6 +91,7 @@ class QuotaResource(Enum):
     WORKFLOW_EMAILS = "workflow_emails"
     WORKFLOW_PUSH = "workflow_push"
     WORKFLOW_DESTINATIONS = "workflow_destinations_dispatched"
+    # Covers logs and traces together: they are one product with one free tier and one price.
     LOGS_MB_INGESTED = "logs_mb_ingested"
     REPLAY_VISION_CREDITS = "replay_vision_credits"
 
@@ -429,6 +435,11 @@ def _signals_credited_refund_offset(organization: Organization, resource: QuotaR
     return get_signals_credited_refund_credits_for_org(organization.id, period_start, period_end)
 
 
+@lru_cache(maxsize=8192)
+def _period_timestamp(value: str) -> int:
+    return round(dateutil.parser.isoparse(value).timestamp())
+
+
 def org_quota_limited_until(
     organization: Organization,
     resource: QuotaResource,
@@ -512,8 +523,8 @@ def org_quota_limited_until(
     refund_offset_properties = {"signals_refund_offset": refund_offset} if refund_offset else {}
 
     is_over_limit = current_usage - refund_offset >= limit + OVERAGE_BUFFER[resource]
-    billing_period_start = round(dateutil.parser.isoparse(organization.usage["period"][0]).timestamp())
-    billing_period_end = round(dateutil.parser.isoparse(organization.usage["period"][1]).timestamp())
+    billing_period_start = _period_timestamp(organization.usage["period"][0])
+    billing_period_end = _period_timestamp(organization.usage["period"][1])
 
     # - customer_trust_scores can be empty {} for orgs not yet synced from billing. Default to 0 (no grace period)
     # - customer_trust_scores in posthog_organization use usage_key values (matching QuotaResource values)
@@ -1152,6 +1163,10 @@ def _identify_refresh_candidates(
          `quota_limiting_suspended_until` marker;
       3. it appears newly limitable from cached state — `usage + todays_usage >= limit + buffer`
          for any resource.
+
+    A resource with a zero limit and no overage buffer never makes an org a candidate. That
+    limit blocks the resource at any usage, so the cached state gives the same decision.
+    Signals credits are the exception, because a refund offset can lift a signals block.
     """
     # Either Redis set is reason enough to refresh, so union them once up front and
     # do a single membership check per resource below.
@@ -1173,6 +1188,10 @@ def _identify_refresh_candidates(
 
         for resource in QuotaResource:
             field = resource.value
+            usage_for_resource = org.usage.get(field)
+            limit = usage_for_resource.get("limit") if usage_for_resource else None
+            if limit == 0 and OVERAGE_BUFFER[resource] == 0 and resource != QuotaResource.SIGNALS_CREDITS:
+                continue
 
             # Redis check first: an org with a stale entry in either Redis set must be
             # refreshed and re-evaluated even when its `usage[resource]` is empty or
@@ -1182,7 +1201,6 @@ def _identify_refresh_candidates(
                 is_candidate = True
                 break
 
-            usage_for_resource = org.usage.get(field)
             if not usage_for_resource:
                 continue
 
@@ -1192,7 +1210,6 @@ def _identify_refresh_candidates(
                 is_candidate = True
                 break
 
-            limit = usage_for_resource.get("limit")
             if limit is None:
                 continue
             usage_value = usage_for_resource.get("usage") or 0
@@ -1230,7 +1247,13 @@ class _QuotaUsageReports:
     team_tokens: dict[str, list[str]]
 
 
-def _aggregate_quota_usage(teams: Sequence[Team], all_data: dict[str, dict[int, int]]) -> _QuotaUsageReports:
+def _aggregate_quota_usage(
+    teams: Sequence[Team],
+    all_data: dict[str, dict[int, int]],
+    *,
+    offline_usage: dict[str, dict[int, int]] | None = None,
+    organizations: Sequence[Organization] = (),
+) -> _QuotaUsageReports:
     todays_usage_report: dict[str, UsageCounters] = {}
     orgs_by_id: dict[str, Organization] = {}
     teams_by_org: dict[str, list[str]] = {}
@@ -1283,7 +1306,36 @@ def _aggregate_quota_usage(teams: Sequence[Team], all_data: dict[str, dict[int, 
         if team.api_token:
             teams_by_org.setdefault(org_id, []).append(team.api_token)
 
+    for organization in organizations:
+        org_id = str(organization.id)
+        orgs_by_id.setdefault(org_id, organization)
+        todays_usage_report.setdefault(org_id, cast(UsageCounters, dict.fromkeys(UsageCounters.__annotations__, 0)))
+    for org_id, report in todays_usage_report.items():
+        report["llm_events"] += sum((offline_usage or {}).get(org_id, {}).values())
     return _QuotaUsageReports(usage=todays_usage_report, organizations=orgs_by_id, team_tokens=teams_by_org)
+
+
+def _iter_quota_organizations(
+    teams: Iterable[Team], offline_usage: dict[str, dict[int, int]]
+) -> Iterator[tuple[Organization, list[Team]]]:
+    seen: set[str] = set()
+    for organization_id, group in groupby(teams, key=lambda team: team.organization_id):
+        org_teams = list(group)
+        seen.add(str(organization_id))
+        yield org_teams[0].organization, org_teams
+    organizations = (
+        Organization.objects.filter(id__in=offline_usage.keys() - seen)
+        .only("id", "usage", "created_at", "never_drop_data", "customer_trust_scores", "customer_id")
+        .order_by("id")
+    )
+    # Buffer each page because quota updates close database connections between batches.
+    page = organizations
+    while batch := list(page[:QUOTA_ORGANIZATION_BATCH_SIZE]):
+        for organization in batch:
+            yield organization, []
+        if len(batch) < QUOTA_ORGANIZATION_BATCH_SIZE:
+            return
+        page = organizations.filter(id__gt=batch[-1].id)
 
 
 def update_all_orgs_billing_quotas(
@@ -1330,6 +1382,9 @@ def update_all_orgs_billing_quotas(
     tag_queries(product=Product.BILLING, feature=Feature.QUOTA_LIMITING)
     logger.info("quota_limiting_run", phase="queries", status="start")
     queries_start = time()
+    offline_usage = _timed_query(
+        "offline_evaluation_usage", get_offline_evaluation_usage, period.start, period.start + timedelta(days=1)
+    )
     counter_report = _timed_query("usage_counters", service.fetch_report, period, plan=plan)
     log_usage_counter_comparisons(counter_report, caller="quota_limiting", date=period.start.date().isoformat())
 
@@ -1338,6 +1393,10 @@ def update_all_orgs_billing_quotas(
     )
     token_credits = dict(counter_report.counts[UsageCounter.POSTHOG_CODE_CREDITS])
     compute_credits = dict(counter_report.counts[UsageCounter.SANDBOX_COMPUTE_CREDITS])
+    logs_bytes = dict(counter_report.counts[UsageCounter.LOGS_BYTES])
+    apm_tracing_bytes = convert_team_usage_rows_to_dict(
+        _timed_query("apm_tracing_usage", get_teams_with_apm_tracing_usage_in_period, period.start, period.end)["bytes"]
+    )
 
     # Clickhouse is good at counting things so we count across all teams rather than doing it one by one
     all_data = {
@@ -1374,9 +1433,11 @@ def update_all_orgs_billing_quotas(
         "teams_with_replay_vision_credits_used_in_period": dict(
             counter_report.counts[UsageCounter.REPLAY_VISION_CREDITS]
         ),
+        # Logs and traces share one bucket, so a team that stays under the limit on each signal alone
+        # but exceeds it combined has to be limited on both.
         "teams_with_logs_mb_in_period": {
-            team_id: int(bytes_val // 1_000_000)
-            for team_id, bytes_val in counter_report.counts[UsageCounter.LOGS_BYTES]
+            team_id: int((logs_bytes.get(team_id, 0) + apm_tracing_bytes.get(team_id, 0)) // 1_000_000)
+            for team_id in logs_bytes.keys() | apm_tracing_bytes.keys()
         },
     }
 
@@ -1446,12 +1507,14 @@ def update_all_orgs_billing_quotas(
             quota_limiting_suspended_orgs[resource.value].pop(org_id, None)
 
     # The shared iterator keeps an organization's teams contiguous, including across read pages.
-    organization_teams = (list(group) for _, group in groupby(teams_iterator, key=lambda team: team.organization_id))
+    organization_teams = _iter_quota_organizations(teams_iterator, offline_usage)
     for team_groups in batched(organization_teams, QUOTA_ORGANIZATION_BATCH_SIZE, strict=False):
         if not settings.TEST:
             close_old_connections()
-        teams = [team for group in team_groups for team in group]
-        reports = _aggregate_quota_usage(teams, all_data)
+        teams = [team for _, group in team_groups for team in group]
+        reports = _aggregate_quota_usage(
+            teams, all_data, offline_usage=offline_usage, organizations=[org for org, _ in team_groups]
+        )
         orgs_by_id = reports.organizations
         teams_by_org = reports.team_tokens
         candidates_start = time()
@@ -1475,12 +1538,31 @@ def update_all_orgs_billing_quotas(
                 .in_bulk
             ).values()
         }
+        signals_recount_ids = [
+            org_id
+            for org_id, fresh in fresh_orgs.items()
+            if (fresh.usage or {}).get(QuotaResource.SIGNALS_CREDITS.value)
+        ]
+        try:
+            signals_recounts = retry_quota_database_operation(
+                partial(get_self_driving_credits_used_in_period_for_orgs, signals_recount_ids, period.start, period.end)
+            )
+        except Exception as error:
+            if isinstance(error, (DatabaseError, InterfaceError)) and not settings.TEST:
+                close_old_connections()
+            capture_exception(error, {"organization_ids": signals_recount_ids})
+            # These organizations keep their existing limits. The loop still decides the rest of the chunk.
+            for org_id in signals_recount_ids:
+                discard_decision(org_id, teams_by_org.get(org_id, []))
+            signals_recounts = {}
         refresh_count += len(fresh_orgs)
         refresh_total_seconds += time() - refresh_start
         usage_batch = QuotaUsageBatch()
         for org_id, todays_report in reports.usage.items():
             org = orgs_by_id[org_id]
             try:
+                if org_id in failed_org_ids:
+                    continue
                 if org.usage and org.usage.get("period"):
                     if org_id in refresh_candidates:
                         fresh = fresh_orgs.get(org_id)
@@ -1493,9 +1575,7 @@ def update_all_orgs_billing_quotas(
                         usage_batch.require_unchanged_usage(org, fresh.usage_md5)
                         if (org.usage or {}).get(QuotaResource.SIGNALS_CREDITS.value):
                             # Push refreshes can raise signals usage after the source snapshot. Recount before writing it.
-                            todays_report["signals_credits"] = get_self_driving_credits_used_in_period_for_org(
-                                org_id, period.start, period.end
-                            )
+                            todays_report["signals_credits"] = signals_recounts.get(org_id, 0)
                     _patch_todays_usage(org, todays_report, batch=usage_batch)
                     org_is_limited = org_is_suspended = False
                     for resource in QuotaResource:

@@ -2,7 +2,6 @@ import { IconInfo } from '@posthog/icons'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { BreakdownTag } from 'scenes/insights/filters/BreakdownFilter/BreakdownTag'
 
 import { ExperimentFunnelMetric, ExperimentMetric } from '~/queries/schema/schema-general'
 import { isExperimentFunnelMetric } from '~/queries/schema/schema-general'
@@ -10,6 +9,7 @@ import { BreakdownAttributionType, StepOrderValue } from '~/types'
 
 import { MetricBreakdownAttribution } from './MetricBreakdownAttribution'
 import { MetricBreakdownLimit } from './MetricBreakdownLimit'
+import { MetricBreakdownTag } from './MetricBreakdownTag'
 
 /**
  * Renders the metric's breakdown chips on the left, then (behind the
@@ -44,15 +44,10 @@ export function MetricBreakdowns({
 
     return (
         <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1 text-xs text-muted">
+                <span>Breakdown by</span>
                 {metric.breakdownFilter?.breakdowns?.map((breakdown, index) => (
-                    <BreakdownTag
-                        key={index}
-                        breakdown={breakdown.property}
-                        breakdownType={breakdown.type || 'event'}
-                        onClose={() => onRemoveBreakdown(index)}
-                        size="small"
-                    />
+                    <MetricBreakdownTag key={index} breakdown={breakdown} onRemove={() => onRemoveBreakdown(index)} />
                 ))}
             </div>
             {showAttribution && (

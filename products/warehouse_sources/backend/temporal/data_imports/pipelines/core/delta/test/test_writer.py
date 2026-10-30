@@ -31,6 +31,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.con
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.deltalite_handles import (
     DeltaLiteHandleCache,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
+    TransientObjectStoreError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.maintenance import DeltaMaintenance
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.memory_governor import (
     GovernorConfig,
@@ -39,6 +42,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.ops import (
     DELTA_TABLE_PROPERTIES,
+    ObjectStorePermissionDeniedError,
     ensure_table_properties,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.rss_sampler import RssPeakSampler
@@ -57,6 +61,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
     _deltalite_write_stats,
     _merge_predicate_ops,
     commit_covers_batch,
+    dedupe_incremental_batch,
 )
 
 _REPARTITION_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition"
@@ -187,6 +192,39 @@ class TestHasCommitWithMetadata:
 
         mock_delta.history.assert_called_once_with(limit=123)
 
+    @parameterized.expand(
+        [
+            (
+                # A bare transient OSError/DeltaError from `history()` must not reach the caller
+                # unclassified: idempotency.py's `is_batch_already_processed` only skips
+                # `capture_exception` for a `NonReportableError`, so an unwrapped blip here mints a
+                # fresh error-tracking issue per retry.
+                "transient_connection_timeout",
+                OSError("Connection timed out (os error 110)"),
+                TransientObjectStoreError,
+            ),
+            (
+                # The transient matcher's "Generic S3 error" needle also prefixes a permanent
+                # privilege refusal - checking it before the permission-denied check would wrap a
+                # reportable bug as a silently-retried blip instead.
+                "permission_denied_prefixed_like_a_generic_s3_error",
+                OSError("Generic S3 error: The operation lacked the necessary privileges to complete"),
+                ObjectStorePermissionDeniedError,
+            ),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_history_read_error_is_classified_not_raised_raw(
+        self, _name: str, error: OSError, expected_type: type[Exception]
+    ):
+        writer = _make_writer()
+        mock_delta = MagicMock()
+        mock_delta.history = MagicMock(side_effect=error)
+
+        with patch.object(writer._table, "get_delta_table", AsyncMock(return_value=mock_delta)):
+            with pytest.raises(expected_type):
+                await writer.has_commit_with_metadata({"k": "v"})
+
 
 class TestHasBatchBeenCommitted:
     @parameterized.expand(
@@ -232,6 +270,34 @@ class TestHasBatchBeenCommitted:
         with patch.object(writer._table, "get_delta_table", AsyncMock(return_value=table)):
             assert await writer.has_batch_been_committed("run-1", 5) is expected
         assert table.history.call_count <= 3
+
+    @pytest.mark.asyncio
+    async def test_transient_history_read_error_is_wrapped_not_raised_raw(self):
+        # Same guard as has_commit_with_metadata's equivalent test: this is the exact call path the
+        # idempotency crash-recovery check (`is_batch_already_processed`) drives on a Redis miss, so a
+        # raw transient blip here reaches error tracking as a bug instead of being retried silently.
+        writer = _make_writer()
+        table = MagicMock()
+        table.history = MagicMock(side_effect=OSError("Connection timed out (os error 110)"))
+
+        with patch.object(writer._table, "get_delta_table", AsyncMock(return_value=table)):
+            with pytest.raises(TransientObjectStoreError):
+                await writer.has_batch_been_committed("run-1", 5)
+
+    @pytest.mark.asyncio
+    async def test_permission_denied_history_read_error_is_not_classified_as_transient(self):
+        # Same ordering guard as has_commit_with_metadata's equivalent case: a permanent privilege
+        # refusal happens to share the "Generic S3 error" prefix the transient matcher accepts, so the
+        # permission check must run first or this becomes a silently-retried blip.
+        writer = _make_writer()
+        table = MagicMock()
+        table.history = MagicMock(
+            side_effect=OSError("Generic S3 error: The operation lacked the necessary privileges to complete")
+        )
+
+        with patch.object(writer._table, "get_delta_table", AsyncMock(return_value=table)):
+            with pytest.raises(ObjectStorePermissionDeniedError):
+                await writer.has_batch_been_committed("run-1", 5)
 
 
 class TestWriteToDeltalakeCommitMetadataPassThrough:
@@ -755,17 +821,83 @@ class TestIncrementalBatchDeduplication:
 
     @parameterized.expand(
         [
-            ("keep_first", "first", ["a1", "b1"]),
-            ("keep_last", "last", ["a2", "b1"]),
+            ("unique_key", [{"id": [1, 2, 3], "k2": ["a", "a", "a"]}], ["id"], "last", [0, 1, 2]),
+            ("unique_composite_key", [{"id": [1, 1, 2], "k2": ["a", "b", "a"]}], ["id", "k2"], "last", [0, 1, 2]),
+            (
+                "unique_across_chunks",
+                [{"id": [1, 2], "k2": ["a", "a"]}, {"id": [3], "k2": ["a"]}],
+                ["id"],
+                "last",
+                [0, 1, 2],
+            ),
+            ("null_in_one_composite_part", [{"id": [1, 1], "k2": [None, "a"]}], ["id", "k2"], "last", [0, 1]),
+            ("repeated_key_keeps_last", [{"id": [1, 2, 1, 3], "k2": ["a", "a", "a", "a"]}], ["id"], "last", [1, 2, 3]),
+            (
+                "repeated_key_keeps_first",
+                [{"id": [1, 2, 1, 3], "k2": ["a", "a", "a", "a"]}],
+                ["id"],
+                "first",
+                [0, 1, 3],
+            ),
+            ("repeated_composite_key", [{"id": [1, 1, 1], "k2": ["a", "b", "a"]}], ["id", "k2"], "last", [1, 2]),
+            (
+                "repeated_across_chunks",
+                [{"id": [1, 2], "k2": ["a", "a"]}, {"id": [2, 3], "k2": ["a", "a"]}],
+                ["id"],
+                "last",
+                [0, 2, 3],
+            ),
+            ("null_keys_are_one_key", [{"id": [None, 1, None], "k2": ["a", "a", "a"]}], ["id"], "last", [1, 2]),
         ]
     )
-    def test_first_per_pk_table_keep_modes(self, _name, keep, expected_names):
-        table = pa.table({"id": [1, 1, 2], "name": ["a1", "a2", "b1"]})
+    def test_first_per_pk_table(
+        self,
+        _name: str,
+        chunks: list[dict[str, list[Any]]],
+        keys: list[str],
+        keep: Literal["first", "last"],
+        kept_positions: list[int],
+    ) -> None:
+        table = pa.concat_tables(
+            [pa.table({**chunk, "pos": range(offset, offset + len(chunk["id"]))}) for offset, chunk in _offsets(chunks)]
+        )
 
-        result = first_per_pk_table(table, ["id"], keep=keep).sort_by("id")
+        result = first_per_pk_table(table, keys, keep=keep)
 
-        assert result.column("id").to_pylist() == [1, 2]
-        assert result.column("name").to_pylist() == expected_names
+        assert result.column("pos").to_pylist() == kept_positions
+        # A batch without a repeated key must come back as it is, not as a copy of every row.
+        assert (result is table) == (len(kept_positions) == table.num_rows)
+
+    @parameterized.expand([("unique_keys", 0), ("one_repeated_key", 1)])
+    def test_dedupe_holds_a_second_copy_only_when_a_key_repeats(self, _name: str, repeats: int) -> None:
+        ids = list(range(2_000)) + list(range(repeats))
+        table = pa.table({"id": ids, "payload": [f"{i:0>200}" for i in range(len(ids))]})
+        before = pa.total_allocated_bytes()
+
+        result = first_per_pk_table(table, ["id"], keep="last")
+
+        copied = pa.total_allocated_bytes() - before
+        assert result.num_rows == 2_000
+        if repeats:
+            assert copied > table.nbytes // 2
+        else:
+            assert copied < table.nbytes // 10
+
+    @parameterized.expand(
+        [
+            ("one_partition", ["p0", "p0", "p0", "p0"]),
+            ("key_moves_partition", ["p0", "p1", "p0", "p1"]),
+            ("every_row_own_partition", ["p0", "p1", "p2", "p3"]),
+        ]
+    )
+    def test_partition_keyed_pass_keeps_the_rows_of_a_key_only_pass(self, _name: str, partitions: list[str]) -> None:
+        table = pa.table({"id": [1, 1, 2, 1], PARTITION_KEY: partitions, "pos": [0, 1, 2, 3]})
+
+        key_only, _ = dedupe_incremental_batch(table, ["id"], use_partitioning=False)
+        partition_keyed, _ = dedupe_incremental_batch(table, ["id"], use_partitioning=True)
+        both, _ = dedupe_incremental_batch(partition_keyed, ["id"], use_partitioning=False)
+
+        assert both.column("pos").to_pylist() == key_only.column("pos").to_pylist() == [2, 3]
 
     @pytest.mark.asyncio
     async def test_incremental_merge_dedupes_duplicate_source_rows(self, tmp_path: Path) -> None:
@@ -806,6 +938,15 @@ class TestIncrementalBatchDeduplication:
         final = result.to_pyarrow_table()
         assert final.column("id").to_pylist() == [1]
         assert final.column("name").to_pylist() == ["second_copy"]
+
+
+def _offsets(chunks: list[dict[str, list[Any]]]) -> list[tuple[int, dict[str, list[Any]]]]:
+    offsets: list[tuple[int, dict[str, list[Any]]]] = []
+    start = 0
+    for chunk in chunks:
+        offsets.append((start, chunk))
+        start += len(chunk["id"])
+    return offsets
 
 
 def _commit_operations(delta_path: str) -> list[str]:
@@ -1448,6 +1589,8 @@ class TestDeltaliteWritePath:
         assert log_kwargs["governor_max_row_group_mb"] == round(partition_a_bytes / (1024 * 1024), 1)
         assert log_kwargs["governor_reader_mb"] is not None and log_kwargs["governor_writer_mb"] is not None
         assert log_kwargs["governor_reserved_slots"] is not None and log_kwargs["governor_wait_ms"] == 0
+        # (1, 8) is already the widest plan here, so nothing is borrowed.
+        assert (log_kwargs["governor_borrow_mpp"], log_kwargs["governor_borrow_applied"]) == (None, False)
         # The measured peak sits next to the prediction, with the concurrency to filter solo runs.
         assert (log_kwargs["governor_peak_rss_mb"], log_kwargs["governor_rss_delta_mb"]) == (650.0, 150.0)
         assert log_kwargs["governor_concurrent_upserts"] == log_kwargs["governor_max_concurrent_upserts"] == 1

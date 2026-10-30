@@ -1064,3 +1064,173 @@ class TestOverSlotReservation:
         assert adm.upsert_kwargs == {} and adm.reserved_slots == 4.0
         assert (gov._reserved_mb, gov._inflight, fake.sleeps) == (0.0, 0, 0)
         await self._exit(cm)
+
+
+class TestBorrowIdleMemory:
+    # 16 slices of 500 MB. Wide-row merges: 8 partitions of 33 MB files under a 250 MB source, so the
+    # slice-sized plan is (1, 1) at 748.9 MB, above the slice. 4 slices fit (4, 4) at 1504.5 MB.
+    _WIDE_ROWS = _profile(*([[33.0] * 8] * 8), target_mb=32.0, columns=30)
+    _SOURCE = 250 * MB
+    _SLICE_PLAN_MB = 748.9
+
+    @staticmethod
+    def _gov(
+        mode: str = "enforce",
+        borrow_mode: str = "enforce",
+        *,
+        limit_mb: float = 8_000.0,
+        max_concurrent: int = 16,
+        clock=None,
+        sleep=None,
+        **cfg,
+    ) -> MemoryGovernor:
+        config = GovernorConfig(
+            **{
+                "mode": mode,
+                "borrow_mode": borrow_mode,
+                "safety": 1.0,
+                "reserve_mb": 0.0,
+                "max_concurrent": max_concurrent,
+                "probe_cache_mb": 0.0,
+                "rss_sample_ms": 0.0,
+                **cfg,
+            }
+        )
+        timing = {k: v for k, v in (("clock", clock), ("sleep", sleep)) if v is not None}
+        return MemoryGovernor(config, _FakePod(limit_mb, 1_000.0), **timing)
+
+    @parameterized.expand(
+        [
+            ("idle_pod_borrows_up_to_k_slices", {}, 0, _WIDE_ROWS, (4, 4)),
+            ("k_caps_the_borrow", {"borrow_max_slices": 2.0}, 0, _WIDE_ROWS, (1, 2)),
+            ("half_of_free_memory_caps_the_borrow", {}, 10, _WIDE_ROWS, (3, 5)),
+            ("busy_pod_borrows_nothing", {}, 13, _WIDE_ROWS, None),
+            ("probe_cache_is_not_borrowed", {"probe_cache_mb": 1_000.0}, 10, _WIDE_ROWS, (1, 2)),
+            ("pod_reserve_is_not_borrowed", {"limit_mb": 10_000.0, "reserve_mb": 2_000.0}, 10, _WIDE_ROWS, (3, 5)),
+            ("safety_margin_is_not_borrowed", {"limit_mb": 10_000.0, "safety": 0.8}, 10, _WIDE_ROWS, (3, 5)),
+            ("widest_slice_plan_borrows_nothing", {"limit_mb": 30_000.0}, 0, _SMALL, None),
+            ("unknown_shape_borrows_nothing", {}, 0, None, None),
+        ]
+    )
+    async def test_borrow(self, _name, cfg, reserved_slices, rewrite, expected):
+        gov = self._gov(**cfg)
+        budget_mb = gov.slot_budget_mb()
+        assert budget_mb is not None
+        usable_mb = budget_mb * 16
+        gov._reserved_mb = reserved_slices * budget_mb
+        free_mb = usable_mb - gov._reserved_mb - gov.config.probe_cache_mb
+        async with gov.admit(source_bytes=self._SOURCE, rewrite=rewrite) as adm:
+            reserved_mb = gov._reserved_mb - reserved_slices * budget_mb
+            knobs = (adm.upsert_kwargs["max_parallel_partitions"], adm.upsert_kwargs["max_parallel_files"])
+            if expected is None:
+                assert (adm.borrow_mpp, adm.borrow_slots, adm.borrow_applied) == (None, None, False)
+                assert reserved_mb == pytest.approx(adm.predicted_peak_mb)
+            else:
+                assert (adm.borrow_mpp, adm.borrow_mpf) == knobs == expected
+                assert adm.borrow_applied is True and adm.capacity_exceeded is True
+                assert reserved_mb == pytest.approx(adm.predicted_peak_mb)
+                assert reserved_mb <= free_mb / 2 and reserved_mb <= gov.config.borrow_max_slices * budget_mb
+                assert adm.reserved_slots == adm.borrow_slots == round(reserved_mb / budget_mb, 2)
+        assert gov._reserved_mb == pytest.approx(reserved_slices * budget_mb)
+
+    @parameterized.expand(
+        [
+            ("borrow_off", "enforce", "off", (1, 1), None, _SLICE_PLAN_MB),
+            ("borrow_advisory_keeps_the_slice_plan", "enforce", "advisory", (1, 1), (4, 4), _SLICE_PLAN_MB),
+            ("borrow_enforce_widens_the_plan", "enforce", "enforce", (4, 4), (4, 4), 1_504.5),
+            ("governor_advisory_never_applies_a_borrow", "advisory", "enforce", None, (4, 4), 0.0),
+        ]
+    )
+    async def test_modes(self, _name, mode, borrow_mode, expected_knobs, expected_borrow, expected_reserved_mb):
+        gov = self._gov(mode, borrow_mode)
+        async with gov.admit(source_bytes=self._SOURCE, rewrite=self._WIDE_ROWS) as adm:
+            knobs = (
+                (adm.upsert_kwargs["max_parallel_partitions"], adm.upsert_kwargs["max_parallel_files"])
+                if adm.upsert_kwargs
+                else None
+            )
+            assert knobs == expected_knobs
+            assert (adm.borrow_mpp, adm.borrow_mpf) == (expected_borrow or (None, None))
+            assert adm.borrow_applied is (expected_knobs == expected_borrow)
+            assert gov._reserved_mb == pytest.approx(expected_reserved_mb)
+            if expected_knobs is not None:
+                assert (adm.planned_mpp, adm.planned_mpf) == expected_knobs
+        assert gov._reserved_mb == 0.0 and gov._inflight == 0
+
+    async def test_the_next_upsert_finds_room_without_a_wait(self):
+        async def _no_sleep(_seconds: float) -> None:
+            raise AssertionError("the upsert after a borrower must not wait")
+
+        # 4 slices: the first borrower may take only half of the 2000 MB pod.
+        gov = self._gov(limit_mb=2_000.0, max_concurrent=4, sleep=_no_sleep)
+        async with gov.admit(source_bytes=self._SOURCE, rewrite=self._WIDE_ROWS) as first:
+            assert first.borrow_applied is True and (first.planned_mpp, first.planned_mpf) == (1, 2)
+            assert first.predicted_peak_mb is not None and first.predicted_peak_mb <= 1_000.0
+            async with gov.admit(source_bytes=self._SOURCE, rewrite=self._WIDE_ROWS) as second:
+                assert second.borrow_applied is False and second.wait_ms == 0
+                assert (second.planned_mpp, second.planned_mpf) == (1, 1)
+                assert gov._reserved_mb == pytest.approx(first.predicted_peak_mb + self._SLICE_PLAN_MB)
+        assert gov._reserved_mb == pytest.approx(0.0)
+
+    async def test_a_borrower_never_overtakes_a_waiter(self):
+        fake = _FakeTime()
+        gov = self._gov(clock=fake.clock, sleep=fake.sleep)
+        held = gov.admit(source_bytes=50 * MB, rewrite=_SMALL)
+        await held.__aenter__()
+        # Even (1, 1) of 16 GB files is above the pod, so it waits for the pod to empty.
+        pod_sized = gov.admit(source_bytes=50 * MB, rewrite=_profile([16_384.0] * 4))
+        waiter = asyncio.create_task(pod_sized.__aenter__())
+        await _settle()
+        borrower_cm = gov.admit(source_bytes=self._SOURCE, rewrite=self._WIDE_ROWS)
+        borrower = asyncio.create_task(borrower_cm.__aenter__())
+        await _settle()
+        assert not waiter.done() and not borrower.done()
+
+        await held.__aexit__(None, None, None)
+        await _settle()
+        assert waiter.done() and not borrower.done()
+        await pod_sized.__aexit__(None, None, None)
+        await _settle()
+        adm = borrower.result()
+        assert adm.borrow_applied is False and (adm.planned_mpp, adm.planned_mpf) == (1, 1)
+        await borrower_cm.__aexit__(None, None, None)
+        assert gov._reserved_mb == 0.0 and gov._inflight == 0
+
+
+class TestBorrowConfigFromEnv:
+    @parameterized.expand(
+        [
+            ("defaults", {}, {}, ("advisory", 4.0, 128.0)),
+            (
+                "settings_and_cache_size",
+                {
+                    "DATA_WAREHOUSE_DELTALITE_GOVERNOR_BORROW": "ENFORCE",
+                    "DATA_WAREHOUSE_DELTALITE_GOVERNOR_BORROW_MAX_SLICES": 2.5,
+                },
+                {"DELTALITE_PROBE_CACHE_BYTES": str(256 * MB)},
+                ("enforce", 2.5, 256.0),
+            ),
+            (
+                "invalid_mode_is_advisory",
+                {"DATA_WAREHOUSE_DELTALITE_GOVERNOR_BORROW": "nonsense"},
+                {},
+                ("advisory", 4.0, 128.0),
+            ),
+            (
+                "at_least_one_slice",
+                {"DATA_WAREHOUSE_DELTALITE_GOVERNOR_BORROW_MAX_SLICES": 0.0},
+                {},
+                ("advisory", 1.0, 128.0),
+            ),
+            (
+                "cache_turned_off_holds_nothing",
+                {"DATA_WAREHOUSE_DELTALITE_PROBE_CACHE": False},
+                {},
+                ("advisory", 4.0, 0.0),
+            ),
+        ]
+    )
+    def test_reads_borrow_settings(self, _name, overrides, env, expected):
+        with patch.dict("os.environ", env, clear=True), override_settings(**overrides):
+            cfg = GovernorConfig.from_env()
+        assert (cfg.borrow_mode, cfg.borrow_max_slices, cfg.probe_cache_mb) == expected

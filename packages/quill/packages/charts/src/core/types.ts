@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 
 import type { LegendItem } from '../components/Legend/Legend'
 import type { LegendItemControls } from '../components/Legend/useChartLegend'
+import type { DefaultTooltipProps } from '../overlays/DefaultTooltip'
 
 /** Visual theme colours consumed by chart rendering. */
 export interface ChartTheme {
@@ -62,8 +63,9 @@ export interface Series<Meta = unknown> {
     /** Bar charts only: per-bar ceiling (in value-axis units) of the bar's interactive extent. The
      *  region beyond the ceiling is a blank, fully inert gap — no hover, tooltip, highlight, or
      *  click (`onPointClick` passes through). On grouped charts with `bars.track`, the hatched
-     *  "share of a whole" track also fills only up to `trackData[i]` instead of the whole axis; on
-     *  stacked charts no track is drawn — the ceiling only bounds interactivity. Used by funnel
+     *  "share of a whole" track also fills only up to `trackData[i]` instead of the whole axis. With
+     *  `bars.track: 'solid'`, the band's track stops at its largest ceiling. On stacked charts
+     *  without a solid track, the ceiling only bounds interactivity. Used by funnel
      *  compare to show a shorter period's volume gap as empty space rather than drop-off. Omit (or
      *  leave an entry undefined) for the default full-axis extent. */
     trackData?: number[]
@@ -290,8 +292,7 @@ export interface ChartConfig {
     /** Fade-in the hover overlay when the hovered point changes. `true` = ~150ms. */
     animateHover?: boolean | number
     /** Per-side overrides applied on top of the computed chart margins. Useful for sparklines
-     *  that want the plot area flush with the canvas edges (e.g. `{ left: 0, right: 0, top: 0, bottom: 0 }`).
-     *  Should be referentially stable — pass a module-level constant rather than an inline object. */
+     *  that want the plot area flush with the canvas edges (e.g. `{ left: 0, right: 0, top: 0, bottom: 0 }`). */
     margins?: Partial<ChartMargins>
     /** Max pixel width for category (band) tick labels before they're truncated with an ellipsis,
      *  with the full value revealed on hover. Also clamps the axis margin to this width so a long
@@ -376,7 +377,7 @@ export interface ChartLegendConfig {
     renderItem?: (defaultNode: ReactNode, item: LegendItem, controls: LegendItemControls) => ReactNode
 }
 
-export interface TooltipConfig {
+export interface TooltipConfig extends Pick<DefaultTooltipProps, 'labelRenderer' | 'showHeader' | 'hideZeroRows'> {
     /** Show a tooltip on hover. Defaults to true. */
     enabled?: boolean
     /** When true, clicking a data point with multiple series pins the tooltip in place. */
@@ -443,7 +444,8 @@ export interface BarsConfig {
      *  highlights the track region on hover; pass `{ hover: false }` to draw the track
      *  but leave it inert (no highlight when the cursor is over the empty remainder).
      *  `'solid'` draws one neutral track per band instead, in `theme.gridColor`, behind every bar
-     *  in the band. It works on every layout, ignores `trackData`, and has no hover highlight. */
+     *  in the band. It works on every layout, stops at the largest `trackData` ceiling in the band,
+     *  and has no hover highlight. */
     track?: boolean | 'solid' | { hover?: boolean }
     /** Drop shadow under each bar so it reads as layered over a `track`. */
     shadow?: boolean | { color: string; blur: number; offsetX?: number; offsetY?: number }

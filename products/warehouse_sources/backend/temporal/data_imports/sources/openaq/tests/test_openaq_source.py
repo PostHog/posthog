@@ -29,6 +29,10 @@ class TestOpenAQSchemas:
             ("measurements", True, False),
             ("measurements_hourly", True, False),
             ("measurements_daily", True, False),
+            ("measurements_yearly", True, False),
+            ("location_latest", False, False),
+            ("location_flags", False, False),
+            ("sensor_flags", False, False),
             ("locations", False, True),
             ("parameters", False, True),
             ("sensors", False, True),
@@ -38,7 +42,7 @@ class TestOpenAQSchemas:
         self, endpoint: str, expected_incremental: bool, expected_default_sync: bool
     ) -> None:
         # Only the per-sensor measurement streams have a server-side datetime filter, so only they are
-        # incremental; and because they're request-heavy they must be off by default.
+        # incremental; and because fan-out tables are request-heavy they must be off by default.
         schema = {s.name: s for s in OpenAQSource().get_schemas(_config(), team_id=1)}[endpoint]
         assert schema.supports_incremental is expected_incremental
         assert schema.should_sync_default is expected_default_sync

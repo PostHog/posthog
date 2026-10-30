@@ -5,6 +5,8 @@ from products.posthog_ai.eval_harness.harness.requirements import SuiteKind
 from products.posthog_ai.eval_harness.offline_results import OfflineEvalSuite, OfflineScorer
 
 _SCORERS: dict[str, OfflineScorer] = {
+    "answer_table_queried": OfflineScorer(kind="boolean", version=UUID("01a16878-7805-7322-8f32-f1f5f8f36428")),
+    "answer_value_stated": OfflineScorer(kind="boolean", version=UUID("01a16878-7117-7e4a-b1d0-421050827937")),
     "canonical_metric_run": OfflineScorer(kind="boolean", version=UUID("01a15a27-fa96-71e0-b904-13f14079440e")),
     "deprecation_proposed": OfflineScorer(kind="boolean", version=UUID("01a15a28-7a51-7732-838a-34de17d02bbf")),
     "exit_code_zero": OfflineScorer(kind="boolean", version=UUID("01a15a28-3e1d-7d93-86bb-de7f4e4a5c63")),

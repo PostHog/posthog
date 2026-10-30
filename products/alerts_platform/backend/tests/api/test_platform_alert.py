@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID, uuid4
@@ -74,6 +75,10 @@ class TestPlatformAlertAPI(APIBaseTest):
                 state=PlatformAlert.State.FIRING,
                 firing_started_at=firing_started_at,
                 last_notified_at=firing_started_at,
+                labels={"service_name": "checkout"},
+            )
+            PlatformAlertConfiguration.objects.filter(id=configuration.id).update(
+                overflowed_groups=2, overflow_is_lower_bound=True
             )
         list_response = self.client.get(f"/api/projects/{self.team.id}/platform_alerts/")
 
@@ -81,6 +86,7 @@ class TestPlatformAlertAPI(APIBaseTest):
         results = list_response.json()["results"]
         assert [r["id"] for r in results] == [str(configuration.id)]
         assert results[0]["legacy_configuration_id"] == str(legacy_configuration_id)
+        assert (results[0]["overflowed_groups"], results[0]["overflow_is_lower_bound"]) == (2, True)
         assert results[0]["alerts"] == [
             {
                 "id": str(alert.id),
@@ -89,6 +95,7 @@ class TestPlatformAlertAPI(APIBaseTest):
                 "firing_started_at": "2026-09-16T10:00:00Z",
                 "last_notified_at": "2026-09-16T10:00:00Z",
                 "snooze_until": None,
+                "labels": {"service_name": "checkout"},
             }
         ]
 
@@ -276,6 +283,9 @@ class TestPlatformAlertAPI(APIBaseTest):
         configuration = self._create_configuration(self.team, "API errors", owner="platform")
         with team_scope(self.team.id):
             PlatformAlert.objects.create(team=self.team, configuration=configuration, state=PlatformAlert.State.FIRING)
+            PlatformAlertConfiguration.objects.filter(id=configuration.id).update(
+                overflowed_groups=4, overflow_is_lower_bound=True
+            )
             PlatformAlertThread.objects.create(
                 team=self.team,
                 configuration=configuration,
@@ -299,6 +309,7 @@ class TestPlatformAlertAPI(APIBaseTest):
             "on_overflow": "degrade_visible",
         }
         assert (body["name"], body["alerts"]) == ("API errors", [])
+        assert (body["overflowed_groups"], body["overflow_is_lower_bound"]) == (0, False)
         with team_scope(self.team.id):
             assert not PlatformAlertThread.objects.filter(configuration=configuration).exists()
 
@@ -351,18 +362,69 @@ class TestPlatformAlertAPI(APIBaseTest):
             ("grouping_without_mode", {"grouping": {"keys": ["service_name"]}}, "grouping__mode"),
             ("enabled_without_filters", {"source_config": {"filters": {}, "condition": CONDITION}}, "source_config"),
             ("grouped_by_an_attribute", {"grouping": {"mode": "by_result_labels", "keys": ["http.route"]}}, "grouping"),
+            ("reserved_label", {"labels": {"alertname": "Checkout"}}, "labels"),
+            ("unencodable_label_name", {"labels": {"te\ud800am": "checkout"}}, "labels"),
+            (
+                "annotation_on_an_unknown_label",
+                {"annotations": {"summary": "{{ $labels.service_name }} errors"}},
+                "annotations",
+            ),
         ]
     )
     def test_an_invalid_edit_names_the_field_and_changes_nothing(self, _name: str, body: dict, field: str) -> None:
         self._set_flag(True)
         configuration = self._create_configuration(self.team, "API errors", owner="platform")
 
-        response = self.client.patch(self._edit_url(configuration), body, format="json")
+        # `json.dumps` escapes a lone surrogate as a client does. The test client's encoder cannot send one.
+        response = self.client.patch(self._edit_url(configuration), json.dumps(body), content_type="application/json")
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json()["attr"] == field
         configuration.refresh_from_db()
         assert (configuration.source_config["condition"], configuration.grouping["mode"]) == (CONDITION, "single")
+        assert (configuration.labels, configuration.annotations) == ({}, {})
+
+    def test_labels_and_annotations_are_stored_and_read_back(self) -> None:
+        self._set_flag(True)
+        configuration = self._create_configuration(self.team, "API errors", owner="platform")
+        labels = {"team": "checkout", "severity": "critical"}
+        annotations = {
+            "summary": "Checkout errors for {{ $labels.service_name }} at {{ $value }}",
+            "runbook_url": "https://runbooks.example.com/{{ $labels.team }}",
+        }
+
+        response = self.client.patch(
+            self._edit_url(configuration),
+            {
+                "grouping": {"mode": "by_result_labels", "keys": ["service_name"]},
+                "labels": labels,
+                "annotations": annotations,
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        read = self.client.get(self._edit_url(configuration)).json()
+        assert (read["labels"], read["annotations"]) == (labels, annotations)
+
+        full_update = {
+            key: read[key]
+            for key in (
+                "source_kind",
+                "name",
+                "enabled",
+                "source_config",
+                "grouping",
+                "schedule_restriction",
+                "evaluation_periods",
+                "datapoints_to_alarm",
+                "cooldown_minutes",
+            )
+        }
+        response = self.client.put(self._edit_url(configuration), {**full_update, "name": "Renamed"}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert (response.json()["labels"], response.json()["annotations"]) == (labels, annotations)
 
     @parameterized.expand(
         [

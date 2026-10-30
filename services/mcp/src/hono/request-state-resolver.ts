@@ -1,10 +1,11 @@
+import type { StateLookupCache } from '@/lib/cache/StateLookupCache'
 import { MCPClientProfile } from '@/lib/client-detection'
 import { isCloudApi, isLocalApi, MCP_GATEWAY_FLAG } from '@/lib/constants'
 import { env } from '@/lib/env'
 import { McpSessionResetRequiredError } from '@/lib/errors'
 import { EVENT_SOURCE, resolveEventSource } from '@/lib/event-source'
 import { MCP_NO_DATA_INSTALL_NOTICE_FLAG, type NoDataAction } from '@/lib/no-data-guard'
-import { buildMCPAnalyticsGroups } from '@/lib/posthog/analytics'
+import { buildMCPAnalyticsGroups, type MCPAnalyticsContext } from '@/lib/posthog/analytics'
 import {
     type EvaluatedFlags,
     evaluateFeatureFlags,
@@ -28,6 +29,7 @@ import type { Context, Env, PinnedActiveContext, Tool, ZodObjectAny } from '@/to
 import { McpSessionRedisStore } from './cache/McpSessionRedisStore'
 import type { RedisLike } from './cache/RedisCache'
 import { MCP_EXEC_SKILLS_FEATURE_FLAG } from './constants'
+import { GUIDANCE_RULE_FLAGS } from './guidance/rules'
 import { MCP_INTENT_PROMPT_FLAG, resolveIntentPrompt } from './intent-prompt'
 import {
     type InterviewRecruitmentConfig,
@@ -62,8 +64,18 @@ export interface ResolvedState {
     isImpersonated?: boolean
     suppressAnalytics?: boolean
     projectHasData?: boolean | undefined
+    /**
+     * The workspace context that the flags and `projectHasData` were resolved against.
+     * A handler such as `switch-project` changes the live context, so tool-call analytics
+     * read this snapshot to keep the project group consistent with the variant.
+     */
+    analyticsContext?: MCPAnalyticsContext | undefined
     /** Set on the per-call state when the no-data notice blocked or warned this call. */
     noDataAction?: NoDataAction | undefined
+    /** Set on the per-call state: whether the client sent a session or conversation handle. */
+    carriedContextHandle?: boolean | undefined
+    /** The organization's AI data processing consent; undefined when the org could not be read. */
+    aiConsentGiven?: boolean | undefined
     oauthClientId: string | undefined
     clientProfile: MCPClientProfile
     requestContext: MCPRequestContext
@@ -161,9 +173,9 @@ export class RequestStateResolver {
         this.env = env
     }
 
-    async resolve(props: RequestProperties): Promise<ResolvedState> {
+    async resolve(props: RequestProperties, lookups?: StateLookupCache): Promise<ResolvedState> {
         const requestContext = buildMCPRequestContext(props)
-        const reqCtx = new RequestContext(this.redis, this.env, props, requestContext)
+        const reqCtx = new RequestContext(this.redis, this.env, props, requestContext, lookups)
 
         const { features, tools, organizationId, projectId, readOnly } = props
         const pinned = await this.resolvePinnedContext(reqCtx, { organizationId, projectId })
@@ -176,7 +188,10 @@ export class RequestStateResolver {
             this.resolveSessionContext(requestContext),
             pinned ? undefined : reqCtx.tokenCache.get('projectId'),
         ])
-        if (!pinned && !storedProjectId) {
+        const needsDefaultContext = pinned
+            ? pinned.sessionScoped && !pinned.orgId && !pinned.projectId
+            : !storedProjectId
+        if (needsDefaultContext) {
             await context.stateManager.setDefaultOrganizationAndProject()
         }
         const clientContext = getEffectiveMCPClientContext(requestContext, sessionContext)
@@ -192,6 +207,7 @@ export class RequestStateResolver {
                 MCP_INTERVIEW_RECRUITMENT_FLAG,
                 MCP_INTENT_PROMPT_FLAG,
                 MCP_NO_DATA_INSTALL_NOTICE_FLAG,
+                ...GUIDANCE_RULE_FLAGS,
             ]),
         ]
 
@@ -269,12 +285,10 @@ export class RequestStateResolver {
             oauthClientName: oauthClientName || undefined,
             vendorClient: clientContext.mcpVendorClient,
             userAgent: props.clientUserAgent,
+            uiSupported: requestContext.mcpUiSupported ?? sessionContext?.mcpUiSupported,
         })
 
-        // `render-ui` is only meaningful for MCP Apps hosts (Claude web/desktop) that can
-        // mount its iframe. Single-exec CLI clients like Claude Code can't mount it, so the
-        // tool's advertisement and execution stay gated on the UI-host check.
-        const renderUiEnabled = clientProfile.isClaudeUiHost()
+        const renderUiEnabled = clientProfile.isRenderUiHost()
 
         const { mode: resolvedMode, useSingleExec } = resolveMode({
             mode: requestContext.mode,
@@ -341,6 +355,8 @@ export class RequestStateResolver {
             isImpersonated: _apiKey?.is_impersonated === true,
             suppressAnalytics: props.suppressAnalytics,
             projectHasData: flagAnalyticsContext?.projectHasData,
+            analyticsContext: flagAnalyticsContext,
+            aiConsentGiven: aiConsentGiven ?? undefined,
             oauthClientId: oauthClientId || undefined,
             clientProfile,
             requestContext,
@@ -362,30 +378,9 @@ export class RequestStateResolver {
     }
 
     /**
-     * Resolve the org and project that a request pinned via request params into
-     * the request-scoped context every tool resolves through.
-     *
-     * A pin sets the session's default active context, not a per-request hard
-     * lock: `switch-project` stays available on a project pin (the documented
-     * cross-org flow depends on it), so a switch made mid-session must survive
-     * the client resending the same static pin on every request. The effective
-     * context is the session's recorded switch (see
-     * `Context.setSessionActiveContext`) when one exists, otherwise the pin. A
-     * genuinely changed pin retargets the session and discards the recorded switch.
-     *
-     * The result never goes into the token cache. Every concurrent session on the
-     * same credential shares that cache, so a pin written there would revert a
-     * switch and leak into the other sessions.
-     *
-     * Many clients send the pin only on `initialize`. A later request in the same
-     * session that omits the pin restores the session's saved pin and switch, so
-     * it does not fall back to whatever another session left in the token cache.
-     * A session that never sent a pin stays on the token selection, even when it
-     * recorded a switch. A pin that differs in either field replaces the whole
-     * saved pin and discards the recorded switch.
-     *
-     * Without an MCP session id nothing records a switch across requests, so the
-     * pin wins on every request and the switch tools refuse to switch.
+     * Capture the session selection once per request so another connection's
+     * switches cannot redirect an in-flight call. A resent pin preserves switches;
+     * a changed pin replaces the whole selection. Clients may send pins only on initialize.
      */
     private async resolvePinnedContext(
         reqCtx: RequestContext,
@@ -400,12 +395,13 @@ export class RequestStateResolver {
         }
 
         const legacyCache = reqCtx.legacySessionScopedCache
-        const [appliedPinOrg, appliedPinProject, activeOrg, activeProject, legacyPinOrg, legacyPinProject] =
+        const [appliedPinOrg, appliedPinProject, activeOrg, activeProject, defaults, legacyPinOrg, legacyPinProject] =
             await Promise.all([
                 sessionCache.get('appliedPinOrgId'),
                 sessionCache.get('appliedPinProjectId'),
                 sessionCache.get('activeOrgId'),
                 sessionCache.get('activeProjectId'),
+                sessionCache.get('defaultContext'),
                 legacyCache?.get('appliedPinOrgId'),
                 legacyCache?.get('appliedPinProjectId'),
             ])
@@ -413,28 +409,39 @@ export class RequestStateResolver {
         // key included the credential. Its saved switch would be lost silently, so
         // stop before any tool runs. Legacy state without a pin marker never changed
         // the selection, so it needs no reset.
-        const hasSessionState = Boolean(appliedPinOrg || appliedPinProject || activeOrg || activeProject)
+        const hasSessionState = Boolean(appliedPinOrg || appliedPinProject || activeOrg || activeProject || defaults)
         if (!hasSessionState && (legacyPinOrg || legacyPinProject)) {
             throw new McpSessionResetRequiredError()
         }
-        if (!hasPin && !appliedPinOrg && !appliedPinProject) {
-            return undefined
-        }
-
         // These keys carry a write-based TTL, but the MCP session they belong to
         // renews its own context store on every request. Renew them too, so a
         // switch recorded early in a long-lived session does not expire before
         // the session ends and read back as a missing marker — which reads as a
         // changed pin, discards the switch, and reverts to the pin mid-session.
-        await sessionCache.refreshTtl(['appliedPinOrgId', 'appliedPinProjectId', 'activeOrgId', 'activeProjectId'])
+        await sessionCache.refreshTtl([
+            'appliedPinOrgId',
+            'appliedPinProjectId',
+            'activeOrgId',
+            'activeProjectId',
+            'defaultContext',
+            'defaultProjectId',
+        ])
 
         // An omitted pin is not a changed pin: keep the session's saved context.
         if (!hasPin) {
+            const useDefaults =
+                activeOrg === undefined && activeProject === undefined && !appliedPinOrg && !appliedPinProject
             return {
                 pin: { organizationId: appliedPinOrg, projectId: appliedPinProject },
                 sessionScoped: true,
-                orgId: activeOrg ?? appliedPinOrg,
-                projectId: activeProject ?? appliedPinProject,
+                orgId:
+                    activeOrg !== undefined
+                        ? (activeOrg ?? undefined)
+                        : (appliedPinOrg ?? (useDefaults ? defaults?.organizationId : undefined)),
+                projectId:
+                    activeProject !== undefined
+                        ? (activeProject ?? undefined)
+                        : (appliedPinProject ?? (useDefaults ? defaults?.projectId?.toString() : undefined)),
             }
         }
 
@@ -460,8 +467,8 @@ export class RequestStateResolver {
         return {
             pin,
             sessionScoped: true,
-            orgId: overrideOrg ?? organizationId,
-            projectId: overrideProject ?? projectId,
+            orgId: overrideOrg !== undefined ? (overrideOrg ?? undefined) : organizationId,
+            projectId: overrideProject !== undefined ? (overrideProject ?? undefined) : projectId,
         }
     }
 
@@ -481,13 +488,15 @@ export class RequestStateResolver {
             return { flags: {}, payloads: {} }
         }
         // Enable product surfaces locally because the analytics flag client is disabled there.
-        // Recruitment and intent experiments stay off so ordinary development keeps the default behavior.
+        // Recruitment, intent and guidance experiments stay off so ordinary development keeps the default behavior.
         if (isLocalApi()) {
             return {
                 flags: Object.fromEntries(
                     flagKeys.map((key) => [
                         key,
-                        key !== MCP_INTERVIEW_RECRUITMENT_FLAG && key !== MCP_INTENT_PROMPT_FLAG,
+                        key !== MCP_INTERVIEW_RECRUITMENT_FLAG &&
+                            key !== MCP_INTENT_PROMPT_FLAG &&
+                            !GUIDANCE_RULE_FLAGS.includes(key),
                     ])
                 ),
                 payloads: {},
@@ -495,7 +504,15 @@ export class RequestStateResolver {
         }
         try {
             const distinctId = await reqCtx.getDistinctId()
-            return await evaluateFeatureFlags(flagKeys, distinctId, groups)
+            const key = JSON.stringify([
+                'featureFlags',
+                distinctId,
+                Object.entries(groups ?? {}).sort(([a], [b]) => a.localeCompare(b)),
+                [...flagKeys].sort(),
+            ])
+            return await reqCtx.lookups.get(reqCtx.tokenCache.scope, key, () =>
+                evaluateFeatureFlags(flagKeys, distinctId, groups)
+            )
         } catch {
             return { flags: {}, payloads: {} }
         }

@@ -22,12 +22,9 @@ from urllib.parse import urlsplit
 
 from posthog.dataclasses import frozen
 
-# Words of the stored summary. It lives here and not in `prompt`, because `prompt` imports from this module.
-SUMMARY_MAX_WORDS = 60
-
 # Bump on any code change to the filters, the default caps, the sampling or the rendered layout, so summaries
 # stay comparable. Limits from the flag payload go into `inputs_used` instead.
-RENDER_VERSION = 6
+RENDER_VERSION = 7
 
 WINDOW_DAYS = 28
 RECENCY_HALF_LIFE_DAYS = 7
@@ -61,6 +58,8 @@ VIEW_LINE_CHARS = 160
 SECTIONS_MAX_CHARS = 8000
 # Hidden reasoning tokens count against the cap too, so a cap near the answer size truncates answers.
 MAX_COMPLETION_TOKENS = 4000
+# About 1,500 output tokens: one page of markdown. The prompt asks for it, and the normalization cuts a longer profile.
+PROFILE_MAX_CHARS = 6000
 
 # Masking and whitespace folding shorten a text, so the patterns read this many times its cap.
 RAW_TEXT_FACTOR = 4
@@ -98,43 +97,122 @@ _DIGIT = re.compile(r"\d")
 _LETTER = re.compile(r"[A-Za-z]")
 _WHITESPACE = re.compile(r"\s+")
 
+# Inbox onboarding creates a scout config for each canonical scout, named after its skill.
+ONBOARDING_CONFIG_SCOPES: frozenset[str] = frozenset({"SignalScoutConfig"})
+CANONICAL_SCOUT_PREFIX = "signals-scout-"
+# Personal API key changes are account housekeeping, not work in the project.
+API_KEY_SCOPES: frozenset[str] = frozenset({"PersonalAPIKey"})
+# CI writes deploy markers as annotations through a personal API key.
+ANNOTATION_SCOPE = "Annotation"
+PERSONAL_API_KEY_CREDENTIAL = "personal_api_key"
+TEAM_SCOPE = "Team"
+# Team settings rows without an intent are dropped when the person has at least this many: one change
+# can be deliberate, but repeated ones come from setup flows.
+MIN_TEAM_SETTINGS_ROWS = 2
+TICKET_SCOPE = "Ticket"
+# Changes to this many distinct tickets on one UTC day collapse to one line with a count.
+MIN_TICKET_BURST = 3
+# Changes of one kind to this many distinct objects of one type inside the window are a bulk job,
+# such as knowledge sources synced for many accounts.
+MIN_BULK_OBJECTS = 10
+BULK_WINDOW = datetime.timedelta(hours=1)
+# A task goal seen on this many distinct days is a scheduled job, not a question the person asked.
+MIN_REPEATED_TASK_DAYS = 4
+_DIGITS = re.compile(r"\d+")
+_CAMEL_WORD = re.compile(r"[A-Z]+(?=[A-Z][a-z])|[A-Z]?[a-z]+|[A-Z]+|\d+")
+
+
+class Product(StrEnum):
+    """The fixed product keys of an activity summary. Scene views and activity scopes map to these only."""
+
+    PRODUCT_ANALYTICS = "product_analytics"
+    DASHBOARDS = "dashboards"
+    WEB_ANALYTICS = "web_analytics"
+    SESSION_REPLAY = "session_replay"
+    HEATMAPS = "heatmaps"
+    ERROR_TRACKING = "error_tracking"
+    EXPERIMENTS = "experiments"
+    FEATURE_FLAGS = "feature_flags"
+    EARLY_ACCESS_FEATURES = "early_access_features"
+    SURVEYS = "surveys"
+    PRODUCT_TOURS = "product_tours"
+    NOTEBOOKS = "notebooks"
+    COHORTS = "cohorts"
+    PERSONS = "persons"
+    DATA_MANAGEMENT = "data_management"
+    DATA_WAREHOUSE = "data_warehouse"
+    DATA_PIPELINES = "data_pipelines"
+    WORKFLOWS = "workflows"
+    AI_OBSERVABILITY = "ai_observability"
+    MCP_ANALYTICS = "mcp_analytics"
+    LOGS = "logs"
+    TRACING = "tracing"
+    ENDPOINTS = "endpoints"
+    REVENUE_ANALYTICS = "revenue_analytics"
+    CUSTOMER_ANALYTICS = "customer_analytics"
+    INBOX = "inbox"
+    CANVASES = "canvases"
+    SUPPORT = "support"
+
+
 # A view log row of this type records a page, and its ref is the frontend scene id.
 SCENE_VIEW_TYPE = "scene"
-# The product of each scene id prefix. A prefix matches its plural and any longer scene id of the
-# same product, such as "ErrorTrackingIssue". Other scenes, such as settings, the home page or a new
-# tab, say nothing about the work.
-_SCENE_PRODUCTS: tuple[tuple[str, str], ...] = (
-    ("Insight|SavedInsight|ProductAnalytics", "Product analytics"),
-    ("Dashboard", "Dashboards"),
-    ("WebAnalytics", "Web analytics"),
-    ("Replay|SessionRecording|SessionSummaries", "Session replay"),
-    ("Heatmap", "Heatmaps"),
-    ("ErrorTracking", "Error tracking"),
-    ("Experiment", "Experiments"),
-    ("FeatureFlag", "Feature flags"),
-    ("EarlyAccessFeature", "Early access features"),
-    ("Survey", "Surveys"),
-    ("ProductTour", "Product tours"),
-    ("Notebook", "Notebooks"),
-    ("Cohort", "Cohorts"),
-    ("Person|Group", "Persons and groups"),
-    ("Action|EventDefinition|PropertyDefinition|DataManagement", "Data management"),
-    ("SQLEditor|DataWarehouse|Sources|Models", "Data warehouse"),
-    ("Pipeline|Destination|Transformation|HogFunction|BatchExport", "Data pipelines"),
-    ("Workflow|Broadcast", "Workflows"),
-    ("AIObservability", "AI observability"),
-    ("MCPAnalytics", "MCP analytics"),
-    ("Logs", "Logs"),
-    ("Tracing", "Tracing"),
-    ("Endpoint", "Endpoints"),
-    ("RevenueAnalytics", "Revenue analytics"),
-    ("CustomerAnalytics", "Customer analytics"),
-    ("Inbox", "Inbox"),
-    ("Canvas", "Canvases"),
+# The product of each scene id prefix, and its label in the prompt. A prefix matches its plural and any
+# longer scene id of the same product, such as "ErrorTrackingIssue". Other scenes, such as settings,
+# the home page or a new tab, say nothing about the work.
+_SCENE_PRODUCTS: tuple[tuple[str, Product, str], ...] = (
+    ("Insight|SavedInsight|ProductAnalytics", Product.PRODUCT_ANALYTICS, "Product analytics"),
+    ("Dashboard", Product.DASHBOARDS, "Dashboards"),
+    ("WebAnalytics", Product.WEB_ANALYTICS, "Web analytics"),
+    ("Replay|SessionRecording|SessionSummaries", Product.SESSION_REPLAY, "Session replay"),
+    ("Heatmap", Product.HEATMAPS, "Heatmaps"),
+    ("ErrorTracking", Product.ERROR_TRACKING, "Error tracking"),
+    ("Experiment", Product.EXPERIMENTS, "Experiments"),
+    ("FeatureFlag", Product.FEATURE_FLAGS, "Feature flags"),
+    ("EarlyAccessFeature", Product.EARLY_ACCESS_FEATURES, "Early access features"),
+    ("Survey", Product.SURVEYS, "Surveys"),
+    ("ProductTour", Product.PRODUCT_TOURS, "Product tours"),
+    ("Notebook", Product.NOTEBOOKS, "Notebooks"),
+    ("Cohort", Product.COHORTS, "Cohorts"),
+    ("Person|Group", Product.PERSONS, "Persons and groups"),
+    ("Action|EventDefinition|PropertyDefinition|DataManagement", Product.DATA_MANAGEMENT, "Data management"),
+    ("SQLEditor|DataWarehouse|Sources|Models", Product.DATA_WAREHOUSE, "Data warehouse"),
+    ("Pipeline|Destination|Transformation|HogFunction|BatchExport", Product.DATA_PIPELINES, "Data pipelines"),
+    ("Workflow|Broadcast", Product.WORKFLOWS, "Workflows"),
+    ("AIObservability", Product.AI_OBSERVABILITY, "AI observability"),
+    ("MCPAnalytics", Product.MCP_ANALYTICS, "MCP analytics"),
+    ("Logs", Product.LOGS, "Logs"),
+    ("Tracing", Product.TRACING, "Tracing"),
+    ("Endpoint", Product.ENDPOINTS, "Endpoints"),
+    ("RevenueAnalytics", Product.REVENUE_ANALYTICS, "Revenue analytics"),
+    ("CustomerAnalytics", Product.CUSTOMER_ANALYTICS, "Customer analytics"),
+    ("Inbox", Product.INBOX, "Inbox"),
+    ("Canvas", Product.CANVASES, "Canvases"),
+    ("SupportTicket", Product.SUPPORT, "Support"),
 )
-_SCENE_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = tuple(
-    (re.compile(rf"^(?:{prefixes})s?(?:[A-Z]|$)"), product) for prefixes, product in _SCENE_PRODUCTS
+# Activity log scopes that no scene id prefix covers. A scope otherwise maps like a scene id.
+_SCOPE_PRODUCTS: tuple[tuple[str, Product], ...] = (
+    ("HogFlow", Product.WORKFLOWS),
+    ("ExternalData", Product.DATA_WAREHOUSE),
+    ("Plugin", Product.DATA_PIPELINES),
+    ("LLM|Evaluation", Product.AI_OBSERVABILITY),
+    ("Log", Product.LOGS),
+    ("Signal", Product.INBOX),
+    ("Ticket", Product.SUPPORT),
 )
+
+
+def _prefix_pattern(prefixes: str) -> re.Pattern[str]:
+    return re.compile(rf"^(?:{prefixes})s?(?:[A-Z]|$)")
+
+
+_SCENE_PATTERNS: tuple[tuple[re.Pattern[str], Product], ...] = tuple(
+    (_prefix_pattern(prefixes), product) for prefixes, product, _ in _SCENE_PRODUCTS
+)
+_SCOPE_PATTERNS: tuple[tuple[re.Pattern[str], Product], ...] = _SCENE_PATTERNS + tuple(
+    (_prefix_pattern(prefixes), product) for prefixes, product in _SCOPE_PRODUCTS
+)
+PRODUCT_LABELS: Mapping[Product, str] = {product: label for _, product, label in _SCENE_PRODUCTS}
 
 
 def _limit(default: int, *, max_value: int) -> Any:
@@ -159,7 +237,7 @@ class RenderLimits:
     task_goal_chars: int = _limit(TASK_GOAL_CHARS, max_value=800)
     activity_line_chars: int = _limit(ACTIVITY_LINE_CHARS, max_value=1000)
     activity_intent_chars: int = _limit(ACTIVITY_INTENT_CHARS, max_value=500)
-    summary_max_words: int = _limit(SUMMARY_MAX_WORDS, max_value=300)
+    profile_max_chars: int = _limit(PROFILE_MAX_CHARS, max_value=20000)
     max_completion_tokens: int = _limit(MAX_COMPLETION_TOKENS, max_value=16000)
 
 
@@ -176,12 +254,20 @@ class Drop(StrEnum):
     SCOUT_CLIENT = "scout_client"
     AUTO_NAMED_OBJECT = "auto_named_object"
     UNNAMED_OBJECT = "unnamed_object"
+    ONBOARDING_SCOUT_CONFIG = "onboarding_scout_config"
+    API_KEY_CHANGE = "api_key_change"
+    API_KEY_ANNOTATION = "api_key_annotation"
+    TEAM_SETTINGS = "team_settings"
+    BULK_SAME_TYPE = "bulk_same_type"
+    TICKET_BURST = "ticket_burst"
+    REPEATED_TASK = "repeated_task"
     GENERIC_SCENE = "generic_scene"
     DUPLICATE = "duplicate"
     GROUPED_INTO_PARENT = "grouped_into_parent"
     BURST_CAP = "burst_cap"
     SAMPLE_CAP = "sample_cap"
     SECTIONS_BUDGET = "sections_budget"
+    EXCLUDED_PRODUCT = "excluded_product"
 
 
 @frozen
@@ -205,6 +291,10 @@ class ActivityItem:
     client: str | None
     intent: str | None = None
     item_id: str | None = None
+    # The credential that authenticated the change, such as "personal_api_key". None outside a request.
+    credential_type: str | None = None
+    # The short id in the row's detail. The file system refers to some objects, such as insights, by it.
+    short_id: str | None = None
 
 
 @frozen
@@ -342,8 +432,30 @@ def _templated_label(title: str) -> str | None:
     return None
 
 
+def _goal_key(text: str) -> str:
+    """A task goal without its numbers and case, so the runs of one scheduled job compare equal."""
+    return _DIGITS.sub("#", text.lower())
+
+
+def _collapse_repeated(units: Sequence[Unit], drops: Counter[str]) -> list[Unit]:
+    """One line with a count for each goal seen on `MIN_REPEATED_TASK_DAYS` or more distinct days."""
+    by_goal: dict[str, list[Unit]] = {}
+    for unit in units:
+        by_goal.setdefault(_goal_key(unit.text.split(" ", 2)[-1]), []).append(unit)
+    collapsed: list[Unit] = []
+    for group in by_goal.values():
+        if len({_day(unit.at) for unit in group}) < MIN_REPEATED_TASK_DAYS:
+            collapsed.extend(group)
+            continue
+        latest = max(group, key=lambda unit: unit.at)
+        collapsed.append(Unit(at=latest.at, text=f"{latest.text} (x{len(group)})"))
+        drops[Drop.REPEATED_TASK] += len(group) - 1
+    return collapsed
+
+
 def task_units(tasks: Iterable[TaskItem], drops: Counter[str], limits: RenderLimits = DEFAULT_LIMITS) -> list[Unit]:
-    """One line per task, with templated titles collapsed to one line per template."""
+    """One line per task, with templated titles collapsed to one line per template and a goal repeated
+    on many days collapsed to one line with a count."""
     units: list[Unit] = []
     templated: dict[str, list[datetime.datetime]] = {}
     for task in tasks:
@@ -365,6 +477,7 @@ def task_units(tasks: Iterable[TaskItem], drops: Counter[str], limits: RenderLim
             drops[Drop.BARE_TITLE] += 1
             continue
         units.append(Unit(at=task.at, text=cap_line(line, limits.task_line_chars)))
+    units = _collapse_repeated(units, drops)
     for label, times in templated.items():
         latest = max(times)
         units.append(
@@ -541,6 +654,153 @@ def _spread_across_days(
     return kept + backfill
 
 
+def is_auto_named(name: str) -> bool:
+    return _AUTO_NAME.search(name) is not None
+
+
+def _has_intent(item: ActivityItem) -> bool:
+    return bool(item.intent and item.intent.strip())
+
+
+def _row_drop(item: ActivityItem) -> Drop | None:
+    """The rule that drops one activity row on its own, or None when nothing on the row says it is not the person's."""
+    name = (item.name or "").strip()
+    if item.scope in NOISY_ACTIVITY_SCOPES:
+        return Drop.NOISY_SCOPE
+    if (item.client or "").startswith(SCOUT_CLIENT_PREFIX):
+        return Drop.SCOUT_CLIENT
+    if item.scope in API_KEY_SCOPES:
+        return Drop.API_KEY_CHANGE
+    if item.scope == ANNOTATION_SCOPE and item.credential_type == PERSONAL_API_KEY_CREDENTIAL:
+        return Drop.API_KEY_ANNOTATION
+    if item.scope in ONBOARDING_CONFIG_SCOPES and name.startswith(CANONICAL_SCOUT_PREFIX) and not _has_intent(item):
+        return Drop.ONBOARDING_SCOUT_CONFIG
+    if not name:
+        return Drop.UNNAMED_OBJECT
+    if _AUTO_NAME.search(name):
+        return Drop.AUTO_NAMED_OBJECT
+    return None
+
+
+def _plural_label(scope: str, count: int) -> str:
+    """A scope in lower-case words, such as "knowledge sources" for "KnowledgeSource"."""
+    words = " ".join(word.lower() for word in _CAMEL_WORD.findall(scope))
+    return words if count == 1 else f"{words}s"
+
+
+def _object_id(item: ActivityItem) -> str:
+    return item.item_id or (item.name or "").strip()
+
+
+def _count_line(rows: Sequence[ActivityItem], text: str, limits: RenderLimits) -> _ActivityLine:
+    latest = max(row.at for row in rows)
+    line = f"- {_day(latest).isoformat()} {text}" + _intent_suffix(rows, limits.activity_intent_chars)
+    return _ActivityLine(at=latest, text=cap_line(line, limits.activity_line_chars), created=False, rows=len(rows))
+
+
+@frozen
+class _TicketBursts:
+    other_rows: list[ActivityItem]
+    lines: list[_ActivityLine]
+    burst_rows: list[ActivityItem]
+
+
+def _collapse_tickets(items: Sequence[ActivityItem], drops: Counter[str], limits: RenderLimits) -> _TicketBursts:
+    """One counted line for each UTC day and kind of change that touches `MIN_TICKET_BURST` or more tickets."""
+    groups: dict[tuple[datetime.date, str], list[ActivityItem]] = {}
+    for item in items:
+        if item.scope == TICKET_SCOPE and item.activity != "created":
+            groups.setdefault((_day(item.at), item.activity), []).append(item)
+    burst: set[int] = set()
+    lines: list[_ActivityLine] = []
+    for (_, activity), rows in groups.items():
+        tickets = len({_object_id(row) for row in rows})
+        if tickets < MIN_TICKET_BURST:
+            continue
+        burst.update(id(row) for row in rows)
+        lines.append(_count_line(rows, f"{activity} {tickets} support tickets", limits))
+        drops[Drop.TICKET_BURST] += len(rows) - 1
+    return _TicketBursts(
+        other_rows=[item for item in items if id(item) not in burst],
+        lines=lines,
+        burst_rows=[item for item in items if id(item) in burst],
+    )
+
+
+def _bulk_runs(rows: Sequence[ActivityItem]) -> list[list[ActivityItem]]:
+    """The runs of rows inside one `BULK_WINDOW` that touch `MIN_BULK_OBJECTS` or more distinct objects."""
+    ordered = sorted(rows, key=lambda row: row.at)
+    runs: list[list[ActivityItem]] = []
+    start = 0
+    while start < len(ordered):
+        end = start
+        while end < len(ordered) and ordered[end].at - ordered[start].at <= BULK_WINDOW:
+            end += 1
+        if len({_object_id(row) for row in ordered[start:end]}) >= MIN_BULK_OBJECTS:
+            runs.append(ordered[start:end])
+            start = end
+        else:
+            start += 1
+    return runs
+
+
+def _collapse_bulk(
+    items: Sequence[ActivityItem], drops: Counter[str], limits: RenderLimits
+) -> tuple[list[ActivityItem], list[_ActivityLine]]:
+    """A bulk job's rows as one counted line when an agent stated why, and dropped when nothing did.
+
+    Creates are left alone: the parent grouping already merges a dashboard built in one go."""
+    groups: dict[tuple[str, str], list[ActivityItem]] = {}
+    for item in items:
+        if item.activity != "created":
+            groups.setdefault((item.scope, item.activity), []).append(item)
+    bulk: set[int] = set()
+    lines: list[_ActivityLine] = []
+    for (scope, activity), rows in groups.items():
+        for run in _bulk_runs(rows):
+            bulk.update(id(row) for row in run)
+            if any(_has_intent(row) for row in run):
+                objects = len({_object_id(row) for row in run})
+                lines.append(_count_line(run, f"{activity} {objects} {_plural_label(scope, objects)}", limits))
+                drops[Drop.BULK_SAME_TYPE] += len(run) - 1
+            else:
+                drops[Drop.BULK_SAME_TYPE] += len(run)
+    return [item for item in items if id(item) not in bulk], lines
+
+
+def _drop_team_settings(items: Sequence[ActivityItem], drops: Counter[str]) -> list[ActivityItem]:
+    """Without the team settings rows that state no intent, when there are `MIN_TEAM_SETTINGS_ROWS` or more."""
+    unstated = [item for item in items if item.scope == TEAM_SCOPE and not _has_intent(item)]
+    if len(unstated) < MIN_TEAM_SETTINGS_ROWS:
+        return list(items)
+    drops[Drop.TEAM_SETTINGS] += len(unstated)
+    dropped = {id(item) for item in unstated}
+    return [item for item in items if id(item) not in dropped]
+
+
+def person_activity(
+    items: Iterable[ActivityItem],
+    drops: Counter[str],
+    limits: RenderLimits = DEFAULT_LIMITS,
+    keep_ticket_bursts: bool = False,
+) -> tuple[list[ActivityItem], list[_ActivityLine]]:
+    """The rows that are the person's own work, and one counted line for each ticket burst or bulk job.
+
+    The row rules run first, then the ticket bursts, so a ticket burst is not taken for a bulk job.
+    With `keep_ticket_bursts`, the rows of each ticket burst stay in the result as well: a burst is
+    one line in the prompt, but each ticket is still the person's work."""
+    kept: list[ActivityItem] = []
+    for item in items:
+        if (reason := _row_drop(item)) is not None:
+            drops[reason] += 1
+        else:
+            kept.append(item)
+    tickets = _collapse_tickets(kept, drops, limits)
+    kept, bulk_lines = _collapse_bulk(tickets.other_rows, drops, limits)
+    kept = _drop_team_settings(kept, drops)
+    return (kept + tickets.burst_rows if keep_ticket_bursts else kept), tickets.lines + bulk_lines
+
+
 def activity_units(
     items: Iterable[ActivityItem],
     drops: Counter[str],
@@ -552,35 +812,63 @@ def activity_units(
     A line carries the newest agent intent of its rows. A day keeps at most `limits.max_activity_lines_per_day`
     lines while other days have lines left, not the `MAX_UNITS_PER_DAY` of tasks: lines are already
     collapsed per object, and a busy day of changes to different objects is more than three things."""
+    kept, count_lines = person_activity(items, drops, limits)
     collapsed: dict[ObjectKey, list[ActivityItem]] = {}
-    for item in items:
-        name = (item.name or "").strip()
-        if item.scope in NOISY_ACTIVITY_SCOPES:
-            drops[Drop.NOISY_SCOPE] += 1
-        elif (item.client or "").startswith(SCOUT_CLIENT_PREFIX):
-            drops[Drop.SCOUT_CLIENT] += 1
-        elif not name:
-            drops[Drop.UNNAMED_OBJECT] += 1
-        elif _AUTO_NAME.search(name):
-            drops[Drop.AUTO_NAMED_OBJECT] += 1
-        else:
-            collapsed.setdefault((item.scope, item.activity, name), []).append(item)
-    lines = _lines_with_parents(collapsed, parents or {}, drops, limits)
+    for item in kept:
+        collapsed.setdefault((item.scope, item.activity, (item.name or "").strip()), []).append(item)
+    lines = _lines_with_parents(collapsed, parents or {}, drops, limits) + count_lines
     ranked = sorted(lines, key=lambda line: (not line.created, -line.rows, -line.at.timestamp(), line.text))
-    kept = _spread_across_days(ranked, drops, limits)
-    return sorted((Unit(at=line.at, text=line.text) for line in kept), key=lambda unit: (unit.at, unit.text))
+    kept_lines = _spread_across_days(ranked, drops, limits)
+    return sorted((Unit(at=line.at, text=line.text) for line in kept_lines), key=lambda unit: (unit.at, unit.text))
 
 
-def scene_product(scene_id: str) -> str | None:
-    for pattern, product in _SCENE_PATTERNS:
-        if pattern.match(scene_id):
+def _match_product(patterns: Sequence[tuple[re.Pattern[str], Product]], name: str) -> Product | None:
+    for pattern, product in patterns:
+        if pattern.match(name):
             return product
     return None
 
 
-def _scope_of(view_type: str) -> str:
+def scene_product(scene_id: str) -> Product | None:
+    return _match_product(_SCENE_PATTERNS, scene_id)
+
+
+def scope_product(scope: str) -> Product | None:
+    """The product of an activity log scope, such as "FeatureFlag", or of a file system type."""
+    return _match_product(_SCOPE_PATTERNS, scope)
+
+
+def scope_of(view_type: str) -> str:
     """The activity log scope of a file system type, such as "FeatureFlag" for "feature_flag"."""
     return "".join(word.capitalize() for word in view_type.split("/")[0].split("_"))
+
+
+def view_product(view: ViewItem) -> Product | None:
+    if view.type == SCENE_VIEW_TYPE:
+        return scene_product(view.ref)
+    return scope_product(scope_of(view.type))
+
+
+def without_products(
+    activity: Iterable[ActivityItem],
+    views: Iterable[ViewItem],
+    products: frozenset[Product],
+    drops: Counter[str],
+) -> tuple[list[ActivityItem], list[ViewItem]]:
+    """The activity rows and views whose product is not in `products`. Tasks have no product, so they stay."""
+    kept_activity: list[ActivityItem] = []
+    for item in activity:
+        if scope_product(item.scope) in products:
+            drops[Drop.EXCLUDED_PRODUCT] += 1
+        else:
+            kept_activity.append(item)
+    kept_views: list[ViewItem] = []
+    for view in views:
+        if view_product(view) in products:
+            drops[Drop.EXCLUDED_PRODUCT] += 1
+        else:
+            kept_views.append(view)
+    return kept_activity, kept_views
 
 
 def _days(count: int) -> str:
@@ -598,11 +886,10 @@ def view_units(
     An object line also counts the days the person edited it, matched to their activity rows by
     scope and name. These lines skip the per-day burst cap."""
     edit_days: dict[tuple[str, str], set[datetime.date]] = {}
-    for item in activity:
-        if item.name and not (item.client or "").startswith(SCOUT_CLIENT_PREFIX):
-            edit_days.setdefault((item.scope, item.name.strip()), set()).add(_day(item.at))
+    for item in person_activity(activity, Counter(), limits)[0]:
+        edit_days.setdefault((item.scope, (item.name or "").strip()), set()).add(_day(item.at))
     ranked: list[tuple[int, datetime.datetime, str]] = []
-    scenes: dict[str, tuple[datetime.datetime, set[datetime.date]]] = {}
+    scenes: dict[Product, tuple[datetime.datetime, set[datetime.date]]] = {}
     for view in views:
         if view.type == SCENE_VIEW_TYPE:
             product = scene_product(view.ref)
@@ -622,14 +909,20 @@ def view_units(
         opened = len(set(view.days))
         name_text = cap_line(clean_text(name, ACTIVITY_NAME_CHARS * 2), ACTIVITY_NAME_CHARS)
         facts = [f"opened {_days(opened)}", f"last {_day(view.at).isoformat()}"]
-        if edited := len(edit_days.get((_scope_of(view.type), name), ())):
+        if edited := len(edit_days.get((scope_of(view.type), name), ())):
             facts.append(f"edited {_days(edited)}")
         if view.not_theirs:
             facts.append("not theirs")
         label = view.type.split("/")[0].replace("_", " ").capitalize()
         ranked.append((opened, view.at, f'- {label} "{name_text}": {", ".join(facts)}'))
     for product, (at, days) in scenes.items():
-        ranked.append((len(days), at, f"- {product} pages: opened {_days(len(days))}, last {_day(at).isoformat()}"))
+        ranked.append(
+            (
+                len(days),
+                at,
+                f"- {PRODUCT_LABELS[product]} pages: opened {_days(len(days))}, last {_day(at).isoformat()}",
+            )
+        )
     ranked.sort(key=lambda entry: (-entry[0], -entry[1].timestamp(), entry[2]))
     if len(ranked) > limits.view_lines:
         drops[Drop.SAMPLE_CAP] += len(ranked) - limits.view_lines

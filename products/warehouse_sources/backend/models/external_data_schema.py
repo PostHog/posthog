@@ -83,6 +83,10 @@ def resolve_sync_type(value: str | None) -> ExternalDataSchemaSyncType | None:
 # Recorded as the job's latest_error, which the syncs UI shows to the customer.
 SYNC_DISABLED_JOB_ERROR = "Sync stopped because syncing was turned off"
 SCHEMA_DELETED_JOB_ERROR = "Sync stopped because the table was deleted"
+WORKER_RESTART_ERROR_MESSAGE = (
+    "This sync run was interrupted too many times by restarts on PostHog's side, so it did not finish. "
+    "It will run again automatically. No action is needed."
+)
 AUTO_DISABLED_JOB_ERROR = "Sync stopped because of an error that retrying would not fix"
 
 # `Any_Source_Errors` rewrites the raised exception into this copy, so a blocked schema carries it
@@ -582,6 +586,10 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
         if self.sync_type_config:
             return self.sync_type_config.get("cdc_table_mode", "consolidated")
         return "consolidated"
+
+    @property
+    def keeps_history(self) -> bool:
+        return self.is_cdc and self.cdc_table_mode in ("cdc_only", "both")
 
     @property
     def should_use_incremental_field(self):
@@ -1224,11 +1232,18 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
                 return
             found = True
             field_type = config.get("incremental_field_type")
+            # A stored watermark with no earliest value means the table already holds every older row.
+            # A run from that watermark read only newer rows, so its oldest row must not become the
+            # earliest value: the next run would read every row below it again.
+            watermark_without_earliest = (
+                config.get("incremental_field_last_value") is not None
+                and config.get("incremental_field_earliest_value") is None
+            )
             if "last_value" in staged:
                 _advance_promoted_cursor(
                     config, "incremental_field_last_value", staged["last_value"], "last", field_type
                 )
-            if "earliest_value" in staged:
+            if "earliest_value" in staged and not watermark_without_earliest:
                 _advance_promoted_cursor(
                     config, "incremental_field_earliest_value", staged["earliest_value"], "earliest", field_type
                 )

@@ -29,7 +29,6 @@ import { uuid } from 'lib/utils/dom'
 import { objectsEqual } from 'lib/utils/objects'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { maxContextLogic } from 'scenes/max/maxContextLogic'
-import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 import { NotebookTarget } from 'scenes/notebooks/types'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -38,7 +37,6 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { openNotebook } from '~/models/notebooksModel'
 import {
     AgentMode,
     ApprovalDecisionStatus,
@@ -317,6 +315,7 @@ export interface maxThreadLogicActions {
     } // posthogAiContextLogic
     bootstrapSandboxRun: (payload: {
         justCreatedRun?: boolean
+        pagedHistory?: boolean
         retainedMessage?: string
         runId: string
         taskId: string
@@ -324,6 +323,7 @@ export interface maxThreadLogicActions {
         traceId?: string
     }) => {
         justCreatedRun?: boolean | undefined
+        pagedHistory?: boolean | undefined
         retainedMessage?: string | undefined
         runId: string
         taskId: string
@@ -389,6 +389,9 @@ export interface maxThreadLogicActions {
     }
     appendSandboxEntry: (entry: LogEntry) => {
         entry: LogEntry
+    }
+    autoRejectPendingApprovals: () => {
+        value: true
     }
     clearPendingApproval: () => {
         value: true
@@ -912,6 +915,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         setCancelLoading: (cancelLoading: boolean) => ({ cancelLoading }),
         setPendingApproval: (proposalId: string) => ({ proposalId }),
         clearPendingApproval: true,
+        autoRejectPendingApprovals: true,
         appendSandboxEntry: (entry: LogEntry) => ({ entry }),
         prewarmSandbox: true,
         releaseSandboxPrewarm: true,
@@ -2330,6 +2334,10 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         },
         processNotebookUpdate: async ({ notebookId, notebookContent }) => {
             try {
+                const [{ notebookLogic }, { openNotebook }] = await Promise.all([
+                    import('scenes/notebooks/Notebook/notebookLogic'),
+                    import('~/models/notebooksModel'),
+                ])
                 const currentPath = router.values.location.pathname
                 const notebookPath = urls.notebook(notebookId)
 
@@ -2458,6 +2466,14 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 false // Don't add to thread - no human message to show
             )
         },
+        autoRejectPendingApprovals: () => {
+            // The backend rejects the whole batch on feedback, so every card still pending is rejected too.
+            for (const approval of Object.values(values.pendingApprovalsData)) {
+                if (approval.decision_status === 'pending' && !values.resolvedApprovalStatuses[approval.proposal_id]) {
+                    actions.setResolvedApprovalStatus(approval.proposal_id, 'auto_rejected')
+                }
+            }
+        },
         continueAfterApproval: ({ proposalId }) => {
             actions.clearQueuedMessages()
             // Persist the approved status so the card can display it
@@ -2486,6 +2502,9 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             // mounted to show the resolved state with feedback. The alreadyResolved check
             // in askMax prevents auto-rejection for resolved approvals.
             actions.setResolvedApprovalStatus(proposalId, 'rejected', feedback)
+            if (feedback) {
+                actions.autoRejectPendingApprovals()
+            }
             // Resume the conversation with the rejection payload
             actions.streamConversation(
                 {
@@ -3059,10 +3078,6 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         // runStreamLogic, which replays logs/ then opens SSE if non-terminal. The LangGraph
         // reconnect path below is never entered for sandbox runtimes (coexistence).
         if (conversation.agent_runtime === 'sandbox') {
-            if (isPiTaskRuntime(conversation.task?.runtime)) {
-                return
-            }
-
             // runStreamLogic and posthogAiContextLogic are connected (so already mounted) for this
             // conversation. Reset their per-conversation state before replaying this run's history.
             actions.resetSandboxStream()
@@ -3073,6 +3088,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     actions.bootstrapSandboxRun({
                         taskId: conversation.task.id,
                         runId,
+                        taskRuntime: conversation.task.runtime,
                     })
                 }
             }

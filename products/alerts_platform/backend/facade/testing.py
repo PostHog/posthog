@@ -13,7 +13,9 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
+from products.alerts_platform.backend.delivery.evaluation import deliver_evaluation
 from products.alerts_platform.backend.facade.contracts import (
+    AlertDeliveryRequest,
     DeliveryPath,
     PlatformAlertSnapshot,
     PlatformConfigurationSnapshot,
@@ -22,7 +24,12 @@ from products.alerts_platform.backend.facade.contracts import (
 )
 from products.alerts_platform.backend.logic.platform_alert_events import PlatformAlertEventRow, insert_events
 from products.alerts_platform.backend.logic.platform_reads import instance_view
-from products.alerts_platform.backend.models import PlatformAlert, PlatformAlertConfiguration, PlatformAlertDeliveryPath
+from products.alerts_platform.backend.models import (
+    PlatformAlert,
+    PlatformAlertConfiguration,
+    PlatformAlertDeliveryPath,
+    PlatformAlertThread,
+)
 
 
 def _configuration_snapshot(row: PlatformAlertConfiguration) -> PlatformConfigurationSnapshot:
@@ -65,6 +72,11 @@ def set_due_at(configuration_id: UUID, due_at: datetime) -> None:
     PlatformAlertConfiguration.objects.filter(id=configuration_id).update(next_check_at=due_at)
 
 
+def deliver(request: AlertDeliveryRequest) -> int:
+    """Send a recorded evaluation's delivery as the delivery activity does. Returns how many destinations took it."""
+    return deliver_evaluation(request).sent
+
+
 def count_still_due(configuration_ids: Iterable[UUID], *, at: datetime) -> int:
     """How many of these configurations a tick would still pick up at `at`."""
     # nosemgrep: idor-lookup-without-team — fail-closed model; the caller holds the team scope
@@ -77,11 +89,14 @@ def start_firing(
     team_id: int,
     at: datetime,
     delivered_via: DeliveryPath | None = None,
+    sent_natively: bool = False,
     grouping_key: str = "",
 ) -> None:
     """Put a configuration's instance inside a firing, as live delivery can leave one.
 
     With `delivered_via`, the firing's first delivery took that path, so its resolve takes it too.
+    With `sent_natively`, a native transport sent the firing, as live delivery does for an alert
+    its source owns.
     """
     PlatformAlert.objects.update_or_create(
         team_id=team_id,
@@ -96,6 +111,15 @@ def start_firing(
             grouping_key=grouping_key,
             episode_started_at=at,
             path=delivered_via.value,
+        )
+    if sent_natively:
+        PlatformAlertThread.objects.for_team(team_id).create(
+            team_id=team_id,
+            configuration_id=configuration_id,
+            grouping_key=grouping_key,
+            provider="slack",
+            channel_target="C0",
+            episode_started_at=at,
         )
 
 
@@ -125,6 +149,7 @@ def record_check(
     value: float | None = None,
     condition: dict[str, Any] | None = None,
     query_duration_ms: int | None = None,
+    source_detail: dict[str, Any] | None = None,
 ) -> None:
     """Write one ungrouped check to the platform's ClickHouse history, as a check that ran at `at`."""
     insert_events(
@@ -151,6 +176,7 @@ def record_check(
                 consecutive_failures=0,
                 muted_notification="",
                 occurred_at=at,
+                source_detail=source_detail or {},
             )
         ],
     )

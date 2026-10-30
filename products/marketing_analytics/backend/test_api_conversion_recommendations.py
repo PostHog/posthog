@@ -12,17 +12,20 @@ from anthropic.types import ToolUseBlock
 from parameterized import parameterized
 
 from posthog.auth import MCP_USER_AGENT_MARKER
-from posthog.clickhouse.query_tagging import Feature, Product, get_query_tag_value
 from posthog.constants import AvailableFeature
 from posthog.models import PersonalAPIKey, Team
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team_marketing_analytics_config import TeamMarketingAnalyticsConfig
 
+from products.actions.backend.models.action import Action
+from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.event_definitions.backend.models.event_property import EventProperty
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
 from products.marketing_analytics.backend.models.conversion_setup import ConversionRecommendationRun
 from products.marketing_analytics.backend.services.conversion_recommendations import ConversionRecommendationService
+
+from ee.models.event_definition import EnterpriseEventDefinition
 
 QUEUE = (
     "products.marketing_analytics.backend.tasks.conversion_recommendations.generate_conversion_recommendations.delay"
@@ -227,8 +230,13 @@ class TestConversionRecommendations(APIBaseTest):
             self.assertEqual(self.client.get(self.base).status_code, 403)
             self.assertEqual(self.client.post(self.base + "/start", {}).status_code, 403)
 
-    def test_child_analysis_uses_its_own_events_and_configured_goals(self) -> None:
-        child = Team.objects.create(organization=self.organization, parent_team=self.team, name="Test environment")
+    def test_child_analysis_uses_project_catalog_and_its_own_configured_goals(self) -> None:
+        child = Team.objects.create(
+            organization=self.organization,
+            project=self.team.project,
+            parent_team=self.team,
+            name="Test environment",
+        )
         for team, event in [(self.team, "invoice_paid"), (child, "application_submitted")]:
             config = get_or_create_team_extension(team, TeamMarketingAnalyticsConfig)
             config.conversion_goals = [
@@ -242,6 +250,10 @@ class TestConversionRecommendations(APIBaseTest):
                 }
             ]
             config.save()
+        EventDefinition.objects.create(team=self.team, project_id=self.team.project_id, name="invoice_paid")
+        EventDefinition.objects.create(team=child, project_id=child.project_id, name="application_submitted")
+        other = Team.objects.create(organization=self.organization)
+        EventDefinition.objects.create(team=other, project_id=other.project_id, name="other_project_event")
         endpoint = f"/api/projects/{child.pk}/marketing_analytics/conversion_recommendations"
         with patch(QUEUE), self.captureOnCommitCallbacks(execute=True):
             run_id = self.client.post(endpoint + "/start", {}).json()["latest_run"]["id"]
@@ -258,20 +270,16 @@ class TestConversionRecommendations(APIBaseTest):
                 )
             ]
         )
-        with (
-            patch(
-                "products.marketing_analytics.backend.services.conversion_recommendations.execute_hogql_query",
-                return_value=SimpleNamespace(results=[["application_submitted", 3, 3], ["invoice_paid", 2, 2]]),
-            ) as query,
-            patch("posthog.llm.gateway_client.build_ai_gateway_anthropic_client", return_value=client),
-        ):
+        with patch("posthog.llm.gateway_client.build_ai_gateway_anthropic_client", return_value=client):
             ConversionRecommendationService(child, self.user).execute(run_id)
-        self.assertEqual(query.call_args.args[1].pk, child.pk)
+        run = ConversionRecommendationRun.objects.for_team(child.pk).get(pk=run_id)
+        self.assertEqual(run.status, ConversionRecommendationRun.Status.COMPLETED, run.error)
+        client.messages.create.assert_called_once()
         payload = json.loads(client.messages.create.call_args.kwargs["messages"][0]["content"])
         self.assertEqual([goal["source_ref"] for goal in payload["configured_goals"]], ["event:application_submitted"])
         self.assertEqual(
             {candidate["source_ref"]: candidate["already_configured"] for candidate in payload["candidates"]},
-            {"event:application_submitted": True, "event:invoice_paid": False},
+            {"event:invoice_paid": False},
         )
         self.assertEqual(self.client.get(endpoint).json()["result_run"]["id"], run_id)
         self.assertIsNone(self.client.get(self.base).json()["latest_run"])
@@ -288,6 +296,7 @@ class TestConversionRecommendations(APIBaseTest):
             date_from=now - timedelta(days=30),
             date_to=now,
         )
+        EventDefinition.objects.create(team=self.team, name="order_settled", last_seen_at=now)
         EventProperty.objects.create(team=self.team, event="order_settled", property="amount")
         PropertyDefinition.objects.create(
             team=self.team, name="amount", type=PropertyDefinition.Type.EVENT, is_numerical=True
@@ -317,17 +326,10 @@ class TestConversionRecommendations(APIBaseTest):
             ]
         )
 
-        def query_with_required_tags(*args: object, **kwargs: object) -> SimpleNamespace:
-            self.assertEqual(get_query_tag_value("product"), Product.MARKETING_ANALYTICS)
-            self.assertEqual(get_query_tag_value("feature"), Feature.HEALTH_CHECK)
-            self.assertEqual(get_query_tag_value("team_id"), self.team.pk)
-            return SimpleNamespace(results=[["order_settled", 20, 10]])
-
         with (
             patch(
-                "products.marketing_analytics.backend.services.conversion_recommendations.execute_hogql_query",
-                side_effect=query_with_required_tags,
-            ),
+                "posthog.hogql.query.execute_hogql_query", side_effect=AssertionError("No event scan allowed")
+            ) as query,
             patch("posthog.llm.gateway_client.build_ai_gateway_anthropic_client", return_value=client),
         ):
             ConversionRecommendationService(self.team, self.user).execute(str(run.id))
@@ -336,7 +338,9 @@ class TestConversionRecommendations(APIBaseTest):
         proposal = run.results["recommendations"][0]
         self.assertEqual(proposal["amount_property"], amount if has_amount else None)
         self.assertEqual(proposal["intent"], "revenue" if has_amount else "conversion")
-        self.assertEqual(proposal["candidate"]["count"], 20)
+        self.assertIsNone(proposal["candidate"]["count"])
+        self.assertIsNone(proposal["candidate"]["distinct_users"])
+        query.assert_not_called()
         self.assertEqual(proposal["questions"][0], "Confirm whether amount includes tax.")
         self.assertEqual(len(proposal["questions"]), 1 if has_amount else 2)
         self.assertEqual(self.team.marketing_analytics_config.conversion_goals, [])
@@ -396,13 +400,9 @@ class TestConversionRecommendations(APIBaseTest):
                 )
             ]
         )
-        with (
-            patch(
-                "products.marketing_analytics.backend.services.conversion_recommendations.execute_hogql_query",
-                return_value=SimpleNamespace(results=[["order_settled", 20, 10], ["trial_started", 15, 12]]),
-            ),
-            patch("posthog.llm.gateway_client.build_ai_gateway_anthropic_client", return_value=client),
-        ):
+        EventDefinition.objects.create(team=self.team, name="order_settled")
+        EventDefinition.objects.create(team=self.team, name="trial_started")
+        with patch("posthog.llm.gateway_client.build_ai_gateway_anthropic_client", return_value=client):
             ConversionRecommendationService(self.team, self.user).execute(str(run.id))
         payload = json.loads(client.messages.create.call_args.kwargs["messages"][0]["content"])
         self.assertEqual(
@@ -433,3 +433,102 @@ class TestConversionRecommendations(APIBaseTest):
         else:
             self.assertEqual(run.results, {})
             self.assertTrue(run.error)
+
+    @parameterized.expand([("valid", False), ("unknown", True)])
+    def test_catalog_shortlist_uses_only_visible_bounded_metadata(self, _name: str, unknown: bool) -> None:
+        now = timezone.now()
+        run = ConversionRecommendationRun.objects.for_team(self.team.pk).create(
+            team_id=self.team.pk,
+            requested_by=self.user,
+            lookback_days=30,
+            date_from=now - timedelta(days=30),
+            date_to=now,
+        )
+        event_names = [f"outcome_{index:02}_" + "x" * 50 for index in range(25)]
+        EventDefinition.objects.bulk_create(
+            [EventDefinition(team=self.team, name=name, last_seen_at=now) for name in event_names]
+        )
+        EnterpriseEventDefinition.objects.create(
+            team=self.team, name="booking_confirmed", description="A confirmed reservation.", last_seen_at=now
+        )
+        EnterpriseEventDefinition.objects.create(team=self.team, name="hidden_event", hidden=True)
+        EventDefinition.objects.create(team=self.team, name="$pageview", last_seen_at=now)
+        EventDefinition.objects.create(team=self.team, name="old_event", last_seen_at=now - timedelta(days=40))
+        EventDefinition.objects.create(team=self.team, name="activity_date_unknown")
+        action = Action.objects.create(team=self.team, name="Accepted applications", description="Approved requests.")
+        Action.objects.create(team=self.team, name="Deleted action", deleted=True)
+        EventProperty.objects.create(team=self.team, event="booking_confirmed", property="price")
+        EventProperty.objects.create(team=self.team, event="booking_confirmed", property="private_amount")
+        PropertyDefinition.objects.create(team=self.team, name="price", is_numerical=True)
+        PropertyDefinition.objects.create(team=self.team, name="private_amount", is_numerical=True)
+        client = MagicMock()
+        client.with_options.return_value = client
+        client.__enter__.return_value = client
+        client.messages.create.side_effect = [
+            SimpleNamespace(
+                content=[
+                    ToolUseBlock(
+                        type="tool_use",
+                        id="selection",
+                        name="shortlist",
+                        input={
+                            "source_refs": [
+                                "event:unknown" if unknown else "event:booking_confirmed",
+                                "event:booking_confirmed",
+                            ]
+                        },
+                    )
+                ]
+            ),
+            SimpleNamespace(
+                content=[
+                    ToolUseBlock(
+                        type="tool_use",
+                        id="suggestions",
+                        name="recommendations",
+                        input={"recommendations": []},
+                    )
+                ]
+            ),
+        ]
+        with (
+            patch("posthog.llm.gateway_client.build_ai_gateway_anthropic_client", return_value=client),
+            patch(
+                "products.marketing_analytics.backend.services.conversion_recommendations.MAX_CATALOG_CHARACTERS", 1600
+            ),
+            patch(
+                "products.marketing_analytics.backend.services.conversion_recommendations.is_privacy_mode_enabled",
+                return_value=True,
+            ),
+            patch(
+                "products.marketing_analytics.backend.services.conversion_recommendations.restricted_property_names",
+                return_value={"private_amount"},
+            ),
+        ):
+            ConversionRecommendationService(self.team, self.user).execute(str(run.id))
+        requests = client.messages.create.call_args_list
+        catalog = json.loads(requests[0].kwargs["messages"][0]["content"])["catalog"]
+        refs = {entry["source_ref"] for entry in catalog}
+        self.assertIn(f"action:{action.pk}", refs)
+        self.assertIn("event:activity_date_unknown", refs)
+        self.assertFalse({"event:hidden_event", "event:$pageview", "event:old_event"} & refs)
+        self.assertEqual(
+            next(entry for entry in catalog if entry["source_ref"] == "event:booking_confirmed")["description"],
+            "A confirmed reservation.",
+        )
+        self.assertLessEqual(len(json.dumps(catalog)), 1600)
+        self.assertIn(f"event:{event_names[0]}", refs)
+        self.assertNotIn(f"event:{event_names[-1]}", refs)
+        self.assertNotIn("private_amount", json.dumps(catalog))
+        for request in requests:
+            self.assertEqual(request.kwargs["extra_headers"], {"X-PostHog-Privacy-Mode": "true"})
+        run.refresh_from_db()
+        self.assertEqual(run.status, "failed" if unknown else "completed")
+        self.assertEqual(len(requests), 1 if unknown else 2)
+        if not unknown:
+            candidates = json.loads(requests[1].kwargs["messages"][0]["content"])["candidates"]
+            self.assertEqual(len(candidates), 1)
+            self.assertEqual(candidates[0]["source_ref"], "event:booking_confirmed")
+            self.assertEqual(candidates[0]["numeric_properties"], ["price"])
+            self.assertEqual(candidates[0]["property_names"], ["price"])
+            self.assertIsNone(candidates[0]["count"])

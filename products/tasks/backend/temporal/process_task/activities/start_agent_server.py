@@ -2,12 +2,13 @@ import json
 import time
 import shlex
 import threading
+from collections.abc import Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 
 from django.conf import settings
-from django.db import connection
+from django.db import connection, transaction
 
 import posthoganalytics
 from temporalio import activity
@@ -23,6 +24,7 @@ from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.utils import asyncify, retry_on_db_connection_drop
 from posthog.temporal.oauth import PosthogMcpScopes
 
+from products.mcp_store.backend.facade.contracts import UnmountedInstallation
 from products.tasks.backend.constants import SUBSCRIPTION_PLAN_NAMES
 from products.tasks.backend.exceptions import (
     OAuthTokenError,
@@ -39,13 +41,15 @@ from products.tasks.backend.logic.services.connection_token import (
 from products.tasks.backend.logic.services.launch_preparation_metrics import launch_preparation_metric_context
 from products.tasks.backend.logic.services.modal_sandbox import ModalSandbox
 from products.tasks.backend.logic.services.sandbox import (
+    CLAUDE_CREDENTIAL_UNAVAILABLE_MESSAGE,
+    CODEX_CREDENTIAL_UNAVAILABLE_MESSAGE,
     REPO_READY_FILE,
-    SNAPSHOT_KIND_DIRECTORY,
     SUBSCRIPTION_CLI_FLAGS,
     SandboxBase,
     get_sandbox_class_for_sandbox_id,
     sandbox_repo_path,
 )
+from products.tasks.backend.logic.services.startup_failure import AgentServerStartupError
 from products.tasks.backend.logic.stream.redis_stream import release_task_run_milestone_claims
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.redis import run_uses_dedicated_stream
@@ -77,13 +81,14 @@ from products.tasks.backend.temporal.process_task.utils import (
     loop_mcp_installation_allowlist,
     mark_sandbox_mcp_session,
     mcp_exclude_tools_from_state,
+    unmounted_mcp_installations_log_fields,
+    unmounted_mcp_installations_notice,
 )
 
 from .get_task_processing_context import TaskProcessingContext
 
 logger = get_logger(__name__)
 
-AGENT_SERVER_SHADOW_FEATURE_FLAG = "agent-server-shadow-observer"
 
 PROTECTED_BASE_BRANCH_JOIN_TIMEOUT_SECONDS = 30.0
 
@@ -211,23 +216,6 @@ def _ensure_repository_on_disk(ctx: TaskProcessingContext, sandbox: SandboxBase)
             )
 
 
-def _is_agent_shadow_enabled(ctx: TaskProcessingContext) -> bool:
-    try:
-        return bool(
-            posthoganalytics.feature_enabled(
-                AGENT_SERVER_SHADOW_FEATURE_FLAG,
-                distinct_id=ctx.distinct_id,
-                groups={"organization": ctx.organization_id},
-                group_properties={"organization": {"id": ctx.organization_id}},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        )
-    except Exception:
-        logger.exception("agent_shadow_flag_check_failed", run_id=ctx.run_id)
-        return False
-
-
 def _has_agent_shadow_launch_marker(ctx: TaskProcessingContext, sandbox: SandboxBase) -> bool:
     try:
         result = sandbox.execute(
@@ -241,11 +229,11 @@ def _has_agent_shadow_launch_marker(ctx: TaskProcessingContext, sandbox: Sandbox
 
 
 def _launch_agent_shadow(ctx: TaskProcessingContext, sandbox: SandboxBase) -> bool:
-    if sandbox.config.snapshot_restored and sandbox.config.snapshot_kind != SNAPSHOT_KIND_DIRECTORY:
+    if sandbox.config.snapshot_restored and sandbox.config.resume_snapshot_external_id is None:
         return False
     if current_activity_attempt() > 1 and _has_agent_shadow_launch_marker(ctx, sandbox):
         return True
-    if not _is_agent_shadow_enabled(ctx):
+    if not ctx.agent_shadow_enabled:
         return False
     quoted_run_id = shlex.quote(ctx.run_id)
     command = (
@@ -421,6 +409,21 @@ def _record_network_enforcement_observation(ctx: TaskProcessingContext) -> None:
     record_network_enforcement("startup_observed", runtime, observation, "success")
 
 
+def _report_unmounted_mcp_installations(ctx: TaskProcessingContext, unmounted: Sequence[UnmountedInstallation]) -> None:
+    if not unmounted:
+        return
+    logger.info(
+        "mcp_installations_not_mounted",
+        team_id=ctx.team_id,
+        task_id=ctx.task_id,
+        run_id=ctx.run_id,
+        unmounted=unmounted_mcp_installations_log_fields(unmounted),
+    )
+    notice = unmounted_mcp_installations_notice(unmounted)
+    if notice:
+        emit_agent_log(ctx.run_id, "warn", notice)
+
+
 def _include_personal_mcp_for_task(task: Task) -> bool:
     """Whether a run may pull the task creator's *personal* MCP installations.
 
@@ -533,7 +536,7 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes, sandbo
         exclude_tools=mcp_exclude_tools_from_state(ctx.state),
     )
     include_personal = _include_personal_mcp_for_task(task)
-    user_mcp_configs = get_user_mcp_server_configs(
+    user_mcp = get_user_mcp_server_configs(
         token=access_token,
         team_id=ctx.team_id,
         user_id=actor_user.id if actor_user else None,
@@ -546,8 +549,9 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes, sandbo
         credential_owner_id=task.mcp_credential_owner_id,
         allowed_gateway_server_ids=task.mcp_gateway_server_allowlist,
     )
-    if user_mcp_configs:
-        mcp_configs = mcp_configs + user_mcp_configs
+    if user_mcp.configs:
+        mcp_configs = mcp_configs + user_mcp.configs
+    _report_unmounted_mcp_installations(ctx, user_mcp.unmounted)
 
     imported_mcp_configs = get_imported_mcp_server_configs(task_run, {config.name for config in mcp_configs})
     if imported_mcp_configs:
@@ -606,6 +610,37 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes, sandbo
     )
 
 
+def _record_agent_startup_attempt(ctx: TaskProcessingContext, runtime: str) -> None:
+    TaskRun.update_state_atomic(
+        ctx.run_id,
+        updates={
+            "agent_startup_attempt": {
+                "started_at": datetime.now(UTC).isoformat(),
+                "repository": (ctx.repository or "").lower(),
+                "provider": "pi" if ctx.task_runtime == "pi" else ctx.runtime_adapter or "claude",
+                "runtime": runtime,
+            },
+        },
+        remove_keys=["startup_failure", "startup_completed_at", "startup_provider"],
+    )
+
+
+def _record_agent_startup_success(ctx: TaskProcessingContext) -> None:
+    with transaction.atomic():
+        state = TaskRun.objects.filter(id=ctx.run_id, team_id=ctx.team_id).values_list("state", flat=True).first()
+        attempt = (state or {}).get("agent_startup_attempt")
+        TaskRun.update_state_atomic(
+            ctx.run_id,
+            updates={"agent_startup_success": {**attempt, "completed_at": datetime.now(UTC).isoformat()}}
+            if isinstance(attempt, dict)
+            else {},
+            remove_keys=["startup_failure"],
+        )
+        TaskRun.objects.filter(id=ctx.run_id, team_id=ctx.team_id).exclude(
+            status__in=[TaskRun.Status.COMPLETED, TaskRun.Status.FAILED, TaskRun.Status.CANCELLED]
+        ).update(error_message=None)
+
+
 def _invoke_start_agent_server(
     sandbox: SandboxBase,
     ctx: TaskProcessingContext,
@@ -617,6 +652,9 @@ def _invoke_start_agent_server(
     try:
         _enforce_subscription_support(sandbox, ctx)
         health_duration_ms = sandbox.start_agent_server(
+            before_launch=lambda: _record_agent_startup_attempt(
+                ctx, sandbox_runtime_label(ctx.use_modal_vm_sandbox) if isinstance(sandbox, ModalSandbox) else "unknown"
+            ),
             repository=ctx.repository if len(ctx.repositories) <= 1 else None,
             task_id=ctx.task_id,
             run_id=ctx.run_id,
@@ -644,7 +682,6 @@ def _invoke_start_agent_server(
             wait_for_health=wait_for_health,
             rtk_enabled=ctx.rtk_enabled,
             benjamin_enabled=ctx.benjamin_enabled,
-            peer_messaging=ctx.peer_messaging_enabled,
             pi_acp_conversation=ctx.pi_acp_conversation_enabled,
             claude_model_access=ctx.model_access.access_for("claude"),
             codex_model_access=ctx.model_access.access_for("codex"),
@@ -777,6 +814,26 @@ def _read_agent_boot_metrics(sandbox: SandboxBase, input: StartAgentServerInput)
     return session_init_ms, boot_phases_ms
 
 
+def _record_agent_startup_failure(ctx: TaskProcessingContext, sandbox_id: str, error: Exception) -> None:
+    if not isinstance(error, AgentServerStartupError) or error.run_id != ctx.run_id:
+        return
+    TaskRun.update_state_atomic(ctx.run_id, updates={"startup_failure": asdict(error.startup_failure)})
+    if error.startup_failure.retryability == "requires_action":
+        message = error.message
+        if error.startup_failure.reason == "credential_unavailable":
+            message = (
+                CODEX_CREDENTIAL_UNAVAILABLE_MESSAGE
+                if error.startup_failure.provider == "codex"
+                else CLAUDE_CREDENTIAL_UNAVAILABLE_MESSAGE
+            )
+        raise ProcessTaskFatalError(
+            message,
+            {"run_id": ctx.run_id, "sandbox_id": sandbox_id},
+            error,
+            capture=False,
+        ) from error
+
+
 @activity.defn
 @asyncify
 @posthoganalytics.scoped(fresh=True, capture_exceptions=False)
@@ -784,7 +841,7 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
     """Start the agent-server HTTP server in the sandbox.
 
     Sandbox credentials (sandbox_url, connect_token) are passed directly via input
-    from get_sandbox_for_repository output.
+    from the sandbox provisioning output.
     """
     ctx = input.context
 
@@ -843,6 +900,7 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
                     )
                     invoke_status = "COMPLETED" if health_poll_ms is not None else "FAILED"
                     health_status = "FAILED"
+                    _record_agent_startup_failure(ctx, input.sandbox_id, error)
                     raise
                 finally:
                     if start_and_health_ms is None:
@@ -887,14 +945,19 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
                     origin_product=ctx.origin_product,
                     runtime=runtime,
                 ) as health_timer:
-                    sandbox.wait_for_agent_server_ready(
-                        params.agentsh_domains,
-                        claude_model_access=ctx.model_access.access_for("claude"),
-                    )
+                    try:
+                        sandbox.wait_for_agent_server_ready(
+                            params.agentsh_domains,
+                            claude_model_access=ctx.model_access.access_for("claude"),
+                        )
+                    except Exception as error:
+                        _record_agent_startup_failure(ctx, input.sandbox_id, error)
+                        raise
                 invoke_ms = invoke_timer.elapsed_ms
                 health_poll_ms = health_timer.elapsed_ms
             _record_agent_server_launch(sandbox, ctx, params)
 
+        _record_agent_startup_success(ctx)
         _record_network_enforcement_observation(ctx)
 
         log_with_activity_context(f"Agent server started at {input.sandbox_url}", run_id=ctx.run_id)
@@ -1093,6 +1156,7 @@ def await_agent_server_ready(input: StartAgentServerInput) -> StartAgentServerOu
                 if agentsh_domains is not None:
                     _emit_agentsh_log_tail(ctx, sandbox)
                 _emit_agent_server_log_tail(ctx, sandbox)
+            _record_agent_startup_failure(ctx, input.sandbox_id, error)
             raise
 
         if attempt > 1:
@@ -1106,6 +1170,7 @@ def await_agent_server_ready(input: StartAgentServerInput) -> StartAgentServerOu
 
         _record_network_enforcement_observation(ctx)
 
+        _record_agent_startup_success(ctx)
         log_with_activity_context(f"Agent server ready at {input.sandbox_url}", run_id=ctx.run_id)
         activity.logger.info(f"Agent server ready at {input.sandbox_url} for task {ctx.task_id}")
 

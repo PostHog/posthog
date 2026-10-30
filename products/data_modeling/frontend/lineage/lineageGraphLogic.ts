@@ -1,9 +1,8 @@
 import { MarkerType, Position, type Edge as ReactFlowEdge, type Node as ReactFlowNode } from '@xyflow/react'
 import { MakeLogicType, actions, afterMount, kea, key, listeners, path, props, propsChanged, reducers } from 'kea'
 
-import { DataModelingEdge, DataModelingNode } from '~/types'
-
 import { ElkDirection, NodeHandle, getFormattedNodes } from './autolayout'
+import { LineageEdge, LineageGraphNode } from './lineageHiddenNodes'
 import { LineageNodeData, LineageVariant } from './LineageNode'
 
 const NODE_SIZES: Record<LineageVariant, { width: number; height: number }> = {
@@ -11,7 +10,20 @@ const NODE_SIZES: Record<LineageVariant, { width: number; height: number }> = {
     canvas: { width: 180, height: 120 },
 }
 
+const COLLAPSED_NODE_SIZE = { width: 40, height: 24 }
+const ARROW_MARKER = { type: MarkerType.ArrowClosed, width: 20, height: 20 }
+
 const NODE_GAP = 60
+
+const THROUGH_HIDDEN_NODES_EDGE: Partial<ReactFlowEdge> = {
+    label: '⋯',
+    ariaLabel: 'Connected through hidden models',
+    style: { strokeDasharray: '4 4' },
+    labelStyle: { fill: 'var(--color-text-secondary)' },
+    labelBgStyle: { fill: 'var(--color-bg-surface-primary)', fillOpacity: 0.8 },
+    labelBgPadding: [2, 0],
+    labelBgBorderRadius: 4,
+}
 
 export interface LineageGraphLayout {
     nodes: ReactFlowNode<LineageNodeData>[]
@@ -19,8 +31,8 @@ export interface LineageGraphLayout {
 }
 
 export interface LineageGraphLogicProps {
-    nodes: DataModelingNode[]
-    edges: DataModelingEdge[]
+    nodes: LineageGraphNode[]
+    edges: LineageEdge[]
     variant: LineageVariant
     direction: ElkDirection
 }
@@ -34,8 +46,8 @@ function handlesForDirection(nodeId: string, direction: ElkDirection): NodeHandl
 }
 
 export function initialLineageGraphLayout(
-    nodes: DataModelingNode[],
-    edges: DataModelingEdge[],
+    nodes: LineageGraphNode[],
+    edges: LineageEdge[],
     variant: LineageVariant,
     direction: ElkDirection
 ): LineageGraphLayout {
@@ -46,8 +58,7 @@ export function initialLineageGraphLayout(
         type: 'lineage',
         position:
             direction === 'DOWN' ? { x: 0, y: index * (height + NODE_GAP) } : { x: index * (width + NODE_GAP), y: 0 },
-        width,
-        height,
+        ...(node.collapsed ? COLLAPSED_NODE_SIZE : { width, height }),
         data: {
             node,
             variant,
@@ -58,13 +69,15 @@ export function initialLineageGraphLayout(
         },
     }))
 
+    const collapsedNodeIds = new Set(nodes.filter((node) => node.collapsed).map((node) => node.id))
     const rfEdges: ReactFlowEdge[] = edges.map((edge) => ({
         id: edge.id,
         source: edge.source_id,
         target: edge.target_id,
         sourceHandle: `source_${edge.source_id}`,
         targetHandle: `target_${edge.target_id}`,
-        markerEnd: { type: MarkerType.ArrowClosed, width: 20, height: 20 },
+        markerEnd: collapsedNodeIds.has(edge.target_id) ? undefined : ARROW_MARKER,
+        ...(edge.throughHiddenNodes && THROUGH_HIDDEN_NODES_EDGE),
     }))
 
     return { nodes: rfNodes, edges: rfEdges }
@@ -73,8 +86,8 @@ export function initialLineageGraphLayout(
 // Layout depends only on the graph's structure — per-node state/callbacks are decorated onto the
 // laid-out nodes at render time, so caller-supplied inline callbacks never retrigger the ELK pass.
 async function layoutGraph(
-    nodes: DataModelingNode[],
-    edges: DataModelingEdge[],
+    nodes: LineageGraphNode[],
+    edges: LineageEdge[],
     variant: LineageVariant,
     direction: ElkDirection
 ): Promise<LineageGraphLayout> {

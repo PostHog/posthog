@@ -22,18 +22,11 @@
             "intents": ["llm_clusters"]
         },
         {
-            "path": "Datasets",
-            "category": "AI engineering",
-            "iconType": null,
-            "type": "llm_datasets",
-            "intents": ["llm_datasets"]
-        },
-        {
             "path": "Evaluations",
             "category": "AI engineering",
             "iconType": null,
             "type": "llm_evaluations",
-            "intents": ["llm_evaluations"]
+            "intents": ["llm_evaluations", "llm_datasets"]
         },
         {
             "path": "Taggers",
@@ -48,6 +41,13 @@
             "iconType": null,
             "type": "llm_prompts",
             "intents": ["llm_prompts"]
+        },
+        {
+            "path": "Application observability",
+            "category": "Monitoring",
+            "iconType": null,
+            "type": null,
+            "intents": ["tracing"]
         },
         {
             "path": "Autoresearch",
@@ -288,6 +288,13 @@
             "category": "Messaging",
             "iconType": "broadcasts",
             "type": "broadcasts",
+            "intents": ["workflows"]
+        },
+        {
+            "path": "Transactional",
+            "category": "Messaging",
+            "iconType": "transactional",
+            "type": "transactional",
             "intents": ["workflows"]
         }
     ],

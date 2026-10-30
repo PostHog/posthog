@@ -9,6 +9,12 @@ import deltalake.exceptions
 
 from posthog.temporal.common.errors import NonReportableError
 
+# `errno` only defines EREMOTEIO on platforms that have it (Linux); referencing it directly breaks
+# import on a Mac dev machine. s3fs's own translation table (s3fs/errors.py) falls back to EIO for
+# the same reason, so matching with the identical fallback stays consistent with what s3fs actually
+# sets there.
+_EREMOTEIO = getattr(errno, "EREMOTEIO", errno.EIO)
+
 # Substrings of the object-store errors raised talking to our own S3-backed data-warehouse bucket
 # that are transient and self-recovering, not a bug in our code or a customer credential problem:
 # - the first three come from delta-rs's Rust `object_store` crate inside `DeltaTable.is_deltatable()`
@@ -22,6 +28,15 @@ from posthog.temporal.common.errors import NonReportableError
 #   onto the same generic PermissionError (s3fs/errors.py::translate_boto_error), so this message - not
 #   a permission denial - is the only way to tell the two apart. The worker's own clock resyncs and the
 #   identical request succeeds moments later.
+# - "connection closed before message completed" is delta-rs's own object_store crate (reqwest/hyper)
+#   reporting a connection the remote end dropped mid-response - it already prefixes this with its own
+#   "Unexpected (temporary)" classification before this classifier even runs, so a retry against a fresh
+#   connection is exactly what self-heals it, the same as any other blip in this list.
+# - "Connection timed out" is the bare OS-level message a dropped TCP handshake/response leaves behind
+#   when our own bucket is a non-AWS S3-compatible store reached through delta-rs's generic S3 client
+#   with a custom `endpoint_url` (e.g. Alibaba Cloud OSS's S3-compatible API, addressed virtual-hosted
+#   per products/data_warehouse/backend/s3_proxy.py) rather than AWS's own endpoints - that path never
+#   goes through s3fs/aiobotocore, so it can't surface as one of the typed botocore exceptions below.
 # A retry (of the same idempotent operation) clears these, so they shouldn't be treated the same as a
 # bug in our logic.
 TRANSIENT_OBJECT_STORE_ERRORS = (
@@ -31,6 +46,8 @@ TRANSIENT_OBJECT_STORE_ERRORS = (
     "Please reduce your request rate",
     "We encountered an internal error. Please try again.",
     "The difference between the request time and the current time is too large.",
+    "connection closed before message completed",
+    "Connection timed out",
 )
 
 # pyarrow's S3FileSystem (the AWS SDK for C++) reports a response it can't classify as the fixed
@@ -46,6 +63,21 @@ _BODYLESS_UNKNOWN_STATUS_RE = re.compile(r"AWS Error UNKNOWN \(HTTP status (\d{3
 def _is_bodyless_5xx_unknown_error(error: BaseException) -> bool:
     match = _BODYLESS_UNKNOWN_STATUS_RE.search(str(error))
     return match is not None and match.group(1).startswith("5")
+
+
+# A warehouse bucket backed by Aliyun OSS instead of S3 (see s3_proxy.py's module docstring on OSS as
+# a supported backend) surfaces a 500 as this OSS-specific error shape instead of the S3 messages
+# above - delta-rs's own object-store layer already marks it "(temporary)" before wrapping OSS's
+# Debug-formatted source struct. Matched on the `code` field rather than the free-text `message`,
+# which, unlike S3's fixed internal-error string, OSS's own InternalError responses don't keep fixed.
+_OSS_INTERNAL_ERROR_NEEDLE = 'OssError { code: "InternalError"'
+
+
+def _is_oss_internal_error(error: BaseException) -> bool:
+    # `is_deltatable()` exposes the raw `OSError`, but table-level operations (vacuum, optimize,
+    # commit) wrap the identical underlying object-store error in `deltalake.exceptions.DeltaError`
+    # instead - same split the S3 needles above already account for.
+    return isinstance(error, OSError | deltalake.exceptions.DeltaError) and _OSS_INTERNAL_ERROR_NEEDLE in str(error)
 
 
 class TransientObjectStoreError(NonReportableError):
@@ -99,10 +131,20 @@ def is_transient_object_store_error(error: BaseException) -> bool:
     covers the 503 "Service Unavailable" case the message needles below miss, without matching on
     the vendor's free text.
 
+    A bare `OSError` with errno `EREMOTEIO` is the same `translate_boto_error` table's entry for
+    `InternalError`/bare "500" - the exact blip the "We encountered an internal error" needle below
+    names, but recognized by errno instead so an S3-compatible provider that returns its own wording
+    for that response code (self-hosted setups routing the data-warehouse bucket through a non-AWS
+    endpoint) still matches without a needle per vendor.
+
     A bodyless 5xx that pyarrow's S3FileSystem reports as "AWS Error UNKNOWN" (see
     `_is_bodyless_5xx_unknown_error`) is also transient - but only once its status is confirmed to be
     5xx, because AWS omits the error body (and so reports the same UNKNOWN code) for a permanent
     HeadObject 403 or 404 too.
+
+    A warehouse bucket backed by Aliyun OSS instead of S3 reports its own 500 "InternalError" as this
+    OSS-specific error shape (see `_is_oss_internal_error`), already marked "(temporary)" by delta-rs's
+    object-store layer before this classifier even runs.
 
     Deliberately does not cover `ensure_bucket_exists`'s own exhausted `HeadBucket` 403 retry (see
     `_is_exhausted_head_bucket_forbidden` below) — that check only runs under `USE_LOCAL_SETUP`,
@@ -126,9 +168,11 @@ def is_transient_object_store_error(error: BaseException) -> bool:
         # re-runs this classifier on the wrapper, rather than the original OSError/DeltaError it
         # wraps, must still treat it as transient.
         return True
-    if isinstance(error, OSError) and error.errno in (errno.EMFILE, errno.ENFILE, errno.EBUSY):
+    if isinstance(error, OSError) and error.errno in (errno.EMFILE, errno.ENFILE, errno.EBUSY, _EREMOTEIO):
         return True
     if isinstance(error, OSError) and _is_bodyless_5xx_unknown_error(error):
+        return True
+    if _is_oss_internal_error(error):
         return True
     return isinstance(error, OSError | deltalake.exceptions.DeltaError) and any(
         needle in str(error) for needle in TRANSIENT_OBJECT_STORE_ERRORS
@@ -210,6 +254,38 @@ def is_transient_delta_maintenance_error(error: BaseException) -> bool:
     # table itself is unaffected; only this stale handle's refresh failed, so the next reader (a
     # retried activity opens a fresh `DeltaTableRef`) reads the current log and succeeds.
     return "is older than the existing snapshot version" in text
+
+
+# A fourth shape of the same reset-vs-concurrent-read race, caught by the kernel's log-segment
+# listing instead of a single file lookup: `_purge_s3_prefix_once` lists the table's live
+# `_delta_log` files once and bulk-deletes them in one `_rm` call, which S3 does not guarantee to
+# apply in any particular order across keys. A concurrent open that lists the directory (or reads
+# `_last_checkpoint` and fetches the checkpoint it names) mid-delete can see an arbitrary subset of
+# that batch already gone — a run of consecutive commit files missing from the middle of the
+# sequence ("Expected contiguous commit files, but found gap"), or a `_last_checkpoint` hint whose
+# checkpoint file the same batch already removed ("Had a _last_checkpoint hint but didn't find any
+# checkpoints"). Moments later the purge finishes and the next reader opens a fresh, consistent log.
+#
+# Deliberately NOT folded into `is_transient_delta_maintenance_error` above: that function also backs
+# `DeltaTableRef.is_table_corrupted`, whose whole purpose is catching a log left genuinely broken by an
+# interrupted repartition swap or an OOM-crashed merge (see its docstring) so `handle_corrupted_delta_log`
+# can revive it — and unlike the single-file "not found" case, a missing *run* of commit files or a
+# dangling checkpoint hint is exactly the shape that kind of interrupted write leaves behind too. Folding
+# these in would make `is_table_corrupted` read a genuinely and permanently broken log as transient,
+# silently skip the revive, and loop the sync forever with nothing reported. Scoped instead to the one
+# call site (`DeltaTableRef._capture_unless_transient`) that only suppresses error-tracking noise on the
+# common race, while `is_table_corrupted`'s own independent open keeps classifying a log that is still in
+# this state on a later attempt as corrupt and reviving it.
+DELTA_LOG_LISTING_RACE_ERRORS = (
+    "Expected contiguous commit files",
+    "Had a _last_checkpoint hint but didn't find any checkpoints",
+)
+
+
+def is_transient_delta_log_listing_race(error: BaseException) -> bool:
+    return isinstance(error, deltalake.exceptions.DeltaError) and any(
+        needle in str(error) for needle in DELTA_LOG_LISTING_RACE_ERRORS
+    )
 
 
 # `optimize.compact` bins files to rewrite by their on-disk (compressed) size, targeting

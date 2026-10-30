@@ -84,6 +84,32 @@ pub fn evaluate_tree(
     }
 }
 
+/// The cohort's membership as far as `known` decides it, or `None` when the answer depends on a leaf
+/// `known` does not hold or on a cohort reference. Agrees with [`evaluate_tree`] wherever it returns
+/// `Some`, since that reads a leaf `known` lacks as whatever the store holds.
+pub fn evaluate_known(node: &FilterNode, known: &HashMap<LeafStateKey, bool>) -> Option<bool> {
+    match node {
+        FilterNode::Group { op, children } => {
+            let mut undecided = false;
+            for child in children {
+                match (op, evaluate_known(child, known)) {
+                    (BoolOp::And, Some(false)) => return Some(false),
+                    (BoolOp::Or, Some(true)) => return Some(true),
+                    (_, None) => undecided = true,
+                    _ => {}
+                }
+            }
+            (!undecided).then_some(*op == BoolOp::And)
+        }
+        FilterNode::Leaf(CohortLeaf::CohortRef(_)) => None,
+        FilterNode::Leaf(leaf) => match leaf.leaf_state_key() {
+            Some(lsk) => known.get(&lsk).map(|bit| bit ^ leaf.negated()),
+            // [`evaluate_tree`] reads a leaf with no state key as `false` whatever is stored.
+            None => Some(leaf.negated()),
+        },
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -125,6 +151,53 @@ mod tests {
 
     fn group(op: BoolOp, children: Vec<FilterNode>) -> FilterNode {
         FilterNode::Group { op, children }
+    }
+
+    #[test]
+    fn evaluate_known_decides_only_what_the_known_leaves_force() {
+        let known = HashMap::from([(lsk(1), true), (lsk(2), false)]);
+        for (why, tree, want) in [
+            (
+                "a false leaf decides an AND",
+                group(BoolOp::And, vec![person_leaf(lsk(2)), person_leaf(lsk(3))]),
+                Some(false),
+            ),
+            (
+                "an unknown leaf leaves an AND open",
+                group(BoolOp::And, vec![person_leaf(lsk(1)), person_leaf(lsk(3))]),
+                None,
+            ),
+            (
+                "a true leaf decides an OR",
+                group(BoolOp::Or, vec![person_leaf(lsk(1)), person_leaf(lsk(3))]),
+                Some(true),
+            ),
+            (
+                "an unknown leaf leaves an OR open",
+                group(BoolOp::Or, vec![person_leaf(lsk(2)), person_leaf(lsk(3))]),
+                None,
+            ),
+            (
+                "negation applies to a known leaf",
+                group(BoolOp::And, vec![person_leaf_neg(lsk(1), true)]),
+                Some(false),
+            ),
+            (
+                "a cohort reference is never known",
+                group(BoolOp::And, vec![person_leaf(lsk(1)), cohort_ref_leaf()]),
+                None,
+            ),
+            (
+                "all known leaves decide",
+                group(
+                    BoolOp::And,
+                    vec![person_leaf(lsk(1)), person_leaf_neg(lsk(2), true)],
+                ),
+                Some(true),
+            ),
+        ] {
+            assert_eq!(evaluate_known(&tree, &known), want, "{why}");
+        }
     }
 
     fn classifier_excludes_top_level_negation(root: &FilterNode) -> bool {

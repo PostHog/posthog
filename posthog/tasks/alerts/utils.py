@@ -1,6 +1,7 @@
 from collections.abc import Collection
 from contextlib import ExitStack
 from datetime import UTC, datetime, timedelta
+from typing import Any
 from zoneinfo import ZoneInfo
 
 from django.db.models import Q
@@ -17,12 +18,14 @@ from posthog.ph_client import ph_background_capture
 from posthog.slo.context import get_current_slo
 from posthog.slo.types import SloOperation
 from posthog.tasks.alerts.schedule_restriction import snap_candidate_utc_to_schedule_restriction
+from posthog.utils import absolute_uri
 
 from products.alerts.backend.facade.api import LLM_DETECTOR_UNAVAILABLE_ERROR_CODE
 from products.alerts.backend.facade.destinations import (
     ALERT_NOTIFICATION_FLUSH_TIMEOUT_SECONDS,
     alert_internal_event_delivered,
     flush_alert_internal_events,
+    insight_alert_slack_properties,
     list_active_alert_destinations,
     produce_alert_internal_event,
     serialize_deliveries,
@@ -34,7 +37,7 @@ from products.alerts.backend.insight_alert_state_machine import (
     evaluate_alert_check,
     should_notify,
 )
-from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, derive_detector_event_fields
+from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
 from products.alerts_platform.backend.facade.contracts import AlertDelivery
 from products.alerts_platform.backend.facade.delivery_slo import alert_delivery_slo
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
@@ -211,14 +214,7 @@ def trigger_alert_hog_functions(alert: AlertConfiguration, properties: dict) -> 
     )
 
     props = {
-        "alert_id": str(alert.id),
-        "alert_name": alert.name,
-        "project_name": alert.team.name,
-        "insight_name": alert.insight.name,
-        "insight_id": alert.insight.short_id,
-        "state": alert.state,
-        "last_checked_at": alert.last_checked_at.isoformat() if alert.last_checked_at else None,
-        **derive_detector_event_fields(alert.detector_config),
+        **alert.internal_event_properties(state=alert.state, last_checked_at=alert.last_checked_at),
         **properties,
     }
 
@@ -268,7 +264,7 @@ def send_notifications_for_breaches(
     alert: AlertConfiguration,
     breaches: list[str],
     idempotency_key: str,
-    extra_properties: dict[str, str] | None = None,
+    extra_properties: dict[str, Any] | None = None,
 ) -> list[AlertDelivery]:
     """A stable idempotency_key (typically alert_check.id) lets MessagingRecord enforce
     per-recipient at-most-once email delivery on retries.
@@ -284,7 +280,7 @@ def send_notifications_for_breaches(
         insight_url = f"/project/{alert.team.pk}/insights/{alert.insight.short_id}"
         alert_url = f"{insight_url}?alert_id={alert.id}"
         logger.info("send_notifications_for_breaches", alert_id=alert.id, anomaly_count=len(breaches))
-        send_alert_email(
+        email_sent = send_alert_email(
             recipients=email_targets,
             campaign_key=campaign_key,
             subject=subject,
@@ -298,8 +294,9 @@ def send_notifications_for_breaches(
                 "project_name": alert.team.name,
             },
         )
-        accepted_at = datetime.now(UTC).isoformat()
-        deliveries.extend(AlertDelivery(channel="email", target=target, at=accepted_at) for target in email_targets)
+        if email_sent:
+            accepted_at = datetime.now(UTC).isoformat()
+            deliveries.extend(AlertDelivery(channel="email", target=target, at=accepted_at) for target in email_targets)
 
     # Join with newlines so each breach/investigation line renders on its own line in
     # Slack/Discord/Teams destinations rather than as one run-on comma-separated string.
@@ -313,9 +310,9 @@ def send_notifications_for_breaches(
     return deliveries
 
 
-def send_test_alert_email(alert: AlertConfiguration, recipients: Collection[str], idempotency_key: str) -> None:
+def send_test_alert_email(alert: AlertConfiguration, recipients: Collection[str], idempotency_key: str) -> bool:
     insight_url = f"/project/{alert.team.pk}/insights/{alert.insight.short_id}"
-    send_alert_email(
+    return send_alert_email(
         recipients=recipients,
         campaign_key=f"alert-test-notification-{idempotency_key}",
         subject=f"Test alert: {alert.name} for {alert.team.name}",
@@ -343,7 +340,7 @@ def send_notifications_for_errors(alert: AlertConfiguration, error: dict, idempo
     error_message = str(error.get("message") or "Unknown error").strip()[:1000] or "Unknown error"
     insight_url = f"/project/{alert.team.pk}/insights/{alert.insight.short_id}"
     alert_url = f"{insight_url}?alert_id={alert.id}"
-    send_alert_email(
+    email_sent = send_alert_email(
         recipients=email_targets,
         campaign_key=f"alert-evaluation-failed-notification-{idempotency_key}",
         subject=f"PostHog could not evaluate {subject_alert_name}",
@@ -360,6 +357,8 @@ def send_notifications_for_errors(alert: AlertConfiguration, error: dict, idempo
             "detector_unavailable": error.get("code") == LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
         },
     )
+    if not email_sent:
+        return []
     accepted_at = datetime.now(UTC).isoformat()
     return [AlertDelivery(channel="email", target=target, at=accepted_at) for target in email_targets]
 
@@ -426,16 +425,61 @@ def prepare_alert_insight_chart_url(
     ).exists()
     if not pending:
         return None
+    return render_alert_insight_chart_url(alert, render_user)
+
+
+@frozen
+class RenderedInsightChart:
+    """A chart rendered for an alert, by id. The URL that opens it is minted from these when a message
+    goes out, because that URL opens the chart without a login and must not be stored."""
+
+    asset_id: int
+    render_user_id: int
+
+
+def render_alert_insight_chart(
+    alert: AlertConfiguration, render_user: User | None = None
+) -> RenderedInsightChart | None:
+    """Render the alerted insight for its Slack destinations, or None when none would show it.
+
+    Best-effort, like `prepare_alert_insight_chart_url`: any failure returns None. The render user
+    defaults the way that function's does.
+    """
+    render_user = render_user or _resolve_alert_render_user(alert)
+    if render_user is None:
+        return None
     try:
         destinations = list_active_alert_destinations(
             team_id=alert.team_id, alert_id=str(alert.id), allowed_event_ids=(INSIGHT_ALERT_FIRING_EVENT,)
         )
         if not any(destination.destination_type == "slack" for destination in destinations):
             return None
+        alert_threshold_lines: list[dict[str, Any]] = []
+        for insight_alert in (
+            AlertConfiguration.objects.filter(team_id=alert.team_id, insight_id=alert.insight_id, enabled=True)
+            .select_related("threshold")
+            .order_by("created_at", "id")
+        ):
+            if insight_alert.threshold is None or insight_alert.condition.get("type") != "absolute_value":
+                continue
+            threshold_config = insight_alert.threshold.configuration
+            if threshold_config.get("type") != "absolute":
+                continue
+            for side, value in (threshold_config.get("bounds") or {}).items():
+                if side in {"upper", "lower"} and value is not None:
+                    alert_threshold_lines.append(
+                        {
+                            "label": f"{insight_alert.name} {side} threshold",
+                            "value": value,
+                            "borderColor": "#d14343",
+                            "displayLabel": False,
+                        }
+                    )
         asset, content = exports.render_png_export(
             team=alert.team,
             created_by=render_user,
             insight_id=alert.insight_id,
+            reference_lines=alert_threshold_lines,
             # System render: keep it out of the user's export listings and quota.
             is_system=True,
             expires_after=datetime.now(UTC) + _INSIGHT_CHART_ASSET_TTL,
@@ -448,22 +492,43 @@ def prepare_alert_insight_chart_url(
                 exception=asset.exception,
             )
             return None
-        return exports.get_delivery_image_url(
-            team_id=alert.team_id, asset_id=asset.id, expiry_delta=_INSIGHT_CHART_URL_TTL
-        )
+        return RenderedInsightChart(asset_id=asset.id, render_user_id=render_user.id)
     except Exception:
         logger.exception("alerts.insight_chart_render_failed", alert_id=str(alert.id))
         return None
 
 
-def detector_verdict_event_fields(alert_check: AlertCheck) -> dict[str, str]:
+def insight_chart_url(*, team_id: int, chart: RenderedInsightChart) -> str | None:
+    """The URL a message embeds for a rendered chart, or None when the asset is gone.
+
+    The ids may come back from storage, so the asset is pinned to the user that rendered it.
+    """
+    try:
+        return exports.get_delivery_image_url(
+            team_id=team_id,
+            asset_id=chart.asset_id,
+            expiry_delta=_INSIGHT_CHART_URL_TTL,
+            created_by_id=chart.render_user_id,
+        )
+    except Exception:
+        logger.exception("alerts.insight_chart_url_failed", asset_id=chart.asset_id)
+        return None
+
+
+def render_alert_insight_chart_url(alert: AlertConfiguration, render_user: User | None = None) -> str | None:
+    """Render the alerted insight and mint the URL that embeds it, or None when no chart applies."""
+    chart = render_alert_insight_chart(alert, render_user)
+    return insight_chart_url(team_id=alert.team_id, chart=chart) if chart is not None else None
+
+
+def detector_verdict_event_fields(triggered_metadata: dict | None) -> dict[str, str]:
     """The model's verdict, as its own `$insight_alert_firing` properties.
 
     The rationale is already inside the breach text, but a destination that wants to place
     it on its own, in its own Slack block or its own webhook field, cannot split it back
     out of a sentence. Absent for every detector type that reports no verdict.
     """
-    metadata = alert_check.triggered_metadata or {}
+    metadata = triggered_metadata or {}
     fields = {"anomaly_rationale": metadata.get("rationale"), "anomaly_kind": metadata.get("kind")}
     return {key: str(value) for key, value in fields.items() if value}
 
@@ -472,7 +537,7 @@ def dispatch_alert_notification(
     alert: AlertConfiguration,
     alert_check: AlertCheck,
     breaches: list[str] | None,
-    extra_properties: dict[str, str] | None = None,
+    extra_properties: dict[str, Any] | None = None,
     idempotency_key: str | None = None,
     render_chart: bool = True,
 ) -> list[AlertDelivery] | None:
@@ -554,7 +619,49 @@ def dispatch_alert_notification(
                         "caller must pass the breaches list from AlertEvaluationResult"
                     )
                 logger.info("Sending alert firing notifications", alert_id=alert.id)
-                properties = {**detector_verdict_event_fields(alert_check), **(extra_properties or {})}
+                properties = {
+                    **detector_verdict_event_fields(alert_check.triggered_metadata),
+                    **(extra_properties or {}),
+                }
+                detected_at = (
+                    alert_check.created_at.astimezone(ZoneInfo(alert.team.timezone)).strftime("%d %b %Y, %H:%M %Z")
+                    + f" ({alert.team.timezone})"
+                )
+                insight_query = alert.insight.query or {}
+                insight_source = insight_query.get("source") or insight_query
+                breach_details = (alert_check.triggered_metadata or {}).get("breach_details") or []
+                affected_interval = next(
+                    (detail["interval"] for detail in breach_details if detail.get("interval")),
+                    insight_source.get("interval"),
+                )
+                properties.update(
+                    insight_alert_slack_properties(
+                        breaches=breaches,
+                        breach_details=(alert_check.triggered_metadata or {}).get("breach_details"),
+                        is_anomaly=bool(alert.detector_config),
+                        affected_dates=alert_check.triggered_dates
+                        or [
+                            detail["date"]
+                            for detail in (alert_check.triggered_metadata or {}).get("breach_details", [])
+                            if detail.get("date")
+                        ],
+                        affected_interval=affected_interval,
+                        project_timezone=alert.team.timezone,
+                        metric_description=properties.get("investigation_metric_description"),
+                        next_step=properties.get("investigation_next_step"),
+                        tags=list(
+                            alert.insight.tagged_items.filter(tag__team_id=alert.team_id)
+                            .values_list("tag__name", flat=True)
+                            .order_by("tag__name")[:10]
+                        ),
+                        metric_name=alert.insight.name or alert.insight.derived_name or "Insight",
+                        summary=properties.get("investigation_summary") or alert_check.investigation_summary,
+                        verdict=properties.get("investigation_verdict") or alert_check.investigation_verdict,
+                        investigation_status=alert_check.investigation_status,
+                        detected_at=detected_at,
+                        allowed_root=absolute_uri("/"),
+                    )
+                )
                 # Attach the chart for any firing alert whose caller did not already supply
                 # one, so ordinary threshold and anomaly alerts get the chart too, not just
                 # the anomaly investigation path (which renders it early and passes it in).
@@ -751,7 +858,7 @@ def send_notifications_for_disabled(
     campaign_key = f"alert-disabled-notification-{alert.id}-{idempotency_key or timezone.now().timestamp()}"
     insight_url = f"/project/{alert.team.pk}/insights/{alert.insight.short_id}"
     alert_url = f"{insight_url}?alert_id={alert.id}"
-    send_alert_email(
+    email_sent = send_alert_email(
         recipients=targets,
         campaign_key=campaign_key,
         subject=subject,
@@ -765,5 +872,7 @@ def send_notifications_for_disabled(
             "project_name": alert.team.name,
         },
     )
+    if not email_sent:
+        return []
     accepted_at = datetime.now(UTC).isoformat()
     return [AlertDelivery(channel="email", target=target, at=accepted_at) for target in targets]

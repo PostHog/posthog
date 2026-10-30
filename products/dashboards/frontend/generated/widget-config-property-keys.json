@@ -51,7 +51,8 @@
             "search",
             "status"
         ],
-        "canvas_app": ["canvasId"]
+        "canvas_app": ["canvasId"],
+        "metrics_table": ["columns", "dateRange", "groupBy", "interval", "limit", "orderByColumn", "orderDirection"]
     },
     "configPropertyTrees": {
         "notebook_widget": {
@@ -478,6 +479,57 @@
         "canvas_app": {
             "canvasId": {
                 "$type": "string"
+            }
+        },
+        "metrics_table": {
+            "dateRange": {
+                "date_from": {
+                    "$enum": ["-14d", "-1M", "-1h", "-24h", "-30M", "-30d", "-3h", "-7d", "-90d"]
+                }
+            },
+            "groupBy": {
+                "$type": "string"
+            },
+            "columns": {
+                "$array": {
+                    "label": {
+                        "$type": "string"
+                    },
+                    "metricName": {
+                        "$type": "string"
+                    },
+                    "aggregation": {
+                        "$enum": ["avg", "histogram_quantile", "increase", "max", "min", "rate", "sum"]
+                    },
+                    "quantile": {
+                        "$type": "number"
+                    },
+                    "filters": {
+                        "$array": {
+                            "key": {
+                                "$type": "string"
+                            },
+                            "op": {
+                                "$enum": ["eq", "neq", "not_regex", "regex"]
+                            },
+                            "value": {
+                                "$type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "interval": {
+                "$enum": ["day", "hour", "minute", "minute_15", "minute_5"]
+            },
+            "orderByColumn": {
+                "$type": "integer"
+            },
+            "orderDirection": {
+                "$enum": ["ASC", "DESC"]
+            },
+            "limit": {
+                "$type": "integer"
             }
         }
     }

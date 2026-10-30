@@ -19,6 +19,7 @@ from rest_framework.permissions import BasePermission, IsAuthenticated
 
 from posthog.schema import ProductKey
 
+from posthog import cloud_utils
 from posthog.api import project_tags
 from posthog.api.project_secret_api_key import _enforce_caller_holds_scopes
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -62,6 +63,7 @@ from posthog.api.team.team_config import (
     TeamFeatureFlagPolicyConfigSerializer,
     TeamRevenueAnalyticsConfigSerializer,
     TeamWorkflowsConfigSerializer,
+    drop_cached_workflows_config,
 )
 from posthog.api.team.team_serializer import (
     EvaluationContextSuggestionRequestSerializer,
@@ -280,6 +282,7 @@ def update_team_customer_analytics_config(team: Team, validated_data: dict[str, 
 
 def update_team_workflows_config(team: Team, validated_data: dict[str, Any], *, context: dict) -> None:
     user_access_control = context.get("user_access_control")
+    drop_cached_workflows_config(team)
     old_config = {field: getattr(team.workflows_config, field) for field in TeamWorkflowsConfigSerializer.Meta.fields}
 
     serializer = TeamWorkflowsConfigSerializer(
@@ -639,6 +642,13 @@ class ProjectBackwardCompatSerializer(
     # These are @property attrs on Team, not Django model fields — declare explicitly so drf-spectacular can resolve them
     default_modifiers = serializers.DictField(read_only=True)  # Compat with TeamSerializer
     person_on_events_querying_enabled = serializers.BooleanField(read_only=True)  # Compat with TeamSerializer
+    api_host = serializers.SerializerMethodField(  # Compat with TeamSerializer
+        help_text=(
+            "Host the PostHog SDKs send events to, set as their `api_host` option. It is "
+            "`https://us.i.posthog.com` on US Cloud, `https://eu.i.posthog.com` on EU Cloud, "
+            "and the instance URL when self-hosted."
+        )
+    )
     heatmaps_screenshot_secret = serializers.SerializerMethodField(
         help_text=(
             "Value this project's heatmap screenshots send as a cookie scoped to your domain, "
@@ -801,6 +811,7 @@ class ProjectBackwardCompatSerializer(
             "user_access_level",  # Compat with TeamSerializer
             "managed_viewsets",  # Compat with TeamSerializer
             "flag_evaluations_mode",  # Compat with TeamSerializer
+            "api_host",  # Compat with TeamSerializer
             "revenue_analytics_config",  # Compat with TeamSerializer
             "marketing_analytics_config",  # Compat with TeamSerializer
             "customer_analytics_config",  # Compat with TeamSerializer
@@ -843,6 +854,7 @@ class ProjectBackwardCompatSerializer(
             "user_access_level",
             "managed_viewsets",
             "flag_evaluations_mode",
+            "api_host",
         )
 
         team_passthrough_fields = {
@@ -1058,6 +1070,9 @@ class ProjectBackwardCompatSerializer(
 
     def get_live_events_token(self, project: Project) -> Optional[str]:
         return live_events_token_for_request(project.passthrough_team, self.context.get("request"))
+
+    def get_api_host(self, project: Project) -> str:
+        return cloud_utils.get_api_host()
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_heatmaps_screenshot_secret(self, project: Project) -> Optional[str]:
@@ -1730,7 +1745,8 @@ class ProjectViewSet(
         license = get_cached_instance_license()
         try:
             has_active_subscription = (
-                settings.EE_AVAILABLE
+                is_last_project
+                and settings.EE_AVAILABLE
                 and is_cloud()
                 and license
                 and BillingManager(license).get_billing(project.organization).get("has_active_subscription")
@@ -2063,6 +2079,7 @@ class ProjectViewSet(
             item_ids=[str(project.pk)],
             limit=page_params.limit,
             page=page_params.page,
+            user=request.user,
         )
         return activity_page_response(activity_page, page_params.limit, page_params.page, request)
 
