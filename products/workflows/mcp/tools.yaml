@@ -336,8 +336,9 @@ tools:
             idempotent: true
         title: Import Customer.io automations
         description: >
-            Turn Customer.io automations into draft PostHog workflows. Read each automation with the Customer.io MCP or
-            CLI first: GET /v1/environments/{environment_id}/campaigns/{campaign_id} gives `campaign` and `actions`.
+            Turn Customer.io automations into draft PostHog workflows in the active project. Before the first call, tell
+            the user the active project's name and id and ask whether the drafts belong there; switch project if not.
+            Read each automation with the Customer.io MCP or CLI first: GET /v1/environments/{environment_id}/campaigns/{campaign_id} gives `campaign` and `actions`.
             Pass them unchanged; never pass people or customer profiles. Leave message templates out on the first call:
             when the project stored a Customer.io App API key, PostHog reads the content itself and the response says
             content_fetched=true. For each automation whose notes still say its message content was not part of the
