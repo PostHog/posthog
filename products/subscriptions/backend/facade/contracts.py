@@ -204,14 +204,6 @@ class SubscriptionRef:
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
-class SubscriptionPage:
-    """One page of subscriptions, and how many match in total."""
-
-    count: int
-    results: tuple[SubscriptionRecord, ...]
-
-
-@dataclasses.dataclass(frozen=True, kw_only=True)
 class SubscriptionFilters:
     """Narrows the subscriptions a read can see. A None filter does not filter.
 

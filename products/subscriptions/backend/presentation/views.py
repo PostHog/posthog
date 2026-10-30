@@ -26,7 +26,12 @@ from rest_framework.views import APIView
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.ordering import StableOrderingFilter
-from posthog.api.pagination import FacadeCursorPagination, PrecountedLimitOffsetPagination, facade_cursor_page_response
+from posthog.api.pagination import (
+    FacadeCursorPagination,
+    FacadeLimitOffsetPagination,
+    facade_cursor_page_response,
+    facade_page_response,
+)
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import get_request_analytics_properties, groups
@@ -767,7 +772,7 @@ _SUBSCRIPTION_ID_PARAMETER = OpenApiParameter(
 class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.GenericViewSet):
     scope_object = "subscription"
     serializer_class = SubscriptionSerializer
-    pagination_class = PrecountedLimitOffsetPagination
+    pagination_class = FacadeLimitOffsetPagination
     filter_backends = [filters.SearchFilter, StableOrderingFilter]
     ordering_fields = [
         "created_at",
@@ -916,20 +921,12 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.G
             filter_by_object_access=not is_service_auth(request),
             include_all_if_admin=request.GET.get("admin_include_all") == "true",
         )
-        paginator = cast(PrecountedLimitOffsetPagination, self.paginator)
-        limit = paginator.get_limit(request)
-        # A missing or invalid limit falls back to the PAGE_SIZE setting, so there is always one.
-        assert limit is not None
-        page = api.list_subscriptions(
-            team_id=self.team_id,
-            query=query,
-            viewer=self.user_access_control,
-            offset=paginator.get_offset(request),
-            limit=limit,
+        return facade_page_response(
+            self,
+            lambda page: api.list_subscriptions(
+                team_id=self.team_id, query=query, viewer=self.user_access_control, page=page
+            ),
         )
-        paginator.set_count(page.count)
-        results = self.paginate_queryset(list(page.results))
-        return self.get_paginated_response(self.get_serializer(results, many=True).data)
 
     def retrieve(self, request: Request, **kwargs: object) -> Response:
         subscription = self._get_subscription()

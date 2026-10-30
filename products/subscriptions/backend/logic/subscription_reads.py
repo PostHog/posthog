@@ -8,8 +8,8 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import OuterRef, Prefetch, Q, QuerySet, Subquery
 
 from posthog.models.user import User
-from posthog.paging import CursorPageRequest, Page
-from posthog.queryset_paging import select_cursor_page, stable_queryset_ordering
+from posthog.paging import CursorPageRequest, Page, PageRequest
+from posthog.queryset_paging import select_cursor_page, select_page
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.product_analytics.backend.facade.api import insights_including_soft_deleted_for_team
@@ -22,7 +22,6 @@ from products.subscriptions.backend.facade.contracts import (
     SubscriptionInsightContext,
     SubscriptionListQuery,
     SubscriptionNotFoundError,
-    SubscriptionPage,
     SubscriptionPermissionDeniedError,
     SubscriptionRecord,
     SubscriptionRef,
@@ -192,8 +191,8 @@ def _filter_subscriptions(queryset: QuerySet, filters: SubscriptionFilters) -> Q
 
 
 def list_subscriptions(
-    *, team_id: int, query: SubscriptionListQuery, viewer: UserAccessControl, offset: int, limit: int
-) -> SubscriptionPage:
+    *, team_id: int, query: SubscriptionListQuery, viewer: UserAccessControl, page: PageRequest
+) -> Page[SubscriptionRecord]:
     context_queryset = SubscriptionContext.objects.for_team(team_id).select_related("dashboard", "insight")
     queryset = Subscription.objects.prefetch_related(
         "dashboard_export_insights",
@@ -220,14 +219,7 @@ def list_subscriptions(
         queryset = viewer.filter_queryset_by_access_level(queryset, include_all_if_admin=query.include_all_if_admin)
     if query.ordering:
         queryset = queryset.order_by(*query.ordering)
-    queryset = stable_queryset_ordering(queryset)
-
-    count = queryset.count()
-    if count == 0 or offset > count:
-        return SubscriptionPage(count=count, results=())
-    return SubscriptionPage(
-        count=count, results=tuple(subscription_record(obj) for obj in queryset[offset : offset + limit])
-    )
+    return select_page(queryset, page).map(subscription_record)
 
 
 def get_subscription_row(

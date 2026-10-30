@@ -12,7 +12,7 @@ from collections.abc import Collection
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from posthog.paging import CursorPageRequest, Page
+from posthog.paging import CursorPageRequest, Page, PageRequest
 
 from products.subscriptions.backend.logic import (
     auto_disable,
@@ -219,15 +219,13 @@ def dashboard_has_active_full_subscription(dashboard_id: int) -> bool:
 
 
 def list_subscriptions(
-    *, team_id: int, query: contracts.SubscriptionListQuery, viewer: UserAccessControl, offset: int, limit: int
-) -> contracts.SubscriptionPage:
+    *, team_id: int, query: contracts.SubscriptionListQuery, viewer: UserAccessControl, page: PageRequest
+) -> Page[contracts.SubscriptionRecord]:
     """One page of the team's subscriptions that the viewer may see, in `query.ordering`.
 
     A subscription is hidden when the viewer cannot view an insight or a dashboard it delivers.
     """
-    return subscription_reads.list_subscriptions(
-        team_id=team_id, query=query, viewer=viewer, offset=offset, limit=limit
-    )
+    return subscription_reads.list_subscriptions(team_id=team_id, query=query, viewer=viewer, page=page)
 
 
 def get_subscription_ref(
