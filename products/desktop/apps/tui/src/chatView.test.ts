@@ -215,6 +215,35 @@ describe("ChatView", () => {
       expect(plain(chat.render(40, 5))).toEqual(plain(lines));
     });
 
+    it.each([
+      ["after", "x.mjs", " in", false],
+      ["inside", "node", "x.mjs", true],
+    ])(
+      "gives text %s a selected code span the colour it had before",
+      (_, selected, probe, coloured) => {
+        const chat = new ChatView();
+        chat.setTranscript([
+          { kind: "assistant", id: "a", text: "Run `node x.mjs` in Ghostty" },
+        ]);
+        const lines = chat.render(40, 3);
+        const from = cellOf(lines, "node");
+        const to = cellOf(lines, selected);
+        chat.select(from, {
+          row: to.row,
+          column: to.column + selected.length - 1,
+        });
+        const row = chat.render(40, 3)[from.row];
+        // The colour in force where the probe text starts: set by 38, ended by 39 or a full reset.
+        const before = row.slice(0, row.lastIndexOf(probe));
+        const codes = [
+          ...before.matchAll(
+            new RegExp(`${"\u001b"}\\[(38[;:][^m]*|39|0)m`, "g"),
+          ),
+        ];
+        expect(codes.at(-1)?.[1].startsWith("38") ?? false).toBe(coloured);
+      },
+    );
+
     it("keeps the selection on the same text when the chat scrolls", () => {
       const { chat, lines } = chatWith();
       const gamma = cellOf(lines, "gamma");
