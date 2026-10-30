@@ -9494,10 +9494,10 @@ Today (2): `accounts`, `transactions`
 
 Diffed against: <https://raw.githubusercontent.com/plaid/plaid-openapi/master/2020-09-14.yml>
 
-- [ ] `/investments/holdings/get` — positions and cost basis per investment account - accounts alone give no portfolio detail (high)
-- [ ] `/investments/transactions/get` — buys, sells, dividends and fees; the investments analogue of the transactions table we already sync (high)
-- [ ] `/liabilities/get` — loan and credit-card detail (APR, minimum payment, due date, origination) that never appears in accounts or transactions (high)
-- [ ] `/institutions/get_by_id (and /institutions/get)` — lookup resolving the institution_id on the item whose accounts we sync - today the bank is only an opaque ID (high)
+- [x] `/investments/holdings/get` — positions and cost basis per investment account - accounts alone give no portfolio detail (high)
+- [x] `/investments/transactions/get` — buys, sells, dividends and fees; the investments analogue of the transactions table we already sync (high)
+- [x] `/liabilities/get` — loan and credit-card detail (APR, minimum payment, due date, origination) that never appears in accounts or transactions (high)
+- [x] `/institutions/get_by_id (and /institutions/get)` — lookup resolving the institution_id on the item whose accounts we sync - today the bank is only an opaque ID (high)
 - [ ] `/transactions/recurring/get` — Plaid-derived recurring inflow/outflow streams - the headline subscription and income-detection product (high)
 - [ ] `/accounts/balance/get` — live available/current balance refresh; the balances embedded in /accounts/get are cached and can be stale (medium)
 - [ ] `/identity/get` — account owner names, emails, phones and addresses, the standard join key to customer records (medium)
