@@ -677,6 +677,9 @@ def test_create_implementation_task_if_absent_is_idempotent(organization, team, 
     report = SignalReport.objects.create(
         team=team, status=SignalReport.Status.READY, title="t", summary="s", signal_count=0, total_weight=0.0
     )
+    SignalTeamConfig.objects.update_or_create(
+        team=team, defaults={"implementation_repositories": ["owner/assets", "other/assets", "owner/repo"]}
+    )
 
     created_tasks = []
 
@@ -737,6 +740,10 @@ def test_create_implementation_task_if_absent_is_idempotent(organization, team, 
     # self-driving reviews (the agent pushes to a name the server never stamped).
     assert call_kwargs["self_driving_head_branch"].startswith("posthog-self-driving/")
     assert call_kwargs["self_driving_head_branch"] in call_kwargs["description"]
+    # Only same-owner entries apply, because the token comes from the selected repository's installation.
+    assert call_kwargs["github_access_repositories"] == ["owner/assets"]
+    assert "`owner/assets`" in call_kwargs["description"]
+    assert call_kwargs["repository"] == "owner/repo"
     # The gate the second evaluation observed is the legacy SignalReportTask implementation link,
     # written in the same transaction as the task; the task_run artefact is the work-log entry
     # alongside.

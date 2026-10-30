@@ -13,7 +13,7 @@ export function ReportClaimAvatar({ claim }: { claim: ReportClaim }): JSX.Elemen
                     user={claim.person}
                     name={claim.name}
                     size="sm"
-                    className={clsx('rounded-full', claim.isMine && 'ring-3 ring-(--success)')}
+                    className={clsx('rounded-full', claim.isMine && 'ring-2 ring-(--success)')}
                 />
                 {/* The avatar is an initial or an image with no alt text, so screen readers get the claim here. */}
                 <span className="sr-only">{claim.tooltip}</span>
