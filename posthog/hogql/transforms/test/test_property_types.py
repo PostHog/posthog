@@ -150,10 +150,12 @@ class TestNewEventsSchemaArraySubcolumns(_NewEventsSchemaArraySubcolumnsHelpers,
         assert "JSONExtractKeysAndValuesRaw(events.properties)" not in printed
 
     @parameterized.expand(
-        [(name, f"{name}(properties, 'value')") for name in ("JSONExtractInt", "JSONExtractUInt", "JSONExtractFloat")]
-        + [("typed", "JSONExtract(properties, 'value', 'Nullable(Float64)')")]
+        [
+            ("float", "JSONExtractFloat(properties, 'value')"),
+            ("typed", "JSONExtract(properties, 'value', 'Nullable(Float64)')"),
+        ]
     )
-    def test_scalar_json_functions_do_not_serialize_numeric_paths(self, _name: str, expression: str) -> None:
+    def test_float_json_functions_do_not_serialize_the_path(self, _name: str, expression: str) -> None:
         printed = self._print_select(f"SELECT {expression} AS value FROM events")
         assert "events.properties.value" in printed
         assert "toJSONString" not in printed
@@ -1821,7 +1823,7 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
             printed = self._print_select("select JSONExtractInt(properties, '$browser') from events")
             if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
                 assert "events.properties.`$browser`" in printed, printed
-                assert "JSONExtractInt(ifNull(if(notEquals(toJSONString(" not in printed, printed
+                assert "JSONExtractInt(ifNull(if(notEquals(toJSONString(" in printed, printed
                 assert "mat_" not in printed, printed
                 return
 
@@ -1840,7 +1842,7 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
         assert "events.properties.metric" in printed, printed
         assert "events.properties.score" in printed, printed
         assert "events.properties.email" in printed, printed
-        assert "JSONExtractInt(ifNull(" not in printed, printed
+        assert "JSONExtractInt(ifNull(" in printed, printed
         assert "JSONExtract(ifNull(" not in printed, printed
         assert "JSONExtractString(ifNull(" not in printed, printed
         assert "toJSONString(events.properties)" not in printed, printed
@@ -1911,7 +1913,9 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
 
         property_name = "flag" if "flag" in expression else "metric"
         assert f"events.properties.{property_name}" in printed, printed
-        assert f"{expression.split('(', 1)[0]}(ifNull(" not in printed, printed
+        # Integer extraction keeps ClickHouse's parser on the serialized value; the other functions read the subcolumn.
+        parses = _name in ("int", "uint")
+        assert (f"{expression.split('(', 1)[0]}(ifNull(" in printed) == parses, printed
         assert "JSONExtractKeysAndValuesRaw" not in printed, printed
 
     def test_scalar_jsonextract_preserves_clickhouse_coercions(self):

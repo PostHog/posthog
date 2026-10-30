@@ -172,7 +172,7 @@
 # name: TestQuery.test_hogql_unnecessary_ifnull[new_events_schema]
   '''
   -- ClickHouse
-  SELECT toDate(toTimeZone(events.timestamp, %(hogql_val_0)s)) AS timestamp, ifNull(if(ifNull(equals(dynamicType(accurateCast(events.properties.field, %(hogql_val_1)s)), %(hogql_val_2)s), 0), NULL, if(ifNull(equals(dynamicType(accurateCast(events.properties.field, %(hogql_val_3)s)), %(hogql_val_4)s), 0), coalesce(toInt64OrNull(toString(accurateCast(events.properties.field, %(hogql_val_5)s))), accurateCastOrNull(trunc(accurateCastOrNull(toString(accurateCast(events.properties.field, %(hogql_val_6)s)), %(hogql_val_7)s)), %(hogql_val_8)s), if(isNaN(accurateCastOrNull(toString(accurateCast(events.properties.field, %(hogql_val_9)s)), %(hogql_val_10)s)), accurateCast(0, %(hogql_val_11)s), NULL)), coalesce(accurateCastOrNull(accurateCast(events.properties.field, %(hogql_val_12)s), %(hogql_val_13)s), accurateCastOrNull(trunc(accurateCastOrNull(accurateCast(events.properties.field, %(hogql_val_14)s), %(hogql_val_15)s)), %(hogql_val_16)s)))), accurateCast(0, %(hogql_val_17)s)) AS json_int 
+  SELECT toDate(toTimeZone(events.timestamp, %(hogql_val_0)s)) AS timestamp, JSONExtractInt(ifNull(if(notEquals(toJSONString(events.properties.^field), '{}'), toJSONString(events.properties.^field), if(isNull(events.properties.field), NULL, toJSONString(events.properties.field))), '')) AS json_int 
   FROM events_json AS events 
   WHERE and(equals(events.team_id, 99999), greaterOrEquals(timestamp, addDays(today(), -10)), equals(json_int, 17)) 
   LIMIT 1 

@@ -1312,48 +1312,13 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
 
     # --- comparison / call rewrites ---
 
-    @staticmethod
-    def _json_integer_conversion(value: ast.Expr, value_type: ast.Expr, target: str) -> ast.Expr:
-        floating = _call("toFloat64OrNull", [_call("toString", [clone_expr(value)])])
-        parsed = _call(
-            "coalesce",
-            [
-                _call(f"_to{target}OrNull", [_call("toString", [clone_expr(value)])]),
-                _call("accurateCastOrNull", [_call("trunc", [clone_expr(floating)]), _const(target)]),
-                _call(
-                    "if",
-                    [
-                        _call("isNaN", [floating]),
-                        _call("accurateCast", [_const(0), _const(f"Nullable({target})")]),
-                        _const(None),
-                    ],
-                ),
-            ],
-        )
-        converted = _call(
-            "coalesce",
-            [
-                _call("accurateCastOrNull", [clone_expr(value), _const(target)]),
-                _call(
-                    "accurateCastOrNull",
-                    [
-                        _call("trunc", [_call("accurateCastOrNull", [value, _const("Float64")])]),
-                        _const(target),
-                    ],
-                ),
-            ],
-        )
-        # JSON numeric strings accept a fractional/exponent form and truncate it; numeric values reject overflow.
-        return _call("if", [_call("equals", [value_type, _const("String")]), parsed, converted])
-
     def _rewrite_scalar_json_extract(self, node: ast.Call) -> ast.Expr | None:
-        scalar_types = {
-            "JSONExtractString": "String",
-            "JSONExtractInt": "Int64",
-            "JSONExtractUInt": "UInt64",
-            "JSONExtractFloat": "Float64",
-            "JSONExtractBool": "Bool",
-        }
+        """`JSONExtractString`, `JSONExtractFloat` or `JSONExtractBool` of one native property, read from its subcolumn.
+
+        Integer extraction keeps ClickHouse's JSON parser: its coercion rules (fractional and exponent strings truncate,
+        Bool reads as 0, overflow reads as 0) take more SQL to emulate than the parse of one serialized value costs.
+        """
+        scalar_types = {"JSONExtractString": "String", "JSONExtractFloat": "Float64", "JSONExtractBool": "Bool"}
         target = scalar_types.get(node.name)
         nullable = False
         path_args = node.args[1:]
@@ -1365,7 +1330,7 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
             nullable = target.startswith("Nullable(") and target.endswith(")")
             if nullable:
                 target = target[len("Nullable(") : -1]
-            if target not in ("String", "Int64", "UInt64", "Float64", "Bool"):
+            if target not in ("String", "Float64"):
                 return None
             path_args = node.args[1:-1]
         if target is None or not node.args:
@@ -1402,34 +1367,25 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
         value_type = _call("dynamicType", [clone_expr(value)])
         if target == "String":
             result = _json_subcolumn_value_expr(field_type, keys, source=source)
+        elif node.name == "JSONExtractBool":
+            result = _call(
+                "and",
+                [
+                    _call("in", [value_type, ast.Tuple(exprs=[_const(t) for t in ("Bool", "Int64", "UInt64")])]),
+                    _call("notIn", [_call("toString", [value]), ast.Tuple(exprs=[_const("0"), _const("false")])]),
+                ],
+            )
         else:
-            if node.name == "JSONExtractBool":
+            result = _call("toFloat64OrNull", [_call("toString", [clone_expr(value)])])
+            if node.name == "JSONExtract":
                 result = _call(
-                    "and",
+                    "if",
                     [
-                        _call("in", [value_type, ast.Tuple(exprs=[_const(t) for t in ("Bool", "Int64", "UInt64")])]),
-                        _call("notIn", [_call("toString", [value]), ast.Tuple(exprs=[_const("0"), _const("false")])]),
+                        _call("equals", [value_type, _const("Bool")]),
+                        _call("accurateCastOrNull", [value, _const(target)]),
+                        result,
                     ],
                 )
-            elif target == "Float64":
-                result = _call("toFloat64OrNull", [_call("toString", [clone_expr(value)])])
-                if node.name == "JSONExtract":
-                    result = _call(
-                        "if",
-                        [
-                            _call("equals", [value_type, _const("Bool")]),
-                            _call("accurateCastOrNull", [value, _const(target)]),
-                            result,
-                        ],
-                    )
-            else:
-                result = self._json_integer_conversion(value, value_type, "UInt8" if target == "Bool" else target)
-                if node.name != "JSONExtract":
-                    result = _call(
-                        "if", [_call("equals", [clone_expr(value_type), _const("Bool")]), _const(None), result]
-                    )
-                if target == "Bool":
-                    result = _call("accurateCastOrNull", [_call("sign", [result]), _const("Bool")])
         if target == "String" or node.name == "JSONExtractBool":
             # Float serialization can become an integer token or overflow JSON's integer parser. Keep its defaults.
             float_extract = replace(
