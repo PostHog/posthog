@@ -213,7 +213,13 @@ export function Pane({
               ? task.description || task.description_preview
               : undefined,
           )
-        : { lines: [], turnOpen: false, lastTurn: null, turnStartedAt: null },
+        : {
+            lines: [],
+            turnOpen: false,
+            lastTurn: null,
+            turnStartedAt: null,
+            wake: null,
+          },
     [task, local, view.entries],
   );
   const lines = useMemo(
@@ -246,7 +252,7 @@ export function Pane({
         transcript.turnOpen,
         transcript.lastTurn,
         transcript.turnStartedAt,
-        { setup, reopening, delivery, compacting },
+        { setup, reopening, delivery, compacting, wake: transcript.wake },
       )
     : local
       ? runNotice(
@@ -255,7 +261,7 @@ export function Pane({
           transcript.turnOpen,
           transcript.lastTurn,
           transcript.turnStartedAt,
-          { compacting },
+          { compacting, wake: transcript.wake },
         )
       : pending
         ? ({

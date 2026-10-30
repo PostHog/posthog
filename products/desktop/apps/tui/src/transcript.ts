@@ -72,6 +72,31 @@ export interface Transcript {
   lastTurn: { durationMs: number; endedAt: number; stopReason?: string } | null;
   // When the open turn started (epoch ms), or null between turns.
   turnStartedAt: number | null;
+  // The wake-up the agent scheduled in its last turn (Claude Code's ScheduleWakeup): when, and why it waits.
+  wake: { at: number; reason: string } | null;
+}
+
+const WAKE_TOOL = "ScheduleWakeup";
+const wakeInput = z.object({ reason: z.string().optional() });
+const wakeOutput = z.object({ scheduledFor: z.number() });
+
+// The last turn's scheduled wake-up: the items after its user message hold the call, with its reason and time.
+function wakeOf(items: ConversationItem[]): Transcript["wake"] {
+  for (let i = items.length - 1; i >= 0; i--) {
+    const item = items[i];
+    if (item.type === "user_message") return null;
+    if (item.type !== "session_update") continue;
+    const update = item.update;
+    if (update.sessionUpdate !== "tool_call" || update.title !== WAKE_TOOL)
+      continue;
+    const output = wakeOutput.safeParse(update.rawOutput);
+    if (!output.success) return null;
+    return {
+      at: output.data.scheduledFor,
+      reason: wakeInput.safeParse(update.rawInput).data?.reason ?? "",
+    };
+  }
+  return null;
 }
 
 // Pi runs log conversation events; ACP runs (Claude, Codex) log raw ACP notifications.
@@ -98,18 +123,21 @@ export function transcriptFrom(
     runtime === "pi"
       ? withImages(built.items.flatMap(toLine), entries)
       : built.items.flatMap(toLine);
-  const turnOpen = built.lastTurnInfo?.isComplete === false;
+  const info = built.lastTurnInfo;
+  // A turn the builder opened itself (a log window starting mid-turn) ends with its negated start still in place, so it is still running.
+  const lost = info?.isComplete === true && info.durationMs < 0;
+  const turnOpen = info?.isComplete === false || lost;
   // An open turn holds its negated start time until it completes.
-  const turnStartedAt =
-    turnOpen && built.lastTurnInfo ? -built.lastTurnInfo.durationMs : null;
+  const turnStartedAt = turnOpen && info ? -info.durationMs : null;
   const lastTurn =
-    built.lastTurnInfo?.isComplete && built.lastActivityAt !== null
+    info?.isComplete && !lost && built.lastActivityAt !== null
       ? {
-          durationMs: built.lastTurnInfo.durationMs,
+          durationMs: info.durationMs,
           endedAt: built.lastActivityAt,
-          stopReason: built.lastTurnInfo.stopReason,
+          stopReason: info.stopReason,
         }
       : null;
+  const wake = lastTurn ? wakeOf(built.items) : null;
   // The sandbox echoes a new chat's first message only once it boots, so show it until then.
   if (
     runtime === "pi" &&
@@ -124,9 +152,10 @@ export function transcriptFrom(
       turnOpen,
       lastTurn,
       turnStartedAt,
+      wake,
     };
   }
-  return { lines, turnOpen, lastTurn, turnStartedAt };
+  return { lines, turnOpen, lastTurn, turnStartedAt, wake };
 }
 
 // The conversation builder keeps a message's text and drops its images, so each user line takes them back
