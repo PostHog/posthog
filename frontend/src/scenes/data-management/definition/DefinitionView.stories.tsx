@@ -83,6 +83,16 @@ const MOCK_INSIGHTS = [
     { ...mockInsight(3, 'Weekly active users by plan tier', 'TrendsQuery', [], null), created_by: null },
 ]
 
+const MOCK_EVENT_INSIGHTS = [
+    mockInsight(4, 'Orders placed per day', 'TrendsQuery', [1], '2026-04-28T09:00:00Z'),
+    mockInsight(5, 'Checkout to order funnel', 'FunnelsQuery', [1, 3], '2026-04-21T11:15:00Z'),
+    { ...mockInsight(6, 'Orders by country', 'TrendsQuery', [], null), created_by: null },
+]
+
+function insightsListMock(insights: Record<string, unknown>[]): Record<string, unknown> {
+    return { count: insights.length, next: null, previous: null, results: insights }
+}
+
 function propertyUsageDecorator(
     queryUsage: number,
     insights: Record<string, unknown>[]
@@ -90,12 +100,7 @@ function propertyUsageDecorator(
     return mswDecorator({
         get: {
             '/api/projects/:project_id/property_definitions/:id/': MOCK_PROPERTY_DEFINITION,
-            '/api/projects/:project_id/insights/': {
-                count: insights.length,
-                next: null,
-                previous: null,
-                results: insights,
-            },
+            '/api/projects/:project_id/insights/': insightsListMock(insights),
         },
         post: {
             '/api/projects/:project_id/property_definitions/usage_metrics/': {
@@ -120,10 +125,10 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2026-04-30',
         pageUrl: urls.eventDefinition(MOCK_EVENT_DEFINITION.id),
-        // The full DefinitionView mounts EventDefinitionProperties / EventDefinitionInsights / a
-        // matching-events table — those keep their loaders spinning because we don't mock every
-        // downstream endpoint. The metadata row (Owner + Status + Primary property) is what this story
-        // exists to capture, so don't block on loaders that are intentionally never going to settle.
+        // The full DefinitionView mounts EventDefinitionProperties and a matching-events table, which
+        // keep their loaders spinning because we don't mock every downstream endpoint. The event story
+        // exists to capture the metadata row (Status + Primary property) and the usage section, so
+        // don't block on loaders that are intentionally never going to settle.
         testOptions: {
             waitForLoadersToDisappear: false,
             viewportWidths: ['narrow', 'medium', 'wide', 'superwide'],
@@ -147,7 +152,15 @@ export default meta
 
 type Story = StoryObj<{}>
 
-export const EventDefinitionMetadata: Story = {}
+export const EventDefinitionMetadata: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:project_id/insights/': insightsListMock(MOCK_EVENT_INSIGHTS),
+            },
+        }),
+    ],
+}
 
 const withOwner = mswDecorator({
     get: { [EVENT_DEFINITION_PATH]: { ...MOCK_EVENT_DEFINITION, owner: MOCK_SECOND_BASIC_USER } },
