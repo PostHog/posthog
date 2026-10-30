@@ -470,6 +470,8 @@ def _seed_check_lane(team: Team) -> None:
         # Signals landed but the report is still short of its next bucket, so the run settles.
         (2, 2, 3, False, False),
         (3, 4, 9, False, False),
+        (3, 4, 5, True, True),
+        (4, 10, 11, True, True),
         # No new signals at all.
         (2, 2, 2, False, False),
         # This pass covered the last bucket: the report stays READY however far past it grew.
