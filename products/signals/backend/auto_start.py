@@ -97,6 +97,7 @@ from products.signals.backend.task_run_artefacts import (
 from products.signals.backend.tracker_issues import create_tracker_issue_for_report
 from products.signals.backend.typed_report_links import (
     IncompleteReportLinks,
+    complete_links_touching_reports,
     duplicate_chain,
     has_open_or_merged_pull_request,
     incoming_links,
@@ -768,13 +769,13 @@ def _resolve_supersede(
 
 
 def _monitoring_implementation_requires_request(team_id: int, report_id: str) -> bool:
-    pending = [report_id]
+    pending = {report_id}
     checked: set[str] = set()
-    while pending:
-        current = pending.pop()
-        if current in checked:
-            continue
-        checked.add(current)
+    for _ in range(SignalReportArtefact.MAX_REPORT_LINK_GRAPH_LEVELS):
+        frontier = pending - checked
+        if not frontier:
+            return False
+        checked.update(frontier)
         if len(checked) > SignalReportArtefact.MAX_REPORT_LINK_GRAPH_NODES:
             return True
         if (
@@ -783,28 +784,22 @@ def _monitoring_implementation_requires_request(team_id: int, report_id: str) ->
                 team_id=team_id,
                 source_product=SignalSourceProduct.SIGNALS_CHECK,
                 source_type=SignalSourceType.MONITORING_UNRESOLVED,
-                report_id=current,
+                report_id__in=frontier,
             )
             .exists()
         ):
             return True
-        # Layers and merged destinations do the same work, so they retain its implementation gate.
         try:
-            parents = outgoing_links(
-                team_id=team_id, report_id=current, kinds=(ReportLinkKind.PART_OF,), require_complete=True
-            )
-            merged = incoming_links(
-                team_id=team_id,
-                report_id=current,
-                kinds=(ReportLinkKind.DUPLICATE_OF,),
-                include_deleted_sources=True,
-                require_complete=True,
-            )
+            edges = complete_links_touching_reports(team_id=team_id, report_ids=frontier)
         except IncompleteReportLinks:
             return True
-        pending.extend(edge.target_id for edge in parents)
-        pending.extend(edge.source_id for edge in merged)
-    return False
+        # Layers and merged destinations do the same work, so they retain its implementation gate.
+        pending = {
+            edge.target_id for edge in edges if edge.source_id in frontier and edge.kind == ReportLinkKind.PART_OF
+        } | {
+            edge.source_id for edge in edges if edge.target_id in frontier and edge.kind == ReportLinkKind.DUPLICATE_OF
+        }
+    return bool(pending - checked)
 
 
 def _create_implementation_task_if_absent(

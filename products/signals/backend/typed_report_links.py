@@ -14,6 +14,8 @@ parsing. Nothing mirrors the row onto the target, because the direction is the p
 import uuid
 from collections.abc import Collection
 
+from django.db.models import Q
+
 import structlog
 import posthoganalytics
 from pydantic import ValidationError
@@ -77,7 +79,6 @@ def outgoing_links(
     team_id: int,
     report_id: str | uuid.UUID,
     kinds: Collection[ReportLinkKind] | None = None,
-    require_complete: bool = False,
 ) -> list[ReportEdge]:
     """The links written on this report, oldest first: what this report says about others."""
     source_id = _canonical_report_id(report_id)
@@ -87,10 +88,8 @@ def outgoing_links(
         SignalReportArtefact.objects.using("default")
         .filter(team_id=team_id, report_id=source_id, type=SignalReportArtefact.ArtefactType.REPORT_LINK)
         .order_by("created_at", "id")
-        .values_list("report_id", "content")[: SignalReportArtefact.MAX_REPORT_LINK_GRAPH_ROWS + int(require_complete)]
+        .values_list("report_id", "content")[: SignalReportArtefact.MAX_REPORT_LINK_GRAPH_ROWS]
     )
-    if require_complete and len(rows) > SignalReportArtefact.MAX_REPORT_LINK_GRAPH_ROWS:
-        raise IncompleteReportLinks
     return _edges_from_rows(rows, kinds=kinds)
 
 
@@ -119,7 +118,6 @@ def incoming_links(
     report_id: str | uuid.UUID,
     kinds: Collection[ReportLinkKind] | None = None,
     include_deleted_sources: bool = False,
-    require_complete: bool = False,
 ) -> list[ReportEdge]:
     """The links other reports wrote about this one, oldest first.
 
@@ -139,13 +137,32 @@ def incoming_links(
         candidates = candidates.exclude(report__status=SignalReport.Status.DELETED)
     rows = list(
         candidates.order_by("created_at", "id").values_list("report_id", "content")[
-            : SignalReportArtefact.MAX_REPORT_LINK_GRAPH_ROWS + int(require_complete)
+            : SignalReportArtefact.MAX_REPORT_LINK_GRAPH_ROWS
         ]
     )
-    if require_complete and len(rows) > SignalReportArtefact.MAX_REPORT_LINK_GRAPH_ROWS:
-        raise IncompleteReportLinks
     # `link_target_id` is a copy of the target in `content`, so the parsed target decides if they differ.
     return [edge for edge in _edges_from_rows(rows, kinds=kinds) if edge.target_id == target_id]
+
+
+def complete_links_touching_reports(*, team_id: int, report_ids: Collection[str]) -> list[ReportEdge]:
+    """Include deleted sources because their links still carry merge provenance."""
+    canonical_ids = {report_id for report_id in map(_canonical_report_id, report_ids) if report_id is not None}
+    if not canonical_ids:
+        return []
+    rows = list(
+        SignalReportArtefact.objects.using("default")
+        .filter(team_id=team_id, type=SignalReportArtefact.ArtefactType.REPORT_LINK)
+        .filter(Q(report_id__in=canonical_ids) | Q(link_target_id__in=canonical_ids))
+        .order_by()
+        .values_list("report_id", "content")[: SignalReportArtefact.MAX_REPORT_LINK_GRAPH_ROWS + 1]
+    )
+    if len(rows) > SignalReportArtefact.MAX_REPORT_LINK_GRAPH_ROWS:
+        raise IncompleteReportLinks
+    return [
+        edge
+        for edge in _edges_from_rows(rows, kinds=None)
+        if edge.source_id in canonical_ids or edge.target_id in canonical_ids
+    ]
 
 
 def duplicate_chain(*, team_id: int, report_id: str | uuid.UUID) -> list[str]:
