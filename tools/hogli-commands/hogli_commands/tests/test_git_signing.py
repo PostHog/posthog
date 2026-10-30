@@ -131,12 +131,17 @@ class TestForwardsAgentToDevboxes:
 
 
 class TestPreviousKeyAdvice:
-    @pytest.mark.parametrize("uses_devbox, tells_to_remove", [(True, False), (False, True)])
-    def test_devbox_users_keep_their_previous_key(
-        self, capsys: pytest.CaptureFixture[str], uses_devbox: bool, tells_to_remove: bool
+    @pytest.mark.parametrize(
+        "uses_devbox, targets, tells_to_remove",
+        [(True, [None], False), (False, [Path("/repo")], False), (False, [None], True)],
+        ids=["devbox", "repo_only", "global"],
+    )
+    def test_previous_key_is_removed_only_when_nothing_signs_with_it(
+        self, capsys: pytest.CaptureFixture[str], uses_devbox: bool, targets: list[Path | None], tells_to_remove: bool
     ) -> None:
         setup = SecureEnclaveSigningSetup(use_global=True, repos=())
         setup.uses_devbox = uses_devbox
+        setup.targets = targets
 
         setup._print_undo_steps()
 

@@ -314,7 +314,11 @@ class SecureEnclaveSigningSetup:
             email = self._git_config_get(command, "user.email")
             if signers_file is None or email is None:
                 continue
-            if add_allowed_signer(Path(signers_file), email, public_key_line):
+            # git runs ssh-keygen inside the repository, so a relative path resolves there.
+            signers_path = Path(signers_file)
+            if target is not None and not signers_path.is_absolute():
+                signers_path = target / signers_path
+            if add_allowed_signer(signers_path, email, public_key_line):
                 click.echo(f"Added the key to your allowed signers file {signers_file}.")
 
     def _warn_about_overrides(self) -> None:
@@ -339,6 +343,9 @@ class SecureEnclaveSigningSetup:
         click.echo(f"  sc_auth delete-ctk-identity -h <hash> && rm {KEY_PATH} {KEY_PATH}.pub")
         if self.uses_devbox:
             click.echo(DEVBOX_SIGNING_NOTE[1])
+            return
+        if None not in self.targets:
+            click.echo("Keep your previous signing key on GitHub while other repositories still sign with it.")
             return
         click.echo(
             "Remove your previous signing key at https://github.com/settings/keys, so it can't sign verified "
