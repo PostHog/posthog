@@ -22,6 +22,7 @@ export type SetupWizardStatus =
     | { kind: 'installing' }
 
 const RUNNING_STATUSES = ['not_started', 'queued', 'in_progress']
+const STATUS_POLL_INTERVAL_MS = 10_000
 
 const byCreatedAtDesc = (a: { created_at?: string | null }, b: { created_at?: string | null }): number =>
     (b.created_at ?? '').localeCompare(a.created_at ?? '')
@@ -181,7 +182,20 @@ export const setupWizardStatusLogic = kea<setupWizardStatusLogicType>([
             }
         },
     })),
-    afterMount(({ actions }) => {
+    afterMount(({ actions, cache, values }) => {
         actions.loadDiscoveredRun()
+        cache.disposables.add(() => {
+            const timer = window.setInterval(() => {
+                const status = values.setupStatus
+                if (
+                    !values.discoveredRunLoading &&
+                    status &&
+                    (status.kind === 'installing' || !status.pullRequest.merged)
+                ) {
+                    actions.loadDiscoveredRun()
+                }
+            }, STATUS_POLL_INTERVAL_MS)
+            return () => window.clearInterval(timer)
+        }, 'setup-status-poll')
     }),
 ])
