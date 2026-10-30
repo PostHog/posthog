@@ -5671,6 +5671,7 @@ def append_suggested_reviewers(
                     "reason": effective_reason or None,
                     "source_skill": prior_source_skill if isinstance(prior_source_skill, str) else None,
                     "is_skill_owner": bool(prior.get("is_skill_owner")) if prior else False,
+                    "is_default_owner": bool(prior.get("is_default_owner")) if prior else False,
                 }
             )
 
@@ -5719,6 +5720,8 @@ def append_suggested_reviewers(
             if (requested.get(user_uuid=prior.get("user_uuid"), github_login=prior.get("github_login")) is not None)
             == (edit.action == "remove")
         ]
+        default_owner_labels = _default_owner_labels(prior_payloads)
+        evidence_removals = [label for label in chosen_removals if label not in default_owner_labels]
         correction: ReviewerCorrection | None = None
         if attribution.kind == "user" and (removed_payloads or added_entries):
             # Read impersonation once: the activity row records it, and a support-staff edit made
@@ -5730,7 +5733,7 @@ def append_suggested_reviewers(
                 team=team,
                 user=cast(User, request.user),
                 scoped_team_ids=scoped_team_id_tuple,
-                note=removal_note if chosen_removals else None,
+                note=removal_note if evidence_removals else None,
             )
             log_activity(
                 organization_id=None,
@@ -5750,7 +5753,8 @@ def append_suggested_reviewers(
                             before=prior_identities,
                             after=new_identities,
                         ),
-                        *_removal_reason_changes(removal_reason if chosen_removals else None, chosen_removals),
+                        *_removal_reason_changes(removal_reason if evidence_removals else None, evidence_removals),
+                        *_default_owner_changes(default_owner_labels),
                     ],
                 ),
             )
@@ -5791,10 +5795,10 @@ def append_suggested_reviewers(
                 correction = ReviewerCorrection(
                     report_id=str(report_id),
                     added_reviewers=tuple(_reviewer_identity_label(entry) for entry in added_entries),
-                    removed_reviewers=tuple(chosen_removals),
+                    removed_reviewers=tuple(evidence_removals),
                     actor_user_id=user_id,
                     scoped_team_ids=scoped_team_id_tuple,
-                    removal_reason=removal_reason if chosen_removals else None,
+                    removal_reason=removal_reason if evidence_removals else None,
                     removal_note=shared_note,
                 )
 
@@ -5845,7 +5849,29 @@ def _stored_reviewer_entry(entry: dict) -> dict:
         "reason": bounded_reviewer_reason(entry.get("reason")) or None,
         "source_skill": entry.get("source_skill"),
         "is_skill_owner": bool(entry.get("is_skill_owner")),
+        "is_default_owner": bool(entry.get("is_default_owner")),
     }
+
+
+def _default_owner_labels(payloads: list[dict]) -> list[str]:
+    return [
+        label
+        for payload in payloads
+        if isinstance(payload, dict)
+        and payload.get("is_default_owner")
+        and (label := _reviewer_identity_label(payload))
+    ]
+
+
+def _default_owner_changes(labels: list[str]) -> list[Change]:
+    """The activity-row change that marks which reviewers were only the default owner.
+
+    The reviewer-corrections profile drops these labels, so a person who takes the default owner off
+    a report does not read to the scouts as an ownership verdict.
+    """
+    if not labels:
+        return []
+    return [Change(type="SignalReport", action="changed", field="default_owner_reviewers", after=labels)]
 
 
 def _removal_reason_changes(reason: str | None, reviewers: list[str]) -> list[Change]:
@@ -5959,6 +5985,8 @@ def remove_suggested_reviewer(
         if len(kept) == len(prior):
             return False
         new_content = SuggestedReviewers.model_validate_json(new_artefact.content).model_dump(mode="json")
+        default_owner_labels = _default_owner_labels(prior)
+        removed_default_owner = any(entry.get("is_default_owner") for entry in prior if entry not in kept)
 
         log_activity(
             organization_id=None,
@@ -5978,13 +6006,17 @@ def remove_suggested_reviewer(
                         before=list(dict.fromkeys(_reviewer_identity_label(entry) for entry in prior)),
                         after=list(dict.fromkeys(_reviewer_identity_label(entry) for entry in new_content)),
                     ),
-                    *_removal_reason_changes(removal_reason, [github_login or str(user.uuid)]),
+                    *_removal_reason_changes(
+                        None if removed_default_owner else removal_reason,
+                        [] if removed_default_owner else [github_login or str(user.uuid)],
+                    ),
+                    *_default_owner_changes(default_owner_labels),
                 ],
             ),
         )
         correction = (
             None
-            if was_impersonated
+            if was_impersonated or removed_default_owner
             else ReviewerCorrection(
                 report_id=str(report_id),
                 added_reviewers=(),

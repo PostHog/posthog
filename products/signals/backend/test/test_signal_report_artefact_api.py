@@ -1431,6 +1431,21 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         assert [r["user_uuid"] for r in self._latest_reviewers(report)] == [str(teammate.uuid)]
         assert not self._reviewer_filter_matches(report, self.user)
 
+    def test_leaving_as_the_default_owner_is_not_a_routing_correction(self):
+        report = self._create_report()
+        self._create_artefact(report, content=[{"user_uuid": str(self.user.uuid), "is_default_owner": True}])
+
+        with (
+            patch("products.signals.backend.views.forward_reviewer_correction_note") as forward,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self.client.delete(self._leave_reviewers_url(str(report.id)))
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert self._latest_reviewers(report) == []
+        forward.assert_not_called()
+        assert _recent_reviewer_corrections(self.team)["corrections"] == []
+
     def test_leave_reviewers_keeps_an_entry_whose_login_was_reassigned(self):
         _attach_github_login(self.user, "CallerCase")
         teammate = self._create_org_member("teammate@example.com", github_login=None)

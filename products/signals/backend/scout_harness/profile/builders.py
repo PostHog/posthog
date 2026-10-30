@@ -852,12 +852,18 @@ def _recent_reviewer_corrections(team: Team) -> dict[str, Any]:
         changes = detail.get("changes") or []
         change = changes[0] if changes and isinstance(changes[0], dict) else {}
         stated = {c.get("field"): c.get("after") for c in changes if isinstance(c, dict)}
+        # A default owner was a fallback, not a routing pick, so adding or removing one is not precedent.
+        default_owners = set(stated.get("default_owner_reviewers") or [])
+        before = [label for label in change.get("before") or [] if label not in default_owners]
+        after = [label for label in change.get("after") or [] if label not in default_owners]
+        if default_owners and set(before) == set(after):
+            continue
         corrections.append(
             {
                 "report_id": str(row.item_id),
                 "report_title": detail.get("name"),
-                "before": change.get("before") or [],
-                "after": change.get("after") or [],
+                "before": before,
+                "after": after,
                 "removal_reason": stated.get("removal_reason"),
                 "removal_reason_reviewers": stated.get("removal_reason_reviewers") or [],
                 "at": row.created_at.isoformat() if row.created_at else None,
