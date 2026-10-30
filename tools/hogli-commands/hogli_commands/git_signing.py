@@ -33,11 +33,13 @@ SIGN_PROGRAM: Final = f"""#!/bin/sh
 SSH_SK_PROVIDER={PROVIDER} exec {SSH_KEYGEN} "$@"
 """
 
-DEVBOX_SIGNING_WARNING: Final = (
-    "Devbox commit signing with a Secure Enclave key isn't supported yet. "
-    "A devbox signs through your forwarded SSH agent, and the agent can't hold this key.",
-    "A devbox you set up before keeps signing with your previous key until you remove that key from GitHub.",
-    'If you need this, tell team devex: hogli devex:feedback -c idea "Secure Enclave signing on devboxes"',
+DEVBOX_SIGNING_NOTE: Final = (
+    "Your devbox keeps signing with your previous key, because it signs through your forwarded SSH agent "
+    "and the agent can't hold a Secure Enclave key.",
+    "Keep your previous signing key on GitHub while you commit from a devbox, so devbox commits still verify.",
+)
+DEVBOX_FEEDBACK_HINT: Final = (
+    'To ask for Secure Enclave signing on devboxes: hogli devex:feedback -c idea "Secure Enclave signing on devboxes"'
 )
 
 GIT_VALUES: Final = {
@@ -124,6 +126,7 @@ class SecureEnclaveSigningSetup:
         self.repos = repos
         self.targets: list[Path | None] = []
         self.previous_settings: dict[Path | None, dict[str, str | None]] = {}
+        self.uses_devbox = forwards_agent_to_devboxes(SSH_DIR / "config")
 
     def _check_platform(self) -> None:
         if platform.system() != "Darwin" or not PROVIDER.exists() or shutil.which("sc_auth") is None:
@@ -170,8 +173,8 @@ class SecureEnclaveSigningSetup:
                 effective = self._git_config_get(effective_config_command(target), setting)
                 click.echo(f"    {setting} = {effective or '(unset)'}")
         click.echo("SSH logins and pushes keep using your current SSH agent.")
-        if forwards_agent_to_devboxes(SSH_DIR / "config"):
-            for line in DEVBOX_SIGNING_WARNING:
+        if self.uses_devbox:
+            for line in (*DEVBOX_SIGNING_NOTE, DEVBOX_FEEDBACK_HINT):
                 click.echo(line)
         click.confirm("Continue?", abort=True)
 
@@ -334,6 +337,9 @@ class SecureEnclaveSigningSetup:
         click.echo("To delete the Secure Enclave key as well:")
         click.echo(f"  sc_auth list-ctk-identities   # find the hash of the `{KEY_LABEL}` key")
         click.echo(f"  sc_auth delete-ctk-identity -h <hash> && rm {KEY_PATH} {KEY_PATH}.pub")
+        if self.uses_devbox:
+            click.echo(DEVBOX_SIGNING_NOTE[1])
+            return
         click.echo(
             "Remove your previous signing key at https://github.com/settings/keys, so it can't sign verified "
             "commits anymore. Commits you already pushed stay verified."

@@ -24,7 +24,7 @@ import click
 from hogli import telemetry
 from hogli.manifest import get_manifest
 
-from ..git_signing import DEVBOX_SIGNING_WARNING, signs_with_secure_enclave_key
+from ..git_signing import DEVBOX_FEEDBACK_HINT, DEVBOX_SIGNING_NOTE, signs_with_secure_enclave_key
 from . import mutagen
 from .coder import (
     CLAUDE_CODE_OAUTH_ENV,
@@ -731,8 +731,14 @@ def maybe_configure_git_signing(
     # Pushing this public key would make the devbox ask the forwarded agent for a key it can't hold.
     if signs_with_secure_enclave_key():
         click.echo()
-        click.echo(click.style("Git commit signing (not supported yet)", bold=True))
-        for line in DEVBOX_SIGNING_WARNING:
+        click.echo(click.style("Git commit signing (Secure Enclave keys not supported yet)", bold=True))
+        if already_set:
+            lines = DEVBOX_SIGNING_NOTE
+        else:
+            lines = (
+                "Devbox commits won't be signed, because the forwarded SSH agent can't hold a Secure Enclave key.",
+            )
+        for line in (*lines, DEVBOX_FEEDBACK_HINT):
             click.echo(f"  {line}")
         return
 

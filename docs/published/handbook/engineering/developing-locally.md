@@ -73,9 +73,9 @@ On macOS 26 or later, `hogli git:signing-key` creates a Secure Enclave signing k
 It's an SSH key used only for signing, so no GPG key is involved, and SSH logins and pushes keep using your current agent.
 The key can't be copied off the Mac, so each Mac needs its own key.
 It signs without a prompt, also while the screen is locked, so agents can commit while you're away.
-Then remove your previous signing key from your GitHub settings, so it can't sign verified commits anymore. Commits you already pushed stay verified.
-Devbox signing with a `hogli git:signing-key` key isn't supported yet, because a devbox signs through your forwarded SSH agent, which can't hold the key.
-If you need devbox signing now, use Secretive, and tell team devex with `hogli devex:feedback`.
+If you commit from a devbox, keep your previous signing key on GitHub.
+A devbox signs through your forwarded SSH agent, which can't hold a Secure Enclave key, so it keeps signing with the previous key.
+Otherwise, remove your previous signing key from your GitHub settings, so it can't sign verified commits anymore. Commits you already pushed stay verified.
 
 PR evidence uploads (`hogli pr:upload-image` and `hogli pr:upload-video`) prefer your stored GitHub CLI login over `GITHUB_TOKEN` from `.env.local`. Set `GH_TOKEN` to override the account; `GITHUB_TOKEN` remains the fallback when no CLI login exists.
 

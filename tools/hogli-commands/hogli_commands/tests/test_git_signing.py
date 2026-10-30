@@ -128,3 +128,16 @@ class TestForwardsAgentToDevboxes:
             config_path.write_text(ssh_config)
 
         assert forwards_agent_to_devboxes(config_path) == expected
+
+
+class TestPreviousKeyAdvice:
+    @pytest.mark.parametrize("uses_devbox, tells_to_remove", [(True, False), (False, True)])
+    def test_devbox_users_keep_their_previous_key(
+        self, capsys: pytest.CaptureFixture[str], uses_devbox: bool, tells_to_remove: bool
+    ) -> None:
+        setup = SecureEnclaveSigningSetup(use_global=True, repos=())
+        setup.uses_devbox = uses_devbox
+
+        setup._print_undo_steps()
+
+        assert ("Remove your previous signing key" in capsys.readouterr().out) == tells_to_remove
