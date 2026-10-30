@@ -5,6 +5,9 @@ from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from typing import Union
 
+from django.db.models import CharField
+from django.db.models.functions import Cast
+
 import structlog
 import temporalio
 from asgiref.sync import async_to_sync
@@ -23,7 +26,9 @@ from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
-from products.signals.backend.models import SignalEmissionRecord, SignalReport
+from products.signals.backend.enums import SignalSourceProduct, SignalSourceType
+from products.signals.backend.models import SignalEmissionRecord, SignalReport, SignalReportMonitoringAttempt
+from products.signals.backend.report_monitoring_signals import pending_research_requests
 from products.signals.backend.signal_metadata import (
     EMBEDDING_MODEL,
     REASSIGN_SIGNAL_ROW_CAP,
@@ -635,6 +640,29 @@ async def fetch_signals_for_report_activity(input: FetchSignalsForReportInput) -
         pending_signal_id = str(pending_id) if pending_id else None
         required_ids = set(filter(None, [input.required_signal_id]))
         priority_ids = required_ids | set(filter(None, [pending_signal_id]))
+        requests = (
+            SignalReportMonitoringAttempt.objects.for_team(input.team_id)
+            .using("default")
+            .filter(pending_research_requests())
+            .annotate(source_id=Cast("id", CharField()))
+            .values("source_id")
+        )
+        monitoring_ids = (
+            SignalEmissionRecord.objects.using("default")
+            .filter(
+                team_id=input.team_id,
+                report_id=input.report_id,
+                source_product=SignalSourceProduct.SIGNALS_CHECK,
+                source_type=SignalSourceType.MONITORING_UNRESOLVED,
+                source_id__in=requests,
+                signal_id__isnull=False,
+            )
+            .order_by("emitted_at", "id")
+            .values_list("signal_id", flat=True)
+        )
+        async for monitoring_id in monitoring_ids[: REPORT_RESEARCH_SIGNAL_LIMIT - len(priority_ids)]:
+            if monitoring_id is not None:
+                priority_ids.add(monitoring_id)
         placeholders = {
             **_report_placeholders(input.report_id),
             "priority_signal_ids": ast.Tuple(

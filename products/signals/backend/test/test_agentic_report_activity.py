@@ -4,6 +4,7 @@ import asyncio
 from collections.abc import Callable
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from uuid import UUID, uuid4
 
 import pytest
@@ -38,6 +39,7 @@ from products.signals.backend.artefact_schemas import (
 from products.signals.backend.enums import ReportLinkKind, SignalSourceProduct, SignalSourceType
 from products.signals.backend.models import (
     ArtefactAttribution,
+    SignalEmissionRecord,
     SignalReport,
     SignalReportArtefact,
     SignalReportCheck,
@@ -84,7 +86,7 @@ from products.signals.backend.temporal.agentic.select_repository import (
     SelectRepositoryInput,
     select_repository_activity,
 )
-from products.signals.backend.temporal.report_safety_judge import SafetyJudgeInput, SafetyJudgeOutput
+from products.signals.backend.temporal.report_safety_judge import SafetyJudgeInput, SafetyJudgeResponse
 from products.signals.backend.temporal.summary import (
     MarkReportPendingInput,
     MarkReportReadyInput,
@@ -692,21 +694,31 @@ async def test_select_repository_activity_returns_repo(monkeypatch, ateam):
 @pytest.mark.asyncio
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "github_optional,connected,reused",
+    "github_optional,connected,reused,private_origin",
     [
-        (False, True, True),
-        (False, False, False),
-        (True, True, True),
-        (True, False, True),
+        (False, True, True, False),
+        (False, False, False, False),
+        (True, True, True, False),
+        (True, False, True, False),
+        (False, True, False, True),
+        (True, True, False, True),
     ],
 )
 async def test_select_repository_activity_reuses_previous_selection(
-    monkeypatch, ateam, github_optional, connected, reused
+    monkeypatch, ateam, github_optional, connected, reused, private_origin
 ):
     previous = RepoSelectionResult(repository="posthog/posthog", reason="Previously selected")
     if connected:
         await Integration.objects.acreate(
-            team=ateam, kind="github", integration_id="123", config={"installation_id": 123}
+            team=ateam,
+            kind="github",
+            integration_id="123",
+            config={"installation_id": 123},
+            repository_cache=[
+                {"full_name": "posthog/posthog", "private": False},
+                {"full_name": "example/private", "private": True},
+            ],
+            repository_cache_updated_at=timezone.now(),
         )
 
     monkeypatch.setattr(
@@ -714,12 +726,32 @@ async def test_select_repository_activity_reuses_previous_selection(
         lambda report_id: previous,
     )
 
+    signals = _build_signals()
+    if private_origin:
+        monkeypatch.setattr(
+            "products.signals.backend.temporal.agentic.select_repository._resolve_sandbox_user_id", lambda team_id: 1
+        )
+        origin = await SignalReport.objects.acreate(team=ateam, status="closed")
+        signals[0] = replace(
+            signals[0],
+            source_product=SignalSourceProduct.SIGNALS_CHECK,
+            source_type=SignalSourceType.MONITORING_UNRESOLVED,
+            extra={"report_id": str(origin.id), "attempt_id": str(uuid4())},
+        )
+        monkeypatch.setattr(
+            "products.signals.backend.report_monitoring_provenance.execute_hogql_query",
+            lambda **kwargs: SimpleNamespace(
+                results=[(str(origin.id), "github", "issue", "https://github.com/example/private/issues/1", "")]
+            ),
+        )
     select_repo_called = False
 
     async def fake_select_repo(*args, **kwargs):
         nonlocal select_repo_called
         select_repo_called = True
-        raise AssertionError("should not be called")
+        if not private_origin:
+            raise AssertionError("should not be called")
+        return RepoSelectionResult(repository=None, reason="No allowed destination")
 
     monkeypatch.setattr(
         "products.signals.backend.temporal.agentic.select_repository.select_repository_for_report",
@@ -729,7 +761,7 @@ async def test_select_repository_activity_reuses_previous_selection(
     with patch("products.signals.backend.temporal.agentic.select_repository.Heartbeater"):
         result = await select_repository_activity(
             SelectRepositoryInput(
-                team_id=ateam.id, report_id=str(uuid4()), signals=_build_signals(), github_optional=github_optional
+                team_id=ateam.id, report_id=str(uuid4()), signals=signals, github_optional=github_optional
             )
         )
 
@@ -737,8 +769,8 @@ async def test_select_repository_activity_reuses_previous_selection(
         assert result is previous
     else:
         assert result.repository is None
-        assert "No GitHub integration" in result.reason
-    assert not select_repo_called
+        assert ("No allowed destination" if private_origin else "No GitHub integration") in result.reason
+    assert select_repo_called is private_origin
 
 
 @pytest.mark.asyncio
@@ -1012,6 +1044,7 @@ async def test_run_agentic_report_activity_persists_artefacts(
 
     signals = _build_signals()
     if monitoring:
+        signals = [replace(signal, signal_id=str(uuid4())) for signal in signals]
         now = timezone.now()
         origin = await SignalReport.objects.acreate(
             team=ateam,
@@ -1050,14 +1083,76 @@ async def test_run_agentic_report_activity_persists_artefacts(
                         extra={"report_id": str(other.id), "attempt_id": str(other_attempt.id)},
                     )
                 )
+    owner_id = str(uuid4()) if monitoring else None
+    if monitoring:
+        await SignalReport.objects.filter(team=ateam, id=report.id).aupdate(triggering_signal_id=owner_id)
+        for source in signals:
+            if source.source_product == SignalSourceProduct.SIGNALS_CHECK:
+                await SignalEmissionRecord.objects.acreate(
+                    team=ateam,
+                    source_product=source.source_product,
+                    source_type=source.source_type,
+                    source_id=str(source.extra["attempt_id"]),
+                    signal_id=source.signal_id,
+                    report_id=str(report.id),
+                    emitted_at=timezone.now(),
+                )
+
+        def public_source_context() -> None:
+            Integration.objects.create(
+                team=ateam,
+                kind="github",
+                integration_id="monitoring-public-context",
+                config={"installation_id": "monitoring-public-context"},
+                sensitive_config={},
+                repository_cache=[{"id": 1, "full_name": "posthog/posthog", "private": False}],
+                repository_cache_updated_at=timezone.now(),
+            )
+            for source in signals:
+                if source.source_product == SignalSourceProduct.SIGNALS_CHECK:
+                    SignalReportArtefact.append_status(
+                        team_id=ateam.id,
+                        report_id=str(source.extra["report_id"]),
+                        content=RepoSelectionResult(repository="posthog/posthog", reason="Public source context"),
+                        attribution=ArtefactAttribution.system(),
+                        reevaluate_autostart=False,
+                    )
+
+        await database_sync_to_async(public_source_context)()
+        monkeypatch.setattr(
+            "products.signals.backend.report_monitoring_provenance.execute_hogql_query",
+            lambda **kwargs: SimpleNamespace(
+                results=[
+                    (
+                        str(source.extra["report_id"]),
+                        "github",
+                        "issue",
+                        "https://github.com/posthog/posthog/issues/1",
+                        "",
+                    )
+                    for source in signals
+                    if source.source_product == SignalSourceProduct.SIGNALS_CHECK
+                ]
+            ),
+        )
     captured_signals: list[SignalData] = []
     safety_inputs: list[SafetyJudgeInput] = []
 
-    async def judge_evidence(input: SafetyJudgeInput) -> SafetyJudgeOutput:
-        safety_inputs.append(input)
-        return SafetyJudgeOutput(safe=safe, explanation=None if safe else "Evidence requires review.")
+    async def judge_evidence(
+        team_id: int, signals: list[SignalData], report_id: str | None = None, signal_id: str | None = None
+    ) -> SafetyJudgeResponse:
+        safety_inputs.append(
+            SafetyJudgeInput(team_id=team_id, report_id=report_id or "", signal_id=signal_id, signals=signals)
+        )
+        assert report_id is not None
+        await SignalReport.objects.filter(team_id=team_id, id=report_id).aupdate(
+            title="Edited while evidence was checked",
+            summary="The receiving report changed after its initial safety review.",
+            updated_at=timezone.now(),
+        )
+        return SafetyJudgeResponse(choice=safe, explanation="" if safe else "Evidence requires review.")
 
-    monkeypatch.setattr("products.signals.backend.temporal.agentic.report.report_safety_judge_activity", judge_evidence)
+    monkeypatch.setattr("products.signals.backend.temporal.report_safety_judge.judge_report_safety", judge_evidence)
 
     async def fake_run_multi_turn_research(
         signals: list[SignalData], *args: object, **kwargs: object
@@ -1077,6 +1172,7 @@ async def test_run_agentic_report_activity_persists_artefacts(
         activity_input = RunAgenticReportInput(
             team_id=ateam.id,
             report_id=str(report.id),
+            signal_id=owner_id,
             signals=signals,
             repo_selection=RepoSelectionResult(
                 repository="posthog/posthog", reason="Single repository connected: posthog/posthog"
@@ -1089,8 +1185,16 @@ async def test_run_agentic_report_activity_persists_artefacts(
                 signal.content for signal in safety_inputs[0].signals
             )
             assert captured_signals == []
+            assert not await SignalReportArtefact.objects.filter(report=report, type="safety_judgment").aexists()
             return
         result = await run_agentic_report_activity(activity_input)
+        assert not await SignalReportArtefact.objects.filter(report=report, type="safety_judgment").aexists()
+        if monitoring:
+            assert (
+                await SignalReportMonitoringAttempt.objects.for_team(ateam.id)
+                .filter(id=attempt.id, research_delivery_status="delivered")
+                .aexists()
+            )
 
         assert result.title == "Onboarding funnel completion tracking may be regressing"
         selection = await SignalReportArtefact.alatest_content(

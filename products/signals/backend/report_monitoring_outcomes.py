@@ -128,7 +128,9 @@ def aggregate_monitoring_attempt(*, team_id: int, report_id: UUID, attempt_id: U
             fields.append("assessment_requested_at")
         if decision == MonitoringAggregation.FAILED and attempt.research_requested_at is None:
             attempt.research_requested_at = now
-            fields.append("research_requested_at")
+            attempt.research_delivery_status = SignalReportMonitoringAttempt.ResearchDeliveryStatus.PENDING
+            attempt.research_next_attempt_at = now
+            fields.extend(["research_requested_at", "research_delivery_status", "research_next_attempt_at"])
         if decision == MonitoringAggregation.PASSED and attempt.tracker_issue_close_requested_at is None:
             attempt.tracker_issue_close_requested_at = now
             fields.append("tracker_issue_close_requested_at")

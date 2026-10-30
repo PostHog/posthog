@@ -313,27 +313,36 @@ def test_source_repository_is_a_default_for_the_agent_not_an_answer(
 
 
 @pytest.mark.parametrize(
-    "source_metadata,target_private,expected",
+    "source_metadata,target_private,expected,additional_source,require_private",
     [
-        ({"private": True}, False, None),
-        ({"private": True}, None, None),
-        ({"private": True}, True, "acme/b"),
-        ({"private": False}, False, "acme/b"),
-        ({"private": False}, True, "acme/b"),
-        ({}, False, None),
-        (None, False, None),
-        ({"private": "false"}, False, None),
-        (None, True, "acme/b"),
+        ({"private": True}, False, None, None, False),
+        ({"private": True}, None, None, None, False),
+        ({"private": True}, True, "acme/b", None, False),
+        ({"private": False}, False, "acme/b", None, False),
+        ({"private": False}, True, "acme/b", None, False),
+        ({}, False, None, None, False),
+        (None, False, None, None, False),
+        ({"private": "false"}, False, None, None, False),
+        (None, True, "acme/b", None, False),
+        ({"private": False}, False, None, True, False),
+        ({"private": False}, True, "acme/b", True, False),
+        ({"private": False}, False, None, None, True),
     ],
 )
 def test_source_visibility_constrains_single_eligible_repository(
-    source_metadata: dict[str, bool | str] | None, target_private: bool | None, expected: str | None
+    source_metadata: dict[str, bool | str] | None,
+    target_private: bool | None,
+    expected: str | None,
+    additional_source: bool | None,
+    require_private: bool,
 ) -> None:
     github = MagicMock()
     cached_repositories = [{"full_name": "acme/b", "private": target_private}]
     if source_metadata is not None:
         cached_repositories.append({"full_name": "acme/a", **source_metadata})
     github.list_all_cached_repositories.return_value = cached_repositories
+    if additional_source is not None:
+        cached_repositories.append({"full_name": "acme/c", "private": additional_source})
     start = AsyncMock()
 
     with (
@@ -351,6 +360,8 @@ def test_source_visibility_constrains_single_eligible_repository(
             github=github,
             candidate_repos=["acme/a", "acme/b"],
             source_repository=" Acme/A ",
+            source_repositories={"acme/c"} if additional_source is not None else (),
+            require_private_destination=require_private,
         )
 
     assert selected.repository == expected

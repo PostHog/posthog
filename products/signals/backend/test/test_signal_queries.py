@@ -30,8 +30,10 @@ from products.signals.backend.models import (
     SignalEmissionRecord,
     SignalReport,
     SignalReportArtefact,
+    SignalReportMonitoringAttempt,
     SignalReportPullRequest,
 )
+from products.signals.backend.report_monitoring_provenance import monitoring_repository_sources
 from products.signals.backend.signal_metadata import (
     EMBEDDING_MODEL,
     ReportSignalMeta,
@@ -54,6 +56,7 @@ from products.signals.backend.temporal.signal_queries import (
     fetch_source_signal_matches,
     retract_source_signals,
 )
+from products.signals.backend.temporal.types import SignalData
 
 _MODEL_TABLE = f"sharded_posthog_document_embeddings_{EMBEDDING_MODEL.value.replace('-', '_')}"
 
@@ -340,6 +343,48 @@ class TestFetchOriginSourcesForReport(_SignalEmbeddingsTestBase):
         ]
 
 
+class TestMonitoringRepositorySources(_SignalEmbeddingsTestBase):
+    @parameterized.expand([("direct", False, False), ("nested", True, False), ("missing_origin", False, True)])
+    def test_retains_original_repository_restrictions(self, _name: str, nested: bool, missing: bool) -> None:
+        origin = SignalReport.objects.create(team=self.team, status="closed")
+        self._emit_version(
+            document_id="original-private-issue",
+            report_id=str(origin.id),
+            source_product="github",
+            source_type="issue",
+            inserted_at=self.base,
+            extra={"html_url": "https://github.com/example/private/issues/1"},
+        )
+        source_id = str(origin.id)
+        if nested:
+            parent = SignalReport.objects.create(team=self.team, status="closed")
+            self._emit_version(
+                document_id="previous-monitoring",
+                report_id=str(parent.id),
+                source_product="signals_check",
+                source_type="monitoring_unresolved",
+                inserted_at=self.base,
+                extra={"report_id": source_id, "attempt_id": str(uuid.uuid4())},
+            )
+            source_id = str(parent.id)
+        if missing:
+            source_id = str(uuid.uuid4())
+        signal = SignalData(
+            signal_id=str(uuid.uuid4()),
+            content="Unresolved monitoring",
+            source_product="signals_check",
+            source_type="monitoring_unresolved",
+            source_id=str(uuid.uuid4()),
+            weight=1.0,
+            timestamp=self.base,
+            extra={"report_id": source_id, "attempt_id": str(uuid.uuid4())},
+        )
+        sources = monitoring_repository_sources(self.team.id, [signal])
+        assert sources is not None
+        assert sources.repositories == (frozenset() if missing else frozenset({"example/private"}))
+        assert sources.require_private_destination is missing
+
+
 class TestFetchReportIdsForScoutNames(_SignalEmbeddingsTestBase):
     def test_returns_only_reports_authored_by_the_named_scouts(self) -> None:
         # Guards the nested `extra.skill_name` extraction driving the inbox scout filter — a broken
@@ -480,6 +525,20 @@ class TestFetchSignalsForReportSync(_SignalEmbeddingsTestBase):
             triggering_signal_id=required_id,
             pending_triggering_signal_id=pending_id,
         )
+        monitoring_id = signal_ids[-3]
+        origin = SignalReport.objects.create(team=self.team, status="closed")
+        attempt = SignalReportMonitoringAttempt.objects.for_team(self.team.id).create(
+            team=self.team, report=origin, monitoring_started_at=timezone.now(), research_requested_at=timezone.now()
+        )
+        SignalEmissionRecord.objects.create(
+            team=self.team,
+            source_product="signals_check",
+            source_type="monitoring_unresolved",
+            source_id=str(attempt.id),
+            emitted_at=timezone.now(),
+            signal_id=monitoring_id,
+            report_id=str(report.id),
+        )
         for index, signal_id in enumerate(signal_ids):
             self._emit_version(
                 document_id=signal_id,
@@ -500,6 +559,7 @@ class TestFetchSignalsForReportSync(_SignalEmbeddingsTestBase):
         fetched_ids = {signal.signal_id for signal in result.signals}
         assert len(result.signals) == 100
         assert required_id in fetched_ids
+        assert monitoring_id in fetched_ids
         assert (pending_id in fetched_ids) is pending_visible
         assert result.processed_pending_signal_id == (pending_id if pending_visible else None)
         assert [signal.timestamp for signal in result.signals] == sorted(signal.timestamp for signal in result.signals)

@@ -18,9 +18,16 @@ from products.signals.backend.auto_start import (
     start_requested_implementation,
 )
 from products.signals.backend.enums import SignalSourceProduct, SignalSourceType
-from products.signals.backend.models import SignalEmissionRecord, SignalReport, SignalReportArtefact, SignalReportTask
+from products.signals.backend.models import (
+    SignalEmissionRecord,
+    SignalReport,
+    SignalReportArtefact,
+    SignalReportTask,
+    SignalSpend,
+)
 from products.signals.backend.report_generation.research import ActionabilityAssessment, ActionabilityChoice
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
+from products.signals.backend.spend import record_task_spend
 from products.signals.backend.task_run_artefacts import record_implementation_task
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.models import Task, TaskRun
@@ -157,7 +164,8 @@ class TestRequestedImplementation(BaseTest):
                 raise AssertionError("Unactionable research started implementation")
         run_task.assert_not_called()
 
-    def test_report_without_prior_implementation_creates_a_linked_task(self) -> None:
+    @parameterized.expand([(False,), (True,)])
+    def test_report_without_prior_implementation_creates_a_linked_task(self, exempt: bool) -> None:
         report = SignalReport.objects.create(
             team=self.team,
             status=SignalReport.Status.READY,
@@ -165,6 +173,7 @@ class TestRequestedImplementation(BaseTest):
             summary="Fix the new issue",
             signal_count=1,
             run_count=1,
+            billing_exempt_reason=SignalReport.BillingExemptReason.POSTHOG_HEALTH_CHECK if exempt else None,
         )
         for content in (
             ActionabilityAssessment(
@@ -220,6 +229,15 @@ class TestRequestedImplementation(BaseTest):
 
         report.refresh_from_db()
         assert report.implemented_at_run_count == 1
+        run = TaskRun.objects.get(task__signal_report=report)
+        record_task_spend(
+            team_id=self.team.id,
+            run_id=str(run.id),
+            report_id=str(report.id),
+            stage="implementation",
+            implementation_kind="reviewer_triggered_implementation",
+        )
+        assert SignalSpend.objects.for_team(self.team.id).get(task_run_id=run.id).billing_exempt is exempt
         assert SignalReportTask.objects.filter(
             team_id=self.team.id, report_id=report.id, relationship="implementation"
         ).exists()

@@ -71,9 +71,11 @@ from products.signals.backend.report_generation.reviewer_telemetry import (
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult, persisted_repo_selection
 from products.signals.backend.report_lifecycle import report_status_filter
 from products.signals.backend.report_metrics import REPORT_METRIC_GOAL_FIELDS, ReportMetric, metric_batch_error
+from products.signals.backend.report_monitoring_provenance import monitoring_repository_sources
 from products.signals.backend.report_monitoring_signals import (
     MONITORING_EVIDENCE_MAX_CHARS,
     MONITORING_EVIDENCE_MIN_CHARS,
+    acknowledge_monitoring_research,
     monitoring_research_evidence,
 )
 from products.signals.backend.report_steering import ReportSteering, load_research_steering
@@ -87,13 +89,13 @@ from products.signals.backend.startup_failure import (
     startup_failure_message,
 )
 from products.signals.backend.supersession import research_implementation_context
+from products.signals.backend.temporal import report_safety_judge
 from products.signals.backend.temporal.agentic import (
     SIGNALS_REPORT_RESEARCH_ENV_NAME,
     get_or_create_signals_sandbox_env,
     resolve_acting_user_id_for_team,
     resolve_user_id_for_team,
 )
-from products.signals.backend.temporal.report_safety_judge import SafetyJudgeInput, report_safety_judge_activity
 from products.signals.backend.temporal.types import SignalData
 from products.signals.backend.typed_report_links import (
     ReportEdge,
@@ -108,6 +110,7 @@ from products.tasks.backend.facade.agents import (
     SandboxRunFailed,
     turn_failure_error_type,
 )
+from products.tasks.backend.facade.repo_selection import filter_repository_candidates_for_sources
 from products.tasks.backend.facade.repo_selection_types import ReportResearchContext
 
 logger = structlog.get_logger(__name__)
@@ -712,6 +715,8 @@ def _append_agentic_report_artefacts(
     artefacts: list[ArtefactDraft],
     priority_judgment_id: UUID | None = None,
     reviewer_proposal: ReviewerProposal | None = None,
+    owner_signal_id: str | None = None,
+    monitoring_signal_ids: list[str] | None = None,
 ) -> bool:
     # Append-only: each (re-promotion) run adds a new version of its artefacts rather than
     # replacing the previous ones. The report's current judgments / repo selection / reviewers are
@@ -730,7 +735,7 @@ def _append_agentic_report_artefacts(
     service = ReviewerRules(team=Team.objects.get(id=team_id), report_id=report_id)
     with transaction.atomic():
         # Priority edits take the same lock, so a correction cannot arrive between this check and append.
-        SignalReport.objects.select_for_update().get(id=report_id, team_id=team_id)
+        report = SignalReport.objects.select_for_update().get(id=report_id, team_id=team_id)
         priority_adjusted_mid_run = any(isinstance(draft.content, PriorityAssessment) for draft in artefacts) and (
             _priority_adjusted_since(team_id, report_id, priority_judgment_id)
         )
@@ -763,6 +768,9 @@ def _append_agentic_report_artefacts(
                 reevaluate_autostart=False,
             )
             wrote_reviewers |= isinstance(draft.content, SuggestedReviewers)
+        acknowledge_monitoring_research(
+            report=report, owner_signal_id=owner_signal_id, signal_ids=monitoring_signal_ids or []
+        )
     return wrote_reviewers
 
 
@@ -825,6 +833,8 @@ async def _persist_agentic_report_artefacts(
     priority_judgment_id: UUID | None = None,
     reviewer_proposal: ReviewerProposal | None = None,
     reviewer_selection_enabled: bool = False,
+    owner_signal_id: str | None = None,
+    monitoring_signal_ids: list[str] | None = None,
 ) -> None:
     reviewer_resolution = None
     reviewers_content: list[ReviewerContent] = []
@@ -990,6 +1000,8 @@ async def _persist_agentic_report_artefacts(
         artefacts=artefacts,
         priority_judgment_id=priority_judgment_id,
         reviewer_proposal=reviewer_proposal,
+        owner_signal_id=owner_signal_id,
+        monitoring_signal_ids=monitoring_signal_ids,
     )
 
     # Telemetry mirrors persistence: fires when a suggested_reviewers artefact was appended
@@ -1156,6 +1168,20 @@ async def _run_agentic_report(input: RunAgenticReportInput) -> RunAgenticReportO
             "run_agentic_report_activity called without a repository"
         )
         repository = input.repo_selection.repository
+        if repository is not None:
+            sources = await database_sync_to_async(monitoring_repository_sources, thread_sensitive=False)(
+                input.team_id, input.signals
+            )
+            if sources is not None:
+                allowed = await database_sync_to_async(
+                    filter_repository_candidates_for_sources, thread_sensitive=False
+                )(input.team_id, [repository], sources.repositories, sources.require_private_destination)
+                if repository not in allowed:
+                    raise ApplicationError(
+                        "Monitoring source privacy does not permit this research repository.",
+                        type="MonitoringRepositoryPrivacyMismatch",
+                        non_retryable=True,
+                    )
 
         assignment = await database_sync_to_async(ReviewerRules, thread_sensitive=False)(
             team=await Team.objects.aget(id=input.team_id),
@@ -1293,15 +1319,13 @@ async def _run_agentic_report(input: RunAgenticReportInput) -> RunAgenticReportO
                     )
                 research_signals.append(signal)
             if monitoring_signals:
-                safety = await report_safety_judge_activity(
-                    SafetyJudgeInput(
-                        team_id=input.team_id,
-                        report_id=input.report_id,
-                        signal_id=input.signal_id,
-                        signals=monitoring_signals,
-                    )
+                safety = await report_safety_judge.judge_report_safety(
+                    team_id=input.team_id,
+                    report_id=input.report_id,
+                    signal_id=input.signal_id,
+                    signals=monitoring_signals,
                 )
-                if not safety.safe:
+                if not safety.choice:
                     raise ApplicationError(
                         "Saved Monitoring evidence failed safety review.",
                         type="MonitoringEvidenceUnsafe",
@@ -1338,6 +1362,13 @@ async def _run_agentic_report(input: RunAgenticReportInput) -> RunAgenticReportO
                 priority_judgment_id=priority_judgment_id,
                 reviewer_proposal=reviewer_proposal,
                 reviewer_selection_enabled=reviewer_selection_enabled,
+                owner_signal_id=input.signal_id,
+                monitoring_signal_ids=[
+                    signal.signal_id
+                    for signal in input.signals
+                    if signal.source_product == SignalSourceProduct.SIGNALS_CHECK
+                    and signal.source_type == SignalSourceType.MONITORING_UNRESOLVED
+                ],
             )
         actionability = result.effective_actionability()
         priority = result.effective_priority()

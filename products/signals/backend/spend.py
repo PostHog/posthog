@@ -18,7 +18,14 @@ from asgiref.sync import async_to_sync
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.dataclasses import frozen
 
-from products.signals.backend.models import SignalReport, SignalScoutRun, SignalSpend
+from products.signals.backend.enums import SignalSourceProduct, SignalSourceType
+from products.signals.backend.models import (
+    SignalEmissionRecord,
+    SignalReport,
+    SignalReportMonitoringAttempt,
+    SignalScoutRun,
+    SignalSpend,
+)
 from products.signals.backend.pricing import cost_to_spend
 from products.signals.backend.spend_billing import apply_report_billing, scout_spend_exempt, trial_spend_exempt
 
@@ -306,6 +313,35 @@ def register_report_task_spend(
     )
 
 
+def _awaiting_monitoring_research(*, report: SignalReport, signal_id: str) -> bool:
+    if report.status not in {
+        SignalReport.Status.POTENTIAL,
+        SignalReport.Status.READY,
+        SignalReport.Status.CANDIDATE,
+        SignalReport.Status.IN_PROGRESS,
+        SignalReport.Status.PENDING_INPUT,
+    }:
+        return False
+    source_id = (
+        SignalEmissionRecord.objects.using("default")
+        .filter(
+            team_id=report.team_id,
+            report_id=str(report.id),
+            signal_id=signal_id,
+            source_product=SignalSourceProduct.SIGNALS_CHECK,
+            source_type=SignalSourceType.MONITORING_UNRESOLVED,
+        )
+        .values_list("source_id", flat=True)
+        .first()
+    )
+    return (
+        source_id is not None
+        and SignalReportMonitoringAttempt.objects.for_team(report.team_id)
+        .filter(SignalReportMonitoringAttempt.pending_research_filter(), id=source_id)
+        .exists()
+    )
+
+
 def complete_signal_pipeline(
     *, team_id: int, signal_id: str, report_id: str | None = None, billing_exempt: bool = False
 ) -> None:
@@ -318,10 +354,10 @@ def complete_signal_pipeline(
         if report:
             apply_report_billing(spend, report)
         # The summary can still make one-shot calls after grouping hands off this signal.
-        handed_off = (
-            report
-            and UUID(signal_id) in {report.triggering_signal_id, report.pending_triggering_signal_id}
-            and report.status != SignalReport.Status.POTENTIAL
+        handed_off = report and (
+            UUID(signal_id) == report.pending_triggering_signal_id
+            or (UUID(signal_id) == report.triggering_signal_id and report.status != SignalReport.Status.POTENTIAL)
+            or _awaiting_monitoring_research(report=report, signal_id=signal_id)
         )
         _save_ad_hoc_spend(spend, finalize=not handed_off)
 
@@ -344,18 +380,21 @@ def finish_report_spend(*, team_id: int, report_id: str, signal_id: str) -> None
         if spend.finalized_at is None:
             if report:
                 apply_report_billing(spend, report)
-            _save_ad_hoc_spend(spend, finalize=True)
+            _save_ad_hoc_spend(
+                spend, finalize=not (report and _awaiting_monitoring_research(report=report, signal_id=signal_id))
+            )
         if (
             report
             and report.triggering_signal_id == UUID(signal_id)
             and report.pending_triggering_signal_id not in {None, report.triggering_signal_id}
         ):
             pending = _locked_ad_hoc_spend(team_id=team_id, signal_id=str(report.pending_triggering_signal_id))
-            if pending.finalized_at is None:
-                apply_report_billing(pending, report)
-                _save_ad_hoc_spend(pending, finalize=True)
-            report.pending_triggering_signal_id = None
-            report.save(update_fields=["pending_triggering_signal_id"])
+            if not _awaiting_monitoring_research(report=report, signal_id=str(report.pending_triggering_signal_id)):
+                if pending.finalized_at is None:
+                    apply_report_billing(pending, report)
+                    _save_ad_hoc_spend(pending, finalize=True)
+                report.pending_triggering_signal_id = None
+                report.save(update_fields=["pending_triggering_signal_id"])
         if report and report.status == SignalReport.Status.CANDIDATE and report.triggering_signal_id == UUID(signal_id):
             report.triggering_signal_id = None
             report.save(update_fields=["triggering_signal_id"])
