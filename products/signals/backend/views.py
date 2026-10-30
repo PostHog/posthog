@@ -197,6 +197,7 @@ from products.signals.backend.report_content_gates import (
 from products.signals.backend.report_generation.research import ActionabilityChoice
 from products.signals.backend.report_generation.resolve_reviewers import (
     ReviewerPayloadIndex,
+    _normalized_reviewer_user_uuid,
     bounded_reviewer_reason,
     get_org_member_github_logins_by_user_uuid,
     normalized_github_logins_from_suggested_reviewer_artefacts,
@@ -5862,18 +5863,20 @@ def _with_carried_default_owner(
     not an ownership verdict. A caller that could set it on someone else's entry could suppress the
     correction their removal should record, so the write API carries the stored value the same way
     the add/remove endpoints do.
+
+    Matched on `user_uuid` alone, unlike the rest of the reviewer merge: the fallback only ever
+    writes an entry that names a user, so there is no login-only entry to recognize, while a login
+    match would carry the flag onto whoever a caller pairs with the stored owner's login.
     """
-    stored = ReviewerPayloadIndex.build([entry.model_dump(mode="json") for entry in prior])
+    stored_owners = {
+        normalized
+        for entry in prior
+        if entry.is_default_owner and (normalized := _normalized_reviewer_user_uuid(entry.user_uuid))
+    }
     return SuggestedReviewers(
         root=[
             entry.model_copy(
-                update={
-                    "is_default_owner": bool(
-                        (stored.get(user_uuid=entry.user_uuid, github_login=entry.github_login) or {}).get(
-                            "is_default_owner"
-                        )
-                    )
-                }
+                update={"is_default_owner": _normalized_reviewer_user_uuid(entry.user_uuid) in stored_owners}
             )
             for entry in content.root
         ]

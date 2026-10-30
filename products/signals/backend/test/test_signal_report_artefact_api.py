@@ -1446,25 +1446,55 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         forward.assert_not_called()
         assert _recent_reviewer_corrections(self.team)["corrections"] == []
 
-    def test_posting_reviewers_cannot_forge_the_default_owner_flag(self):
+    @parameterized.expand(
+        [
+            # Set outright on an entry the stored list never marked.
+            ("claimed_outright", False),
+            # Inherited by pairing the stored owner's login with another member's uuid.
+            ("transferred_by_login", True),
+        ]
+    )
+    def test_posting_reviewers_cannot_forge_the_default_owner_flag(self, _name: str, borrow_owner_login: bool):
         # Only the fallback may set is_default_owner: it is the mark the removal paths read to skip a
         # routing correction, so a client that could set it could suppress someone else's correction.
         report = self._create_report()
+        owner = self._create_org_member("owner@example.com")
+        _attach_github_login(owner, "owner-login")
         teammate = self._create_org_member("teammate@example.com")
+        self._create_artefact(
+            report,
+            content=[{"user_uuid": str(owner.uuid), "github_login": "owner-login", "is_default_owner": True}],
+        )
+        entry: dict = {"user_uuid": str(teammate.uuid)}
+        if borrow_owner_login:
+            entry["github_login"] = "owner-login"
+        else:
+            entry["is_default_owner"] = True
 
         response = self.client.post(
             self._list_url(str(report.id)),
-            {
-                "artefact_type": "suggested_reviewers",
-                "content": [{"user_uuid": str(teammate.uuid), "is_default_owner": True}],
-            },
+            {"artefact_type": "suggested_reviewers", "content": [entry]},
             format="json",
         )
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         reviewers = self._latest_reviewers(report)
-        assert [entry["user_uuid"] for entry in reviewers] == [str(teammate.uuid)]
-        assert all(entry["is_default_owner"] is False for entry in reviewers)
+        assert [item["user_uuid"] for item in reviewers] == [str(teammate.uuid)]
+        assert all(item["is_default_owner"] is False for item in reviewers)
+
+    def test_posting_reviewers_keeps_the_stored_default_owner_flag(self):
+        report = self._create_report()
+        owner = self._create_org_member("owner@example.com")
+        self._create_artefact(report, content=[{"user_uuid": str(owner.uuid), "is_default_owner": True}])
+
+        response = self.client.post(
+            self._list_url(str(report.id)),
+            {"artefact_type": "suggested_reviewers", "content": [{"user_uuid": str(owner.uuid)}]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert [item["is_default_owner"] for item in self._latest_reviewers(report)] == [True]
 
     def test_leave_reviewers_keeps_an_entry_whose_login_was_reassigned(self):
         _attach_github_login(self.user, "CallerCase")
