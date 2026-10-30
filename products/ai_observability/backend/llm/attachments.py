@@ -9,14 +9,18 @@ IMAGE_MIME_TYPES = frozenset({"image/png", "image/jpeg", "image/webp", "image/gi
 PDF_MIME_TYPE = "application/pdf"
 # The formats OpenAI's chat API takes as input audio, which Gemini reads too.
 AUDIO_FORMATS = {"audio/wav": "wav", "audio/mpeg": "mp3"}
+# Only Gemini reads video.
+VIDEO_MIME_TYPES = frozenset({"video/mp4", "video/mpeg", "video/quicktime", "video/webm"})
 # Providers whose image blocks take a link that they download themselves.
 _URL_PROVIDERS = frozenset({"openai", "azure_openai", "anthropic", "openrouter", "gemini"})
 # Providers that read PDFs natively. OpenRouter is left out: it parses PDFs for other models with a paid OCR engine.
 _PDF_PROVIDERS = frozenset({"openai", "anthropic", "gemini"})
 # Raw bytes per image. Anthropic allows 10 MB base64-encoded, about 7.5 MB raw, so keep a margin under it.
-MAX_IMAGE_BYTES = {"anthropic": 7_000_000}
+MAX_IMAGE_BYTES = {"anthropic": 7_000_000, "gemini": 15_000_000}
 # Raw bytes per PDF for every provider. Each page costs about as many tokens as an image, and links have no other cap.
 MAX_PDF_BYTES = 10_000_000
+# Raw bytes per video. Gemini downloads links up to 15 MB, and inline bytes share the 15 MB request budget anyway.
+MAX_VIDEO_BYTES = 15_000_000
 
 
 @frozen
@@ -51,6 +55,11 @@ def attachment_transport(provider: str, model: str, mime_type: str) -> Literal["
     if mime_type in AUDIO_FORMATS:
         # OpenAI takes audio only as inline base64, and only on its audio models, so audio always goes inline.
         return "inline" if provider == "gemini" or openai_audio_model else None
+    if mime_type in VIDEO_MIME_TYPES:
+        if provider != "gemini":
+            return None
+        # The Gemini 2.0 family can't fetch external links.
+        return "inline" if model.startswith("gemini-2.0") else "url"
     if openai_audio_model:
         # OpenAI's audio models reject images and PDFs, and the rejection would drop the audio too.
         return None

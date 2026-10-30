@@ -20,7 +20,9 @@ from products.ai_observability.backend.llm.attachments import (
     IMAGE_MIME_TYPES,
     MAX_IMAGE_BYTES,
     MAX_PDF_BYTES,
+    MAX_VIDEO_BYTES,
     PDF_MIME_TYPE,
+    VIDEO_MIME_TYPES,
     AttachmentPart,
     attachment_transport,
 )
@@ -34,6 +36,8 @@ JUDGE_ATTACHMENTS_FLAG = "llm-analytics-judge-images"
 MAX_ATTACHMENTS = 20
 # Bytes sent inline in one judge request. Links don't count: the provider downloads them.
 MAX_INLINE_BYTES = 15_000_000
+# Raw bytes per attachment for every provider. Audio only has the inline budget.
+_BYTE_LIMITS = {"file": MAX_PDF_BYTES, "video": MAX_VIDEO_BYTES}
 # Covers the judge call and its retries. Sign right before the call: a link signed with temporary
 # AWS credentials stops working when the credentials expire.
 PRESIGNED_URL_SECONDS = 15 * 60
@@ -46,7 +50,7 @@ _NOT_ATTACHED_LABELS: dict[Outcome, str] = {
 }
 
 
-_NUMBERED_MARKER_RE = re.compile(r"\[(image|file|audio) \d+\]")
+_NUMBERED_MARKER_RE = re.compile(r"\[(image|file|audio|video) \d+\]")
 
 
 @frozen
@@ -70,7 +74,7 @@ class _Attachment:
 
 @frozen
 class _Media:
-    kind: Literal["image", "file", "audio"]
+    kind: Literal["image", "file", "audio", "video"]
     number: int
     mime_type: str
     # An offloaded image has a pointer, a small one stays inline as base64.
@@ -136,7 +140,10 @@ class JudgeAttachments:
             attachments[image.marker] = attachment
 
         parts: list[Any] = [
-            {"type": "text", "text": "The transcript refers to these attachments as [image N], [file N] or [audio N]."}
+            {
+                "type": "text",
+                "text": "The transcript refers to these attachments as [image N], [file N], [audio N] or [video N].",
+            }
         ]
         outcomes: Counter[str] = Counter()
         for image in images:
@@ -166,7 +173,7 @@ class JudgeAttachments:
         transport = attachment_transport(provider, model, image.mime_type)
         if transport is None:
             return _Attachment(outcome="unavailable")
-        provider_limit = MAX_PDF_BYTES if image.kind == "file" else MAX_IMAGE_BYTES.get(provider)
+        provider_limit = MAX_IMAGE_BYTES.get(provider) if image.kind == "image" else _BYTE_LIMITS.get(image.kind)
         if image.pointer is None:
             encoded = image.base64_data or ""
             if len(encoded) * 3 // 4 - encoded[-2:].count("=") > min(inline_budget, provider_limit or inline_budget):
@@ -214,11 +221,13 @@ class JudgeAttachments:
         return _Attachment(outcome="inline", part=part, inline_bytes=stored_size)
 
 
-def _kind(modality: str, mime_type: str | None) -> Literal["image", "file", "audio"] | None:
+def _kind(modality: str, mime_type: str | None) -> Literal["image", "file", "audio", "video"] | None:
     if modality == "image" and mime_type in IMAGE_MIME_TYPES:
         return "image"
     if modality == "audio" and mime_type in AUDIO_FORMATS:
         return "audio"
+    if modality == "video" and mime_type in VIDEO_MIME_TYPES:
+        return "video"
     if mime_type == PDF_MIME_TYPE:
         return "file"
     return None
