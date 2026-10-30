@@ -5,6 +5,9 @@ import { Spinner } from "./Spinner";
 
 export const SIDEBAR_WIDTH = 32;
 
+// Blank rows under the header; clicks on the sidebar skip them.
+export const HEADER_GAP = 1;
+
 // The same brand stripes phrocs draws in its header (tools/phrocs/internal/palette).
 const BRAND_STRIPES = ["#1D4AFF", "#F04438", "#F7A501", "#151515"];
 
@@ -132,7 +135,7 @@ export function Sidebar({
       {rows.map((row, index) => (
         <Box
           key={rowKey(row, index)}
-          marginTop={row.kind === "heading" && index > 0 ? 1 : 0}
+          marginBottom={row.kind === "heading" ? HEADER_GAP : 0}
         >
           <Text dimColor={!focused} wrap="truncate-end">
             <Row row={row} selected={highlighted(row, index)} />
