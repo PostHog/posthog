@@ -338,9 +338,10 @@ def scored_buckets(
     Any member can capture an event with any properties into the project. Rows for another team's
     insight, or with a future bucket, are ignored, so they cannot stop the scoring of an insight.
     """
-    windows = [_scored_window(ids, since) for since, ids in sorted(insight_ids_by_since.items()) if ids]
-    if not windows:
+    groups = {since: ids for since, ids in sorted(insight_ids_by_since.items()) if ids}
+    if not groups:
         return {}
+    windows = [_scored_window(ids, since) for since, ids in groups.items()]
     tag_queries(product=Product.SIGNALS, feature=Feature.ALERTING)
     response = execute_hogql_query(
         _SCORED_BUCKETS_QUERY,
@@ -349,7 +350,7 @@ def scored_buckets(
         placeholders={
             "event": ast.Constant(value=SCORE_EVENT),
             "source": ast.Constant(value=SOURCE_INSIGHT),
-            "since": ast.Constant(value=min(since for since, ids in insight_ids_by_since.items() if ids)),
+            "since": ast.Constant(value=min(groups)),
             "now": ast.Constant(value=now),
             "windows": windows[0] if len(windows) == 1 else ast.Or(exprs=windows),
             "limit": ast.Constant(value=_MAX_SCORED_SERIES),
@@ -397,19 +398,17 @@ def _team_loaded_key(team_id: int) -> str:
     return f"signals:anomaly_scores:team_loaded:{team_id}"
 
 
-def team_load_order(team_ids: Collection[int]) -> list[int]:
+def _team_load_order(team_ids: Collection[int]) -> list[int]:
     """The teams that waited longest since their last scored state load first. A team never loaded goes first."""
     loaded = cache.get_many([_team_loaded_key(team_id) for team_id in team_ids])
     return sorted(team_ids, key=lambda team_id: (loaded.get(_team_loaded_key(team_id), 0.0), team_id))
 
 
-def mark_teams_loaded(team_ids: Collection[int], now: datetime.datetime) -> None:
-    if team_ids:
-        stamp = _utc(now).timestamp()
-        cache.set_many(
-            {_team_loaded_key(team_id): stamp for team_id in team_ids},
-            timeout=int(_TEAM_LOADED_TTL.total_seconds()),
-        )
+def _mark_teams_loaded(team_ids: Collection[int], now: datetime.datetime) -> None:
+    stamp = _utc(now).timestamp()
+    cache.set_many(
+        {_team_loaded_key(team_id): stamp for team_id in team_ids}, timeout=int(_TEAM_LOADED_TTL.total_seconds())
+    )
 
 
 def _hour(now: datetime.datetime) -> str:
@@ -575,7 +574,7 @@ def load_scored_state(
     loaded: set[int] = set()
     attempted: list[int] = []
     at_capacity = 0
-    for team_id in team_load_order(windows):
+    for team_id in _team_load_order(windows):
         if at_capacity >= _MAX_AT_CAPACITY_TEAMS or (
             attempted and deadline is not None and time.monotonic() >= deadline
         ):
@@ -590,7 +589,7 @@ def load_scored_state(
             continue
         loaded.add(team_id)
     # A failed team also goes to the back, so a team whose query always fails does not take time from every plan.
-    mark_teams_loaded(attempted, now)
+    _mark_teams_loaded(attempted, now)
     if len(attempted) < len(windows):
         logger.info(
             "anomaly_scoring_plan_stopped_loading",
