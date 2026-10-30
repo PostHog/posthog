@@ -16,6 +16,7 @@ from pydantic import BaseModel
 from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority
 from posthog.enums import LabeledStrEnum
+from posthog.integrations import IntegrationManager
 from posthog.llm.gateway_client import GatewayNotConfiguredError, ensure_scout_trial_capture_ready
 from posthog.models.github_integration_base import GitHubIntegrationBase, GitHubIntegrationError
 from posthog.models.integration import GitHubIntegration, Integration
@@ -937,7 +938,11 @@ def _installation_repository_names(github_integration: GitHubIntegrationBase, re
 
 
 def _sandbox_repositories(state: dict[str, Any] | None, repository: str | None) -> list[str]:
-    # Same rule as TaskProcessingContext.repositories, so the token covers exactly what the run clones.
+    # Same rule as TaskProcessingContext.github_access_repositories: what the run clones, plus any
+    # repositories its creator granted on top. Never wider, so an empty grant keeps the clone scope.
+    access = (state or {}).get("github_access_repositories")
+    if isinstance(access, list) and access and all(isinstance(r, str) for r in access):
+        return access
     pinned = (state or {}).get("repositories")
     if isinstance(pinned, list) and all(isinstance(r, str) for r in pinned):
         return pinned
@@ -1027,8 +1032,8 @@ def installation_confirms_repository_denied(github_integration: GitHubIntegratio
     return response.status_code in (403, 404)
 
 
-def resolve_installation_github_integration(github_integration_id: int) -> GitHubIntegration | None:
-    integration = Integration.objects.filter(id=github_integration_id, kind="github").first()
+def resolve_installation_github_integration(team_id: int, github_integration_id: int) -> GitHubIntegration | None:
+    integration = IntegrationManager.github.oauth.get_many(team_id, [github_integration_id]).get(github_integration_id)
     if integration is None:
         return None
     return GitHubIntegration(integration, source="tasks_sandbox", priority=Priority.CRITICAL)

@@ -16,6 +16,7 @@ import { commandLogic } from 'lib/components/Command/commandLogic'
 import { SearchItem, fileSystemEntryToSearchItem } from 'lib/components/Search/searchItems'
 import { searchListsLogic } from 'lib/components/Search/searchListsLogic'
 import { canOpenInNewTab } from 'lib/components/Search/utils'
+import { shortcutLogic } from 'lib/components/Shortcuts/shortcutLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { themeLogic } from 'lib/logic/themeLogic'
@@ -105,6 +106,7 @@ export interface commandKSearchLogicValues {
     productsItems: SearchItem[] // searchListsLogic
     settingsItems: SearchItem[] // searchListsLogic
     starredItems: SearchItem[] // searchListsLogic
+    shortcutItems: SearchItem[] // shortcutLogic
     currentTeamId: number | null // teamLogic
     isDarkModeOn: boolean // themeLogic
     user: UserType | null // userLogic
@@ -310,6 +312,7 @@ export interface commandKSearchLogicMeta {
         localLists: (
             recentItems: SearchItem[],
             starredItems: SearchItem[],
+            shortcutItems: SearchItem[],
             productsItems: SearchItem[],
             settingsItems: SearchItem[],
             newItems: SearchItem[],
@@ -405,6 +408,8 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
             ['groupTypes', 'aggregationLabel'],
             themeLogic,
             ['isDarkModeOn'],
+            shortcutLogic,
+            ['shortcutItems'],
         ],
         actions: [
             commandLogic,
@@ -642,6 +647,7 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
             (s) => [
                 s.recentItems,
                 s.starredItems,
+                s.shortcutItems,
                 s.productsItems,
                 s.settingsItems,
                 s.newItems,
@@ -653,6 +659,7 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
             (
                 recents: SearchItem[],
                 starred: SearchItem[],
+                shortcuts: SearchItem[],
                 products: SearchItem[],
                 settings: SearchItem[],
                 create: SearchItem[],
@@ -663,6 +670,7 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
             ): LocalLists => ({
                 recents,
                 starred,
+                shortcuts,
                 products,
                 settings,
                 create,

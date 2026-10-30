@@ -79,11 +79,13 @@ export interface navProductsTabLogicActions {
         payload?:
             | {
                   id: string
+                  successMessage: string | undefined
               }
             | undefined
     ) => {
         payload?: {
             id: string
+            successMessage: string | undefined
         }
         shortcutData: FileSystemEntry[]
     } // projectTreeDataLogic

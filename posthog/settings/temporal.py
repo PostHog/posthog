@@ -467,6 +467,15 @@ if ALERTS_PLATFORM_LOGS_MAX_INFLIGHT_BATCHES <= 0:
     raise ImproperlyConfigured(
         "ALERTS_PLATFORM_LOGS_MAX_INFLIGHT_BATCHES must be a positive integer, or no platform logs check starts"
     )
+# The platform's metrics batches allowed to run at once, across every team. A batch runs its Snuffle
+# queries one after another, so this bounds the concurrent metrics alert queries.
+ALERTS_PLATFORM_METRICS_MAX_INFLIGHT_BATCHES: int = get_from_env(
+    "ALERTS_PLATFORM_METRICS_MAX_INFLIGHT_BATCHES", 5, type_cast=int
+)
+if ALERTS_PLATFORM_METRICS_MAX_INFLIGHT_BATCHES <= 0:
+    raise ImproperlyConfigured(
+        "ALERTS_PLATFORM_METRICS_MAX_INFLIGHT_BATCHES must be a positive integer, or no platform metrics check starts"
+    )
 # Insight alert checks allowed to run against ClickHouse at once, across every team.
 ALERTS_MAX_INFLIGHT_EVALUATIONS: int = get_from_env("ALERTS_MAX_INFLIGHT_EVALUATIONS", 40, type_cast=int)
 if ALERTS_MAX_INFLIGHT_EVALUATIONS <= 0:
@@ -482,6 +491,10 @@ REPLAY_VISION_TASK_QUEUE = _set_temporal_task_queue("replay-vision-task-queue")
 # no dedicated pod needed (see surfacing_scoring_sweep/README.md).
 SURFACING_SCORING_SWEEP_TASK_QUEUE = SESSION_REPLAY_TASK_QUEUE
 WEEKLY_DIGEST_TASK_QUEUE = _set_temporal_task_queue("weekly-digest-task-queue")
+# The digest workflow's webhook in the US project, and the Authorization value it requires. Both regions post
+# there. Without both, every digest goes through Customer.io.
+WEEKLY_DIGEST_WORKFLOW_WEBHOOK_URL: str = get_from_env("WEEKLY_DIGEST_WORKFLOW_WEBHOOK_URL", "")
+WEEKLY_DIGEST_WORKFLOW_WEBHOOK_SECRET: str = get_from_env("WEEKLY_DIGEST_WORKFLOW_WEBHOOK_SECRET", "")
 LLMA_EVALS_TASK_QUEUE = _set_temporal_task_queue("llm-analytics-evals-task-queue")
 LLMA_TASK_QUEUE = _set_temporal_task_queue("llm-analytics-task-queue")
 # Units one evaluation backfill dispatches per tick, one tick per BACKFILL_TICK_INTERVAL.

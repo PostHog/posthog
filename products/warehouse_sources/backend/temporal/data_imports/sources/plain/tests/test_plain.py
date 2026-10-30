@@ -111,13 +111,45 @@ class TestFlattenNode:
                 },
                 {"parentLabelTypeId": "lt_1", "archivedByType": "UserActor", "archivedById": "u_1"},
             ),
+            (
+                {"id": "disc_1", "agent": None, "channelDetails": None},
+                {"agentId": None, "channelType": None},
+            ),
+            (
+                {
+                    "id": "disc_2",
+                    "agent": {"id": "mu_1"},
+                    "channelDetails": {"channelType": "ThreadDiscussionSlackChannelDetails"},
+                },
+                {"agentId": "mu_1", "channelType": "ThreadDiscussionSlackChannelDetails"},
+            ),
+            (
+                {"id": "cs_1", "template": {"type": "CSAT", "questionText": "How did we do?"}},
+                {"templateType": "CSAT", "templateQuestionText": "How did we do?"},
+            ),
+            (
+                {"id": "we_1", "manuallyTriggeredBy": None},
+                {"manuallyTriggeredByType": None, "manuallyTriggeredById": None},
+            ),
         ],
     )
     def test_flattens_nullable_references_into_stable_columns(self, node, expected):
         result = _flatten_node(node)
 
         assert {key: result[key] for key in expected} == expected
-        assert not {"accountOwner", "parentLabelType", "deletedBy", "archivedBy"} & result.keys()
+        assert (
+            not {
+                "accountOwner",
+                "parentLabelType",
+                "deletedBy",
+                "archivedBy",
+                "agent",
+                "channelDetails",
+                "template",
+                "manuallyTriggeredBy",
+            }
+            & result.keys()
+        )
 
 
 class TestFlattenTimelineEntry:
@@ -413,6 +445,10 @@ class TestLookupEndpoints:
             ("tenants", "PaginatedTenants"),
             ("users", "PaginatedUsers"),
             ("label_types", "PaginatedLabelTypes"),
+            ("customer_groups", "PaginatedCustomerGroups"),
+            ("customer_surveys", "PaginatedCustomerSurveys"),
+            ("discussions", "PaginatedDiscussions"),
+            ("workflow_executions", "PaginatedWorkflowExecutions"),
         ],
     )
     def test_walks_pages_until_has_next_page_is_false(self, endpoint, operation):
