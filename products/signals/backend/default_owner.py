@@ -20,6 +20,7 @@ from posthog.models.organization import OrganizationMembership
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import ReviewerProposal, SuggestedReviewerEntry, SuggestedReviewers
 from products.signals.backend.assignment_flags import default_owner_fallback_enabled
+from products.signals.backend.github_optional import team_code_availability
 from products.signals.backend.models import (
     SignalReport,
     SignalReportArtefact,
@@ -178,6 +179,11 @@ def _reviewers_were_curated(team_id: int, report_id: str) -> bool:
 def assign_default_owner(team: Team, report_id: str) -> bool:
     """Route a report that has no reviewers to its default owner. Returns whether it wrote one."""
     if not default_owner_fallback_enabled(team.id):
+        return False
+    # Where a repository is in reach, commit history names a relevant reviewer often enough that
+    # leaving the occasional report unassigned is better than sending it to whoever switched the
+    # scout on.
+    if team_code_availability(team.id).mode == "code":
         return False
     # The authoring scout sends these reports to another audience, so nobody in the project owns them.
     if report_is_hidden_from_inbox(team.id, report_id):

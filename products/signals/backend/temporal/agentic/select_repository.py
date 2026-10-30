@@ -8,14 +8,14 @@ from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.egress.transport.transport import EgressBudgetExhausted
 from posthog.event_usage import groups
 from posthog.models import Organization
-from posthog.models.integration import GitHubIntegrationError, Integration
+from posthog.models.integration import GitHubIntegrationError
 from posthog.models.team.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import aretry_on_db_connection_drop, close_db_connections
 
-from products.signals.backend.github_optional import ResearchAccessPolicy
+from products.signals.backend.github_optional import ResearchAccessPolicy, team_code_availability
 from products.signals.backend.recurrence import recurrence_rejects_repository
 from products.signals.backend.report_generation.select_repo import (
     RepoSelectionResult,
@@ -60,17 +60,6 @@ class SelectRepositoryInput:
 @close_db_connections
 async def github_optional_pilot_activity(team_id: int) -> bool:
     return await database_sync_to_async(ResearchAccessPolicy.enabled, thread_sensitive=False)(team_id)
-
-
-def _pilot_code_availability(team_id: int) -> ReportResearchContext:
-    integrations = list(Integration.objects.filter(team_id=team_id, kind="github"))
-    if not integrations:
-        return ReportResearchContext(mode="data_only", repository_status="no_integration")
-    if all(item.repository_cache_updated_at and item.repository_cache == [] for item in integrations):
-        return ReportResearchContext(mode="data_only", repository_status="no_repositories")
-    if resolve_team_github_integration(team_id, team_only=True) is None:
-        return ReportResearchContext(mode="data_only", repository_status="github_unavailable")
-    return ReportResearchContext(mode="code", repository_status="available")
 
 
 def _resolve_sandbox_user_id(team_id: int) -> int | None:
@@ -174,7 +163,7 @@ async def select_repository_activity(input: SelectRepositoryInput) -> RepoSelect
                 return previous
 
             if input.github_optional:
-                availability = await database_sync_to_async(_pilot_code_availability, thread_sensitive=False)(
+                availability = await database_sync_to_async(team_code_availability, thread_sensitive=False)(
                     input.team_id
                 )
                 if availability.mode == "data_only":
@@ -253,7 +242,7 @@ async def select_repository_activity(input: SelectRepositoryInput) -> RepoSelect
             )
             if input.github_optional:
                 availability = (
-                    await database_sync_to_async(_pilot_code_availability, thread_sensitive=False)(input.team_id)
+                    await database_sync_to_async(team_code_availability, thread_sensitive=False)(input.team_id)
                     if result.repository is None
                     else ReportResearchContext(mode="code", repository_status="available")
                 )

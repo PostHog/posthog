@@ -23,6 +23,7 @@ from products.signals.backend.models import (
     SignalTeamConfig,
 )
 from products.skills.backend.models.skills import LLMSkill, LLMSkillOwner
+from products.tasks.backend.facade.repo_selection_types import ReportResearchContext
 
 
 class TestDefaultOwner(BaseTest):
@@ -154,6 +155,30 @@ class TestDefaultOwner(BaseTest):
         (entry,) = self._latest_reviewers()
         assert entry["user_uuid"] == str(self.user.uuid)
         assert entry["is_default_owner"] is True
+
+    @parameterized.expand(
+        [
+            ("code_available", ReportResearchContext(mode="code", repository_status="available"), False),
+            (
+                "no_github_integration",
+                ReportResearchContext(mode="data_only", repository_status="no_integration"),
+                True,
+            ),
+        ]
+    )
+    def test_assigns_only_when_self_driving_cannot_read_code(
+        self, _name: str, availability: ReportResearchContext, assigned: bool
+    ) -> None:
+        self._activated_by(self.user)
+        self._reviewers([])
+
+        with (
+            patch("products.signals.backend.default_owner.default_owner_fallback_enabled", return_value=True),
+            patch("products.signals.backend.default_owner.team_code_availability", return_value=availability),
+        ):
+            assert assign_default_owner(self.team, str(self.report.id)) is assigned
+
+        assert bool(self._latest_reviewers()) is assigned
 
     @parameterized.expand([("evidence_reviewer_exists", False), ("person_removed_the_default_owner", True)])
     def test_leaves_the_report_alone(self, _name: str, person_removed_default_owner: bool) -> None:
