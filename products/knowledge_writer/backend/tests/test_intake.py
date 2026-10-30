@@ -121,6 +121,7 @@ def test_a_writer_run_with_malformed_output_still_saves_completed(team, writer_e
         patch(START_WORKFLOW),
     ):
         started = intake.submit(_verdict(), team_id=team.id)
+    assert started.task_id is not None
     run = TaskRun.objects.get(task_id=started.task_id)
     run.status = TaskRun.Status.COMPLETED
     run.output = "not a dict"
@@ -221,7 +222,9 @@ def test_a_finished_writer_run_opens_one_linked_docs_pull_request_and_a_same_sec
     assert COMMAND.pull_request_url in create_pull_request.call_args.kwargs["body"]
 
     first_body = create_pull_request.call_args.kwargs["body"]
-    label = section_label(docs_section(SECTION_PAGE))
+    section = docs_section(SECTION_PAGE)
+    assert section is not None
+    label = section_label(section)
     add_labels.assert_called_once_with("posthog.com", 9, [label])
     with (
         patch(FLAG_CHECK, return_value=True),
