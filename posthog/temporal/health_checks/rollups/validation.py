@@ -15,13 +15,11 @@ D2_CHANGE_THRESHOLD = 0.01
 def refusal_reason(rollup: type[DailyRollup], fill: DayFill, history: Sequence[DayStats], *, force: bool) -> str | None:
     """Why the filled day must not be published, or None when it may be.
 
-    `force` lifts only the median floor. An empty day and a day over the row cap are always refused:
-    an empty day is what a ClickHouse outage looks like, and the cap protects the main database.
+    `force` lifts only the median floor. An empty day is always refused, because an empty day is what
+    a ClickHouse outage looks like. `fill_day` refuses a day over the row cap before this runs.
     """
     if fill.row_count == 0:
         return "the day has no rows"
-    if fill.row_count > rollup.max_rows_per_day:
-        return f"the day has more than {rollup.max_rows_per_day:,} rows"
     if force or len(history) < MIN_HISTORY_DAYS_FOR_MEDIAN:
         return None
     median_rows = statistics.median(stats.row_count for stats in history)
