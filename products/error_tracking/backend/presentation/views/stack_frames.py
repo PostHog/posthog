@@ -1,5 +1,3 @@
-from typing import cast
-
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import serializers, viewsets
 from rest_framework.exceptions import NotFound
@@ -7,7 +5,7 @@ from rest_framework.response import Response
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
-from posthog.api.pagination import FacadeLimitOffsetPagination
+from posthog.api.pagination import FacadeLimitOffsetPagination, facade_page_response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 
@@ -46,9 +44,7 @@ class ErrorTrackingStackFrameViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel,
     pagination_class = FacadeLimitOffsetPagination
 
     def list(self, request, *args, **kwargs):
-        return cast(FacadeLimitOffsetPagination, self.paginator).get_paginated_facade_response(
-            request, self, lambda page: error_tracking_api.list_stack_frames(self.team.id, page=page)
-        )
+        return facade_page_response(self, lambda page: error_tracking_api.list_stack_frames(self.team.id, page=page))
 
     def retrieve(self, request, *args, pk=None, **kwargs):
         frame = error_tracking_api.get_stack_frame(self.team.id, pk)

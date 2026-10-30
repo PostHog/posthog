@@ -12,9 +12,9 @@ from django.db.models import QuerySet
 
 import posthoganalytics
 
-from posthog.api.pagination import select_page
 from posthog.event_usage import AnalyticsProps, groups
 from posthog.paging import Page, PageRequest
+from posthog.queryset_paging import select_page
 
 from products.access_control.backend.facade.api import valid_role_member_user_ids
 

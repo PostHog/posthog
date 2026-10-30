@@ -37,7 +37,7 @@ from rest_framework.serializers import BaseSerializer
 from rest_framework.throttling import UserRateThrottle
 
 from posthog.api.mixins import ValidatedRequest, validated_request
-from posthog.api.pagination import FacadeLimitOffsetPagination
+from posthog.api.pagination import FacadeLimitOffsetPagination, facade_page_response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.tagged_item import TaggedItemViewSetMixin
 from posthog.auth import SessionAuthentication, is_mcp_request
@@ -400,8 +400,7 @@ class AccountTrackRuleViewSet(
         required_scopes=["customer_analytics:read"],
     )
     def runs(self, request: Request, *args, **kwargs) -> Response:
-        return cast(FacadeLimitOffsetPagination, self.paginator).get_paginated_facade_response(
-            request,
+        return facade_page_response(
             self,
             lambda page: api.list_account_track_rule_runs(self.team_id, page=page),
             serializer_class=AccountTrackRuleRunSerializer,
@@ -520,8 +519,7 @@ class FeatureRequestViewSet(
     )
     def list(self, request: ValidatedRequest, *args, **kwargs) -> Response:
         data = request.validated_query_data
-        return cast(FacadeLimitOffsetPagination, self.paginator).get_paginated_facade_response(
-            request,
+        return facade_page_response(
             self,
             lambda page: api.list_feature_requests(
                 team_id=self.team_id,
@@ -1173,8 +1171,7 @@ class CustomerProfileConfigViewSet(
     pagination_class = FacadeLimitOffsetPagination
 
     def list(self, request: Request, *args, **kwargs) -> Response:
-        return cast(FacadeLimitOffsetPagination, self.paginator).get_paginated_facade_response(
-            request,
+        return facade_page_response(
             self,
             lambda page: api.list_customer_profile_configs(self.team_id, page=page),
             serializer_class=CustomerProfileConfigSerializer,
@@ -1303,8 +1300,7 @@ class CustomPropertyDefinitionViewSet(
                 exclude_group_targets=exclude_group_targets,
             )
             return _unpaged_response(definitions, CustomPropertyDefinitionSerializer)
-        return cast(FacadeLimitOffsetPagination, self.paginator).get_paginated_facade_response(
-            request,
+        return facade_page_response(
             self,
             lambda page: api.list_custom_property_definitions(
                 self.team_id,
@@ -1491,8 +1487,7 @@ class AccountRelationshipDefinitionViewSet(
         if _wants_unpaged_list(request):
             definitions = api.list_all_account_relationship_definitions(self.team_id)
             return _unpaged_response(definitions, AccountRelationshipDefinitionSerializer)
-        return cast(FacadeLimitOffsetPagination, self.paginator).get_paginated_facade_response(
-            request,
+        return facade_page_response(
             self,
             lambda page: api.list_account_relationship_definitions(self.team_id, page=page),
             serializer_class=AccountRelationshipDefinitionSerializer,
@@ -1594,8 +1589,7 @@ class CustomPropertySourceViewSet(
     def list(self, request: Request, *args, **kwargs) -> Response:
         # Callers without group read authorization don't see sources feeding group-target definitions.
         exclude_group_targets = not _has_group_scope(request, write=False)
-        return cast(FacadeLimitOffsetPagination, self.paginator).get_paginated_facade_response(
-            request,
+        return facade_page_response(
             self,
             lambda page: api.list_custom_property_sources(
                 self.team_id,
@@ -1796,8 +1790,7 @@ class CustomPropertySourceViewSet(
         query.is_valid(raise_exception=True)
         search = query.validated_data.get("search", "").strip() or None
         try:
-            return cast(FacadeLimitOffsetPagination, self.paginator).get_paginated_facade_response(
-                request,
+            return facade_page_response(
                 self,
                 lambda page: api.list_custom_property_sync_runs(
                     self.team_id,
@@ -1829,8 +1822,7 @@ class CustomerJourneyViewSet(
     pagination_class = FacadeLimitOffsetPagination
 
     def list(self, request: Request, *args, **kwargs) -> Response:
-        return cast(FacadeLimitOffsetPagination, self.paginator).get_paginated_facade_response(
-            request,
+        return facade_page_response(
             self,
             lambda page: api.list_customer_journeys(
                 self.team_id, page=page, user_access_control=self.user_access_control
@@ -2033,8 +2025,7 @@ class AccountViewSet(
         tags = _parse_tags_param(self.request)
         ordering = request.query_params.get("ordering")
         ordering = ordering if ordering in self.ALLOWED_ORDERING else None
-        return cast(FacadeLimitOffsetPagination, self.paginator).get_paginated_facade_response(
-            request,
+        return facade_page_response(
             self,
             lambda page: api.list_accounts_for_view(
                 team_id=self.team_id,
@@ -2178,9 +2169,7 @@ class AccountViewSet(
                 raise NotFound()
             return result
 
-        return cast(FacadeLimitOffsetPagination, self.paginator).get_paginated_facade_response(
-            request, self, fetch, serializer_class=SupportTicketMessageSerializer
-        )
+        return facade_page_response(self, fetch, serializer_class=SupportTicketMessageSerializer)
 
     @extend_schema(parameters=[_ACCOUNT_ID_PARAM], responses={200: AccountEmailThreadSerializer(many=True)})
     @action(methods=["GET"], detail=True, url_path="email_threads")
@@ -2199,9 +2188,7 @@ class AccountViewSet(
                 raise NotFound()
             return result
 
-        return cast(FacadeLimitOffsetPagination, self.paginator).get_paginated_facade_response(
-            request, self, fetch, serializer_class=AccountEmailThreadSerializer
-        )
+        return facade_page_response(self, fetch, serializer_class=AccountEmailThreadSerializer)
 
     @extend_schema(
         operation_id="accounts_email_thread_messages_list",
@@ -2232,9 +2219,7 @@ class AccountViewSet(
                 raise NotFound()
             return result
 
-        return cast(FacadeLimitOffsetPagination, self.paginator).get_paginated_facade_response(
-            request, self, fetch, serializer_class=AccountEmailThreadMessageSerializer
-        )
+        return facade_page_response(self, fetch, serializer_class=AccountEmailThreadMessageSerializer)
 
     @extend_schema(
         parameters=[
@@ -2263,9 +2248,7 @@ class AccountViewSet(
                 raise NotFound()
             return result
 
-        return cast(FacadeLimitOffsetPagination, self.paginator).get_paginated_facade_response(
-            request, self, fetch, serializer_class=MeetingSerializer
-        )
+        return facade_page_response(self, fetch, serializer_class=MeetingSerializer)
 
     def dangerously_get_required_scopes(self, request: Request, view) -> builtins.list[str] | None:
         super_method = getattr(super(), "dangerously_get_required_scopes", None)
@@ -2387,9 +2370,7 @@ class AccountViewSet(
                 raise NotFound()
             return result
 
-        return cast(FacadeLimitOffsetPagination, self.paginator).get_paginated_facade_response(
-            request, self, fetch, serializer_class=AccountChannelSummarySerializer
-        )
+        return facade_page_response(self, fetch, serializer_class=AccountChannelSummarySerializer)
 
     @extend_schema(parameters=[_ACCOUNT_ID_PARAM])
     def destroy(self, request: Request, *args, **kwargs) -> Response:
@@ -2624,8 +2605,7 @@ class AccountNotesViewSet(
         ],
     )
     def list(self, request: Request, *args, **kwargs) -> Response:
-        return cast(FacadeLimitOffsetPagination, self.paginator).get_paginated_facade_response(
-            request,
+        return facade_page_response(
             self,
             lambda page: api.list_account_notes_for_view(
                 team_id=self.team_id,

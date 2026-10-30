@@ -1,4 +1,3 @@
-from typing import cast
 from uuid import UUID
 
 from drf_spectacular.utils import OpenApiParameter, OpenApiTypes, extend_schema
@@ -8,7 +7,7 @@ from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.response import Response
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
-from posthog.api.pagination import FacadeLimitOffsetPagination
+from posthog.api.pagination import FacadeLimitOffsetPagination, facade_page_response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
 from products.error_tracking.backend.facade.api import get_fingerprint, get_fingerprint_by_value, list_fingerprints
@@ -48,8 +47,8 @@ class ErrorTrackingFingerprintViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel
             except ValueError as error:
                 raise ValidationError("issue_id must be a valid UUID") from error
 
-        return cast(FacadeLimitOffsetPagination, self.paginator).get_paginated_facade_response(
-            request, self, lambda page: list_fingerprints(team_id=self.team.id, issue_id=issue_id, page=page)
+        return facade_page_response(
+            self, lambda page: list_fingerprints(team_id=self.team.id, issue_id=issue_id, page=page)
         )
 
     @extend_schema(

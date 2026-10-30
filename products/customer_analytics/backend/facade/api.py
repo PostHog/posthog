@@ -62,7 +62,6 @@ from pydantic import ValidationError as PydanticValidationError
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
-from posthog.api.pagination import select_page
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.integrations import IntegrationManager, IntegrationNotFound
@@ -74,6 +73,7 @@ from posthog.models.tag import tagify
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.team import Team
 from posthog.paging import Page, PageRequest
+from posthog.queryset_paging import select_page
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.conversations.backend.facade.api import (

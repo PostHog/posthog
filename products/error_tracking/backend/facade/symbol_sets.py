@@ -6,9 +6,9 @@ stay off the django.setup() path of the read-oriented main facade.
 
 from typing import Any
 
-from posthog.api.pagination import select_page
 from posthog.event_usage import AnalyticsProps
 from posthog.paging import Page, PageRequest
+from posthog.queryset_paging import select_page
 
 from ..logic import symbol_sets as _logic
 from . import contracts

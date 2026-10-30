@@ -12,7 +12,6 @@ from django.utils import timezone
 
 import structlog
 
-from posthog.api.pagination import select_page
 from posthog.dataclasses import frozen
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
@@ -20,6 +19,7 @@ from posthog.models.activity_logging.activity_log import Change, Detail, log_act
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.paging import Page, PageRequest
+from posthog.queryset_paging import select_page
 
 from products.customer_analytics.backend.facade import contracts
 from products.customer_analytics.backend.logic.account_filters import (

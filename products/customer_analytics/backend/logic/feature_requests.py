@@ -22,10 +22,10 @@ from django.db.models import (
 from django.db.models.functions import Coalesce, Concat, Lower, NullIf, Trim
 from django.utils import timezone
 
-from posthog.api.pagination import select_page
 from posthog.dataclasses import frozen
 from posthog.models import UploadedMedia, User
 from posthog.paging import Page, PageRequest
+from posthog.queryset_paging import select_page
 
 from products.customer_analytics.backend.facade import contracts
 from products.customer_analytics.backend.models import (

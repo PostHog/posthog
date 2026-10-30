@@ -1,5 +1,3 @@
-from typing import cast
-
 import posthoganalytics
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, status, viewsets
@@ -9,7 +7,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
-from posthog.api.pagination import FacadeLimitOffsetPagination
+from posthog.api.pagination import FacadeLimitOffsetPagination, facade_page_response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.event_usage import get_request_analytics_properties, groups
@@ -234,8 +232,7 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
         query = ErrorTrackingSymbolSetListQuerySerializer(data=request.query_params)
         query.is_valid(raise_exception=True)
         params = dict(query.validated_data)
-        return cast(FacadeLimitOffsetPagination, self.paginator).get_paginated_facade_response(
-            request,
+        return facade_page_response(
             self,
             lambda page: symbol_sets_facade.list_symbol_sets(
                 self.team.id,

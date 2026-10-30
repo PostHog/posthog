@@ -12,10 +12,10 @@ from django.db.models import Case, CharField, F, IntegerField, Q, QuerySet, Valu
 from django.db.models.functions import Coalesce, Concat, Lower, NullIf, Trim
 from django.utils import timezone
 
-from posthog.api.pagination import select_page
 from posthog.dataclasses import frozen
 from posthog.models import OrganizationMembership, Team, User
 from posthog.paging import Page, PageRequest
+from posthog.queryset_paging import select_page
 
 from products.access_control.backend.facade import (
     api as access_control_api,

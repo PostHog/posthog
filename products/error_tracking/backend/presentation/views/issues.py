@@ -15,7 +15,7 @@ from rest_framework.response import Response
 from posthog.api.documentation import extend_schema, extend_schema_field
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.mixins import ValidatedRequest, validated_request
-from posthog.api.pagination import FacadeLimitOffsetPagination
+from posthog.api.pagination import FacadeLimitOffsetPagination, facade_page_response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.event_usage import report_user_action
@@ -350,9 +350,7 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         )
 
     def list(self, request: request.Request, *args: object, **kwargs: object) -> Response:
-        return cast(FacadeLimitOffsetPagination, self.paginator).get_paginated_facade_response(
-            request, self, lambda page: facade_api.list_issues_detailed(self.team.id, page=page)
-        )
+        return facade_page_response(self, lambda page: facade_api.list_issues_detailed(self.team.id, page=page))
 
     @extend_schema(
         parameters=[

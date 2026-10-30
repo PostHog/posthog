@@ -9,7 +9,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
-from posthog.api.pagination import FacadeLimitOffsetPagination
+from posthog.api.pagination import FacadeLimitOffsetPagination, facade_page_response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
@@ -173,8 +173,7 @@ class AnnouncementViewSet(
     pagination_class = FacadeLimitOffsetPagination
 
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        return cast(FacadeLimitOffsetPagination, self.paginator).get_paginated_facade_response(
-            request,
+        return facade_page_response(
             self,
             lambda page: api.list_announcements(self.team_id, page=page),
             serializer_class=AnnouncementSerializer,
