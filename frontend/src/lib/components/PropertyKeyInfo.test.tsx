@@ -35,6 +35,13 @@ describe('PropertyKeyInfo', () => {
         })
 
         expect(overlayText).toBeInTheDocument()
+
+        // Unmount and flush under fake timers, or React's scheduler waits for a timer that never fires,
+        // and later lazy components in this file never resolve.
+        cleanup()
+        act(() => {
+            jest.runOnlyPendingTimers()
+        })
     })
 
     it('does not run the onClick of a wrapping element when the overlay is clicked', () => {

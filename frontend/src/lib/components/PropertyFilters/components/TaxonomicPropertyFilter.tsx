@@ -7,7 +7,7 @@ import { useId } from 'react'
 import { IconPlusSmall, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonDropdown, Link } from '@posthog/lemon-ui'
 
-import { FeatureFlagPopoverInfo } from 'lib/components/DefinitionPopover/FeatureFlagPopoverInfo'
+import { LazyFeatureFlagPopoverInfo } from 'lib/components/DefinitionPopover/LazyFeatureFlagPopoverInfo'
 import { featureFlagKeyFromProperty } from 'lib/components/DefinitionPopover/utils'
 import { OperatorValueSelect } from 'lib/components/PropertyFilters/components/OperatorValueSelect'
 import { PropertyFilterInternalProps } from 'lib/components/PropertyFilters/types'
@@ -326,7 +326,7 @@ export function TaxonomicPropertyFilter({
                         {cohortLabel ?? nestedGroupLabel ?? filterContent ?? (addText || 'Add filter')}
                         {flagKey && (
                             <div className="mt-2">
-                                <FeatureFlagPopoverInfo flagKey={flagKey} />
+                                <LazyFeatureFlagPopoverInfo flagKey={flagKey} />
                             </div>
                         )}
                         {addFilterDocLink && (

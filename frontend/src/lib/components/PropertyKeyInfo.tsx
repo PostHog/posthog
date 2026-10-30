@@ -7,7 +7,7 @@ import React, { useState } from 'react'
 import { LemonDivider, TooltipProps } from '@posthog/lemon-ui'
 
 import { Logomark } from 'lib/brand'
-import { FeatureFlagPopoverInfo } from 'lib/components/DefinitionPopover/FeatureFlagPopoverInfo'
+import { LazyFeatureFlagPopoverInfo } from 'lib/components/DefinitionPopover/LazyFeatureFlagPopoverInfo'
 import { featureFlagKeyFromProperty } from 'lib/components/DefinitionPopover/utils'
 import { FlagCalledMoveNotice } from 'lib/components/FlagCalledMoveNotice/FlagCalledMoveNotice'
 import { Popover } from 'lib/lemon-ui/Popover'
@@ -113,7 +113,7 @@ const PropertyKeyInfoBase = React.forwardRef<HTMLSpanElement, PropertyKeyInfoPro
                     {flagKey && (
                         <>
                             <LemonDivider className="my-3" />
-                            <FeatureFlagPopoverInfo flagKey={flagKey} />
+                            <LazyFeatureFlagPopoverInfo flagKey={flagKey} />
                         </>
                     )}
 

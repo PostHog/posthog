@@ -9,7 +9,7 @@ import { ActionPopoverInfo } from 'lib/components/DefinitionPopover/ActionPopove
 import { CohortPopoverInfo } from 'lib/components/DefinitionPopover/CohortPopoverInfo'
 import { DefinitionPopover } from 'lib/components/DefinitionPopover/DefinitionPopover'
 import { DefinitionPopoverState, definitionPopoverLogic } from 'lib/components/DefinitionPopover/definitionPopoverLogic'
-import { FeatureFlagPopoverInfo } from 'lib/components/DefinitionPopover/FeatureFlagPopoverInfo'
+import { LazyFeatureFlagPopoverInfo } from 'lib/components/DefinitionPopover/LazyFeatureFlagPopoverInfo'
 import { featureFlagKeyFromProperty } from 'lib/components/DefinitionPopover/utils'
 import { FlagCalledMoveNotice } from 'lib/components/FlagCalledMoveNotice/FlagCalledMoveNotice'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
@@ -266,7 +266,7 @@ export function DefinitionView({
                     </div>
                 )}
                 {flagKey ? (
-                    <FeatureFlagPopoverInfo flagKey={flagKey} />
+                    <LazyFeatureFlagPopoverInfo flagKey={flagKey} />
                 ) : (
                     <DefinitionPopover.Grid cols={2}>
                         <DefinitionPopover.Card title="Property Type" value={_definition.property_type ?? '-'} />
