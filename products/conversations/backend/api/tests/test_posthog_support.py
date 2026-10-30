@@ -46,6 +46,19 @@ class TestCreatePostHogSupportTicketSerializer(SimpleTestCase):
         assert not serializer.is_valid()
         assert field in serializer.errors
 
+    def test_ticket_over_widget_message_limit_is_rejected(self) -> None:
+        data = {
+            **DELETION_REQUEST,
+            "description": "d" * 4000,
+            "expected": "e" * 1000,
+            "actual": "a" * 1000,
+            "already_tried": "t" * 1000,
+            "deletion_query": "q" * 4000,
+        }
+        serializer = CreatePostHogSupportTicketSerializer(data=data)
+        assert not serializer.is_valid()
+        assert "description" in serializer.errors
+
 
 class TestPostHogSupportTicketAPI(APIBaseTest):
     def setUp(self) -> None:

@@ -6,6 +6,7 @@ tickets arrive verified and the caller never holds a signing value.
 """
 
 import time
+import uuid
 from typing import Any
 
 from django.conf import settings
@@ -78,9 +79,13 @@ class PostHogSupportClient:
         return self._request("POST", "/api/conversations/v1/widget/message", json=payload)
 
     def _identity_fields(self, identity: SupportIdentity) -> dict[str, Any]:
+        identity_hash = compute_identity_hash(identity.distinct_id, self._signing_secret)
         fields: dict[str, Any] = {
             "identity_distinct_id": identity.distinct_id,
-            "identity_hash": compute_identity_hash(identity.distinct_id, self._signing_secret),
+            "identity_hash": identity_hash,
+            # Every request leaves from the same egress IPs, and the widget throttles per session or else
+            # per IP. The value matches the session id the widget derives for a verified identity.
+            "widget_session_id": str(uuid.UUID(identity_hash[:32])),
         }
         if identity.verified_email:
             email = canonicalize_claim_value("email", identity.verified_email)

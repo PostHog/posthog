@@ -32,8 +32,9 @@ from products.conversations.backend.services.posthog_support import (
 
 POSTHOG_SUPPORT_AGENT_TICKETS_FLAG = "posthog-support-agent-tickets"
 
-# The widget endpoint caps a message at 10000 characters; the labels and headings below need room.
 MAX_SECTION_LENGTH = 4000
+# Matches the max_length of WidgetMessageSerializer.message, which every ticket passes through.
+WIDGET_MESSAGE_MAX_LENGTH = 10000
 
 
 class PostHogSupportRequestType(models.TextChoices):
@@ -116,6 +117,15 @@ class CreatePostHogSupportTicketSerializer(serializers.Serializer):
                 errors["deletion_consent"] = "A data deletion request needs explicit consent from the user."
             if errors:
                 raise ValidationError(errors)
+        if len(build_ticket_message(attrs)) > WIDGET_MESSAGE_MAX_LENGTH:
+            raise ValidationError(
+                {
+                    "description": (
+                        f"The ticket is longer than {WIDGET_MESSAGE_MAX_LENGTH} characters in total. "
+                        "Shorten the description or the other text fields."
+                    )
+                }
+            )
         return attrs
 
 
