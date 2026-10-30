@@ -72410,6 +72410,49 @@ export namespace Schemas {
     }
 
     /**
+     * * `dashboard` - Dashboard
+     * * `insight` - Insight
+     * * `notebook` - Notebook
+     * * `recording` - Session recording
+     */
+    export type MemberOffboardingResourceKindEnum = typeof MemberOffboardingResourceKindEnum[keyof typeof MemberOffboardingResourceKindEnum];
+
+
+    export const MemberOffboardingResourceKindEnum = {
+      Dashboard: 'dashboard',
+      Insight: 'insight',
+      Notebook: 'notebook',
+      Recording: 'recording',
+    } as const;
+
+    export interface MemberOffboardingResource {
+      /** Opaque identifier used to update this resource during offboarding. */
+      id: string;
+      /** Identifier accepted by the resource’s own API. */
+      resource_id: string;
+      /** The kind of public object or automated delivery.
+       *
+       * * `dashboard` - Dashboard
+       * * `insight` - Insight
+       * * `notebook` - Notebook
+       * * `recording` - Session recording */
+      kind: MemberOffboardingResourceKindEnum;
+      /** The resource's display name. */
+      name: string;
+      /** Project containing the resource. */
+      team_id: number;
+      /** Name of the project containing the resource. */
+      project_name: string;
+      /** Whether all active public links require a password. */
+      password_protected: boolean;
+      /**
+         * Project-scoped path to open the resource in PostHog.
+         * @nullable
+         */
+      url: string | null;
+    }
+
+    /**
      * A resolved access level with the rule that supplied it — the wire form of `ResolvedAccess`.
      */
     export interface ProjectAccessSource {

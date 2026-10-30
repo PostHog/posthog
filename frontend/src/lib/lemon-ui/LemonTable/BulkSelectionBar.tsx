@@ -19,11 +19,8 @@ export function BulkSelectionBar<T extends Record<string, any>, K extends BulkSe
     const isOpen = context.selectedCount > 0
     const [singular, plural] = noun
     const word = context.selectedCount === 1 ? singular : plural
-    const summary = (
-        <span className="text-secondary text-sm">
-            {context.selectedCount} {word} selected
-        </span>
-    )
+    const selectionLabel = config.getSelectionLabel?.(context) ?? `${context.selectedCount} ${word} selected`
+    const summary = <span className="text-secondary text-sm">{selectionLabel}</span>
     const clearButton = (
         <LemonButton type="secondary" size="small" onClick={context.clearSelection}>
             Clear
