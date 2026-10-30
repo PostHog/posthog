@@ -541,9 +541,14 @@ class TestMailbox:
             MAIL_THREADS_URL,
             MAIL_THREADS_URL,
         ]
-        manager.save_state.assert_called_once_with(
-            PipedriveResumeConfig(paginator_state={"folder_index": 0, "page": None, "done_ids": [1]})
-        )
+        assert [call.args[0].paginator_state for call in manager.save_state.call_args_list] == [
+            {"folder_index": 0, "page": None, "done_ids": [1]},
+            # Inbox is done, and the inbox thread listed again in sent is skipped.
+            {"folder_index": 1},
+            {"folder_index": 2},
+            {"folder_index": 3},
+            {"folder_index": 4},
+        ]
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_mail_messages_resume_continues_inside_the_saved_page(self, MockSession: mock.MagicMock) -> None:
@@ -575,9 +580,12 @@ class TestMailbox:
         assert urls == [MAIL_THREADS_URL] * 3 + [f"{MAIL_THREADS_URL}/6/mailMessages"] + [MAIL_THREADS_URL] * 2
         assert params[:3] == [_folder_params("inbox"), _folder_params("sent"), _folder_params("sent", start=500)]
         assert params[4:] == [_folder_params("archive"), _folder_params("drafts")]
-        manager.save_state.assert_called_once_with(
-            PipedriveResumeConfig(paginator_state={"folder_index": 1, "page": {"offset": 500}, "done_ids": [5, 6]})
-        )
+        assert [call.args[0].paginator_state for call in manager.save_state.call_args_list] == [
+            {"folder_index": 1, "page": {"offset": 500}, "done_ids": [5, 6]},
+            {"folder_index": 2},
+            {"folder_index": 3},
+            {"folder_index": 4},
+        ]
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_mail_threads_resume_skips_threads_read_before_the_crash(self, MockSession: mock.MagicMock) -> None:

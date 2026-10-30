@@ -525,6 +525,12 @@ def _mail_rows(
     def stage(progress: dict[str, Any]) -> None:
         resumable_source_manager.save_state(PipedriveResumeConfig(paginator_state=progress))
 
+    def stage_page_done(folder_index: int, next_page_state: Optional[dict[str, Any]]) -> None:
+        if next_page_state:
+            stage({"folder_index": folder_index, "page": next_page_state})
+        else:
+            stage({"folder_index": folder_index + 1})
+
     for folder_index, folder in enumerate(MAIL_FOLDERS):
         if folder_index < start_folder:
             continue
@@ -549,10 +555,7 @@ def _mail_rows(
             if config.custom_read == "mail_threads":
                 new_threads = [thread for thread in threads if thread.get("id") not in seen]
                 seen.update(thread.get("id") for thread in new_threads)
-                if next_page.get("state"):
-                    stage({"folder_index": folder_index, "page": next_page["state"]})
-                else:
-                    stage({"folder_index": folder_index + 1})
+                stage_page_done(folder_index, next_page.get("state"))
                 if new_threads:
                     yield new_threads
                 else:
@@ -577,6 +580,9 @@ def _mail_rows(
                         yield messages
                     else:
                         resumable_source_manager.safe_point()
+                # Every thread of the page is done, so the next attempt can start at the next page.
+                stage_page_done(folder_index, next_page.get("state"))
+                resumable_source_manager.safe_point()
 
             page = next_page.get("state")
             done_in_page = []
