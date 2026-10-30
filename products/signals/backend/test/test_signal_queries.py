@@ -8,6 +8,8 @@ import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, FuzzyInt
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -891,8 +893,10 @@ class TestSpendReportingQueries(_SignalEmbeddingsTestBase):
             spend=50,
             finalized_at=timezone.now(),
         )
-        response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/spend/")
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/spend/")
         assert response.status_code == 200, response.content
+        assert all(SignalReportArtefact._meta.db_table not in query["sql"] for query in queries.captured_queries)
         assert response.json() == {
             "generation": {"total_spend": 132.125, "incomplete": True},
             "implementation": {"total_spend": 50, "incomplete": False},

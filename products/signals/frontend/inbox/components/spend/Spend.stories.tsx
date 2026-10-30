@@ -69,7 +69,7 @@ export const Overview: Story = {
     render: () => (
         <div className="flex max-w-2xl flex-col gap-6 p-4">
             <ReportSpendSection reportId="example-report" />
-            <ScoutSpendLabel />
+            <ScoutSpendLabel skillName="signals-scout-general" />
             <ScoutSpendLabel skillName="signals-scout-general" average />
             <div className="flex items-center justify-between gap-2">
                 <span>Error tracking</span>

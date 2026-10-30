@@ -1781,7 +1781,7 @@ class SignalReportViewSet(
     def safely_get_queryset(self, queryset):
         if self.action == "read_state":
             return queryset.filter(team=self.team).exclude(status=SignalReport.Status.DELETED)
-        if self.action in {"viewed", "feedback_state", "feedback", "pr_ci_statuses", "refresh_metrics"}:
+        if self.action in {"viewed", "feedback_state", "feedback", "pr_ci_statuses", "refresh_metrics", "spend"}:
             # None of these actions renders a report, so they skip the rendering annotations and
             # prefetches every other action's serializer needs. `viewed` is passive telemetry fired
             # right after the detail request that already rendered the report, `pr_ci_statuses` only

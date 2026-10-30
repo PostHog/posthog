@@ -11,16 +11,13 @@ export function ScoutSpendLabel({
     skillName,
     average = false,
 }: {
-    skillName?: string
+    skillName: string
     average?: boolean
 }): JSX.Element | null {
     const { currentTeamId } = useValues(teamLogic)
     const logic = selfDrivingSpendLogic({ teamId: currentTeamId ?? 0 })
     const { overview, spendByScout, averageSpendByScout, failed } = useValues(logic)
 
-    if (!overview && !failed) {
-        return <LemonSkeleton className="h-3 w-32" />
-    }
     if (failed) {
         return (
             <Tooltip title="Couldn't load usage. Refresh the page to try again.">
@@ -28,12 +25,13 @@ export function ScoutSpendLabel({
             </Tooltip>
         )
     }
-    if (average && skillName && !averageSpendByScout.has(skillName)) {
+    if (!overview) {
+        return <LemonSkeleton className="h-3 w-32" />
+    }
+    if (average && !averageSpendByScout.has(skillName)) {
         return null
     }
-    const amount = skillName
-        ? (average ? averageSpendByScout : spendByScout).get(skillName)
-        : overview?.scout_spend.total_spend
+    const amount = (average ? averageSpendByScout : spendByScout).get(skillName)
     return (
         <span className="inline-flex flex-wrap items-center gap-x-1 text-xs text-secondary" data-attr="scout-spend">
             <RecordedSpend
