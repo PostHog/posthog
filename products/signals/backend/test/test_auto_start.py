@@ -677,6 +677,9 @@ def test_create_implementation_task_if_absent_is_idempotent(organization, team, 
     report = SignalReport.objects.create(
         team=team, status=SignalReport.Status.READY, title="t", summary="s", signal_count=0, total_weight=0.0
     )
+    SignalTeamConfig.objects.update_or_create(
+        team=team, defaults={"implementation_repositories": ["owner/assets", "other/assets", "owner/repo"]}
+    )
 
     created_tasks = []
 
@@ -737,6 +740,10 @@ def test_create_implementation_task_if_absent_is_idempotent(organization, team, 
     # self-driving reviews (the agent pushes to a name the server never stamped).
     assert call_kwargs["self_driving_head_branch"].startswith("posthog-self-driving/")
     assert call_kwargs["self_driving_head_branch"] in call_kwargs["description"]
+    # Only same-owner entries apply, because the token comes from the selected repository's installation.
+    assert call_kwargs["github_access_repositories"] == ["owner/assets"]
+    assert "`owner/assets`" in call_kwargs["description"]
+    assert call_kwargs["repository"] == "owner/repo"
     # The gate the second evaluation observed is the legacy SignalReportTask implementation link,
     # written in the same transaction as the task; the task_run artefact is the work-log entry
     # alongside.
@@ -863,9 +870,19 @@ def test_create_implementation_task_threads_resolved_runtime(organization, team)
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.parametrize(
-    ("autostart_enabled", "concurrent_edit"), [(True, False), (False, False), (None, False), (True, True)]
+    ("autostart_enabled", "concurrent_edit", "pilot", "repository_available"),
+    [
+        (True, False, False, True),
+        (False, False, False, True),
+        (None, False, False, True),
+        (True, True, False, True),
+        (True, False, True, False),
+        (True, False, True, True),
+    ],
 )
-async def test_team_autostart_switch_gates_reviewerless_fallback(autostart_enabled, concurrent_edit):
+async def test_team_autostart_switch_gates_reviewerless_fallback(
+    autostart_enabled, concurrent_edit, pilot, repository_available
+):
     # The master switch must gate the reviewer-less fallback — the path email-login teams (no linked
     # GitHub) hit. An actionable, prioritized report with no resolvable reviewer auto-starts under the
     # team's signals enabler unless the switch is an explicit False (null leaves autostart on); committed
@@ -923,6 +940,11 @@ async def test_team_autostart_switch_gates_reviewerless_fallback(autostart_enabl
     with (
         patch.object(tasks_facade, "create_and_run_task", side_effect=_fake_create_and_run_task) as mock_create,
         patch("products.signals.backend.auto_start.resolve_agent_runtime", side_effect=resolve_runtime),
+        patch("products.signals.backend.github_optional.ResearchAccessPolicy.enabled", return_value=pilot),
+        patch(
+            "products.signals.backend.github_optional.ResearchAccessPolicy.repository_available",
+            return_value=repository_available,
+        ),
     ):
         await maybe_autostart_implementation_task(
             team_id=team.id,
@@ -939,7 +961,7 @@ async def test_team_autostart_switch_gates_reviewerless_fallback(autostart_enabl
             priority=PriorityAssessment(explanation="Affects many sessions.", priority=Priority.P2),
         )
 
-    assert (mock_create.call_count == 1) is (autostart_enabled is not False)
+    assert (mock_create.call_count == 1) is (autostart_enabled is not False and (not pilot or repository_available))
 
     if concurrent_edit:
         assert "A newer fix" in mock_create.call_args.kwargs["description"]

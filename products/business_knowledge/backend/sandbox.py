@@ -16,7 +16,9 @@ from posthog.models.team.team import Team
 
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.contracts import CreatedTaskDTO, TaskRunDTO
+from products.tasks.backend.facade.profiles import TaskRunOptions
 
+from . import task_profiles
 from .constants import BK_MCP_SCOPES
 from .github_repos import repository_tools_enabled
 from .logic import KnowledgeSearchResult, get_always_on_context
@@ -246,7 +248,6 @@ def start_sandbox_run(
     its own lock. The default allows one open run per person. `on_admitted` runs in the same
     transaction, so a playground turn is stored with the task or not at all.
     """
-    origin = tasks_facade.TaskOriginProduct.BUSINESS_KNOWLEDGE
     with transaction.atomic():
         if admit is None:
             _admit_one_run_per_owner(team.id, user_id)
@@ -266,16 +267,16 @@ def start_sandbox_run(
             team=team,
             title=_title_for(question),
             description=build_sandbox_prompt(question, always_on, repo_tools=repository_tools_enabled(team)),
-            origin_product=origin,
+            profile=task_profiles.BUSINESS_KNOWLEDGE,
             user_id=user_id,
-            repository=None,
             create_pr=False,
-            internal=True,
             sandbox_environment_id=str(env_id),
-            posthog_mcp_scopes=BK_MCP_SCOPES,
-            model=SANDBOX_MODEL,
-            runtime_adapter=SANDBOX_RUNTIME_ADAPTER,
-            output_schema=SandboxAnswer,
+            options=TaskRunOptions(
+                model=SANDBOX_MODEL,
+                adapter=SANDBOX_RUNTIME_ADAPTER,
+                mcp_scopes=BK_MCP_SCOPES,
+                output_schema=SandboxAnswer.model_json_schema(),
+            ),
             extra_run_state={
                 "mcp_exclude_tools": BK_HIDDEN_TOOLS,
                 "config_snapshot": {"connectors": {"mcp_installation_ids": []}},

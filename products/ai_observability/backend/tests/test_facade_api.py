@@ -3,23 +3,62 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin
-from unittest.mock import patch
+from unittest.mock import call, patch
 
 from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
-from posthog.models import Team
+from posthog.models import Team, User
 from posthog.models.event.util import bulk_create_events
 
 from products.access_control.backend.models.access_control import AccessControl
-from products.ai_observability.backend.facade import api
-from products.ai_observability.backend.logic.traces.trace_queries import LoadedTrace
+from products.ai_observability.backend.facade import api, contracts
+from products.ai_observability.backend.logic.traces.summary import (
+    FailedSummary,
+    PendingSummary,
+    ReadySummary,
+    SummaryEntry,
+    SummaryItem,
+    SummaryKey,
+    workflow_id,
+)
+from products.ai_observability.backend.logic.traces.summary_store import (
+    delete_summary,
+    read_summary,
+    summary_key,
+    write_summary,
+)
+from products.ai_observability.backend.logic.traces.trace_queries import FeedbackEventRow, LoadedTrace
 from products.ai_observability.backend.models.evaluations import Evaluation
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
+from products.surveys.backend.facade.api import (
+    LinkedSurveyAnswer,
+    LinkedSurveyResponse,
+    LinkedSurveyResponses,
+    RatingScale,
+    SurveyRef,
+    UnansweredSurvey,
+)
 
-from .logic.traces.rows import make_evaluation_result_event, make_row
+from .logic.traces.rows import (
+    CLUSTERING_JOB_ID,
+    make_cluster,
+    make_cluster_run_event,
+    make_evaluation_result_event,
+    make_feedback_row,
+    make_row,
+)
+from .property_access import hide_event_property
 
 T0 = datetime(2026, 9, 1, 10, 0, tzinfo=UTC)
+READY_SUMMARY = ReadySummary(
+    title="Refund request",
+    bullets=(SummaryItem(text="The user asks for a refund.", node_id="gen-1"),),
+    notes=(),
+    flow="ask → refuse",
+    model="gpt-4.1-mini",
+    generated_at=T0,
+)
 
 
 def test_root_node_is_the_trace_and_nodes_keep_event_uuids() -> None:
@@ -40,6 +79,144 @@ def test_missing_trace_raises_not_found() -> None:
     with patch.object(api, "load_trace", return_value=LoadedTrace(rows=(), person=None)):
         with pytest.raises(api.TraceNotFoundError):
             api.get_trace(team=None, user=None, trace_id="missing", timestamp_hint=None)  # type: ignore[arg-type]
+
+
+NO_SURVEYS = LinkedSurveyResponses(responses=(), unanswered=())
+
+
+def _survey_answer(
+    question: str, question_type: str, value: str | tuple[str, ...], scale: int | None = None
+) -> LinkedSurveyAnswer:
+    rating = (
+        RatingScale(scale=scale, display="number", lower_bound_label="Bad", upper_bound_label="Great")
+        if scale
+        else None
+    )
+    return LinkedSurveyAnswer(
+        question_id=question,
+        question_index=0,
+        question_text=question,
+        question_type=question_type,
+        rating=rating,
+        value=value,
+    )
+
+
+def test_feedback_maps_scores_texts_and_survey_responses_oldest_first() -> None:
+    rows = (
+        make_feedback_row(uuid="gen-uuid", event="$ai_generation", generation_id="gen-a", timestamp=T0),
+        make_feedback_row(uuid="metric", metric_name="helpfulness", metric_value_json="0", parent_id="gen-a"),
+        make_feedback_row(
+            uuid="text",
+            event="$ai_feedback",
+            feedback_text_json='"Too long, but correct."',
+            timestamp=T0 + timedelta(minutes=2),
+        ),
+    )
+    survey = SurveyRef(id="survey-1", name="Answer quality")
+    linked = LinkedSurveyResponses(
+        responses=(
+            LinkedSurveyResponse(
+                survey=survey,
+                submission_id="sub-1",
+                submitted_at=T0 + timedelta(minutes=1),
+                complete=False,
+                answers=(
+                    _survey_answer("Useful?", "rating", "1", scale=2),
+                    _survey_answer("How good?", "rating", "4", scale=5),
+                    _survey_answer("What could be better?", "multiple_choice", ("Accuracy", "Tone")),
+                    _survey_answer("Anything else?", "open", "Shorter, please."),
+                ),
+                unavailable=None,
+            ),
+        ),
+        unanswered=(
+            UnansweredSurvey(survey=SurveyRef(id="survey-2", name="Follow-up"), shown_at=T0 + timedelta(minutes=3)),
+        ),
+    )
+    with (
+        patch.object(api, "load_trace_feedback_rows", return_value=rows),
+        patch.object(api, "get_survey_responses_linked_to", return_value=linked),
+    ):
+        feedback = api.get_trace_feedback(
+            team=None,  # type: ignore[arg-type]
+            user=None,
+            trace_id="trace-1",
+            timestamp_hint=None,
+            include_surveys=True,
+        )
+
+    assert [(score.name, score.value, score.node_id) for score in feedback.scores] == [("helpfulness", "0", "gen-uuid")]
+    assert [(response.kind, response.id, response.node_id) for response in feedback.responses] == [
+        ("survey", "sub-1", "trace-1"),
+        ("text", "text", "trace-1"),
+    ]
+    survey_response = feedback.responses[0]
+    assert isinstance(survey_response, contracts.TraceSurveyResponse)
+    assert (survey_response.survey.name, survey_response.complete) == ("Answer quality", False)
+    assert [answer.model_dump() for answer in survey_response.answers] == [
+        {"kind": "thumbs", "question": "Useful?", "up": True},
+        {
+            "kind": "rating",
+            "question": "How good?",
+            "value": "4",
+            "scale": 5,
+            "lower_label": "Bad",
+            "upper_label": "Great",
+        },
+        {"kind": "choice", "question": "What could be better?", "choices": ["Accuracy", "Tone"]},
+        {"kind": "text", "question": "Anything else?", "text": "Shorter, please."},
+    ]
+    assert [(item.survey.id, item.timestamp) for item in feedback.unanswered] == [
+        ("survey-2", T0 + timedelta(minutes=3))
+    ]
+    assert feedback.summary == contracts.TraceFeedbackSummary(total=3, thumbs_up=1, thumbs_down=0)
+
+
+SURVEY_READ = call(
+    None,
+    None,
+    property_name="$ai_trace_id",
+    property_value="trace-1",
+    since=datetime(2026, 9, 1, tzinfo=UTC),
+    until=datetime(2026, 10, 2, tzinfo=UTC),
+)
+WITH_FEEDBACK = (make_feedback_row(uuid="metric", metric_value_json="1", timestamp=T0),)
+
+
+@parameterized.expand(
+    [
+        ("a trace with feedback", WITH_FEEDBACK, True, None, [SURVEY_READ], "ok"),
+        ("a trace without feedback or a hint", (), True, None, [], "ok"),
+        ("a token without the survey scopes", WITH_FEEDBACK, False, None, [], "not_permitted"),
+        ("a failed survey read", WITH_FEEDBACK, True, RuntimeError("timeout"), [SURVEY_READ], "failed"),
+    ]
+)
+def test_feedback_reads_the_surveys_linked_to_the_trace_from_its_day(
+    _name: str,
+    rows: tuple[FeedbackEventRow, ...],
+    include_surveys: bool,
+    survey_error: Exception | None,
+    expected_reads: list[object],
+    expected_status: str,
+) -> None:
+    with (
+        patch.object(api, "load_trace_feedback_rows", return_value=rows),
+        patch.object(
+            api, "get_survey_responses_linked_to", return_value=NO_SURVEYS, side_effect=survey_error
+        ) as read_surveys,
+        patch.object(api, "capture_exception"),
+    ):
+        feedback = api.get_trace_feedback(
+            team=None,  # type: ignore[arg-type]
+            user=None,
+            trace_id="trace-1",
+            timestamp_hint=None,
+            include_surveys=include_surveys,
+        )
+
+    assert read_surveys.call_args_list == expected_reads
+    assert (feedback.survey_responses_status, len(feedback.scores)) == (expected_status, len(rows))
 
 
 class TestGetTraceEvaluationResults(ClickhouseTestMixin, BaseTest):
@@ -175,3 +352,157 @@ class TestGetTraceEvaluationResults(ClickhouseTestMixin, BaseTest):
         assert len(results.results) == 2
         assert (results.summary.passed, results.summary.failed, results.summary.unrated) == (0, 1, 0)
         assert [(node.node_id, node.outcome) for node in results.summary.nodes] == [("trace-1", "fail")]
+
+
+class TestGetTraceClusters(ClickhouseTestMixin, BaseTest):
+    def _run(
+        self,
+        uuid: str,
+        clusters: list[dict[str, object]],
+        *,
+        days_after: int = 1,
+        run_id: str = "1_trace_20260902_030000",
+        job_id: str = "",
+        job_name: str = "",
+    ) -> dict[str, object]:
+        return make_cluster_run_event(
+            uuid=uuid,
+            team=self.team,
+            timestamp=T0 + timedelta(days=days_after),
+            clusters=clusters,
+            run_id=run_id,
+            job_id=job_id,
+            job_name=job_name,
+        )
+
+    def test_returns_the_clusters_that_list_the_trace(self) -> None:
+        bulk_create_events(
+            [
+                self._run(
+                    "00000000-0000-0000-0000-0000000c3001",
+                    [make_cluster(3, ["trace-1"], title="Billing questions")],
+                    run_id=f"1_trace_20260902_030000_{CLUSTERING_JOB_ID}",
+                    job_id=CLUSTERING_JOB_ID,
+                    job_name="Support conversations",
+                ),
+                self._run(
+                    "00000000-0000-0000-0000-0000000c3002",
+                    [make_cluster(0, ["trace-2"]), make_cluster(-1, ["trace-1"], title="Outliers")],
+                    days_after=2,
+                    run_id="1_trace_20260903_030000",
+                ),
+            ]
+        )
+
+        clusters = api.get_trace_clusters(self.team, self.user, "trace-1", T0).clusters
+
+        assert [(c.cluster_id, c.title, c.job_name, c.is_outlier) for c in clusters] == [
+            (3, "Billing questions", "Support conversations", False),
+            (-1, "Outliers", None, True),
+        ]
+
+    def test_a_viewer_without_cluster_access_gets_no_clusters(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        AccessControl.objects.create(
+            team=self.team,
+            resource="ai_observability_clusters",
+            access_level="none",
+            organization_member=self.organization_membership,
+        )
+        bulk_create_events([self._run("00000000-0000-0000-0000-0000000c3004", [make_cluster(3, ["trace-1"])])])
+
+        assert api.get_trace_clusters(self.team, self.user, "trace-1", T0).clusters == []
+
+
+class TestTraceSummary(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        self.jobs: list[contracts.TraceSummaryJob] = []
+        delete_summary(summary_key(self.team, self.user, "trace-1"))
+        patcher = patch.object(api, "start_trace_summary", side_effect=self.jobs.append)
+        self.start = patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def _request(self, *, regenerate: bool = False) -> contracts.TraceSummary:
+        return api.request_trace_summary(self.team, self.user, "trace-1", T0, regenerate=regenerate)
+
+    def _stored(self) -> SummaryEntry | None:
+        return read_summary(summary_key(self.team, self.user, "trace-1"))
+
+    def _store(self, entry: SummaryEntry) -> None:
+        write_summary(summary_key(self.team, self.user, "trace-1"), entry)
+
+    def test_a_new_request_writes_pending_and_starts_one_job(self) -> None:
+        assert self._request().status == "pending"
+
+        [job] = self.jobs
+        assert (job.trace_id, job.timestamp_hint, job.requester_id) == ("trace-1", T0, self.user.pk)
+        assert SummaryKey.for_job(job) == summary_key(self.team, self.user, "trace-1")
+        stored = self._stored()
+        assert isinstance(stored, PendingSummary) and job.requested_at == stored.requested_at
+
+    def test_a_repeat_while_pending_keeps_the_entry_and_attaches(self) -> None:
+        self._request()
+        stored = self._stored()
+
+        assert self._request(regenerate=True).status == "pending"
+        assert self._stored() == stored
+        assert len(self.jobs) == 2 and len({workflow_id(job) for job in self.jobs}) == 1
+
+    @parameterized.expand([("kept", False, "ready", 0), ("regenerated", True, "pending", 1)])
+    def test_ready_is_returned_unless_regenerate(
+        self, _name: str, regenerate: bool, expected_status: str, expected_starts: int
+    ) -> None:
+        self._store(READY_SUMMARY)
+
+        assert self._request(regenerate=regenerate).status == expected_status
+        assert len(self.jobs) == expected_starts
+
+    def test_retry_after_a_failure_starts_again(self) -> None:
+        self._store(FailedSummary(reason="provider_error", failed_at=T0))
+
+        assert self._request().status == "pending"
+        assert len(self.jobs) == 1
+
+    def test_a_job_that_cannot_start_reads_as_failed(self) -> None:
+        self.start.side_effect = ConnectionError("temporal is down")
+
+        summary = self._request()
+
+        assert summary.failure is not None and (summary.status, summary.failure.reason) == ("failed", "error")
+        assert api.get_trace_summary(self.team, self.user, "trace-1").status == "failed"
+
+    def test_a_failed_start_while_joining_a_running_job_keeps_its_entry(self) -> None:
+        self._request()
+        running = self._stored()
+        self.start.side_effect = ConnectionError("temporal is down")
+
+        assert self._request().status == "pending"
+        assert self._stored() == running
+
+    def test_get_hides_another_fingerprint(self) -> None:
+        restricted = User.objects.create_and_join(self.organization, "restricted@example.com", "testtest")
+        hide_event_property(self.team, restricted, "$ai_input")
+        self._store(READY_SUMMARY)
+
+        with pytest.raises(api.TraceSummaryNotFoundError):
+            api.get_trace_summary(self.team, restricted, "trace-1")
+        summary = api.get_trace_summary(self.team, self.user, "trace-1")
+        assert summary.content is not None and summary.content.bullets[0].node_id == "gen-1"
+
+    def test_consent_withdrawn_hides_a_ready_entry(self) -> None:
+        self._store(READY_SUMMARY)
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save()
+        self.team.refresh_from_db()
+
+        with pytest.raises(api.AIDataProcessingNotApprovedError):
+            api.get_trace_summary(self.team, self.user, "trace-1")
+        with pytest.raises(api.AIDataProcessingNotApprovedError):
+            self._request(regenerate=True)
+        assert self.jobs == []

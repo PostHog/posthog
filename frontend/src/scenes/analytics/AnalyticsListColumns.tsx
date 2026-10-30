@@ -38,10 +38,17 @@ import type { AnalyticsFeedQuery } from './analyticsFeed'
 import { AnalyticsFolderDropTarget } from './AnalyticsFolderDropTarget'
 import type { FolderRow } from './analyticsListLogic'
 import { AnalyticsOwner } from './AnalyticsOwner'
+import { AnalyticsPinMenuItem } from './AnalyticsPinMenuItem'
 import { analyticsShareLogic } from './analyticsShareLogic'
 import { AnalyticsSpaceGlyph } from './AnalyticsSpaceGlyph'
 import { AnalyticsTypeIcon } from './AnalyticsTypeIcon'
-import { ANALYTICS_DRAG_SCOPE, ANALYTICS_TYPE_INFO, AnalyticsItem, analyticsOpenHref } from './analyticsUtils'
+import {
+    ANALYTICS_DRAG_SCOPE,
+    ANALYTICS_TYPE_INFO,
+    AnalyticsItem,
+    analyticsOpenHref,
+    isSpacePath,
+} from './analyticsUtils'
 
 export type AnalyticsListRow = { kind: 'folder'; folder: FolderRow } | { kind: 'item'; item: AnalyticsItem }
 
@@ -158,25 +165,36 @@ function SpaceCell({ item }: { item: AnalyticsItem }): JSX.Element {
     )
 }
 
-function MoveCell({ item }: { item: AnalyticsItem }): JSX.Element {
+function ItemMenuCell({ item }: { item: AnalyticsItem }): JSX.Element {
     const { openShareToSpace } = useActions(analyticsShareLogic)
     return (
-        <Tooltip>
-            <TooltipTrigger
+        <DropdownMenu>
+            <DropdownMenuTrigger
                 render={
                     <Button
                         variant="default"
                         size="icon-sm"
-                        aria-label="Move to another collection"
-                        onClick={() => openShareToSpace({ type: item.type, ref: item.id, name: item.name })}
-                        data-attr="analytics-list-row-move"
+                        aria-label={`Actions for ${item.name}`}
+                        data-attr="analytics-list-row-menu"
                     />
                 }
             >
-                <IconFolderMove />
-            </TooltipTrigger>
-            <TooltipContent>Move to another collection</TooltipContent>
-        </Tooltip>
+                <IconEllipsis />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="min-w-56">
+                <AnalyticsPinMenuItem
+                    target={{ type: item.type, ref: item.id, name: item.name, href: item.href }}
+                    dataAttr="analytics-list-row-pin"
+                />
+                <DropdownMenuItem
+                    onClick={() => openShareToSpace({ type: item.type, ref: item.id, name: item.name })}
+                    data-attr="analytics-list-row-move"
+                >
+                    <IconFolderMove />
+                    Move to another collection
+                </DropdownMenuItem>
+            </DropdownMenuContent>
+        </DropdownMenu>
     )
 }
 
@@ -208,6 +226,12 @@ function FolderMenuCell({ folder }: { folder: FolderRow }): JSX.Element | null {
                     <IconFolderOpen />
                     Open folder
                 </DropdownMenuItem>
+                {isSpacePath(folder.path) && (
+                    <AnalyticsPinMenuItem
+                        target={{ type: 'folder', ref: folder.path, name: folder.name }}
+                        dataAttr="analytics-list-folder-pin"
+                    />
+                )}
                 <DropdownMenuItem
                     variant="destructive"
                     onClick={() => deleteItem(entry, ANALYTICS_DRAG_SCOPE)}
@@ -428,24 +452,19 @@ export function analyticsListColumns({
                 </div>
             ),
         },
-        // Inside a collection the Collection column is gone, so the row carries the way out instead.
-        ...(showSpace
-            ? []
-            : ([
-                  {
-                      id: 'move',
-                      header: '',
-                      enableSorting: false,
-                      cell: ({ row }) => (
-                          <div className="flex w-8 justify-end">
-                              {row.original.kind === 'item' ? (
-                                  <MoveCell item={row.original.item} />
-                              ) : (
-                                  <FolderMenuCell folder={row.original.folder} />
-                              )}
-                          </div>
-                      ),
-                  },
-              ] satisfies AnalyticsListColumns)),
+        {
+            id: 'actions',
+            header: '',
+            enableSorting: false,
+            cell: ({ row }) => (
+                <div className="flex w-8 justify-end">
+                    {row.original.kind === 'item' ? (
+                        <ItemMenuCell item={row.original.item} />
+                    ) : (
+                        <FolderMenuCell folder={row.original.folder} />
+                    )}
+                </div>
+            ),
+        },
     ]
 }

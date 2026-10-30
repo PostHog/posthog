@@ -778,23 +778,23 @@ class ReplayVisionEstimateSustainedRateThrottle(_TeamBucketRateThrottle):
     rate = "200/hour"
 
 
-# The watch feed windows, ranks and hydrates a slice of the team's observation history per call, and
+# The highlight feed windows, ranks and hydrates a slice of the team's observation history per call, and
 # its primary caller is the session-authenticated home tab, which the default Burst/Sustained
 # throttles bypass. Team-wide bucket so minting keys doesn't multiply the budget.
-class ReplayVisionWatchFeedBurstRateThrottle(_TeamBucketRateThrottle):
-    scope = "replay_vision_watch_feed_burst"
+class ReplayVisionHighlightFeedBurstRateThrottle(_TeamBucketRateThrottle):
+    scope = "replay_vision_highlight_feed_burst"
     rate = "60/minute"
 
 
-class ReplayVisionWatchFeedSustainedRateThrottle(_TeamBucketRateThrottle):
-    scope = "replay_vision_watch_feed_sustained"
+class ReplayVisionHighlightFeedSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "replay_vision_highlight_feed_sustained"
     rate = "600/hour"
 
 
 # Impression reports arrive while a reader scrolls, so they get their own per-user bucket and never use up the
 # team's feed bucket.
-class ReplayVisionWatchFeedImpressionsRateThrottle(_UserBucketRateThrottle):
-    scope = "replay_vision_watch_feed_impressions"
+class ReplayVisionHighlightFeedImpressionsRateThrottle(_UserBucketRateThrottle):
+    scope = "replay_vision_highlight_feed_impressions"
     rate = "120/minute"
 
 
@@ -990,6 +990,17 @@ class AIObservabilitySummarizationDailyThrottle(PersonalApiKeyOrUserRateThrottle
     # Hard limit to prevent runaway costs
     scope = "llm_analytics_summarization_daily"
     rate = "500/day"
+
+
+class InsightExplainBurstThrottle(PersonalApiKeyOrUserRateThrottle):
+    # A decision model call costs a small fraction of a summarization call, so it gets its own, higher limits.
+    scope = "insight_explain_burst"
+    rate = "120/minute"
+
+
+class InsightExplainDailyThrottle(PersonalApiKeyOrUserRateThrottle):
+    scope = "insight_explain_daily"
+    rate = "5000/day"
 
 
 class AIObservabilityBackfillEstimateThrottle(_UserBucketRateThrottle):

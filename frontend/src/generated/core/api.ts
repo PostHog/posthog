@@ -27,8 +27,6 @@ import type {
     EmojiSearchSuggestRetrieveParams,
     EnterprisePropertyDefinitionApi,
     EventIngestionRestrictionApi,
-    EventMatchRequestApi,
-    EventMatchResponseApi,
     EventPropertyValuesResponseApi,
     EventsValuesRetrieveParams,
     ExportedAssetApi,
@@ -2764,27 +2762,6 @@ export const taxonomicSearchIntentClassifyCreate = async (
     })
 }
 
-export const getTaxonomicSearchIntentMatchEventsCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/taxonomic_search_intent/match_events/`
-}
-
-/**
- * Guess which PostHog core events a search that matched no event name describes.
- * @summary Match an events search to core events
- */
-export const taxonomicSearchIntentMatchEventsCreate = async (
-    projectId: string,
-    eventMatchRequestApi: EventMatchRequestApi,
-    options?: RequestInit
-): Promise<EventMatchResponseApi> => {
-    return apiMutator<EventMatchResponseApi>(getTaxonomicSearchIntentMatchEventsCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(eventMatchRequestApi),
-    })
-}
-
 export const getTerminalNetplayMailboxRetrieveUrl = (
     projectId: string,
     params: TerminalNetplayMailboxRetrieveParams
@@ -3652,7 +3629,7 @@ export const getUsersPushTokensCreateUrl = (uuid: string) => {
 }
 
 /**
- * Idempotent upsert: if the (user, token) pair already exists, `platform` and `last_seen_at` are refreshed. Otherwise a new row is created.
+ * Register the device for the authenticated user, removing registrations for the same token belonging to other users on this instance. Re-registration refreshes `platform` and `last_seen_at`.
  * @summary Register a push notification token
  */
 export const usersPushTokensCreate = async (

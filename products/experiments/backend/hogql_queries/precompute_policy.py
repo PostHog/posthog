@@ -22,9 +22,9 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     parse_ttl_schedule,
 )
 from products.cohorts.backend.models.cohort import Cohort
+from products.experiments.backend.facade.enums import PrecomputeSkipReason
 from products.experiments.backend.hogql_queries.experiment_query_builder import ExperimentQueryBuilder
 from products.experiments.backend.hogql_queries.exposure_query_logic import has_activation_config
-from products.experiments.backend.hogql_queries.types import PrecomputeSkipReason
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 
