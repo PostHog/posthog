@@ -558,6 +558,15 @@ class TestMetricsPromqlQueryApi(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN
         request.assert_not_called()
 
+    def test_a_rejected_promql_expression_is_a_bad_request(self) -> None:
+        upstream = MagicMock(spec=requests.Response, status_code=400, headers={})
+        upstream.json.return_value = {"status": "error", "error": "parse error at char 5"}
+        with patch("posthog.api.snuffle_proxy.internal_requests.request", return_value=upstream):
+            response = self._post({"promql": "sum(("})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "parse error at char 5" in response.json()["detail"]
+
     def test_promql_query_respects_the_query_byte_budget(self) -> None:
         token = generate_random_token_personal()
         PersonalAPIKey.objects.create(
