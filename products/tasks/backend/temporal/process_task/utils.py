@@ -677,6 +677,7 @@ def get_user_mcp_server_configs(
         include_personal=include_personal,
         task_origin=origin_product,
         task_agent_key=task_agent_key,
+        has_profile=profile is not None,
         profile_agent_key=cast("MCPBuiltInAgentKey | None", profile.mcp_agent) if profile is not None else None,
         credential_owner_id=credential_owner_id,
         allowed_installation_ids=allowed_installation_ids,
