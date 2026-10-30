@@ -24,6 +24,8 @@ export interface UploadOptions {
     force: boolean
     skipOnConflict: boolean
     concurrency?: number
+    // Filled as chunks finish, so a caller still sees what a failed run uploaded.
+    progress?: Map<string, UploadStatus>
 }
 
 export interface UploadOutcome {
@@ -202,7 +204,7 @@ export class SymbolSetClient {
         options: UploadOptions,
         runId: string
     ): Promise<UploadOutcome> {
-        const status = new Map<string, UploadStatus>()
+        const status = options.progress ?? new Map<string, UploadStatus>()
         const contentHashes = new Map<string, string>()
         const kept: (SymbolSetUpload & { hash: string })[] = []
         for (const upload of uploads) {

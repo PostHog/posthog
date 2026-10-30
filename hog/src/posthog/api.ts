@@ -69,6 +69,10 @@ export class ApiError extends HogError {
     ) {
         super(code, message, hint)
     }
+
+    override withHint(hint: string): ApiError {
+        return new ApiError(this.status, this.type, this.code, this.message, hint)
+    }
 }
 
 export class PostHogApi {

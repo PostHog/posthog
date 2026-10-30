@@ -103,8 +103,8 @@ function isCloudHost(host: string): boolean {
 const text = (value: unknown): string | undefined => (typeof value === 'string' && value ? value : undefined)
 
 // Usage events for the PostHog team. They belong to the PostHog Cloud user whose key hog uses, and
-// to a random install ID otherwise. Events carry no argument or option values, only names, counts,
-// error codes and error messages.
+// to a random install ID otherwise. Events carry no argument or option values and no error messages,
+// only names, counts and error codes.
 export class Telemetry {
     private readonly queue: QueuedEvent[] = []
     private enabled: boolean
