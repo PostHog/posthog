@@ -441,10 +441,19 @@ describe("PiChats", () => {
       );
     });
 
-    it("continues a finished Claude run with a new run on the same plan", async () => {
-      const { api, chats } = setup();
+    it("continues a finished Claude run with a new run on the same plan, watching it until its agent is up for its token request", async () => {
+      const { api, chats, agentRestarted } = setup({ canReopen: true });
+      api.resumeRunInCloud.mockRejectedValueOnce(
+        new Error("Run is already active"),
+      );
 
       await chats.reply(claude("completed"), "Keep going");
+
+      expect(agentRestarted).toHaveBeenCalledWith(
+        "t1",
+        "r2",
+        expect.any(Number),
+      );
 
       expect(api.runTaskInCloud).toHaveBeenCalledWith("t1", null, {
         adapter: "claude",
