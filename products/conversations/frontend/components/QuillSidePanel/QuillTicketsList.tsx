@@ -30,9 +30,17 @@ import { sidepanelTicketsLogic } from '../SidePanel/sidepanelTicketsLogic'
 import { QuillTicketRow } from './QuillTicketRow'
 
 export function QuillTicketsList(): JSX.Element {
-    const { tickets, filteredTickets, ticketsLoading, canCreateTicket, effectiveStatusFilter, ticketFilterCounts } =
-        useValues(sidepanelTicketsLogic)
-    const { setCurrentTicket, setView, setStatusFilter } = useActions(sidepanelTicketsLogic)
+    const {
+        tickets,
+        filteredTickets,
+        ticketsLoading,
+        canCreateTicket,
+        effectiveStatusFilter,
+        ticketFilterCounts,
+        hasNewTicketDraft,
+        ticketIdsWithDrafts,
+    } = useValues(sidepanelTicketsLogic)
+    const { setCurrentTicket, setView, setStatusFilter, openNewTicket } = useActions(sidepanelTicketsLogic)
 
     const hasIdentityMode = !!window.JS_POSTHOG_IDENTITY_DISTINCT_ID
 
@@ -79,8 +87,8 @@ export function QuillTicketsList(): JSX.Element {
     return (
         <div className="flex flex-col gap-3">
             {canCreateTicket && (
-                <Button variant="primary" onClick={() => setView('new')} data-attr="sidebar-create-new-ticket">
-                    Create new ticket
+                <Button variant="primary" onClick={openNewTicket} data-attr="sidebar-create-new-ticket">
+                    {hasNewTicketDraft ? 'Continue your draft' : 'Create new ticket'}
                 </Button>
             )}
             {!hasIdentityMode && (
@@ -140,7 +148,12 @@ export function QuillTicketsList(): JSX.Element {
             ) : (
                 <CardGroup>
                     {filteredTickets.map((ticket: ConversationTicket) => (
-                        <QuillTicketRow key={ticket.id} ticket={ticket} onOpen={() => setCurrentTicket(ticket)} />
+                        <QuillTicketRow
+                            key={ticket.id}
+                            ticket={ticket}
+                            hasDraft={ticketIdsWithDrafts.includes(ticket.id)}
+                            onOpen={() => setCurrentTicket(ticket)}
+                        />
                     ))}
                 </CardGroup>
             )}

@@ -10,6 +10,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { UserType } from '~/types'
 
+import { DRAFT_KEY_PREFIX } from 'products/conversations/frontend/components/SidePanel/supportTicketDrafts'
 import { sqlEditorDraftStorage } from 'products/data_warehouse/frontend/sqlEditorDraftStorage'
 
 import { userLogic } from './userLogic'
@@ -57,6 +58,7 @@ describe('userLogic', () => {
                 for (const teamId of [1, 2]) {
                     sqlEditorDraftStorage(MOCK_DEFAULT_USER.uuid, teamId, 'new')?.set({ q: 'SELECT unfinished' })
                 }
+                localStorage.setItem(`${DRAFT_KEY_PREFIX}user-1:ticket:t1`, '{"content":{},"updatedAt":0}')
                 localStorage.setItem('theme', 'dark')
                 sessionStorage.setItem('other-session-state', 'keep')
 

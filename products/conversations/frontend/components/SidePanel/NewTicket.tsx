@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useMemo } from 'react'
 
 import { IconArrowLeft } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
@@ -7,8 +8,9 @@ import { MessageInput } from '../Chat/MessageInput'
 import { sidepanelTicketsLogic } from './sidepanelTicketsLogic'
 
 export function NewTicket(): JSX.Element {
-    const { messageSending, newTicketDraft, supportResponseTime } = useValues(sidepanelTicketsLogic)
-    const { sendMessage, setView } = useActions(sidepanelTicketsLogic)
+    const { messageSending, hasNewTicketDraft, supportResponseTime } = useValues(sidepanelTicketsLogic)
+    const { sendMessage, setView, updateNewTicketDraft, discardDraft } = useActions(sidepanelTicketsLogic)
+    const initialDraft = useMemo(() => sidepanelTicketsLogic.values.newTicketDraft, [])
 
     const placeholder = supportResponseTime
         ? `Describe what you need help with and our support engineers aim to get back to you within ${supportResponseTime}.`
@@ -24,18 +26,27 @@ export function NewTicket(): JSX.Element {
                     data-attr="sidebar-go-back-to-tickets"
                 />
                 <span className="font-semibold">New ticket</span>
+                {hasNewTicketDraft && (
+                    <LemonButton
+                        size="xsmall"
+                        type="tertiary"
+                        className="ml-auto"
+                        onClick={discardDraft}
+                        data-attr="sidebar-discard-ticket-draft"
+                    >
+                        Discard draft
+                    </LemonButton>
+                )}
             </div>
 
-            {/* draftContent seeds the editor from a prefilled CTA; no onDraftChange, since routing
-                typing back through the logic (which keys this component) would remount on every
-                keystroke and drop focus. The draft is a one-shot initial value. */}
             <MessageInput
                 onSendMessage={(content, _richContent, _isPrivate, onSuccess) => sendMessage(content, onSuccess)}
                 messageSending={messageSending}
                 placeholder={placeholder}
                 buttonText="Submit ticket"
                 minRows={4}
-                draftContent={newTicketDraft}
+                draftContent={initialDraft}
+                onDraftChange={updateNewTicketDraft}
             />
         </div>
     )

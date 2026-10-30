@@ -1,3 +1,6 @@
+import { MOCK_DEFAULT_USER } from 'lib/api.mock'
+
+import { JSONContent } from '@tiptap/core'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
@@ -8,6 +11,7 @@ import { billingLogic } from 'scenes/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { initKeaTests } from '~/test/init'
@@ -15,6 +19,13 @@ import { BillingType, SidePanelTab } from '~/types'
 
 import type { ConversationTicket } from '../../types'
 import { sidepanelTicketsLogic } from './sidepanelTicketsLogic'
+import { saveTicketDraft } from './supportTicketDrafts'
+
+const DAY_MS = 24 * 60 * 60 * 1000
+
+function doc(text: string): JSONContent {
+    return { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text }] }] }
+}
 
 describe('sidepanelTicketsLogic', () => {
     let logic: ReturnType<typeof sidepanelTicketsLogic.build>
@@ -24,6 +35,7 @@ describe('sidepanelTicketsLogic', () => {
     }
 
     beforeEach(() => {
+        localStorage.clear()
         initKeaTests()
         ;(posthog as any).conversations = {
             isAvailable: () => true,
@@ -36,6 +48,8 @@ describe('sidepanelTicketsLogic', () => {
         }
         supportLogic.mount()
         billingLogic.mount()
+        userLogic.mount()
+        userLogic.actions.loadUserSuccess(MOCK_DEFAULT_USER)
         // Tickets can be created unless a test drops the plan; set it up front, since the async
         // fixture load lands too late for the intent a test may already have queued
         setSubscriptionLevel('paid')
@@ -82,6 +96,10 @@ describe('sidepanelTicketsLogic', () => {
         expect(JSON.stringify(logic.values.newTicketDraft)).toContain('It broke')
         expect(supportLogic.values.isEmailFormOpen).toBe(false)
 
+        logic.actions.setView('list')
+        logic.actions.setView('new')
+        expect(logic.values.newTicketContext).toBe('Project ID: 997')
+
         await expectLogic(logic, () => {
             logic.actions.sendMessage('It broke badly', jest.fn())
         }).toFinishAllListeners()
@@ -91,10 +109,159 @@ describe('sidepanelTicketsLogic', () => {
             true
         )
 
-        // Leaving the composer clears the prefill so a later blank "New ticket" starts empty
-        logic.actions.setView('list')
+        // Sending uses up the draft, so a later blank "New ticket" starts empty
         expect(logic.values.newTicketDraft).toBeNull()
         expect(logic.values.newTicketContext).toBeNull()
+    })
+
+    it('keeps a typed new-ticket draft when the composer and the logic unmount', async () => {
+        logic = sidepanelTicketsLogic.build()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.setView('new')
+        logic.actions.updateNewTicketDraft(doc('Half written'))
+        logic.actions.setView('list')
+        logic.unmount()
+
+        logic = sidepanelTicketsLogic.build()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(JSON.stringify(logic.values.newTicketDraft)).toContain('Half written')
+    })
+
+    it('keeps the drafts of each user who signs in on this browser apart', async () => {
+        userLogic.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, uuid: 'user-a' })
+        logic = sidepanelTicketsLogic.build()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.updateNewTicketDraft(doc('Written by user A'))
+        logic.actions.setTicketDraft('t1', doc('Reply by user A'))
+
+        userLogic.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, uuid: 'user-b' })
+        expect(logic.values.newTicketDraft).toBeNull()
+        expect(logic.values.ticketDrafts).toEqual({})
+        logic.actions.updateNewTicketDraft(doc('Written by user B'))
+
+        userLogic.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, uuid: 'user-a' })
+        expect(JSON.stringify(logic.values.newTicketDraft)).toContain('Written by user A')
+        expect(Object.keys(logic.values.ticketDrafts)).toEqual(['t1'])
+    })
+
+    it('keeps typing in memory when the browser refuses to save the draft', async () => {
+        logic = sidepanelTicketsLogic.build()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        const setItem = jest.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+            throw new DOMException('Quota exceeded', 'QuotaExceededError')
+        })
+        try {
+            logic.actions.updateNewTicketDraft(doc('Pasted a long log'))
+        } finally {
+            setItem.mockRestore()
+        }
+
+        expect(JSON.stringify(logic.values.newTicketDraft)).toContain('Pasted a long log')
+    })
+
+    it('does not attach a CTA context left over from before a reload to a blank ticket', async () => {
+        logic = sidepanelTicketsLogic.build()
+        logic.mount()
+        await expectLogic(logic, () => {
+            supportLogic.actions.openSupportForm({
+                kind: 'bug',
+                isEmailFormOpen: true,
+                ticket_context: 'Project ID: 997',
+                target: 'sidePanel',
+            })
+        }).toFinishAllListeners()
+        logic.unmount()
+
+        logic = sidepanelTicketsLogic.build()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.newTicketContext).toBe('Project ID: 997')
+        logic.actions.openNewTicket()
+
+        expect(logic.values.newTicketContext).toBeNull()
+    })
+
+    it('adds a CTA prefill after a typed draft, and only once when the CTA fires again', async () => {
+        logic = sidepanelTicketsLogic.build()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.updateNewTicketDraft(doc('Typed first'))
+
+        for (let i = 0; i < 2; i++) {
+            await expectLogic(logic, () => {
+                supportLogic.actions.openSupportForm({
+                    kind: 'bug',
+                    isEmailFormOpen: true,
+                    message: 'It broke',
+                    target: 'sidePanel',
+                })
+            }).toFinishAllListeners()
+        }
+
+        const draft = JSON.stringify(logic.values.newTicketDraft)
+        expect(draft).toContain('Typed first')
+        expect(draft.split('It broke')).toHaveLength(2)
+    })
+
+    it('keeps reply drafts per ticket and clears only the ticket that was replied to', async () => {
+        logic = sidepanelTicketsLogic.build()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.setTicketDraft('t1', doc('Reply to one'))
+        // Another browser tab saves a reply this tab never loaded
+        saveTicketDraft(MOCK_DEFAULT_USER.uuid, 't2', { content: doc('Reply to two'), updatedAt: Date.now() })
+        logic.actions.setTicketDraft('t1', doc('Reply to one, edited'))
+        logic.unmount()
+
+        logic = sidepanelTicketsLogic.build()
+        logic.mount()
+        await expectLogic(logic, () => {
+            logic.actions.setCurrentTicket({
+                id: 't1',
+                status: 'open',
+                message_count: 1,
+                created_at: '2026-07-13T00:00:00Z',
+            } as ConversationTicket)
+        }).toFinishAllListeners()
+        expect(Object.keys(logic.values.ticketDrafts).sort()).toEqual(['t1', 't2'])
+
+        // The sendMessage mock answers for ticket t1
+        await expectLogic(logic, () => {
+            logic.actions.sendMessage('Reply to one', jest.fn())
+        }).toFinishAllListeners()
+
+        expect(Object.keys(logic.values.ticketDrafts)).toEqual(['t2'])
+    })
+
+    it('drops drafts older than 30 days when it mounts', async () => {
+        const now = Date.now()
+        const dateNow = jest.spyOn(Date, 'now')
+        try {
+            logic = sidepanelTicketsLogic.build()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            dateNow.mockReturnValue(now - 31 * DAY_MS)
+            logic.actions.setTicketDraft('stale', doc('Old'))
+            logic.actions.updateNewTicketDraft(doc('Old new ticket'))
+            dateNow.mockReturnValue(now - 29 * DAY_MS)
+            logic.actions.setTicketDraft('recent', doc('Newer'))
+            logic.unmount()
+
+            dateNow.mockReturnValue(now)
+            logic = sidepanelTicketsLogic.build()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(Object.keys(logic.values.ticketDrafts)).toEqual(['recent'])
+            expect(logic.values.newTicketDraft).toBeNull()
+        } finally {
+            dateNow.mockRestore()
+        }
     })
 
     it('switches to the composer when the support form opens while already mounted', async () => {

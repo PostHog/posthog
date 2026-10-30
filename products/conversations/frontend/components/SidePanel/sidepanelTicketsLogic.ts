@@ -27,13 +27,15 @@ import {
 } from 'lib/components/Support/supportLogic'
 import { EMAIL_SUPPORT_BUTTON, lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
+import { objectsEqual } from 'lib/utils/objects'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { type BillingType, SidePanelTab } from '~/types'
+import { type BillingType, SidePanelTab, type UserType } from '~/types'
 
 import type { SupportFormFields } from '../../../../../frontend/src/lib/components/Support/supportLogic'
 import type {
@@ -44,6 +46,15 @@ import type {
     SidePanelTicketFilter,
     SidePanelViewState,
 } from '../../types'
+import {
+    appendDraft,
+    NO_DRAFTS,
+    readDrafts,
+    saveNewTicketDraft,
+    saveTicketDraft,
+    type StoredDrafts,
+    type TicketDraft,
+} from './supportTicketDrafts'
 
 function ticketMatchesFilter(ticket: ConversationTicket, filter: SidePanelTicketFilter): boolean {
     switch (filter) {
@@ -88,6 +99,16 @@ function removeRestoreTokenFromUrl(): void {
     }
 }
 
+function saveNewTicket(
+    values: Pick<sidepanelTicketsLogicValues, 'draftOwnerId' | 'newTicketDraft' | 'newTicketContext'>
+): void {
+    if (!values.draftOwnerId) {
+        return
+    }
+    const { newTicketDraft: content, newTicketContext: context } = values
+    saveNewTicketDraft(values.draftOwnerId, content || context ? { content, context, updatedAt: Date.now() } : null)
+}
+
 function messageToRichContent(message: string): JSONContent {
     return {
         type: 'doc',
@@ -117,11 +138,17 @@ export interface sidepanelTicketsLogicValues {
         status: string
     } | null // supportLogic
     sendSupportRequest: SupportFormFields // supportLogic
+    user: UserType | null // userLogic
     canCreateTicket: boolean
+    composerRevision: number
     currentTicket: ConversationTicket | null
+    currentTicketDraft: JSONContent | null
+    currentTicketHasDraft: boolean
+    draftOwnerId: string | null
     effectiveStatusFilter: SidePanelTicketFilter
     filteredTickets: ConversationTicket[]
     hasMoreMessages: boolean
+    hasNewTicketDraft: boolean
     hasSupportExemption: boolean
     isBillingResolved: boolean
     messageSending: boolean
@@ -129,12 +156,13 @@ export interface sidepanelTicketsLogicValues {
     messagesLoading: boolean
     newTicketContext: string | null
     newTicketDraft: JSONContent | null
-    newTicketDraftRevision: number
     pendingTicketId: string | null
     restoreError: string | null
     restoreState: RestoreFlowState
     statusFilter: SidePanelTicketFilter | null
+    ticketDrafts: Record<string, TicketDraft>
     ticketFilterCounts: Record<SidePanelTicketFilter, number>
+    ticketIdsWithDrafts: string[]
     tickets: ConversationTicket[]
     ticketsLoading: boolean
     totalUnreadCount: number
@@ -161,11 +189,20 @@ export interface sidepanelTicketsLogicActions {
     resetSendSupportRequest: (values?: SupportFormFields | undefined) => {
         values?: SupportFormFields
     } // supportLogic
+    clearNewTicketDraft: () => {
+        value: true
+    }
+    discardDraft: () => {
+        value: true
+    }
     grantSupportExemption: () => {
         value: true
     }
     initTickets: () => {
         value: true
+    }
+    loadDrafts: (drafts: StoredDrafts) => {
+        drafts: StoredDrafts
     }
     loadMessages: (ticketId: string) => {
         ticketId: string
@@ -175,6 +212,9 @@ export interface sidepanelTicketsLogicActions {
     }
     markAsRead: (ticketId: string) => {
         ticketId: string
+    }
+    openNewTicket: () => {
+        value: true
     }
     openPendingTicket: () => {
         value: true
@@ -213,8 +253,8 @@ export interface sidepanelTicketsLogicActions {
     setNewTicketContext: (context: string | null) => {
         context: string | null
     }
-    setNewTicketDraft: (content: JSONContent | null) => {
-        content: JSONContent | null
+    setNewTicketDraft: (content: JSONContent) => {
+        content: JSONContent
     }
     setPendingTicketId: (ticketId: string | null) => {
         ticketId: string | null
@@ -227,6 +267,13 @@ export interface sidepanelTicketsLogicActions {
     }
     setStatusFilter: (status: SidePanelTicketFilter) => {
         status: SidePanelTicketFilter
+    }
+    setTicketDraft: (
+        ticketId: string,
+        content: JSONContent | null
+    ) => {
+        content: JSONContent | null
+        ticketId: string
     }
     setTickets: (tickets: ConversationTicket[]) => {
         tickets: ConversationTicket[]
@@ -246,11 +293,22 @@ export interface sidepanelTicketsLogicActions {
     stopPolling: () => {
         value: true
     }
+    updateNewTicketDraft: (content: JSONContent | null) => {
+        content: JSONContent | null
+    }
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface sidepanelTicketsLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
+        draftOwnerId: (user: UserType | null) => string | null
+        hasNewTicketDraft: (newTicketDraft: JSONContent | null) => boolean
+        currentTicketDraft: (
+            ticketDrafts: Record<string, TicketDraft>,
+            currentTicket: ConversationTicket | null
+        ) => JSONContent | null
+        currentTicketHasDraft: (currentTicketDraft: JSONContent | null) => boolean
+        ticketIdsWithDrafts: (ticketDrafts: Record<string, TicketDraft>) => string[]
         totalUnreadCount: (tickets: ConversationTicket[]) => number
         effectiveStatusFilter: (
             statusFilter: SidePanelTicketFilter | null,
@@ -295,6 +353,8 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
             ['isCurrentOrganizationNew'],
             preflightLogic,
             ['isCloudOrDev'],
+            userLogic,
+            ['user'],
         ],
         actions: [
             supportLogic,
@@ -319,7 +379,13 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
         setMessageSending: (sending: boolean) => ({ sending }),
         setView: (view: SidePanelViewState) => ({ view }),
         setCurrentTicket: (ticket: ConversationTicket) => ({ ticket }),
-        setNewTicketDraft: (content: JSONContent | null) => ({ content }),
+        setNewTicketDraft: (content: JSONContent) => ({ content }),
+        openNewTicket: true,
+        updateNewTicketDraft: (content: JSONContent | null) => ({ content }),
+        clearNewTicketDraft: true,
+        setTicketDraft: (ticketId: string, content: JSONContent | null) => ({ ticketId, content }),
+        discardDraft: true,
+        loadDrafts: (drafts: StoredDrafts) => ({ drafts }),
         setNewTicketContext: (context: string | null) => ({ context }),
         startTicketFromSupportForm: true,
         openPendingTicket: true,
@@ -377,28 +443,45 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                 setCurrentTicket: () => null,
             },
         ],
+        // Saved to localStorage by the listeners below, so a draft survives a switch to another side
+        // panel tab, which unmounts the composer, and a page reload. A prefill from a CTA goes after any
+        // text the person already typed.
         newTicketDraft: [
             null as JSONContent | null,
             {
-                setNewTicketDraft: (_, { content }) => content,
-                // Clear once we leave the composer so a later blank "New ticket" doesn't show a stale prefill
-                setView: (state, { view }) => (view === 'new' ? state : null),
+                setNewTicketDraft: (state, { content }) => appendDraft(state, content),
+                updateNewTicketDraft: (_, { content }) => content,
+                clearNewTicketDraft: () => null,
+                loadDrafts: (_, { drafts }) => drafts.newTicket?.content ?? null,
             },
         ],
-        // Cleared with the draft, so a later blank "New ticket" doesn't carry it
+        // Kept as long as the draft it belongs to, so that a later blank "New ticket" does not carry it
         newTicketContext: [
             null as string | null,
             {
                 setNewTicketContext: (_, { context }) => context,
-                setView: (state, { view }) => (view === 'new' ? state : null),
+                clearNewTicketDraft: () => null,
+                loadDrafts: (_, { drafts }) => drafts.newTicket?.context ?? null,
             },
         ],
-        // Bumped only when a draft is injected via setNewTicketDraft (a prefilled CTA), so NewTicket
-        // remounts to pick up the seeded content. Plain typing never calls this, so it doesn't remount.
-        newTicketDraftRevision: [
+        ticketDrafts: [
+            {} as Record<string, TicketDraft>,
+            {
+                setTicketDraft: (state, { ticketId, content }) => {
+                    const { [ticketId]: _, ...rest } = state
+                    return content ? { ...rest, [ticketId]: { content, updatedAt: Date.now() } } : rest
+                },
+                loadDrafts: (_, { drafts }) => drafts.tickets,
+            },
+        ],
+        // The editors read their content only at creation. Bumped when the logic replaces a draft (a CTA
+        // prefill, a discard) so the keyed composer remounts with it. Typing never bumps it, because a
+        // remount on every keystroke would drop focus.
+        composerRevision: [
             0,
             {
                 setNewTicketDraft: (state) => state + 1,
+                discardDraft: (state) => state + 1,
             },
         ],
         messagesLoading: [
@@ -447,6 +530,22 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
         ],
     }),
     selectors({
+        // Without a signed-in user, as in identity mode, drafts stay in memory only
+        draftOwnerId: [(s) => [s.user], (user: UserType | null): string | null => user?.uuid ?? null],
+        // The composers read draft content only when they mount. These narrower selectors change only
+        // when a draft appears or goes away, so typing does not re-render the thread or the list.
+        hasNewTicketDraft: [(s) => [s.newTicketDraft], (draft: JSONContent | null): boolean => !!draft],
+        currentTicketDraft: [
+            (s) => [s.ticketDrafts, s.currentTicket],
+            (ticketDrafts: Record<string, TicketDraft>, currentTicket: ConversationTicket | null): JSONContent | null =>
+                (currentTicket && ticketDrafts[currentTicket.id]?.content) || null,
+        ],
+        currentTicketHasDraft: [(s) => [s.currentTicketDraft], (draft: JSONContent | null): boolean => !!draft],
+        ticketIdsWithDrafts: [
+            (s) => [s.ticketDrafts],
+            (ticketDrafts: Record<string, TicketDraft>): string[] => Object.keys(ticketDrafts).sort(),
+            { resultEqualityCheck: objectsEqual },
+        ],
         totalUnreadCount: [
             (s) => [s.tickets],
             (tickets: ConversationTicket[]) => tickets.reduce((sum, t) => sum + (t.unread_count ?? 0), 0),
@@ -790,6 +889,13 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
 
                 const response = await posthog.conversations.sendMessage(content, {}, forceNewTicket)
                 if (response) {
+                    // Cleared here as well as by the composer, because a new ticket switches the view
+                    // and unmounts its composer before the composer's own success callback runs
+                    if (forceNewTicket) {
+                        actions.clearNewTicketDraft()
+                    } else {
+                        actions.setTicketDraft(response.ticket_id, null)
+                    }
                     // If we just created a new ticket, set it as current and switch to chat view
                     if (values.view === 'new') {
                         actions.setCurrentTicket({
@@ -847,6 +953,9 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
             }
         },
         setCurrentTicket: ({ ticket }: { ticket: ConversationTicket }) => {
+            if (values.ticketDrafts[ticket.id]) {
+                posthog.capture('support draft restored', { is_new_ticket: false })
+            }
             actions.setView('ticket')
             actions.setMessages([]) // Clear messages immediately to avoid showing stale data
             actions.loadMessages(ticket.id)
@@ -859,6 +968,10 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
             // startPolling here — it would just reschedule the same timer a second time.
         },
         setView: ({ view }) => {
+            // A context with no draft is left over from a CTA the person backed out of
+            if (view !== 'new' && !values.newTicketDraft && values.newTicketContext) {
+                actions.setNewTicketContext(null)
+            }
             // Only clear our own format; other option strings belong to the support form
             if (
                 view !== 'ticket' &&
@@ -870,6 +983,33 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
             }
             // Leaving a thread (back to the list or composer) drops polling back to the slower cadence.
             actions.startPolling()
+        },
+        openNewTicket: () => {
+            if (values.newTicketDraft) {
+                posthog.capture('support draft restored', { is_new_ticket: true })
+            } else if (values.newTicketContext) {
+                // Persisted context can outlive its CTA across a reload. A blank ticket must not carry it.
+                actions.setNewTicketContext(null)
+            }
+            actions.setView('new')
+        },
+        setNewTicketDraft: () => saveNewTicket(values),
+        updateNewTicketDraft: () => saveNewTicket(values),
+        setNewTicketContext: () => saveNewTicket(values),
+        clearNewTicketDraft: () => saveNewTicket(values),
+        setTicketDraft: ({ ticketId }) => {
+            if (values.draftOwnerId) {
+                saveTicketDraft(values.draftOwnerId, ticketId, values.ticketDrafts[ticketId] ?? null)
+            }
+        },
+        discardDraft: () => {
+            const isNewTicket = values.view === 'new'
+            if (isNewTicket) {
+                actions.clearNewTicketDraft()
+            } else if (values.currentTicket) {
+                actions.setTicketDraft(values.currentTicket.id, null)
+            }
+            posthog.capture('support draft discarded', { is_new_ticket: isNewTicket })
         },
         openTicketById: ({ ticketId }) => {
             if (values.view === 'ticket' && values.currentTicket?.id === ticketId) {
@@ -1062,6 +1202,9 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
         },
     })),
     subscriptions(({ actions, values }) => ({
+        draftOwnerId: (ownerId: string | null) => {
+            actions.loadDrafts(ownerId ? readDrafts(ownerId, Date.now()) : NO_DRAFTS)
+        },
         selectedTabOptions: (options: string | null) => {
             if (values.selectedTab === SidePanelTab.Support && options?.startsWith(TICKET_OPTIONS_PREFIX)) {
                 actions.openTicketById(options.slice(TICKET_OPTIONS_PREFIX.length))
@@ -1107,6 +1250,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
         }
     }),
     afterMount(({ values, actions }) => {
+        actions.loadDrafts(values.draftOwnerId ? readDrafts(values.draftOwnerId, Date.now()) : NO_DRAFTS)
         actions.initTickets()
         // A cold load of a `#panel=support:...:true` URL can set these before this logic mounts, so
         // the isEmailFormOpen/pendingViewTicket subscriptions above only fire on change and would

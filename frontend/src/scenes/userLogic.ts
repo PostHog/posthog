@@ -18,6 +18,7 @@ import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePane
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AvailableFeature, NotificationSettings, OrganizationBasicType, UserRole, UserTheme, UserType } from '~/types'
 
+import { clearSupportTicketDrafts } from 'products/conversations/frontend/components/SidePanel/supportTicketDrafts'
 import {
     clearSQLEditorDraftFromStorageEvent,
     clearSQLEditorDrafts,
@@ -676,6 +677,7 @@ export const userLogic = kea<userLogicType>([
             // Drop the address a signup or login attempt stored for the verify page
             clearPendingVerificationEmail()
             clearSQLEditorDrafts()
+            clearSupportTicketDrafts()
 
             // OAuth mode: there's no local Django session to end — just drop the stored cloud
             // token and return to the local login. (A cross-origin /logout POST would do nothing.)
