@@ -10,6 +10,7 @@ import {
   type RunView,
   runNotice,
   type SessionLogs,
+  withListedRun,
 } from "./runs";
 
 const entry = (id: string): StoredLogEntry => ({ type: "pi_event", id });
@@ -222,5 +223,30 @@ describe("runNotice", () => {
     expect(
       runNotice({ ...emptyRunView, loaded: true, ...run }, [...lines]),
     ).toEqual(expected);
+  });
+});
+
+describe("withListedRun", () => {
+  it("lets the work list's finished status and error win over a stream that went quiet", () => {
+    const view = { ...emptyRunView, loaded: true, status: "queued" as const };
+    const merged = withListedRun(view, {
+      status: "failed",
+      error_message: "Sandbox failed to start",
+    });
+    expect(merged).toMatchObject({
+      status: "failed",
+      runError: "Sandbox failed to start",
+    });
+  });
+
+  it("keeps the stream's status while the listed run is still going", () => {
+    const view = {
+      ...emptyRunView,
+      loaded: true,
+      status: "in_progress" as const,
+    };
+    expect(withListedRun(view, { status: "queued" }).status).toBe(
+      "in_progress",
+    );
   });
 });

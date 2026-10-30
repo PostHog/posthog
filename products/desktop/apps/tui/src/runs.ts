@@ -75,6 +75,24 @@ export function applyUpdate(
   }
 }
 
+const FINISHED: TaskRunStatus[] = ["completed", "failed", "cancelled"];
+
+// The work list polls run state, so it can learn a run has finished before a quiet stream does.
+export function withListedRun(
+  view: RunView,
+  listed: { status?: TaskRunStatus; error_message?: string | null } | undefined,
+): RunView {
+  if (!listed?.status) return view;
+  if (!view.status || FINISHED.includes(listed.status)) {
+    return {
+      ...view,
+      status: listed.status,
+      runError: view.runError ?? listed.error_message ?? null,
+    };
+  }
+  return view;
+}
+
 // A status line for the pane while a run has nothing of its own to show.
 export function runNotice(
   view: RunView,

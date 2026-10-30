@@ -9,6 +9,7 @@ import {
   type RunSubscription,
   type RunView,
   runNotice,
+  withListedRun,
 } from "../runs";
 import { transcriptFrom } from "../transcript";
 import { Spinner } from "./Spinner";
@@ -91,10 +92,7 @@ export function Pane({
 
   const composerLines = width > 0 ? composer.render(width, focused) : [];
   const notice = task?.latest_run
-    ? runNotice(
-        { ...view, status: view.status ?? task.latest_run.status },
-        lines,
-      )
+    ? runNotice(withListedRun(view, task.latest_run), lines)
     : null;
   const chatHeight =
     height - composerLines.length - (view.error ? 1 : 0) - (notice ? 1 : 0);
