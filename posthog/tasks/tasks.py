@@ -141,6 +141,15 @@ def fail_stuck_video_exports() -> None:
 
 @shared_task(ignore_result=True, soft_time_limit=300, time_limit=360)
 @skip_team_scope_audit
+def delete_scheduled_event_definitions() -> None:
+    """Delete event definitions whose ingestion was stopped, once nothing can recreate them."""
+    from posthog.tasks.event_definitions import delete_scheduled_event_definitions as run_sweep
+
+    run_sweep()
+
+
+@shared_task(ignore_result=True, soft_time_limit=300, time_limit=360)
+@skip_team_scope_audit
 def delete_expired_delegation_invites() -> None:
     """Delete delegation invites that have passed their expiry.
 

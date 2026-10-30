@@ -369,6 +369,17 @@ def add_event_name_drop(teams: Sequence[Team], event_name: str, created_by: "Use
             config.save()
 
 
+def event_name_is_dropped(teams: Sequence[Team], event_name: str) -> bool:
+    """Check if the live event filter of each team drops this event name."""
+    configs = {config.team_id: config for config in EventFilterConfig.objects.filter(team__in=teams)}
+    return all(
+        (config := configs.get(team.id)) is not None
+        and config.mode == EventFilterMode.LIVE
+        and tree_drops_event_name(config.filter_tree, event_name)
+        for team in teams
+    )
+
+
 def evaluate_filter_tree(node: dict, event: dict) -> bool:
     """
     Evaluate a filter tree against an event dict. Returns True if the event should be dropped.

@@ -379,7 +379,9 @@ export const definitionLogic = kea<definitionLogicType>([
                 },
                 stopIngestingEvent: async () => {
                     await eventDefinitionsStopIngestingCreate(String(values.currentProjectId), values.definition.id)
-                    lemonToast.success('Event hidden. New events with this name are now dropped.')
+                    lemonToast.success(
+                        'Event hidden. New events with this name are now dropped, and the definition is deleted in about 2 hours.'
+                    )
                     router.actions.push(urls.eventDefinitions())
                     eventDefinitionsTableLogic.findMounted()?.actions.loadEventDefinitions()
                     return values.definition

@@ -83,6 +83,7 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
             "verified_at",
             "verified_by",
             "hidden",
+            "scheduled_deletion_at",
             "enforcement_mode",
             "primary_property",
             # Action fields
@@ -105,6 +106,7 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
             "last_updated_at",
             "verified_at",
             "verified_by",
+            "scheduled_deletion_at",
             # Action fields
             "is_action",
             "action_id",
@@ -195,6 +197,10 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
             validated_data["verified"] = False
             validated_data["verified_by"] = None
             validated_data["verified_at"] = None
+
+        # Unhiding (directly or by verifying) cancels a scheduled delete, even if the event is hidden again later
+        if validated_data.get("hidden") is False:
+            validated_data["scheduled_deletion_at"] = None
 
         # Remove post_to_slack field - it exists on Action model but not EventDefinition
         validated_data.pop("post_to_slack", None)

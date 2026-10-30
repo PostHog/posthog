@@ -48,6 +48,7 @@ from posthog.tasks.tasks import (
     clickhouse_row_count,
     delete_expired_delegation_invites,
     delete_expired_exported_assets,
+    delete_scheduled_event_definitions,
     fail_stuck_video_exports,
     find_flags_with_enriched_analytics,
     ingestion_lag,
@@ -1015,6 +1016,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
             crontab(minute="33"),
             fail_stuck_video_exports.s(),
             name="fail stuck video exports",
+        )
+
+        add_periodic_task_with_expiry(
+            sender,
+            crontab(minute="*/15"),
+            delete_scheduled_event_definitions.s(),
+            name="delete scheduled event definitions",
         )
 
         # Daily cleanup of expired onboarding delegation invites. `pre_delete` re-enables

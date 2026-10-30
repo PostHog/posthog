@@ -968,6 +968,7 @@ class EventDefinitionViewSet(
                     enterprise.verified_by = user
                     enterprise.verified_at = now
                     enterprise.hidden = False  # an event cannot be both hidden and verified
+                    enterprise.scheduled_deletion_at = None  # a scheduled delete only applies to hidden events
                 else:
                     enterprise.verified_by = None
                     enterprise.verified_at = None
@@ -1002,7 +1003,7 @@ class EventDefinitionViewSet(
         required_scopes=["event_definition:write", "event_filter:write"],
     )
     def stop_ingesting(self, request, *args, **kwargs) -> response.Response:
-        """Drop new events with this name at ingestion, and hide the event definition.
+        """Drop new events with this name at ingestion, then hide the definition and schedule its delete.
 
         Adds an exact event name condition to the live event filter of each environment in the
         project, because the definition is shared by all of them. This never makes a team's own
@@ -1029,6 +1030,8 @@ class EventDefinitionViewSet(
         except DjangoValidationError as error:
             raise serializers.ValidationError(" ".join(error.messages))
 
+        from posthog.tasks.event_definitions import SCHEDULED_DELETION_DELAY
+
         before = {"hidden": bool(instance.hidden), "verified": bool(instance.verified)}
         # An event can't be both hidden and verified.
         instance.hidden = True
@@ -1036,6 +1039,9 @@ class EventDefinitionViewSet(
         instance.verified_by = None
         instance.verified_at = None
         instance.updated_by = user
+        # A periodic task deletes the definition after this, if nothing recreates it meanwhile.
+        instance.ingestion_stopped_at = timezone.now()
+        instance.scheduled_deletion_at = instance.ingestion_stopped_at + SCHEDULED_DELETION_DELAY
         instance.save()
 
         log_activity(
