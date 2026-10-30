@@ -184,12 +184,8 @@ export class SessionTracker {
     }
 
     /**
-     * Which of the given sessions did not bill yet. The local cache answers its hits without Redis,
-     * and one MGET checks the other sessions. A session without a key counts as unbilled, because a
-     * mark that failed to persist must not stop the bill.
-     *
-     * Fails closed: on a Redis error this logs and returns no sessions, so this flush bills nothing.
-     * The sessions stay unbilled, and the next flush that saves them bills them.
+     * A session without a key counts as unbilled, because a mark that failed to persist must not stop the bill.
+     * Fails closed: on a Redis error it returns no sessions, and the next flush that saves them bills them.
      */
     public async findUnbilled(sessions: SessionSet): Promise<SessionSet> {
         const unbilled = new SessionSet()
@@ -231,11 +227,8 @@ export class SessionTracker {
     }
 
     /**
-     * Mark the given sessions as billed, in a single Redis pipeline. Call this only after the
-     * sessions' usage records reached the usage service.
-     *
-     * Fails open, like {@link markSeen}: the local cache still records the bill for this consumer. A
-     * lost mark can only bill the session again on another consumer.
+     * Call only after the sessions' usage records reached the usage service. Fails open, like {@link markSeen}:
+     * a lost mark can only bill the session again on another consumer.
      */
     public async markBilled(sessions: BilledSession[]): Promise<void> {
         if (sessions.length === 0) {

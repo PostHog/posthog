@@ -90,7 +90,7 @@ export interface SessionRecordingIngesterCollaborators {
     redisKeyNamespace?: string
     /** The ML mirror reports how far back its events are complete; the main lane leaves this unset. */
     captureWatermark?: CaptureWatermark
-    /** The ML mirror sets this to false, because the main lane already bills the same recordings. The main lane leaves it unset. */
+    /** False on the ML mirror, because the main lane bills the same recordings. */
     reportUsage?: boolean
 }
 
@@ -371,9 +371,8 @@ export class SessionRecordingIngester {
         })
         await this.batchLock(async () => {
             logger.info('🔁', 'blob_ingester_consumer_v2 - flushing batch', { batchSize: this.currentBatch.size })
-            // Usage goes out before the offsets commit. A crash after the commit would otherwise lose
-            // the bill of a session that sends no later batch. A replayed batch sends the same record
-            // again, and the usage table removes the duplicate.
+            // Usage goes out before the offsets commit, so a crash cannot lose the bill of a session with no later
+            // batch. A replayed batch resends the same record, and the usage table removes the duplicate.
             await instrumentFn(`recordingingesterv2.handleEachBatch.flush`, async () =>
                 this.currentBatch.flush((sessions) =>
                     billPersistedSessions(this.usageBatch, this.sessionTracker, sessions).catch((error) => {

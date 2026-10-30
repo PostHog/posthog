@@ -51,7 +51,6 @@ describe('UsageIngestionClient', () => {
     ])('counts what the service accepted for $name', async ({ teams, accepted, sent, rejected }) => {
         acceptedRecordIds = accepted.map((teamId) => `record-${teamId}`)
 
-        // A rejected record reached the service, and a retry would fail the same way.
         expect(await client.ingest(teams.map(record))).toEqual(teams.map(record))
 
         expect(await counted('usage_ingestion_records_sent_total')).toEqual(

@@ -39,10 +39,8 @@ export function recordPersistedSessionUsage(usageBatch: UsageRecordBatch, sessio
 }
 
 /**
- * Bills each saved session once. A session sends data in many batches, and every flush that saves it
- * reaches here, so the session tracker records which sessions already billed. A session bills on the
- * first flush that saves it and finds it unbilled. The bill counts only once the record reaches the
- * usage service, so a failed send bills on the session's next saved batch.
+ * Bills each saved session once. A session counts as billed only after its record reaches the usage service,
+ * so a failed send bills on the session's next saved flush.
  */
 export async function billPersistedSessions(
     usageBatch: UsageRecordBatch,

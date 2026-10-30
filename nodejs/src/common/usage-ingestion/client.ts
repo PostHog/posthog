@@ -98,11 +98,7 @@ export class UsageIngestionClient {
         this.maxBatchSize = config.maxBatchSize ?? 500
     }
 
-    /**
-     * Returns the records that reached the service, including the ones it rejected. A rejected
-     * record fails the same way on every retry, so only a record in a failed chunk is worth
-     * sending again.
-     */
+    /** Returns the records that reached the service, rejected ones included: a retry fails them the same way. */
     async ingest(records: UsageRecordInput[]): Promise<UsageRecordInput[]> {
         if (records.length === 0) {
             return []

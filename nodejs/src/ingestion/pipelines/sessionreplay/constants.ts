@@ -22,10 +22,8 @@ export const MAX_SESSION_LENGTH_SECONDS = 24 * 60 * 60
 // sessions that span across the boundary, delayed messages, etc.)
 export const SESSION_TRACKER_REDIS_TTL_SECONDS = 2 * MAX_SESSION_LENGTH_SECONDS
 
-// Redis TTL for the tracking key of a billed mobile session. Mobile SDKs queue recordings on the
-// device and upload them when the app comes back, often days later. The key must outlive that
-// upload, or the session bills again. It stays below the 30-day lifetime of the session's
-// encryption key and tombstone, which a seen session relies on.
+// Mobile SDKs upload queued recordings days later, so a billed mobile session's key must outlive that upload.
+// It stays below the 30-day lifetime of the encryption key and tombstone that a seen session relies on.
 export const SESSION_TRACKER_MOBILE_BILLED_TTL_SECONDS = 7 * 24 * 60 * 60
 
 // Redis TTL for session blocklist keys

@@ -88,8 +88,6 @@ export class UsageRecordBatch {
      * awaits belongs to the next flush, so a caller that keeps adding stays bounded: one
      * pass, one send. A caller that is finished adding wants {@link drain} instead, because
      * nothing would flush that record afterwards.
-     *
-     * Returns the records that reached the service, as {@link UsageIngestionClient.ingest} does.
      */
     async flush(): Promise<UsageRecordInput[]> {
         const pending = this.pendingAcknowledgements

@@ -250,9 +250,8 @@ export class SessionBatchRecorder {
     /**
      * Flushes the session recordings to storage and commits Kafka offsets
      *
-     * @param beforeCommit - Runs with the stored sessions after the flush stores the batch and before
-     *   its offsets commit. A crash between the two replays the batch, so this work must be safe to
-     *   repeat. A throw fails the flush, so the callback handles its own errors.
+     * @param beforeCommit - Runs after the flush stores the batch and before its offsets commit. It must be safe
+     *   to repeat, because a crash between the two replays the batch, and it must catch its own errors.
      * @throws If the flush operation fails
      */
     public async flush(
