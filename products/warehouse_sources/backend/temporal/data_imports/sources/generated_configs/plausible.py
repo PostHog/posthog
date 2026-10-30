@@ -9,3 +9,4 @@ class PlausibleSourceConfig(config.Config):
     api_key: str
     site_id: str
     host: str | None = None
+    custom_property_keys: str | None = None
