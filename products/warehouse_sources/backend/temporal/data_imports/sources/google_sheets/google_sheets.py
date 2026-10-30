@@ -2,8 +2,9 @@ import re
 import time
 import random
 from collections import Counter
-from collections.abc import Callable, Collection
+from collections.abc import Callable, Collection, Iterator
 from typing import Any, Optional, TypeVar, cast
+from urllib.parse import quote
 
 import gspread
 import requests
@@ -382,7 +383,7 @@ class DiscoveredWorksheetSchema:
 def discover_worksheet_schemas(
     config: GoogleSheetsSourceConfig, names: Collection[str] | None = None
 ) -> list[DiscoveredWorksheetSchema]:
-    """List the worksheets once and read every header row in one batched request.
+    """List the worksheets once and read the header rows in as few batched requests as the URL allows.
 
     Discovery runs while the user waits in the source wizard, and every Sheets request spends a quota
     that all PostHog customers share. One read per worksheet lets a spreadsheet with many tabs outlast
@@ -403,12 +404,42 @@ def _is_unparseable_range_error(e: gspread.exceptions.APIError) -> bool:
     return e.code == 400 and "Unable to parse range" in str(e)
 
 
+# `values:batchGet` is a GET, so every range goes into the URL, and Google rejects a URL much past
+# 16 KB. A spreadsheet with hundreds of long tab names needs several batches.
+_MAX_BATCH_RANGES_URL_LENGTH = 8000
+
+
+def _header_range(worksheet: gspread.Worksheet) -> str:
+    return absolute_range_name(worksheet.title, "1:2")
+
+
+def _header_read_batches(worksheets: list[gspread.Worksheet]) -> Iterator[list[gspread.Worksheet]]:
+    batch: list[gspread.Worksheet] = []
+    batch_length = 0
+    for worksheet in worksheets:
+        length = len("&ranges=") + len(quote(_header_range(worksheet), safe=""))
+        if batch and batch_length + length > _MAX_BATCH_RANGES_URL_LENGTH:
+            yield batch
+            batch, batch_length = [], 0
+        batch.append(worksheet)
+        batch_length += length
+    if batch:
+        yield batch
+
+
 def _read_header_rows(
     spreadsheet: gspread.Spreadsheet, worksheets: list[gspread.Worksheet], budget: _RetryBudget
 ) -> list[list[list[Any]]]:
-    if not worksheets:
-        return []
-    ranges = [absolute_range_name(worksheet.title, "1:2") for worksheet in worksheets]
+    rows: list[list[list[Any]]] = []
+    for batch in _header_read_batches(worksheets):
+        rows.extend(_read_header_rows_batch(spreadsheet, batch, budget))
+    return rows
+
+
+def _read_header_rows_batch(
+    spreadsheet: gspread.Spreadsheet, worksheets: list[gspread.Worksheet], budget: _RetryBudget
+) -> list[list[list[Any]]]:
+    ranges = [_header_range(worksheet) for worksheet in worksheets]
     try:
         response = _retry_on_transient_api_error(lambda: spreadsheet.values_batch_get(ranges), budget)
     except gspread.exceptions.APIError as e:

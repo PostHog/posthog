@@ -1,5 +1,6 @@
 from collections.abc import Iterable
 from typing import Any, cast
+from urllib.parse import urlencode
 
 import pytest
 from unittest import mock
@@ -871,6 +872,25 @@ def test_google_sheets_source_resolves_the_stored_worksheet_id_before_the_name(
         list(cast(Iterable[Any], response.items()))
 
     assert mock_get_worksheet.call_args.args[1] == expected_worksheet_id
+
+
+def test_discovery_splits_header_reads_to_keep_each_request_url_bounded():
+    handles = [_worksheet_handle(f"{index:03d} " + "quarterly revenue by region " * 3, index) for index in range(300)]
+    client = _sheets_client_listing(*handles)
+    batch_get = client.open_by_url.return_value.values_batch_get
+    batch_get.side_effect = lambda ranges: {"valueRanges": [{"values": [["text"]]} for _ in ranges]}
+
+    with mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.google_sheets.google_sheets_client",
+        return_value=client,
+    ):
+        config = GoogleSheetsSourceConfig(spreadsheet_url="https://docs.google.com/spreadsheets/d/fake")
+        schemas = discover_worksheet_schemas(config)
+
+    batches = [call.args[0] for call in batch_get.call_args_list]
+    assert len(batches) > 1
+    assert all(len(urlencode([("ranges", r) for r in batch])) <= 8000 for batch in batches)
+    assert [schema.worksheet.worksheet_id for schema in schemas] == list(range(300))
 
 
 def test_discovered_schemas_list_worksheets_once_and_carry_title_and_id():
