@@ -23,6 +23,7 @@ import { useNotice } from "../hooks/useNotice";
 import { usePaneViews } from "../hooks/usePaneViews";
 import { useSheets } from "../hooks/useSheets";
 import { useShell } from "../hooks/useShell";
+import { useSidebar } from "../hooks/useSidebar";
 import { useWorkList } from "../hooks/useWorkList";
 import {
   activeWorkspace,
@@ -59,13 +60,6 @@ import { Gesture } from "../selection";
 import { moveCursor, type SheetKey, sheetKey } from "../sheet";
 import { parseShell } from "../shell";
 import { DoublePress, shortcutFor } from "../shortcuts";
-import {
-  activateRow,
-  cursorIndex,
-  moveSelection,
-  selectionKey,
-  sidebarRows,
-} from "../sidebar";
 import { statusChips } from "../status";
 import type { WorkList } from "../work";
 import { Pane } from "./Pane";
@@ -153,7 +147,6 @@ export function App({
     : undefined;
   const { placeFor, setPlace } = useChatPlace();
   const { exit } = useApp();
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [pending, setPending] = useState<Map<string, string>>(new Map());
   // Each pane reports the agent's open action offer; the picker's cursor and dismissals live here.
   const offers = useRef(new Map<string, ActionsLine | null>());
@@ -161,10 +154,6 @@ export function App({
     new Map(),
   );
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
-  // The cursor follows a row's identity, since previewing a chat can move rows.
-  const [selected, setSelected] = useState<string | null>(null);
-  // Arrows keep walking the sidebar after it hands focus to a chat, until a pane is clicked.
-  const [navigating, setNavigating] = useState(false);
   const closeGuard = useRef(new DoublePress(CLOSE_CONFIRM_MS));
   const escapes = useRef(new DoublePress(CLOSE_CONFIRM_MS));
   // Panes whose run is mid-turn, so Esc knows what to stop.
@@ -400,43 +389,27 @@ export function App({
     );
   };
 
-  const rows = useMemo(
-    () =>
-      sidebarRows({
-        layout,
-        work: page,
-        collapsed,
-        working: new Set(),
-        known: new Map([...known, ...fresh]),
-        signedIn: session !== null,
-        local: { active: localActive, running: new Set(localSessions.keys()) },
-      }),
-    [
-      layout,
-      page,
-      collapsed,
-      known,
-      fresh,
-      session,
-      localActive,
-      localSessions,
-    ],
-  );
-  const selectedIndex = cursorIndex(rows, selected);
+  const {
+    rows,
+    selectedIndex,
+    navigating,
+    setNavigating,
+    activate,
+    navigate,
+    setCollapsed,
+  } = useSidebar({
+    layout,
+    setLayout,
+    page,
+    known,
+    fresh,
+    signedIn: session !== null,
+    localActive,
+    localSessions,
+    loadMore,
+  });
   const workspace = activeWorkspace(layout);
   const sidebarFocused = layout.focus === "sidebar";
-
-  const activate = (index: number): void => {
-    const row = rows[index];
-    if (!row) return;
-    setSelected(selectionKey(row));
-    const next = activateRow(layout, row);
-    if (next === "viewMore") {
-      loadMore();
-    } else {
-      setLayout(next);
-    }
-  };
 
   const close = (): void => {
     if (!closeGuard.current.press(Date.now())) {
@@ -495,12 +468,7 @@ export function App({
     } else if (key.leftArrow || key.rightArrow) {
       const row = rows[selectedIndex];
       if (row?.kind !== "workspace") return;
-      setCollapsed((current) => {
-        const next = new Set(current);
-        if (key.leftArrow) next.add(row.workspaceId);
-        else next.delete(row.workspaceId);
-        return next;
-      });
+      setCollapsed(row.workspaceId, key.leftArrow);
     } else if (key.return) {
       setNavigating(rows[selectedIndex]?.kind === "task");
       activate(selectedIndex);
@@ -569,21 +537,6 @@ export function App({
     if (hit) scrollPane(hit[0], wheel.delta * 3);
   };
   // Typing in a focused pane goes to its composer; the app's own keys stay with the app.
-  // Moves the sidebar cursor and hands focus to that chat, so typing goes straight to it.
-  const navigate = (step: 1 | -1): void => {
-    const next = moveSelection(rows, selectedIndex, step);
-    const row = rows[next];
-    setSelected(selectionKey(row));
-    const opened = row && activateRow(layout, row);
-    if (!opened || opened === "viewMore") {
-      setNavigating(false);
-      setLayout(focusSidebar);
-      return;
-    }
-    setNavigating(true);
-    setLayout(opened);
-  };
-
   const onKey = (sequence: string): void => {
     if (isAppKey(sequence)) return;
     const paneId = workspace.focusedPaneId;
