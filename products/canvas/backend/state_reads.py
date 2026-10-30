@@ -56,16 +56,18 @@ class CanvasStateReader:
         between pages can make it skip an entry that existed all along. A
         cursor takes precedence over `offset`.
         """
-        if cursor is not None:
-            after = StateCursor.decode(cursor)
-            queryset = queryset.filter(Q(scope__gt=after.scope) | Q(scope=after.scope, key__gt=after.key))
-            offset = 0
         if scope:
             queryset = queryset.filter(scope=scope)
         if key is not None:
             queryset = queryset.filter(key=key)
         if key_prefix:
             queryset = queryset.filter(key__startswith=key_prefix)
+        # The count is of the whole selection, so it stays the same on every page of one read.
+        count = queryset.count()
+        if cursor is not None:
+            after = StateCursor.decode(cursor)
+            queryset = queryset.filter(Q(scope__gt=after.scope) | Q(scope=after.scope, key__gt=after.key))
+            offset = 0
         # A scope holds up to 256 keys of 64 KB, so a whole-scope read can exceed what the caller can hold.
         fields = ["scope", "key", "updated_at"]
         if not keys_only:
@@ -76,6 +78,7 @@ class CanvasStateReader:
         page = rows[:limit] if limit is not None else rows
         return {
             "entries": page,
+            "count": count,
             "next_offset": offset + limit if has_more and limit is not None and cursor is None else None,
             "next_cursor": StateCursor(scope=page[-1]["scope"], key=page[-1]["key"]).encode() if has_more else None,
             "complete": not has_more,

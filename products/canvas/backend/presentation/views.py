@@ -1,7 +1,7 @@
 import json
 import hashlib
 from collections import Counter
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 from typing import Any, cast
 from uuid import UUID
 
@@ -15,11 +15,12 @@ from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_sche
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
-from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.throttling import BaseThrottle, SimpleRateThrottle
+from rest_framework.utils.urls import replace_query_param
 
+from posthog.api.pagination import FacadeLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import OAuthAccessTokenAuthentication
 from posthog.event_usage import report_user_action
@@ -344,6 +345,22 @@ class CanvasAccessMixin(TeamAndOrgViewSetMixin):
 CANVAS_LIST_ORDERINGS = ["-created_at", "-updated_at"]
 
 
+def _state_page_links(request: Request, query: dict[str, Any], result: dict[str, Any]) -> dict[str, str | None]:
+    """The `next` and `previous` URLs of one canvas state page."""
+    url = request.build_absolute_uri()
+    next_link = None
+    if query.get("cursor") is not None and result["next_cursor"] is not None:
+        next_link = replace_query_param(url, "cursor", result["next_cursor"])
+    elif result["next_offset"] is not None:
+        next_link = replace_query_param(url, "offset", result["next_offset"])
+    limit = query.get("limit")
+    offset = query["offset"]
+    previous_link = None
+    if query.get("cursor") is None and limit is not None and offset > 0:
+        previous_link = replace_query_param(url, "offset", max(0, offset - limit))
+    return {"next": next_link, "previous": previous_link}
+
+
 class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
     """Canvases: agent-built sandboxed browser apps, filed into channels.
 
@@ -355,6 +372,7 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
     # The facade reads canvases; the viewset holds no queryset.
     queryset = None
     serializer_class = CanvasSerializer
+    pagination_class = FacadeLimitOffsetPagination
     http_method_names = ["get", "post", "patch", "delete", "head", "options"]
     scope_object_read_actions = [
         "list",
@@ -469,21 +487,6 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
         self._check_object_access(canvas)
         return canvas
 
-    def _paginated(self, request: Request, fetch: Callable[[int, int], Any], count: int) -> Response:
-        """The standard limit/offset envelope around one facade page."""
-        paginator = cast(LimitOffsetPagination, self.paginator)
-        limit = paginator.get_limit(request)
-        # The default page size always applies, so there is always a limit.
-        if limit is None:
-            limit = count
-        offset = paginator.get_offset(request)
-        paginator.request = request
-        paginator.limit = limit
-        paginator.offset = offset
-        paginator.count = count
-        page = [] if count == 0 or offset > count else fetch(offset, limit)
-        return paginator.get_paginated_response(page)
-
     @extend_schema(
         parameters=[
             OpenApiParameter(
@@ -531,15 +534,11 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
         }
         requested_ordering = request.query_params.get("ordering")
         ordering = requested_ordering if requested_ordering in CANVAS_LIST_ORDERINGS else None
-        return self._paginated(
+        return cast(FacadeLimitOffsetPagination, self.paginator).get_paginated_facade_response(
             request,
-            lambda offset, limit: (
-                CanvasSerializer(
-                    canvas_api.list_canvases(viewer, offset=offset, limit=limit, ordering=ordering, **filters),
-                    many=True,
-                ).data
-            ),
-            canvas_api.count_canvases(viewer, **filters),
+            self,
+            lambda page: canvas_api.list_canvases(viewer, page=page, ordering=ordering, **filters),
+            CanvasSerializer,
         )
 
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -2073,7 +2072,8 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
             )
         except CanvasRequestRejected as rejection:
             return Response(rejection.body, status=rejection.status_code)
-        return Response(CanvasStateResponseSerializer(result).data)
+        links = _state_page_links(request, query.validated_data, result)
+        return Response(CanvasStateResponseSerializer({**result, **links}).data)
 
     @extend_schema(
         operation_id="canvases_state_value_retrieve",
