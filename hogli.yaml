@@ -335,6 +335,11 @@ health_checks:
     check:video-deps:
         bin_script: check_video_deps
         description: Install and verify Playwright browsers and FFmpeg dependencies
+    refresh:required:status:checks:
+        bin_script: refresh-required-status-checks
+        description: 'Rewrite .github/required-status-checks.txt from the master branch ruleset
+            so a change to the required checks is a diff, and `hogli lint:workflows` can check
+            the names against real job names offline'
         hidden: true
     services:ready:
         bin_script: wait-for-docker
@@ -1313,4 +1318,8 @@ environment:
     lint:semgrep-ratchet:
         bin_script: semgrep_ratchet.py
         description: 'Compare semgrep findings per file with a checked-in baseline'
+        hidden: true
+    refresh:required:status:checks:
+        bin_script: refresh-required-status-checks
+        description: 'TODO: add description for refresh-required-status-checks'
         hidden: true
