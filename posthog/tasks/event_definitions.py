@@ -79,23 +79,27 @@ def _has_recent_events(team_ids: list[int], event_name: str, now: datetime) -> b
     # `_timestamp` is when ingestion processed the event, and it has a minmax index. There is no
     # bound on `timestamp`, so a backfill of old events also blocks the delete.
     tag_queries(product=Product.PRODUCT_ANALYTICS, name=TRIGGER_JOB_TYPE)
-    rows = sync_execute(
-        """
-        SELECT 1
-        FROM events
-        WHERE team_id IN %(team_ids)s
-          AND event = %(event)s
-          AND _timestamp > %(since)s
-        LIMIT 1
-        """,
-        {
-            "team_ids": team_ids,
-            "event": event_name,
-            "since": now - RECENT_EVENTS_WINDOW,
-        },
-        workload=Workload.OFFLINE,
+    # One query per environment, because `team_id` routes each query to that team's ClickHouse cluster.
+    return any(
+        sync_execute(
+            """
+            SELECT 1
+            FROM events
+            WHERE team_id = %(team_id)s
+              AND event = %(event)s
+              AND _timestamp > %(since)s
+            LIMIT 1
+            """,
+            {
+                "team_id": team_id,
+                "event": event_name,
+                "since": now - RECENT_EVENTS_WINDOW,
+            },
+            workload=Workload.OFFLINE,
+            team_id=team_id,
+        )
+        for team_id in team_ids
     )
-    return len(rows) > 0
 
 
 def _clear_schedule(definition: EnterpriseEventDefinition) -> None:

@@ -142,6 +142,20 @@ class TestDeleteScheduledEventDefinitions(ClickhouseTestMixin, BaseTest):
 
         self._assert_retried_later(definition)
 
+    def test_queries_each_environment_with_its_own_team_id(self) -> None:
+        # The team_id routes a query to the team's ClickHouse cluster, so each environment needs its own query
+        other_team = Team.objects.create(organization=self.organization, project=self.project, name="Staging")
+        self._scheduled_definition()
+        self._drop_in(self.team)
+        self._drop_in(other_team)
+
+        with patch("posthog.tasks.event_definitions.sync_execute", return_value=[]) as execute:
+            delete_scheduled_event_definitions()
+
+        assert sorted(call.kwargs["team_id"] for call in execute.call_args_list) == sorted(
+            [self.team.id, other_team.id]
+        )
+
     def test_cancels_when_someone_unhid_the_event(self) -> None:
         definition = self._scheduled_definition()
         definition.hidden = False
