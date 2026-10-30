@@ -402,6 +402,7 @@ class TestServiceHealthQueryRunner(_TraceSpansTestBase):
             aggregate["query"]["dateRange"], {"date_from": "2026-06-02T08:00:00Z", "date_to": "2026-06-02T09:00:00Z"}
         )
         self.assertEqual(aggregate["query"]["compareFilter"], {"compare": True})
+        self.assertTrue(aggregate["query"]["includeHealth"])
         error_spans = calls["query-apm-spans"]["query"]
         self.assertEqual((error_spans["serviceNames"], error_spans["statusCodes"]), (["worker"], [2]))
         self.assertEqual((error_spans["flatSpans"], error_spans["rootSpans"]), (True, False))

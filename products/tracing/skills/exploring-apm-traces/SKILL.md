@@ -104,8 +104,9 @@ To rebuild the tree:
 
 1. `apm-service-health` scores every service in one call: requests, error rate, p50/p95/p99, the change from a baseline window, and a `status` (`silent`, `regressed`, `degraded`, `new`, `recovered`, `improved`, `ok`) with a `reason`. Rows come worst first.
 2. Pick the baseline with `compare`: `previous_period` (default), `previous_day`, `previous_week`, or an explicit `baselineDateRange` next to `query`. Scope with `environment` and `serviceNames`.
-3. Run the calls in `next`. They are prefilled: `apm-spans-aggregate` for the operations behind the regressed and degraded services, `apm-spans-sparkline` for when a silent service stopped, `query-apm-spans` for error spans.
-4. Do not build a service summary from `apm-spans-aggregate` rows or from one `apm-spans-count` call per service. Percentiles of operation rows do not add up to a service percentile.
+3. Run the calls in `next`. They are prefilled: `apm-spans-aggregate` with `includeHealth` for the operations behind the regressed and degraded services, `apm-spans-sparkline` for when a silent service stopped, `query-apm-spans` for error spans.
+4. For HTTP services, call `apm-spans-aggregate` with `groupByEndpoint: true` and `includeHealth: true` to see which routes regressed. It counts only HTTP server spans, so it returns no rows for queue consumers and workflow workers.
+5. Do not build a service summary from `apm-spans-aggregate` rows or from one `apm-spans-count` call per service. Percentiles of operation rows do not add up to a service percentile.
 
 #### Daily service health report
 
