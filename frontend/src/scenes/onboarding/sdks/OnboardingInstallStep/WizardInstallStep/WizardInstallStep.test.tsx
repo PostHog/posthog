@@ -184,6 +184,8 @@ describe('WizardInstallStep with wizardOverrides', () => {
             expect(document.querySelector('[data-attr="mock-continue"]')).not.toHaveAttribute('aria-disabled')
             expect(screen.getByText(/You can continue onboarding/)).toBeInTheDocument()
             expect(screen.queryByText('View run')).not.toBeInTheDocument()
+            expect(screen.getByLabelText('Copy wizard command')).toBeInTheDocument()
+            expect(document.querySelector('[data-attr="sdk-continue"]')).toBeInTheDocument()
 
             await act(async () => {
                 sync.actions.runsLoaded([
@@ -223,6 +225,7 @@ describe('WizardInstallStep with wizardOverrides', () => {
                 await expectLogic(sync).toFinishAllListeners()
             })
             expect(screen.getByText(/Review the changes in your local project/)).toBeInTheDocument()
+            expect(screen.getByLabelText('Copy wizard command')).toBeInTheDocument()
             expect(document.querySelector('[data-attr="mock-continue"]')).not.toHaveAttribute('aria-disabled')
 
             const pullRequestUrl = 'https://github.com/example/project/pull/12'
