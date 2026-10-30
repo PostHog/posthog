@@ -7,9 +7,14 @@ from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import LazyJoinToAdd, LazyTableToAdd
 from posthog.hogql.errors import ResolutionError
-from posthog.hogql.functions.mapping import find_hogql_aggregation
 from posthog.hogql.resolver import ResolverFactory, resolve_types
 from posthog.hogql.resolver_utils import get_long_table_name
+from posthog.hogql.transforms.grouped_clauses import (
+    GroupedClauseTracker,
+    before_grouping,
+    is_grouped,
+    visit_after_grouping,
+)
 from posthog.hogql.transforms.logical_property_lowering import lower_property_access
 from posthog.hogql.transforms.property_types import PropertySwapper
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
@@ -117,7 +122,7 @@ class WrappedTableExport:
     as_json: bool
 
 
-class WrappedTableReferenceCollector(TraversingVisitor):
+class WrappedTableReferenceCollector(GroupedClauseTracker, TraversingVisitor):
     """Collects the outer reads of one table binding before a subquery replaces that table.
 
     Reads are matched by their resolved binding rather than by the alias they were written with. That includes the
@@ -134,44 +139,17 @@ class WrappedTableReferenceCollector(TraversingVisitor):
         self.properties: dict[int, tuple[ast.PropertyType, str, bool]] = {}
         self.reads_lazy_join = False
         self._names: dict[tuple[object, ...], str] = {}
-        self._in_grouped_clause = False
 
     def visit_select_query(self, node: ast.SelectQuery) -> None:
-        # The property resolver lowers a read in a clause that runs after grouping to the property's value and keeps
-        # the calls around it, so the clause split here follows its `visit_select_query`.
-        was_in_grouped_clause = self._in_grouped_clause
-        self._in_grouped_clause = False
-        try:
-            if not node.group_by and node.group_by_mode != "all":
+        # The property resolver keeps the calls around a read that sees the grouped rows, so such a read exports the
+        # value (`_collect_property`) and the clause split has to match the resolver's.
+        with self._grouped_clause(False):
+            if not is_grouped(node):
                 super().visit_select_query(node)
                 return
-            super().visit_select_query(
-                dataclasses.replace(
-                    node,
-                    select=[],
-                    group_by=None,
-                    having=None,
-                    order_by=None,
-                    qualify=None,
-                    window_exprs=None,
-                    limit_by=None,
-                    interpolate=None,
-                )
-            )
-            self._in_grouped_clause = True
-            for expr in (
-                *node.select,
-                *(node.group_by or []),
-                node.having,
-                *(node.order_by or []),
-                node.qualify,
-                *(node.window_exprs or {}).values(),
-                node.limit_by,
-                *(node.interpolate or []),
-            ):
-                self.visit(expr)
-        finally:
-            self._in_grouped_clause = was_in_grouped_clause
+            super().visit_select_query(before_grouping(node))
+        with self._grouped_clause(True):
+            visit_after_grouping(node, self.visit)
 
     def visit_field(self, node: ast.Field) -> None:
         field_type = node.type
@@ -192,16 +170,10 @@ class WrappedTableReferenceCollector(TraversingVisitor):
         self._note_hops(hops)
 
     def visit_call(self, node: ast.Call) -> None:
-        if self._in_grouped_clause and find_hogql_aggregation(node.name):
-            self._in_grouped_clause = False
-            try:
-                super().visit_call(node)
-            finally:
-                self._in_grouped_clause = True
-            return
-        if node.name == "toJSONString" and len(node.args) == 1 and self._collect_serialized_read(node.args[0]):
-            return
-        super().visit_call(node)
+        with self._call_arguments(node):
+            if node.name == "toJSONString" and len(node.args) == 1 and self._collect_serialized_read(node.args[0]):
+                return
+            super().visit_call(node)
 
     def _collect_serialized_read(self, expr: ast.Expr) -> bool:
         """Collects a property of this table under a user-written `toJSONString`, exporting what a direct read serializes.

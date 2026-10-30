@@ -39,7 +39,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import DatabaseField, MapStringDatabaseField, StringJSONDatabaseField
 from posthog.hogql.database.schema.util.null_sentinels import MAT_COL_NULL_SENTINELS, null_if_sentinels
 from posthog.hogql.errors import QueryError
-from posthog.hogql.functions.mapping import HOGQL_COMPARISON_MAPPING, find_hogql_aggregation
+from posthog.hogql.functions.mapping import HOGQL_COMPARISON_MAPPING
 from posthog.hogql.printer.base import resolve_field_type
 from posthog.hogql.printer.clickhouse import AI_BLOOM_FILTER_PROPERTIES, COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING
 from posthog.hogql.restricted_properties import (
@@ -48,6 +48,12 @@ from posthog.hogql.restricted_properties import (
     restricted_feature_flag_names,
     restricted_key_path,
     restricted_property_keys_for_table_type,
+)
+from posthog.hogql.transforms.grouped_clauses import (
+    GroupedClauseTracker,
+    before_grouping,
+    is_grouped,
+    visit_after_grouping,
 )
 from posthog.hogql.type_system import (
     ComparisonCompatibility,
@@ -1173,7 +1179,7 @@ class _OptimizableProperty:
         return ast.ArrayAccess(array=self.bare_column(), property=_const(self.key), type=ast.StringType(nullable=False))
 
 
-class ClickHousePropertyResolver(CloningVisitor):
+class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
     """Rewrites lowered `PropertyAccess` reads (and comparisons over them) to read backing columns where they exist.
 
     After this pass, a backed property is an ordinary column expression; an unbacked (or restricted) one stays a
@@ -1192,7 +1198,6 @@ class ClickHousePropertyResolver(CloningVisitor):
         # Depth of `indexHint(...)` calls above the node being visited. A hint is an optimizer directive only, so a
         # comparison inside one must not grow a second, nested hint.
         self._index_hint_depth = 0
-        self._in_grouped_clause = False
 
     def visit_select_query(self, node: ast.SelectQuery) -> ast.SelectQuery:
         scope: set[int] = set()
@@ -1204,40 +1209,16 @@ class ClickHousePropertyResolver(CloningVisitor):
                 table_type = getattr(table_type, "table_type", None)
             join = join.next_join
         self._tables_in_scope.append(scope)
-        was_in_grouped_clause = self._in_grouped_clause
-        self._in_grouped_clause = False
         try:
-            if not node.group_by and node.group_by_mode != "all":
-                return super().visit_select_query(node)
-            result = super().visit_select_query(
-                replace(
-                    node,
-                    select=[],
-                    group_by=None,
-                    having=None,
-                    order_by=None,
-                    qualify=None,
-                    window_exprs=None,
-                    limit_by=None,
-                    interpolate=None,
-                )
-            )
-            self._in_grouped_clause = True
-            result.select = [self.visit(expr) for expr in node.select]
-            result.group_by = [self.visit(expr) for expr in node.group_by] if node.group_by else None
-            result.having = self.visit(node.having)
-            result.order_by = [self.visit(expr) for expr in node.order_by] if node.order_by else None
-            result.qualify = self.visit(node.qualify)
-            result.window_exprs = (
-                {name: self.visit(expr) for name, expr in node.window_exprs.items()} if node.window_exprs else None
-            )
-            result.limit_by = self.visit(node.limit_by)
-            result.interpolate = (
-                [self.visit(expr) for expr in node.interpolate] if node.interpolate is not None else None
-            )
+            with self._grouped_clause(False):
+                if not is_grouped(node):
+                    return super().visit_select_query(node)
+                result = super().visit_select_query(before_grouping(node))
+            with self._grouped_clause(True):
+                for clause, value in visit_after_grouping(node, self.visit).items():
+                    setattr(result, clause, value)
             return result
         finally:
-            self._in_grouped_clause = was_in_grouped_clause
             self._tables_in_scope.pop()
 
     def _property_table_in_scope(self, field_type: ast.FieldType) -> bool:
@@ -1364,15 +1345,10 @@ class ClickHousePropertyResolver(CloningVisitor):
                 return self.visit(exported_json_text)
 
         if self._in_grouped_clause:
-            if find_hogql_aggregation(node.name):
-                self._in_grouped_clause = False
-                try:
-                    return super().visit_call(node)
-                finally:
-                    self._in_grouped_clause = True
             # Shortcuts can introduce raw columns unavailable after grouping. WindowFunction is a separate node,
             # so its inputs keep the grouped context while ordinary aggregates above read original rows.
-            return super().visit_call(node)
+            with self._call_arguments(node):
+                return super().visit_call(node)
 
         if node.name == "indexHint":
             self._index_hint_depth += 1

@@ -1,5 +1,6 @@
 import re
 import json
+from collections import Counter
 from typing import Any
 from uuid import UUID
 
@@ -163,28 +164,22 @@ class TestWrappedEventJoins(SimpleTestCase):
         # Alias names echo the HogQL source, so they are stripped before counting the calls that remain outside.
         assert re.sub(r" AS `[^`]*`", "", outer).count("toJSONString(") == 1, printed
         assert "toJSONString(accurateCastOrNull(joined.properties___amount" in outer, printed
-        assert outer.endswith(", joined.properties___a, joined.properties___a_2 AS a"), printed
+        assert re.search(r", joined\.properties___a(_\d+)? AS a$", outer), printed
         inner = self._wrapper_select_list(printed, "joined", native)
         assert "accurateCastOrNull" not in inner, printed
         if native:
             assert "JSONExtractRaw(ifNull(joined.properties___a, ''))" in outer, printed
             assert "JSONExtractString(ifNull(joined.properties___a, ''), %(hogql_val_" in outer, printed
             assert "JSONExtractRaw(ifNull(joined.properties___amount, ''))" in outer, printed
-            assert self._exports(printed, "joined", native) == {
-                "properties___a",
-                "properties___a_2",
-                "properties___amount",
-                "properties___amount_2",
-            }
+            assert self._export_counts(printed, "joined", native) == {"properties___a": 2, "properties___amount": 2}
             assert "toJSONString(joined.properties.^a)" in inner, printed
             assert "JSONExtractKeysAndValuesRaw" not in inner, printed
         else:
             assert "JSONExtractRaw(joined.properties, %(hogql_val_" in outer, printed
-            assert self._exports(printed, "joined", native) == {
-                "properties",
-                "properties___a",
-                "properties___a_2",
-                "properties___amount",
+            assert self._export_counts(printed, "joined", native) == {
+                "properties": 1,
+                "properties___a": 2,
+                "properties___amount": 1,
             }
             assert "toJSONString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(joined.properties, %(hogql_val_" in inner
 
@@ -289,10 +284,9 @@ class TestWrappedEventJoins(SimpleTestCase):
         printed, context = self._compile(
             f"SELECT joined.properties.a.b, joined.properties.a___b, joined.properties.arr[1] {WRAPPED_JOIN}"
         )
-        assert self._exports(printed, "joined", native=False) == {
-            "properties___a___b",
-            "properties___a___b_2",
-            "properties___arr___1",
+        assert self._export_counts(printed, "joined", native=False) == {
+            "properties___a___b": 2,
+            "properties___arr___1": 1,
         }
         assert 1 in context.values.values()
         assert "1" not in context.values.values()
@@ -396,6 +390,10 @@ class TestWrappedEventJoins(SimpleTestCase):
         names = {name.strip("`") for name in re.findall(r" AS (`[^`]+`|\w+)", select_list)}
         return names - JOIN_KEY_EXPORTS
 
+    def _export_counts(self, printed: str, alias: str, native: bool) -> dict[str, int]:
+        """The exports by name, with the counter a taken name gets removed, so a test pins the columns and not a suffix."""
+        return dict(Counter(re.sub(r"(?<=[^_])_\d+$", "", name) for name in self._exports(printed, alias, native)))
+
 
 class TestLazyJoins(BaseTest):
     snapshot: Any
@@ -440,16 +438,17 @@ class TestLazyJoins(BaseTest):
             (
                 "grouped",
                 "toJSONString(related.properties.label), JSONExtractString(related.properties, 'label'), "
-                "toJSONString(related.properties.amount), any(toJSONString(related.properties.label)), count()",
-                ('"ready"', "ready", "7", '"ready"', 1),
+                "toJSONString(related.properties.amount), any(toJSONString(related.properties.label)), "
+                "any(JSONExtractRaw(related.properties, 'a')), count()",
+                ('"ready"', "ready", "7", '"ready"', '{"b":"nested"}', 1),
                 "GROUP BY toJSONString(related.properties.label), JSONExtractString(related.properties, 'label'), "
                 "toJSONString(related.properties.amount)",
             ),
             (
                 "grouped_by_key",
-                "toJSONString(related.properties.label), count()",
-                ('"ready"', 1),
-                "GROUP BY related.properties.label",
+                "toJSONString(related.properties.label), toJSONString(related.properties.a), count()",
+                ('"ready"', '"{\\"b\\":\\"nested\\"}"', 1),
+                "GROUP BY related.properties.label, related.properties.a",
             ),
         ]
     )
