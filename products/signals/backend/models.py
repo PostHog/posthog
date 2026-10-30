@@ -54,6 +54,10 @@ from products.signals.backend.enums import (
     SignalSourceType,
     signal_source_product_choices,
 )
+from products.signals.backend.filter_catalog import (
+    SignalFilterCatalogVersion as SignalFilterCatalogVersion,
+    SignalFilterSourceDefinition as SignalFilterSourceDefinition,
+)
 from products.signals.backend.report_checks import MAX_CHECK_TITLE_LENGTH
 from products.signals.backend.report_monitoring_aggregation import MonitoringAggregation
 
