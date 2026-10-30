@@ -41,6 +41,7 @@ import structlog
 import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field, extend_schema_view
+from loginas.utils import is_impersonated_session
 from opentelemetry import trace
 from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.fields import empty
@@ -89,6 +90,7 @@ from posthog.helpers.trigram_search import (
 from posthog.hogql_queries.apply_dashboard_filters import normalize_dashboard_filters_properties
 from posthog.hogql_queries.query_runner import team_configs_for_cache_key
 from posthog.hogql_queries.refresh_policy import ComputeSurface
+from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.file_system.constants import DEFAULT_SURFACE, surface_q
 from posthog.models.file_system.file_system import FileSystem, create_or_update_file, delete_file, join_path, split_path
 from posthog.models.group_type_mapping import (
@@ -425,6 +427,51 @@ def _tile_rects_overlap(rect_a: dict[str, int], rect_b: dict[str, int]) -> bool:
         or rect_b["x"] + rect_b["w"] <= rect_a["x"]
         or rect_a["y"] + rect_a["h"] <= rect_b["y"]
         or rect_b["y"] + rect_b["h"] <= rect_a["y"]
+    )
+
+
+def _tile_placements(dashboard: Dashboard) -> dict[str, dict[str, Any]]:
+    """Where each live tile sits: its stored sm layout and its group. Keyed by tile id as a string, like JSON."""
+    placements: dict[str, dict[str, Any]] = {}
+    for tile in DashboardTile.objects.filter(dashboard=dashboard).only("id", "layouts", "group_key"):
+        layouts = json.loads(tile.layouts) if isinstance(tile.layouts, str) else tile.layouts
+        sm = layouts.get("sm") if isinstance(layouts, dict) else None
+        placements[str(tile.id)] = {"layouts": {"sm": sm} if sm else {}, "group_key": tile.group_key}
+    return placements
+
+
+def _log_tile_layout_change(
+    dashboard: Dashboard,
+    user: User,
+    request: Any,
+    before: dict[str, dict[str, Any]],
+    after: dict[str, dict[str, Any]],
+) -> None:
+    """Layout changes save as they happen, so each one is logged with the placements it replaced.
+    The activity log restores a layout by sending `before` back as tile placements."""
+    if all(before.get(tile_id, placement) == placement for tile_id, placement in after.items()):
+        return
+    log_activity(
+        organization_id=dashboard.team.organization_id,
+        team_id=dashboard.team_id,
+        user=user,
+        was_impersonated=is_impersonated_session(request) if request else False,
+        item_id=dashboard.id,
+        scope="Dashboard",
+        activity="updated",
+        detail=Detail(
+            name=dashboard.name,
+            type="dashboard",
+            changes=[
+                Change(
+                    type="Dashboard",
+                    action="changed",
+                    field="tile_layouts",
+                    before={tile_id: before[tile_id] for tile_id in after if tile_id in before},
+                    after=after,
+                )
+            ],
+        ),
     )
 
 
@@ -2255,6 +2302,8 @@ class DashboardSerializer(DashboardMetadataSerializer):
         tile_results: list[tuple[DashboardTile | None, bool]] = []
         tracks_groups = any("group_key" in tile_data for tile_data in tiles)
         group_keys_before = instance.tile_group_keys if tracks_groups else set()
+        moves_tiles = any("layouts" in tile_data or "group_key" in tile_data for tile_data in tiles)
+        placements_before = _tile_placements(instance) if moves_tiles else {}
         with transaction.atomic():
             tile_ids = [tile["id"] for tile in tiles if tile.get("id") is not None]
             list(
@@ -2265,6 +2314,11 @@ class DashboardSerializer(DashboardMetadataSerializer):
             )
             for tile_data in tiles:
                 tile_results.append(self._update_tiles(instance, tile_data, user, request=self.context.get("request")))
+
+        if moves_tiles:
+            _log_tile_layout_change(
+                instance, user, self.context.get("request"), placements_before, _tile_placements(instance)
+            )
 
         # Text and button tiles are always added via PATCH (never during initial dashboard
         # creation), so this update() method is the right place to fire the "tile added"

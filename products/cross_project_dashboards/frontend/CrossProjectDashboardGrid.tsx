@@ -76,7 +76,7 @@ export function CrossProjectDashboardGrid({
     )
 
     const { gridCompactor, handleLayoutChange, interactionInProgress, startInteraction, finishInteraction } =
-        useDashboardLayoutInteraction({ layoutEditMode, updateLayouts })
+        useDashboardLayoutInteraction({ enabled: layoutEditMode, updateLayouts })
 
     // Debounce width changes to the grid. Rapidly crossing the width leaves tiles squashed at one column.
     const [gridWidth, setGridWidth] = useState(width)

@@ -16,8 +16,7 @@ import {
 } from 'kea'
 import type { BreakPointFunction } from 'kea'
 import { loaders } from 'kea-loaders'
-import { actionToUrl, beforeUnload, router, urlToAction } from 'kea-router'
-import { CombinedLocation } from 'kea-router/lib/utils'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import uniqBy from 'lodash.uniqby'
 import posthog from 'posthog-js'
@@ -47,7 +46,7 @@ import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
-import { clearDOMTextSelection, getJSHeapMemory, uuid } from 'lib/utils/dom'
+import { getJSHeapMemory, uuid } from 'lib/utils/dom'
 import { DashboardEventSource, eventUsageLogic, filtersForAnalytics, sanitizeQuery } from 'lib/utils/eventUsageLogic'
 import { objectsEqual } from 'lib/utils/objects'
 import { shouldCancelQuery } from 'lib/utils/requests'
@@ -56,10 +55,8 @@ import { addInsightToDashboardLogic } from 'scenes/dashboard/addInsightToDashboa
 import {
     DashboardFilterChangeType,
     dashboardViewedProperties,
-    reportDashboardEditModeDiscardPrompt,
     reportDashboardFiltersChanged,
     reportDashboardInsightDeleteAfterRemovalClicked,
-    reportDashboardLayoutEditModeEntered,
     reportDashboardModeToggled,
     reportDashboardTileDensityConfigured,
     sanitizeDashboard,
@@ -251,6 +248,7 @@ function reportDashboardTileRefreshed(
 }
 
 const TILE_REFRESH_CONCURRENCY = 4
+const LAYOUT_UNDO_LIMIT = 20
 
 /** `deferred` means a tab switch stopped the load, and the tile waits for its tab to open again. */
 type InsightTileRefreshOutcome = 'refreshed' | 'cached' | 'errored' | 'aborted' | 'deferred'
@@ -502,7 +500,6 @@ export type DashboardSettingsState = 'unsavedChanges' | 'saved'
 
 export interface DashboardEditing {
     filters: boolean
-    layout: boolean
 }
 
 type DashboardEditSaveScope = 'colors' | 'layout'
@@ -560,14 +557,6 @@ const withTilePlacement = (tile: DashboardTile, placement: TilePlacement | undef
     ...tile,
     layouts: placement?.layouts,
     group_key: placement?.group_key ?? null,
-})
-
-const withSavedTilePlacements = (
-    dashboard: DashboardType,
-    savedPlacements: Record<number, TilePlacement>
-): DashboardType => ({
-    ...dashboard,
-    tiles: dashboard.tiles.map((tile) => withTilePlacement(tile, savedPlacements[tile.id])),
 })
 
 /**
@@ -701,6 +690,7 @@ export interface dashboardLogicValues {
     canAutoPreview: boolean
     canEditDashboard: boolean
     canRestrictDashboard: boolean
+    canUndoLayoutChange: boolean
     canSaveProjectDashboardTemplate: boolean
     cancellingPreview: boolean
     changedFilterCount: number
@@ -765,9 +755,8 @@ export interface dashboardLogicValues {
     itemsLoading: boolean
     lastDashboardRefresh: Dayjs | null
     layout: Layout | undefined
-    layoutEditMode: boolean
     layoutForItem: Record<string, TileLayout>
-    layoutZoom: number
+    layoutUndoStack: Record<number, TilePlacement>[]
     layouts: ResponsiveLayouts
     loadLayoutFromServerOnPreview: boolean
     loadTimer: Date | null
@@ -891,9 +880,6 @@ export interface dashboardLogicActions {
     cancelDashboardRefresh: () => {
         value: true
     }
-    cancelLayoutEdit: () => {
-        value: true
-    }
     changeDashboardGridCompaction: (layoutCompaction: DashboardGridCompaction) => {
         layoutCompaction: DashboardGridCompaction
     }
@@ -970,9 +956,6 @@ export interface dashboardLogicActions {
         value: true
     }
     discardDashboardChanges: () => {
-        value: true
-    }
-    discardLayoutChanges: () => {
         value: true
     }
     duplicateTile: (tile: DashboardTile) => {
@@ -1261,8 +1244,12 @@ export interface dashboardLogicActions {
     saveDashboardTileSpacing: (tileSpacing: DashboardTileSpacing) => {
         tileSpacing: DashboardTileSpacing
     }
-    saveEditModeChanges: (scope: DashboardEditSaveScope) => {
+    saveEditModeChanges: (
+        scope: DashboardEditSaveScope,
+        recordUndo?: boolean
+    ) => {
         scope: DashboardEditSaveScope
+        recordUndo: boolean
     }
     saveEditModeChangesFailure: (
         error: string,
@@ -1275,18 +1262,14 @@ export interface dashboardLogicActions {
         dashboard: DashboardType | null,
         payload?: {
             scope: DashboardEditSaveScope
+            recordUndo: boolean
         }
     ) => {
         dashboard: DashboardType | null
         payload?: {
             scope: DashboardEditSaveScope
+            recordUndo: boolean
         }
-    }
-    saveLayout: () => {
-        value: true
-    }
-    saveLayoutChanges: () => {
-        value: true
     }
     scheduleRefreshDashboardWidgets: (tileId: number) => {
         tileId: number
@@ -1384,9 +1367,6 @@ export interface dashboardLogicActions {
     setInterval: (interval: IntervalType | null) => {
         interval: IntervalType | null
     }
-    setLayoutZoom: (layoutZoom: number) => {
-        layoutZoom: number
-    }
     setLoadLayoutFromServerOnPreview: (loadLayoutFromServerOnPreview: boolean) => {
         loadLayoutFromServerOnPreview: boolean
     }
@@ -1476,6 +1456,22 @@ export interface dashboardLogicActions {
     }
     stageLayouts: (layouts: ResponsiveLayouts) => {
         layouts: Partial<Record<string, Layout>>
+    }
+    pushLayoutUndo: (placements: Record<number, TilePlacement>) => {
+        placements: Record<number, TilePlacement>
+    }
+    popLayoutUndo: () => {
+        value: true
+    }
+    undoLayoutChange: () => {
+        value: true
+    }
+    restoreTilePlacements: (
+        placements: Record<number, TilePlacement>,
+        recordUndo?: boolean
+    ) => {
+        placements: Record<number, TilePlacement>
+        recordUndo: boolean
     }
     stopWidgetRefreshes: (tileIds: number[]) => {
         tileIds: number[]
@@ -1619,7 +1615,10 @@ export interface dashboardLogicMeta {
     }
     __keaTypeGenInternalSelectorTypes: {
         filterEditModeActive: (dashboardEditing: DashboardEditing | null) => boolean
-        layoutEditMode: (dashboardEditing: DashboardEditing | null) => boolean
+        canUndoLayoutChange: (
+            layoutUndoStack: Record<number, TilePlacement>[],
+            featureFlags: FeatureFlagsSet
+        ) => boolean
         shouldUseStreaming: (featureFlags: FeatureFlagsSet) => boolean
         canAutoPreview: (insightTiles: DashboardTile[]) => boolean
         savedDashboardSettings: (dashboard: DashboardType | null) => DashboardSettings
@@ -1884,13 +1883,12 @@ export type dashboardLogicType = MakeLogicType<
     dashboardLogicMeta
 >
 
-// Filter edit mode only exists to hold the unsaved-settings controls, so it ends once nothing is
-// unsaved. Layout editing carries its own Save and Cancel, so it keeps the dashboard in edit mode.
+// Filter edit mode only exists to hold the unsaved-settings controls, so it ends once nothing is unsaved.
 function exitFilterEditModeWhenSaved(
     values: dashboardLogicType['values'],
     actions: dashboardLogicType['actions']
 ): void {
-    if (values.dashboardSettingsState === 'saved' && values.dashboardEditing?.filters && !values.layoutEditMode) {
+    if (values.dashboardSettingsState === 'saved' && values.dashboardEditing?.filters) {
         actions.setDashboardEditing(null, DashboardEventSource.DashboardFilters)
     }
 }
@@ -2126,10 +2124,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         saveDashboardChangesFailure: (error: string) => ({ error }),
         discardDashboardChanges: true,
         saveDashboardColorChanges: true,
-        saveLayoutChanges: true,
-        discardLayoutChanges: true,
-        saveEditModeChanges: (scope: DashboardEditSaveScope) => ({ scope }),
-        saveLayout: true,
+        saveEditModeChanges: (scope: DashboardEditSaveScope, recordUndo: boolean = true) => ({ scope, recordUndo }),
         resetUrlFilters: () => true,
         resetUrlVariables: true,
         recheckRefreshEligibility: true,
@@ -2159,10 +2154,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
         /** Set the dashboard mode, see DashboardMode for details. */
         setDashboardMode: (mode: DashboardMode | null, source: DashboardEventSource) => ({ mode, source }),
         setDashboardEditing: (editing: DashboardEditing | null, source: DashboardEventSource) => ({ editing, source }),
-        /** Exit edit mode, prompting to confirm if there are unsaved changes. */
-        cancelLayoutEdit: true,
-        /** Make it easier to handle organizing the layout when theres lots of tiles by zooming out */
-        setLayoutZoom: (layoutZoom: number) => ({ layoutZoom }),
         /** Optimistic pin/unpin toggle. */
         togglePinned: true,
         /** Open/close the Terraform export modal. */
@@ -2172,8 +2163,18 @@ export const dashboardLogic = kea<dashboardLogicType>([
          * Dashboard layout & tiles.
          */
         updateLayouts: (layouts: ResponsiveLayouts) => ({ layouts }),
+        /** Holds a layout from the grid until the autosave after it persists it. */
         stageLayouts: (layouts: ResponsiveLayouts) => ({ layouts }),
         clearDraftLayouts: () => true,
+        /** Placements from before a saved layout change, so the change can be undone. */
+        pushLayoutUndo: (placements: Record<number, TilePlacement>) => ({ placements }),
+        popLayoutUndo: true,
+        undoLayoutChange: true,
+        /** Put tiles back where `placements` says and save that, e.g. an undo or a version from the activity log. */
+        restoreTilePlacements: (placements: Record<number, TilePlacement>, recordUndo: boolean = true) => ({
+            placements,
+            recordUndo,
+        }),
         applyDashboardUpdate: (dashboard: DashboardType, savedPlacements: Record<number, TilePlacement>) => ({
             dashboard,
             savedPlacements,
@@ -2369,7 +2370,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
                     return preserveTiles ? values.dashboard : null
                 },
-                saveEditModeChanges: ({ scope }) =>
+                saveEditModeChanges: ({ scope, recordUndo }) =>
                     enqueueEditSave({ cache, mount: (): (() => void) => dashboardLogic(props).mount() }, async () => {
                         cache.dashboardChangesPersisted = false
                         cache.draftLayoutsAtSave = values.draftLayouts
@@ -2410,10 +2411,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             const layoutsChanged = (currentDashboard.tiles || []).some((tile) => {
                                 const originalLayouts = values.savedTilePlacements[tile.id]?.layouts?.sm
                                 const updatedLayouts = layoutsToUpdate.find((t) => t.id === tile.id)?.layouts?.sm
-                                return (
-                                    !equal(originalLayouts || {}, updatedLayouts || {}) ||
-                                    tileGroupChanged(tile, values.savedTilePlacements[tile.id])
-                                )
+                                // The grid adds its own fields (moved, static, min sizes), so compare the cell only.
+                                const cellChanged =
+                                    originalLayouts && updatedLayouts
+                                        ? !sameGridCell(originalLayouts, updatedLayouts)
+                                        : Boolean(originalLayouts) !== Boolean(updatedLayouts)
+                                return cellChanged || tileGroupChanged(tile, values.savedTilePlacements[tile.id])
                             })
 
                             const colorsChanged = breakdownColorsChanged || themeChanged
@@ -2422,6 +2425,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                                 return currentDashboard
                             }
 
+                            const placementsBefore = values.savedTilePlacements
                             const payload =
                                 scope === 'colors'
                                     ? {
@@ -2458,6 +2462,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                                 )
                             } else {
                                 actions.tilePlacementsSaved(tilePlacementsFromDashboard(updatedDashboard))
+                                if (recordUndo) {
+                                    actions.pushLayoutUndo(placementsBefore)
+                                }
                             }
                             if (scope === 'colors' && breakdownColorsChanged) {
                                 const autoCount = breakdownColorsToSave.filter(
@@ -2819,8 +2826,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 updateLayouts: () => null,
                 loadDashboardSuccess: () => null,
                 loadDashboardMetadataSuccess: () => null,
-                setDashboardEditing: (state, { editing, source }) =>
-                    editing === null && source === DashboardEventSource.DashboardHeaderDiscardChanges ? null : state,
+            },
+        ],
+        layoutUndoStack: [
+            [] as Record<DashboardTile['id'], TilePlacement>[],
+            {
+                pushLayoutUndo: (state, { placements }) => [...state, placements].slice(-LAYOUT_UNDO_LIMIT),
+                popLayoutUndo: (state) => state.slice(0, -1),
             },
         ],
         // Unsaved color edits only — merged over dashboard.breakdown_colors in effectiveBreakdownColors
@@ -2863,14 +2875,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     state && dashboardId === props.id && groupKey === state.groupKey
                         ? { ...state, groupKey: null }
                         : state,
-            },
-        ],
-        layoutZoom: [
-            1,
-            {
-                setLayoutZoom: (_state: number, { layoutZoom }: { layoutZoom: number }) =>
-                    Math.min(1, Math.max(0.25, layoutZoom)),
-                updateContainerWidth: (state: number, { columns }: { columns: number }) => (columns === 1 ? 1 : state),
             },
         ],
         dashboard: [
@@ -3491,9 +3495,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
             (s) => [s.dashboardEditing],
             (dashboardEditing: DashboardEditing | null): boolean => dashboardEditing?.filters === true,
         ],
-        layoutEditMode: [
-            (s) => [s.dashboardEditing],
-            (dashboardEditing: DashboardEditing | null): boolean => dashboardEditing?.layout === true,
+        canUndoLayoutChange: [
+            (s) => [s.layoutUndoStack, s.featureFlags],
+            (layoutUndoStack: Record<DashboardTile['id'], TilePlacement>[], featureFlags: FeatureFlagsSet): boolean =>
+                !!featureFlags[FEATURE_FLAGS.DASHBOARD_LAYOUT_UNDO] && layoutUndoStack.length > 0,
         ],
         shouldUseStreaming: [
             (s) => [s.featureFlags],
@@ -4594,26 +4599,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     })
                 }
             }
-            if (values.layoutEditMode) {
-                const move = planTileMove(values, tileId, sectionKey, cell)
-                if (!move) {
-                    return
-                }
-                actions.stageLayouts({ sm: move.layout })
-                actions.setTileProperty(tileId, { group_key: move.groupKey })
-                capture(move)
-                if (move.groupKey && values.collapsedTileGroupKeys.includes(move.groupKey)) {
-                    lemonToast.info(move.message)
-                }
-                return
-            }
             await enqueueTileSave({ cache, mount: (): (() => void) => dashboardLogic(props).mount() }, async () => {
                 const move = planTileMove(values, tileId, sectionKey, cell)
                 if (!move) {
                     return
                 }
                 const { sm, placement } = placementAfterMove(move, tileId)
-                const savedBefore = savedTilePlacement(values.savedTilePlacements, tileId)
+                const placementsBefore = values.savedTilePlacements
+                const savedBefore = savedTilePlacement(placementsBefore, tileId)
                 actions.setTileProperty(tileId, placement)
                 const currentPlacement = (): TilePlacement | null => {
                     const tile = values.tiles.find((candidate) => candidate.id === tileId)
@@ -4625,6 +4618,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         tiles: [{ id: tileId, ...placement }],
                     })
                     actions.tilePlacementsSaved({ [tileId]: placement })
+                    actions.pushLayoutUndo(placementsBefore)
                     // A discard while the request was out put the tile back, but an edit staged since then is newer.
                     if (values.draftLayouts === null && equal(currentPlacement(), savedBefore)) {
                         actions.setTileProperty(tileId, placement)
@@ -5905,33 +5899,35 @@ export const dashboardLogic = kea<dashboardLogicType>([
         setDashboardSettingsDraft: () => {
             exitFilterEditModeWhenSaved(values, actions)
         },
-        saveLayoutChanges: () => {
-            if (values.hasUnsavedLayoutChanges) {
-                actions.saveEditModeChanges('layout')
-            }
-            actions.setLayoutZoom(1)
-            if (values.dashboardSettingsState === 'unsavedChanges') {
-                actions.setDashboardEditing({ filters: true, layout: false }, DashboardEventSource.DashboardFilters)
-            } else if (values.dashboardEditing !== null) {
-                actions.setDashboardEditing(null, DashboardEventSource.DashboardFilters)
-            }
-        },
         saveDashboardColorChanges: () => {
             actions.saveEditModeChanges('colors')
         },
-        discardLayoutChanges: () => {
-            actions.cancelLayoutEdit()
-        },
-        saveLayout: () => {
+        stageLayouts: () => {
+            // Saves go out one after another and skip a layout the save before already stored. Saving at once,
+            // rather than after a pause, also means leaving the dashboard straight after a drop keeps the drop.
             if (values.hasUnsavedLayoutChanges) {
                 actions.saveEditModeChanges('layout')
             }
-            actions.setLayoutZoom(1)
-            if (values.dashboardSettingsState === 'unsavedChanges') {
-                actions.setDashboardEditing({ filters: true, layout: false }, DashboardEventSource.DashboardFilters)
-            } else if (values.dashboardEditing !== null) {
-                actions.setDashboardEditing(null, DashboardEventSource.DashboardFilters)
+        },
+        undoLayoutChange: () => {
+            const placements = values.layoutUndoStack[values.layoutUndoStack.length - 1]
+            if (!placements) {
+                return
             }
+            actions.popLayoutUndo()
+            actions.restoreTilePlacements(placements, false)
+        },
+        restoreTilePlacements: ({ placements, recordUndo }) => {
+            if (!values.dashboard) {
+                return
+            }
+            // Tiles added since the placements were taken keep where they are.
+            const tiles = values.dashboard.tiles.map((tile) =>
+                withTilePlacement(tile, placements[tile.id] ?? tilePlacement(tile))
+            )
+            actions.applyDashboardUpdate({ ...values.dashboard, tiles }, values.savedTilePlacements)
+            actions.clearDraftLayouts()
+            actions.saveEditModeChanges('layout', recordUndo)
         },
         saveEditModeChangesFailure: () => {
             cache.resolveEditSaveApplied?.()
@@ -5956,7 +5952,16 @@ export const dashboardLogic = kea<dashboardLogicType>([
             // Only toast when changes were actually persisted — the no-op exit path skips the PATCH.
             if (cache.dashboardChangesPersisted) {
                 cache.dashboardChangesPersisted = false
-                lemonToast.success('Dashboard saved')
+                if (payload?.scope === 'layout') {
+                    lemonToast.success(payload.recordUndo ? 'Layout saved' : 'Layout change undone', {
+                        toastId: `dashboard-layout-saved-${props.id}`,
+                        button: values.canUndoLayoutChange
+                            ? { label: 'Undo', action: () => actions.undoLayoutChange() }
+                            : undefined,
+                    })
+                } else {
+                    lemonToast.success('Dashboard saved')
+                }
             }
             if (cache.shouldRefreshTilesAfterSave) {
                 cache.shouldRefreshTilesAfterSave = false
@@ -5968,50 +5973,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
         },
         openAddInsightModal: () => {
-            if (values.dashboardEditing?.layout && values.hasUnsavedLayoutChanges) {
-                if (
-                    !window.confirm(
-                        'Discard unsaved layout changes?\nAdding an insight reloads the dashboard and discards them.'
-                    )
-                ) {
-                    return
-                }
-                actions.setLayoutZoom(1)
-                actions.setDashboardEditing(null, DashboardEventSource.DashboardHeaderDiscardChanges)
-            }
             addInsightToDashboardLogic.actions.showAddInsightToDashboardModal()
-        },
-        cancelLayoutEdit: () => {
-            const discard = (): void => {
-                actions.setLayoutZoom(1)
-                actions.setDashboardEditing(null, DashboardEventSource.DashboardHeaderDiscardChanges)
-            }
-            const promptEnabled = !!values.featureFlags[FEATURE_FLAGS.DASHBOARD_LAYOUT_DISCARD_PROMPT]
-            if (!promptEnabled || !(values.hasUnsavedLayoutChanges || values.hasUnsavedColorChanges)) {
-                discard()
-                return
-            }
-            reportDashboardEditModeDiscardPrompt(values.dashboard, 'shown')
-            LemonDialog.open({
-                title: 'Discard unsaved changes?',
-                description:
-                    'You have unsaved layout or color changes. If you discard now, the dashboard will revert to its last saved state.',
-                primaryButton: {
-                    children: 'Discard changes',
-                    status: 'danger',
-                    onClick: () => {
-                        reportDashboardEditModeDiscardPrompt(values.dashboard, 'discarded')
-                        discard()
-                    },
-                    'data-attr': 'dashboard-edit-mode-discard-confirm',
-                },
-                secondaryButton: {
-                    children: 'Keep editing',
-                    onClick: () => {
-                        reportDashboardEditModeDiscardPrompt(values.dashboard, 'kept_editing')
-                    },
-                },
-            })
         },
         changeDashboardTileSpacing: ({ tileSpacing }) => {
             if (tileSpacing === (values.dashboard?.customization?.tile_spacing ?? 'standard')) {
@@ -6029,80 +5991,17 @@ export const dashboardLogic = kea<dashboardLogicType>([
             ) {
                 return
             }
-            const changeCompaction = (discardUnsavedLayoutChanges = false): void => {
-                if (discardUnsavedLayoutChanges && values.dashboard) {
-                    actions.applyDashboardUpdate(
-                        withSavedTilePlacements(values.dashboard, values.savedTilePlacements),
-                        values.savedTilePlacements
-                    )
-                    actions.clearDraftLayouts()
-                }
-                actions.setDashboardGridCompaction(layoutCompaction)
-                actions.saveDashboardGridCompaction(layoutCompaction)
-            }
-
-            if (!values.hasUnsavedLayoutChanges) {
-                changeCompaction()
-                return
-            }
-
-            actions.setDashboardCustomizeMenuOpen(false)
-            LemonDialog.open({
-                title: 'Change tile movement?',
-                description: 'Changing this setting discards your unsaved tile layout changes.',
-                primaryButton: {
-                    children: 'Change mode',
-                    onClick: () => changeCompaction(true),
-                },
-                secondaryButton: {
-                    children: 'Cancel',
-                },
-            })
+            actions.setDashboardGridCompaction(layoutCompaction)
+            actions.saveDashboardGridCompaction(layoutCompaction)
         },
         setDashboardEditing: async ({ editing, source }) => {
-            if (
-                editing === null &&
-                source === DashboardEventSource.DashboardHeaderDiscardChanges &&
-                values.dashboard?.tiles
-            ) {
-                actions.applyDashboardUpdate(
-                    withSavedTilePlacements(values.dashboard, values.savedTilePlacements),
-                    values.savedTilePlacements
-                )
-            }
-            if (editing?.layout && source !== DashboardEventSource.DashboardHeaderDiscardChanges) {
-                clearDOMTextSelection()
-                lemonToast.info('Now editing the dashboard – press E or click Save to persist changes')
-            } else if (
-                editing === null &&
-                (source === DashboardEventSource.DashboardHeaderSaveDashboard ||
-                    source === DashboardEventSource.SceneCommonButtons ||
-                    source === DashboardEventSource.DashboardInsightColorsModal)
-            ) {
-                if (source === DashboardEventSource.DashboardInsightColorsModal) {
-                    actions.saveDashboardColorChanges()
-                } else {
-                    actions.saveLayoutChanges()
-                }
-            }
-
-            if (editing?.layout) {
-                reportDashboardLayoutEditModeEntered(
-                    values.dashboard,
-                    source,
-                    values.layoutEditMode ? values.layoutZoom : null
-                )
+            if (editing === null && source === DashboardEventSource.DashboardInsightColorsModal) {
+                actions.saveDashboardColorChanges()
             }
         },
         setDashboardMode: async ({ mode, source }) => {
             if (mode || source) {
-                reportDashboardModeToggled(
-                    values.dashboard,
-                    mode,
-                    source,
-                    values.layoutEditMode ? values.layoutZoom : null,
-                    values.layoutEditMode
-                )
+                reportDashboardModeToggled(values.dashboard, mode, source)
             }
         },
         setAutoRefresh: () => {
@@ -6432,10 +6331,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 })
             }
             if (values.dashboardSettingsState === 'unsavedChanges' && !values.dashboardEditing?.filters) {
-                actions.setDashboardEditing(
-                    { filters: true, layout: false },
-                    DashboardEventSource.DashboardVariableOverride
-                )
+                actions.setDashboardEditing({ filters: true }, DashboardEventSource.DashboardVariableOverride)
             }
         },
         [variableDataLogic.actionTypes.loadVariablesSuccess]: ({ variables }) => {
@@ -6536,23 +6432,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     lemonToast.success('Tile filters saved')
                 },
             })
-        },
-    })),
-
-    beforeUnload(({ values, actions }) => ({
-        enabled: (newLocation?: CombinedLocation) => {
-            if (!values.dashboardEditing?.layout || !values.hasUnsavedLayoutChanges) {
-                return false
-            }
-            // Ignore in-page navigations such as opening a side panel
-            if (newLocation && newLocation.pathname === router.values.location.pathname) {
-                return false
-            }
-            return true
-        },
-        message: 'Leave dashboard?\nChanges you made to the layout will be discarded.',
-        onConfirm: () => {
-            actions.setDashboardEditing(null, DashboardEventSource.DashboardHeaderDiscardChanges)
         },
     })),
 

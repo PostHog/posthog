@@ -23,7 +23,7 @@ interface DashboardFilterBarProps {
 }
 
 export function DashboardFilterBar({ backTo }: DashboardFilterBarProps): JSX.Element {
-    const { placement, dashboard, layoutEditMode, hasVariables, effectiveEditBarFilters } = useValues(dashboardLogic)
+    const { placement, dashboard, hasVariables, effectiveEditBarFilters } = useValues(dashboardLogic)
     const controlsEnabled = useFeatureFlag('METRICS_DASHBOARD_CONTROLS')
     return (
         <div className="@container/dashboard-filters flex min-w-0 flex-1 flex-col gap-2">
@@ -47,9 +47,7 @@ export function DashboardFilterBar({ backTo }: DashboardFilterBarProps): JSX.Ele
                         {placement === DashboardPlacement.Dashboard && (
                             <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2 empty:hidden">
                                 <DashboardUnsavedChangesIndicator />
-                                {dashboard && !layoutEditMode && !isSharedView() && (
-                                    <BIDashboardFilterBar dashboardId={dashboard.id} />
-                                )}
+                                {dashboard && !isSharedView() && <BIDashboardFilterBar dashboardId={dashboard.id} />}
                             </div>
                         )}
                     </div>

@@ -103,10 +103,7 @@ export function DashboardEditBarAdvancedFilters({
                         value={choice}
                         onChange={(next) => {
                             if (!dashboardEditing?.filters) {
-                                setDashboardEditing(
-                                    { filters: true, layout: false },
-                                    DashboardEventSource.DashboardFilters
-                                )
+                                setDashboardEditing({ filters: true }, DashboardEventSource.DashboardFilters)
                             }
                             setFilterTestAccounts(CHOICE_TO_FILTER[next])
                         }}

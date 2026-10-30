@@ -1,9 +1,11 @@
 import { useActions, useValues } from 'kea'
 
-import { IconGridMasonry } from '@posthog/icons'
+import { IconClock } from '@posthog/icons'
 
-import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
+import { SidePanelActivityTab } from '~/layout/navigation-3000/sidepanel/panels/activity/sidePanelActivityLogic'
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import {
     SceneMenuBarItem,
     SceneMenuBarRadioGroup,
@@ -11,7 +13,7 @@ import {
     SceneMenuBarSeparator,
     SceneMenuBarSubMenu,
 } from '~/layout/scenes/components/SceneMenuBar'
-import { DashboardTileSpacing, TileGroupDisplay } from '~/types'
+import { DashboardTileSpacing, SidePanelTab, TileGroupDisplay } from '~/types'
 
 import {
     DASHBOARD_GRID_COMPACTION_LABELS,
@@ -27,12 +29,14 @@ export function DashboardCustomizeSubMenu(): JSX.Element | null {
     const {
         dashboard,
         currentLayoutSize,
-        layoutEditMode,
+        canEditDashboard,
         tileGroupSections,
         tileGroupDisplay,
         dashboardGridCompactionSaving,
     } = useValues(dashboardLogic)
-    const { setDashboardEditing, changeDashboardTileSpacing, changeDashboardGridCompaction, changeTileGroupDisplay } =
+    const { openSidePanel } = useActions(sidePanelStateLogic)
+    const layoutUndoEnabled = useFeatureFlag('DASHBOARD_LAYOUT_UNDO')
+    const { changeDashboardTileSpacing, changeDashboardGridCompaction, changeTileGroupDisplay } =
         useActions(dashboardLogic)
 
     if (!dashboard) {
@@ -43,19 +47,15 @@ export function DashboardCustomizeSubMenu(): JSX.Element | null {
 
     return (
         <SceneMenuBarSubMenu label="Customize">
-            {layoutAvailable && !layoutEditMode && (
+            {canEditDashboard && layoutUndoEnabled && (
                 <>
+                    {/* Layout changes save as they happen, so earlier layouts live in the activity log. */}
                     <SceneMenuBarItem
-                        onClick={() =>
-                            setDashboardEditing(
-                                { filters: true, layout: true },
-                                DashboardEventSource.SceneCommonButtons
-                            )
-                        }
-                        data-attr="dashboard-menubar-edit-layout"
+                        onClick={() => openSidePanel(SidePanelTab.Activity, SidePanelActivityTab.All)}
+                        data-attr="dashboard-menubar-layout-history"
                     >
-                        <IconGridMasonry />
-                        Edit layout
+                        <IconClock />
+                        Layout history
                     </SceneMenuBarItem>
                     <SceneMenuBarSeparator />
                 </>

@@ -13,10 +13,8 @@ import { getDashboardWidgetFetchDisplayError } from '@posthog/products-dashboard
 
 import { ApiError } from 'lib/api'
 import { dashboardWidgetMenusLogic } from 'lib/components/Cards/InsightCard/dashboardWidgetMenusLogic'
-import { EditModeEdge, useResizeHandleScrollbarPassThrough } from 'lib/components/Cards/InsightCard/EditModeEdgeOverlay'
+import { useResizeHandleScrollbarPassThrough } from 'lib/components/Cards/InsightCard/EditModeEdgeOverlay'
 import { TileDecorations } from 'lib/components/TileDecorations/TileDecorations'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { objectsEqual } from 'lib/utils/objects'
 import { reportDashboardTileRepositioned } from 'scenes/dashboard/dashboardEvents'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
@@ -26,11 +24,6 @@ import {
     getInsightQueryError,
     isWidgetTileVisibleOnPlacement,
 } from 'scenes/dashboard/dashboardUtils'
-import {
-    continueDragGestureInEditMode,
-    continueResizeGestureInEditMode,
-    whenPressBecomesDrag,
-} from 'scenes/dashboard/editLayoutGesture'
 import { useDashboardLayoutInteraction } from 'scenes/dashboard/useDashboardLayoutInteraction'
 import { useDragAutoScroll } from 'scenes/dashboard/useDragAutoScroll'
 import { useSurveyLinkedInsights } from 'scenes/surveys/hooks/useSurveyLinkedInsights'
@@ -104,7 +97,6 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         dashboard,
         tiles,
         layouts,
-        layoutEditMode,
         placement,
         readOnly,
         isRefreshingQueued,
@@ -131,7 +123,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         activeTileGroupTab,
         queryLoadQueue,
     } = useValues(dashboardLogic)
-    const canCrossFilter = placement === DashboardPlacement.Dashboard && !isSharedView() && !layoutEditMode
+    const canCrossFilter = placement === DashboardPlacement.Dashboard && !isSharedView()
     useMountedLogic(
         biDashboardCrossFilterLogic({
             dashboardId: dashboard?.id ?? 0,
@@ -139,7 +131,6 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
             loadQueue: queryLoadQueue,
         })
     )
-    const { layoutZoom = 1 } = useValues(dashboardLogic)
     const {
         stageLayouts,
         updateContainerWidth,
@@ -154,7 +145,6 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         copyToDashboard,
         copyGroupToDashboard,
         changeTileGroupDisplay,
-        setDashboardEditing,
         toggleTileGroup,
         selectTileGroupTab,
         updateTileGroupSectionLayout,
@@ -218,22 +208,25 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
             cancelAnimationFrame(secondFrame)
         }
     }, [scrollToBottomSignal])
-    const className = clsx({
-        'dashboard-view-mode mb-8': !layoutEditMode,
-        // In edit mode, dragging is bounded to the grid's own clientHeight, which is exactly the
-        // content height — so there's nowhere to drag a tile into to create a new bottom row.
-        // box-content + padding-bottom grows clientHeight (padding only counts under content-box,
-        // since preflight defaults everything to border-box), opening up draggable space below the
-        // last tile that scales with content. A margin wouldn't work — it sits outside clientHeight.
-        'dashboard-edit-mode box-content pb-[40vh]': layoutEditMode,
-    })
-
     const { width: gridWidth, containerRef } = useDashboardContainerWidth()
     const showBands = tileGroupSections.length > 0
     const activeTabIndex = tileGroupSections.findIndex((section) => getSectionGroupKey(section) === activeTileGroupTab)
+    const isMobileView = !!gridWidth && gridWidth <= BREAKPOINTS['sm']
+    const isEditablePlacement =
+        !readOnly &&
+        [DashboardPlacement.Dashboard, DashboardPlacement.ProjectHomepage, DashboardPlacement.Builtin].includes(
+            placement
+        )
+    // Editors move and resize tiles in place, and each change saves on its own.
+    const canEditLayout = !!dashboard && canEditDashboard && isEditablePlacement && !isMobileView
+    const className = clsx(
+        'mb-8',
+        canEditLayout ? 'dashboard-edit-mode dashboard-drop-space-end' : 'dashboard-view-mode'
+    )
+
     const { gridCompactor, handleLayoutChange, interactionInProgress, startInteraction, finishInteraction } =
         useDashboardLayoutInteraction({
-            layoutEditMode,
+            enabled: canEditLayout,
             layoutCompaction: dashboard?.customization?.layout_compaction,
             // Each band grid reports only its own tiles.
             updateLayouts: showBands ? updateTileGroupSectionLayout : stageLayouts,
@@ -266,29 +259,12 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
             observer.disconnect()
         }
     }, [containerRef])
-    const isMobileView = !!gridWidth && gridWidth <= BREAKPOINTS['sm']
-    const isEditablePlacement =
-        !readOnly &&
-        [DashboardPlacement.Dashboard, DashboardPlacement.ProjectHomepage, DashboardPlacement.Builtin].includes(
-            placement
-        )
-
-    const canEnterEditModeFromEdge =
-        !!dashboard && canEditDashboard && !layoutEditMode && !isMobileView && isEditablePlacement
-
     const onCopyGroupToDashboard = canEditDashboard && isEditablePlacement ? copyGroupToDashboard : undefined
     const onChangeGroupDisplay = canEditDashboard && isEditablePlacement ? changeTileGroupDisplay : undefined
 
-    const isLayoutZoomToggled = layoutEditMode && layoutZoom !== 1
-
-    const effectiveZoom = layoutEditMode ? layoutZoom : 1
-    const rowHeight = BASE_ROW_HEIGHT * effectiveZoom
-    const spacingFactor = effectiveZoom < 1 ? 0.9 : 1
+    const rowHeight = BASE_ROW_HEIGHT
     const gridGap = getDashboardTileSpacingGap(dashboard?.customization?.tile_spacing)
-    const margin = useMemo(
-        () => BASE_MARGIN.map(() => gridGap * spacingFactor) as [number, number],
-        [gridGap, spacingFactor]
-    )
+    const margin = useMemo(() => BASE_MARGIN.map(() => gridGap) as [number, number], [gridGap])
 
     const widgetTilesShown = isWidgetTileVisibleOnPlacement(placement)
     const activeBreakpoint = sizeKey ?? 'sm'
@@ -325,8 +301,8 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
     )
     const showDecorationSpace = hasTileDecorations({ tiles: tiles || [], groupTitlesByTileId, widgetTilesShown })
 
-    const showResizeHandles = layoutEditMode && !isMobileView && isEditablePlacement && !isLayoutZoomToggled
-    const showEditingControls = isEditablePlacement || layoutEditMode
+    const showResizeHandles = canEditLayout
+    const showEditingControls = isEditablePlacement
     const showDetailsControls =
         placement !== DashboardPlacement.Export &&
         placement !== DashboardPlacement.Public &&
@@ -334,12 +310,12 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
 
     const dragConfig = useMemo(
         () => ({
-            enabled: canEditDashboard && layoutEditMode && !isMobileView,
+            enabled: canEditLayout,
             handle: '.CardMeta,.DashboardTileCard__body,.WidgetCard__header,.drag-handle',
             cancel: 'a,table,button,input,.Popover',
             bounded: !showBands || activeTabIndex >= 0,
         }),
-        [canEditDashboard, layoutEditMode, isMobileView, showBands, activeTabIndex]
+        [canEditLayout, showBands, activeTabIndex]
     )
     const {
         draggingTileId,
@@ -363,55 +339,13 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
 
     const resizeConfig = useMemo(
         () => ({
-            enabled: canEditDashboard && layoutEditMode && !isMobileView && !isLayoutZoomToggled,
+            enabled: canEditLayout,
             handles: ['s', 'e', 'se', 'w', 'sw'] as const,
         }),
-        [canEditDashboard, layoutEditMode, isMobileView, isLayoutZoomToggled]
+        [canEditLayout]
     )
 
-    useResizeHandleScrollbarPassThrough(layoutEditMode && !isMobileView)
-
-    const canEnterEditModeFromEdgeRef = useRef(canEnterEditModeFromEdge)
-    canEnterEditModeFromEdgeRef.current = canEnterEditModeFromEdge
-    const onEnterEditModeFromEdge = useCallback(
-        (e: React.MouseEvent<HTMLDivElement>, edge: EditModeEdge): void => {
-            if (!canEnterEditModeFromEdgeRef.current) {
-                return
-            }
-            setDashboardEditing({ filters: true, layout: true }, DashboardEventSource.CardEdgeHover)
-            continueResizeGestureInEditMode(e, edge, e.nativeEvent)
-        },
-        [setDashboardEditing]
-    )
-
-    const onDragHandleMouseDown = useCallback(
-        (e: React.MouseEvent): void => {
-            if (!canEnterEditModeFromEdgeRef.current) {
-                return
-            }
-            const target = e.target as Element | null
-            if (!target || !target.closest('.react-grid-item')) {
-                return
-            }
-            if (
-                target.closest(
-                    'input,textarea,button,select,a,p,h4,[contenteditable="true"],[role="textbox"],.ProseMirror,.LemonMarkdown'
-                )
-            ) {
-                return
-            }
-            e.preventDefault()
-            e.stopPropagation()
-            whenPressBecomesDrag(e, (moveEvent) => {
-                if (!canEnterEditModeFromEdgeRef.current) {
-                    return
-                }
-                setDashboardEditing({ filters: true, layout: true }, DashboardEventSource.CardDragHandle)
-                continueDragGestureInEditMode(e, moveEvent)
-            })
-        },
-        [setDashboardEditing]
-    )
+    useResizeHandleScrollbarPassThrough(canEditLayout)
 
     const requireDashboardId = useCallback(
         (action: string): number => {
@@ -482,7 +416,17 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         ]
     )
 
+    // Toggled on the DOM rather than in state, so a gesture does not re-render every tile.
+    const setLayoutGestureActive = useCallback(
+        (active: boolean): void => {
+            containerRef.current?.classList.toggle('dashboard-layout-gesture', active)
+        },
+        // oxlint-disable-next-line react-hooks/exhaustive-deps -- containerRef is a stable ref
+        []
+    )
+
     const flushPendingLayouts = useCallback(() => {
+        setLayoutGestureActive(false)
         finishInteraction()
         // Remeasure once the gesture settles, since height updates were suppressed during it.
         requestAnimationFrame(() => {
@@ -491,7 +435,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
             }
         })
         // oxlint-disable-next-line react-hooks/exhaustive-deps -- ref reads inside requestAnimationFrame aren't valid deps
-    }, [finishInteraction])
+    }, [finishInteraction, setLayoutGestureActive])
 
     const handleWidthChange = useCallback(
         (containerWidth: number, _: unknown, newCols: number) => {
@@ -533,17 +477,18 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
             if (!newItem) {
                 return
             }
+            setLayoutGestureActive(true)
             startInteraction(layout, newItem, 'resize')
         },
-        [startInteraction]
+        [startInteraction, setLayoutGestureActive]
     )
 
     const handleResizeStop = useCallback(() => {
         flushPendingLayouts()
         if (dashboard?.id) {
-            reportDashboardTileRepositioned(dashboard.id, 'resized', effectiveZoom)
+            reportDashboardTileRepositioned(dashboard.id, 'resized')
         }
-    }, [dashboard?.id, reportDashboardTileRepositioned, effectiveZoom, flushPendingLayouts])
+    }, [dashboard?.id, flushPendingLayouts])
 
     const handleDragStart = useCallback(
         (
@@ -557,11 +502,12 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
             if (!newItem) {
                 return
             }
+            setLayoutGestureActive(true)
             startInteraction(layout, newItem, 'drag')
             startTileDrag(newItem, element)
             startAutoScroll()
         },
-        [startInteraction, startTileDrag, startAutoScroll]
+        [startInteraction, startTileDrag, startAutoScroll, setLayoutGestureActive]
     )
 
     const handleDrag = useCallback(
@@ -595,17 +541,10 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
             flushPendingLayouts()
             finishTileDrag(newItem, element, event)
             if (dashboard?.id) {
-                reportDashboardTileRepositioned(dashboard.id, 'moved', effectiveZoom)
+                reportDashboardTileRepositioned(dashboard.id, 'moved')
             }
         },
-        [
-            dashboard?.id,
-            reportDashboardTileRepositioned,
-            effectiveZoom,
-            flushPendingLayouts,
-            finishTileDrag,
-            stopAutoScroll,
-        ]
+        [dashboard?.id, flushPendingLayouts, finishTileDrag, stopAutoScroll]
     )
 
     const renderTile = (tile: DashboardTile): JSX.Element | undefined => {
@@ -619,9 +558,6 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
             dashboardId: dashboard?.id,
             canEditDashboard,
             showResizeHandles,
-            canEnterEditModeFromEdge,
-            onEnterEditModeFromEdge,
-            onDragHandleMouseDown,
             showEditingControls,
             moveToDashboard: tileActions.moveToDashboard,
             copyToDashboard: tileActions.copyToDashboard,
@@ -640,9 +576,6 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                     placement={placement}
                     onRemove={commonTileProps.removeFromDashboard}
                     showResizeHandles={showResizeHandles}
-                    canEnterEditModeFromEdge={canEnterEditModeFromEdge}
-                    onEnterEditModeFromEdge={onEnterEditModeFromEdge}
-                    onDragHandleMouseDown={onDragHandleMouseDown}
                     showEditingControls={showEditingControls}
                 >
                     {decorations}
@@ -713,9 +646,6 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                     onRemove={commonTileProps.removeFromDashboard}
                     showResizeHandles={commonTileProps.showResizeHandles}
                     showEditingControls={commonTileProps.showEditingControls}
-                    canEnterEditModeFromEdge={commonTileProps.canEnterEditModeFromEdge}
-                    onEnterEditModeFromEdge={commonTileProps.onEnterEditModeFromEdge}
-                    onDragHandleMouseDown={commonTileProps.onDragHandleMouseDown}
                 >
                     {decorations}
                 </MemoizedDashboardTextItem>
@@ -738,9 +668,6 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                     onRemove={commonTileProps.removeFromDashboard}
                     showResizeHandles={commonTileProps.showResizeHandles}
                     showEditingControls={commonTileProps.showEditingControls}
-                    canEnterEditModeFromEdge={commonTileProps.canEnterEditModeFromEdge}
-                    onEnterEditModeFromEdge={commonTileProps.onEnterEditModeFromEdge}
-                    onDragHandleMouseDown={commonTileProps.onDragHandleMouseDown}
                 >
                     {decorations}
                 </MemoizedDashboardButtonTileItem>
@@ -758,7 +685,6 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                     placement={placement}
                     dashboardId={dashboard?.id}
                     canEditDashboard={canEditDashboard}
-                    isDashboardEditMode={layoutEditMode}
                     result={runResult?.result}
                     error={getDashboardWidgetFetchDisplayError(runResult?.error ?? refreshState?.error)}
                     loading={!!refreshState?.loading}
@@ -777,9 +703,6 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                     onCopyToDashboard={commonTileProps.copyToDashboard}
                     showResizeHandles={commonTileProps.showResizeHandles}
                     showEditingControls={commonTileProps.showEditingControls}
-                    canEnterEditModeFromEdge={commonTileProps.canEnterEditModeFromEdge}
-                    onEnterEditModeFromEdge={commonTileProps.onEnterEditModeFromEdge}
-                    onDragHandleMouseDown={commonTileProps.onDragHandleMouseDown}
                 >
                     {decorations}
                 </MemoizedDashboardWidgetItem>
@@ -811,7 +734,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                 data-dashboard-section-grid={section.key}
                 style={frozenSourceGrid?.key === section.key ? { height: frozenSourceGrid.height } : undefined}
             >
-                {layoutEditMode && !isMobileView && (
+                {canEditLayout && (
                     <DashboardGridBackground
                         width={gridWidth}
                         cols={BREAKPOINT_COLUMN_COUNTS.sm}
@@ -829,8 +752,8 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                     width={gridWidth}
                     positionStrategy={boundedStrategy}
                     className={clsx(
-                        layoutEditMode ? 'dashboard-edit-mode box-content' : 'dashboard-view-mode',
-                        layoutEditMode && (isLastSection ? 'pb-[40vh]' : 'pb-24'),
+                        canEditLayout ? 'dashboard-edit-mode' : 'dashboard-view-mode',
+                        canEditLayout && (isLastSection ? 'dashboard-drop-space-end' : 'dashboard-drop-space-between'),
                         isDraggingOutOfSection && '[&_.react-grid-placeholder]:hidden'
                     )}
                     gridConfig={bandGridConfig}
@@ -862,14 +785,8 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
 
     return (
         <div className="dashboard-items-wrapper" ref={containerRef as RefObject<HTMLDivElement>}>
-            {layoutEditMode && isMobileView && (
-                <LemonBanner type="warning" className="mb-4">
-                    Layout editing is disabled on smaller screens. Please zoom out or use a larger screen to move or
-                    resize tiles.
-                </LemonBanner>
-            )}
             {gridWidth > 0 && activeTabIndex >= 0 && (
-                <div className={clsx(showDecorationSpace && 'mt-10', !layoutEditMode && 'mb-8')}>
+                <div className={clsx(showDecorationSpace && 'mt-10', 'mb-8')}>
                     <DashboardTileGroupTabs
                         sections={tileGroupSections}
                         activeSectionKey={tileGroupSections[activeTabIndex].key}
@@ -884,7 +801,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                 </div>
             )}
             {gridWidth > 0 && showBands && activeTabIndex < 0 && (
-                <div className={clsx('flex flex-col gap-4', showDecorationSpace && 'mt-10', !layoutEditMode && 'mb-8')}>
+                <div className={clsx('flex flex-col gap-4 mb-8', showDecorationSpace && 'mt-10')}>
                     {tileGroupSections.map(renderSection)}
                     {showTakeOutDropZone && (
                         <TileGroupTakeOutDropZone isDropTarget={dropTargetKey === TAKE_OUT_DROP_ZONE_KEY} />
@@ -893,7 +810,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
             )}
             {gridWidth > 0 && !showBands && (
                 <div className={clsx('relative', showDecorationSpace && 'mt-10')}>
-                    {layoutEditMode && !isMobileView && (
+                    {canEditLayout && (
                         <DashboardGridBackground
                             width={gridWidth}
                             cols={BREAKPOINT_COLUMN_COUNTS.sm}

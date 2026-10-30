@@ -482,29 +482,6 @@ test.describe('Dashboard compact cards and inline editing', () => {
         await playwrightSetup.login(page, workspace!)
     })
 
-    test('Edit mode button enters and exits edit mode', async ({ page }) => {
-        const dashboard = new DashboardPage(page)
-        const insightName = randomString('dash-trends')
-
-        await test.step('create a saved Trends insight', async () => {
-            await createSavedTrendsInsight(page, insightName, workspace!)
-        })
-
-        await test.step('create a dashboard with an insight', async () => {
-            await dashboard.createNew()
-            await dashboard.addInsightToNewDashboard(insightName)
-            await expect(dashboard.insightCards).toBeVisible()
-        })
-
-        await test.step('enter edit mode via the edit button', async () => {
-            await dashboard.enterEditMode()
-        })
-
-        await test.step('save and exit edit mode', async () => {
-            await dashboard.saveEditMode()
-        })
-    })
-
     test('Inline editing insight title via compact card popover', async ({ page }) => {
         const dashboard = new DashboardPage(page)
         const insightName = randomString('dash-trends')

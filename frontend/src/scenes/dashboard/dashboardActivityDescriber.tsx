@@ -1,13 +1,14 @@
 import posthog from 'posthog-js'
 import { DashboardFilter, HogQLVariable } from 'src/queries/schema/schema-general'
 
-import { Link } from '@posthog/lemon-ui'
+import { LemonButton, Link, lemonToast } from '@posthog/lemon-ui'
 import {
     DASHBOARD_GRID_COMPACTION_LABELS,
     DASHBOARD_TILE_SPACING_LABELS,
     TILE_GROUP_DISPLAY_LABELS,
 } from '@posthog/products-dashboards/frontend/dashboardCustomization'
 
+import api from 'lib/api'
 import {
     describeDescriptionChange,
     describeTagChanges,
@@ -31,10 +32,11 @@ import {
     PropertiesSummary,
     VariablesSummary,
 } from 'lib/components/Cards/InsightCard/InsightDetails'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { isKeyOf } from 'lib/utils/guards'
 import { urls } from 'scenes/urls'
 
-import { DashboardType } from '~/types'
+import { DashboardTile, DashboardType } from '~/types'
 
 function nameAndLink(logItem?: ActivityLogItem): JSX.Element {
     return logItem?.item_id ? (
@@ -52,6 +54,80 @@ function dashboardSummary(logItem: ActivityLogItem, action: Description, preview
         action,
         target: <>Dashboard · {nameAndLink(logItem)}</>,
         preview,
+    }
+}
+
+/** What the API logs for a layout change: each tile's placement, keyed by tile id. */
+type LoggedTilePlacements = Record<string, Pick<DashboardTile, 'layouts' | 'group_key'>>
+
+async function restoreTileLayout(dashboardId: number, logged: LoggedTilePlacements): Promise<void> {
+    const placements = Object.fromEntries(
+        Object.entries(logged).map(([tileId, placement]) => [
+            Number(tileId),
+            { layouts: placement.layouts, group_key: placement.group_key ?? null },
+        ])
+    )
+    // Loaded lazily: the activity log is part of every scene, the dashboard logic is not.
+    const { dashboardLogic } = await import('scenes/dashboard/dashboardLogic')
+    const mountedLogic = dashboardLogic.findMounted({ id: dashboardId })
+    if (mountedLogic) {
+        mountedLogic.actions.restoreTilePlacements(placements)
+        return
+    }
+    try {
+        // nosemgrep: prefer-codegen-api -- Same tile PATCH dashboardLogic sends.
+        await api.update(`api/projects/@current/dashboards/${dashboardId}`, {
+            tiles: Object.entries(placements).map(([id, placement]) => ({ id: Number(id), ...placement })),
+        })
+        lemonToast.success('Layout restored')
+    } catch (e) {
+        lemonToast.error(`Could not restore the layout: ${String(e)}`)
+    }
+}
+
+function RestoreTileLayoutButton({
+    dashboardId,
+    placements,
+}: {
+    dashboardId: number
+    placements: LoggedTilePlacements
+}): JSX.Element | null {
+    if (!useFeatureFlag('DASHBOARD_LAYOUT_UNDO')) {
+        return null
+    }
+    return (
+        <LemonButton
+            size="xsmall"
+            type="secondary"
+            className="inline-flex ml-2"
+            data-attr="dashboard-activity-restore-layout"
+            tooltip="Put the tiles back where they were before this change"
+            onClick={() => void restoreTileLayout(dashboardId, placements)}
+        >
+            Restore previous layout
+        </LemonButton>
+    )
+}
+
+function describeTileLayoutChange(change?: ActivityChange, logItem?: ActivityLogItem): ChangeMapping | null {
+    const before = change?.before as LoggedTilePlacements | undefined
+    const after = change?.after as LoggedTilePlacements | undefined
+    if (!before || !after) {
+        return null
+    }
+    const movedCount = Object.keys(after).filter(
+        (tileId) => tileId in before && JSON.stringify(before[tileId]) !== JSON.stringify(after[tileId])
+    ).length
+    const dashboardId = Number(logItem?.item_id)
+    return {
+        description: [
+            <>
+                rearranged {movedCount} {movedCount === 1 ? 'tile' : 'tiles'}
+                {Number.isFinite(dashboardId) && (
+                    <RestoreTileLayoutButton dashboardId={dashboardId} placements={before} />
+                )}
+            </>,
+        ],
     }
 }
 
@@ -193,6 +269,9 @@ function describeSingleChange(
     logItem: ActivityLogItem,
     asNotification: boolean | undefined
 ): ChangeMapping | null {
+    if (change?.field === 'tile_layouts') {
+        return describeTileLayoutChange(change, logItem)
+    }
     // dashboard updates have to have a "field" to be described
     if (!change?.field || !isKeyOf(change.field, dashboardActionsMapping)) {
         return null

@@ -31,7 +31,7 @@ export function DashboardMetricVariables({ editable = true }: { editable?: boole
     )
     const change = (next: MetricsDashboardVariable[]): void => {
         if (!dashboardEditing?.filters) {
-            setDashboardEditing({ filters: true, layout: false }, DashboardEventSource.DashboardFilters)
+            setDashboardEditing({ filters: true }, DashboardEventSource.DashboardFilters)
         }
         setMetricVariables(next.length ? next : null)
     }

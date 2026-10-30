@@ -1772,6 +1772,29 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         tile.refresh_from_db()
         assert tile.layouts == {"sm": desktop_layout, "xs": {"x": 0, "y": 8, "w": 1, "h": 4}}
 
+    def test_layout_patch_logs_the_placements_it_replaced(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        insight_id, _ = self.dashboard_api.create_insight({"dashboards": [dashboard_id], "name": "insight"})
+        tile = DashboardTile.objects.get(insight_id=insight_id, dashboard_id=dashboard_id)
+        tile.layouts = {"sm": {"x": 0, "y": 0, "w": 6, "h": 5}}
+        tile.save()
+        ActivityLog.objects.all().delete()
+
+        moved = {"x": 6, "y": 0, "w": 6, "h": 5}
+        self.dashboard_api.update_dashboard(dashboard_id, {"tiles": [{"id": tile.id, "layouts": {"sm": moved}}]})
+
+        log = ActivityLog.objects.get(scope="Dashboard", item_id=str(dashboard_id))
+        change = log.detail["changes"][0]  # type: ignore
+        assert change["field"] == "tile_layouts"
+        assert change["before"] == {
+            str(tile.id): {"layouts": {"sm": {"x": 0, "y": 0, "w": 6, "h": 5}}, "group_key": None}
+        }
+        assert change["after"][str(tile.id)]["layouts"]["sm"] == moved
+
+        # Sending the same placement again changes nothing, so it logs nothing.
+        self.dashboard_api.update_dashboard(dashboard_id, {"tiles": [{"id": tile.id, "layouts": {"sm": moved}}]})
+        assert ActivityLog.objects.filter(scope="Dashboard", item_id=str(dashboard_id)).count() == 1
+
     def test_layout_patch_succeeds_on_dashboard_with_mixed_tile_state(self):
         """
         Coverage for layout edits on a dashboard with a realistic mix of tile states:
