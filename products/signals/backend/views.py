@@ -4250,7 +4250,6 @@ class SignalReportViewSet(
                     )
                 effective_target = report.restore_target_status()
 
-            # Only the owner of the work may close it, so nobody dismisses a report they do not own.
             if (close_denial_message := self._close_denial_message(report, target_status)) is not None:
                 return SignalReportBulkStateOutcome.SKIPPED, close_denial_message
 
