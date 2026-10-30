@@ -38,7 +38,7 @@ export function MemberOffboardingResourceSection({
     kind: 'public' | 'subscriptions'
 }): JSX.Element {
     const [bulkBarTarget, setBulkBarTarget] = useState<HTMLDivElement | null>(null)
-    const { member, keep, removedLoading, savingResourcesLoading, getSelectionLabel } =
+    const { member, keep, removedLoading, savingResourcesLoading, savingResourceIds, getSelectionLabel } =
         useValues(memberOffboardingLogic)
     const { setKeep, disableResources } = useActions(memberOffboardingLogic)
     const { user } = useValues(userLogic)
@@ -87,7 +87,7 @@ export function MemberOffboardingResourceSection({
                                       type="secondary"
                                       status="danger"
                                       size="small"
-                                      loading={savingResourcesLoading}
+                                      loading={resources.some((resource) => savingResourceIds.includes(resource.id))}
                                       disabledReason={disabledReason}
                                       onClick={() => {
                                           disableResources([...ctx.selectedKeys])
@@ -176,7 +176,7 @@ export function MemberOffboardingResourceSection({
                                   render: (_: unknown, resource: MemberOffboardingResourceApi) => (
                                       <div className="flex items-center gap-2">
                                           <LemonSwitch
-                                              loading={savingResourcesLoading}
+                                              loading={savingResourceIds.includes(resource.id)}
                                               checked={keep.includes(resource.id)}
                                               onChange={(enabled) => setKeep(resource.id, enabled)}
                                               disabledReason={disabledReason}
