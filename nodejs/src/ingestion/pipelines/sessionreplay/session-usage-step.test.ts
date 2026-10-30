@@ -97,6 +97,9 @@ describe('session usage', () => {
                             return pipeline
                         },
                         exec: () => {
+                            if (!redisAvailable) {
+                                return Promise.reject(new Error('Redis unavailable'))
+                            }
                             for (const [key, value, ttlSeconds] of writes) {
                                 redisValues.set(key, value)
                                 redisTtls.set(key, ttlSeconds)
@@ -125,17 +128,20 @@ describe('session usage', () => {
             expect(ingested).toEqual([expect.objectContaining({ recordId: 'session-1', timestampMs: FIRST_FLUSH })])
         })
 
-        it.each<[string, () => void]>([
-            ['the usage send fails', () => (sendFails = true)],
-            ['Redis is unavailable', () => (redisAvailable = false)],
-        ])('bills on the next saved flush when %s', async (_name, breakFirstFlush) => {
-            breakFirstFlush()
+        it('bills on the next saved flush when the usage send fails', async () => {
+            sendFails = true
             await flush([metadata('web', FIRST_FLUSH)])
             sendFails = false
-            redisAvailable = true
             await flush([metadata('web', SECOND_FLUSH)])
 
             expect(ingested).toEqual([expect.objectContaining({ recordId: 'session-1', timestampMs: SECOND_FLUSH })])
+        })
+
+        it('bills a session saved in only one flush when Redis is unavailable', async () => {
+            redisAvailable = false
+            await flush([metadata('web', FIRST_FLUSH)])
+
+            expect(ingested).toEqual([expect.objectContaining({ recordId: 'session-1', timestampMs: FIRST_FLUSH })])
         })
 
         it.each([

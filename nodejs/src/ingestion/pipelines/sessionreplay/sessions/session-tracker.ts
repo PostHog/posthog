@@ -185,7 +185,8 @@ export class SessionTracker {
 
     /**
      * A session without a key counts as unbilled, because a mark that failed to persist must not stop the bill.
-     * Fails closed: on a Redis error it returns no sessions, and the next flush that saves them bills them.
+     * On a Redis error every session outside the local billed cache counts as unbilled. A session saved in only
+     * one flush has no later flush to bill it. The usage table removes a resend on the same UTC day.
      */
     public async findUnbilled(sessions: SessionSet): Promise<SessionSet> {
         const unbilled = new SessionSet()
@@ -217,7 +218,10 @@ export class SessionTracker {
         } catch (error) {
             logger.error('session_tracker_find_unbilled_redis_error', { error: String(error) })
             SessionBatchMetrics.incrementSessionTrackerRedisErrors()
-            return new SessionSet()
+            for (const { teamId, sessionId } of misses) {
+                unbilled.add(teamId, sessionId)
+            }
+            return unbilled
         } finally {
             if (client) {
                 await this.redisPool.release(client)
