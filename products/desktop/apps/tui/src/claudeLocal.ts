@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { RequestPermissionRequest } from "@agentclientprotocol/sdk";
+import type { ImageContent } from "@earendil-works/pi-ai";
 import type { AcpMessage, StoredLogEntry } from "@posthog/shared";
 import type { AgentService } from "@posthog/workspace-server/services/agent/agent";
 import {
@@ -225,12 +226,19 @@ export class ClaudeLocalSession implements LocalAgent {
   }
 
   // A message sent mid-turn steers it; the first message of a turn waits for the turn to end.
-  async prompt(message: string): Promise<void> {
+  async prompt(message: string, images: ImageContent[] = []): Promise<void> {
     const sessionId = this.sessionId ?? (await this.connect());
     const steer = this.turn !== null;
     const sent = this.agent.prompt(
       sessionId,
-      [{ type: "text", text: message }],
+      [
+        { type: "text", text: message },
+        ...images.map(({ data, mimeType }) => ({
+          type: "image" as const,
+          data,
+          mimeType,
+        })),
+      ],
       { steer },
     );
     if (steer) {

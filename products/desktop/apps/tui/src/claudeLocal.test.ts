@@ -128,6 +128,29 @@ describe("ClaudeLocalSession", () => {
     );
   });
 
+  it("sends attached images after the message", async () => {
+    const agent = fakeAgent();
+    const session = new ClaudeLocalSession(
+      agent as never,
+      input,
+      async () => true,
+    );
+    await session.start();
+
+    await session.prompt("Look at this", [
+      { type: "image", data: "aGk=", mimeType: "image/png" },
+    ]);
+
+    expect(agent.prompt).toHaveBeenCalledWith(
+      "s1",
+      [
+        { type: "text", text: "Look at this" },
+        { type: "image", data: "aGk=", mimeType: "image/png" },
+      ],
+      { steer: false },
+    );
+  });
+
   it("reconnects the session the agent service killed for idling before the next message", async () => {
     const agent = fakeAgent();
     const session = new ClaudeLocalSession(
