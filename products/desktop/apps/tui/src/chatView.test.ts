@@ -436,6 +436,10 @@ describe("ChatView", () => {
       expect(chat.selectedText()).toBe("gamma");
       // A row taller, so the way back to the latest message does not cover it.
       expect(highlighted(chat.render(40, 6))).toEqual(["gamma"]);
+
+      // The drag goes on after the scroll: its start stays on gamma, not on the cell now under the pointer's start.
+      chat.select(gamma, { row: gamma.row + 2, column: gamma.column + 4 });
+      expect(chat.selectedText()).toBe("gamma");
     });
 
     it("keeps a drag past the chat's edges inside the chat", () => {

@@ -54,6 +54,8 @@ export interface Pointer {
 // Ghostty reports the pointer milliseconds before a drop's paste, but the hover repaint of a full split sits between them,
 // so the window is generous; a pointer moved well before a typed paste still does not count.
 const DROP_REPORT_MS = 1_500;
+// How often a drag held above or below a chat scrolls it a line.
+const EDGE_SCROLL_MS = 50;
 
 // Mouse input: clicks, hover, the wheel, and a drag that selects chat text and copies it on release.
 export function usePointer({
@@ -179,9 +181,18 @@ export function usePointer({
     current.target.select(local(from), local(to));
     repaint();
   };
+  // The drag in progress, so a scroll mid-drag can move the selection's end to where the pointer is.
+  const drag = useRef<{ from: Click; to: Click } | null>(null);
+  const edgeScroll = useRef<ReturnType<typeof setInterval> | null>(null);
+  const stopDrag = (): void => {
+    if (edgeScroll.current) clearInterval(edgeScroll.current);
+    edgeScroll.current = null;
+    drag.current = null;
+  };
 
   return {
     onPress: (at) => {
+      stopDrag();
       gesture.current.press(at);
       for (const chat of chats()) chat.clearSelection();
       for (const paneId of composerBoxes.current.keys())
@@ -201,9 +212,29 @@ export function usePointer({
     },
     onDrag: (at) => {
       const range = gesture.current.drag(at);
-      if (range) selectIn(range.from, range.to);
+      if (!range) return;
+      drag.current = range;
+      selectIn(range.from, range.to);
+      const current = selecting.current;
+      const outside =
+        current !== null &&
+        current.target === chatIn(current.paneId) &&
+        (at.row < current.box.top || at.row > current.box.bottom);
+      if (!outside) {
+        if (edgeScroll.current) clearInterval(edgeScroll.current);
+        edgeScroll.current = null;
+      } else if (!edgeScroll.current) {
+        edgeScroll.current = setInterval(() => {
+          const held = drag.current;
+          const target = selecting.current;
+          if (!held || !target) return;
+          scrollPane(target.paneId, held.to.row < target.box.top ? -1 : 1);
+          selectIn(held.from, held.to);
+        }, EDGE_SCROLL_MS);
+      }
     },
     onRelease: (at) => {
+      stopDrag();
       const end = gesture.current.release(at);
       if (end?.kind === "click") onClick(end.at);
       const current = selecting.current;
@@ -238,7 +269,11 @@ export function usePointer({
     },
     onWheel: (wheel) => {
       const paneId = paneHit(wheel);
-      if (paneId) scrollPane(paneId, wheel.delta * 3);
+      if (!paneId) return;
+      scrollPane(paneId, wheel.delta * 3);
+      const held = drag.current;
+      if (held && selecting.current?.paneId === paneId)
+        selectIn(held.from, held.to);
     },
     paneAtDrop: () => {
       const move = lastMove.current;

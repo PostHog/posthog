@@ -546,8 +546,12 @@ export class ChatView {
   }
 
   // Selects from one cell of the chat on screen to another; cells past the chat's edges count as its edges.
+  // A drag keeps the transcript cell it started on, so scrolling mid-drag extends the selection.
   select(from: Click, to: Click): void {
-    this.selection = { anchor: this.cellAt(from), head: this.cellAt(to) };
+    this.selection = {
+      anchor: this.selection?.anchor ?? this.cellAt(from),
+      head: this.cellAt(to),
+    };
   }
 
   // Selects the word under a cell; false on a space.
