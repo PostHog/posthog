@@ -41,6 +41,8 @@ interface TodayFeedCardProps {
     done?: boolean
     dataAttr: string
     tracking?: TodayFeedCardTracking
+    /** Lets the home page return focus to this card after the report closes. */
+    reportId?: string
 }
 
 const DWELL_MS = 600
@@ -63,6 +65,7 @@ export function TodayFeedCard({
     done,
     dataAttr,
     tracking,
+    reportId,
 }: TodayFeedCardProps): JSX.Element {
     const dwellTimer = useRef<number>()
     useEffect(() => () => window.clearTimeout(dwellTimer.current), [])
@@ -112,7 +115,7 @@ export function TodayFeedCard({
                 </Tooltip>
                 <p className="TodayFeedCard__title" title={title}>
                     {link ? (
-                        <LinkPrimitive {...link} data-attr={dataAttr}>
+                        <LinkPrimitive {...link} data-today-report={reportId} data-attr={dataAttr}>
                             {title}
                         </LinkPrimitive>
                     ) : (

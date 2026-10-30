@@ -13,6 +13,7 @@ export function TodayFeed(): JSX.Element {
     const { feedCardHovered, feedCardClicked } = useActions(todayLogic)
     return (
         <div className="TodayFeed">
+            <TodayFeedSources />
             <div className="min-w-0">
                 <ol className="TodayFeed__posts">
                     {feedRows.map((row, index) => {
@@ -42,7 +43,6 @@ export function TodayFeed(): JSX.Element {
                 </ol>
                 {!forYouCanShowMore && <p className="TodayFeed__end">You’re all caught up</p>}
             </div>
-            <TodayFeedSources />
         </div>
     )
 }

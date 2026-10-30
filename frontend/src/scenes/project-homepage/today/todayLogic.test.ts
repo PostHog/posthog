@@ -53,6 +53,7 @@ describe('todayLogic', () => {
                 '/api/projects/:team_id/signals/reports/:id/state/': () => [200, {}],
             },
         })
+        localStorage.clear()
         initKeaTests()
     })
 
@@ -88,6 +89,26 @@ describe('todayLogic', () => {
             })
         )
     })
+
+    it.each([
+        { view: 'list', canShowMore: true },
+        { view: 'feed', canShowMore: false },
+    ] as const)(
+        'offers show more in the $view view only when it reveals rows: $canShowMore',
+        async ({ view, canShowMore }) => {
+            const reports = Array.from({ length: TOP_REPORT_COUNT }, (_, index) => makeReport({ id: `r-${index}` }))
+            listResponse = [200, { results: reports, count: reports.length }]
+            highlightResponses = [
+                [200, makeHighlights({ items: ['a', 'b'].map((key) => makeHighlightItem({ key: `alert:${key}` })) })],
+            ]
+            const logic = todayLogic()
+            logic.mount()
+            logic.actions.setForYouView(view)
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.forYouRows.rows.length).toBeGreaterThan(logic.values.forYouRows.limit)
+            expect(logic.values.forYouCanShowMore).toBe(canShowMore)
+        }
+    )
 
     it.each([
         { variant: 'test', choice: null, view: 'feed' },

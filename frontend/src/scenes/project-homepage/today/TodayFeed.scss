@@ -6,6 +6,7 @@
 
     @container main-content (max-width: 760px) {
         grid-template-columns: minmax(0, 1fr);
+        gap: 4px;
     }
 }
 
@@ -73,7 +74,7 @@
 }
 
 .TodayFeedCard__avatar {
-    --today-feed-avatar-bg: color-mix(in srgb, var(--today-feed-tint, var(--today-ink)) 14%, var(--today-card));
+    --today-feed-avatar-bg: color-mix(in sRGB, var(--today-feed-tint, var(--today-ink)) 14%, var(--today-card));
 
     display: grid;
     grid-area: avatar;
@@ -202,11 +203,9 @@
     top: 16px;
     display: flex;
     flex-direction: column;
+    grid-row: 1;
+    grid-column: 2;
     margin-top: 6px;
-
-    @container main-content (max-width: 760px) {
-        display: none;
-    }
 
     > * {
         justify-content: flex-start;
@@ -214,7 +213,18 @@
 
     > [aria-pressed='true'] {
         color: var(--today-ink);
-        background: color-mix(in srgb, var(--today-ink) 6%, var(--today-paper));
+        background: color-mix(in sRGB, var(--today-ink) 6%, var(--today-paper));
+    }
+
+    // A narrow scene has no room for the rail, so the filters wrap into a row above the cards.
+    @container main-content (max-width: 760px) {
+        position: static;
+        flex-flow: row wrap;
+        grid-column: 1;
+
+        .TodayFeedSources__label {
+            flex: none;
+        }
     }
 }
 

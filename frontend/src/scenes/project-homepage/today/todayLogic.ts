@@ -198,6 +198,9 @@ export interface todayLogicValues {
     currentMoreReports: TodayMoreReports | null
     expandedReportRows: Record<string, boolean>
     exploreItems: TodayExploreItem[]
+    feedRows: TodayForYouRow[]
+    feedSource: string | null
+    feedSources: TodayFeedSource[]
     forYouCanShowLess: boolean
     forYouCanShowMore: boolean
     forYouFailedNote: string | null
@@ -206,9 +209,6 @@ export interface todayLogicValues {
     forYouRows: TodayForYouRows
     forYouView: TodayForYouView
     forYouViewChoice: TodayForYouView | null
-    feedSource: string | null
-    feedRows: TodayForYouRow[]
-    feedSources: TodayFeedSource[]
     forYouVisibleRows: TodayForYouRow[]
     frequentObjects: FileSystemEntry[]
     frequentObjectsLoading: boolean
@@ -288,6 +288,16 @@ export interface todayLogicActions {
         position: number
         product: string
     }
+    feedCardClicked: (
+        card: TodayFeedCardEvent,
+        target: string
+    ) => {
+        card: TodayFeedCardEvent
+        target: string
+    }
+    feedCardHovered: (card: TodayFeedCardEvent) => {
+        card: TodayFeedCardEvent
+    }
     jumpBackOpened: (
         entry: FileSystemEntry,
         position: number,
@@ -352,24 +362,14 @@ export interface todayLogicActions {
     retryFailedLoads: () => {
         value: true
     }
-    setHomeScrollTop: (top: number | null) => {
-        top: number | null
-    }
-    feedCardClicked: (
-        card: TodayFeedCardEvent,
-        target: string
-    ) => {
-        card: TodayFeedCardEvent
-        target: string
-    }
-    feedCardHovered: (card: TodayFeedCardEvent) => {
-        card: TodayFeedCardEvent
-    }
     setFeedSource: (source: string | null) => {
         source: string | null
     }
     setForYouView: (view: TodayForYouView) => {
         view: TodayForYouView
+    }
+    setHomeScrollTop: (top: number | null) => {
+        top: number | null
     }
     setListExpanded: (
         list: TodayList,
@@ -446,13 +446,21 @@ export interface todayLogicMeta {
         ) => boolean
         forYouFailedNote: (reportsBroken: boolean, highlightsFailed: boolean) => string | null
         forYouOpenCount: (forYouRows: TodayForYouRows) => number
+        forYouView: (forYouViewChoice: TodayForYouView | null, featureFlags: FeatureFlagsSet) => TodayForYouView
+        feedSources: (forYouRows: TodayForYouRows) => TodayFeedSource[]
+        feedRows: (forYouRows: TodayForYouRows, feedSource: string | null) => TodayForYouRow[]
         forYouVisibleRows: (forYouRows: TodayForYouRows, listExpanded: Record<TodayList, boolean>) => TodayForYouRow[]
         forYouCanShowMore: (
             forYouRows: TodayForYouRows,
             listExpanded: Record<TodayList, boolean>,
-            canLoadMoreReports: boolean
+            canLoadMoreReports: boolean,
+            forYouView: TodayForYouView
         ) => boolean
-        forYouCanShowLess: (forYouRows: TodayForYouRows, listExpanded: Record<TodayList, boolean>) => boolean
+        forYouCanShowLess: (
+            forYouRows: TodayForYouRows,
+            listExpanded: Record<TodayList, boolean>,
+            forYouView: TodayForYouView
+        ) => boolean
         isNewProject: (currentTeam: TeamPublicType | TeamType | null, useSampleData: boolean) => boolean
         exploreItems: (currentTeam: TeamPublicType | TeamType | null) => TodayExploreItem[]
         reportPreviews: (
@@ -817,18 +825,23 @@ export const todayLogic = kea<todayLogicType>([
             ({ rows, limit }: TodayForYouRows, listExpanded: Record<TodayList, boolean>): TodayForYouRow[] =>
                 listExpanded.for_you ? rows : rows.slice(0, limit),
         ],
+        // The feed shows every loaded row, so it only offers to load more reports.
         forYouCanShowMore: [
-            (s) => [s.forYouRows, s.listExpanded, s.canLoadMoreReports],
+            (s) => [s.forYouRows, s.listExpanded, s.canLoadMoreReports, s.forYouView],
             (
                 { rows, limit }: TodayForYouRows,
                 listExpanded: Record<TodayList, boolean>,
-                canLoadMoreReports: boolean
-            ): boolean => (!listExpanded.for_you && rows.length > limit) || canLoadMoreReports,
+                canLoadMoreReports: boolean,
+                forYouView: TodayForYouView
+            ): boolean => canLoadMoreReports || (forYouView === 'list' && !listExpanded.for_you && rows.length > limit),
         ],
         forYouCanShowLess: [
-            (s) => [s.forYouRows, s.listExpanded],
-            ({ rows }: TodayForYouRows, listExpanded: Record<TodayList, boolean>): boolean =>
-                listExpanded.for_you && rows.length > VISIBLE_ROWS + 1,
+            (s) => [s.forYouRows, s.listExpanded, s.forYouView],
+            (
+                { rows }: TodayForYouRows,
+                listExpanded: Record<TodayList, boolean>,
+                forYouView: TodayForYouView
+            ): boolean => forYouView === 'list' && listExpanded.for_you && rows.length > VISIBLE_ROWS + 1,
         ],
         isNewProject: [
             (s) => [s.currentTeam, s.useSampleData],

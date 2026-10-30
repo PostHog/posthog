@@ -106,6 +106,7 @@ export function TodayFeedReportCard({
             }}
             done={done}
             tracking={tracking}
+            reportId={report.id}
             dataAttr="today-feed-report"
         />
     )

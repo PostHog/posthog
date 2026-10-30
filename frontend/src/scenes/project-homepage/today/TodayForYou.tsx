@@ -1,17 +1,21 @@
 import { useActions, useValues } from 'kea'
+import { Suspense, lazy } from 'react'
 
 import { IconArrowRight, IconChevronDown } from '@posthog/icons'
 import { Button, Skeleton, ToggleGroup, ToggleGroupItem } from '@posthog/quill'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
+import { retryImport } from 'lib/utils/retryImport'
 import { urls } from 'scenes/urls'
 
-import { TodayFeed } from './TodayFeed'
 import { type TodayForYouRow } from './todayForYouRows'
 import { TodayHighlightRow } from './TodayHighlightRow'
 import { TodayHomeHeading } from './TodayHomeHeading'
 import { type TodayForYouView, todayLogic } from './todayLogic'
 import { TodayReportRow } from './TodayReportRow'
+
+// Only people who use the feed view download it.
+const TodayFeed = lazy(() => retryImport(() => import('./TodayFeed').then((m) => ({ default: m.TodayFeed }))))
 
 function TodayRowsSkeleton(): JSX.Element {
     return (
@@ -86,7 +90,9 @@ export function TodayForYou(): JSX.Element {
                     </p>
                 )
             ) : forYouView === 'feed' ? (
-                <TodayFeed />
+                <Suspense fallback={<TodayRowsSkeleton />}>
+                    <TodayFeed />
+                </Suspense>
             ) : (
                 <ol className="TodayRows">{forYouVisibleRows.map(renderRow)}</ol>
             )}
