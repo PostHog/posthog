@@ -11,7 +11,7 @@ from django.utils import timezone
 import structlog
 import posthoganalytics
 from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field
-from rest_framework import exceptions, pagination, serializers, status, viewsets
+from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.exceptions import ErrorDetail
 from rest_framework.generics import get_object_or_404
 from rest_framework.request import Request
@@ -19,6 +19,7 @@ from rest_framework.response import Response
 from slack_sdk.errors import SlackApiError
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
+from posthog.api.pagination import StableCursorPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, action
@@ -648,7 +649,7 @@ class CommentErrorSerializer(serializers.Serializer):
     error_type = serializers.CharField(required=False, help_text="Stable machine-readable identifier for the failure.")
 
 
-class CommentPagination(pagination.CursorPagination):
+class CommentPagination(StableCursorPagination):
     # `created_at` is not unique, and DRF encodes only the first ordering field in the cursor,
     # resolving ties with an offset. That offset is reproducible only when rows sharing a
     # timestamp come back in a stable order, which Postgres does not otherwise guarantee.
