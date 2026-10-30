@@ -3,9 +3,10 @@ from typing import Any, Literal
 
 from django.db.models import Q, QuerySet
 
-from rest_framework import filters, pagination, serializers, viewsets
+from rest_framework import filters, serializers, viewsets
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
+from posthog.api.pagination import BoundedLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
@@ -212,7 +213,7 @@ class AnnotationSerializer(serializers.ModelSerializer):
         return annotation
 
 
-class AnnotationsLimitOffsetPagination(pagination.LimitOffsetPagination):
+class AnnotationsLimitOffsetPagination(BoundedLimitOffsetPagination):
     default_limit = 1000
 
 
