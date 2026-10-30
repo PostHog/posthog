@@ -11,7 +11,7 @@ from posthog.models.scoping import team_scope
 from posthog.models.team import Team
 
 from products.alerts.backend.facade.contracts import HogFunctionPathReason
-from products.alerts.backend.facade.destinations import build_alert_destination_config, destination_handles_event_kind
+from products.alerts.backend.facade.destinations import build_alert_destination_config
 from products.alerts_platform.backend.facade import testing as platform_testing
 from products.alerts_platform.backend.facade.api import get_configuration, list_configurations, upsert_configuration
 from products.alerts_platform.backend.facade.contracts import (
@@ -26,7 +26,6 @@ from products.logs.backend.alert_destinations import (
     EVENT_KIND_CONFIG,
     LOGS_ALERT_EVENT_IDS,
     LOGS_ALERT_SLACK_CONTEXT_ELEMENTS,
-    LOGS_DESTINATION_TYPES,
     EventKind,
 )
 from products.logs.backend.delivery_path_report import team_delivery_paths
@@ -59,12 +58,6 @@ def stock_destination(kind: EventKind, destination_type: DestinationType) -> tup
 
 _, WEBHOOK_INPUTS = stock_destination("firing", DestinationType.WEBHOOK)
 _, SLACK_INPUTS = stock_destination("firing", DestinationType.SLACK)
-STOCK_DESTINATIONS = [
-    (f"{kind}_{destination_type}", *stock_destination(kind, destination_type))
-    for kind, spec in EVENT_KIND_CONFIG.items()
-    for destination_type in LOGS_DESTINATION_TYPES
-    if destination_handles_event_kind(destination_type, spec)
-]
 
 
 class TestPlatformCutover(APIBaseTest):
@@ -402,7 +395,12 @@ class TestPlatformCutover(APIBaseTest):
         ]
         assert result.skipped is None
 
-    @parameterized.expand(STOCK_DESTINATIONS)
+    @parameterized.expand(
+        [
+            ("stock_slack", "template-slack", SLACK_INPUTS),
+            ("stock_webhook_with_legacy_body", "template-webhook", WEBHOOK_INPUTS),
+        ]
+    )
     def test_a_team_moves_when_every_destination_is_ready(
         self, _name: str, template_id: str, inputs: dict[str, Any]
     ) -> None:

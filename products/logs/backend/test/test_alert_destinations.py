@@ -4,7 +4,13 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from products.alerts.backend.facade.destinations import build_alert_destination_config, validate_destination_data
+from products.alerts.backend.facade.destinations import (
+    build_alert_destination_config,
+    destination_handles_event_kind,
+    validate_destination_data,
+)
+from products.alerts.backend.logic.destination_configs import SPEC_BY_TEMPLATE_ID
+from products.alerts.backend.logic.destination_eligibility import LOGS_STOCK_INPUT_VALUES
 from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
     AlertDestinationValidationError,
@@ -66,6 +72,8 @@ SLACK_DATA = cast(
     AlertDestinationData, {"type": DestinationType.SLACK, "slack_workspace_id": 1, "slack_channel_id": "C-ENG"}
 )
 TEAMS_DATA = cast(AlertDestinationData, {"type": DestinationType.TEAMS, "webhook_url": "https://example.com/hook"})
+WEBHOOK_DATA = cast(AlertDestinationData, {"type": DestinationType.WEBHOOK, "webhook_url": "https://example.com/hook"})
+PAGERDUTY_DATA = cast(AlertDestinationData, {"type": DestinationType.PAGERDUTY, "pagerduty_routing_key": "a" * 32})
 
 
 def destination_inputs(kind: EventKind, data: AlertDestinationData) -> dict[str, Any]:
@@ -83,6 +91,34 @@ MESSAGE_KINDS = [kind for kind in EVENT_KINDS if EVENT_KIND_CONFIG[kind].inciden
 
 
 class TestRenderedDestinationContent(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (f"{kind}_{data['type']}", kind, data)
+            for kind in EVENT_KINDS
+            for data in (SLACK_DATA, TEAMS_DATA, WEBHOOK_DATA, PAGERDUTY_DATA)
+            if destination_handles_event_kind(data["type"], EVENT_KIND_CONFIG[kind])
+        ]
+    )
+    def test_every_default_message_is_in_the_stock_list_native_delivery_reads(
+        self, _name: str, kind: EventKind, data: AlertDestinationData
+    ) -> None:
+        config = build_alert_destination_config(
+            spec=EVENT_KIND_CONFIG[kind],
+            alert_id="alert-1",
+            alert_name="Checkout errors",
+            data=data,
+            slack_context_elements=LOGS_ALERT_SLACK_CONTEXT_ELEMENTS,
+        ).payload
+        template_id = config["template_id"]
+        stock = LOGS_STOCK_INPUT_VALUES[template_id]
+        missing = {
+            key: entry["value"]
+            for key, entry in config["inputs"].items()
+            if key not in SPEC_BY_TEMPLATE_ID[template_id].address_input_keys
+            and entry["value"] not in stock.get(key, [])
+        }
+        assert missing == {}
+
     @parameterized.expand([(kind,) for kind in MESSAGE_KINDS])
     def test_slack_body_puts_every_detail_on_its_own_line(self, kind: EventKind) -> None:
         spec = EVENT_KIND_CONFIG[kind]

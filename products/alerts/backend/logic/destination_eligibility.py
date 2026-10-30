@@ -63,14 +63,18 @@ _INPUT_HOLD_BACKS: Final[dict[str, dict[str, DestinationHoldBack]]] = {
 # Every value an insight alert path has shipped as a default, by template and input key. Built from
 # git history: the insight alert sub-template, the template defaults, the alert wizard, the backend
 # Slack blocks, the agent recipes and the chart-block backfill. Add the default of any new path here.
-STOCK_INPUT_VALUES: Final[dict[str, dict[str, list[Any]]]] = json.loads(
-    (Path(__file__).parent / "destination_stock_inputs.json").read_text()
-)
-# Every value the logs alert API writes as a default, by template and input key. When a logs message
-# changes, add the new value and keep the old one, because functions built with it still exist.
-LOGS_STOCK_INPUT_VALUES: Final[dict[str, dict[str, list[Any]]]] = json.loads(
-    (Path(__file__).parent / "logs_destination_stock_inputs.json").read_text()
-)
+StockInputValues = dict[str, dict[str, list[Any]]]
+
+
+def _load_stock_input_values(file_name: str) -> StockInputValues:
+    return json.loads((Path(__file__).parent / file_name).read_text())
+
+
+STOCK_INPUT_VALUES: Final = _load_stock_input_values("destination_stock_inputs.json")
+# Every value a logs alert path has written as a default, by template and input key: what the logs
+# alert API builds, and the retired Slack headers that functions built in April 2026 still hold. When
+# a logs message changes, add the new value and keep the old one, because functions built with it still exist.
+LOGS_STOCK_INPUT_VALUES: Final = _load_stock_input_values("logs_destination_stock_inputs.json")
 # Matches the logs events that `GENERIC_API_EDITABLE_ALERT_EVENT_SCOPES` in cdp names.
 _LOGS_ALERT_EVENT_PREFIX: Final = "$logs_alert_"
 _NOT_SENT_INPUTS: Final = frozenset({"debug"})
@@ -153,7 +157,7 @@ def _classify(
 ) -> tuple[DestinationEligibility, ...]:
     if not functions:
         return ()
-    stock = _stock_input_values(allowed_event_ids)
+    source_stock = _source_stock_input_values(allowed_event_ids)
     first_revisions: dict[UUID, HogFunctionRevision] = {
         revision.hog_function_id: revision
         for revision in HogFunctionRevision.objects.for_team(team_id)
@@ -166,11 +170,8 @@ def _classify(
         DestinationEligibility(
             hog_function_id=function.id,
             template_id=function.template_id,
-            # A template missing from the list was never a default of the source, so every message it holds is an edit.
             hold_backs=_hold_backs(
-                function,
-                first_revisions.get(function.id),
-                None if stock is None else stock.get(function.template_id or "", {}),
+                function, first_revisions.get(function.id), _template_stock(source_stock, function.template_id)
             ),
             code_hash=hashlib.md5((function.hog or "").encode(), usedforsecurity=False).hexdigest(),
         )
@@ -178,13 +179,20 @@ def _classify(
     )
 
 
-def _stock_input_values(allowed_event_ids: Collection[str]) -> dict[str, dict[str, list[Any]]] | None:
+def _source_stock_input_values(allowed_event_ids: Collection[str]) -> StockInputValues | None:
     # The first revision of an insight or logs destination can already hold an edit.
     if not set(allowed_event_ids).isdisjoint(INSIGHT_ALERT_EVENT_IDS):
         return STOCK_INPUT_VALUES
     if any(event_id.startswith(_LOGS_ALERT_EVENT_PREFIX) for event_id in allowed_event_ids):
         return LOGS_STOCK_INPUT_VALUES
     return None
+
+
+def _template_stock(source_stock: StockInputValues | None, template_id: str | None) -> dict[str, list[Any]] | None:
+    if source_stock is None:
+        return None
+    # A template missing from the list was never a default of the source, so every message it holds is an edit.
+    return source_stock.get(template_id or "", {})
 
 
 def bucket_for(eligibility: DestinationEligibility) -> DestinationBucket:
