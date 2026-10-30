@@ -209,6 +209,7 @@ class TestRecalculationActivities(BaseTest):
             ("ordered_funnel_on_direct_scan_team", False, "ordered", False),
         ]
     )
+    @time_machine.travel("2026-06-23T05:00:00Z", tick=False)
     def test_discover_marks_metrics_that_read_the_precompute_table(
         self, name: str, precompute_enabled: bool, funnel_order_type: str, expected: bool
     ):
