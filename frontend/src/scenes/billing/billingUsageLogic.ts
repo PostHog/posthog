@@ -193,15 +193,16 @@ export interface billingUsageLogicValues {
     headingTooltip: string | null
     reportedProjectIds: number[]
     reportedProjectIdsLoading: boolean
-    series: {
+    series: ({
         breakdown_type: BillingUsageResponseBreakdownType | null
         breakdown_value: string | string[] | null
         data: number[]
         dates: string[]
         id: number
-        key: string
         label: string
-    }[]
+    } & {
+        key: string
+    })[]
     showEmptyState: boolean
     showSeries: boolean
     teamOptions: {
@@ -334,26 +335,28 @@ export interface billingUsageLogicMeta {
             dateFrom: string,
             dateTo: string | null
         ) => BillingPeriodMarker[]
-        series: (billingUsageResponse: BillingUsageResponse | null) => {
+        series: (billingUsageResponse: BillingUsageResponse | null) => ({
             breakdown_type: BillingUsageResponseBreakdownType | null
             breakdown_value: string | string[] | null
             data: number[]
             dates: string[]
             id: number
-            key: string
             label: string
-        }[]
+        } & {
+            key: string
+        })[]
         dates: (billingUsageResponse: BillingUsageResponse | null) => string[]
         emptySeriesKeys: (
-            series: {
+            series: ({
                 breakdown_type: BillingUsageResponseBreakdownType | null
                 breakdown_value: string | string[] | null
                 data: number[]
                 dates: string[]
                 id: number
-                key: string
                 label: string
-            }[]
+            } & {
+                key: string
+            })[]
         ) => string[]
         canStackSeries: (filters: {
             breakdowns?: ('team' | 'type')[] | undefined
@@ -374,15 +377,16 @@ export interface billingUsageLogicMeta {
         ) => string[]
         showSeries: (
             billingUsageResponseLoading: boolean,
-            series: {
+            series: ({
                 breakdown_type: BillingUsageResponseBreakdownType | null
                 breakdown_value: string | string[] | null
                 data: number[]
                 dates: string[]
                 id: number
-                key: string
                 label: string
-            }[],
+            } & {
+                key: string
+            })[],
             billingUsageError: BillingUsageError | null
         ) => boolean
         showEmptyState: (
@@ -734,7 +738,8 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
         ],
         finalHiddenSeries: [
             (s) => [s.userHiddenSeries, s.excludeEmptySeries, s.emptySeriesKeys],
-            hiddenSeriesForDisplay,
+            (userHiddenSeries: string[], excludeEmptySeries: boolean, emptySeriesKeys: string[]): string[] =>
+                hiddenSeriesForDisplay(userHiddenSeries, excludeEmptySeries, emptySeriesKeys),
         ],
         showSeries: [
             (s) => [s.billingUsageResponseLoading, s.series, s.billingUsageError],

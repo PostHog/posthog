@@ -125,15 +125,16 @@ export interface billingSpendLogicValues {
     headingTooltip: string | null
     reportedProjectIds: number[]
     reportedProjectIdsLoading: boolean
-    series: {
+    series: ({
         breakdown_type: BillingSpendResponseBreakdownType | null
         breakdown_value: string | string[] | null
         data: number[]
         dates: string[]
         id: number
-        key: string
         label: string
-    }[]
+    } & {
+        key: string
+    })[]
     showEmptyState: boolean
     showSeries: boolean
     spendChartExportUrl: string
@@ -273,15 +274,16 @@ export interface billingSpendLogicMeta {
             effectiveTeamIds: number[] | undefined,
             billingReads: BillingReads
         ) => string
-        series: (billingSpendResponse: BillingSpendResponse | null) => {
+        series: (billingSpendResponse: BillingSpendResponse | null) => ({
             breakdown_type: BillingSpendResponseBreakdownType | null
             breakdown_value: string | string[] | null
             data: number[]
             dates: string[]
             id: number
-            key: string
             label: string
-        }[]
+        } & {
+            key: string
+        })[]
         dates: (billingSpendResponse: BillingSpendResponse | null) => string[]
         dateOptions: (billingPeriodUTC: BillingPeriod) => DateMappingOption[]
         billingPeriodMarkers: (
@@ -290,15 +292,16 @@ export interface billingSpendLogicMeta {
             dateTo: string | null
         ) => BillingPeriodMarker[]
         emptySeriesKeys: (
-            series: {
+            series: ({
                 breakdown_type: BillingSpendResponseBreakdownType | null
                 breakdown_value: string | string[] | null
                 data: number[]
                 dates: string[]
                 id: number
-                key: string
                 label: string
-            }[]
+            } & {
+                key: string
+            })[]
         ) => string[]
         defaultChartType: (filters: {
             breakdowns?: ('team' | 'type')[] | undefined
@@ -319,15 +322,16 @@ export interface billingSpendLogicMeta {
         ) => string[]
         showSeries: (
             billingSpendResponseLoading: boolean,
-            series: {
+            series: ({
                 breakdown_type: BillingSpendResponseBreakdownType | null
                 breakdown_value: string | string[] | null
                 data: number[]
                 dates: string[]
                 id: number
-                key: string
                 label: string
-            }[]
+            } & {
+                key: string
+            })[]
         ) => boolean
         showEmptyState: (showSeries: boolean, billingSpendResponse: BillingSpendResponse | null) => boolean
         heading: (filters: {
@@ -665,7 +669,8 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
         ],
         finalHiddenSeries: [
             (s) => [s.userHiddenSeries, s.excludeEmptySeries, s.emptySeriesKeys],
-            hiddenSeriesForDisplay,
+            (userHiddenSeries: string[], excludeEmptySeries: boolean, emptySeriesKeys: string[]): string[] =>
+                hiddenSeriesForDisplay(userHiddenSeries, excludeEmptySeries, emptySeriesKeys),
         ],
         showSeries: [
             (s) => [s.billingSpendResponseLoading, s.series],
