@@ -409,7 +409,8 @@ def send_transactional_email(
     CDP_SEND_RESULTS.labels(result=_cdp_response_result(response.status_code)).inc()
 
     if response.status_code != 202:
-        refusal = PIPELINE_REFUSALS.get(_refusal_code(response) or "")
+        refusal_code = _refusal_code(response)
+        refusal = PIPELINE_REFUSALS.get(refusal_code or "")
         if refusal is not None:
             error_class, message = refusal
             raise error_class(message)
@@ -418,6 +419,7 @@ def send_transactional_email(
             team_id=team.id,
             template_id=str(template_id),
             status_code=response.status_code,
+            refusal_code=refusal_code,
         )
         raise DeliveryUnavailable()
 

@@ -52,7 +52,6 @@ from products.review_hog.backend.temporal.activities import (
     LoadValidationInput,
     PublishInput,
     PublishResult,
-    RemoveTriggerLabelInput,
     ResolveActingUserResult,
     ReviewChunkInput,
     ReviewMeta,
@@ -188,7 +187,6 @@ async def _run_full_review_pr_workflow(
     publish_calls: list[int] = []
     publish_capped_lens_parts: list[int | None] = []
     finalize_will_publish: list[bool] = []
-    remove_label_calls: list[int] = []
     # Each code_review receipt appended to the signals report, as (outcome, review_url).
     receipt_calls: list[tuple[str, str | None]] = []
     # The outcome edit of the PR status comment, as (urgency_threshold, resolved_from, review_url) —
@@ -407,10 +405,6 @@ async def _run_full_review_pr_workflow(
         threshold_calls.append(("publish", input.urgency_threshold))
         return PublishResult(posted=publish_posts, review_url=_REVIEW_URL if publish_posts else None)
 
-    @activity.defn(name="remove_trigger_label_activity")
-    async def remove_label(input: RemoveTriggerLabelInput) -> None:
-        remove_label_calls.append(input.pr_number)
-
     @activity.defn(name="append_code_review_artefact_activity")
     async def append_receipt(input: AppendCodeReviewArtefactInput) -> None:
         receipt_calls.append((input.outcome, input.review_url))
@@ -528,7 +522,6 @@ async def _run_full_review_pr_workflow(
                 validate_chunk,
                 build_body,
                 publish_act,
-                remove_label,
                 append_receipt,
                 post_status,
                 finalize_status,
@@ -588,7 +581,6 @@ async def _run_full_review_pr_workflow(
         "publish": publish_calls,
         "publish_capped_lens_parts": publish_capped_lens_parts,
         "finalize_will_publish": finalize_will_publish,
-        "remove_label": remove_label_calls,
         "receipts": receipt_calls,
         "load_user_ids": load_user_ids,
         "thresholds": threshold_calls,
@@ -743,19 +735,12 @@ def test_nudge_stamphog_raises_a_dispatch_error_so_temporal_retries_it():
 
 
 @pytest.mark.asyncio
-async def test_review_pr_workflow_removes_label_trigger_after_completion():
-    recorded = await _run_full_review_pr_workflow(publish=True, trigger_source="label")
-    assert recorded["remove_label"] == [7]
-
-
-@pytest.mark.asyncio
 @pytest.mark.parametrize("review_mode", ["full", "flash"])
-async def test_review_pr_workflow_removes_label_trigger_after_failure(review_mode: str):
+async def test_review_pr_workflow_reports_a_failed_turn(review_mode: str):
     recorded = await _run_full_review_pr_workflow(
-        publish=True, trigger_source="label", fail_dedup=True, review_mode=review_mode
+        publish=True, trigger_source="stamphog", fail_dedup=True, review_mode=review_mode
     )
     assert recorded["failed"] is True
-    assert recorded["remove_label"] == [7]
     # A Standard turn has no status comment, but its failure still returns the report to rest and
     # tells the PR. A dead turn must not leave its 👀 behind either.
     assert recorded["fail_status"] == [(review_mode, True, review_mode == "full")]
@@ -786,20 +771,13 @@ async def test_review_pr_workflow_reports_a_failure_only_on_the_last_attempt(
 async def test_review_pr_workflow_does_not_retry_a_wave_over_the_failure_floor():
     recorded = await _run_full_review_pr_workflow(
         publish=True,
-        trigger_source="label",
+        trigger_source="stamphog",
         fail_review_units=frozenset((p, c) for p in (1, 2, 3) for c in (1, 2)),
         workflow_max_attempts=2,
     )
     assert recorded["failed"] is True
     assert recorded["split"] == [1]
     assert len(recorded["review"]) == 6
-    assert recorded["remove_label"] == [7]
-
-
-@pytest.mark.asyncio
-async def test_review_pr_workflow_does_not_remove_label_for_other_triggers():
-    recorded = await _run_full_review_pr_workflow(publish=True, trigger_source="manual")
-    assert recorded["remove_label"] == []
 
 
 @parameterized.expand(
@@ -1022,7 +1000,7 @@ async def test_automatic_reviews_recheck_consent_and_skip_completed_or_closed_pr
     "trigger_source,reviewed_head,gate_skips,fail_gate,review_design,expected_gate,expected_review",
     [
         ("automatic", None, True, False, "pipeline", [], True),
-        ("label", "sha0", True, False, "pipeline", [], True),
+        ("stamphog", "sha0", True, False, "pipeline", [], True),
         ("manual", "sha0", True, False, "pipeline", [], True),
         ("automatic", "sha0", True, False, "pipeline", ["sha0"], False),
         ("automatic", "sha0", False, False, "pipeline", ["sha0"], True),
@@ -1087,8 +1065,8 @@ async def test_review_pr_workflow_skips_when_author_maps_to_no_user():
 @parameterized.expand(
     [
         # (name, trigger_source, review_inbox_prs, input_acting_user_id, expect_ran)
-        # A label always runs, and the inbox toggle has no say over it.
-        ("label_ignores_inbox_toggle", "label", False, None, True),
+        # A Stamphog handoff always runs, and the inbox toggle has no say over it.
+        ("stamphog_ignores_inbox_toggle", "stamphog", False, None, True),
         # The inbox trigger honors only review_inbox_prs (default off = the budget gate); the
         # receiver always sets the acting override, so the override must NOT bypass this gate.
         ("inbox_default_off_skips", "inbox", False, 3, False),

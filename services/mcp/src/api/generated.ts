@@ -2983,6 +2983,8 @@ export namespace Schemas {
     export interface ResolvedDateRangeResponse {
       date_from: string;
       date_to: string;
+      /** The earliest timestamp the query reads, when only its first interval depends on rows from before date_from. Lifecycle sets it to the start of the interval before the range. */
+      read_from?: string | null;
     }
 
     export interface QueryTiming {
@@ -10730,6 +10732,15 @@ export namespace Schemas {
       Area: 'area',
     } as const;
 
+    export type ValueLabels = typeof ValueLabels[keyof typeof ValueLabels];
+
+
+    export const ValueLabels = {
+      Auto: 'auto',
+      Show: 'show',
+      Hide: 'hide',
+    } as const;
+
     export type YAxisPosition = typeof YAxisPosition[keyof typeof YAxisPosition];
 
 
@@ -10741,8 +10752,12 @@ export namespace Schemas {
     export interface ChartSettingsDisplay {
       color?: string | null;
       displayType?: DisplayType | null;
+      /** Keep this series out of the tooltip's total row, e.g. a target line over stacked bars. */
+      excludeFromTotal?: boolean | null;
       label?: string | null;
       trendLine?: boolean | null;
+      /** Overrides the chart's "Show values on series" for this series. Unset or 'auto' follows the chart setting. */
+      valueLabels?: ValueLabels | null;
       yAxisPosition?: YAxisPosition | null;
     }
 
@@ -72938,6 +72953,126 @@ export namespace Schemas {
       Textbox: 'textbox',
     } as const;
 
+    /**
+     * * `slack` - Slack
+     * * `webhook` - Webhook
+     * * `teams` - Microsoft Teams
+     * * `discord` - Discord
+     * * `pagerduty` - PagerDuty
+     */
+    export type MetricsAlertDestinationTypeEnum = typeof MetricsAlertDestinationTypeEnum[keyof typeof MetricsAlertDestinationTypeEnum];
+
+
+    export const MetricsAlertDestinationTypeEnum = {
+      Slack: 'slack',
+      Webhook: 'webhook',
+      Teams: 'teams',
+      Discord: 'discord',
+      Pagerduty: 'pagerduty',
+    } as const;
+
+    /**
+     * * `firing` - firing
+     * * `resolved` - resolved
+     * * `errored` - errored
+     * * `broken` - broken
+     */
+    export type MetricsAlertDestinationEventKindEnum = typeof MetricsAlertDestinationEventKindEnum[keyof typeof MetricsAlertDestinationEventKindEnum];
+
+
+    export const MetricsAlertDestinationEventKindEnum = {
+      Firing: 'firing',
+      Resolved: 'resolved',
+      Errored: 'errored',
+      Broken: 'broken',
+    } as const;
+
+    export interface MetricsAlertCreateDestination {
+      /** Notification destination type.
+       *
+       * * `slack` - Slack
+       * * `webhook` - Webhook
+       * * `teams` - Microsoft Teams
+       * * `discord` - Discord
+       * * `pagerduty` - PagerDuty */
+      type: MetricsAlertDestinationTypeEnum;
+      /** Integration ID for the Slack workspace. Required when type=slack. */
+      slack_workspace_id?: number;
+      /** Slack channel ID. Required when type=slack. */
+      slack_channel_id?: string;
+      /** Human-readable channel name for display. */
+      slack_channel_name?: string;
+      /** HTTPS endpoint to post to. Required for webhook, teams and discord. */
+      webhook_url?: string;
+      /** Integration key of a PagerDuty Events API v2 integration. Required when type=pagerduty. */
+      pagerduty_routing_key?: string;
+      /** Severity PagerDuty records on the incident. Used when type=pagerduty.
+       *
+       * * `critical` - critical
+       * * `error` - error
+       * * `warning` - warning
+       * * `info` - info */
+      pagerduty_severity?: PagerDutySeverityEnum;
+      /** PagerDuty service region of the account. Used when type=pagerduty.
+       *
+       * * `us` - us
+       * * `eu` - eu */
+      pagerduty_region?: PagerDutyRegionEnum;
+      /**
+         * The alert transitions to send about. Defaults to every kind, or to firing and resolved for PagerDuty, which then hears each incident's trigger and resolve.
+         * @minItems 1
+         */
+      event_kinds?: MetricsAlertDestinationEventKindEnum[];
+    }
+
+    export interface MetricsAlertDeleteDestination {
+      /**
+         * IDs of the destinations to delete, as the list endpoint returns them.
+         * @minItems 1
+         * @maxItems 100
+         */
+      destination_ids: string[];
+    }
+
+    export interface MetricsAlertDestination {
+      /** ID of the destination. Send it to the delete endpoint to remove it. */
+      id: string;
+      /** Notification destination type.
+       *
+       * * `slack` - Slack
+       * * `webhook` - Webhook
+       * * `teams` - Microsoft Teams
+       * * `discord` - Discord
+       * * `pagerduty` - PagerDuty */
+      type: MetricsAlertDestinationTypeEnum;
+      /** Whether the destination is sent to. */
+      enabled: boolean;
+      /** The alert transitions the destination hears about. A PagerDuty destination hears the incident trigger and resolve of every firing. */
+      event_kinds: MetricsAlertDestinationEventKindEnum[];
+      /** Integration ID of the Slack workspace. Set when type=slack. */
+      slack_workspace_id?: number;
+      /** Slack channel ID. Set when type=slack. */
+      slack_channel_id?: string;
+      /** Human-readable Slack channel name. Set when type=slack. */
+      slack_channel_name?: string;
+      /** Webhook endpoint reduced to scheme and host. The path, query and userinfo carry the secret. */
+      webhook_url?: string;
+      /** PagerDuty integration key reduced to its last four characters. */
+      pagerduty_routing_key?: string;
+      /** Severity of the PagerDuty incident.
+       *
+       * * `critical` - critical
+       * * `error` - error
+       * * `warning` - warning
+       * * `info` - info */
+      pagerduty_severity?: PagerDutySeverityEnum;
+      /** PagerDuty service region the events go to.
+       *
+       * * `us` - us
+       * * `eu` - eu */
+      pagerduty_region?: PagerDutyRegionEnum;
+    }
+
     export interface MetricsCreatedDashboard {
       /** The id of the dashboard. */
       dashboard_id: number;
@@ -73035,6 +73170,175 @@ export namespace Schemas {
          * @nullable
          */
       reviewed_at: string | null;
+    }
+
+    /**
+     * How a series' value compares with `threshold`. Required for a threshold.
+     */
+    export type MetricsPlatformAlertConditionOperator = typeof MetricsPlatformAlertConditionOperator[keyof typeof MetricsPlatformAlertConditionOperator] | null;
+
+
+    export const MetricsPlatformAlertConditionOperator = {
+      Gt: 'gt',
+      Gte: 'gte',
+      Lt: 'lt',
+      Lte: 'lte',
+      Eq: 'eq',
+      Ne: 'ne',
+    } as const;
+
+    export type MetricsPlatformAlertConditionKindEnum = typeof MetricsPlatformAlertConditionKindEnum[keyof typeof MetricsPlatformAlertConditionKindEnum];
+
+
+    export const MetricsPlatformAlertConditionKindEnum = {
+      Threshold: 'threshold',
+      Present: 'present',
+    } as const;
+
+    export interface MetricsPlatformAlertCondition {
+      /** threshold compares each series' latest value with `threshold`. present fires for every series the query returns, for a query that already filters to the series in breach. */
+      kind?: MetricsPlatformAlertConditionKindEnum;
+      /** How a series' value compares with `threshold`. Required for a threshold. */
+      operator?: MetricsPlatformAlertConditionOperator;
+      /** The value a series is compared with. Required for a threshold. */
+      threshold?: number | null;
+    }
+
+    export interface MetricsPlatformAlertConfig {
+      /**
+         * A PromQL expression over this project's metrics. Each series it returns is one group. For a threshold condition, leave the comparison out of the expression.
+         * @minLength 1
+         * @maxLength 10000
+         */
+      query: string;
+      /** When a series is in breach. */
+      condition: MetricsPlatformAlertCondition;
+    }
+
+    /**
+     * Product whose data the alert evaluates. It cannot change after the create.
+     */
+    export type MetricsPlatformAlertConfigurationCreateSourceKind = typeof MetricsPlatformAlertConfigurationCreateSourceKind[keyof typeof MetricsPlatformAlertConfigurationCreateSourceKind];
+
+
+    export const MetricsPlatformAlertConfigurationCreateSourceKind = {
+      Metrics: 'metrics',
+    } as const;
+
+    /**
+     * Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates.
+     */
+    export type MetricsPlatformAlertConfigurationCreateLabels = {[key: string]: string};
+
+    /**
+     * Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://.
+     */
+    export type MetricsPlatformAlertConfigurationCreateAnnotations = {[key: string]: string};
+
+    /**
+     * The settings of a new alert. Every one but source_config has a default, which is stored.
+     */
+    export interface MetricsPlatformAlertConfigurationCreate {
+      /** Product whose data the alert evaluates. It cannot change after the create. */
+      source_kind: MetricsPlatformAlertConfigurationCreateSourceKind;
+      /**
+         * Human-readable name of the alert. Defaults to 'Untitled alert'.
+         * @maxLength 255
+         */
+      name?: string;
+      /** Whether the alert is evaluated on schedule. Defaults to true. */
+      enabled?: boolean;
+      /** Settings for a metrics alert. The bound the alert is evaluated against is under condition. */
+      source_config: MetricsPlatformAlertConfig;
+      /** How the alert splits its results into instances. Defaults to mode single. */
+      grouping?: Grouping;
+      /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. Defaults to null. */
+      schedule_restriction?: AlertScheduleRestriction | null;
+      /**
+         * Number of recent checks considered when deciding to fire. Defaults to 1.
+         * @minimum 1
+         * @maximum 10
+         */
+      evaluation_periods?: number;
+      /**
+         * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods. Defaults to 1.
+         * @minimum 1
+         * @maximum 10
+         */
+      datapoints_to_alarm?: number;
+      /**
+         * Minimum minutes between notifications for the same alert. Defaults to 0.
+         * @minimum 0
+         * @maximum 2147483647
+         */
+      cooldown_minutes?: number;
+      /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. */
+      labels?: MetricsPlatformAlertConfigurationCreateLabels;
+      /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
+      annotations?: MetricsPlatformAlertConfigurationCreateAnnotations;
+    }
+
+    /**
+     * Product whose data the alert evaluates. It cannot change, so it must match the stored value.
+     */
+    export type MetricsPlatformAlertConfigurationEditSourceKind = typeof MetricsPlatformAlertConfigurationEditSourceKind[keyof typeof MetricsPlatformAlertConfigurationEditSourceKind];
+
+
+    export const MetricsPlatformAlertConfigurationEditSourceKind = {
+      Metrics: 'metrics',
+    } as const;
+
+    /**
+     * Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates.
+     */
+    export type MetricsPlatformAlertConfigurationEditLabels = {[key: string]: string};
+
+    /**
+     * Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://.
+     */
+    export type MetricsPlatformAlertConfigurationEditAnnotations = {[key: string]: string};
+
+    /**
+     * The settings an edit can change. Each source kind subclasses it with a typed `source_config`.
+     */
+    export interface MetricsPlatformAlertConfigurationEdit {
+      /** Product whose data the alert evaluates. It cannot change, so it must match the stored value. */
+      source_kind: MetricsPlatformAlertConfigurationEditSourceKind;
+      /**
+         * Human-readable name of the alert.
+         * @maxLength 255
+         */
+      name: string;
+      /** Whether the alert is evaluated on schedule. */
+      enabled: boolean;
+      /** Settings for a metrics alert. The bound the alert is evaluated against is under condition. */
+      source_config: MetricsPlatformAlertConfig;
+      /** How the alert splits its results into instances. */
+      grouping: Grouping;
+      /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
+      schedule_restriction: AlertScheduleRestriction | null;
+      /**
+         * Number of recent checks considered when deciding to fire.
+         * @minimum 1
+         * @maximum 10
+         */
+      evaluation_periods: number;
+      /**
+         * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
+         * @minimum 1
+         * @maximum 10
+         */
+      datapoints_to_alarm: number;
+      /**
+         * Minimum minutes between notifications for the same alert.
+         * @minimum 0
+         * @maximum 2147483647
+         */
+      cooldown_minutes: number;
+      /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. */
+      labels?: MetricsPlatformAlertConfigurationEditLabels;
+      /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
+      annotations?: MetricsPlatformAlertConfigurationEditAnnotations;
     }
 
     export interface MetricsSuggestedDashboard {
@@ -78330,6 +78634,7 @@ export namespace Schemas {
      * * `insight` - Insight
      * * `warehouse_source` - Warehouse source
      * * `warehouse_destination` - Warehouse destination
+     * * `metrics` - Metrics
      */
     export type PlatformAlertConfigurationSourceKindEnum = typeof PlatformAlertConfigurationSourceKindEnum[keyof typeof PlatformAlertConfigurationSourceKindEnum];
 
@@ -78339,6 +78644,7 @@ export namespace Schemas {
       Insight: 'insight',
       WarehouseSource: 'warehouse_source',
       WarehouseDestination: 'warehouse_destination',
+      Metrics: 'metrics',
     } as const;
 
     /**
@@ -78431,7 +78737,8 @@ export namespace Schemas {
        * * `logs` - Logs
        * * `insight` - Insight
        * * `warehouse_source` - Warehouse source
-       * * `warehouse_destination` - Warehouse destination */
+       * * `warehouse_destination` - Warehouse destination
+       * * `metrics` - Metrics */
       readonly source_kind: PlatformAlertConfigurationSourceKindEnum;
       /** Source-specific settings. The shape depends on source_kind. The bound the alert is evaluated against is under the condition key. */
       readonly source_config: PlatformAlertConfigurationSourceConfig;
@@ -81113,6 +81420,11 @@ export namespace Schemas {
      */
     export type SignalSourceConfigConfig = { [key: string]: unknown };
 
+    /**
+     * Top-level config keys to set atomically on update. Unspecified keys are preserved. Cannot be combined with config.
+     */
+    export type SignalSourceConfigConfigSet = { [key: string]: unknown };
+
     export interface SignalSourceConfig {
       readonly id: string;
       source_product: SignalSourceProductEnum;
@@ -81120,6 +81432,10 @@ export namespace Schemas {
       enabled?: boolean;
       /** Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. */
       config?: SignalSourceConfigConfig;
+      /** Top-level config keys to set atomically on update. Unspecified keys are preserved. Cannot be combined with config. */
+      config_set?: SignalSourceConfigConfigSet;
+      /** Top-level config keys to remove atomically on update. Missing keys are ignored. Cannot overlap config_set or be combined with config. */
+      config_remove?: string[];
       readonly created_at: string;
       readonly updated_at: string;
       /** Sync state of the warehouse import behind this source: `running`, `failed`, or `completed`. Null for a source that imports nothing from the warehouse, for an import that has never synced, and when the sync state could not be read. */
@@ -89945,6 +90261,69 @@ export namespace Schemas {
       draft_content?: MessageTemplateContent | null;
     }
 
+    /**
+     * Product whose data the alert evaluates. It cannot change, so it must match the stored value.
+     */
+    export type PatchedMetricsPlatformAlertConfigurationEditSourceKind = typeof PatchedMetricsPlatformAlertConfigurationEditSourceKind[keyof typeof PatchedMetricsPlatformAlertConfigurationEditSourceKind];
+
+
+    export const PatchedMetricsPlatformAlertConfigurationEditSourceKind = {
+      Metrics: 'metrics',
+    } as const;
+
+    /**
+     * Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates.
+     */
+    export type PatchedMetricsPlatformAlertConfigurationEditLabels = {[key: string]: string};
+
+    /**
+     * Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://.
+     */
+    export type PatchedMetricsPlatformAlertConfigurationEditAnnotations = {[key: string]: string};
+
+    /**
+     * The settings an edit can change. Each source kind subclasses it with a typed `source_config`.
+     */
+    export interface PatchedMetricsPlatformAlertConfigurationEdit {
+      /** Product whose data the alert evaluates. It cannot change, so it must match the stored value. */
+      source_kind: PatchedMetricsPlatformAlertConfigurationEditSourceKind;
+      /**
+         * Human-readable name of the alert.
+         * @maxLength 255
+         */
+      name?: string;
+      /** Whether the alert is evaluated on schedule. */
+      enabled?: boolean;
+      /** Settings for a metrics alert. The bound the alert is evaluated against is under condition. */
+      source_config?: MetricsPlatformAlertConfig;
+      /** How the alert splits its results into instances. */
+      grouping?: Grouping;
+      /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
+      schedule_restriction?: AlertScheduleRestriction | null;
+      /**
+         * Number of recent checks considered when deciding to fire.
+         * @minimum 1
+         * @maximum 10
+         */
+      evaluation_periods?: number;
+      /**
+         * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
+         * @minimum 1
+         * @maximum 10
+         */
+      datapoints_to_alarm?: number;
+      /**
+         * Minimum minutes between notifications for the same alert.
+         * @minimum 0
+         * @maximum 2147483647
+         */
+      cooldown_minutes?: number;
+      /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. */
+      labels?: PatchedMetricsPlatformAlertConfigurationEditLabels;
+      /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
+      annotations?: PatchedMetricsPlatformAlertConfigurationEditAnnotations;
+    }
+
     export interface PatchedMoveTileRequest {
       /** Destination dashboard ID. */
       to_dashboard?: number;
@@ -90557,7 +90936,7 @@ export namespace Schemas {
       annotations?: PatchedWarehouseSourcePlatformAlertConfigurationEditAnnotations;
     }
 
-    export type PatchedPlatformAlertConfigurationEdit = PatchedInsightPlatformAlertConfigurationEdit | PatchedLogsPlatformAlertConfigurationEdit | PatchedWarehouseDestinationPlatformAlertConfigurationEdit | PatchedWarehouseSourcePlatformAlertConfigurationEdit;
+    export type PatchedPlatformAlertConfigurationEdit = PatchedInsightPlatformAlertConfigurationEdit | PatchedLogsPlatformAlertConfigurationEdit | PatchedMetricsPlatformAlertConfigurationEdit | PatchedWarehouseDestinationPlatformAlertConfigurationEdit | PatchedWarehouseSourcePlatformAlertConfigurationEdit;
 
     /**
      * Request body for PATCH /api/users/@me/product_intro_seen.
@@ -92207,7 +92586,7 @@ export namespace Schemas {
        * * `flash` - On everywhere
        * * `off` - Off everywhere */
       default_review_mode?: DefaultReviewModeEnum;
-      /** Give the user's draft pull requests automatic reviews. On by default. When off, a draft gets its first automatic review when it is marked ready for review. Applies to automatic reviews only: the posthog-review label, an @posthog review comment, and the Review button still review drafts. */
+      /** Give the user's draft pull requests automatic reviews. On by default. When off, a draft gets its first automatic review when it is marked ready for review. Applies to automatic reviews only: an @posthog review comment and the Review button still review drafts. */
       review_drafts?: boolean;
       /** After a Deep review of the user's pull requests is published, run the resolution stage: triage the unresolved review threads, implement the worth-and-safe fixes on the PR branch, and reply on every thread. Off by default. Personal only: no project default applies. */
       resolve_comments?: boolean;
@@ -92786,6 +93165,11 @@ export namespace Schemas {
      */
     export type PatchedSignalSourceConfigConfig = { [key: string]: unknown };
 
+    /**
+     * Top-level config keys to set atomically on update. Unspecified keys are preserved. Cannot be combined with config.
+     */
+    export type PatchedSignalSourceConfigConfigSet = { [key: string]: unknown };
+
     export interface PatchedSignalSourceConfig {
       readonly id?: string;
       source_product?: SignalSourceProductEnum;
@@ -92793,6 +93177,10 @@ export namespace Schemas {
       enabled?: boolean;
       /** Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. */
       config?: PatchedSignalSourceConfigConfig;
+      /** Top-level config keys to set atomically on update. Unspecified keys are preserved. Cannot be combined with config. */
+      config_set?: PatchedSignalSourceConfigConfigSet;
+      /** Top-level config keys to remove atomically on update. Missing keys are ignored. Cannot overlap config_set or be combined with config. */
+      config_remove?: string[];
       readonly created_at?: string;
       readonly updated_at?: string;
       /** Sync state of the warehouse import behind this source: `running`, `failed`, or `completed`. Null for a source that imports nothing from the warehouse, for an import that has never synced, and when the sync state could not be read. */
@@ -95833,7 +96221,7 @@ export namespace Schemas {
       annotations?: WarehouseSourcePlatformAlertConfigurationCreateAnnotations;
     }
 
-    export type PlatformAlertConfigurationCreate = LogsPlatformAlertConfigurationCreate | WarehouseDestinationPlatformAlertConfigurationCreate | WarehouseSourcePlatformAlertConfigurationCreate;
+    export type PlatformAlertConfigurationCreate = LogsPlatformAlertConfigurationCreate | MetricsPlatformAlertConfigurationCreate | WarehouseDestinationPlatformAlertConfigurationCreate | WarehouseSourcePlatformAlertConfigurationCreate;
 
     /**
      * Product whose data the alert evaluates. It cannot change, so it must match the stored value.
@@ -95961,7 +96349,7 @@ export namespace Schemas {
       annotations?: WarehouseSourcePlatformAlertConfigurationEditAnnotations;
     }
 
-    export type PlatformAlertConfigurationEdit = InsightPlatformAlertConfigurationEdit | LogsPlatformAlertConfigurationEdit | WarehouseDestinationPlatformAlertConfigurationEdit | WarehouseSourcePlatformAlertConfigurationEdit;
+    export type PlatformAlertConfigurationEdit = InsightPlatformAlertConfigurationEdit | LogsPlatformAlertConfigurationEdit | MetricsPlatformAlertConfigurationEdit | WarehouseDestinationPlatformAlertConfigurationEdit | WarehouseSourcePlatformAlertConfigurationEdit;
 
     export interface PlatformAlertGroupSnooze {
       /**
@@ -106790,7 +107178,7 @@ export namespace Schemas {
        * * `flash` - On everywhere
        * * `off` - Off everywhere */
       default_review_mode?: DefaultReviewModeEnum;
-      /** Give the user's draft pull requests automatic reviews. On by default. When off, a draft gets its first automatic review when it is marked ready for review. Applies to automatic reviews only: the posthog-review label, an @posthog review comment, and the Review button still review drafts. */
+      /** Give the user's draft pull requests automatic reviews. On by default. When off, a draft gets its first automatic review when it is marked ready for review. Applies to automatic reviews only: an @posthog review comment and the Review button still review drafts. */
       review_drafts?: boolean;
       /** After a Deep review of the user's pull requests is published, run the resolution stage: triage the unresolved review threads, implement the worth-and-safe fixes on the PR branch, and reply on every thread. Off by default. Personal only: no project default applies. */
       resolve_comments?: boolean;
@@ -111960,6 +112348,11 @@ export namespace Schemas {
          * @nullable
          */
       default_slack_notification_channel?: string | null;
+      /**
+         * Connected Slack integration that owns `default_slack_notification_channel`. Send it together with the channel. A channel saved without it is routed through the team's oldest Slack integration, and clearing the channel clears this too.
+         * @nullable
+         */
+      default_slack_notification_integration?: number | null;
       /** Per-repository base branch overrides for auto-started inbox PRs, keyed by 'organization/repository'. The branch is what the auto-PR targets; omit a repo (or send {}) to keep targeting the repo default branch. */
       autostart_base_branches?: SignalTeamConfigAutostartBaseBranches;
       /**
@@ -112003,6 +112396,12 @@ export namespace Schemas {
          * @nullable
          */
       pull_request_label?: string | null;
+      /**
+         * Extra GitHub repositories, as 'organization/repository', that self-driving implementation tasks can read and write within the connected GitHub App's permissions, for example an assets repository for PR screenshots. A task gets only the entries with the same owner as its selected repository. They are not cloned, and the PR still targets the selected repository. Each new entry must be reachable through one of the project's GitHub installations. Changes apply to tasks started afterwards. Empty by default.
+         * @maxItems 20
+         * @items.maxLength 255
+         */
+      implementation_repositories?: string[];
       /** Whether anomaly scoring scores this project's active trends insights every hour and writes the results as $anomaly_score events, which are not billed. True by default. Set false to stop new scores; events written before stay. Turning it on does not enroll a project that anomaly_scoring_available reports as not covered. */
       anomaly_scoring_enabled?: boolean;
       /** Whether anomaly scoring covers this project, so anomaly_scoring_enabled has an effect. PostHog decides which projects anomaly scoring covers. */
@@ -123328,6 +123727,18 @@ export namespace Schemas {
       Pagerduty: 'pagerduty',
     } as const;
 
+    /**
+     * * `firing` - firing
+     * * `resolved` - resolved
+     */
+    export type WarehouseAlertEventKindChoicesEnum = typeof WarehouseAlertEventKindChoicesEnum[keyof typeof WarehouseAlertEventKindChoicesEnum];
+
+
+    export const WarehouseAlertEventKindChoicesEnum = {
+      Firing: 'firing',
+      Resolved: 'resolved',
+    } as const;
+
     export interface WarehouseAlertCreateDestination {
       /** Notification destination type.
        *
@@ -123337,6 +123748,11 @@ export namespace Schemas {
        * * `discord` - discord
        * * `pagerduty` - pagerduty */
       type: WarehouseAlertDestinationTypeEnum;
+      /**
+         * Which transitions send a message. A PagerDuty destination opens an incident when the alert fires and resolves it when the alert resolves, whatever this lists. Defaults to every kind.
+         * @minItems 1
+         */
+      event_kinds?: WarehouseAlertEventKindChoicesEnum[];
       /** Integration ID for the Slack workspace. Required when type=slack. */
       slack_workspace_id?: number;
       /** Slack channel ID. Required when type=slack. */
@@ -123363,16 +123779,16 @@ export namespace Schemas {
 
     export interface WarehouseAlertDeleteDestination {
       /**
-         * HogFunction IDs of one destination, as the list endpoint returns them. They are deleted together.
+         * IDs of the alert's destinations to delete, as the list endpoint returns them.
          * @minItems 1
-         * @maxItems 100
+         * @maxItems 5
          */
-      hog_function_ids: string[];
+      destination_ids: string[];
     }
 
     export interface WarehouseAlertDestination {
-      /** HogFunction IDs that make up this destination, one per alert event kind it handles. Send them all to the delete endpoint to remove the destination. */
-      hog_function_ids: string[];
+      /** Destination ID. Send it to the delete endpoint to remove the destination. */
+      id: string;
       /** Notification destination type.
        *
        * * `slack` - slack
@@ -123381,8 +123797,10 @@ export namespace Schemas {
        * * `discord` - discord
        * * `pagerduty` - pagerduty */
       type: WarehouseAlertDestinationTypeEnum;
-      /** Whether every HogFunction of the destination is enabled, so it notifies for every event kind. */
+      /** Whether the destination is sent to. */
       enabled: boolean;
+      /** Which transitions send a message. A PagerDuty destination opens an incident when the alert fires and resolves it when the alert resolves, whatever this lists. */
+      event_kinds: WarehouseAlertEventKindChoicesEnum[];
       /** Integration ID of the Slack workspace. Set when type=slack. */
       slack_workspace_id?: number;
       /** Slack channel ID. Set when type=slack. */
@@ -123405,11 +123823,6 @@ export namespace Schemas {
        * * `us` - us
        * * `eu` - eu */
       pagerduty_region?: PagerDutyRegionEnum;
-    }
-
-    export interface WarehouseAlertDestinationCreated {
-      /** HogFunction IDs created for the destination, one per event kind. */
-      hog_function_ids: string[];
     }
 
     export interface WarehouseConnection {
