@@ -40,6 +40,7 @@ class TestTicketMacroAPI(APIBaseTest):
         assert mock_report.call_args[0][1] == "support macro created"
 
         entry = ActivityLog.objects.filter(scope="TicketMacro", item_id=data["id"], activity="created").get()
+        assert entry.detail is not None
         assert entry.detail["name"] == "Cancellation"
 
     def test_markdown_escapes_around_variables_are_stored_as_tokens(self):
@@ -108,6 +109,17 @@ class TestTicketMacroAPI(APIBaseTest):
         assert response.json()["name"] == "Renamed"
         assert response.json()["body"] == created["body"]
         assert response.json()["shortcut"] == "cancel"
+
+    def test_body_edit_is_masked_in_activity_log(self):
+        created = self._create()
+        response = self.client.patch(f"{self.base_url}{created['id']}/", {"body": "Bye for now"}, format="json")
+        assert response.status_code == status.HTTP_200_OK
+
+        entry = ActivityLog.objects.filter(scope="TicketMacro", item_id=created["id"], activity="updated").get()
+        assert entry.detail is not None
+        body_change = next(change for change in entry.detail["changes"] if change["field"] == "body")
+        assert body_change["before"] == "masked"
+        assert body_change["after"] == "masked"
 
     def test_put_not_allowed(self):
         created = self._create()

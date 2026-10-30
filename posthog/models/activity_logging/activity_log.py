@@ -393,6 +393,8 @@ field_with_masked_contents: dict[AuditableScope, list[str]] = {
     "SignalTeamConfig": ["onboarding"],
     "AccountView": ["name", "content", "text_content"],
     "WarehouseSuggestion": ["dismissal_note"],
+    # Macro replies are support content; activity-log readers may lack ticket access.
+    "TicketMacro": ["body"],
     "HogFunction": [
         "inputs",
         "mappings",

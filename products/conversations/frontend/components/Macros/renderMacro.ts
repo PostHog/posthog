@@ -25,8 +25,11 @@ const VARIABLE_PATTERN = /\{\{\s*([a-z0-9_.]+)\s*\}\}/gi
 // \{\{customer\.first\_name\}\} and never match.
 const ESCAPED_MACRO_TOKEN = /\\\{\\\{\s*((?:[a-z0-9]|\\[._])+)\s*\\\}\\\}/gi
 const MARKDOWN_ESCAPED_CHAR = /\\([\\`*_{}[\]()#+\-.!|])/g
-// Private-use characters: markdown leaves them alone and nobody types them.
+// Private-use characters: markdown leaves them alone in text, and the body is cleared of them first.
 const VALUE_SLOT = /\uE000(\d+)\uE001/g
+// marked percent-encodes the slot when it sits in a link or image URL.
+const ENCODED_VALUE_SLOT = /%EE%80%80(\d+)%EE%80%81/gi
+const SLOT_CHARS = /[\uE000\uE001]/g
 const HTML_ENTITIES: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }
 
 function escapeHtml(value: string): string {
@@ -63,15 +66,30 @@ function lookup(key: string, ctx: MacroContext): string | null {
  */
 export function renderMacro(body: string, ctx: MacroContext): string {
     const values: string[] = []
-    const markdown = unescapeMacroTokens(body).replace(VARIABLE_PATTERN, (token, key: string) => {
-        const value = lookup(key.toLowerCase(), ctx)?.trim()
-        if (!value) {
-            return token
+    const markdown = unescapeMacroTokens(body.replace(SLOT_CHARS, '')).replace(
+        VARIABLE_PATTERN,
+        (token, key: string) => {
+            const value = lookup(key.toLowerCase(), ctx)?.trim()
+            if (!value) {
+                return token
+            }
+            values.push(value)
+            return `\uE000${values.length - 1}\uE001`
         }
-        values.push(value)
-        return `\uE000${values.length - 1}\uE001`
-    })
-    return markdownToHtml(markdown).replace(VALUE_SLOT, (_slot, index: string) => escapeHtml(values[Number(index)]))
+    )
+    const fill =
+        (encode: (value: string) => string) =>
+        (slot: string, index: string): string => {
+            const value = values[Number(index)]
+            return value === undefined ? slot : escapeHtml(encode(value))
+        }
+    // In a URL the value is a single component, so a customer value cannot change the link's scheme or host.
+    return markdownToHtml(markdown)
+        .replace(ENCODED_VALUE_SLOT, fill(encodeURIComponent))
+        .replace(
+            VALUE_SLOT,
+            fill((value) => value)
+        )
 }
 
 export function macroPreview(body: string): string {
