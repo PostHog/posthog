@@ -1,5 +1,5 @@
 import { NodeKind } from '~/queries/schema/schema-general'
-import { PropertyFilterType, PropertyOperator } from '~/types'
+import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
 import type { ReplayScanner } from '../types'
 import { eligibleFilterGroups, goalOverviewSectionLabels } from './ScannerGoalOverview'
@@ -58,6 +58,24 @@ describe('eligibleFilterGroups', () => {
             { label: 'Action', values: ['Completed checkout'] },
             { label: 'Cohort', values: ['Power users'] },
             { label: 'Session', values: ['Entry URL = /pricing'] },
+        ])
+    })
+
+    it('gives each page filter its own row, so a page added to a chosen one does not merge into it', () => {
+        const page = (value: string): AnyPropertyFilter => ({
+            type: PropertyFilterType.Recording,
+            key: 'visited_page',
+            value: [value],
+            operator: PropertyOperator.Regex,
+        })
+
+        const groups = eligibleFilterGroups(
+            scanner({ query: { kind: NodeKind.RecordingsQuery, properties: [page('/checkout'), page('/billing')] } })
+        )
+
+        expect(groups).toEqual([
+            { label: 'Page', values: ['/checkout'] },
+            { label: 'Page', values: ['/billing'] },
         ])
     })
 
