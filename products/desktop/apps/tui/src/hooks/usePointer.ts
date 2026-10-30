@@ -1,0 +1,196 @@
+import { type DOMElement, measureElement } from "ink";
+import {
+  type Dispatch,
+  type RefObject,
+  type SetStateAction,
+  useRef,
+} from "react";
+import type { ChatView } from "../chatView";
+import { copyToClipboard } from "../clipboard";
+import { HEADER_GAP } from "../components/Sidebar";
+import { focusPane, focusSidebar, type LayoutState } from "../layout";
+import {
+  type Click,
+  hitTest,
+  type Box as ScreenBox,
+  type Wheel,
+} from "../mouse";
+import { openUrl } from "../openUrl";
+import { Gesture } from "../selection";
+import type { SidebarRow } from "../sidebar";
+
+function boxOf(element: DOMElement): ScreenBox {
+  const { x, y, width, height } = measureElement(element);
+  return { left: x + 1, top: y + 1, right: x + width, bottom: y + height };
+}
+
+// Where things sit on screen, reported by the elements as they mount, so a click can be matched to them.
+export interface ScreenBoxes {
+  sidebar: RefObject<DOMElement | null>;
+  setPane: (paneId: string, element: DOMElement | null) => void;
+  setChat: (paneId: string, element: DOMElement | null) => void;
+  setPrChip: (
+    paneId: string,
+    element: DOMElement | null,
+    url: string | null,
+  ) => void;
+}
+
+export interface Pointer {
+  onPress: (at: Click) => void;
+  onDrag: (at: Click) => void;
+  onRelease: (at: Click) => void;
+  onMove: (at: Click) => void;
+  onWheel: (at: Wheel) => void;
+  boxes: ScreenBoxes;
+}
+
+// Mouse input: clicks, hover, the wheel, and a drag that selects chat text and copies it on release.
+export function usePointer({
+  rows,
+  activate,
+  setNavigating,
+  setLayout,
+  chatIn,
+  chats,
+  scrollPane,
+  repaint,
+  flashNotice,
+}: {
+  rows: SidebarRow[];
+  activate: (index: number) => void;
+  setNavigating: (navigating: boolean) => void;
+  setLayout: Dispatch<SetStateAction<LayoutState>>;
+  chatIn: (paneId: string) => ChatView;
+  chats: () => Iterable<ChatView>;
+  scrollPane: (paneId: string, lines: number) => void;
+  repaint: () => void;
+  flashNotice: (text: string) => void;
+}): Pointer {
+  const sidebarBox = useRef<DOMElement | null>(null);
+  const paneBoxes = useRef(new Map<string, DOMElement>());
+  const chatBoxes = useRef(new Map<string, DOMElement>());
+  const prChips = useRef(
+    new Map<string, { element: DOMElement; url: string }>(),
+  );
+  const paneHit = (at: Click): string | undefined =>
+    hitTest(
+      at,
+      [...paneBoxes.current].map(
+        ([paneId, element]) => [paneId, boxOf(element)] as [string, ScreenBox],
+      ),
+    )?.[0];
+
+  // Clicking a row opens it like Enter; clicking elsewhere in the sidebar focuses it; clicking a pane focuses that pane.
+  const onClick = (click: Click): void => {
+    const sidebar = sidebarBox.current && boxOf(sidebarBox.current);
+    if (sidebar && hitTest(click, [["sidebar", sidebar]])) {
+      const onScreen = click.row - sidebar.top;
+      const index = onScreen === 0 ? 0 : Math.max(0, onScreen - HEADER_GAP);
+      const row = rows[index];
+      if (
+        row?.kind === "task" ||
+        row?.kind === "workspace" ||
+        row?.kind === "viewMore"
+      ) {
+        setNavigating(row.kind !== "viewMore");
+        activate(index);
+      } else {
+        setLayout(focusSidebar);
+      }
+      return;
+    }
+    const pr = hitTest(
+      click,
+      [...prChips.current.values()].map(
+        ({ element, url }) => [url, boxOf(element)] as [string, ScreenBox],
+      ),
+    );
+    if (pr) {
+      openUrl(pr[0]);
+      return;
+    }
+    const paneId = paneHit(click);
+    if (paneId) {
+      setNavigating(false);
+      setLayout((current) => focusPane(current, paneId));
+      const chatBox = chatBoxes.current.get(paneId);
+      const box = chatBox && boxOf(chatBox);
+      const chat = chatIn(paneId);
+      if (!box || !hitTest(click, [["chat", box]])) return;
+      const link = chat.linkAt(click.row - box.top, click.column - box.left);
+      if (link) openUrl(link);
+      else if (chat.toggleAt(click.row - box.top)) repaint();
+    }
+  };
+
+  // A press starts a click or, once the pointer moves, a selection in the chat it landed on.
+  const gesture = useRef(new Gesture());
+  const selecting = useRef<{ chat: ChatView; box: ScreenBox } | null>(null);
+  const selectIn = (from: Click, to: Click): void => {
+    const target = selecting.current;
+    if (!target) return;
+    const local = (at: Click): Click => ({
+      row: at.row - target.box.top,
+      column: at.column - target.box.left,
+    });
+    target.chat.select(local(from), local(to));
+    repaint();
+  };
+
+  return {
+    onPress: (at) => {
+      gesture.current.press(at);
+      for (const chat of chats()) chat.clearSelection();
+      selecting.current = null;
+      for (const [paneId, element] of chatBoxes.current) {
+        const box = boxOf(element);
+        if (hitTest(at, [["chat", box]]))
+          selecting.current = { chat: chatIn(paneId), box };
+      }
+      repaint();
+    },
+    onDrag: (at) => {
+      const range = gesture.current.drag(at);
+      if (range) selectIn(range.from, range.to);
+    },
+    onRelease: (at) => {
+      const end = gesture.current.release(at);
+      if (end?.kind === "click") onClick(end.at);
+      if (end?.kind !== "select" || !selecting.current) return;
+      selectIn(end.from, end.to);
+      const text = selecting.current.chat.selectedText();
+      if (!text.trim()) return;
+      copyToClipboard(text);
+      flashNotice("Copied to clipboard");
+    },
+    onMove: (move) => {
+      let changed = false;
+      for (const [paneId, element] of chatBoxes.current) {
+        const box = boxOf(element);
+        const row = hitTest(move, [["chat", box]]) ? move.row - box.top : null;
+        if (chatIn(paneId).hoverAt(row)) changed = true;
+      }
+      if (changed) repaint();
+    },
+    onWheel: (wheel) => {
+      const paneId = paneHit(wheel);
+      if (paneId) scrollPane(paneId, wheel.delta * 3);
+    },
+    boxes: {
+      sidebar: sidebarBox,
+      setPane: (paneId, element) => {
+        if (element) paneBoxes.current.set(paneId, element);
+        else paneBoxes.current.delete(paneId);
+      },
+      setChat: (paneId, element) => {
+        if (element) chatBoxes.current.set(paneId, element);
+        else chatBoxes.current.delete(paneId);
+      },
+      setPrChip: (paneId, element, url) => {
+        if (element && url) prChips.current.set(paneId, { element, url });
+        else prChips.current.delete(paneId);
+      },
+    },
+  };
+}
