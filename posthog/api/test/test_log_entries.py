@@ -2,9 +2,11 @@ from datetime import UTC, datetime, timedelta
 
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
+from unittest.mock import patch
 
 from rest_framework import status
 
+from posthog.api.log_entries import count_log_entries
 from posthog.clickhouse.client.execute import sync_execute
 
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
@@ -95,7 +97,9 @@ class TestLogEntries(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             self.create_log_for_function(level="info", message=f"entry {hour}", timestamp=f"2023-09-22 0{hour}:00:00")
 
         first_page = self.get_log_entries({"limit": 2}).json()
-        second_page = self.get_log_entries({"limit": 2, "offset": 2}).json()
+        with patch("posthog.api.log_entries.count_log_entries", wraps=count_log_entries) as count_query:
+            second_page = self.get_log_entries({"limit": 2, "offset": 2}).json()
+        past_the_end = self.get_log_entries({"limit": 2, "offset": 5}).json()
 
         assert first_page["count"] == 3
         assert [entry["message"] for entry in first_page["results"]] == ["entry 3", "entry 2"]
@@ -103,6 +107,9 @@ class TestLogEntries(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert second_page["count"] == 3
         assert [entry["message"] for entry in second_page["results"]] == ["entry 1"]
         assert second_page["next"] is None
+        count_query.assert_not_called()
+        assert past_the_end["count"] == 3
+        assert past_the_end["results"] == []
 
     def test_default_lookback_excludes_old_entries(self):
         """Without an explicit `after`, only entries within the default lookback window are returned."""

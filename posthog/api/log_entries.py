@@ -9,7 +9,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
-from posthog.api.pagination import FacadeLimitOffsetPagination
+from posthog.api.pagination import FacadeLimitOffsetPagination, facade_page_response
 from posthog.api.utils import action
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.query_tagging import Feature, tag_queries
@@ -50,6 +50,12 @@ class LogEntryRequestSerializer(serializers.Serializer):
         max_value=500,
         min_value=1,
         help_text="Maximum number of log entries to return (1-500, default 50).",
+    )
+    offset = serializers.IntegerField(
+        required=False,
+        default=0,
+        min_value=0,
+        help_text="Number of log entries to skip before the first returned entry (default 0).",
     )
     after = serializers.DateTimeField(
         required=False,
@@ -216,13 +222,14 @@ def log_entries_response(
     }
 
     def fetch(page: PageRequest) -> Page[LogEntry]:
-        return Page(
-            results=fetch_log_entries(**filters, limit=page.limit, offset=page.offset),
-            count=count_log_entries(**filters),
-        )
+        rows = fetch_log_entries(**filters, limit=page.limit, offset=page.offset)
+        # A short page is the last page, so it gives the total without a second scan. An empty page
+        # past the first one gives no total, because the offset can be past the end.
+        if len(rows) < page.limit and (rows or page.offset == 0):
+            return Page(results=rows, count=page.offset + len(rows))
+        return Page(results=rows, count=count_log_entries(**filters))
 
-    paginator = cast(LogEntryPagination, view.paginator)
-    return paginator.get_paginated_facade_response(request, view, fetch, serializer_class=LogEntrySerializer)
+    return facade_page_response(view, fetch, serializer_class=LogEntrySerializer)
 
 
 class LogEntryMixin(viewsets.GenericViewSet):
