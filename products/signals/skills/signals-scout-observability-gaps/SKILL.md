@@ -99,16 +99,29 @@ Strong signal: the insight is live (recent `last_modified_at`, or pinned to a li
 
 This rename check needs a replacement event. When no similar-named event fires, the insight can still be dead — use the next check.
 
-**Dead insight — no replacement.** A live insight whose events never existed or stopped with no successor. This check has no traffic floor, so it also runs on a project the low-volume close-out would end.
+**Dead insight — no replacement.** A live insight whose events stopped with no successor, or never arrived although users reached the flow. This check has no traffic floor, so it also runs on a project the low-volume close-out would end.
+Silence proves only that the chart is empty.
+It proves a broken capture path only when the flow had the opportunity to send the event.
 
 - **Live** — same test as the rename check: `last_modified_at` in the last 30 days, or a tile on a dashboard that is not deleted.
-- **Dead** — _every_ event series is absent from the taxonomy (`read-data-schema kind=events`) or has 0 firings across the last 30 complete project-timezone days. Thirty days of silence separates a dead insight from a recent capture break, which is the error-tracking scout's territory.
+- **Untouched sample** — not live, whatever its tiles say. This is an insight with no edit since creation (`last_modified_at` within a minute of `created_at`) whose only tiles sit on a dashboard created from a template (`creation_mode: template` in `dashboard-get`) or created in the same minute as its insights. Treat it as live only with independent evidence of intended use: a later edit to the insight, a tile on a dashboard the team built, an alert that targets it (`alerts-list`), or flow activity (below) for its events.
+- **Dead** — _every_ event series has 0 firings across the last 30 complete project-timezone days, and each series is a stopped event or a never-seen event with opportunity evidence (below). Thirty days of silence separates a dead insight from a recent capture break, which is the error-tracking scout's territory.
 - **Read the full query first** (`insight-get`), not the `ILIKE` hit:
   - Resolve each action series to its steps' events. An action with one live step is live.
   - One live series makes the insight live. A union of a dead and a live event is a historical union, not a dead insight.
   - Property filters, cohorts, and breakdowns can empty a chart whose events fire. That is outside this check: test event firings only.
   - Data warehouse series and raw SQL insights are out of scope.
-- **Exclude** the campaign, incident-scaffolding, and legacy-union disqualifiers below, and intentional archives: a fixed past date range, or a name, description, or dashboard that marks the insight as archived, legacy, or deprecated. An insight created in the last 7 days on an absent event can be built ahead of a launch — park it with a `watch:` entry instead of filing.
+- **Classify each silent series** by its history on `events` over the last 180 days: active days with `min(timestamp)` and `max(timestamp)`, with event names escaped as in family 1.
+  - **Stopped** — the event fired on several distinct days, then went silent. This is drift: it needs no further evidence.
+  - **Never seen** — the event is absent from the taxonomy (`read-data-schema kind=events`), or has no firings in the lookback. A burst on a single day is a test fire, so treat it as never seen. This silence also matches a correctly instrumented flow that nobody used, or a flow that ships later.
+- **A never-seen event needs opportunity evidence.** Call it broken only with one of these:
+  - **Flow activity** — in the silent window, users reached the action that sends the event, not only the entry to its flow: a later step of the same funnel fires, the page or screen shown after the action gets views, or autocapture records clicks on the trigger element. Views of the flow's entry page do not count, because users can arrive and leave without acting.
+  - **A verified missing capture call** — a repository checkout, when the run has one, shows the shipped flow with no capture call for the event name.
+  - **A failed controlled test** — a person ran the success path and the event did not arrive, as an inbox report, notebook, or scratchpad entry records. Do not run that test yourself.
+
+  Without that evidence, write an inconclusive `watch:observability_gaps:dead-insight-<insight_id>` entry: the empty series, the missing evidence, and the observation that would settle it. Elapsed time never makes the entry a finding; only new evidence does. An insight built ahead of a launch is the most frequent example.
+
+- **Exclude** the campaign, incident-scaffolding, and legacy-union disqualifiers below, and intentional archives: a fixed past date range, or a name, description, or dashboard that marks the insight as archived, legacy, or deprecated.
 
 Recommend investigation or repair: confirm the event is gone on purpose, then update or retire the insight. Do not name a replacement event unless the rename check found one, and never recommend deleting the insight. Bundle a run's dead insights into one report under `report:observability_gaps:dead-insights`, and add later finds to it with `append_evidence`.
 
@@ -167,7 +180,7 @@ A finding here recommends an action, not surfaces a problem. The generic report 
 Required elements in every report:
 
 - **Specific event(s) / insight(s) / dashboard(s)** — entity IDs in the evidence list so a human can click straight to them.
-- **Volume + reach numbers** — the gap matters because of _N_ events affecting _M_ users; quote both. For a dead insight, quote the 30-day zero per event series and the dashboards that still show the insight.
+- **Volume + reach numbers** — the gap matters because of _N_ events affecting _M_ users; quote both. For a dead insight, quote the 30-day zero per event series, whether each series stopped (with its last firing date) or was never seen (with its opportunity evidence), and the dashboards that still show the insight.
 - **Suggested action** — "create a trends insight on event X" / "update insight Y to point at event Z" / "add insight A to dashboard B" / "configure an alert on event C". Concrete is better than abstract.
 - **Why now** — if this gap has existed for weeks, why is it surfacing now? Because volume just crossed a threshold? Because a new event class emerged? Volume + recency is the dedupe key.
 
