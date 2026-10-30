@@ -9,6 +9,7 @@ describe('layers.mjs', () => {
         ['frontend/src/styles/global.scss', 'kernel'],
         ['frontend/src/queries/nodes/DataTable/DataTable.tsx', 'query'],
         ['frontend/src/layout/navigation-3000/Navigation.tsx', 'shell'],
+        ['frontend/src/lib/logic/themeLogic.ts', 'shell'],
         ['frontend/src/lib/components/Command/Command.tsx', 'shell'],
         ['frontend/src/scenes/sceneLogic.tsx', 'shell'],
         ['frontend/src/scenes/dashboard/dashboardLogic.tsx', 'features'],

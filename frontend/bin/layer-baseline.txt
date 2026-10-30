@@ -143,6 +143,7 @@ frontend/src/layout/today/todayWorkItems.ts -> products/tasks/frontend/spaces/sp
 frontend/src/layout/today/todayWorkItems.ts -> products/tasks/frontend/spaces/taskPullRequests.ts
 frontend/src/lib/api.ts -> frontend/src/exporter/exporterViewLogic.ts
 frontend/src/lib/api.ts -> frontend/src/lib/apiRequestTiming.ts
+frontend/src/lib/api.ts -> frontend/src/lib/logic/apiStatusLogic.ts
 frontend/src/lib/api.ts -> frontend/src/lib/oauth/oauthClient.ts
 frontend/src/lib/api.ts -> frontend/src/queries/utils.ts
 frontend/src/lib/api.ts -> frontend/src/scenes/surveys/constants.tsx
@@ -450,9 +451,11 @@ frontend/src/lib/components/hedgehogs.tsx -> frontend/public/hedgehog/hog-welder
 frontend/src/lib/components/openPublishToCommunityDialog.tsx -> products/skills/frontend/PublishToCommunityContents.tsx
 frontend/src/lib/hog.ts -> frontend/src/queries/query.ts
 frontend/src/lib/hog.ts -> frontend/src/queries/utils.ts
+frontend/src/lib/hooks/useFeatureFlag.ts -> frontend/src/lib/logic/featureFlagLogic.ts
 frontend/src/lib/hooks/useFileSystemLogView.ts -> frontend/src/exporter/exporterViewLogic.ts
 frontend/src/lib/hooks/useFileSystemLogView.ts -> frontend/src/models/recentItemsModel.ts
 frontend/src/lib/hooks/useKeyboardHotkeys.tsx -> frontend/src/lib/posthog-typed.ts
+frontend/src/lib/hooks/useThemedHtml.ts -> frontend/src/lib/logic/themeLogic.ts
 frontend/src/lib/hooks/useThemedHtml.ts -> frontend/src/scenes/sceneLogic.tsx
 frontend/src/lib/integrations/VercelIntegrationSuffix.tsx -> frontend/src/scenes/settings/organization/organizationIntegrationsLogic.ts
 frontend/src/lib/integrations/utils.ts -> frontend/public/services/apple_search_ads.png
@@ -499,6 +502,10 @@ frontend/src/lib/integrations/utils.ts -> frontend/public/services/vercel.png
 frontend/src/lib/integrations/utils.ts -> frontend/public/services/youtube_analytics.png
 frontend/src/lib/lemon-ui/LemonCalendar/LemonCalendar.tsx -> frontend/src/lib/components/ScrollableShadows/ScrollableShadows.tsx
 frontend/src/lib/lemon-ui/LemonCalendar/LemonCalendar.tsx -> frontend/src/scenes/teamLogic.tsx
+frontend/src/lib/lemon-ui/LemonColor/LemonColorButton.tsx -> frontend/src/lib/logic/dataThemeLogic.tsx
+frontend/src/lib/lemon-ui/LemonColor/LemonColorGlyph.tsx -> frontend/src/lib/logic/dataThemeLogic.tsx
+frontend/src/lib/lemon-ui/LemonColor/LemonColorGlyph.tsx -> frontend/src/lib/logic/themeLogic.ts
+frontend/src/lib/lemon-ui/LemonColor/LemonColorPicker.tsx -> frontend/src/lib/logic/dataThemeLogic.tsx
 frontend/src/lib/lemon-ui/LemonDrawer/LemonDrawer.tsx -> frontend/src/lib/components/KeyboardShortcut/KeyboardShortcut.tsx
 frontend/src/lib/lemon-ui/LemonDrawer/LemonDrawer.tsx -> frontend/src/lib/components/Resizer/Resizer.tsx
 frontend/src/lib/lemon-ui/LemonDrawer/LemonDrawer.tsx -> frontend/src/lib/components/Resizer/resizerLogic.ts
@@ -507,6 +514,7 @@ frontend/src/lib/lemon-ui/LemonInputSelect/LemonInputSelect.tsx -> frontend/src/
 frontend/src/lib/lemon-ui/LemonMarkdown/LemonMarkdown.tsx -> frontend/src/lib/components/CodeSnippet/index.ts
 frontend/src/lib/lemon-ui/LemonMarkdown/LemonMarkdown.tsx -> frontend/src/lib/components/RichContentEditor/RichContentNodeMention.tsx
 frontend/src/lib/lemon-ui/LemonMarkdown/MermaidDiagram.tsx -> frontend/src/lib/components/CodeSnippet/index.ts
+frontend/src/lib/lemon-ui/LemonMarkdown/MermaidDiagram.tsx -> frontend/src/lib/logic/themeLogic.ts
 frontend/src/lib/lemon-ui/LemonMarkdown/mention.ts -> frontend/src/lib/components/RichContentEditor/types.ts
 frontend/src/lib/lemon-ui/LemonMenu/LemonMenu.tsx -> frontend/src/lib/components/KeyboardShortcut/KeyboardShortcut.tsx
 frontend/src/lib/lemon-ui/LemonModal/LemonModal.tsx -> frontend/src/lib/components/KeyboardShortcut/KeyboardShortcut.tsx
@@ -519,10 +527,12 @@ frontend/src/lib/lemon-ui/LemonRichContent/LemonRichContentEditor.tsx -> fronten
 frontend/src/lib/lemon-ui/LemonRichContent/LemonRichContentEditor.tsx -> frontend/src/lib/components/RichContentEditor/index.tsx
 frontend/src/lib/lemon-ui/LemonRichContent/LemonRichContentEditor.tsx -> frontend/src/lib/components/RichContentEditor/types.ts
 frontend/src/lib/lemon-ui/LemonRichContent/LemonRichContentEditor.tsx -> frontend/src/lib/components/RichContentEditor/utils.ts
+frontend/src/lib/lemon-ui/LemonRichContent/LemonRichContentEditor.tsx -> frontend/src/lib/logic/preflightLogic.tsx
 frontend/src/lib/lemon-ui/LemonTable/LemonTable.tsx -> frontend/src/lib/components/ScrollableShadows/ScrollableShadows.tsx
 frontend/src/lib/lemon-ui/LemonTable/columnUtils.tsx -> frontend/src/lib/components/TZLabel/index.tsx
 frontend/src/lib/lemon-ui/LemonTextArea/LemonTextAreaMarkdown.tsx -> frontend/src/lib/components/Cards/TextCard/TextCard.tsx
 frontend/src/lib/lemon-ui/LemonTextArea/LemonTextAreaMarkdown.tsx -> frontend/src/lib/components/EmojiPicker/EmojiPickerPopover.tsx
+frontend/src/lib/lemon-ui/LemonTextArea/LemonTextAreaMarkdown.tsx -> frontend/src/lib/logic/preflightLogic.tsx
 frontend/src/lib/lemon-ui/LemonToast/LemonToast.tsx -> frontend/src/lib/components/HelpMenu/incidentStatus.ts
 frontend/src/lib/lemon-ui/LemonToast/LemonToast.tsx -> frontend/src/lib/holidays.tsx
 frontend/src/lib/lemon-ui/LemonTree/LemonTree.tsx -> frontend/src/lib/components/ScrollableShadows/ScrollableShadows.tsx
@@ -530,15 +540,7 @@ frontend/src/lib/lemon-ui/Link/Link.tsx -> frontend/src/scenes/urls.ts
 frontend/src/lib/lemon-ui/Popover/Popover.tsx -> frontend/src/lib/components/ScrollableShadows/ScrollableShadows.tsx
 frontend/src/lib/lemon-ui/ProfilePicture/ProfilePicture.tsx -> frontend/src/lib/components/HedgehogMode/HedgehogModeStatic.tsx
 frontend/src/lib/lemon-ui/ProfilePicture/ProfilePicture.tsx -> frontend/src/scenes/userLogic.ts
-frontend/src/lib/logic/apiStatusLogic.ts -> frontend/src/lib/components/TimeSensitiveAuthentication/timeSensitiveAuthenticationLogic.ts
 frontend/src/lib/logic/apiStatusLogic.ts -> frontend/src/scenes/authentication/two-factor-setup/twoFactorLogic.ts
-frontend/src/lib/logic/apiStatusLogic.ts -> frontend/src/scenes/userLogic.ts
-frontend/src/lib/logic/dataThemeLogic.tsx -> frontend/src/scenes/teamLogic.tsx
-frontend/src/lib/logic/eventIngestionRestrictionLogic.ts -> frontend/src/scenes/teamLogic.tsx
-frontend/src/lib/logic/preflightLogic.tsx -> frontend/src/scenes/urls.ts
-frontend/src/lib/logic/themeLogic.ts -> frontend/src/scenes/sceneLogic.tsx
-frontend/src/lib/logic/themeLogic.ts -> frontend/src/scenes/userLogic.ts
-frontend/src/lib/logic/userPreferencesLogic.ts -> frontend/src/scenes/teamLogic.tsx
 frontend/src/lib/monaco/codeEditorLogic.tsx -> frontend/src/queries/query.ts
 frontend/src/lib/monaco/codeEditorLogic.tsx -> frontend/src/queries/utils.ts
 frontend/src/lib/monaco/hogQLAutocompleteProvider.ts -> frontend/src/queries/query.ts
@@ -557,6 +559,7 @@ frontend/src/lib/utils/apiHost.ts -> frontend/src/lib/oauth/oauthClient.ts
 frontend/src/lib/utils/dateFilters.ts -> frontend/src/lib/components/DateFilter/types.ts
 frontend/src/lib/utils/deleteWithUndo.tsx -> frontend/src/layout/panel-layout/ProjectTree/projectTreeLogic.tsx
 frontend/src/lib/utils/deleteWithUndo.tsx -> frontend/src/scenes/dashboard/liveDashboardIds.ts
+frontend/src/lib/utils/eventUsageLogic.ts -> frontend/src/lib/logic/preflightLogic.tsx
 frontend/src/lib/utils/eventUsageLogic.ts -> frontend/src/queries/utils.ts
 frontend/src/lib/utils/eventUsageLogic.ts -> frontend/src/scenes/product-tours/constants.ts
 frontend/src/lib/utils/eventUsageLogic.ts -> frontend/src/scenes/userLogic.ts
