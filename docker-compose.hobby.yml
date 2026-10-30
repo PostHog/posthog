@@ -708,6 +708,8 @@ services:
                 condition: service_completed_successfully
             personhog-etcd-init:
                 condition: service_completed_successfully
+            personhog-tables-ready:
+                condition: service_completed_successfully
 
     personhog-writer:
         build:
@@ -743,6 +745,8 @@ services:
                 condition: service_healthy
             personhog-router-leader:
                 condition: service_started
+            personhog-tables-ready:
+                condition: service_completed_successfully
 
     personhog-publisher:
         image: ghcr.io/posthog/posthog/personhog-publisher:master
@@ -818,6 +822,27 @@ services:
             ]
         depends_on:
             etcd:
+                condition: service_healthy
+
+    # Waits until web's persons migrations create the tables that personhog-leader and
+    # personhog-identity read at boot. Both exit when the tables are missing, and web runs
+    # migrations in its own entrypoint, so they cannot depend on a migration step directly.
+    personhog-tables-ready:
+        image: ${DOCKER_REGISTRY_PREFIX:-}postgres:15.12-alpine
+        restart: 'no'
+        logging: *default-logging
+        environment:
+            PGPASSWORD: posthog
+        entrypoint:
+            - sh
+            - -c
+            - |
+                until psql -h db -U posthog -d posthog -tAc "SELECT to_regclass('lifecycle_op_person') IS NOT NULL AND to_regclass('person_publish_outbox') IS NOT NULL" | grep -q t; do
+                    echo "Waiting for the persons migrations"
+                    sleep 5
+                done
+        depends_on:
+            db:
                 condition: service_healthy
 
     feature-flags:
