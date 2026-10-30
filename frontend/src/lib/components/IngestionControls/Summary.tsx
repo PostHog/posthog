@@ -37,7 +37,7 @@ export function IngestionControlsSummary({
                     {hasAnyTriggers ? 'Trigger summary' : `No triggers — all ${controlDescription}`}
                 </h3>
                 {docsLink && (
-                    <Link to={docsLink.to} target="blank">
+                    <Link to={docsLink.to} target="_blank">
                         {docsLink.label}
                     </Link>
                 )}
