@@ -49,6 +49,7 @@ describe('BulkDeleteResultsModal', () => {
 
     it('lists only the flags still deleted after a restore that partly failed', () => {
         logic.actions.showResultsModal({ deleted: [deletedFlag(1), deletedFlag(2)], errors: [] })
+        logic.actions.bulkRestoreFlagSucceeded(1)
         logic.actions.bulkRestoreFlagsFinished({
             restoredIds: [1],
             failed: [{ id: 2, key: 'flag-2', errorMessage: 'Restoring is not available for this flag yet.' }],
@@ -59,6 +60,12 @@ describe('BulkDeleteResultsModal', () => {
         expect(screen.getByText('Failed to restore 1 flag')).toBeInTheDocument()
         expect(screen.getByText('Deleted 1 flag')).toBeInTheDocument()
         expect(screen.queryByText('flag-1')).not.toBeInTheDocument()
+
+        fireEvent.click(screen.getByText('Clean up code references with AI'))
+        const cleanupPrompt = screen.getByText(/Find and remove all references/).textContent
+        expect(cleanupPrompt).toContain('- flag-2')
+        expect(cleanupPrompt).not.toContain('flag-1')
+
         expect(queryByDataAttr(document.body, 'bulk-restore-deleted-flags')).not.toBeInTheDocument()
     })
 

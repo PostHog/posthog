@@ -16,7 +16,9 @@ describe('flagSelectionLogic bulk restore', () => {
     let logic: ReturnType<typeof flagSelectionLogic.build>
     let restoreRequests: { id: number; body: Record<string, any> }[]
 
-    function useRestoreMocks(restoreHandler: (id: number) => [number, any] = () => [200, {}]): void {
+    function useRestoreMocks(
+        restoreHandler: (id: number) => [number, any] | Promise<[number, any]> = () => [200, {}]
+    ): void {
         restoreRequests = []
         useMocks({
             get: {
@@ -87,6 +89,32 @@ describe('flagSelectionLogic bulk restore', () => {
         expect(logic.values.resultsModalVisible).toBe(true)
     })
 
+    it('drops each flag from the still deleted list as soon as it is restored', async () => {
+        let finishSecondRestore: () => void = () => {}
+        const secondRestore = new Promise<void>((resolve) => {
+            finishSecondRestore = resolve
+        })
+        useRestoreMocks(async (id) => {
+            if (id === 2) {
+                await secondRestore
+            }
+            return [200, {}]
+        })
+        logic = flagSelectionLogic()
+        logic.mount()
+        logic.actions.showResultsModal({ deleted: [deletedFlag(1), deletedFlag(2)], errors: [] })
+
+        logic.actions.bulkRestoreFlags([deletedFlag(1), deletedFlag(2)])
+        await expectLogic(logic).toDispatchActions([logic.actionCreators.bulkRestoreFlagSucceeded(1)])
+
+        expect(logic.values.bulkRestoreRunning).toBe(true)
+        expect(logic.values.stillDeletedFlags).toEqual([deletedFlag(2)])
+
+        finishSecondRestore()
+        await expectLogic(logic).toDispatchActions(['bulkRestoreFlagsFinished'])
+        expect(logic.values.bulkRestoredIds).toEqual([1, 2])
+    })
+
     it('starts each bulk delete result without the last restore', async () => {
         useRestoreMocks()
         logic = flagSelectionLogic()
@@ -98,5 +126,7 @@ describe('flagSelectionLogic bulk restore', () => {
         logic.actions.showResultsModal({ deleted: [deletedFlag(4)], errors: [] })
 
         expect(logic.values.bulkRestoreResult).toBeNull()
+        expect(logic.values.bulkRestoredIds).toEqual([])
+        expect(logic.values.stillDeletedFlags).toEqual([deletedFlag(4)])
     })
 })
