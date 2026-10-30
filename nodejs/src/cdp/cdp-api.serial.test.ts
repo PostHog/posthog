@@ -2218,16 +2218,25 @@ describe('CDP API', () => {
         })
 
         const replyShapeError =
-            'Send JSON in the form {"result": {...}}, with an optional "status" of "completed" or "failed"'
+            'Send JSON with Content-Type: application/json, in the form {"result": {...}}, with an optional "status" of "completed" or "failed"'
+        const json = 'application/json'
 
         it.each([
-            ['a status the caller may not set', { status: 'cancelled' }, 400, replyShapeError],
-            ['a result that is not an object', { result: 'approved' }, 400, replyShapeError],
-            ['a reply without a result', { status: 'completed' }, 400, replyShapeError],
-            ['a body that is not JSON', 'approved', 400, replyShapeError],
-            ['a body over the size cap', { result: { note: 'x'.repeat(20_000) } }, 413, 'Request entity too large'],
-        ])('rejects %s', async (_desc, body, status, error) => {
-            const res = await supertest(app).post(callbackPath()).send(body)
+            ['a status the caller may not set', json, '{"status": "cancelled", "result": {}}', 400, replyShapeError],
+            ['a result that is not an object', json, '{"result": "approved"}', 400, replyShapeError],
+            ['a reply without a result', json, '{"status": "completed"}', 400, replyShapeError],
+            ['a body that does not parse as JSON', json, '{"result": {"approved": tru', 400, replyShapeError],
+            ['a form-encoded body', 'application/x-www-form-urlencoded', 'approved=true', 400, replyShapeError],
+            ['a JSON reply sent as plain text', 'text/plain', '{"result": {"approved": true}}', 400, replyShapeError],
+            [
+                'a body over the size cap',
+                json,
+                JSON.stringify({ result: { note: 'x'.repeat(20_000) } }),
+                413,
+                'Request entity too large',
+            ],
+        ])('rejects %s', async (_desc, contentType, body, status, error) => {
+            const res = await supertest(app).post(callbackPath()).set('Content-Type', contentType).send(body)
 
             expect(res.status).toEqual(status)
             expect(res.body.error).toEqual(error)

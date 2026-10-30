@@ -22,7 +22,7 @@ const PUBLIC_WEBHOOKS_HOSTS: Record<string, string> = {
 export const WORKFLOW_STEP_CALLBACK_PATH = '/public/webhooks/workflow_callbacks'
 export const WORKFLOW_STEP_CALLBACK_MAX_BODY_BYTES = 16_384
 export const WORKFLOW_STEP_CALLBACK_SHAPE_ERROR =
-    'Send JSON in the form {"result": {...}}, with an optional "status" of "completed" or "failed"'
+    'Send JSON with Content-Type: application/json, in the form {"result": {...}}, with an optional "status" of "completed" or "failed"'
 
 const CALLBACK_TOKEN_TTL = AWAITED_STEP_MAX_WAIT.plus({ hours: 1 })
 

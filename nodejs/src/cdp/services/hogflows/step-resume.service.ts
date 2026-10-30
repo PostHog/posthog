@@ -42,7 +42,7 @@ export const counterStepResume = new Counter({
     labelNames: ['outcome'],
 })
 
-export function applyStepResumeToState(stateBuffer: Buffer, resume: StepResume): Buffer | StepResumeRejection {
+function applyStepResumeToState(stateBuffer: Buffer, resume: StepResume): Buffer | StepResumeRejection {
     try {
         const parsed = parseJSON(stateBuffer.toString('utf-8'))
         const rejection = stepResumeRejection(parsed.state, resume)
