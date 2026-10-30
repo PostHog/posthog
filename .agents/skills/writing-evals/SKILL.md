@@ -138,7 +138,8 @@ class MyCheck(Scorer):
 Rules that apply to both:
 
 - The sandboxed harness adds `ExitCodeZero` to every experiment. Do not include it in a suite's `scorers`; an explicit duplicate is rejected. One-shot suites do not receive it.
-- Reuse the other generic scorers first: `NoToolCall`, `RequiredToolCall`, and `LastToolCallNot` (all in `products.posthog_ai.eval_harness.scorers`).
+- Reuse the other generic scorers first (all in `products.posthog_ai.eval_harness.scorers`): `NoToolCall`, `RequiredToolCall`, and `AnswerToolCallNot` for which tools ran, `ToolOrder` for "call X before Y", `SourcesConsulted` and `SourcesAvoided` for which tables the queries read, and `ServerUsed` for calls to an extra MCP server.
+- For a judge that grades the process, pass the ordered chain from `products.posthog_ai.eval_harness.tool_chain` (`render_tool_chain(build_tool_chain(output))`), not only the final message. New judges pass `model=judge_model()`, which reads `EVAL_JUDGE_MODEL`.
 - Always parse logs via `LogParser.cached(...)` so a case's log is parsed once, not once per scorer.
 - Count only successful tool calls (`is_error=False`) — the agent is free to attempt and fail.
 - `score=None` means "skipped": Braintrust omits it from the aggregate entirely. `0.0` means "failed". Pick deliberately — `None` for "this check doesn't apply to this case", `0.0` for "the agent got it wrong" _and_ for broken-judge/missing-input paths that must not silently vanish from the average.
