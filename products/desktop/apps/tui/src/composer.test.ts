@@ -15,6 +15,7 @@ describe("isAppKey", () => {
     ["Page Up", "\x1b[5~", true],
     ["legacy Ctrl+N", "\x0e", true],
     ["legacy Ctrl+Q", "\x11", true],
+    ["legacy Ctrl+R", "\x12", true],
     ["a letter", "h", false],
     ["Enter", "\r", false],
     ["Left", "\x1b[D", false],

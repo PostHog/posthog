@@ -27,4 +27,7 @@ const server = await createServer({
 const runner = createServerModuleRunner(server.environments.ssr, {
   hmr: { logger: false },
 });
+// Ctrl+R in the app: throw away every loaded module and run the app again from disk.
+globalThis.__posthogTuiReload = () =>
+  server.environments.ssr.hot.send({ type: "full-reload" });
 await runner.import("/src/main.tsx");
