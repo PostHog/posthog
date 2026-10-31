@@ -436,6 +436,10 @@ export const signalTeamConfigLogic = kea<signalTeamConfigLogicType>([
             (s) => [s.teamConfig],
             (teamConfig: SignalTeamConfig | null): number | null => teamConfig?.max_reports_per_day ?? null,
         ],
+        autoCloseInactiveAfterDays: [
+            (s) => [s.teamConfig],
+            (teamConfig: SignalTeamConfig | null): number | null => teamConfig?.auto_close_inactive_after_days ?? null,
+        ],
         defaultOpenPullRequestReady: [
             (s) => [s.teamConfig],
             (teamConfig: SignalTeamConfig | null): boolean => teamConfig?.default_open_pull_request_ready ?? false,

@@ -717,6 +717,13 @@ export interface SignalTeamConfigApi {
      * @nullable
      */
     max_reports_per_day?: number | null
+    /**
+     * Archive ready or pending_input reports with no activity after this many days. Null means off.
+     * @minimum 14
+     * @maximum 365
+     * @nullable
+     */
+    auto_close_inactive_after_days?: number | null
     /** Whether self-driving pull requests open ready for review instead of draft, so the full CI matrix starts when the pull request is created. False by default. A reviewer's own github_open_pull_request_ready overrides this for reports that suggest them as reviewer. */
     default_open_pull_request_ready?: boolean
     /** Whether self-driving comments back on a GitHub issue that raised a report, linking to the report so everybody watching the issue knows it is being researched. The comment is public on the issue thread and carries a link only, never report content. False by default. Needs a GitHub integration that can reach the issue's repository. */

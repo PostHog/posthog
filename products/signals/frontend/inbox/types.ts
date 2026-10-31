@@ -411,6 +411,8 @@ export interface SignalTeamConfig {
     issue_tracking_config?: Record<string, string>
     /** Daily cap on new reports surfacing to the inbox (project-timezone day). Null means unlimited. */
     max_reports_per_day?: number | null
+    /** Archive ready or pending_input reports with no activity after this many days. Null means off. */
+    auto_close_inactive_after_days?: number | null
     /** Whether self-driving PRs open ready for review instead of draft. A reviewer's own setting overrides it. */
     default_open_pull_request_ready?: boolean
     /** Whether self-driving comments a link to the report back on a GitHub issue that raised it. */

@@ -290,6 +290,31 @@ class TestSignalTeamConfigAPI(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("min_bound", None, 14, 14),
+            ("mid_value", None, 30, 30),
+            ("max_bound", None, 365, 365),
+            ("clear", 30, None, None),
+        ]
+    )
+    def test_update_auto_close_inactive_after_days(self, _name, initial, sent, expected):
+        if initial is not None:
+            self.config.auto_close_inactive_after_days = initial
+            self.config.save(update_fields=["auto_close_inactive_after_days"])
+        response = self.client.post(self._url(), data={"auto_close_inactive_after_days": sent}, format="json")
+        data = response.json()
+        assert response.status_code == status.HTTP_200_OK, data
+        assert data["auto_close_inactive_after_days"] == expected
+        self.config.refresh_from_db()
+        assert self.config.auto_close_inactive_after_days == expected
+
+    @parameterized.expand([("zero", 0), ("below_min", 13), ("negative", -5), ("above_max", 366)])
+    def test_update_auto_close_inactive_after_days_rejects_out_of_range(self, _name, sent):
+        response = self.client.post(self._url(), data={"auto_close_inactive_after_days": sent}, format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == "auto_close_inactive_after_days"
+
+    @parameterized.expand(
+        [
             ("enable", {"pull_request_label_enabled": True, "pull_request_label": "ours"}, True, "ours"),
             ("clear_name", {"pull_request_label": ""}, False, None),
         ]
