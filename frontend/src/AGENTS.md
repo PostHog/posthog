@@ -119,7 +119,10 @@ A whole subtree of machine data (an event feed, an ID column) opts out at its co
 ## Rule 8 — A file statically imports only its own layer or a lower one
 
 The layers, lowest first, are `kernel`, `shell`, `query`, `features`.
-`kernel` holds shared primitives (`lib/utils`, `lib/lemon-ui`, `lib/api`, generated types). `shell` holds the rest of `lib/`, `layout/`, `models/`, and the top-level files of `frontend/src/` and `scenes/`. `query` holds `queries/`. `features` holds every scene folder and product.
+`kernel` holds shared primitives, for example `lib/utils`, `lib/lemon-ui`, `lib/api`, `queries/schema/`, and generated types.
+`shell` holds the rest of `lib/`, `layout/`, `models/`, and the top-level files of `frontend/src/` and `scenes/`.
+`query` holds the rest of `queries/`.
+`features` holds every scene folder and product.
 [`frontend/bin/layers.mjs`](../bin/layers.mjs) is the source of truth for the mapping. Read it when you are not sure of the layer of a path.
 `hogli lint:frontend-layers` fails on a new upward import. Fix it in one of these ways:
 
