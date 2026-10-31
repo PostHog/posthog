@@ -1779,7 +1779,6 @@ class TestEmailInboundContent(MailgunWebhookTestMixin, BaseTest):
                 {"body-plain": "Full body text"},
                 "Full body text",
             ),
-            # A whole HTML document in the text/plain part has to reach the reader as prose.
             (
                 "html_document_in_text_part",
                 {

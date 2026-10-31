@@ -62,6 +62,7 @@ from products.conversations.backend.services.email_channel_setup import (
 from products.conversations.backend.services.email_html import html_to_text, looks_like_html_document
 from products.conversations.backend.services.email_links import recover_links_from_html
 from products.conversations.backend.services.email_thread_ingestion import (
+    MAX_EMAIL_BODY_LENGTH,
     EmailAddress,
     ParsedEmail,
     ingest_customer_email,
@@ -77,7 +78,6 @@ _MESSAGE_ID_RE = re.compile(r"<[^<>\s]+>")
 _FORWARDING_CHALLENGE_RE = re.compile(rf"{re.escape(FORWARDING_CHALLENGE_MARKER)}(?P<token>[A-Za-z0-9_.:-]{{1,1000}})")
 _DKIM_DOMAIN_RE = re.compile(r"(?:^|;)\s*d\s*=\s*([^;\s]+)", re.IGNORECASE)
 MAX_EMAIL_ADDRESS_LENGTH = 254
-MAX_EMAIL_BODY_LENGTH = 50_000
 MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024  # 10 MB per file
 MAX_ATTACHMENTS = 20
 # Sender-controlled To/Cc headers can list far more addresses than a real thread carries, and each

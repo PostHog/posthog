@@ -22,6 +22,7 @@ from posthog.models.user import User
 from products.conversations.backend.models import EmailChannel, EmailChannelKind, EmailThreadMessageDirection
 from products.conversations.backend.services.email_html import html_to_text, looks_like_html_document
 from products.conversations.backend.services.email_thread_ingestion import (
+    MAX_EMAIL_BODY_LENGTH,
     EmailAddress,
     ParsedEmail,
     ingest_customer_email,
@@ -443,8 +444,10 @@ def _parse_gmail_message(
     in_reply_to_ids = _parse_message_ids(headers.get("in-reply-to", ""))
     sent_at = _parse_internal_date(payload.get("internalDate"))
     bodies = _message_bodies(message_payload, load_attachment_data=load_attachment_data)
-    body_plain = bodies.plain
-    body_html = bodies.html or ""
+    # Gmail joins every body part with no size limit, so both parts are cut to what we store
+    # before the flattening parse builds a tree out of them.
+    body_plain = bodies.plain[:MAX_EMAIL_BODY_LENGTH]
+    body_html = bodies.html[:MAX_EMAIL_BODY_LENGTH]
     if not body_plain and body_html:
         body_plain = html_to_text(body_html)
     elif looks_like_html_document(body_plain):
@@ -461,9 +464,9 @@ def _parse_gmail_message(
         to_recipients=_parse_addresses(headers.get("to", "")),
         cc_recipients=_parse_addresses(headers.get("cc", "")),
         subject=_decode_header(headers.get("subject", ""))[:500],
-        body_plain=body_plain[:50_000],
-        stripped_text=body_plain[:50_000],
-        body_html=body_html[:50_000],
+        body_plain=body_plain,
+        stripped_text=body_plain,
+        body_html=body_html,
         sender_authenticated=False,
         dkim_passed=False,
         dkim_signing_domains=(),

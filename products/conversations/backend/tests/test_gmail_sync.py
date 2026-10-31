@@ -132,7 +132,8 @@ class TestGmailSync(BaseTest):
         imported = EmailThreadMessage.objects.for_team(self.team.id).select_related("comment").get()
         assert imported.comment.content == "Attachment-backed message body"
 
-    def test_html_only_body_keeps_paragraphs_and_links(self) -> None:
+    @parameterized.expand([("html_part", "text/html"), ("html_document_in_text_part", "text/plain")])
+    def test_html_body_keeps_paragraphs_and_links(self, _name: str, mime_type: str) -> None:
         message = _gmail_message(label="INBOX", sender="customer@example.com", recipient=self.user.email)
         html = (
             b"<html><head><style>p { margin: 0 }</style></head><body>"
@@ -142,7 +143,7 @@ class TestGmailSync(BaseTest):
             b"<pre>def run():\n    return 1</pre>"
             b"</body></html>"
         )
-        message["payload"]["mimeType"] = "text/html"
+        message["payload"]["mimeType"] = mime_type
         message["payload"]["body"] = {"data": base64.urlsafe_b64encode(html).decode().rstrip("=")}
 
         with patch.object(
