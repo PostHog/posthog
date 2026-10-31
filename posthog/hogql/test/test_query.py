@@ -1910,28 +1910,58 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             execute_hogql_query(query, team=self.team)
         self.assertEqual(str(e.exception), "Table 'events' does not accept arguments")
 
-    def test_variables_missing_from_query_with_suggestion(self):
+    @parameterized.expand(
+        [
+            (
+                "field_with_other_variable",
+                "SELECT {variables.variable_two}",
+                True,
+                "Variable variable_two is missing from query. Did you mean: variable_one?",
+            ),
+            (
+                "expression_with_other_variable",
+                "SELECT {variables.variable_two == 'value' ? 1 : 2}",
+                True,
+                "Variable variable_two is missing from query. Did you mean: variable_one?",
+            ),
+            (
+                "field_without_variables",
+                "SELECT {variables.variable_two}",
+                False,
+                "Variable variable_two is missing from query",
+            ),
+            (
+                "expression_without_variables",
+                "SELECT {variables.variable_two == 'value' ? 1 : 2}",
+                False,
+                "Variable variable_two is missing from query",
+            ),
+        ]
+    )
+    def test_variables_missing_from_query(
+        self, _name: str, query: str, send_other_variable: bool, expected_error: str
+    ) -> None:
         insight_variable = InsightVariable.objects.create(
             team=self.team,
             name="Variable One",
             code_name="variable_one",
             type=InsightVariable.Type.STRING,
         )
-        variables = {
-            "variable_one": HogQLVariable(
-                code_name="variable_one",
-                value="value",
-                variableId=str(insight_variable.id),
-            )
-        }
+        variables = (
+            {
+                "variable_one": HogQLVariable(
+                    code_name="variable_one",
+                    value="value",
+                    variableId=str(insight_variable.id),
+                )
+            }
+            if send_other_variable
+            else None
+        )
 
-        query = "SELECT {variables.variable_two}"
         with self.assertRaises(QueryError) as e:
             execute_hogql_query(query, team=self.team, variables=variables)
-        self.assertEqual(
-            str(e.exception),
-            "Variable variable_two is missing from query. Did you mean: variable_one?",
-        )
+        self.assertEqual(str(e.exception), expected_error)
 
     @parameterized.expand(
         [
@@ -1987,6 +2017,35 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertEqual(response.results, [("2026-07-30 12:00:00.000000",)])
+
+    @parameterized.expand(
+        [
+            ("string", InsightVariable.Type.STRING, False, "Acme", "{variables.my_variable == 'Acme' ? 1 : 2}", 1),
+            ("relative_date", InsightVariable.Type.DATE, False, "-7d", "{variables.my_variable == '-7d' ? 1 : 2}", 1),
+            ("multi_select_list", InsightVariable.Type.LIST, True, ["a", "b"], "{length(variables.my_variable)}", 2),
+        ]
+    )
+    def test_expression_placeholder_reads_request_variable(
+        self, _name: str, variable_type: str, is_multi: bool, value: Any, placeholder: str, expected: int
+    ) -> None:
+        insight_variable = InsightVariable.objects.create(
+            team=self.team,
+            name="My variable",
+            code_name="my_variable",
+            type=variable_type,
+            is_multi=is_multi,
+        )
+        variables = {
+            "my_variable": HogQLVariable(
+                code_name="my_variable",
+                value=value,
+                variableId=str(insight_variable.id),
+            )
+        }
+
+        response = execute_hogql_query(f"SELECT {placeholder}", team=self.team, variables=variables)
+
+        self.assertEqual(response.results, [(expected,)])
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_hogql_query_filters(self):
