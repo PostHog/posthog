@@ -11,6 +11,7 @@ from django.utils import timezone
 import structlog
 from celery import Task, shared_task
 from celery.exceptions import SoftTimeLimitExceeded
+from redis.exceptions import RedisError
 from slack_sdk.errors import SlackApiError
 
 from posthog.celery_queues import CeleryQueue
@@ -68,6 +69,7 @@ from products.signals.backend.report_inbox_state import reconcile_report_inbox_s
 from products.signals.backend.reviewer_pr_assignment import deliver_pull_request_assignment
 from products.signals.backend.reviewer_pr_ready import open_pull_request_ready_for_review
 from products.signals.backend.scout_harness.background_bands import refresh_background_bands
+from products.signals.backend.scout_harness.emit_gate import preflight_emit_gates
 from products.signals.backend.scout_harness.inactivity import sweep_inactive_scouts
 from products.signals.backend.scout_harness.slack_delivery import (
     DELIVERABLE_REPORT_STATUSES,
@@ -83,6 +85,7 @@ from products.signals.backend.scout_harness.slack_delivery import (
     post_scout_emission_to_slack,
     post_scout_report_to_slack,
     post_scout_run_to_slack,
+    scout_report_delivery_lock,
     slack_api_error_code,
 )
 from products.signals.backend.signal_metadata import fetch_signals_for_report_sync
@@ -403,6 +406,10 @@ def _scout_slack_retry_countdown(exc: Exception, retries: int) -> int:
     ignore_result=True,
     acks_late=True,
     reject_on_worker_lost=True,
+    soft_time_limit=600,
+    autoretry_for=(TimeoutError, RedisError),
+    retry_backoff=True,
+    retry_kwargs={"max_retries": _SCOUT_SLACK_MAX_RETRIES},
 )
 @with_team_scope(canonical=True)
 def deliver_scout_slack_thread_replies(
@@ -417,129 +424,139 @@ def deliver_scout_slack_thread_replies(
     attempt: int = 1,
     report_id: str | None = None,
     report_revision: str | None = None,
+    run_id: str | None = None,
 ) -> None:
     """Continue a rate-limited report thread without holding or retrying the lead-message worker."""
-    if report_id is not None and not assignment_side_effects_allowed(team_id=team_id, report_id=report_id):
+    if report_id is None or run_id is None:
         return
-    team = Team.objects.only("project_id").get(id=team_id)
-    integration = _slack_integration_for_project(integration_id=integration_id, project_id=team.project_id)
-    slack = SlackIntegration(integration, source="signals_scout")
-    channel_id = _slack_channel_id(channel)
-
-    def _schedule_retry(
-        countdown: int,
-        blocks: list[list[dict]],
-        offset: int,
-        retry_thread_ts: str,
-        retry_fallback: str,
-    ) -> None:
-        if attempt >= _SCOUT_SLACK_MAX_RETRIES:
-            logger.warning(
-                "scout_slack_report_thread_reply_exhausted",
-                team_id=team_id,
-                integration_id=integration_id,
-                channel=channel_id,
-                delivery_id=delivery_id,
-                chunk_index=offset,
-                attempts=attempt,
-            )
-            return
-        deliver_scout_slack_thread_replies.apply_async(
-            kwargs={
-                "team_id": team_id,
-                "integration_id": integration_id,
-                "channel": channel,
-                "thread_ts": retry_thread_ts,
-                "delivery_id": delivery_id,
-                "reply_blocks": blocks,
-                "fallback": retry_fallback,
-                "chunk_offset": offset,
-                "attempt": attempt + 1,
-                **({"report_id": report_id} if report_id is not None else {}),
-                **({"report_revision": report_revision} if report_revision is not None else {}),
-            },
-            countdown=countdown,
-        )
-
-    if report_id is not None:
-        report = SignalReport.objects.filter(id=report_id, team_id=team_id).only("status", "updated_at").first()
-        if report is None:
-            logger.info("scout_slack_report_thread_reply_report_missing", team_id=team_id, report_id=report_id)
-            return
-        if report.status not in DELIVERABLE_REPORT_STATUSES:
-            logger.info(
-                "scout_slack_report_thread_reply_report_not_surfaced",
-                team_id=team_id,
-                report_id=report_id,
-                report_status=report.status,
-            )
-            return
-        if report_revision is not None and report.updated_at.isoformat() != report_revision:
-            logger.info(
-                "scout_slack_report_thread_reply_report_changed",
-                team_id=team_id,
-                report_id=report_id,
-            )
-            return
-        if _newer_report_delivery_queued(report_id, delivery_id, integration_id, channel):
-            logger.info(
-                "scout_slack_report_thread_reply_yielded_to_newer_delivery",
-                team_id=team_id,
-                report_id=report_id,
-                delivery_id=delivery_id,
-            )
-            return
-
-    try:
-        _ensure_dm_recipient_eligible(slack, channel_id)
-    except ScoutSlackPermanentDeliveryError:
-        raise
-    except Exception as exc:
-        _schedule_retry(
-            _scout_slack_retry_countdown(exc, attempt - 1),
-            reply_blocks,
-            chunk_offset,
-            thread_ts,
-            fallback,
-        )
+    run = SignalScoutRun.objects.select_related("team__organization").filter(id=run_id, team_id=team_id).first()
+    if run is None or preflight_emit_gates(run.team, run) is not None:
         return
+    with scout_report_delivery_lock(report_id, integration_id, channel):
+        if preflight_emit_gates(run.team, run) is not None:
+            return
+        if report_id is not None and not assignment_side_effects_allowed(team_id=team_id, report_id=report_id):
+            return
+        team = Team.objects.only("project_id").get(id=team_id)
+        integration = _slack_integration_for_project(integration_id=integration_id, project_id=team.project_id)
+        slack = SlackIntegration(integration, source="signals_scout")
+        channel_id = _slack_channel_id(channel)
 
-    # The earlier attempt recorded the replies it reached, so this one updates those instead of
-    # posting them again.
-    message = (
-        scout_report_slack_message(
-            team_id=team_id,
-            report_id=report_id,
-            slack_workspace_id=integration.integration_id or "",
-            thread_ts=thread_ts,
-        )
-        if report_id is not None
-        else None
-    )
+        def _schedule_retry(
+            countdown: int,
+            blocks: list[list[dict]],
+            offset: int,
+            retry_thread_ts: str,
+            retry_fallback: str,
+        ) -> None:
+            if attempt >= _SCOUT_SLACK_MAX_RETRIES:
+                logger.warning(
+                    "scout_slack_report_thread_reply_exhausted",
+                    team_id=team_id,
+                    integration_id=integration_id,
+                    channel=channel_id,
+                    delivery_id=delivery_id,
+                    chunk_index=offset,
+                    attempts=attempt,
+                )
+                return
+            deliver_scout_slack_thread_replies.apply_async(
+                kwargs={
+                    "team_id": team_id,
+                    "integration_id": integration_id,
+                    "channel": channel,
+                    "thread_ts": retry_thread_ts,
+                    "delivery_id": delivery_id,
+                    "reply_blocks": blocks,
+                    "fallback": retry_fallback,
+                    "chunk_offset": offset,
+                    "attempt": attempt + 1,
+                    **({"report_id": report_id} if report_id is not None else {}),
+                    **({"report_revision": report_revision} if report_revision is not None else {}),
+                    "run_id": run_id,
+                },
+                countdown=countdown,
+            )
 
-    def _record_reply_ts(posted: list[str]) -> None:
-        if message is not None:
-            record_scout_report_slack_replies(
+        if report_id is not None:
+            report = SignalReport.objects.filter(id=report_id, team_id=team_id).only("status", "updated_at").first()
+            if report is None:
+                logger.info("scout_slack_report_thread_reply_report_missing", team_id=team_id, report_id=report_id)
+                return
+            if report.status not in DELIVERABLE_REPORT_STATUSES:
+                logger.info(
+                    "scout_slack_report_thread_reply_report_not_surfaced",
+                    team_id=team_id,
+                    report_id=report_id,
+                    report_status=report.status,
+                )
+                return
+            if report_revision is not None and report.updated_at.isoformat() != report_revision:
+                logger.info(
+                    "scout_slack_report_thread_reply_report_changed",
+                    team_id=team_id,
+                    report_id=report_id,
+                )
+                return
+            if _newer_report_delivery_queued(report_id, delivery_id, integration_id, channel):
+                logger.info(
+                    "scout_slack_report_thread_reply_yielded_to_newer_delivery",
+                    team_id=team_id,
+                    report_id=report_id,
+                    delivery_id=delivery_id,
+                )
+                return
+
+        try:
+            _ensure_dm_recipient_eligible(slack, channel_id)
+        except ScoutSlackPermanentDeliveryError:
+            raise
+        except Exception as exc:
+            _schedule_retry(
+                _scout_slack_retry_countdown(exc, attempt - 1),
+                reply_blocks,
+                chunk_offset,
+                thread_ts,
+                fallback,
+            )
+            return
+
+        # The earlier attempt recorded the replies it reached, so this one updates those instead of
+        # posting them again.
+        message = (
+            scout_report_slack_message(
                 team_id=team_id,
+                report_id=report_id,
                 slack_workspace_id=integration.integration_id or "",
-                channel=message.channel,
                 thread_ts=thread_ts,
-                reply_ts=posted,
             )
+            if report_id is not None
+            else None
+        )
 
-    _post_scout_report_thread_replies(
-        slack.client,
-        channel_id=channel_id,
-        thread_ts=thread_ts,
-        delivery_id=delivery_id,
-        reply_blocks=reply_blocks,
-        fallback=fallback,
-        schedule_retry=_schedule_retry,
-        chunk_offset=chunk_offset,
-        conversation=message.channel if message is not None else None,
-        reply_ts=message.reply_ts if message is not None else None,
-        record_reply_ts=_record_reply_ts,
-    )
+        def _record_reply_ts(posted: list[str]) -> None:
+            if message is not None:
+                record_scout_report_slack_replies(
+                    team_id=team_id,
+                    slack_workspace_id=integration.integration_id or "",
+                    channel=message.channel,
+                    thread_ts=thread_ts,
+                    reply_ts=posted,
+                )
+
+        _post_scout_report_thread_replies(
+            slack.client,
+            channel_id=channel_id,
+            thread_ts=thread_ts,
+            delivery_id=delivery_id,
+            reply_blocks=reply_blocks,
+            fallback=fallback,
+            schedule_retry=_schedule_retry,
+            chunk_offset=chunk_offset,
+            conversation=message.channel if message is not None else None,
+            reply_ts=message.reply_ts if message is not None else None,
+            record_reply_ts=_record_reply_ts,
+        )
 
 
 @shared_task(
@@ -548,6 +565,7 @@ def deliver_scout_slack_thread_replies(
     bind=True,
     acks_late=True,
     reject_on_worker_lost=True,
+    soft_time_limit=600,
     max_retries=_SCOUT_SLACK_MAX_RETRIES,
 )
 @with_team_scope(canonical=True)
@@ -563,6 +581,7 @@ def deliver_scout_slack_output(
     edit_note: str | None = None,
     thread_reports: bool = False,
     slack_message: str | None = None,
+    delivery_version: int | None = None,
 ) -> None:
     context = {
         "team_id": team_id,
@@ -572,6 +591,11 @@ def deliver_scout_slack_output(
         "integration_id": integration_id,
     }
     try:
+        delivery_run = (
+            SignalScoutRun.objects.select_related("team__organization").filter(id=run_id, team_id=team_id).first()
+        )
+        if delivery_run is None or preflight_emit_gates(delivery_run.team, delivery_run) is not None:
+            return
         if output_type == "finding":
             emission = (
                 SignalScoutEmission.objects.select_related("scout_run", "team")
@@ -622,21 +646,26 @@ def deliver_scout_slack_output(
                         "chunk_offset": offset,
                         "report_id": output_id,
                         "report_revision": report.updated_at.isoformat(),
+                        "run_id": run_id,
                     },
                     countdown=countdown,
                 )
 
-            post_scout_report_to_slack(
-                report,
-                run,
-                delivery_id=delivery_id,
-                integration_id=integration_id,
-                channel=channel,
-                schedule_thread_reply_retry=_schedule_thread_reply_retry,
-                edit_note=edit_note,
-                slack_message=slack_message,
-                thread_reports=thread_reports,
-            )
+            with scout_report_delivery_lock(output_id, integration_id, channel):
+                if preflight_emit_gates(run.team, run) is not None:
+                    return
+                post_scout_report_to_slack(
+                    report,
+                    run,
+                    delivery_id=delivery_id,
+                    integration_id=integration_id,
+                    channel=channel,
+                    schedule_thread_reply_retry=_schedule_thread_reply_retry,
+                    edit_note=edit_note,
+                    slack_message=slack_message,
+                    delivery_version=delivery_version,
+                    thread_reports=thread_reports,
+                )
         elif output_type == "run":
             run = SignalScoutRun.objects.select_related("team").filter(id=run_id, team_id=team_id).first()
             if run is None or output_id != run_id or not slack_message:
@@ -702,26 +731,37 @@ def enqueue_scout_slack_delivery(
     edit_note: str | None = None,
     thread_reports: bool = False,
     slack_message: str | None = None,
+    delivery_version: int | None = None,
 ) -> None:
     """Publish after commit, capturing broker failures without affecting the completed emit."""
     # Only a full report delivery supersedes an earlier one: a note-only update leaves the
     # report message to the delivery that is still building it.
     supersedes = output_type == "report" and edit_note is None
     try:
+        delivery_run = (
+            SignalScoutRun.objects.select_related("team__organization").filter(id=run_id, team_id=team_id).first()
+        )
+        if delivery_run is None or preflight_emit_gates(delivery_run.team, delivery_run) is not None:
+            return
         if output_type == "report" and not assignment_side_effects_allowed(team_id=team_id, report_id=output_id):
             return
         # Claim before publishing: an earlier delivery of the same report reads this marker to decide
         # whether to yield, and between the two calls it would see no claim and post the report that
         # this delivery is about to post again.
         if supersedes:
-            mark_latest_scout_report_delivery(output_id, delivery_id, integration_id, channel)
+            if not mark_latest_scout_report_delivery(
+                output_id, delivery_id, integration_id, channel, delivery_version=delivery_version
+            ):
+                return
         # Each optional arg rides as a kwarg only when set, so a delivery without one keeps the
         # payload shape workers running the previous task signature still accept.
-        extra_kwargs: dict[str, str | bool] = {}
+        extra_kwargs: dict[str, str | bool | int] = {}
         if edit_note is not None:
             extra_kwargs["edit_note"] = edit_note
         if slack_message is not None:
             extra_kwargs["slack_message"] = slack_message
+        if delivery_version is not None:
+            extra_kwargs["delivery_version"] = delivery_version
         if thread_reports:
             extra_kwargs["thread_reports"] = True
         deliver_scout_slack_output.delay(
@@ -738,7 +778,9 @@ def enqueue_scout_slack_delivery(
         # The claim now names a delivery that will never run, and would silence every later delivery
         # of this report until it expired, so give it up before reporting the failure.
         if supersedes:
-            clear_latest_scout_report_delivery(output_id, delivery_id, integration_id, channel)
+            clear_latest_scout_report_delivery(
+                output_id, delivery_id, integration_id, channel, delivery_version=delivery_version
+            )
         capture_exception(
             exc,
             {

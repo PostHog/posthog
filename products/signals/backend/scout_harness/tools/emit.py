@@ -35,7 +35,8 @@ from django.db import transaction
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
 
-from products.signals.backend.models import SignalScoutConfig, SignalScoutEmission, SignalScoutRun, SignalSourceConfig
+from products.signals.backend.models import SignalScoutEmission, SignalScoutRun, SignalSourceConfig
+from products.signals.backend.scout_harness.emit_gate import preflight_emit_gates as _preflight_emit_gates
 from products.signals.backend.scout_harness.slack_delivery_queue import queue_configured_scout_slack_delivery
 from products.signals.backend.scout_harness.tags import slugify_tag
 from products.tasks.backend.facade import api as tasks_facade
@@ -484,41 +485,6 @@ def _log_extra(
         "severity": severity,
         "evidence_count": evidence_count,
     }
-
-
-def _preflight_emit_gates(team: Team, run: SignalScoutRun) -> str | None:
-    """Return the matching skipped_reason if a gate would drop the emit; else None.
-
-    `emit_signal()` returns silently when the team's organization has not approved
-    AI processing or when `SignalSourceConfig.is_source_enabled(...)` is False.
-    Surfacing the gate result here lets the view return a useful skipped_reason
-    instead of "emitted" for an emit the pipeline silently dropped. The per-scout
-    `emit` toggle is checked first: a dry-run scout runs and logs but emits nothing.
-
-    Anchored on the run's own config FK, re-read live from the DB (not the in-memory `run`,
-    which may be stale, and not re-resolved by `skill_name`). `scout_config` is `SET_NULL`,
-    so if the config the run was dispatched with is deleted mid-run the FK goes NULL and we
-    fail closed — even if a same-`(team, skill_name)` config was recreated in the meantime. A
-    stale run must emit only against the config it was dispatched with. This keeps the gate
-    fail-closed independent of the `emit` default (now `True`); re-reading the row by pk still
-    honors a mid-run `emit` flip on that same config.
-    """
-    config_id = (
-        SignalScoutRun.all_teams.filter(pk=run.pk, team_id=team.id).values_list("scout_config_id", flat=True).first()
-    )
-    if config_id is None:
-        return "scout_config_missing"
-    config = SignalScoutConfig.all_teams.filter(pk=config_id).first()
-    if config is None:
-        return "scout_config_missing"
-    if not config.emit:
-        return "scout_emit_disabled"
-    organization = team.organization
-    if not organization.is_ai_data_processing_approved:
-        return "ai_processing_not_approved"
-    if not SignalSourceConfig.is_source_enabled(team.id, SOURCE_PRODUCT, SOURCE_TYPE):
-        return "source_disabled"
-    return None
 
 
 # One-line, scout-actionable next step for each preflight skip reason. A gate-skipped emit

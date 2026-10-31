@@ -9,6 +9,7 @@ from django.db import transaction
 from posthog.exceptions_capture import capture_exception
 
 from products.signals.backend.models import SignalScoutRun
+from products.signals.backend.scout_harness.emit_gate import preflight_emit_gates
 from products.signals.backend.scout_harness.slack_delivery import (
     MAX_SCOUT_SLACK_MESSAGE_LENGTH,
     MAX_SLACK_NOTE_SNAPSHOT_LEN,
@@ -29,6 +30,7 @@ def queue_configured_scout_slack_delivery(
     edit_note: str | None = None,
     slack_message: str | None = None,
     update_existing_message: bool = False,
+    delivery_version: int | None = None,
 ) -> None:
     """Snapshot a run's configured destination and enqueue delivery after the current commit.
 
@@ -36,9 +38,11 @@ def queue_configured_scout_slack_delivery(
     re-posting the report message the channel already has. Snapshotted here (rather than re-read at
     send time) because the report's work log can gain further notes before the worker runs."""
     try:
-        run = SignalScoutRun.all_teams.select_related("scout_config").filter(pk=run_id).first()
+        run = SignalScoutRun.all_teams.select_related("scout_config", "team__organization").filter(pk=run_id).first()
         if run is None:
             logger.warning("signals_scout.slack_delivery_run_missing", extra={"run_id": str(run_id)})
+            return
+        if preflight_emit_gates(run.team, run) is not None:
             return
 
         destination = get_scout_slack_destination(
@@ -69,12 +73,9 @@ def queue_configured_scout_slack_delivery(
                     integration_id=destination.integration_id,
                     channel=target,
                     edit_note=note_snapshot,
-                    **(
-                        {"slack_message": slack_message[:MAX_SCOUT_SLACK_MESSAGE_LENGTH]}
-                        if slack_message is not None
-                        else {}
-                    ),
+                    slack_message=slack_message[:MAX_SCOUT_SLACK_MESSAGE_LENGTH] if slack_message is not None else None,
                     thread_reports=destination.thread_reports,
+                    delivery_version=delivery_version,
                 ),
                 robust=True,
             )

@@ -1626,7 +1626,6 @@ class EmitReportRequestSerializer(serializers.Serializer):
 
     update_existing_message = serializers.BooleanField(
         required=False,
-        default=False,
         help_text=(
             "Opt in to updating the stored top-level Slack message for this report, including note-only edits. "
             "Set slack_message to the full replacement body. Without it, the latest report card is used. "
@@ -1851,7 +1850,6 @@ class EditReportRequestSerializer(ReviewerProposalSerializer):
     report_id = serializers.CharField(help_text="Id of the report to edit (must belong to this project).")
     update_existing_message = serializers.BooleanField(
         required=False,
-        default=False,
         help_text=(
             "Opt in to updating the stored top-level Slack message for this report, including note-only edits. "
             "Set slack_message to the full replacement body. Without it, the latest report card is used. "

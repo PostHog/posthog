@@ -88,6 +88,7 @@ from products.signals.backend.scout_harness.trial_launch import (
 from products.signals.backend.scout_harness.trial_result import export_trial_result, validate_trial_runtime
 from products.signals.backend.scout_harness.trial_state import SCOUT_TRIAL_METADATA_KEY, initial_trial_state
 from products.signals.backend.scout_report import scout_report_tags_in_use
+from products.signals.backend.scout_report.judge import judge_edited_report_content
 from products.signals.backend.spend import record_task_spend
 from products.signals.backend.temporal.agentic import (
     SIGNALS_REPORT_RESEARCH_ENV_NAME,
@@ -1269,13 +1270,20 @@ async def _spawn_and_run(
             first_report_result=result.first_report_result if isinstance(result, FirstReportScoutRunSummary) else None,
         )
         if result.slack_message is not None and config.emit and trial is None:
-            await database_sync_to_async(queue_configured_scout_slack_delivery, thread_sensitive=False)(
-                run_id=run_id,
-                output_type="run",
-                output_id=str(run_id),
-                delivery_id=str(run_id),
-                slack_message=result.slack_message,
-            )
+            try:
+                safety = await judge_edited_report_content(
+                    team_id=team.parent_team_id or team.id, summary=result.slack_message
+                )
+                if safety.choice:
+                    await database_sync_to_async(queue_configured_scout_slack_delivery, thread_sensitive=False)(
+                        run_id=run_id,
+                        output_type="run",
+                        output_id=str(run_id),
+                        delivery_id=str(run_id),
+                        slack_message=result.slack_message,
+                    )
+            except Exception:
+                logger.exception("signals_scout.run_slack_message_safety_check_failed", extra={"run_id": str(run_id)})
         return result.summary, str(session.task_run.id)
     except BaseException as error:
         end_status = (

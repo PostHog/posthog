@@ -35,6 +35,7 @@ from typing import TYPE_CHECKING, Literal
 
 from django.db import IntegrityError, transaction
 from django.db.models import F
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 
 from asgiref.sync import async_to_sync
@@ -559,6 +560,21 @@ def get_content_revision_count(*, team_id: int, report_id: str) -> int:
         .first()
     )
     return value if value is not None else 0
+
+
+def reserve_scout_report_slack_delivery(*, team_id: int, report_id: str) -> int:
+    updated = SignalReport.objects.filter(team_id=team_id, id=report_id).update(
+        slack_delivery_version=Coalesce(F("slack_delivery_version"), 0) + 1
+    )
+    if not updated:
+        raise InvalidScoutReportError(f"report {report_id} not found for team {team_id}")
+    version = (
+        SignalReport.objects.filter(team_id=team_id, id=report_id)
+        .values_list("slack_delivery_version", flat=True)
+        .get()
+    )
+    assert version is not None
+    return version
 
 
 def prepare_scout_supersession(

@@ -1,4 +1,6 @@
 import uuid
+from contextlib import contextmanager, nullcontext
+from threading import Event, Thread
 
 import pytest
 from posthog.test.base import BaseTest
@@ -10,6 +12,7 @@ from django.test import SimpleTestCase
 
 from celery.exceptions import Retry
 from parameterized import parameterized
+from redis.exceptions import LockNotOwnedError
 from slack_sdk.errors import SlackApiError
 
 from posthog.models import Team
@@ -21,8 +24,10 @@ from products.signals.backend.models import (
     SignalReport,
     SignalReportArtefact,
     SignalReportSlackThread,
+    SignalScoutConfig,
     SignalScoutEmission,
     SignalScoutRun,
+    SignalSourceConfig,
 )
 from products.signals.backend.scout_harness.slack_charts import CHART_BLOCK_ID_PREFIX as PREFIX
 from products.signals.backend.scout_harness.slack_delivery import (
@@ -30,11 +35,13 @@ from products.signals.backend.scout_harness.slack_delivery import (
     ScoutSlackDestination,
     ScoutSlackPermanentDeliveryError,
     _latest_report_delivery_key,
+    _newer_report_delivery_queued,
     _slack_retry_after_seconds,
     find_project_slack_integration,
     get_scout_slack_destination,
     mark_latest_scout_report_delivery,
     post_scout_emission_to_slack,
+    scout_report_delivery_lock,
 )
 from products.signals.backend.scout_harness.slack_delivery_queue import queue_configured_scout_slack_delivery
 from products.signals.backend.slack_report_threads import report_id_for_slack_thread
@@ -104,6 +111,120 @@ class TestGetScoutSlackDestination(SimpleTestCase):
 
 
 class TestScoutSlackDelivery(BaseTest):
+    @parameterized.expand([("same_destination", "CSCOUTS", False), ("other_destination", "COTHER", True)])
+    def test_report_send_lock_is_scoped_to_destination(self, _name: str, second_channel: str, overlaps: bool) -> None:
+        report_id = str(uuid.uuid4())
+        first_entered, release_first, second_entered = Event(), Event(), Event()
+
+        def first() -> None:
+            with scout_report_delivery_lock(report_id, 9, "CSCOUTS"):
+                first_entered.set()
+                assert release_first.wait(5)
+
+        def second() -> None:
+            assert first_entered.wait(5)
+            with scout_report_delivery_lock(report_id, 9, second_channel):
+                second_entered.set()
+
+        first_thread, second_thread = Thread(target=first), Thread(target=second)
+        first_thread.start()
+        second_thread.start()
+        assert first_entered.wait(5)
+        assert second_entered.wait(0.2) is overlaps
+        release_first.set()
+        first_thread.join(5)
+        second_thread.join(5)
+        assert not first_thread.is_alive() and not second_thread.is_alive()
+        assert second_entered.is_set()
+
+    def test_report_send_lock_timeout_does_not_send(self) -> None:
+        lock = MagicMock()
+        lock.acquire.return_value = False
+        with patch("products.signals.backend.scout_harness.slack_delivery.get_client") as redis:
+            redis.return_value.lock.return_value = lock
+            with pytest.raises(TimeoutError):
+                with scout_report_delivery_lock(str(uuid.uuid4()), 9, "CSCOUTS"):
+                    pytest.fail("A worker must not send without the lock")
+        lock.release.assert_not_called()
+
+    def test_expired_report_send_lock_does_not_hide_delivery_result(self) -> None:
+        lock = MagicMock()
+        lock.acquire.return_value = True
+        lock.release.side_effect = LockNotOwnedError("Lock expired")
+        with patch("products.signals.backend.scout_harness.slack_delivery.get_client") as redis:
+            redis.return_value.lock.return_value = lock
+            with scout_report_delivery_lock(str(uuid.uuid4()), 9, "CSCOUTS"):
+                pass
+        lock.release.assert_called_once()
+
+    @parameterized.expand(
+        [
+            ("emit_at_enqueue", "emit", "enqueue"),
+            ("consent_at_enqueue", "consent", "enqueue"),
+            ("source_at_enqueue", "source", "enqueue"),
+            ("emit_at_send", "emit", "send"),
+            ("consent_at_send", "consent", "send"),
+            ("source_at_send", "source", "send"),
+        ]
+    )
+    def test_live_eligibility_blocks_slack_delivery(self, _name: str, gate: str, stage: str) -> None:
+        emission = self._make_emission()
+        run = emission.scout_run
+        config = run.scout_config
+        assert config is not None
+
+        def close_gate() -> None:
+            if gate == "emit":
+                config.emit = False
+                config.save(update_fields=["emit"])
+            elif gate == "consent":
+                self.organization.is_ai_data_processing_approved = False
+                self.organization.save(update_fields=["is_ai_data_processing_approved"])
+
+        source_gate = (
+            patch.object(SignalSourceConfig, "is_source_enabled", return_value=False)
+            if gate == "source"
+            else nullcontext()
+        )
+        if stage == "enqueue":
+            close_gate()
+        with (
+            source_gate if stage == "enqueue" else nullcontext(),
+            patch(
+                "products.signals.backend.scout_harness.slack_delivery_queue.get_scout_slack_destination",
+                return_value=ScoutSlackDestination(integration_id=9, targets=("CSCOUTS",)),
+            ),
+            patch(
+                "products.signals.backend.scout_harness.slack_delivery_queue.enqueue_scout_slack_delivery"
+            ) as enqueue,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            queue_configured_scout_slack_delivery(
+                run_id=run.id,
+                output_type="run",
+                output_id=str(run.id),
+                slack_message="Run complete",
+            )
+        assert enqueue.called is (stage == "send")
+        if stage == "enqueue":
+            return
+        close_gate()
+        with (
+            source_gate if stage == "send" else nullcontext(),
+            patch("products.signals.backend.tasks.post_scout_run_to_slack") as post,
+        ):
+            deliver_scout_slack_output.run(
+                self.team.id,
+                "run",
+                str(run.id),
+                str(run.id),
+                str(uuid.uuid4()),
+                9,
+                "CSCOUTS",
+                slack_message="Run complete",
+            )
+        post.assert_not_called()
+
     @parameterized.expand([(False, None), (False, "An update"), (True, None), (True, "An update")])
     def test_trial_report_delivery_checks_side_effect_flag(self, allowed: bool, edit_note: str | None) -> None:
         emission = self._make_emission()
@@ -190,6 +311,8 @@ class TestScoutSlackDelivery(BaseTest):
         slack.assert_not_called()
 
     def _make_emission(self, description: str = "**Checkout** failures") -> SignalScoutEmission:
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save(update_fields=["is_ai_data_processing_approved"])
         Task = apps.get_model("tasks", "Task")
         TaskRun = apps.get_model("tasks", "TaskRun")
         task = Task.objects.create(
@@ -199,11 +322,15 @@ class TestScoutSlackDelivery(BaseTest):
             origin_product=Task.OriginProduct.SIGNALS_SCOUT,
         )
         task_run = TaskRun.objects.create(task=task, team=self.team)
+        config = SignalScoutConfig.all_teams.create(
+            team=self.team, skill_name="signals-scout-error-tracking", emit=True
+        )
         run = SignalScoutRun.all_teams.create(
             task_run=task_run,
             team=self.team,
             skill_name="signals-scout-error-tracking",
             skill_version=1,
+            scout_config=config,
         )
         return SignalScoutEmission.all_teams.create(
             team=self.team,
@@ -213,6 +340,23 @@ class TestScoutSlackDelivery(BaseTest):
             severity="P1",
             tags=["checkout", "regression"],
             source_id=f"run:{run.id}:finding:checkout-500s",
+        )
+
+    def _make_enqueue_run(self) -> None:
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save(update_fields=["is_ai_data_processing_approved"])
+        Task = apps.get_model("tasks", "Task")
+        TaskRun = apps.get_model("tasks", "TaskRun")
+        task = Task.objects.create(team=self.team, title="scout run", description="scout run")
+        task_run = TaskRun.objects.create(task=task, team=self.team)
+        config = SignalScoutConfig.all_teams.create(team=self.team, skill_name="signals-scout-enqueue-test", emit=True)
+        SignalScoutRun.all_teams.create(
+            id="e3865391-bc89-44e6-86f7-2d4405627daf",
+            task_run=task_run,
+            team=self.team,
+            scout_config=config,
+            skill_name=config.skill_name,
+            skill_version=1,
         )
 
     @parameterized.expand(
@@ -543,6 +687,7 @@ class TestScoutSlackDelivery(BaseTest):
             assert call["client_msg_id"] == str(run.id)
 
     def test_enqueue_omits_edit_note_kwarg_when_unset(self) -> None:
+        self._make_enqueue_run()
         # A worker still running the previous task signature rejects an unknown kwarg, so every
         # delivery without a note must keep the exact payload shape it had before edit_note existed.
         with patch.object(deliver_scout_slack_output, "delay") as delay:
@@ -580,6 +725,7 @@ class TestScoutSlackDelivery(BaseTest):
     def test_enqueue_marks_only_a_full_report_delivery_as_the_latest(
         self, _name, output_type, edit_note, expected_marker
     ) -> None:
+        self._make_enqueue_run()
         get_client().flushdb()
         with patch.object(deliver_scout_slack_output, "delay"):
             enqueue_scout_slack_delivery(
@@ -598,7 +744,50 @@ class TestScoutSlackDelivery(BaseTest):
         )
         assert (marker.decode() if marker is not None else None) == expected_marker
 
+    @parameterized.expand([("older_enqueues_first", False), ("newer_enqueues_first", True)])
+    def test_committed_edit_order_wins_when_enqueues_race(self, _name: str, newer_first: bool) -> None:
+        report_id = str(uuid.uuid4())
+        channel = "CSCOUTS|#scout-findings"
+        old_id, new_id = str(uuid.uuid4()), str(uuid.uuid4())
+        get_client().delete(_latest_report_delivery_key(report_id, 9, channel))
+        old_ready, old_done, new_done = Event(), Event(), Event()
+        outcomes: dict[str, bool] = {}
+
+        def older_edit() -> None:
+            old_ready.set()
+            if newer_first:
+                assert new_done.wait(5)
+            outcomes["older"] = mark_latest_scout_report_delivery(report_id, old_id, 9, channel, delivery_version=1)
+            old_done.set()
+
+        def newer_edit() -> None:
+            assert old_ready.wait(5)
+            if not newer_first:
+                assert old_done.wait(5)
+            outcomes["newer"] = mark_latest_scout_report_delivery(report_id, new_id, 9, channel, delivery_version=2)
+            new_done.set()
+
+        older = Thread(target=older_edit)
+        newer = Thread(target=newer_edit)
+        older.start()
+        newer.start()
+        older.join(6)
+        newer.join(6)
+        assert not older.is_alive() and not newer.is_alive()
+        assert outcomes == {"older": not newer_first, "newer": True}
+        assert get_client().get(_latest_report_delivery_key(report_id, 9, channel)) == f"v2:{new_id}".encode()
+
+    def test_legacy_delivery_yields_to_versioned_marker(self) -> None:
+        report_id, old_id, new_id = str(uuid.uuid4()), str(uuid.uuid4()), str(uuid.uuid4())
+        channel = "CSCOUTS|#scout-findings"
+        get_client().delete(_latest_report_delivery_key(report_id, 9, channel))
+        assert mark_latest_scout_report_delivery(report_id, new_id, 9, channel, delivery_version=2)
+        assert not mark_latest_scout_report_delivery(report_id, old_id, 9, channel)
+        assert _newer_report_delivery_queued(report_id, old_id, 9, channel)
+        assert not _newer_report_delivery_queued(report_id, new_id, 9, channel, 2)
+
     def test_enqueue_omits_thread_reports_kwarg_when_off(self) -> None:
+        self._make_enqueue_run()
         # Same backward-compat contract as edit_note: the flag rides as a kwarg only when on, so a
         # worker on the previous task signature never sees an unknown keyword for a default delivery.
         with patch.object(deliver_scout_slack_output, "delay") as delay:
@@ -874,8 +1063,23 @@ class TestScoutSlackDelivery(BaseTest):
 
         assert _slack_retry_after_seconds(error) == 3600
 
-    @parameterized.expand([("suppressed",), ("newer_delivery",), ("edited",)])
+    @parameterized.expand(
+        [
+            (state,)
+            for state in (
+                "suppressed",
+                "newer_delivery",
+                "edited",
+                "consent_revoked",
+                "consent_revoked_during_lock",
+                "emit_disabled",
+                "source_disabled",
+                "legacy_payload",
+            )
+        ]
+    )
     def test_delayed_thread_replies_revalidate_report(self, state: str) -> None:
+        emission = self._make_emission()
         report = SignalReport.objects.create(
             team=self.team,
             status=SignalReport.Status.READY,
@@ -893,10 +1097,33 @@ class TestScoutSlackDelivery(BaseTest):
                 str(report.id), "0d1b6f3a-1d3f-4a6f-9d2c-7b3e2f1a9c44", integration.id, channel
             )
         else:
-            report.title = "Redacted"
-            report.save()
+            if state == "edited":
+                report.title = "Redacted"
+                report.save()
+            elif state == "consent_revoked":
+                self.organization.is_ai_data_processing_approved = False
+                self.organization.save(update_fields=["is_ai_data_processing_approved"])
+            elif state == "emit_disabled":
+                config = emission.scout_run.scout_config
+                assert config is not None
+                config.emit = False
+                config.save(update_fields=["emit"])
 
-        with patch("products.signals.backend.tasks.SlackIntegration") as slack_integration:
+        @contextmanager
+        def revoke_during_lock(*args):
+            self.organization.is_ai_data_processing_approved = False
+            self.organization.save(update_fields=["is_ai_data_processing_approved"])
+            yield
+
+        with (
+            patch("products.signals.backend.tasks.SlackIntegration") as slack_integration,
+            patch.object(SignalSourceConfig, "is_source_enabled", return_value=False)
+            if state == "source_disabled"
+            else nullcontext(),
+            patch("products.signals.backend.tasks.scout_report_delivery_lock", side_effect=revoke_during_lock)
+            if state == "consent_revoked_during_lock"
+            else nullcontext(),
+        ):
             deliver_scout_slack_thread_replies.run(
                 self.team.id,
                 integration.id,
@@ -908,11 +1135,13 @@ class TestScoutSlackDelivery(BaseTest):
                 0,
                 report_id=str(report.id),
                 report_revision=report_revision,
+                run_id=None if state == "legacy_payload" else str(emission.scout_run_id),
             )
 
         slack_integration.return_value.client.chat_postMessage.assert_not_called()
 
     def test_delayed_dm_thread_replies_retry_recipient_lookup_failure(self) -> None:
+        emission = self._make_emission()
         report = SignalReport.objects.create(
             team=self.team,
             status=SignalReport.Status.READY,
@@ -941,6 +1170,7 @@ class TestScoutSlackDelivery(BaseTest):
                 0,
                 report_id=str(report.id),
                 report_revision=report.updated_at.isoformat(),
+                run_id=str(emission.scout_run_id),
             )
 
         assert apply_async.call_args.kwargs["countdown"] == 120
@@ -987,11 +1217,10 @@ class TestScoutSlackDelivery(BaseTest):
         assert retry_kwargs["chunk_offset"] == 0
         assert len(retry_kwargs["reply_blocks"]) == 2
 
-    def test_invite_posted_regardless_of_ai_approval(self) -> None:
-        # The Slack follow-up invite is unconditional — no AI-approval gate on scout output.
-        self.organization.is_ai_data_processing_approved = False
-        self.organization.save()
+    def test_delivery_stops_when_ai_approval_is_revoked(self) -> None:
         emission = self._make_emission()
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save(update_fields=["is_ai_data_processing_approved"])
         report = SignalReport.objects.create(
             team=self.team,
             status=SignalReport.Status.READY,
@@ -1014,9 +1243,7 @@ class TestScoutSlackDelivery(BaseTest):
                 "CSCOUTS|#scout-findings",
             )
 
-        assert fake_client.chat_postMessage.call_count == 1
-        blocks = fake_client.chat_postMessage.call_args.kwargs["blocks"]
-        assert "@PostHog" in blocks[-1]["elements"][0]["text"]
+        fake_client.chat_postMessage.assert_not_called()
 
     @parameterized.expand(
         [
@@ -1359,6 +1586,7 @@ class TestScoutSlackDelivery(BaseTest):
     def test_enqueue_claims_the_report_before_publishing_and_releases_it_on_failure(
         self, _name, racing_claim, expected_marker
     ) -> None:
+        self._make_enqueue_run()
         # The claim has to be in place before the broker call: an earlier delivery reading the marker
         # in the gap would see none and post the report this one is about to post again. A publish
         # that then fails has to take the claim back down, since it names a task that will never run
@@ -1640,6 +1868,7 @@ class TestScoutSlackDelivery(BaseTest):
         )
 
     def test_enqueue_captures_broker_failure(self) -> None:
+        self._make_enqueue_run()
         error = ConnectionError("broker unavailable")
 
         with (

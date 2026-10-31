@@ -3,6 +3,7 @@ from __future__ import annotations
 import time
 import uuid
 from collections.abc import Callable
+from contextlib import contextmanager
 from dataclasses import dataclass
 from functools import partial
 from typing import Literal, TypeVar
@@ -11,6 +12,7 @@ from urllib.parse import quote
 from django.conf import settings
 
 import structlog
+from redis.exceptions import LockNotOwnedError
 from slack_sdk.errors import SlackApiError
 from slack_sdk.web import SlackResponse, WebClient
 
@@ -491,33 +493,73 @@ def _decoded_marker(latest: object) -> str | None:
     return latest.decode() if isinstance(latest, bytes) else str(latest)
 
 
-def mark_latest_scout_report_delivery(report_id: str, delivery_id: str, integration_id: int, channel: str) -> None:
+def _delivery_marker(delivery_id: str, delivery_version: int | None) -> str:
+    return delivery_id if delivery_version is None else f"v{delivery_version}:{delivery_id}"
+
+
+@contextmanager
+def scout_report_delivery_lock(report_id: str, integration_id: int, channel: str):
+    lock = get_client().lock(
+        f"signals_scout:slack_report_send:{report_id}:{integration_id}:{_slack_channel_id(channel)}", timeout=900
+    )
+    if not lock.acquire(blocking=True, blocking_timeout=60):
+        raise TimeoutError("Timed out waiting for scout report Slack delivery")
     try:
-        get_client().set(
-            _latest_report_delivery_key(report_id, integration_id, channel),
-            delivery_id,
-            ex=_LATEST_REPORT_DELIVERY_TTL_SECONDS,
+        yield
+    finally:
+        try:
+            lock.release()
+        except LockNotOwnedError:
+            logger.warning("signals_scout.slack_report_send_lock_expired", report_id=report_id)
+
+
+def mark_latest_scout_report_delivery(
+    report_id: str, delivery_id: str, integration_id: int, channel: str, *, delivery_version: int | None = None
+) -> bool:
+    try:
+        return bool(
+            get_client().eval(
+                """
+            local current = redis.call('GET', KEYS[1])
+            local current_version = current and tonumber(string.match(current, '^v(%d+):')) or -1
+            if current_version > tonumber(ARGV[2]) then return 0 end
+            redis.call('SET', KEYS[1], ARGV[1], 'EX', ARGV[3])
+            return 1
+            """,
+                1,
+                _latest_report_delivery_key(report_id, integration_id, channel),
+                _delivery_marker(delivery_id, delivery_version),
+                delivery_version if delivery_version is not None else -1,
+                _LATEST_REPORT_DELIVERY_TTL_SECONDS,
+            )
         )
     except Exception:
         logger.warning("signals_scout.slack_report_latest_delivery_mark_failed", report_id=report_id, exc_info=True)
+        return True
 
 
-def clear_latest_scout_report_delivery(report_id: str, delivery_id: str, integration_id: int, channel: str) -> None:
+def clear_latest_scout_report_delivery(
+    report_id: str, delivery_id: str, integration_id: int, channel: str, *, delivery_version: int | None = None
+) -> None:
     """Drop this delivery's claim on the report, for an enqueue that never reached the broker.
 
     A marker naming a task that will never run would silence every later delivery of the report for
     the marker's whole TTL. Only clears a marker still holding this delivery's id, so a newer claim
     written in between survives; losing that race costs a duplicate message, never the report."""
     try:
-        client = get_client()
-        key = _latest_report_delivery_key(report_id, integration_id, channel)
-        if _decoded_marker(client.get(key)) == delivery_id:
-            client.delete(key)
+        get_client().eval(
+            "if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) end return 0",
+            1,
+            _latest_report_delivery_key(report_id, integration_id, channel),
+            _delivery_marker(delivery_id, delivery_version),
+        )
     except Exception:
         logger.warning("signals_scout.slack_report_latest_delivery_clear_failed", report_id=report_id, exc_info=True)
 
 
-def _newer_report_delivery_queued(report_id: str, delivery_id: str, integration_id: int, channel: str) -> bool:
+def _newer_report_delivery_queued(
+    report_id: str, delivery_id: str, integration_id: int, channel: str, delivery_version: int | None = None
+) -> bool:
     """Fails open: an unreadable marker means post, since a duplicate message beats a lost report.
 
     The decode is inside the guard on purpose: a marker holding bytes that are not UTF-8 must read as
@@ -529,7 +571,9 @@ def _newer_report_delivery_queued(report_id: str, delivery_id: str, integration_
         return False
     if latest_id is None:
         return False
-    return latest_id != delivery_id
+    if latest_id.startswith("v") and ":" in latest_id:
+        return latest_id.rsplit(":", 1)[1] != delivery_id
+    return delivery_version is None and latest_id != delivery_id
 
 
 @frozen
@@ -785,6 +829,7 @@ def post_scout_report_to_slack(
     edit_note: str | None = None,
     thread_reports: bool = False,
     slack_message: str | None = None,
+    delivery_version: int | None = None,
 ) -> None:
     if report.team_id != run.team_id:
         raise ScoutSlackPermanentDeliveryError(
@@ -858,7 +903,9 @@ def post_scout_report_to_slack(
     # current and a rebuild-only check would post it here and again under the replacement. A
     # note-only delivery carries its own note rather than report content, and is never marked as a
     # latest delivery, so it has no claim to yield and must always post.
-    if edit_note is None and _newer_report_delivery_queued(str(report.id), delivery_id, integration_id, channel):
+    if edit_note is None and _newer_report_delivery_queued(
+        str(report.id), delivery_id, integration_id, channel, delivery_version
+    ):
         logger.info(
             "signals_scout.slack_delivery_yielded_to_newer_delivery",
             report_id=str(report.id),

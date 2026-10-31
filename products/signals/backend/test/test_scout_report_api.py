@@ -428,6 +428,39 @@ class TestScoutReportAPI(APIBaseTest):
         assert enqueue.call_args_list[2].kwargs["edit_note"] is None
         assert enqueue.call_args_list[3].kwargs["edit_note"] is None
 
+    def test_slack_only_edit_queues_without_changing_report(self) -> None:
+        run = _make_run(self.team)
+        config = run.scout_config
+        assert config is not None
+        config.output_destinations = {"slack": {"integration_id": 17, "channel": "CSCOUTS|#scout-findings"}}
+        config.save(update_fields=["output_destinations"])
+        with _safe_judge(), patch(EMBED_PATH):
+            emitted = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json")
+        report_id = emitted.json()["report_id"]
+        before = SignalReport.objects.get(id=report_id)
+        with (
+            _safe_judge() as judge,
+            patch(
+                "products.signals.backend.scout_harness.slack_delivery_queue.enqueue_scout_slack_delivery"
+            ) as enqueue,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            edited = self.client.post(
+                self._edit_url(str(run.id)),
+                data={"report_id": report_id, "slack_message": "*status*: ready", "update_existing_message": True},
+                format="json",
+            )
+        assert edited.status_code == status.HTTP_200_OK, edited.json()
+        assert edited.json()["updated_fields"] == []
+        assert edited.json()["note_appended"] is False
+        assert edited.json()["content_revision_count"] == (before.content_revision_count or 0)
+        assert any("*status*: ready" in signal.content for signal in judge.call_args.kwargs["signals"])
+        enqueue.assert_called_once()
+        assert enqueue.call_args.kwargs["slack_message"] == "*status*: ready"
+        after = SignalReport.objects.get(id=report_id)
+        assert after.updated_at == before.updated_at
+        assert after.slack_delivery_version == 1
+
     @parameterized.expand(UNSAFE_JUDGES)
     def test_emit_report_unsafe_suppresses_but_returns_id(self, _name, judge, explanation, refused) -> None:
         run = _make_run(self.team)

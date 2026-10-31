@@ -132,6 +132,7 @@ from products.signals.backend.scout_report import (
     record_implementation_decision,
     record_report_edit,
     record_scout_run_task_artefact,
+    reserve_scout_report_slack_delivery,
     scout_report_exists,
     scout_report_provenance,
     scout_task_run_content,
@@ -2601,6 +2602,7 @@ def _do_edit_report(
     prompts_changed = False
     tags_changed = False
     content_revision_count = 0
+    slack_delivery_version: int | None = None
     corroboration_collapsed = False
     supersede_recorded = False
     decision_fields_set: list[str] = []
@@ -2778,6 +2780,16 @@ def _do_edit_report(
         # note, a second corroboration count, or a second set of evidence rows.
         if not updated_fields:
             content_revision_count = get_content_revision_count(team_id=team.id, report_id=report_id)
+        note_only = (note_appended or bool(evidence_document_ids)) and not updated_fields and not charts_changed
+        slack_visible_change = bool(
+            updated_fields or note_appended or reviewers_set or evidence_document_ids or charts_changed
+        )
+        if (
+            run is not None
+            and (slack_message is not None or slack_visible_change)
+            and not (note_only and not update_existing_message)
+        ):
+            slack_delivery_version = reserve_scout_report_slack_delivery(team_id=team.id, report_id=report_id)
     charts_set = len(charts) if charts is not None and charts_changed else None
     metrics_set = len(metrics) if metrics is not None and metrics_changed else None
     prompts_set = len(suggested_prompts) if suggested_prompts is not None and prompts_changed else None
@@ -2806,7 +2818,7 @@ def _do_edit_report(
     # short as one status read. If the slow work ran first, that earlier delivery could read the freshly
     # committed edit, still find no marker, and post the edited report — the same content this edit's
     # own delivery then posts a second time.
-    if changed and run is not None:
+    if (changed or slack_message is not None) and run is not None:
         # Mirror emit's surfaced gate: an edit to a suppressed / never-surfaced report must not push
         # its content to a configured destination. The delivery worker re-checks status at send time
         # (the report can be suppressed after enqueue), so this mainly keeps the two paths symmetric
@@ -2841,7 +2853,6 @@ def _do_edit_report(
             # Slack report message shows unchanged, so re-posting it would duplicate the message
             # already in the channel. Deliver the addition itself instead; any edit that rewrote the
             # content re-posts the report as before.
-            note_only = (note_appended or evidence_appended) and not updated_fields and not charts_changed
             queue_configured_scout_slack_delivery(
                 run_id=run.id,
                 output_type="report",
@@ -2849,6 +2860,7 @@ def _do_edit_report(
                 edit_note=_edit_update_text(append_note, append_evidence) if note_only else None,
                 slack_message=slack_message,
                 update_existing_message=update_existing_message,
+                delivery_version=slack_delivery_version,
             )
     # After the commit, never inside it: a rolled-back edit must not leave signal rows bound to the
     # report. After the delivery claim above too, so the evidence emits don't widen the window in
@@ -3087,6 +3099,7 @@ def _validate_edit_inputs(
     priority=None,
     priority_explanation=None,
     tags=None,
+    slack_message=None,
 ) -> None:
     author.assert_owned_by(team)
     trial_store = _author_trial_store(author)
@@ -3130,6 +3143,7 @@ def _validate_edit_inputs(
         and priority is None
         and priority_explanation is None
         and tags is None
+        and slack_message is None
     ):
         raise InvalidScoutReportError(
             "edit_report needs at least one of title, summary, append_note, append_evidence, "
@@ -3194,6 +3208,7 @@ async def edit_report(
         priority,
         priority_explanation,
         tags,
+        slack_message,
     )
     # Validated up front (cheap, pure) so a malformed `owner/repo` fails before the safety-judge call.
     normalized_repository = _normalize_repository(repository)
@@ -3334,6 +3349,7 @@ def edit_report_sync(
         priority,
         priority_explanation,
         tags,
+        slack_message,
     )
     # Validated up front (cheap, pure) so a malformed `owner/repo` fails before the safety-judge call.
     normalized_repository = _normalize_repository(repository)
