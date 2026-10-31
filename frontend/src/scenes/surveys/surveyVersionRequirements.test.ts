@@ -41,6 +41,32 @@ describe('SURVEY_SDK_REQUIREMENTS', () => {
     })
 
     it.each([
+        ['a URL condition', { url: '/order-confirmed' }, '4.10.4', ['posthog-react-native'], []],
+        ['a CSS selector condition', { selector: '#checkout' }, '4.10.4', ['posthog-react-native'], []],
+        ['an SDK that predates the URL skip', { url: '/order-confirmed' }, '4.10.3', [], ['posthog-react-native']],
+        ['no URL or selector condition', {}, '4.10.4', [], ['posthog-react-native']],
+    ])(
+        'hides gaps of SDKs that skip the survey, for %s',
+        (_name, urlConditions, reactNativeVersion, expectedSkipping, expectedUnsupported) => {
+            const survey = {
+                questions: [],
+                enable_partial_responses: true,
+                conditions: { ...urlConditions, seenSurveyWaitPeriodInDays: 7 },
+            } as unknown as Survey
+
+            const warnings = getSurveyWarnings(survey, {
+                'posthog-js': '1.400.0',
+                'posthog-react-native': reactNativeVersion,
+            })
+
+            expect(warnings.flatMap((w) => w.skippingSdks)).toEqual(expectedSkipping)
+            expect(
+                warnings.find((w) => w.feature === 'Survey wait period')?.unsupportedSdks.map((u) => u.sdk) ?? []
+            ).toEqual(expectedUnsupported)
+        }
+    )
+
+    it.each([
         ['an intro that renders', { displayIntroScreen: true, introScreenHeader: 'Welcome' }, true],
         ['an intro with no header or description', { displayIntroScreen: true }, false],
     ])('flags the Intro screen requirement for %s', (_name, appearance, expected) => {
