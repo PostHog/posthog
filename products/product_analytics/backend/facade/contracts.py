@@ -207,8 +207,11 @@ class ScheduledEventsDeletion:
 
 @dataclass(frozen=True)
 class ProjectEventsRetention:
-    """The window set for a project, whether its window deletes monthly, and its next deletion."""
+    """The window set for a project, whether its window deletes monthly, its next deletion, and its pass dates."""
 
     project_months: int | None
     delete_monthly: bool
     next_deletion: ScheduledEventsDeletion | None
+    scheduled_pass_on: date | None
+    first_pass_on: date
+    default_window_deletes: bool

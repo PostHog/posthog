@@ -93,6 +93,19 @@ class EventsRetentionSerializer(OrganizationEventsRetentionSerializer):
         allow_null=True,
         help_text="The next cleanup deletes this project's events from before this date. Null while no deletion is scheduled.",
     )
+    scheduled_pass_on = serializers.DateField(
+        read_only=True,
+        allow_null=True,
+        help_text="The next cleanup every 3 months that deletes this project's events past its current window, whether or not the window deletes monthly. Null while the project has none scheduled.",
+    )
+    first_pass_on = serializers.DateField(
+        read_only=True,
+        help_text="The earliest cleanup every 3 months for a window that is set or made shorter today.",
+    )
+    default_window_deletes = serializers.BooleanField(
+        read_only=True,
+        help_text="Whether the cleanup deletes this project's events past the default window while no window is set.",
+    )
 
 
 class EventsRetentionUpdateSerializer(serializers.Serializer):
@@ -141,6 +154,9 @@ class EventsRetentionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                     "delete_monthly": project.delete_monthly,
                     "next_deletion_on": project.next_deletion.deletes_on if project.next_deletion else None,
                     "next_deletion_before": project.next_deletion.deletes_before if project.next_deletion else None,
+                    "scheduled_pass_on": project.scheduled_pass_on,
+                    "first_pass_on": project.first_pass_on,
+                    "default_window_deletes": project.default_window_deletes,
                     **_organization_fields(organization_events_retention(self.organization)),
                 }
             ).data

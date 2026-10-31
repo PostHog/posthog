@@ -1,5 +1,5 @@
 from collections.abc import Sequence
-from datetime import datetime, time
+from datetime import date, datetime, time
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
@@ -10,6 +10,7 @@ from posthog.models.events_plan_deletion import (
     admitted,
     cleanup_date,
     next_cleanup_on,
+    next_pass_on,
     retention_window,
     with_window,
 )
@@ -24,7 +25,11 @@ from posthog.models.events_retention_config import (
 )
 from posthog.models.organization import Organization
 from posthog.models.team import Team
-from posthog.models.team.event_retention import events_deletion_applies, organization_events_retention_months
+from posthog.models.team.event_retention import (
+    events_deletion_applies,
+    organization_events_retention_months,
+    should_enforce_events_retention,
+)
 from posthog.models.user import User
 
 from products.product_analytics.backend.facade.contracts import (
@@ -49,18 +54,15 @@ def organization_events_retention(organization: Organization) -> OrganizationEve
     )
 
 
-def _next_deletion(team: Team, setting: TeamEventsRetention | None) -> ScheduledEventsDeletion | None:
-    setting_months = setting.months if setting else None
+def _next_deletion(
+    team_id: int, setting: TeamEventsRetention | None, window_months: int, scheduled_pass_on: date | None
+) -> ScheduledEventsDeletion | None:
     if setting is not None and setting.delete_monthly:
         deletes_on, months = next_cleanup_on(), setting.months
-    elif not events_deletion_applies(team.id, setting_months):
-        return None
+    elif scheduled_pass_on is not None and events_deletion_applies(team_id, setting.months if setting else None):
+        deletes_on, months = scheduled_pass_on, window_months
     else:
-        row = TeamEventsPlanDeletion.objects.filter(team_id=team.id).first()
-        if row is None:
-            return None
-        months = retention_window(team.event_retention_months, setting_months)
-        deletes_on = with_window(row.state, months, cleanup_date()).next_deletion_on
+        return None
     deletes_before = whole_month_cutoff(datetime.combine(deletes_on, time()), months).date()
     return ScheduledEventsDeletion(deletes_on=deletes_on, deletes_before=deletes_before)
 
@@ -72,10 +74,17 @@ def project_events_retention(team: Team) -> ProjectEventsRetention:
         .first()
     )
     setting = next(iter(effective_events_retention(team_ids=[team.id])), None)
+    window_months = retention_window(team.event_retention_months, setting.months if setting else None)
+    today = cleanup_date()
+    row = TeamEventsPlanDeletion.objects.filter(team_id=team.id).first()
+    scheduled_pass_on = with_window(row.state, window_months, today).next_deletion_on if row else None
     return ProjectEventsRetention(
         project_months=project_months,
         delete_monthly=setting.delete_monthly if setting else False,
-        next_deletion=_next_deletion(team, setting),
+        next_deletion=_next_deletion(team.id, setting, window_months, scheduled_pass_on),
+        scheduled_pass_on=scheduled_pass_on,
+        first_pass_on=next_pass_on(today),
+        default_window_deletes=should_enforce_events_retention(team.id),
     )
 
 

@@ -23,16 +23,12 @@ interface RetentionMockOptions {
     organizationMonths?: number | null
     projectMonths?: number | null
     deleteMonthly?: boolean
-    nextDeletionOn?: string | null
-    nextDeletionBefore?: string | null
 }
 
 const retentionMocks = ({
     organizationMonths = null,
     projectMonths = null,
     deleteMonthly = false,
-    nextDeletionOn = null,
-    nextDeletionBefore = null,
 }: RetentionMockOptions): ReturnType<typeof mswDecorator> => {
     const organization: OrganizationEventsRetentionApi = {
         organization_retention_months: organizationMonths,
@@ -45,13 +41,16 @@ const retentionMocks = ({
     }
     const project: EventsRetentionApi = {
         ...organization,
-        retention_months: projectMonths ?? organizationMonths ?? 36,
+        retention_months: projectMonths ?? organizationMonths ?? 24,
         retained_from: '2024-11-01',
         docs_url: 'https://posthog.com/docs/data/events-retention',
         project_retention_months: projectMonths,
         delete_monthly: deleteMonthly,
-        next_deletion_on: nextDeletionOn,
-        next_deletion_before: nextDeletionBefore,
+        next_deletion_on: null,
+        next_deletion_before: null,
+        scheduled_pass_on: '2027-02-03',
+        first_pass_on: '2027-02-03',
+        default_window_deletes: true,
     }
     return mswDecorator({
         get: {
@@ -68,14 +67,7 @@ export const OrganizationWithoutWindow: Story = {
 
 export const OrganizationWithWindow: Story = {
     render: () => <OrganizationEventsRetentionSetting />,
-    decorators: [
-        retentionMocks({
-            organizationMonths: 24,
-            deleteMonthly: true,
-            nextDeletionOn: '2026-11-03',
-            nextDeletionBefore: '2024-11-01',
-        }),
-    ],
+    decorators: [retentionMocks({ organizationMonths: 24, deleteMonthly: true })],
 }
 
 export const ProjectUsingOrganizationWindow: Story = {
@@ -83,19 +75,12 @@ export const ProjectUsingOrganizationWindow: Story = {
     decorators: [retentionMocks({ organizationMonths: 24 })],
 }
 
-export const ProjectWithDeletionScheduled: Story = {
+export const ProjectUsingDefaultWindow: Story = {
     render: () => <ProjectEventsRetentionSetting />,
-    decorators: [retentionMocks({ nextDeletionOn: '2027-02-03', nextDeletionBefore: '2025-02-01' })],
+    decorators: [retentionMocks({})],
 }
 
 export const ProjectWithOwnWindow: Story = {
     render: () => <ProjectEventsRetentionSetting />,
-    decorators: [
-        retentionMocks({
-            organizationMonths: 24,
-            projectMonths: 12,
-            nextDeletionOn: '2027-02-03',
-            nextDeletionBefore: '2026-02-01',
-        }),
-    ],
+    decorators: [retentionMocks({ organizationMonths: 24, projectMonths: 12 })],
 }

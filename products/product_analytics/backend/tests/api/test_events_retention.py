@@ -76,6 +76,9 @@ class TestEventsRetentionAPI(APIBaseTest):
             "delete_monthly": False,
             "next_deletion_on": None,
             "next_deletion_before": None,
+            "scheduled_pass_on": None,
+            "first_pass_on": "2027-01-03",
+            "default_window_deletes": True,
             "organization_retention_months": None,
             "organization_delete_monthly": False,
             "plan_retention_months": 12,
@@ -87,11 +90,11 @@ class TestEventsRetentionAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("pass", 24, 24, None, False, ("2026-11-03", "2024-11-01")),
-            ("shorter_window_pushes_the_pass", 24, 12, None, False, ("2027-01-03", "2026-01-01")),
-            ("monthly_window", None, 24, 12, True, ("2026-10-03", "2025-10-01")),
-            ("set_window_without_a_pass", None, 24, 12, False, (None, None)),
-            ("not_admitted", None, 84, None, False, (None, None)),
+            ("pass", 24, 24, None, False, ("2026-11-03", "2024-11-01", "2026-11-03")),
+            ("shorter_window_pushes_the_pass", 24, 12, None, False, ("2027-01-03", "2026-01-01", "2027-01-03")),
+            ("monthly_window_keeps_its_pass", 12, 24, 12, True, ("2026-10-03", "2025-10-01", "2026-11-03")),
+            ("set_window_without_a_pass", None, 24, 12, False, (None, None, None)),
+            ("not_admitted", None, 84, None, False, (None, None, None)),
         ]
     )
     @time_machine.travel("2026-09-22T20:00:00Z", tick=False)
@@ -102,7 +105,7 @@ class TestEventsRetentionAPI(APIBaseTest):
         plan_months: int,
         setting_months: int | None,
         delete_monthly: bool,
-        expected: tuple[str | None, str | None],
+        expected: tuple[str | None, str | None, str | None],
     ) -> None:
         self.team.event_retention_months = plan_months
         self.team.save()
@@ -118,7 +121,8 @@ class TestEventsRetentionAPI(APIBaseTest):
         response = self.client.get(self.url())
 
         assert response.status_code == status.HTTP_200_OK
-        assert (response.json()["next_deletion_on"], response.json()["next_deletion_before"]) == expected
+        body = response.json()
+        assert (body["next_deletion_on"], body["next_deletion_before"], body["scheduled_pass_on"]) == expected
 
     @override_settings(EVENTS_DATA_RETENTION_ENFORCED=False)
     def test_reports_no_window_until_retention_is_enforced(self) -> None:
@@ -130,6 +134,7 @@ class TestEventsRetentionAPI(APIBaseTest):
         assert response.json()["retention_months"] is None
         assert response.json()["retained_from"] is None
         assert response.json()["next_deletion_on"] is None
+        assert response.json()["default_window_deletes"] is False
 
     @time_machine.travel("2026-09-22T20:00:00Z", tick=False)
     def test_organization_admin_sets_and_clears_the_project_window(self) -> None:

@@ -46962,6 +46962,15 @@ export namespace Schemas {
          * @nullable
          */
       readonly next_deletion_before: string | null;
+      /**
+         * The next cleanup every 3 months that deletes this project's events past its current window, whether or not the window deletes monthly. Null while the project has none scheduled.
+         * @nullable
+         */
+      readonly scheduled_pass_on: string | null;
+      /** The earliest cleanup every 3 months for a window that is set or made shorter today. */
+      readonly first_pass_on: string;
+      /** Whether the cleanup deletes this project's events past the default window while no window is set. */
+      readonly default_window_deletes: boolean;
     }
 
     export interface EventsRetentionUpdate {
