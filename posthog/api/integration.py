@@ -2767,17 +2767,31 @@ class IntegrationViewSet(
         },
         summary="Import push device tokens",
         description="Register existing device tokens, for example exported from another provider, on this push "
-        "channel. Each token is stored encrypted on its person, as the mobile SDK stores it.",
+        "channel. Each token is stored encrypted on its person, as the mobile SDK stores it. A row fails when no "
+        "person has its distinct ID, unless create_missing_persons is set, or when the token is the wrong kind for "
+        "the channel. Send dry_run first to see every failure without storing anything.",
     )
     @action(methods=["POST"], detail=True, url_path="push_tokens")
     def push_tokens(self, request: ValidatedRequest, **kwargs) -> Response:
         integration = self.get_object()
         if not push_channel_app_id(integration):
             raise ValidationError("Device tokens can only be imported into an APNs or Firebase push channel.")
-        result = import_push_tokens(integration, request.validated_data["subscriptions"], integration.team.api_token)
+        data = request.validated_data
+        result = import_push_tokens(
+            integration,
+            data["subscriptions"],
+            integration.team.api_token,
+            dry_run=data["dry_run"],
+            create_missing_persons=data["create_missing_persons"],
+        )
         return Response(
             PushTokenImportResponseSerializer(
-                {"imported": result.imported, "failed_distinct_ids": result.failed_distinct_ids}
+                {
+                    "imported": result.imported,
+                    "dry_run": result.dry_run,
+                    "failed": result.failed,
+                    "failed_distinct_ids": result.failed_distinct_ids,
+                }
             ).data
         )
 

@@ -839,7 +839,7 @@ export const getIntegrationsPushTokensCreateUrl = (projectId: string, id: number
 }
 
 /**
- * Register existing device tokens, for example exported from another provider, on this push channel. Each token is stored encrypted on its person, as the mobile SDK stores it.
+ * Register existing device tokens, for example exported from another provider, on this push channel. Each token is stored encrypted on its person, as the mobile SDK stores it. A row fails when no person has its distinct ID, unless create_missing_persons is set, or when the token is the wrong kind for the channel. Send dry_run first to see every failure without storing anything.
  * @summary Import push device tokens
  */
 export const integrationsPushTokensCreate = async (

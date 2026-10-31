@@ -25,10 +25,13 @@ import { DARK_MODE_INVERT_ICON_KINDS, getIntegrationNameFromKind } from './utils
 export function IntegrationView({
     integration,
     suffix,
+    actions,
     schema,
 }: {
     integration: IntegrationType
     suffix?: JSX.Element
+    /** Shown before the default Disconnect button. Ignored when `suffix` is set. */
+    actions?: JSX.Element | null
     schema?: { requiredScopes?: string }
 }): JSX.Element {
     const { deleteIntegration } = useActions(integrationsLogic)
@@ -61,6 +64,7 @@ export function IntegrationView({
 
     suffix = suffix || (
         <div className="flex flex-row gap-2">
+            {actions}
             <LemonButton
                 type="secondary"
                 status="danger"

@@ -1,6 +1,6 @@
 from typing import Any
 
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, _create_person, flush_persons_and_events
 from unittest.mock import patch
 
 from parameterized import parameterized
@@ -49,15 +49,18 @@ class TestPushTokenImport(APIBaseTest):
             config={"project_id": "example-project"},
         )
 
-    def _import(self, integration_id: int, subscriptions: list[dict[str, str]]):
+    def _import(self, integration_id: int, subscriptions: list[dict[str, str]], **options: Any):
         return self.client.post(
             f"/api/environments/{self.team.pk}/integrations/{integration_id}/push_tokens/",
-            {"subscriptions": subscriptions},
+            {"subscriptions": subscriptions, **options},
             format="json",
         )
 
     @parameterized.expand([("apns", "com.example.app"), ("firebase", "example-project")])
     def test_stores_each_device_encrypted_under_the_key_the_sender_reads(self, kind: str, app_id: str) -> None:
+        for distinct_id in ["user-1", "user-2", "user-3", "user-4"]:
+            _create_person(team=self.team, distinct_ids=[distinct_id])
+        flush_persons_and_events()
         capture, captured = _capture_dropping(
             {"user-2"}, {"user-3": "person_processing_disabled", "user-4": "some_other_warning"}
         )
@@ -67,15 +70,33 @@ class TestPushTokenImport(APIBaseTest):
                 [
                     {"distinct_id": "user-1", "device_token": "a1b2c3d4"},
                     {"distinct_id": "user-1", "device_token": "a1b2c3d4"},
-                    {"distinct_id": "user-1", "device_token": "second-device"},
-                    {"distinct_id": "user-2", "device_token": "dropped-device"},
-                    {"distinct_id": "user-3", "device_token": "skipped-device"},
-                    {"distinct_id": "user-4", "device_token": "warned-device"},
+                    {"distinct_id": "user-1", "device_token": "b2c3d4e5"},
+                    {"distinct_id": "user-2", "device_token": "c3d4e5f6"},
+                    {"distinct_id": "user-3", "device_token": "d4e5f6a7"},
+                    {"distinct_id": "user-4", "device_token": "e5f6a7b8"},
                 ],
             )
 
         assert response.status_code == status.HTTP_200_OK, response.json()
-        assert response.json() == {"imported": 3, "failed_distinct_ids": ["user-2", "user-3"]}
+        assert response.json() == {
+            "imported": 3,
+            "dry_run": False,
+            "failed": [
+                {
+                    "distinct_id": "user-3",
+                    "device_token_suffix": "e5f6a7",
+                    "reason": "person_processing_disabled",
+                    "detail": "Person processing is off for this person, so the device was not stored.",
+                },
+                {
+                    "distinct_id": "user-2",
+                    "device_token_suffix": "d4e5f6",
+                    "reason": "not_stored",
+                    "detail": "Ingestion did not store this device. Send the row again.",
+                },
+            ],
+            "failed_distinct_ids": ["user-2", "user-3"],
+        }
         [call] = captured
         assert call["token"] == self.team.api_token
         assert call["process_person_profile"] is True
@@ -88,6 +109,52 @@ class TestPushTokenImport(APIBaseTest):
         assert value != "a1b2c3d4"
         assert _TokenCipher().decrypt(value) == "a1b2c3d4"
         assert len(call["events"]) == 5
+
+    @parameterized.expand(
+        [
+            ("expo_on_apns", "apns", "ExponentPushToken[xxxxxxxxxxxxxxxxxxxxxx]"),
+            ("expo_on_firebase", "firebase", "ExpoPushToken[xxxxxxxxxxxxxxxxxxxxxx]"),
+            ("fcm_on_apns", "apns", "cK9dE2fGhIj:APA91bHqL0xYzExampleFcmRegistrationToken_-"),
+            ("apns_on_firebase", "firebase", "ab" * 32),
+        ]
+    )
+    def test_reports_a_token_of_the_wrong_kind(self, _name: str, kind: str, device_token: str) -> None:
+        _create_person(team=self.team, distinct_ids=["user-1"])
+        flush_persons_and_events()
+        with patch("posthog.api.integration_push_tokens.capture_batch_internal") as capture:
+            response = self._import(getattr(self, kind).id, [{"distinct_id": "user-1", "device_token": device_token}])
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["imported"] == 0
+        assert [f["reason"] for f in response.json()["failed"]] == ["token_mismatch"]
+        capture.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("rejected_by_default", {}, 1, ["unknown_person"]),
+            ("dry_run_reports_without_storing", {"dry_run": True}, 1, ["unknown_person"]),
+            ("created_when_asked", {"create_missing_persons": True}, 2, []),
+        ]
+    )
+    def test_a_distinct_id_with_no_person(
+        self, _name: str, options: dict[str, bool], imported: int, reasons: list[str]
+    ) -> None:
+        _create_person(team=self.team, distinct_ids=["known"])
+        flush_persons_and_events()
+        capture, captured = _capture_dropping(set())
+        with patch("posthog.api.integration_push_tokens.capture_batch_internal", side_effect=capture):
+            response = self._import(
+                self.apns.id,
+                [
+                    {"distinct_id": "known", "device_token": "a1b2c3d4"},
+                    {"distinct_id": "from-other-platform", "device_token": "b2c3d4e5"},
+                ],
+                **options,
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["imported"] == imported
+        assert [f["reason"] for f in response.json()["failed"]] == reasons
+        stored = [event["distinct_id"] for call in captured for event in call["events"]]
+        assert stored == ([] if options.get("dry_run") else ["known", "from-other-platform"][:imported])
 
     def test_rejects_an_integration_that_is_not_a_push_channel(self) -> None:
         slack = Integration.objects.create(team=self.team, kind="slack", integration_id="T1", config={})
