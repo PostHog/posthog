@@ -4,7 +4,7 @@ export type CommonFilters = {
     filter_test_accounts?: boolean
     cohort_ids?: number[]
     // A subset of FilterType['events'], spelled out because ~/types imports this file. Each entry is an
-    // event name plus optional property filters, matching what ActionFilter emits.
+    // event name plus optional property filters, matching what the heatmap event picker emits.
     events?: HeatmapEventFilter[]
 }
 
