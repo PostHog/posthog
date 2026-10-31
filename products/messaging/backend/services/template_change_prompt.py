@@ -59,7 +59,7 @@ class PromptSource:
     def of(cls, template: PromptedTemplate) -> "PromptSource":
         return cls(
             repository=_unless_it_could_instruct_the_agent(template.source_repository, SOURCE_REPOSITORY),
-            path=_unless_it_could_instruct_the_agent(template.source_path, SOURCE_PATH),
+            path=_inside_the_repository(_unless_it_could_instruct_the_agent(template.source_path, SOURCE_PATH)),
             ref=_unless_it_could_instruct_the_agent(template.source_ref, SOURCE_REF),
         )
 
@@ -89,6 +89,13 @@ def _template_link(team_id: int, template_id: UUID) -> str:
 
 def _unless_it_could_instruct_the_agent(value: str | None, shape: re.Pattern[str]) -> str | None:
     return value if value and shape.fullmatch(value) else None
+
+
+def _inside_the_repository(path: str | None) -> str | None:
+    if path is None:
+        return None
+    segments = path.split("/")
+    return None if segments[0].startswith("~") or ".." in segments else path
 
 
 def _starter(source: PromptSource, key: str) -> str:

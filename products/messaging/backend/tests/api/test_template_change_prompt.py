@@ -144,6 +144,20 @@ class TestTemplateChangePrompt(APIBaseTest):
                 PERSONALIZATION,
             ),
             (
+                "path_leaving_the_repository",
+                {**NO_VARIABLES, "source": {"path": "emails/../../.github/workflows/deploy.yml"}},
+                WITHOUT_PATH,
+                "- Find the HTML file that the app loads with `posthog.emails.templateFile()` for the key `welcome`.",
+                PERSONALIZATION,
+            ),
+            (
+                "path_in_the_home_directory",
+                {**NO_VARIABLES, "source": {"path": "~/.ssh/config"}},
+                WITHOUT_PATH,
+                "- Find the HTML file that the app loads with `posthog.emails.templateFile()` for the key `welcome`.",
+                PERSONALIZATION,
+            ),
+            (
                 "repeated_variables_in_order_of_first_use",
                 {
                     "subject": "{{ variables.plan }} for {{variables.first_name}}",
