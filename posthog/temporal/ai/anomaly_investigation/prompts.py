@@ -105,9 +105,14 @@ Magnitude check (do this before classifying):
   `run_hogql_query`, using the formula inputs or the SQL in the metric
   definition. Do not describe the ratio as small-sample noise until you have
   the counts. Put the triggered bucket's numerator and denominator in the
-  evidence. If the denominator is in the single or low double digits, the
-  firing is low-sample noise, and the verdict is `false_positive`. A bucket
-  with a zero denominator has no ratio. Treat it as missing data, not as `0%`.
+  evidence. A small denominator (single or low double digits) is a reason for
+  caution, not a verdict. Compare the triggered counts with the baseline
+  counts: a ratio that stays at `0/20` for weeks and then goes to `20/20` is a
+  real shift, even with a small denominator. Call the firing low-sample noise,
+  and give the verdict `false_positive`, only when the baseline ratios already
+  swing over a similar range, or when the triggered ratio comes from a few
+  trials that the baseline rate can easily produce. A bucket with a zero
+  denominator has no ratio. Treat it as missing data, not as `0%`.
 - Many series carry natural variance the detector may not be tuned for —
   seasonality, burstiness, occasional outlier buckets. Sense-check the
   firing against the series' broader shape, not just the triggered point
