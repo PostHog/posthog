@@ -10,21 +10,23 @@ import re
 import uuid
 import datetime as dt
 from collections import Counter, defaultdict
+from collections.abc import Mapping
 from typing import Any
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
-from django.db import IntegrityError, transaction
-from django.db.models import Count, Max, Min, Q, QuerySet
+from django.db import IntegrityError, connection, transaction
+from django.db.models import Aggregate, Count, Max, Min, Q, QuerySet
 from django.db.models.functions import TruncDate
 from django.utils import timezone
 
+from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.team import Team
 
 from products.aeo.backend import gaps
 from products.aeo.backend.brand import brand_names, mention_filter
-from products.aeo.backend.engines import MAX_PROMPT_LENGTH, top_domains
+from products.aeo.backend.engines import MAX_PROMPT_LENGTH, is_target_host, top_domains
 from products.aeo.backend.facade.contracts import (
     PROMPT_TOPIC_MAX_LENGTH,
     CitationGap,
@@ -41,6 +43,11 @@ from products.aeo.backend.facade.contracts import (
     PromptImportResult,
     PromptNotFoundError,
     PromptSearchWord,
+    PromptSetCounts,
+    PromptSetDomain,
+    PromptSetEngineCounts,
+    PromptSetOverview,
+    PromptSetTopicCounts,
     PromptStats,
     PromptTextConflictError,
     PromptTopic,
@@ -187,6 +194,26 @@ def list_prompt_checks(
     return [_to_prompt_check(row) for row in page], checks.count()
 
 
+MAX_OVERVIEW_DOMAINS = 20
+
+
+def _check_counts(target_domains: list[str], *, prompts: bool = False) -> dict[str, Aggregate]:
+    """Aggregates for a set of checks, with the distinct prompts behind them when `prompts` is set.
+    `mentioned` and `prompts_cited` filter on the `cited` column, and an annotation named `cited`
+    would shadow that column for every later annotation in the same call, so they must come first."""
+    counts: dict[str, Aggregate] = {
+        "checks": Count("id"),
+        "mentioned": Count("id", filter=Q(check_failed=False) & mention_filter(target_domains)),
+    }
+    if prompts:
+        counts["prompts_cited"] = Count("prompt_id", distinct=True, filter=Q(cited=True))
+    counts["cited"] = Count("id", filter=Q(cited=True))
+    counts["failed"] = Count("id", filter=Q(check_failed=True))
+    if prompts:
+        counts["prompts"] = Count("prompt_id", distinct=True)
+    return counts
+
+
 def get_prompt_stats(team_id: int, prompt_id: str, *, timezone_name: str, days: int) -> PromptStats:
     """Totals per engine over the prompt's whole history, plus per-day counts, engine consensus on
     the cited domains, brand sentiment and the words of the web searches over the last `days` days
@@ -272,6 +299,105 @@ def get_prompt_stats(team_id: int, prompt_id: str, *, timezone_name: str, days: 
         consensus=report.consensus(),
         sentiment=sentiment,
         top_words=report.top_words(),
+    )
+
+
+def _set_counts(row: Mapping[str, Any]) -> dict[str, int]:
+    return {key: row[key] for key in ("checks", "failed", "cited", "mentioned", "prompts", "prompts_cited")}
+
+
+def _top_domains(
+    team_id: int, *, since: dt.datetime, answers: int, target_domains: list[str]
+) -> tuple[PromptSetDomain, ...]:
+    """Domains ranked by how many answered checks in the window cited them, counted in Postgres from
+    each check's distinct hosts. `answers` is the number of answered checks the shares are over."""
+    if answers == 0:
+        return ()
+    # The ORM reads above map a child environment to its parent; raw SQL has to do the same.
+    team_id = resolve_effective_team_id(team_id)
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT host, count(*) AS checks_citing
+            FROM posthog_aeo_citation_check, jsonb_array_elements_text(top_cited_domains) AS host
+            WHERE team_id = %s AND created_at >= %s AND check_failed = false
+            GROUP BY host
+            ORDER BY checks_citing DESC, host
+            LIMIT %s
+            """,
+            [team_id, since, MAX_OVERVIEW_DOMAINS],
+        )
+        rows = cursor.fetchall()
+    return tuple(
+        PromptSetDomain(
+            domain=domain,
+            answers=count,
+            share_of_answers=count / answers,
+            is_target=is_target_host(domain, target_domains),
+        )
+        for domain, count in rows
+    )
+
+
+def get_prompt_set_overview(team_id: int, *, timezone_name: str, days: int) -> PromptSetOverview:
+    """Checks across the whole prompt set over the last `days` days in the team's timezone, the same
+    counts for the `days` days before, and the current window split per engine and per topic."""
+    target_domains: list[str] = settings.AEO_TARGET_DOMAINS
+    tz = ZoneInfo(timezone_name)
+    window_to = timezone.now().astimezone(tz).date()
+    window_from = window_to - dt.timedelta(days=days - 1)
+    window_start = dt.datetime.combine(window_from, dt.time.min, tzinfo=tz)
+    previous_start = window_start - dt.timedelta(days=days)
+    counts = _check_counts(target_domains, prompts=True)
+
+    checks = AEOCitationCheck.objects.for_team(team_id)
+    current = checks.filter(created_at__gte=window_start)
+    previous = checks.filter(created_at__gte=previous_start, created_at__lt=window_start)
+    engines = tuple(
+        PromptSetEngineCounts(engine=row["engine"], **_set_counts(row))
+        for row in current.values("engine").annotate(**counts).order_by("engine")
+    )
+
+    # Checks carry the topic they ran with, and prompts carry their topic now, so a topic with no
+    # check in the window still gets a row, with its prompt count and no rate.
+    active_prompts = {
+        row["topic"]: row["prompts"]
+        for row in AEOPrompt.objects.for_team(team_id)
+        .filter(archived_at__isnull=True, active=True)
+        .values("topic")
+        .annotate(prompts=Count("id"))
+    }
+    topic_checks = {
+        row["prompt_topic"]: row for row in current.values("prompt_topic").annotate(**counts).order_by("prompt_topic")
+    }
+    no_checks = dict.fromkeys(("checks", "failed", "cited", "mentioned", "prompts", "prompts_cited"), 0)
+    topics = tuple(
+        PromptSetTopicCounts(
+            topic=topic,
+            active_prompts=active_prompts.get(topic, 0),
+            **_set_counts(topic_checks.get(topic, no_checks)),
+        )
+        for topic in sorted(active_prompts.keys() | topic_checks.keys())
+    )
+
+    current_counts = PromptSetCounts(**_set_counts(current.aggregate(**counts)))
+    return PromptSetOverview(
+        days=days,
+        window_from=window_from,
+        window_to=window_to,
+        prompts_tracked=sum(active_prompts.values()),
+        target_domains=tuple(target_domains),
+        brand_names=brand_names(target_domains),
+        current=current_counts,
+        previous=PromptSetCounts(**_set_counts(previous.aggregate(**counts))),
+        engines=engines,
+        topics=topics,
+        top_domains=_top_domains(
+            team_id,
+            since=window_start,
+            answers=current_counts.checks - current_counts.failed,
+            target_domains=target_domains,
+        ),
     )
 
 
