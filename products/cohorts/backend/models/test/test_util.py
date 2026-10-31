@@ -17,6 +17,7 @@ from rest_framework.exceptions import ValidationError as DRFValidationError
 
 from posthog.hogql.hogql import HogQLContext
 
+from posthog.api.cohort import CohortFilters
 from posthog.clickhouse.client import sync_execute
 from posthog.errors import CHQueryErrorS3Error
 from posthog.exceptions import (
@@ -41,6 +42,7 @@ from products.cohorts.backend.models.util import (
     get_nested_cohort_ids,
     get_static_cohort_size,
     insert_cohort_query_actors_into_ch,
+    legacy_groups_to_filters,
     parse_error_code,
     print_cohort_hogql_query,
     run_cohort_query,
@@ -133,6 +135,40 @@ class TestRunCohortQueryStatsScheduling(SimpleTestCase):
             ],
         )
         self.assertEqual(mock_capture.call_count, 2)
+
+
+class TestLegacyGroupsToFilters(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("person_without_operator", {"key": "email", "value": "a@example.com", "type": "person"}),
+            ("cohort_in", {"key": "id", "value": 1, "type": "cohort", "operator": "in"}),
+            ("cohort_not_in", {"key": "id", "value": 1, "type": "cohort", "operator": "not_in"}),
+        ]
+    )
+    def test_converted_filters_pass_filters_validation(self, _name: str, leaf: dict[str, Any]) -> None:
+        filters = legacy_groups_to_filters([{"properties": [leaf]}])
+
+        assert filters is not None
+        CohortFilters.model_validate(filters)
+
+    @parameterized.expand(
+        [
+            ("in", "in", False, False),
+            ("in_with_negation", "in", True, True),
+            ("not_in", "not_in", False, True),
+            ("not_in_with_negation", "not_in", True, True),
+        ]
+    )
+    def test_cohort_in_and_not_in_become_negation(
+        self, _name: str, operator: str, negation: bool, expected_negation: bool
+    ) -> None:
+        leaf_in = {"key": "id", "value": 1, "type": "cohort", "operator": operator, "negation": negation}
+        filters = legacy_groups_to_filters([{"properties": [leaf_in]}])
+
+        assert filters is not None
+        leaf = filters["properties"]["values"][0]["values"][0]
+        assert "operator" not in leaf
+        assert leaf.get("negation", False) is expected_negation
 
 
 class TestCohortUtils(BaseTest):
