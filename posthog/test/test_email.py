@@ -31,12 +31,14 @@ from posthog.email import (
     HTTP_SEND_RETRY_COUNTDOWNS_SECONDS,
     WORKFLOWS_TEMPLATE_ID_MAP,
     EmailMessage,
+    EmailRecipientUndeliverableError,
     WorkflowsEmailError,
     _send_email,
     _send_via_http,
     _send_via_smtp,
     get_email_team_and_org_context,
     get_workflows_template_id,
+    raise_if_recipient_undeliverable,
     sanitize_email_properties,
 )
 from posthog.models import Organization, Person, Team, User
@@ -685,6 +687,12 @@ class TestEmail(BaseTest):
         self.assertTrue(
             all(c.kwargs["properties"]["template_name"] == "2fa_enabled" for c in mock_capture.call_args_list)
         )
+        # Only a refused recipient tells a synchronous caller to give up. A worker retry can still send the others.
+        if "transactional email workflows rejected" in expected_events:
+            with self.assertRaises(EmailRecipientUndeliverableError):
+                raise_if_recipient_undeliverable("routing_campaign", "test@posthog.com")
+        else:
+            raise_if_recipient_undeliverable("routing_campaign", "test@posthog.com")
         record = MessagingRecord.objects.filter(campaign_key="routing_campaign").first()
         if sent_by is None:
             self.assertTrue(record is None or record.sent_at is None)

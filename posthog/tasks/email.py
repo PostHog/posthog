@@ -26,6 +26,7 @@ from posthog.email import (
     EmailMessage,
     get_email_team_and_org_context,
     is_email_available,
+    raise_if_recipient_undeliverable,
     single_line,
 )
 from posthog.event_usage import groups
@@ -679,6 +680,7 @@ def send_email_verification_code(user_id: int, code: str, target_email: str | No
     )
     message.add_user_recipient(user, email_override=target_email)
     message.send(send_async=False)
+    raise_if_recipient_undeliverable(message.campaign_key, target_email or user.email)
     with ph_scoped_capture() as capture:
         capture(
             distinct_id=str(user.distinct_id),
@@ -707,6 +709,7 @@ def send_code_based_verification(user_id: int, code: str) -> None:
     )
     message.add_user_recipient(user)
     message.send(send_async=False)
+    raise_if_recipient_undeliverable(message.campaign_key, user.email)
     posthoganalytics.capture(
         distinct_id=str(user.distinct_id),
         event="login verification code sent",
