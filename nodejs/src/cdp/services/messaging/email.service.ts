@@ -554,6 +554,38 @@ export class EmailService {
                 )
             }
 
+            // An unverified domain was never verified, or SES stopped verifying it and the hourly
+            // recheck in Django marked its senders. SES rejects every send from it, so skip the send
+            // and record its own metric. It is not an `email_failed`, because the cause is the
+            // project's setup and not a fault in the send path. Verifying the domain again marks the
+            // senders as verified, and the sends start again. A test send still fails in
+            // resolveFromSender, so the person who runs it sees the error.
+            if (!integration.config.verified && !isTest) {
+                const skipReason =
+                    'Skipping send: the domain of this sender is not verified. Verify the domain under Workflows > Channels to start sending again.'
+                addLog('error', skipReason)
+                result.emailSendResult = { status: 'skipped', reason: skipReason }
+                result.metrics.push({
+                    team_id: invocation.teamId,
+                    app_source_id: invocation.parentRunId ?? invocation.functionId,
+                    instance_id: invocation.state.actionId || invocation.id,
+                    metric_kind: 'email',
+                    metric_name: 'email_domain_unverified',
+                    count: 1,
+                })
+                if (this.emailStatusService && isTransactionalEmailSend(invocation)) {
+                    this.emailStatusService.queue({
+                        teamId: invocation.teamId,
+                        messageId: invocation.id,
+                        status: 'failed',
+                        reason: 'provider_error',
+                    })
+                }
+                result.skipped = true
+                result.invocation.state.vmState?.stack.push({ success: false })
+                return result
+            }
+
             const from = this.resolveFromSender(integration, params.from, addLog)
 
             // An empty `to` comes from the customer's data (a person without an email property, or no

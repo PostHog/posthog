@@ -41,6 +41,7 @@ const TOTALS_METRICS = [
     'email_bounced',
     'email_blocked',
     'email_failed',
+    'email_domain_unverified',
     'email_untracked',
     'push_sent',
     'push_skipped',
@@ -249,7 +250,8 @@ export const broadcastPerformanceLogic = kea<broadcastPerformanceLogicType>([
                     bounced: totals.email_bounced ?? 0,
                     // Spam complaints are stored under email_blocked.
                     markedAsSpam: totals.email_blocked ?? 0,
-                    failed: totals.email_failed ?? 0,
+                    // A send skipped for an unverified sender domain did not go out, so it counts as failed here.
+                    failed: (totals.email_failed ?? 0) + (totals.email_domain_unverified ?? 0),
                     unsubscribed: totals.email_unsubscribed ?? 0,
                     trackedSends: Math.max(sent - (totals.email_untracked ?? 0), 0),
                     converted: totals.conversion ?? 0,
