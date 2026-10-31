@@ -8,7 +8,7 @@ export interface SuggestedModelsStripProps {
 }
 
 export function SuggestedModelsStrip({ onAccepted }: SuggestedModelsStripProps): JSX.Element | null {
-    const logicProps: WarehouseSuggestionsLogicProps = { surface: 'models', onAccepted }
+    const logicProps: WarehouseSuggestionsLogicProps = { surface: 'models', placement: 'models_tab', onAccepted }
     return (
         <BindLogic logic={warehouseSuggestionsLogic} props={logicProps}>
             <SuggestedModelsStripContent />

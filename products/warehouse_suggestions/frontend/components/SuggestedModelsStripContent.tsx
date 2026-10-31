@@ -8,29 +8,13 @@ import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 
 import { warehouseSuggestionsLogic } from '../warehouseSuggestionsLogic'
-import { MaterializeSuggestionModal } from './MaterializeSuggestionModal'
-import { MaterializeSuggestionRow } from './MaterializeSuggestionRow'
 import { SavingsBannerMessage } from './SavingsBannerMessage'
-import { SuggestedModelsSection } from './SuggestedModelsSection'
+import { SuggestedModelsDialogs } from './SuggestedModelsDialogs'
 import { SuggestionsBanner } from './SuggestionsBanner'
-import { SuggestionsReviewModal } from './SuggestionsReviewModal'
 import { SuggestionsStatusNotice } from './SuggestionsStatusNotice'
-import { UnmaterializeSuggestionModal } from './UnmaterializeSuggestionModal'
-import { UnmaterializeSuggestionRow } from './UnmaterializeSuggestionRow'
-
-const SECTION_COPY: Record<string, { title: string; description: string }> = {
-    materialize: {
-        title: 'Materialize',
-        description: 'These views run their full query every time someone reads them.',
-    },
-    unmaterialize: {
-        title: 'Stop materializing',
-        description: 'These views cost more to refresh than to run on each read.',
-    },
-}
 
 export function SuggestedModelsStripContent(): JSX.Element | null {
-    const { stripState, suggestionGroups, savingsSummary, status } = useValues(warehouseSuggestionsLogic)
+    const { stripState, savingsSummary, status } = useValues(warehouseSuggestionsLogic)
     const { reload } = useActions(warehouseSuggestionsLogic)
     const windowDays = status?.window_days ?? 0
 
@@ -84,32 +68,7 @@ export function SuggestedModelsStripContent(): JSX.Element | null {
                     message={<SavingsBannerMessage summary={savingsSummary} />}
                 />
             )}
-            <SuggestionsReviewModal
-                title="Suggested models"
-                summary={<SavingsBannerMessage summary={savingsSummary} />}
-            >
-                {suggestionGroups.map(({ kind, suggestions }) => (
-                    <SuggestedModelsSection key={kind} {...SECTION_COPY[kind]}>
-                        {suggestions.map((suggestion) =>
-                            kind === 'unmaterialize' ? (
-                                <UnmaterializeSuggestionRow
-                                    key={suggestion.id}
-                                    suggestion={suggestion}
-                                    windowDays={windowDays}
-                                />
-                            ) : (
-                                <MaterializeSuggestionRow
-                                    key={suggestion.id}
-                                    suggestion={suggestion}
-                                    windowDays={windowDays}
-                                />
-                            )
-                        )}
-                    </SuggestedModelsSection>
-                ))}
-            </SuggestionsReviewModal>
-            <MaterializeSuggestionModal />
-            <UnmaterializeSuggestionModal />
+            <SuggestedModelsDialogs />
         </>
     )
 }
