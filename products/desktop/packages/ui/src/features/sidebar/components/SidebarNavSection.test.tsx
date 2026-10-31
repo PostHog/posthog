@@ -41,15 +41,8 @@ vi.mock("@posthog/ui/router/useAppView", () => ({
   useAppView,
   useReportSourceNavType: () => null,
 }));
-// Channel reports defaults off here; the flag-on test flips it via
-// `channelReportsFlag`.
-let channelReportsFlag = false;
 vi.mock("@posthog/ui/features/feature-flags/useFeatureFlag", () => ({
-  useFeatureFlag: (flag: string) =>
-    flag === "posthog-desktop-channel-reports" ? channelReportsFlag : true,
-}));
-vi.mock("@posthog/ui/features/feature-flags/useChannelReportsEnabled", () => ({
-  useChannelReportsEnabled: () => channelReportsFlag,
+  useFeatureFlag: () => true,
 }));
 // These tests pin the legacy layout (flag off), where the "Enable channels"
 // toggle row is present.
@@ -185,18 +178,6 @@ describe("SidebarNavSection", () => {
 
     expect(openSettings).toHaveBeenCalledOnce();
     expect(openBrowserTab).not.toHaveBeenCalled();
-  });
-
-  it("keeps the Inbox item when channel reports are on", () => {
-    channelReportsFlag = true;
-    try {
-      renderNav();
-      expect(
-        screen.getByRole("button", { name: /Self-driving/ }),
-      ).toBeInTheDocument();
-    } finally {
-      channelReportsFlag = false;
-    }
   });
 
   it("does not render the Channels mode toggle in navigation", () => {

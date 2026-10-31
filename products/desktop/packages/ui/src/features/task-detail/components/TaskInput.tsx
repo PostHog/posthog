@@ -37,7 +37,6 @@ import {
   resolveTaskRepositoryDraft,
   useTaskRepositoryDraftStore,
 } from "@posthog/ui/features/canvas/stores/taskRepositoryDraftStore";
-import { useChannelReportsEnabled } from "@posthog/ui/features/feature-flags/useChannelReportsEnabled";
 import { useOpenInboxReport } from "@posthog/ui/features/inbox/hooks/useOpenInboxReport";
 import {
   subscriptionModelAccess,
@@ -46,7 +45,6 @@ import {
 import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
 import type { TaskInputReportAssociation } from "@posthog/ui/features/task-detail/stores/taskInputPrefillStore";
 import { useTaskInputPrefillStore } from "@posthog/ui/features/task-detail/stores/taskInputPrefillStore";
-import { navigateToInbox } from "@posthog/ui/router/navigationBridge";
 import { useAppView } from "@posthog/ui/router/useAppView";
 import { track } from "@posthog/ui/shell/analytics";
 import { Box, Flex, Text, Tooltip } from "@radix-ui/themes";
@@ -92,7 +90,6 @@ import {
   createBranch,
   getBranchNameInputState,
 } from "../../git-interaction/utils/branchCreation";
-import { useInboxReportSelectionStore } from "../../inbox/stores/inboxReportSelectionStore";
 import { useIntegrationSelectors } from "../../integrations/store";
 import {
   useUserGithubBranches,
@@ -260,10 +257,6 @@ export function TaskInput({
   const clearTaskInputReportAssociation = useTaskInputPrefillStore(
     (s) => s.clearReportAssociation,
   );
-  const setSelectedReportIds = useInboxReportSelectionStore(
-    (s) => s.setSelectedReportIds,
-  );
-  const channelReportsEnabled = useChannelReportsEnabled();
   const openReport = useOpenInboxReport();
   const selectedDirectory = useActiveRepoStore((s) => s.path);
   const setSelectedDirectory = useActiveRepoStore((s) => s.setPath);
@@ -449,20 +442,8 @@ export function TaskInput({
 
   const handleOpenAssociatedReport = useCallback(() => {
     if (!activeReportAssociation) return;
-    // With channel reports on there is no inbox list to select in — open the
-    // report's own detail view instead.
-    if (channelReportsEnabled) {
-      void openReport(activeReportAssociation.reportId);
-      return;
-    }
-    navigateToInbox();
-    setSelectedReportIds([activeReportAssociation.reportId]);
-  }, [
-    activeReportAssociation,
-    setSelectedReportIds,
-    channelReportsEnabled,
-    openReport,
-  ]);
+    void openReport(activeReportAssociation.reportId);
+  }, [activeReportAssociation, openReport]);
 
   useEffect(() => {
     if (!selectedDirectory && mostRecentRepo?.path) {
