@@ -10,6 +10,8 @@ import asyncio
 import structlog
 import temporalio.activity
 
+from posthog.schema import PrecomputationMode
+
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.utils import on_asyncify_pool
 
@@ -107,6 +109,7 @@ async def calculate_experiment_metric_for_recalculation(
     recalculation_id: str,
     query_to: str,
     role: str = "primary",
+    precomputation_mode: PrecomputationMode | None = None,
 ) -> MetricRecalculationResult:
     """Calculate one metric, write its recalc-fingerprinted result to ExperimentMetricResult, and fold the
     progress update (counter + error) into the same job atomically. query_to is the run's shared data-window end.
@@ -115,6 +118,7 @@ async def calculate_experiment_metric_for_recalculation(
     threaded into the per-metric PostHog event so the capture path doesn't have to re-query the saved-metric M2M
     to resolve it. Defaults to "primary" so existing call sites and tests that don't pass it remain valid. The
     workflow passes these arguments by position, so recorded histories depend on their order, not their names.
+    precomputation_mode overrides the query's precompute decision; the default keeps it to the query runner.
 
     Finality is derived from activity.info().attempt against MAX_METRIC_ATTEMPTS, the same constant the
     workflow's RetryPolicy is built from, so both sides agree on which attempt is the last. On the final
@@ -130,7 +134,14 @@ async def calculate_experiment_metric_for_recalculation(
     async with Heartbeater(factor=_HEARTBEAT_FACTOR):
         task = asyncio.ensure_future(
             on_asyncify_pool(_calculate_experiment_metric_for_recalculation_sync)(
-                experiment_id, metric_uuid, recalculation_id, query_to, role, is_final_attempt, attempt
+                experiment_id,
+                metric_uuid,
+                recalculation_id,
+                query_to,
+                role,
+                is_final_attempt,
+                attempt,
+                precomputation_mode,
             )
         )
         try:

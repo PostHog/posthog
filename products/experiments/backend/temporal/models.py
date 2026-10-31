@@ -79,6 +79,7 @@ METRIC_CALC_ACTIVITY_TIMEOUT_SECONDS = 300
 # activity's schedule_to_close_timeout). It keeps the IN_PROGRESS phase (this budget, the failure backstop and
 # the finish step) below the staleness TTL in recalculation.py, so a slow but healthy run is never treated as
 # stale. The budget ends a metric before MAX_METRIC_ATTEMPTS when its attempts are slow.
+# Only main-queue calcs get it. On the calc queues the worker slots are the cap, so a calc waits instead of retrying.
 METRIC_CALC_SCHEDULE_TO_CLOSE_TIMEOUT_SECONDS = 1200
 
 # Without a heartbeat, Temporal can deliver a cancellation to the calc activity only after start_to_close,
@@ -114,6 +115,7 @@ class ExperimentMetricsRecalculationWorkflowInputs:
     # Task queue for the metric calculation activity, chosen when the run starts so replay stays deterministic.
     # None keeps the activity on the workflow's own queue.
     activity_task_queue: str | None = None
+    precompute_task_queue: str | None = None
 
 
 @dataclasses.dataclass(frozen=False)
@@ -128,6 +130,8 @@ class ExperimentMetricToRecalculate:
     metric_uuid: str
     # "primary" or "secondary": the metric's role in the experiment, not its kind.
     role: str
+    # From the precompute plan. False runs the calc on the activity queue with PrecomputationMode.DIRECT.
+    uses_precompute_queue: bool = False
 
 
 @dataclasses.dataclass

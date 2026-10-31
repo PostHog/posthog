@@ -85,10 +85,15 @@ class TestMetricsRecalculationAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            # name, activity queue flag outcome, expected activity_task_queue
-            ("activity_queue_flag_off", False, None),
-            ("activity_queue_flag_on", True, settings.EXPERIMENTS_RECALCULATION_ACTIVITY_TASK_QUEUE),
-            ("activity_queue_flag_error", RuntimeError("flags down"), None),
+            # name, activity queue flag outcome, expected activity_task_queue, expected precompute_task_queue
+            ("activity_queue_flag_off", False, None, None),
+            (
+                "activity_queue_flag_on",
+                True,
+                settings.EXPERIMENTS_RECALCULATION_ACTIVITY_TASK_QUEUE,
+                settings.EXPERIMENTS_RECALCULATION_PRECOMPUTE_TASK_QUEUE,
+            ),
+            ("activity_queue_flag_error", RuntimeError("flags down"), None, None),
         ]
     )
     @mock.patch("products.experiments.backend.recalculation.sync_connect")
@@ -98,6 +103,7 @@ class TestMetricsRecalculationAPI(APIBaseTest):
         _name: str,
         flag_outcome: bool | Exception,
         expected_activity_task_queue: str | None,
+        expected_precompute_task_queue: str | None,
         mock_run,
         mock_connect,
     ):
@@ -124,6 +130,7 @@ class TestMetricsRecalculationAPI(APIBaseTest):
                 recalculation_id=body["id"],
                 fairness_key=str(self.organization.id),
                 activity_task_queue=expected_activity_task_queue,
+                precompute_task_queue=expected_precompute_task_queue,
             ),
             id=f"experiment-metrics-recalculation-{body['id']}",
             task_queue=settings.EXPERIMENTS_RECALCULATION_TASK_QUEUE,

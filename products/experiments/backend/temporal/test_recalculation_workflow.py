@@ -16,6 +16,8 @@ from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 
+from posthog.schema import PrecomputationMode
+
 from posthog.dataclasses import frozen
 
 from products.experiments.backend.recalculation import _STALE_RECALC_THRESHOLD
@@ -33,7 +35,10 @@ from products.experiments.backend.temporal.models import (
     RecalculationProgressUpdate,
 )
 from products.experiments.backend.temporal.recalculation_activities import calculate_experiment_metric_for_recalculation
-from products.experiments.backend.temporal.recalculation_workflow import ExperimentMetricsRecalculationWorkflow
+from products.experiments.backend.temporal.recalculation_workflow import (
+    CALC_QUEUES_WAIT_PATCH,
+    ExperimentMetricsRecalculationWorkflow,
+)
 
 _START_QUERY_TO = "2026-05-29T12:00:00+00:00"
 _WORKFLOW_MODULE = "products.experiments.backend.temporal.recalculation_workflow"
@@ -121,7 +126,14 @@ async def _run_workflow(activities) -> dict:
             )
 
 
-def _recording_calculate(calls: list[str]) -> Callable:
+@frozen
+class _CalcCall:
+    task_queue: str
+    has_calc_budget: bool
+    precomputation_mode: PrecomputationMode | None
+
+
+def _recording_calculate(calls: list[_CalcCall]) -> Callable:
     @activity.defn(name="calculate_experiment_metric_for_recalculation")
     async def mock_calculate(
         experiment_id: int,
@@ -129,27 +141,40 @@ def _recording_calculate(calls: list[str]) -> Callable:
         recalculation_id: str,
         query_to: str,
         role: str = "primary",
+        precomputation_mode: PrecomputationMode | None = None,
     ) -> MetricRecalculationResult:
-        calls.append(metric_uuid)
+        info = activity.info()
+        calls.append(
+            _CalcCall(
+                task_queue=info.task_queue,
+                has_calc_budget=info.schedule_to_close_timeout
+                == timedelta(seconds=METRIC_CALC_SCHEDULE_TO_CLOSE_TIMEOUT_SECONDS),
+                precomputation_mode=precomputation_mode,
+            )
+        )
         return MetricRecalculationResult(metric_uuid=metric_uuid, success=True)
 
     return mock_calculate
 
 
 @frozen
-class _TwoQueueRun:
+class _QueuesRun:
     result: dict
-    workflow_queue_calls: list[str]
-    activity_queue_calls: list[str]
+    calls: list[_CalcCall]
+    workflow_task_queue: str
     history: WorkflowHistory
 
 
-async def _run_with_activity_queue_worker(
-    activity_task_queue: str | None, activity_worker_task_queue: str
-) -> _TwoQueueRun:
-    activities, _progress, _calls = _make_mock_activities(metrics=[_metric("m1")])
-    workflow_queue_calls: list[str] = []
-    activity_queue_calls: list[str] = []
+_ACTIVITY_TASK_QUEUE = "test-activity-task-queue"
+_PRECOMPUTE_TASK_QUEUE = "test-precompute-task-queue"
+
+
+async def _run_with_calc_queue_workers(*, activity_queue_flag: bool, uses_precompute_queue: bool) -> _QueuesRun:
+    metric = ExperimentMetricToRecalculate(
+        experiment_id=1, metric_uuid="m1", role="primary", uses_precompute_queue=uses_precompute_queue
+    )
+    activities, _progress, _calls = _make_mock_activities(metrics=[metric])
+    calls: list[_CalcCall] = []
     task_queue = str(uuid.uuid4())
     async with await WorkflowEnvironment.start_time_skipping() as env:
         async with (
@@ -157,31 +182,32 @@ async def _run_with_activity_queue_worker(
                 env.client,
                 task_queue=task_queue,
                 workflows=[ExperimentMetricsRecalculationWorkflow],
-                activities=[*activities[:2], _recording_calculate(workflow_queue_calls)],
+                activities=[*activities[:2], _recording_calculate(calls)],
                 workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
             ),
-            Worker(
-                env.client,
-                task_queue=activity_worker_task_queue,
-                activities=[_recording_calculate(activity_queue_calls)],
-            ),
+            Worker(env.client, task_queue=_ACTIVITY_TASK_QUEUE, activities=[_recording_calculate(calls)]),
+            Worker(env.client, task_queue=_PRECOMPUTE_TASK_QUEUE, activities=[_recording_calculate(calls)]),
         ):
             handle = await env.client.start_workflow(
                 ExperimentMetricsRecalculationWorkflow.run,
                 ExperimentMetricsRecalculationWorkflowInputs(
-                    recalculation_id=str(uuid.uuid4()), activity_task_queue=activity_task_queue
+                    recalculation_id=str(uuid.uuid4()),
+                    activity_task_queue=_ACTIVITY_TASK_QUEUE if activity_queue_flag else None,
+                    precompute_task_queue=_PRECOMPUTE_TASK_QUEUE if activity_queue_flag else None,
                 ),
                 id=str(uuid.uuid4()),
                 task_queue=task_queue,
             )
             result = await handle.result()
             history = await handle.fetch_history()
-    return _TwoQueueRun(
-        result=result,
-        workflow_queue_calls=workflow_queue_calls,
-        activity_queue_calls=activity_queue_calls,
-        history=history,
-    )
+    return _QueuesRun(result=result, calls=calls, workflow_task_queue=task_queue, history=history)
+
+
+async def _replay(history: WorkflowHistory) -> None:
+    await temporalio.worker.Replayer(
+        workflows=[ExperimentMetricsRecalculationWorkflow],
+        workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+    ).replay_workflow(history)
 
 
 @pytest.mark.asyncio
@@ -288,6 +314,7 @@ class TestExperimentMetricsRecalculationWorkflow:
             role: str,
             is_final_attempt: bool,
             attempt: int,
+            precomputation_mode: PrecomputationMode | None,
         ) -> MetricRecalculationResult:
             recorded_flags.append(is_final_attempt)
             raise RuntimeError("always fails")
@@ -624,46 +651,59 @@ class TestExperimentMetricsRecalculationWorkflow:
 
     @parameterized.expand(
         [
-            # name, set_field, expected_workflow_queue_calls, expected_activity_queue_calls
-            ("field_unset_stays_on_workflow_queue", False, ["m1"], []),
-            ("field_set_routes_to_activity_queue", True, [], ["m1"]),
+            # name, activity queue flag, precompute plan, expected queue (None is the workflow's), keeps the budget, mode
+            ("flag_off_direct_scan", False, False, None, True, None),
+            ("flag_off_precompute", False, True, None, True, None),
+            ("flag_on_direct_scan", True, False, _ACTIVITY_TASK_QUEUE, False, PrecomputationMode.DIRECT),
+            ("flag_on_precompute", True, True, _PRECOMPUTE_TASK_QUEUE, False, None),
         ]
     )
-    async def test_activity_task_queue_routes_the_calculation(
+    async def test_calc_task_queue_and_budget(
         self,
         name: str,
-        set_field: bool,
-        expected_workflow_queue_calls: list[str],
-        expected_activity_queue_calls: list[str],
+        activity_queue_flag: bool,
+        uses_precompute_queue: bool,
+        expected_task_queue: str | None,
+        keeps_budget: bool,
+        expected_mode: PrecomputationMode | None,
     ):
-        activity_worker_task_queue = str(uuid.uuid4())
-        run = await _run_with_activity_queue_worker(
-            activity_task_queue=activity_worker_task_queue if set_field else None,
-            activity_worker_task_queue=activity_worker_task_queue,
+        run = await _run_with_calc_queue_workers(
+            activity_queue_flag=activity_queue_flag, uses_precompute_queue=uses_precompute_queue
         )
 
         assert run.result == {"total": 1, "succeeded": 1, "failed": 0}
-        assert run.workflow_queue_calls == expected_workflow_queue_calls
-        assert run.activity_queue_calls == expected_activity_queue_calls
+        assert run.calls == [
+            _CalcCall(
+                task_queue=expected_task_queue or run.workflow_task_queue,
+                has_calc_budget=keeps_budget,
+                precomputation_mode=expected_mode,
+            )
+        ]
+        await _replay(run.history)
 
-    async def test_pre_patch_history_with_the_field_set_replays(self):
-        # An old worker ignores the unknown input field and records no patch marker, so the new code must
-        # replay that history with the calculation on the workflow's queue.
-        activity_worker_task_queue = str(uuid.uuid4())
+    @parameterized.expand(
+        [
+            # An old worker ignores the new input fields and records no marker for the missing patch.
+            ("before_the_activity_queue", "recalc-activity-task-queue-2026-10", None),
+            ("before_the_precompute_queue", CALC_QUEUES_WAIT_PATCH, _ACTIVITY_TASK_QUEUE),
+        ]
+    )
+    async def test_pre_patch_history_with_the_fields_set_replays(
+        self, name: str, missing_patch: str, expected_task_queue: str | None
+    ):
         original_patched = temporalio.workflow.patched
 
         def pre_patch(patch_id: str) -> bool:
-            return False if patch_id == "recalc-activity-task-queue-2026-10" else original_patched(patch_id)
+            return False if patch_id == missing_patch else original_patched(patch_id)
 
         with patch.object(temporalio.workflow, "patched", side_effect=pre_patch):
-            run = await _run_with_activity_queue_worker(
-                activity_task_queue=activity_worker_task_queue,
-                activity_worker_task_queue=activity_worker_task_queue,
-            )
+            run = await _run_with_calc_queue_workers(activity_queue_flag=True, uses_precompute_queue=True)
 
-        assert run.workflow_queue_calls == ["m1"]
-        assert run.activity_queue_calls == []
-        await temporalio.worker.Replayer(
-            workflows=[ExperimentMetricsRecalculationWorkflow],
-            workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
-        ).replay_workflow(run.history)
+        assert run.calls == [
+            _CalcCall(
+                task_queue=expected_task_queue or run.workflow_task_queue,
+                has_calc_budget=True,
+                precomputation_mode=None,
+            )
+        ]
+        await _replay(run.history)

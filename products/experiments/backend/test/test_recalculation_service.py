@@ -11,6 +11,8 @@ from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
+from temporalio.client import WorkflowExecutionStatus
+from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
@@ -39,6 +41,7 @@ from products.experiments.backend.recalculation import (
     request_recalculation,
     request_recalculation_without_age_limit,
 )
+from products.experiments.backend.test.utils import WORKFLOW_NOT_FOUND, patch_recalculation_workflow_status
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
@@ -284,6 +287,7 @@ class TestRecalculationService(BaseTest):
             patch("products.experiments.backend.recalculation.feature_enabled_or_false", side_effect=evaluate_flag),
             patch("products.experiments.backend.recalculation.posthoganalytics.capture") as mock_capture,
             patch("products.experiments.backend.recalculation._cancel_superseded_workflows") as mock_cancel,
+            patch_recalculation_workflow_status(WORKFLOW_NOT_FOUND),
             self.captureOnCommitCallbacks(execute=True),
         ):
             result = request(exp, self.user, "manual")
@@ -337,11 +341,18 @@ class TestRecalculationService(BaseTest):
             # (name, status, stale_field) — both lifecycle anchors must release the experiment when their
             # respective timestamp is past the staleness threshold. Without this, a Temporal-connect failure
             # that also lost its rollback UPDATE permanently locks the experiment out of recalculations.
-            ("pending_stale_by_created_at", "pending", "created_at"),
-            ("in_progress_stale_by_started_at", "in_progress", "started_at"),
+            (
+                "pending_stale_by_created_at",
+                "pending",
+                "created_at",
+                WORKFLOW_NOT_FOUND,
+            ),
+            ("in_progress_stale_by_started_at", "in_progress", "started_at", WorkflowExecutionStatus.TERMINATED),
         ]
     )
-    def test_request_recalculation_recovers_from_stale_active_row(self, name: str, status: str, stale_field: str):
+    def test_request_recalculation_recovers_from_stale_active_row(
+        self, name: str, status: str, stale_field: str, workflow_state: WorkflowExecutionStatus | Exception
+    ):
         exp = self._launched_experiment(flag_key=f"stale-{name}")
         long_ago = timezone.now() - timedelta(hours=2)
         stale_kwargs: dict = {"team": self.team, "experiment": exp, "status": status}
@@ -354,6 +365,7 @@ class TestRecalculationService(BaseTest):
 
         with (
             patch("products.experiments.backend.recalculation._cancel_superseded_workflows") as mock_cancel,
+            patch_recalculation_workflow_status(workflow_state),
             self.captureOnCommitCallbacks(execute=True),
         ):
             result = request_recalculation(exp, self.user, "manual")
@@ -365,6 +377,35 @@ class TestRecalculationService(BaseTest):
         stale_row.refresh_from_db()
         assert stale_row.status == "failed"
         mock_cancel.assert_called_once_with([str(stale_row.id)])
+
+    @parameterized.expand(
+        [
+            ("workflow_running", WorkflowExecutionStatus.RUNNING),
+            ("temporal_unavailable", RPCError("connection refused", RPCStatusCode.UNAVAILABLE, b"")),
+        ]
+    )
+    def test_request_recalculation_keeps_a_stale_row_whose_workflow_may_run(
+        self, name: str, workflow_state: WorkflowExecutionStatus | Exception
+    ):
+        exp = self._launched_experiment(flag_key=f"stale-but-{name}")
+        waiting_row = ExperimentMetricsRecalculation.objects.create(
+            team=self.team, experiment=exp, status="in_progress", started_at=timezone.now() - timedelta(hours=2)
+        )
+
+        with (
+            patch("products.experiments.backend.recalculation._cancel_superseded_workflows") as mock_cancel,
+            patch_recalculation_workflow_status(workflow_state),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            result = request_recalculation(exp, self.user, "manual")
+            active = get_active_recalculation(exp)
+
+        assert active == waiting_row
+        assert result["is_existing"] is True
+        assert result["id"] == str(waiting_row.id)
+        waiting_row.refresh_from_db()
+        assert waiting_row.status == "in_progress"
+        mock_cancel.assert_not_called()
 
     def test_request_recalculation_does_not_recover_recent_active_row(self):
         # Defensive: a row created N minutes ago (well under the threshold) must still block, no matter the
@@ -471,7 +512,8 @@ class TestRecalculationService(BaseTest):
                     created_at=timezone.now() - timedelta(hours=2)
                 )
 
-        active = get_active_recalculation(exp)
+        with patch_recalculation_workflow_status(WORKFLOW_NOT_FOUND):
+            active = get_active_recalculation(exp)
         latest = get_latest_recalculation(exp)
         assert (active.id if active else None) == (row.id if row and expect_active else None)
         assert (latest.id if latest else None) == (row.id if row and expect_latest else None)

@@ -19,7 +19,7 @@ import structlog
 import posthoganalytics
 from temporalio.exceptions import ApplicationError
 
-from posthog.schema import ExperimentQuery
+from posthog.schema import ExperimentQuery, PrecomputationMode
 
 from posthog.clickhouse.cancel import cancel_query_on_cluster
 from posthog.clickhouse.client.connection import Workload
@@ -30,6 +30,7 @@ from posthog.exceptions import ClickHouseAtCapacity
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.scoping import team_scope
+from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.errors import NonReportableApplicationError
 
@@ -44,6 +45,7 @@ from products.experiments.backend.metric_calculation.config import get_metric_ca
 from products.experiments.backend.metric_calculation.results import MetricResultStore
 from products.experiments.backend.metric_resolution import build_metric, get_metrics_for_calculation
 from products.experiments.backend.models.experiment import Experiment, ExperimentMetricsRecalculation
+from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.temporal.models import (
     CAPACITY_MAX_METRIC_ATTEMPTS,
     CAPACITY_RETRY_BACKOFF_COEFFICIENT,
@@ -120,6 +122,26 @@ def _get_recalc_state(recalculation_id: str) -> _RecalcState:
     )
 
 
+def _uses_precompute_queue(
+    experiment: Experiment, team_experiments_config: TeamExperimentsConfig, metric_dict: dict[str, Any]
+) -> bool:
+    # An error must not fail discovery. The calc goes to the precompute queue, where the runner checks the plan again.
+    try:
+        runner = ExperimentQueryRunner(
+            query=ExperimentQuery(experiment_id=experiment.id, metric=build_metric(metric_dict)),
+            team=experiment.team,
+            experiment=experiment,
+            team_experiments_config=team_experiments_config,
+            bypass_warehouse_access_control=True,
+            user_facing=False,
+            error_event_context=None,
+        )
+        return runner.metric_events_precompute_plan.reads_precomputed
+    except Exception as e:
+        capture_exception(e)
+        return True
+
+
 @database_sync_to_async_pool
 def _discover_experiment_metrics_sync(recalculation_id: str) -> list[ExperimentMetricToRecalculate]:
     close_old_connections()
@@ -128,11 +150,17 @@ def _discover_experiment_metrics_sync(recalculation_id: str) -> list[ExperimentM
     with team_scope(state.team_id, canonical=True):
         recalculation = ExperimentMetricsRecalculation.objects.select_related("experiment").get(id=recalculation_id)
         experiment = recalculation.experiment
+        team_experiments_config = get_or_create_team_extension(experiment.team, TeamExperimentsConfig)
 
         # request_recalculation sets total_metrics from the same resolver, so the run's progress count
         # matches the metrics this activity schedules.
         metrics_to_recalculate = [
-            ExperimentMetricToRecalculate(experiment_id=experiment.id, metric_uuid=metric.uuid, role=metric.role)
+            ExperimentMetricToRecalculate(
+                experiment_id=experiment.id,
+                metric_uuid=metric.uuid,
+                role=metric.role,
+                uses_precompute_queue=_uses_precompute_queue(experiment, team_experiments_config, metric.definition),
+            )
             for metric in get_metrics_for_calculation(experiment)
         ]
 
@@ -616,6 +644,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
     role: str = "primary",
     is_final_attempt: bool = True,
     attempt: int = 1,
+    precomputation_mode: PrecomputationMode | None = None,
 ) -> MetricRecalculationResult:
     close_old_connections()
 
@@ -732,7 +761,11 @@ def _calculate_experiment_metric_for_recalculation_sync(
 
         try:
             runner = ExperimentQueryRunner(
-                query=ExperimentQuery(experiment_id=experiment_id, metric=build_metric(metric_dict)),
+                query=ExperimentQuery(
+                    experiment_id=experiment_id,
+                    metric=build_metric(metric_dict),
+                    precomputation_mode=precomputation_mode,
+                ),
                 team=experiment.team,
                 as_of=query_to_dt,
                 workload=Workload.OFFLINE,

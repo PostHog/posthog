@@ -20,6 +20,8 @@ from django.utils import timezone
 import posthoganalytics
 from prometheus_client import Counter
 from rest_framework.exceptions import Throttled, ValidationError
+from temporalio.client import WorkflowExecutionStatus
+from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
@@ -30,7 +32,7 @@ from posthog.models.scoping import get_current_team_id, team_scope
 from posthog.models.user import User
 from posthog.ph_client import feature_enabled_or_false
 from posthog.settings import CLICKHOUSE_CLUSTER
-from posthog.temporal.common.client import sync_connect
+from posthog.temporal.common.client import async_connect, sync_connect
 
 from products.experiments.backend.metric_calculation.config import build_calculation_configs
 from products.experiments.backend.metric_calculation.results import MetricResultStore
@@ -54,8 +56,10 @@ from products.experiments.backend.temporal.models import (
 # value, so a legitimately-slow run can finish without being clobbered. It is also tight enough that an operator
 # can recover within an hour if the workflow never started (Temporal connect failure, transient infra issue,
 # etc.). See the rollback in start_metrics_recalculation_workflow for the happy-path failure handling; this TTL
-# is the defense-in-depth backstop if that rollback itself fails.
+# is the defense-in-depth backstop if that rollback itself fails. Runs on the calc queues have no calc budget, so
+# _running_past_staleness_threshold checks their workflow before a row is treated as stale.
 _STALE_RECALC_THRESHOLD = timedelta(minutes=30)
+_WORKFLOW_DESCRIBE_TIMEOUT = timedelta(seconds=5)
 
 # rate limiting manual reloads (including agents).
 MIN_USER_RECALCULATION_INTERVAL = timedelta(minutes=5)
@@ -285,6 +289,7 @@ def start_metrics_recalculation_workflow(recalculation_id: str, *, team_id: int,
     FAILED when it is safe to do so, and the exception propagates to the caller.
     """
     try:
+        activity_task_queue = _activity_task_queue(organization_id)
         temporal = sync_connect()
         asyncio.run(
             temporal.start_workflow(
@@ -292,7 +297,10 @@ def start_metrics_recalculation_workflow(recalculation_id: str, *, team_id: int,
                 ExperimentMetricsRecalculationWorkflowInputs(
                     recalculation_id=recalculation_id,
                     fairness_key=organization_id,
-                    activity_task_queue=_activity_task_queue(organization_id),
+                    activity_task_queue=activity_task_queue,
+                    precompute_task_queue=(
+                        settings.EXPERIMENTS_RECALCULATION_PRECOMPUTE_TASK_QUEUE if activity_task_queue else None
+                    ),
                 ),
                 id=metrics_recalculation_workflow_id(recalculation_id),
                 task_queue=settings.EXPERIMENTS_RECALCULATION_TASK_QUEUE,
@@ -329,6 +337,55 @@ def _cancel_superseded_workflows(recalculation_ids: list[str]) -> None:
         except Exception:
             # Expected for rows whose workflow never started (Temporal connect failure) or already finished.
             pass
+
+
+async def _describe_workflow_status(recalculation_id: str) -> WorkflowExecutionStatus | None:
+    client = await async_connect()
+    description = await client.get_workflow_handle(metrics_recalculation_workflow_id(recalculation_id)).describe()
+    return description.status
+
+
+def _workflow_may_be_running(recalculation_id: str) -> bool:
+    # Only a workflow that Temporal reports closed or does not find lets the row go stale. An unknown state keeps
+    # the row, because a replacement run cannot start while Temporal is unreachable.
+    try:
+        status = asyncio.run(
+            asyncio.wait_for(
+                _describe_workflow_status(recalculation_id), timeout=_WORKFLOW_DESCRIBE_TIMEOUT.total_seconds()
+            )
+        )
+    except RPCError as e:
+        if e.status == RPCStatusCode.NOT_FOUND:
+            return False
+        capture_exception(e)
+        return True
+    except Exception as e:
+        capture_exception(e)
+        return True
+    return status == WorkflowExecutionStatus.RUNNING
+
+
+def _running_past_staleness_threshold(experiment: Experiment) -> ExperimentMetricsRecalculation | None:
+    """An active run older than _STALE_RECALC_THRESHOLD whose workflow may still run. Callers hold the team scope
+    and have already found no active run inside the threshold.
+
+    Calcs on the activity and precompute queues have no total budget, so a healthy run can wait in a queue for
+    longer than the threshold. Without this check, a new request would mark that run FAILED and cancel it.
+    """
+    candidate = (
+        ExperimentMetricsRecalculation.objects.filter(
+            experiment=experiment,
+            status__in=[
+                ExperimentMetricsRecalculation.Status.PENDING,
+                ExperimentMetricsRecalculation.Status.IN_PROGRESS,
+            ],
+        )
+        .order_by("-created_at")
+        .first()
+    )
+    if candidate is None or not _workflow_may_be_running(str(candidate.id)):
+        return None
+    return candidate
 
 
 def _organization_flag_enabled(flag_key: str, organization_id: str) -> bool:
@@ -489,7 +546,7 @@ def _request_recalculation(
                 | Q(status=ExperimentMetricsRecalculation.Status.IN_PROGRESS, started_at__gte=threshold)
             )
             .first()
-        )
+        ) or _running_past_staleness_threshold(experiment)
         if existing:
             _recalculation_reuse_counter.inc()
             return build_job_payload(existing, is_existing=True)
@@ -580,7 +637,7 @@ def get_active_recalculation(experiment: Experiment) -> ExperimentMetricsRecalcu
             .filter(active_recalculation_filter())
             .order_by("-created_at")
             .first()
-        )
+        ) or _running_past_staleness_threshold(experiment)
 
 
 def _terminal_recalculations(experiment: Experiment) -> QuerySet[ExperimentMetricsRecalculation]:

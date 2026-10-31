@@ -13,6 +13,8 @@ from temporalio.exceptions import (
 from posthog.temporal.common.base import PostHogWorkflow
 
 with temporalio.workflow.unsafe.imports_passed_through():
+    from posthog.schema import PrecomputationMode
+
     from products.experiments.backend.temporal.models import (
         MAX_METRIC_ATTEMPTS,
         METRIC_CALC_ACTIVITY_TIMEOUT_SECONDS,
@@ -39,6 +41,10 @@ with temporalio.workflow.unsafe.imports_passed_through():
         update_recalculation_progress,
     )
     from products.experiments.backend.temporal.recalculation_metrics import increment_workflow_finished
+
+
+# Pre-patch histories scheduled every calc on the activity queue with the schedule_to_close budget.
+CALC_QUEUES_WAIT_PATCH = "recalc-precompute-queue-wait-2026-10"
 
 
 def _ended_by_temporal(error: ActivityError) -> bool:
@@ -164,22 +170,35 @@ class ExperimentMetricsRecalculationWorkflow(PostHogWorkflow):
             if inputs.activity_task_queue and temporalio.workflow.patched("recalc-activity-task-queue-2026-10")
             else None
         )
+        on_calc_queues = activity_task_queue is not None and temporalio.workflow.patched(CALC_QUEUES_WAIT_PATCH)
+
+        def on_precompute_queue(metric: ExperimentMetricToRecalculate) -> bool:
+            return on_calc_queues and bool(inputs.precompute_task_queue) and metric.uses_precompute_queue
+
+        def calc_task_queue(metric: ExperimentMetricToRecalculate) -> str | None:
+            return inputs.precompute_task_queue if on_precompute_queue(metric) else activity_task_queue
+
+        def calc_args(metric: ExperimentMetricToRecalculate) -> list:
+            args = [metric.experiment_id, metric.metric_uuid, recalculation_id, query_to, metric.role]
+            # DIRECT keeps an activity-queue calc off the aux cluster. Other calcs keep the call older workers accept.
+            if on_calc_queues and not on_precompute_queue(metric):
+                args.append(PrecomputationMode.DIRECT)
+            return args
+
+        # The worker slots cap the calc queues, so a calc waits for a slot instead of timing out and retrying.
+        calc_schedule_to_close = (
+            None if on_calc_queues else timedelta(seconds=METRIC_CALC_SCHEDULE_TO_CLOSE_TIMEOUT_SECONDS)
+        )
         results = await asyncio.gather(
             *[
                 temporalio.workflow.execute_activity(
                     calculate_experiment_metric_for_recalculation,
-                    args=[
-                        metric.experiment_id,
-                        metric.metric_uuid,
-                        recalculation_id,
-                        query_to,
-                        metric.role,
-                    ],
+                    args=calc_args(metric),
                     start_to_close_timeout=timedelta(seconds=METRIC_CALC_ACTIVITY_TIMEOUT_SECONDS),
-                    schedule_to_close_timeout=timedelta(seconds=METRIC_CALC_SCHEDULE_TO_CLOSE_TIMEOUT_SECONDS),
+                    schedule_to_close_timeout=calc_schedule_to_close,
                     heartbeat_timeout=timedelta(seconds=METRIC_CALC_HEARTBEAT_TIMEOUT_SECONDS),
                     retry_policy=calc_retry_policy,
-                    task_queue=activity_task_queue,
+                    task_queue=calc_task_queue(metric),
                     # Round-robin dispatch across orgs under backlog; a no-op on namespaces without
                     # fairness support.
                     priority=Priority(fairness_key=inputs.fairness_key),
