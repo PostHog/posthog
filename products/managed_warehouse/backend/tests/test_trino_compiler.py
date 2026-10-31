@@ -281,9 +281,13 @@ class TestCompileHogQLToTrinoSQL:
             ("SELECT tuple(1, 'x') AS tag", True),
             ("SELECT 1 AS id, [tuple(1, 'x')] AS tags", True),
             ("SELECT map('a', tuple(1)) AS pairs", True),
+            ("SELECT 1 > 0 AS flag", True),
+            ("SELECT toBool(1) AS flag", True),
+            ("SELECT [1 > 0] AS flags", True),
+            ("SELECT map('a', 1 = 1) AS flags", True),
         ],
     )
-    def test_flags_output_columns_that_may_hold_anonymous_rows(self, query: str, needs_probe: bool) -> None:
+    def test_flags_output_columns_whose_types_the_build_reads_back(self, query: str, needs_probe: bool) -> None:
         organization = Organization.objects.create(name="trino-row-type-probe")
         team = Team.objects.create(organization=organization)
         membership = _membership(team_id=team.pk, organization_id=str(organization.pk))

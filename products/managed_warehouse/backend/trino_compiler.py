@@ -430,7 +430,7 @@ def compile_hogql_to_trino_sql(
         output = prepared
         while isinstance(output, ast.SelectSetQuery):
             output = output.initial_select_query
-        needs_row_type_probe = any(_may_hold_anonymous_row(column, trino_context) for column in output.select)
+        needs_row_type_probe = any(_needs_output_type_probe(column, trino_context) for column in output.select)
         return preserve_output_names(prepared) if preserve_clickhouse_output_names else prepared
 
     trino_sql, _ = prepare_and_print_ast(
@@ -467,12 +467,12 @@ def compile_hogql_to_trino_sql(
     )
 
 
-def _may_hold_anonymous_row(column: Any, context: Any) -> bool:
-    """Whether the resolved type of an output column is, or contains, a tuple or an unknown type."""
+def _needs_output_type_probe(column: Any, context: Any) -> bool:
+    """Whether the resolved type of an output column is, or contains, a tuple, a boolean or an unknown type."""
     from posthog.hogql import ast  # noqa: PLC0415 -- keeps compiler imports off Django startup
 
     def check(constant_type: ast.ConstantType) -> bool:
-        if isinstance(constant_type, ast.TupleType | ast.UnknownType):
+        if isinstance(constant_type, ast.TupleType | ast.BooleanType | ast.UnknownType):
             return True
         if isinstance(constant_type, ast.ArrayType):
             return check(constant_type.item_type)
