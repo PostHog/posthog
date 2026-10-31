@@ -74,7 +74,7 @@ from .visibility import blocked_target_ids, require_viewer_access, viewable_quer
 
 MAX_AI_SUBSCRIPTION_CONTEXTS: int = int(SubscriptionAIContextLimit.model_fields["root"].default)
 AI_DELIVERY_DISPLAY_FIELDS = frozenset(
-    {"include_images", "include_feedback", "include_manage_link", "include_posthog_hint"}
+    {"include_images", "charts_in_thread", "include_feedback", "include_manage_link", "include_posthog_hint"}
 )
 
 # The write fields whose model attribute has a different name. Every other field keeps its name.
