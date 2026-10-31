@@ -62,6 +62,7 @@ import { TransformationInvocations } from './invocations/TransformationInvocatio
 import { HogFunctionMetrics } from './metrics/HogFunctionMetrics'
 import { HogFunctionSkeleton } from './misc/HogFunctionSkeleton'
 import { QuillHogFunctionSceneActions } from './QuillHogFunctionSceneActions'
+import { HogFunctionRevisions } from './revisions/HogFunctionRevisions'
 import { HogFunctionRuns } from './runs/HogFunctionRuns'
 
 const HOG_FUNCTION_SCENE_TABS = ['configuration', 'metrics', 'runs', 'invocations', 'backfills', 'history'] as const
@@ -587,7 +588,19 @@ export function HogFunctionScene(): JSX.Element {
         {
             label: 'History',
             key: 'history',
-            content: <ActivityLog id={id} scope={ActivityScope.HOG_FUNCTION} />,
+            // Only destinations stage drafts, so only they get versions to restore, as workflows do.
+            content:
+                type === 'destination' && id ? (
+                    <div className="flex flex-col gap-6">
+                        <HogFunctionRevisions id={id} />
+                        <div className="flex flex-col gap-2">
+                            <h3 className="mb-0">Activity</h3>
+                            <ActivityLog id={id} scope={ActivityScope.HOG_FUNCTION} />
+                        </div>
+                    </div>
+                ) : (
+                    <ActivityLog id={id} scope={ActivityScope.HOG_FUNCTION} />
+                ),
         },
     ]
 

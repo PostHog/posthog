@@ -715,12 +715,26 @@ class TestHogFunctionRevisions(DraftTestCase):
     def test_restore_over_an_open_draft_needs_overwrite(self):
         function_id = self._create()
         self._live_edit(function_id, {"hog": EDITED_HOG})
-        self._stage(function_id, {"hog": "fetch(inputs.url, {'method': 'PATCH'});"})
+        confirmed_stamp = self._stage(function_id, {"hog": "fetch(inputs.url, {'method': 'PATCH'});"})[
+            "draft_updated_at"
+        ]
+        current_stamp = self._stage(function_id, {"hog": "fetch(inputs.url, {'method': 'PUT'});"})["draft_updated_at"]
 
         conflict = self.client.post(self._url(function_id, "/revisions/1/restore"))
-        forced = self.client.post(self._url(function_id, "/revisions/1/restore"), {"overwrite": True})
+        stale = self.client.post(
+            self._url(function_id, "/revisions/1/restore"),
+            {"overwrite": True, "expected_draft_updated_at": confirmed_stamp},
+        )
+        draft_after_stale = HogFunction.objects.get(id=function_id).draft
+        forced = self.client.post(
+            self._url(function_id, "/revisions/1/restore"),
+            {"overwrite": True, "expected_draft_updated_at": current_stamp},
+        )
 
         assert conflict.status_code == status.HTTP_409_CONFLICT, conflict.json()
+        assert stale.status_code == status.HTTP_409_CONFLICT, stale.json()
+        assert stale.json()["code"] == "draft_changed"
+        assert draft_after_stale is not None and "'PUT'" in draft_after_stale["hog"]
         assert forced.status_code == status.HTTP_200_OK, forced.json()
         restored_draft = HogFunction.objects.get(id=function_id).draft
         assert restored_draft is not None
