@@ -284,6 +284,7 @@ _REFUND_SYNC_SWEEP_MAX_AGE = timedelta(days=7)
 _OUT_OF_PERIOD_SYNC_ERROR = "billing: refund period no longer creditable at sync time; credit needs manual recovery"
 
 _SCOUT_SLACK_MAX_RETRIES = 5
+_SCOUT_SLACK_REPLY_TASK_MAX_RETRIES = 16
 _SCOUT_SLACK_RETRY_BASE_SECONDS = 60
 _SCOUT_SLACK_RETRY_MAX_SECONDS = 3600
 
@@ -407,9 +408,10 @@ def _scout_slack_retry_countdown(exc: Exception, retries: int) -> int:
     acks_late=True,
     reject_on_worker_lost=True,
     soft_time_limit=600,
+    time_limit=660,
     autoretry_for=(TimeoutError, RedisError),
     retry_backoff=True,
-    retry_kwargs={"max_retries": _SCOUT_SLACK_MAX_RETRIES},
+    retry_kwargs={"max_retries": _SCOUT_SLACK_REPLY_TASK_MAX_RETRIES},
 )
 @with_team_scope(canonical=True)
 def deliver_scout_slack_thread_replies(
@@ -566,6 +568,7 @@ def deliver_scout_slack_thread_replies(
     acks_late=True,
     reject_on_worker_lost=True,
     soft_time_limit=600,
+    time_limit=660,
     max_retries=_SCOUT_SLACK_MAX_RETRIES,
 )
 @with_team_scope(canonical=True)

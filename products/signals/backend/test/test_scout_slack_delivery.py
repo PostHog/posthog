@@ -10,6 +10,7 @@ from django.apps import apps
 from django.conf import settings
 from django.test import SimpleTestCase
 
+from celery import Task
 from celery.exceptions import Retry
 from parameterized import parameterized
 from redis.exceptions import LockNotOwnedError
@@ -156,6 +157,48 @@ class TestScoutSlackDelivery(BaseTest):
             with scout_report_delivery_lock(str(uuid.uuid4()), 9, "CSCOUTS"):
                 pass
         lock.release.assert_called_once()
+
+    def test_thread_reply_lock_contention_retries_after_five_attempts(self) -> None:
+        emission = self._make_emission()
+        report = SignalReport.objects.create(
+            team=self.team,
+            status=SignalReport.Status.READY,
+            title="Checkout failures",
+            summary="Checkout failed",
+        )
+
+        with (
+            patch("products.signals.backend.tasks.scout_report_delivery_lock", side_effect=TimeoutError("Lock busy")),
+            patch.object(deliver_scout_slack_thread_replies, "retry", side_effect=Retry()) as retry,
+            pytest.raises(Retry),
+        ):
+            deliver_scout_slack_thread_replies.apply(
+                args=(
+                    self.team.id,
+                    9,
+                    "CSCOUTS",
+                    "1785418710.000800",
+                    str(uuid.uuid4()),
+                    [[{"type": "markdown", "text": "remaining"}]],
+                    "remaining",
+                    0,
+                ),
+                kwargs={"report_id": str(report.id), "run_id": str(emission.scout_run_id)},
+                retries=5,
+                throw=True,
+            )
+
+        assert retry.call_args.kwargs["max_retries"] == 16
+
+    @parameterized.expand(
+        [
+            ("thread_replies", deliver_scout_slack_thread_replies),
+            ("output", deliver_scout_slack_output),
+        ]
+    )
+    def test_lock_holding_task_finishes_before_lease_expires(self, _name: str, task: Task) -> None:
+        assert task.soft_time_limit == 600
+        assert 600 < task.time_limit < 900
 
     @parameterized.expand(
         [
