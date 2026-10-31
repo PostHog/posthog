@@ -1,9 +1,17 @@
+import os
 import uuid
+import socket
+import asyncio
+from typing import TYPE_CHECKING
 
 import pytest
+from unittest.mock import Mock, patch
 
 from django.conf import settings
 from django.test import override_settings
+
+import dns.exception
+from botocore.exceptions import EndpointConnectionError, HTTPClientError
 
 from products.batch_exports.backend.destination_tests import get_destination_test
 from products.batch_exports.backend.destination_tests.s3 import (
@@ -13,7 +21,12 @@ from products.batch_exports.backend.destination_tests.s3 import (
     S3EnsureBucketTestStep,
     Status,
 )
+from products.batch_exports.backend.service import AWSCredentials
+from products.batch_exports.backend.temporal.destinations.s3_batch_export import InvalidS3EndpointError, s3_client
 from products.batch_exports.backend.tests.temporal.utils.s3 import create_test_client, delete_all_from_s3
+
+if TYPE_CHECKING:
+    from aiohappyeyeballs import AddrInfoType
 
 TEST_ROOT_BUCKET = "test-destination-tests"
 
@@ -77,6 +90,254 @@ async def test_s3_check_bucket_exists_test_step_without_bucket(object_storage_cl
 
     assert result.status == Status.FAILED
     assert result.message == "Bucket 'some-other-bucket' does not exist or we don't have permissions to use it"
+
+
+@override_settings(FORCE_URL_VALIDATION=True, SSRF_TRUSTED_PROXY_URLS=["http://proxy.example.com:3128"])
+@pytest.mark.parametrize("virtual", [False, True])
+@pytest.mark.parametrize("proxied", [False, True])
+async def test_custom_s3_connections_pin_the_sdk_hostname_and_preserve_proxies(virtual: bool, proxied: bool) -> None:
+    resolved_hosts: list[str] = []
+    addresses = {"storage.example.com": "93.184.216.34", "exports.storage.example.com": "1.1.1.1"}
+
+    def resolve_name(host: str, **kwargs: object) -> Mock:
+        address = "127.0.0.1" if host in resolved_hosts else addresses[host]
+        resolved_hosts.append(host)
+        return Mock(addresses=Mock(return_value=[address]))
+
+    with (
+        patch.dict(
+            os.environ,
+            {
+                **{key: "" for key in os.environ if key.lower().endswith("_proxy")},
+                "HTTPS_PROXY": "http://proxy.example.com:3128" if proxied else "",
+            },
+        ),
+        patch("dns.resolver.Resolver.resolve_name", side_effect=resolve_name),
+        patch(
+            "aiohttp.connector.DefaultResolver.resolve",
+            return_value=[
+                {
+                    "hostname": "proxy.example.com",
+                    "host": "10.0.0.2",
+                    "port": 3128,
+                    "family": socket.AF_INET,
+                    "proto": socket.IPPROTO_TCP,
+                    "flags": socket.AI_NUMERICHOST,
+                }
+            ],
+        ) as resolve_again,
+        patch(
+            "aiohappyeyeballs.start_connection", side_effect=RuntimeError("Socket connection intercepted")
+        ) as connect,
+    ):
+        async with s3_client(
+            AWSCredentials(aws_access_key_id="fake-key", aws_secret_access_key="fake-secret"),
+            region="us-east-1",
+            endpoint_url="https://storage.example.com",
+            use_virtual_style_addressing=virtual,
+        ) as client:
+            assert resolved_hosts == []
+
+            async def create_multipart_upload() -> None:
+                with pytest.raises(HTTPClientError, match="Socket connection intercepted"):
+                    await client.create_multipart_upload(Bucket="exports", Key=r"folder\events.jsonl")
+
+            await asyncio.gather(create_multipart_upload(), create_multipart_upload())
+            await create_multipart_upload()
+
+    expected_host = "exports.storage.example.com" if virtual else "storage.example.com"
+    assert resolved_hosts == [expected_host]
+    assert connect.await_count == 3
+    for call in connect.call_args_list:
+        assert call.kwargs["addr_infos"][0][4][0] == ("10.0.0.2" if proxied else addresses[expected_host])
+    if proxied:
+        resolve_again.assert_awaited_once()
+        assert resolve_again.call_args.args[0] == "proxy.example.com"
+    else:
+        resolve_again.assert_not_awaited()
+
+
+@override_settings(FORCE_URL_VALIDATION=True)
+@pytest.mark.parametrize("initial_failure", ["dns", "connection_refused", "connect_timeout"])
+@pytest.mark.parametrize(
+    "address,expected_error,expected_message",
+    [
+        ("93.184.216.34", HTTPClientError, "Socket connection intercepted"),
+        ("127.0.0.1", InvalidS3EndpointError, "Endpoint URL is invalid"),
+        (None, EndpointConnectionError, "Could not connect to the endpoint URL"),
+    ],
+)
+async def test_custom_s3_retries_dns_failures(
+    initial_failure: str, address: str | None, expected_error: type[Exception], expected_message: str
+) -> None:
+    connection_errors: list[Exception] = []
+    if initial_failure == "connection_refused":
+        connection_errors.append(ConnectionRefusedError("Endpoint address retired"))
+    elif initial_failure == "connect_timeout":
+        connection_errors.append(TimeoutError())
+
+    attempted_addresses: list[str] = []
+
+    async def connect_socket(*, addr_infos: list["AddrInfoType"], **kwargs: object) -> None:
+        attempted_addresses.append(addr_infos[0][4][0])
+        if connection_errors and len(attempted_addresses) == 1:
+            raise connection_errors[0]
+        raise RuntimeError("Socket connection intercepted")
+
+    with (
+        patch.dict(
+            os.environ,
+            {
+                **{key: "" for key in os.environ if key.lower().endswith("_proxy")},
+                "AWS_MAX_ATTEMPTS": "2",
+                "AWS_RETRY_MODE": "standard",
+            },
+        ),
+        patch(
+            "dns.resolver.Resolver.resolve_name",
+            side_effect=[
+                dns.exception.Timeout() if initial_failure == "dns" else Mock(addresses=Mock(return_value=["8.8.8.8"])),
+                Mock(addresses=Mock(return_value=[address])) if address is not None else dns.exception.Timeout(),
+            ],
+        ) as resolve,
+        patch("aiohttp.connector.DefaultResolver.resolve", side_effect=AssertionError("Unexpected unpinned DNS")),
+        patch("botocore.retries.standard.ExponentialBackoff.delay_amount", return_value=0),
+        patch(
+            "aiohappyeyeballs.start_connection",
+            side_effect=connect_socket,
+        ) as connect,
+    ):
+        async with s3_client(
+            AWSCredentials(aws_access_key_id="fake-key", aws_secret_access_key="fake-secret"),
+            region="us-east-1",
+            endpoint_url="https://storage.example.com",
+        ) as client:
+            with pytest.raises(expected_error, match=expected_message):
+                await client.head_bucket(Bucket="exports")
+
+    assert resolve.call_count == 2
+    assert connect.await_count == len(connection_errors) + (1 if address == "93.184.216.34" else 0)
+    if connection_errors:
+        assert attempted_addresses[0] == "8.8.8.8"
+    if address == "93.184.216.34":
+        assert attempted_addresses[-1] == address
+
+
+@override_settings(FORCE_URL_VALIDATION=True)
+async def test_custom_s3_concurrent_connection_failures_share_refreshed_pins() -> None:
+    both_connections_started = asyncio.Event()
+    refreshed_connection_started = asyncio.Event()
+    attempted_addresses: list[str] = []
+
+    async def connect_socket(*, addr_infos: list["AddrInfoType"], **kwargs: object) -> None:
+        address = addr_infos[0][4][0]
+        attempted_addresses.append(address)
+        if address == "1.1.1.1":
+            refreshed_connection_started.set()
+            raise RuntimeError("Socket connection intercepted")
+
+        if len(attempted_addresses) == 1:
+            await both_connections_started.wait()
+        else:
+            both_connections_started.set()
+            await refreshed_connection_started.wait()
+        raise ConnectionRefusedError("Endpoint address retired")
+
+    with (
+        patch.dict(
+            os.environ,
+            {
+                **{key: "" for key in os.environ if key.lower().endswith("_proxy")},
+                "AWS_MAX_ATTEMPTS": "2",
+                "AWS_RETRY_MODE": "standard",
+            },
+        ),
+        patch(
+            "dns.resolver.Resolver.resolve_name",
+            side_effect=[Mock(addresses=Mock(return_value=[ip])) for ip in ["8.8.8.8", "1.1.1.1", "127.0.0.1"]],
+        ) as resolve,
+        patch("botocore.retries.standard.ExponentialBackoff.delay_amount", return_value=0),
+        patch("aiohappyeyeballs.start_connection", side_effect=connect_socket),
+        patch("aiohttp.connector.DefaultResolver.resolve", side_effect=AssertionError("Unexpected unpinned DNS")),
+    ):
+        async with s3_client(
+            AWSCredentials(aws_access_key_id="fake-key", aws_secret_access_key="fake-secret"),
+            region="us-east-1",
+            endpoint_url="https://storage.example.com",
+        ) as client:
+
+            async def head_bucket() -> None:
+                with pytest.raises(HTTPClientError, match="Socket connection intercepted"):
+                    await client.head_bucket(Bucket="exports")
+
+            await asyncio.wait_for(asyncio.gather(head_bucket(), head_bucket()), timeout=10)
+
+    assert resolve.call_count == 2
+    assert attempted_addresses == ["8.8.8.8", "8.8.8.8", "1.1.1.1", "1.1.1.1"]
+
+
+@override_settings(FORCE_URL_VALIDATION=True)
+@pytest.mark.parametrize("virtual", [False, True])
+async def test_custom_s3_rejects_private_bucket_hostname_before_connecting(virtual: bool) -> None:
+    with (
+        patch(
+            "dns.resolver.Resolver.resolve_name",
+            return_value=Mock(addresses=Mock(return_value=["127.0.0.1"])),
+        ),
+        patch("aiohappyeyeballs.start_connection", side_effect=AssertionError("Unexpected connection")) as connect,
+    ):
+        async with s3_client(
+            AWSCredentials(aws_access_key_id="fake-key", aws_secret_access_key="fake-secret"),
+            region="us-east-1",
+            endpoint_url="https://storage.example.com",
+            use_virtual_style_addressing=virtual,
+        ) as client:
+            with pytest.raises(InvalidS3EndpointError):
+                await client.head_bucket(Bucket="exports")
+
+    connect.assert_not_awaited()
+
+
+@pytest.mark.parametrize("debug,test", [(True, False), (False, True)])
+async def test_custom_s3_bypasses_validation_in_dev_and_test(debug: bool, test: bool) -> None:
+    with (
+        override_settings(DEBUG=debug, TEST=test, FORCE_URL_VALIDATION=False),
+        patch.dict(os.environ, {key: "" for key in os.environ if key.lower().endswith("_proxy")}),
+        patch("dns.resolver.Resolver.resolve_name", side_effect=AssertionError("Unexpected validation")),
+        patch(
+            "aiohappyeyeballs.start_connection", side_effect=RuntimeError("Socket connection intercepted")
+        ) as connect,
+    ):
+        async with s3_client(
+            AWSCredentials(aws_access_key_id="fake-key", aws_secret_access_key="fake-secret"),
+            region="us-east-1",
+            endpoint_url="http://127.0.0.1:19000",
+        ) as client:
+            with pytest.raises(HTTPClientError, match="Socket connection intercepted"):
+                await client.head_bucket(Bucket="exports")
+
+    connect.assert_awaited_once()
+    assert connect.call_args.kwargs["addr_infos"][0][4][0] == "127.0.0.1"
+
+
+@override_settings(FORCE_URL_VALIDATION=True)
+async def test_s3_destination_check_rejects_private_endpoint_before_connecting() -> None:
+    step = S3EnsureBucketTestStep(
+        bucket_name="exports",
+        region="us-east-1",
+        endpoint_url="https://storage.example.com",
+        aws_access_key_id="fake-key",
+        aws_secret_access_key="fake-secret",
+    )
+    with (
+        patch("dns.resolver.Resolver.resolve_name", return_value=Mock(addresses=Mock(return_value=["127.0.0.1"]))),
+        patch("aiohappyeyeballs.start_connection", side_effect=AssertionError("Unexpected connection")) as connect,
+    ):
+        result = await step.run()
+
+    assert result.status == Status.FAILED
+    assert "Endpoint URL is invalid" in (result.message or "")
+    connect.assert_not_awaited()
 
 
 @pytest.mark.parametrize("step", [S3EnsureBucketTestStep()])

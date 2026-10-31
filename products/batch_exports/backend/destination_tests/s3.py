@@ -6,10 +6,12 @@ from products.batch_exports.backend.destination_tests.base import (
     DestinationTestStepResult,
     Status,
 )
+from products.batch_exports.backend.service import AWSCredentials
 from products.batch_exports.backend.temporal.destinations.s3_batch_export import (
     InvalidCredentialsError,
     PolicyStatement,
     get_credentials_using_user_aws_role,
+    s3_client,
 )
 
 
@@ -149,14 +151,7 @@ class S3EnsureBucketTestStep(DestinationTestStep):
 
     async def _run_step(self) -> DestinationTestStepResult:
         """Run this test step."""
-        import aioboto3
         from botocore.exceptions import ClientError
-
-        session = aioboto3.Session()
-
-        aws_access_key_id = self.aws_access_key_id
-        aws_secret_access_key = self.aws_secret_access_key
-        aws_session_token = None
 
         if self.aws_role_arn is not None:
             external_id = f"posthog-{self.organization_id}"
@@ -173,18 +168,17 @@ class S3EnsureBucketTestStep(DestinationTestStep):
                 max_attempts=self.max_attempts,
             )
 
-            aws_access_key_id, aws_secret_access_key, aws_session_token = (
-                credentials.aws_access_key_id,
-                credentials.aws_secret_access_key,
-                credentials.aws_session_token,
+        else:
+            assert self.aws_access_key_id is not None
+            assert self.aws_secret_access_key is not None
+            credentials = AWSCredentials(
+                aws_access_key_id=self.aws_access_key_id,
+                aws_secret_access_key=self.aws_secret_access_key,
             )
 
-        async with session.client(
-            "s3",
-            region_name=self.region,
-            aws_access_key_id=aws_access_key_id,
-            aws_secret_access_key=aws_secret_access_key,
-            aws_session_token=aws_session_token,
+        async with s3_client(
+            credentials,
+            region=self.region,
             endpoint_url=self.endpoint_url,
         ) as client:
             assert self.bucket_name is not None
