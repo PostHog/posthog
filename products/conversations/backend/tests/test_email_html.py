@@ -11,6 +11,17 @@ class TestEmailHtml(SimpleTestCase):
 
     @parameterized.expand(
         [
+            ("div", "<div>a</div><div>b</div>", "a\nb"),
+            ("list_item", "<ul><li>a</li><li>b</li></ul>", "a\nb"),
+            ("table_row", "<table><tr><td>a</td></tr><tr><td>b</td></tr></table>", "a\nb"),
+            ("break_inside_preformatted", "<pre>a<br>b</pre>", "a\nb"),
+        ]
+    )
+    def test_block_tags_keep_the_line_break(self, _name: str, html: str, expected: str) -> None:
+        assert html_to_text(html) == expected
+
+    @parameterized.expand(
+        [
             ("doctype", "<!DOCTYPE html>\n<html><body><p>Hi</p></body></html>", True),
             ("html_tag_with_attributes", '<html lang="en"><body>Hi</body></html>', True),
             ("xml_declaration_first", '<?xml version="1.0"?><!DOCTYPE html><html>Hi</html>', True),
