@@ -77,6 +77,10 @@ function readReport(reportPath) {
 const args = process.argv.slice(2)
 const htmlIndex = args.indexOf('--html')
 const fromReportIndex = args.indexOf('--from-report')
+if (fromReportIndex !== -1 && (htmlIndex !== -1 || args.includes('--report-only'))) {
+    console.error('--from-report reads an existing report, so it cannot be combined with --html or --report-only.')
+    process.exit(2)
+}
 
 let current
 let eagerChains

@@ -733,10 +733,10 @@ jobs:
                         "event_type": ${{ toJSON(github.event_name) }}
                       }
 
-            - name: Fail on new frontend layer imports
+            - name: Fail on frontend layer check
               if: ${{ !cancelled() && steps.layer-check.outcome == 'failure' }}
               run: |
-                  echo "::error::The frontend layer check failed. The 'Check frontend layer imports' step names each new upward import or fixed baseline entry, and the command that fixes it."
+                  echo "::error::The frontend layer check failed. Read the log of the 'Check frontend layer imports' step for the cause. A layer failure there names each new upward import or fixed baseline entry, and the command that fixes it."
                   exit 1
 
     frontend-typescript-checks:
