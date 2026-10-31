@@ -189,6 +189,7 @@ export type InboxReportActionType =
     | 'claim'
     | 'unclaim'
     | 'expand_preview'
+    | 'add_note'
 
 /**
  * Where the text of an "Ask AI" question came from. `suggested` is a scout-authored question sent as
@@ -234,10 +235,10 @@ export type InboxReportActionOutcome = 'success' | 'failure' | 'blocked' | 'limi
 export type InboxPanelName = 'runs' | 'config' | 'sources' | 'scratchpad' | 'findings' | 'triage' | 'onboarding'
 
 /** A panel read that carries its own timeout, named so each one's stall rate reads separately. */
-export type InboxPanelLoad = 'scout_notes' | 'scout_memory'
+export type InboxPanelLoad = 'scout_notes' | 'scout_memory' | 'report_notes'
 
 /** A report write that carries its own timeout. `state` covers dismiss, resolve, restore, and monitoring. */
-export type InboxWrite = 'claim' | 'priority' | 'state'
+export type InboxWrite = 'claim' | 'note' | 'priority' | 'retire_note' | 'state'
 
 /** Which control moved the report list to a new query. `url` is a shared/deep link being applied. */
 export type InboxQueryChange =
@@ -253,7 +254,7 @@ export type InboxQueryChange =
     | 'created_window'
 
 /** Surface a scout-management event fired from. Matches the desktop values. */
-export type ScoutSurface = 'fleet_list' | 'scout_detail' | 'empty_state' | 'replay_vision_scanner'
+export type ScoutSurface = 'fleet_list' | 'scout_detail' | 'empty_state' | 'replay_vision_scanner' | 'report_detail'
 
 /**
  * Scout-management actions. The first block matches desktop's enum; the trailing block is

@@ -88,6 +88,7 @@ import {
 import { CheckObservationBody } from './CheckObservationBody'
 import { prActivityTitle } from './prActivityPresentation'
 import { CHECK_LIFECYCLE_ENTRIES, inconclusiveReasonLabel } from './reportCheckPresentation'
+import { ScoutNoteLeftBody } from './ScoutNoteLeftBody'
 
 /** Map a file extension to a CodeSnippet language for syntax highlighting; falls back to plain text. */
 function languageFromPath(path: string | undefined): Language {
@@ -152,7 +153,7 @@ const ARTEFACT_MARKER: Record<string, ComponentType<{ className?: string }>> = {
     commit: IconCommit,
     task_run: IconTerminal,
     note: IconComment,
-    scout_note_left: IconComment,
+    scout_note_left: IconPencil,
     priority_judgment: IconFlag,
     actionability_judgment: IconListCheck,
     safety_judgment: IconShield,
@@ -775,17 +776,8 @@ function renderArtefactBody({
             const c = content as NoteContent
             return <NoteBody note={c.note} author={c.author} />
         }
-        case 'scout_note_left': {
-            const c = content as ScoutNoteLeftContent
-            return (
-                <div className="w-full">
-                    <NoteBody note={c.note} />
-                    <span className="mt-1 block text-xs text-tertiary">
-                        {c.skill_name?.trim() ? `For ${c.skill_name}` : 'For every scout on this project'}
-                    </span>
-                </div>
-            )
-        }
+        case 'scout_note_left':
+            return <ScoutNoteLeftBody reportId={reportId} content={content as ScoutNoteLeftContent} />
         case 'priority_judgment': {
             const c = content as { explanation?: string }
             return c.explanation ? <ReasoningBody text={c.explanation} /> : null

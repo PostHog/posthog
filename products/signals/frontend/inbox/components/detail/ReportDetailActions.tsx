@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { type MouseEvent, useState } from 'react'
 
-import { IconCheckCircle, IconHide, IconReceipt, IconUndo, IconClock } from '@posthog/icons'
+import { IconCheckCircle, IconHide, IconReceipt, IconUndo, IconClock, IconPencil } from '@posthog/icons'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
@@ -18,6 +18,7 @@ import { hasMergedReportPullRequest } from '../../utils/reportPullRequests'
 import { setReportState } from '../../utils/writeTimeout'
 import { useReportDismiss } from '../cards/useReportDismiss'
 import { useReportRefund } from '../cards/useReportRefund'
+import { openAddReportNoteDialog } from './AddReportNoteDialog'
 import { useReportResolve } from './useReportResolve'
 
 /**
@@ -46,6 +47,7 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
     const { activeTab } = useValues(inboxSceneLogic)
     const { loadSelectedReport } = useActions(inboxSceneLogic)
     const [isRestoring, setIsRestoring] = useState(false)
+    const reportScoutName = report.scout_name ?? null
 
     const isDismissed = report.status === SignalReportStatus.SUPPRESSED
     // Resolved reports are terminal – nothing to dismiss, restore, or resolve.
@@ -94,6 +96,15 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
         },
     })
 
+    // Offered in every state: a note adds context, or steers the scouts, whatever became of this report.
+    const addNote: ReportDetailAction = {
+        key: 'add_note',
+        label: 'Add note',
+        icon: <IconPencil />,
+        tooltip: "Add a note to this report's activity, and send it to the scouts if you like",
+        onClick: () => openAddReportNoteDialog({ reportId: report.id, reportScoutName }),
+    }
+
     const refund: ReportDetailAction = {
         key: 'refund',
         label: 'Refund',
@@ -141,7 +152,7 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
     // A resolved report is terminal, so only Discuss (rendered separately) applies. Its PR can
     // still be refunded (auto-approved by design; the weekly review watches refunded-then-merged).
     if (isResolved) {
-        return canRefund ? [refund] : []
+        return [...(canRefund ? [refund] : []), addNote]
     }
 
     // An already-dismissed report offers Restore instead of Dismiss (and no Create PR). A refunded
@@ -162,6 +173,7 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
                           onClick: () => void onRestoreClick(),
                       },
                   ]),
+            addNote,
         ]
     }
 
@@ -219,8 +231,11 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
     ]
 
     const updating = reportStateSaving || isResolving || isDismissing || isRefunding
-    return actions.map((action) => ({
-        ...action,
-        disabledReason: action.disabledReason ?? (updating ? 'Updating report…' : undefined),
-    }))
+    return [
+        ...actions.map((action) => ({
+            ...action,
+            disabledReason: action.disabledReason ?? (updating ? 'Updating report…' : undefined),
+        })),
+        addNote,
+    ]
 }
