@@ -50,6 +50,7 @@ from posthog.dags.deletes import (
 )
 from posthog.dags.person_overrides import squash_person_overrides
 from posthog.dags.tests.conftest import insert_flag_evaluations
+from posthog.models.ai_events.sql import DATA_TABLE_NAME as AI_EVENTS_DATA_TABLE
 from posthog.models.async_deletion import AsyncDeletion, DeletionRunLog, DeletionRunStatus, DeletionType
 from posthog.models.deletion_targets import DEFAULT_DELETION_TARGETS, EVENTS, PERSONAL_DATA_TARGETS, TargetPlacement
 from posthog.models.event.sql import EVENTS_DATA_TABLE, EVENTS_JSON_DATA_TABLE
@@ -57,6 +58,22 @@ from posthog.models.events_retention_config import OrganizationEventsRetentionCo
 from posthog.models.organization import Organization
 from posthog.models.person.sql import PERSON_DISTINCT_ID_OVERRIDES_TABLE
 from posthog.models.team import Team
+
+
+def insert_ai_events(rows: list[tuple[int, str, UUID, UUID, datetime]], client: Client) -> None:
+    # _timestamp is the sweep's ingestion bound here, so it is pinned to the event time like
+    # inserted_at elsewhere. retention_days keeps the hardcoded TTL from dropping the rows.
+    client.execute(
+        f"INSERT INTO {AI_EVENTS_DATA_TABLE} (team_id, distinct_id, person_id, uuid, timestamp, _timestamp, trace_id, retention_days) VALUES",
+        [(*row, row[4], "trace", 10000) for row in rows],
+    )
+
+
+def surviving_ai_events(client: Client) -> set[tuple[int, UUID, UUID]]:
+    result = client.execute("SELECT team_id, person_id, uuid FROM ai_events WHERE _row_exists = 1")
+    if not isinstance(result, list):
+        return set()
+    return {(row[0], row[1], row[2]) for row in result}
 
 
 def surviving_flag_evaluations(client: Client) -> set[tuple[int, UUID, UUID]]:
@@ -109,6 +126,15 @@ def test_full_job_person_deletes(cluster: ClickhouseCluster):
                     timestamp - timedelta(hours=i),
                     timestamp - timedelta(hours=i),
                 )
+                for i in (swept_person, retained_person)
+            ],
+        )
+    ).result()
+    cluster.any_host(
+        partial(
+            insert_ai_events,
+            [
+                (i, f"distinct_id_{i}", UUID(int=i), UUID(int=i), timestamp - timedelta(hours=i))
                 for i in (swept_person, retained_person)
             ],
         )
@@ -201,6 +227,14 @@ def test_full_job_person_deletes(cluster: ClickhouseCluster):
     )
     assert (retained_person, UUID(int=retained_person), UUID(int=retained_person)) in surviving, (
         "the sweep deleted a flag_evaluations row it should not have"
+    )
+
+    surviving_ai = cluster.any_host(surviving_ai_events).result()
+    assert (swept_person, UUID(int=swept_person), UUID(int=swept_person)) not in surviving_ai, (
+        "ai_events rows for a deleted person survived the sweep"
+    )
+    assert (retained_person, UUID(int=retained_person), UUID(int=retained_person)) in surviving_ai, (
+        "the sweep deleted an ai_events row it should not have"
     )
 
     # Verify that the deletions before oldest override timestamp have been marked verified
@@ -1355,10 +1389,10 @@ def test_a_skipped_target_keeps_its_rows_while_the_rest_are_swept(cluster: Click
 @pytest.mark.parametrize(
     "skip_targets,expected",
     [
-        ([], ["sharded_events", "sharded_events_json", "sharded_flag_evaluations"]),
-        (["sharded_events_json"], ["sharded_events", "sharded_flag_evaluations"]),
-        (["events_json"], ["sharded_events", "sharded_flag_evaluations"]),
-        (["events_json", "sharded_flag_evaluations"], ["sharded_events"]),
+        ([], ["sharded_events", "sharded_events_json", "sharded_flag_evaluations", "sharded_ai_events"]),
+        (["sharded_events_json"], ["sharded_events", "sharded_flag_evaluations", "sharded_ai_events"]),
+        (["events_json"], ["sharded_events", "sharded_flag_evaluations", "sharded_ai_events"]),
+        (["events_json", "sharded_flag_evaluations", "ai_events"], ["sharded_events"]),
     ],
     ids=["nothing_skipped", "by_storage_table", "by_read_table", "two_targets"],
 )
@@ -1374,7 +1408,7 @@ def test_skip_targets_drops_a_target_named_by_either_of_its_tables(skip_targets,
 def test_events_json_is_swept_by_default() -> None:
     # Skipping a target by default leaves its rows in place while the requests covering them are
     # marked verified, and nothing else in a run says which targets it was supposed to reach.
-    expected = ["sharded_events", "sharded_events_json", "sharded_flag_evaluations"]
+    expected = ["sharded_events", "sharded_events_json", "sharded_flag_evaluations", "sharded_ai_events"]
     assert resolve_sweep_targets(build_op_context()) == expected
     assert [target.data_table for target in DEFAULT_DELETION_TARGETS] == expected
 

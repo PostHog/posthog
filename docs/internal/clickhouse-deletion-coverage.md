@@ -96,6 +96,7 @@ Leaving one out stays possible, and `PERSON_ID_REWRITE_EXEMPT` is where that dec
 - `sharded_events` — all sweeps.
 - `sharded_events_json` — all sweeps, on the events cluster, through patch parts instead of mutations (`uses_patch_parts`). Optional: only present after the native-JSON migration.
 - `sharded_flag_evaluations` — person, team, queued-uuid, immediate and deferred event removal, and property removal of event and person properties (below). Immediate event removal with a HogQL predicate does not sweep it, and refuses while a matching row has no events copy. Deferred event removal with a predicate reaches the rows that have an events copy through their uuids, and the rest through the predicate compiled for this table (below). Property removal with a predicate does not sweep it. Optional.
+- `sharded_ai_events` — person, team, queued-uuid, and immediate and deferred event removal without a HogQL predicate, on the ai_events cluster (`CLICKHOUSE_AI_EVENTS_CLUSTER`). It holds the raw prompts and completions that ingestion strips from the events copy. Event removal with a HogQL predicate and property removal do not sweep it, and refuse while it holds rows in the request's window and events (below). It stays out of the squash. Optional.
 - `sharded_posthog_document_embeddings_<model>` — event and team deletion, through `delete_event_documents`. An embedded document is keyed by the id of the thing it describes (`document_id`), and an Event deletion's key is that same id, so the pending dictionary is joined on `(team_id, Event, document_id)`. Every per-model table listed by the error tracking facade's `document_embedding_tables` is swept and counted.
   A document keyed by another id is not reached by event deletion. The AI observability summaries use `<trace or generation id>::<job id>` under the `llm-analytics` product, so deleting the summary events leaves their embeddings until the table TTL.
   To remove them, turn off AI data analysis for the organization first, so no new summaries arrive during the run. Then run `delete_team_product_documents_job` with the `team_id` and the `product`. It deletes only that product's documents for that team, from the model tables and the ingestion buffer. It fails when the team has no documents for that product (a misspelled name), when the deletes run past `timeout_seconds`, or when any document survives.
@@ -289,6 +290,20 @@ Counting every row that matches the request's other criteria would hold the requ
 The second count uses the same compiled predicate as the queue fill, so it cannot see the two compiles disagreeing.
 The compile's refusals are the guard against that.
 
+### What `ai_events` does not take
+
+Ingestion writes every AI event to `events` and to `ai_events` with the same uuid.
+The heavy properties (`$ai_input`, `$ai_output` and the others in `HEAVY_AI_PROPERTIES`) are kept only on `ai_events`, in their own columns.
+
+- The table has no `inserted_at`. Its `_timestamp` is the Kafka produce time, which ingestion stamps with the clock of the producer, so `DeletionTarget.inserted_at_column` names it for the person and queued-uuid arms of `deletes_job`.
+- It queues no uuids of its own (`queue_uuid_candidates` is off). Its uuids are the uuids of the events copies, which the queue fill already reads, and the drain deletes them from every target.
+- `copied_from` stays unset. The table shards on `trace_id` on another cluster, so a row and its events copy are never on the same shard, and the shard-local copy check cannot run.
+- Event removal with a HogQL predicate refuses while the table holds rows that the portable predicate matches. The fragment names events columns that this table does not have.
+- Property removal refuses while the table holds any row in the request's window and events. The rewrite needs `person_properties`, which the table does not have, and a presence check on `properties` would miss the heavy properties in their own columns.
+- `sharded_ai_events` is in `PERSON_ID_REWRITE_EXEMPT`. A merge can strand a row on the absorbed person until the TTL drops it. `retention_days` defaults to 30, and the table partitions by month of `drop_date` with `ttl_only_drop_parts = 1`, so a row can stay about 61 days.
+
+Before this registration, no deletion reached the table, and each row stayed until the TTL dropped it.
+
 ## Producer prerequisite: person_id parity
 
 Every person sweep is keyed on `person_id`, on `flag_evaluations` as on events.
@@ -352,6 +367,7 @@ Register it in `PERSONAL_DATA_TARGETS`, with capability flags reflecting what it
 Set `accepts_person_id_rewrite` unless you mean to leave the table out of the squash, which needs `person_id` outside the table's sorting and partition keys; skipping it is what stranded `flag_evaluations` rows on a merged-away person (#93035).
 A table you do leave out goes in `PERSON_ID_REWRITE_EXEMPT` with the reason.
 If it is not going to be swept, add it to `TTL_ONLY_TABLES` with the window you are accepting.
+If it has no `inserted_at`, set `inserted_at_column` to a column that ingestion stamps, never one that the event supplies.
 If its storage lives on a cluster other than the one the deletion jobs connect to, give it a `cluster_setting` naming that cluster and mark it `optional`; see "Reach" and "Dispatching" above for which sweeps then reach it and which refuse.
 
 `posthog/clickhouse/test/test_deletion_coverage.py` fails on any storage table that declares `person_properties` and appears in neither deletion list, so that decision has to be made rather than skipped.

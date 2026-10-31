@@ -45,6 +45,7 @@ from posthog.models.async_deletion import AsyncDeletion, DeletionRunJob, Deletio
 from posthog.models.deletion_targets import (
     COVERAGE_DOC,
     DEFAULT_DELETION_TARGETS,
+    EVENTS,
     EVENTS_TARGETS,
     PERSONAL_DATA_TARGETS,
     DeletionTarget,
@@ -239,8 +240,9 @@ def _start_of_month_after(partition: int) -> datetime:
     return datetime(year, month, 1) + relativedelta(months=1)
 
 
-# Reads only team_id, person_id, timestamp, uuid and inserted_at, which every registered target
-# declares. Shared with the post-sweep count so what gets verified is exactly what got deleted.
+# Reads only team_id, person_id, timestamp, uuid and the target's ingestion-time column
+# (DeletionTarget.inserted_at_column). Shared with the post-sweep count so what gets verified is
+# exactly what got deleted.
 #
 # The person and adhoc arms bound both timestamp and inserted_at by the request's own created_at:
 # a request can only name rows that were already ingested when it was made, and a row cannot be
@@ -256,27 +258,31 @@ def _start_of_month_after(partition: int) -> datetime:
 # there are pipeline stragglers the next run converges on, not a sustained obligation.
 _PERSON_ARM = """(dictHas(%(pending_deletes_dictionary)s, (team_id, %(person_deletion_type)s, person_id))
         AND timestamp <= dictGet(%(pending_deletes_dictionary)s, 'created_at', (team_id, %(person_deletion_type)s, person_id))
-        AND (inserted_at IS NULL OR inserted_at <= dictGet(%(pending_deletes_dictionary)s, 'created_at', (team_id, %(person_deletion_type)s, person_id))))"""
+        AND ({inserted_at} IS NULL OR {inserted_at} <= dictGet(%(pending_deletes_dictionary)s, 'created_at', (team_id, %(person_deletion_type)s, person_id))))"""
 _TEAM_ARM = "(dictHas(%(pending_deletes_dictionary)s, (team_id, %(team_deletion_type)s, team_id)))"
 _EVENT_ARM = "(dictHas(%(pending_deletes_dictionary)s, (team_id, %(event_deletion_type)s, uuid)))"
 _ADHOC_ARM = """(dictHas(%(adhoc_event_deletes_dictionary)s, (team_id, uuid))
-        AND (inserted_at IS NULL OR inserted_at <= dictGet(%(adhoc_event_deletes_dictionary)s, 'created_at', (team_id, uuid))))"""
+        AND ({inserted_at} IS NULL OR {inserted_at} <= dictGet(%(adhoc_event_deletes_dictionary)s, 'created_at', (team_id, uuid))))"""
 
 
 def _any_of(*arms: str) -> str:
     return "or(\n    " + ",\n    ".join(arms) + "\n)"
 
 
-_DELETE_PREDICATE = _any_of(_PERSON_ARM, _TEAM_ARM, _EVENT_ARM, _ADHOC_ARM)
+_DELETE_PREDICATE_TEMPLATE = _any_of(_PERSON_ARM, _TEAM_ARM, _EVENT_ARM, _ADHOC_ARM)
+
+
+def _delete_predicate(target: DeletionTarget) -> str:
+    return _DELETE_PREDICATE_TEMPLATE.format(inserted_at=target.inserted_at_column)
+
+
+_DELETE_PREDICATE = _delete_predicate(EVENTS)
 
 # sharded_events_json writes deletes as patch parts. The team_id sets come from the dictionaries and
 # lead the sorting key, so the read skips the granules of every team with nothing to delete.
-_PATCH_PART_DELETE_PREDICATE = (
-    _DELETE_PREDICATE
-    + """
+_PATCH_PART_TEAM_FILTER = """
     AND (team_id IN (SELECT DISTINCT team_id FROM dictionary(%(pending_deletes_dictionary)s) WHERE deletion_type IN (%(person_deletion_type)s, %(team_deletion_type)s, %(event_deletion_type)s))
         OR team_id IN (SELECT team_id FROM dictionary(%(adhoc_event_deletes_dictionary)s)))"""
-)
 
 
 # Embedding documents are keyed by the id of the thing they describe, and an Event deletion's key is
@@ -820,7 +826,7 @@ def _delete_with_patch_parts(placement: TargetPlacement, parameters: dict[str, s
     for partition_id, shards in sorted(shards_by_partition(placement).items()):
         runner = LightweightDeleteMutationRunner(
             table=placement.target.data_table,
-            predicate=_PATCH_PART_DELETE_PREDICATE,
+            predicate=_delete_predicate(placement.target) + _PATCH_PART_TEAM_FILTER,
             parameters=parameters,
             partition=partition_id,
             patch_parts=True,
@@ -892,7 +898,7 @@ def delete_events(
             continue
         runner = LightweightDeleteMutationRunner(
             table=placement.target.data_table,
-            predicate=_DELETE_PREDICATE,
+            predicate=_delete_predicate(placement.target),
             parameters=parameters,
             reuse_since=reuse_floor,
         )
@@ -1184,12 +1190,14 @@ def _count_unswept_rows(
     params = _delete_predicate_params(pending_deletes_dictionary, adhoc_event_deletes_dictionary)
     counts: dict[str, int | None] = {}
     for placement in resolve_placements(cluster, targets):
+        predicate = _delete_predicate(placement.target)
         counts[placement.target.read_table] = _count_through(
             context,
             partial(_rows_from_any_host, cluster),
             placement.target.read_table,
             params,
             max_execution_time,
+            predicate=predicate,
         )
         if placement.cluster is not cluster:
             counts[placement.target.data_table] = _count_through(
@@ -1198,6 +1206,7 @@ def _count_unswept_rows(
                 placement.target.data_table,
                 params,
                 max_execution_time,
+                predicate=predicate,
             )
     document_params = _document_delete_predicate_params(pending_deletes_dictionary)
     for table in _present_document_embedding_tables(cluster):
