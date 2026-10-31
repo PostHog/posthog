@@ -201,12 +201,7 @@ WHERE {periods_expression}
         try:
             query = self.to_query()
         except NoActionsError:
-            return WebGoalsQueryResponse(
-                results=[],
-                modifiers=self.modifiers,
-                preComputeStrategy=WebAnalyticsPreComputeStrategy.LIVE,
-                preComputeIneligibleReason=lazy_precompute_ineligible_reason(WebAnalyticsPreComputeStrategy.LIVE),
-            )
+            return self._empty_response()
 
         response = execute_hogql_query(
             query_type="web_goals_query",
@@ -218,7 +213,8 @@ WHERE {periods_expression}
             modifiers=self.modifiers,
             limit_context=self.limit_context,
         )
-        assert response.results
+        if not response.results:
+            return self._empty_response()
 
         row = response.results[0]
         current_visitors = row[0]
@@ -269,6 +265,14 @@ WHERE {periods_expression}
                 "context.columns.conversion_rate",
             ],
             results=results,
+            modifiers=self.modifiers,
+            preComputeStrategy=WebAnalyticsPreComputeStrategy.LIVE,
+            preComputeIneligibleReason=lazy_precompute_ineligible_reason(WebAnalyticsPreComputeStrategy.LIVE),
+        )
+
+    def _empty_response(self) -> WebGoalsQueryResponse:
+        return WebGoalsQueryResponse(
+            results=[],
             modifiers=self.modifiers,
             preComputeStrategy=WebAnalyticsPreComputeStrategy.LIVE,
             preComputeIneligibleReason=lazy_precompute_ineligible_reason(WebAnalyticsPreComputeStrategy.LIVE),
