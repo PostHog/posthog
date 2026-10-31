@@ -3251,6 +3251,22 @@
             "readOnlyHint": true
         }
     },
+    "comments-send-to-slack": {
+        "description": "Mirror a discussion to a Slack channel. Posts the discussion's top-level comment and its replies as a new Slack thread, and later replies sync both ways. Pass the id of a top-level comment (source_comment is null) from comments-list, or create one with comments-create. For a support ticket, create it with scope `Ticket` and the ticket's id (not its ticket_number) as item_id; this needs the ticket:write scope. Ticket messages and notes (scope `conversations_ticket`) cannot be sent. Find integration_id with integrations-list (filter kind=slack) and channel_id (an id such as C0123ABC, not a #name) with integrations-channels-retrieve. Confirm the channel and the comment text with the user before sending, and do not send when no user can confirm. Do not pick a channel where is_ext_shared is true unless the user names it, because people outside the organization can read it. Never use a ticket's own slack_channel_id, because the customer can read that channel. A discussion mirrors to one Slack channel only. Sending it to the same channel again returns the existing mirror, and sending it to a different channel fails. If a send fails without a Slack error, ask the user to check the channel before you retry, because the message may already be posted.",
+        "category": "Platform Features",
+        "feature": "platform_features",
+        "summary": "Send a discussion to Slack",
+        "title": "Send a discussion to Slack",
+        "required_scopes": ["comment:write"],
+        "api_operations": ["POST /api/projects/{project_id}/comments/{id}/send_to_slack/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "discussions-slack-sync"
+    },
     "context-wiki-channel-resolve": {
         "description": "Resolve a channel id to its repo-relative page path in the organization context wiki. Use the returned path with context-wiki-page-retrieve and context-wiki-page-update. Do not derive a path from the channel name.",
         "category": "Context wiki",

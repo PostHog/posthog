@@ -558,6 +558,39 @@ const commentsList = (): ToolBase<ReturnType<typeof CommentsListSchema>, Schemas
     },
 })
 
+const CommentsSendToSlackSchema = () => {
+    const CommentsSendToSlackCreateBody = orvalSchemas.CommentsSendToSlackCreateBody()
+    const CommentsSendToSlackCreateParams = orvalSchemas.CommentsSendToSlackCreateParams()
+    return CommentsSendToSlackCreateParams.omit({ project_id: true })
+        .extend(CommentsSendToSlackCreateBody.shape)
+        .extend({
+            id: CommentsSendToSlackCreateParams.shape['id'].describe(
+                'ID of the top-level comment that starts the discussion.'
+            ),
+        })
+}
+
+const commentsSendToSlack = (): ToolBase<ReturnType<typeof CommentsSendToSlackSchema>, Schemas.CommentSlackThread> => ({
+    name: 'comments-send-to-slack',
+    schema: CommentsSendToSlackSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof CommentsSendToSlackSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.integration_id !== undefined) {
+            body['integration_id'] = params.integration_id
+        }
+        if (params.channel_id !== undefined) {
+            body['channel_id'] = params.channel_id
+        }
+        const result = await context.api.request<Schemas.CommentSlackThread>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/comments/${encodeURIComponent(String(params.id))}/send_to_slack/`,
+            body,
+        })
+        return result
+    },
+})
+
 const OrgMemberGetGithubLoginSchema = () => {
     const MembersGithubLoginRetrieveParams = orvalSchemas.MembersGithubLoginRetrieveParams()
     return MembersGithubLoginRetrieveParams.omit({ organization_id: true }).extend({
@@ -930,6 +963,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'comment-thread': commentThread,
     'comments-create': commentsCreate,
     'comments-list': commentsList,
+    'comments-send-to-slack': commentsSendToSlack,
     'org-member-get-github-login': orgMemberGetGithubLogin,
     'org-members-list': orgMembersList,
     'organization-enforce-2fa-prepare': organizationEnforce2faPrepare,
