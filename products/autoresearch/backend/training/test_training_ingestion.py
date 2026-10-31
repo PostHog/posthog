@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from typing import Optional
 from uuid import UUID, uuid4
 
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
@@ -201,6 +202,7 @@ class TestHandleTaskRunCompleted(TeamScopedTestMixin, BaseTest):
             ("external_run_without_task", None, True, False, AutoresearchTrainingRun.Status.RUNNING, False),
         ]
     )
+    @time_machine.travel("2026-09-11T12:00:00Z", tick=False)
     @patch("products.autoresearch.backend.training.stale.tasks_cancellation")
     @patch("products.autoresearch.backend.training.stale.tasks_facade.get_task_run")
     def test_fail_stale_training_runs(
@@ -247,6 +249,7 @@ class TestHandleTaskRunCompleted(TeamScopedTestMixin, BaseTest):
             pipeline.refresh_from_db()
             assert pipeline.status == AutoresearchPipeline.Status.DRAFT
 
+    @time_machine.travel("2026-09-11T12:00:00Z", tick=False)
     @patch("products.autoresearch.backend.training.stale.tasks_cancellation")
     @patch("products.autoresearch.backend.training.stale.tasks_facade.get_task_run")
     def test_fail_stale_training_runs_keeps_a_run_that_completed_meanwhile(
