@@ -107,6 +107,8 @@ class ActivitySummaryConfig:
     mcp_calls_per_day: int = 50
     # Must cover the longest gap between two updates of one summary.
     mcp_buffer_days: int = 10
+    # Renders the buffer in the input. Apart from `mcp_buffer_enabled`, so the buffer can fill before the prompt uses it.
+    mcp_render_enabled: bool = False
 
 
 DISABLED = ActivitySummaryConfig()
@@ -250,6 +252,7 @@ def parse_config(payload: Any) -> ActivitySummaryConfig:
         mcp_buffer_days=min(
             _positive_int(payload.get("mcp_buffer_days"), defaults.mcp_buffer_days), MAX_MCP_BUFFER_DAYS
         ),
+        mcp_render_enabled=_bool(payload.get("mcp_render_enabled"), defaults.mcp_render_enabled),
     )
 
 
