@@ -272,6 +272,7 @@ function ChapterCarousel({
 
 /** Entrance delays across a row, one per grid column, written out so Tailwind generates each class. */
 const ROW_STAGGER = ['delay-0', 'delay-80', 'delay-160', 'delay-240']
+const SKIP_RISE = inStorybookTestRunner()
 
 interface HighlightFeedRowProps {
     item: HighlightFeedItemApi
@@ -416,8 +417,9 @@ export function HighlightFeedRow({
     const { ref: inViewRef, inView } = useInView({
         triggerOnce: true,
         fallbackInView: true,
-        // Snapshots capture the full page without scrolling, so every card starts in place there.
-        initialInView: inStorybookTestRunner(),
+        // Snapshots capture the full page without scrolling, so cards there start in place and never observe.
+        initialInView: SKIP_RISE,
+        skip: SKIP_RISE,
     })
     const setRowRef = useCallback(
         (node: HTMLElement | null): void => {
