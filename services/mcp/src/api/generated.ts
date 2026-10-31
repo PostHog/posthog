@@ -97030,6 +97030,29 @@ export namespace Schemas {
       created_at: string;
     }
 
+    export interface PostHogSupportReply {
+      /**
+         * The reply in plain text, for example the details support asked for. Do not include secrets, API keys or personal data.
+         * @maxLength 8000
+         */
+      message: string;
+    }
+
+    export interface PostHogSupportReplySent {
+      /** ID of the new message. */
+      message_id: string;
+      /** Status of the ticket now.
+       *
+       * * `new` - New
+       * * `open` - Open
+       * * `pending` - Pending
+       * * `on_hold` - On hold
+       * * `resolved` - Resolved */
+      ticket_status: TicketStatusEnum;
+      /** When support received the reply. */
+      created_at: string;
+    }
+
     export interface PostHogSupportTicketCreated {
       /** ID of the new ticket in PostHog's support inbox. */
       ticket_id: string;

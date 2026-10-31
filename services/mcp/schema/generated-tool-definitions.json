@@ -11558,6 +11558,22 @@
         },
         "feature_flag": "posthog-support-agent-tickets"
     },
+    "posthog-support-ticket-reply": {
+        "description": "Add a message from the signed-in user to one of their tickets with the PostHog support team, for example the details support asked for. A person on the support team reads it. Show the user the reply text and get their OK before you send it. Never include secrets, API keys or personal data.",
+        "category": "PostHog support",
+        "feature": "posthog_support",
+        "summary": "Reply to a PostHog support ticket",
+        "title": "Reply to a PostHog support ticket",
+        "required_scopes": ["posthog_support:write"],
+        "api_operations": ["POST /api/projects/{project_id}/posthog_support/tickets/{id}/reply/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "posthog-support-agent-tickets"
+    },
     "posthog-support-tickets-list": {
         "description": "List the signed-in user's tickets with the PostHog support team, newest first, with status and unread replies. Use it to check whether support has answered before you open a new ticket about the same problem. Read one ticket's messages with posthog-support-ticket-get.",
         "category": "PostHog support",

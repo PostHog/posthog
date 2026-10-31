@@ -79,6 +79,14 @@ class PostHogSupportClient:
         }
         return self._request("POST", "/api/conversations/v1/widget/message", json=payload)
 
+    def reply(self, identity: SupportIdentity, ticket_id: str, *, message: str) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            **self._identity_fields(identity),
+            "ticket_id": str(uuid.UUID(ticket_id)),
+            "message": message,
+        }
+        return self._request("POST", "/api/conversations/v1/widget/message", json=payload)
+
     def list_tickets(self, identity: SupportIdentity, *, status: str | None, limit: int, offset: int) -> dict[str, Any]:
         params: dict[str, Any] = {**self._identity_fields(identity), "limit": limit, "offset": offset}
         if status:
