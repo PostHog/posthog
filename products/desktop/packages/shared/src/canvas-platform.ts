@@ -19,6 +19,10 @@ export const CANVAS_PLATFORM_MANIFEST = {
       version: "0.3.0-beta.18",
       url: "https://esm.sh/@posthog/quill@0.3.0-beta.18?external=react,react-dom",
     },
+    "@posthog/quill-charts": {
+      version: "0.3.0-beta.31",
+      url: "https://esm.sh/@posthog/quill-charts@0.3.0-beta.31?external=react,react-dom&deps=@floating-ui/react@0.27.20",
+    },
     recharts: {
       version: "2.15.0",
       url: "https://esm.sh/recharts@2.15.0?external=react,react-dom",
@@ -73,6 +77,7 @@ export const CANVAS_PLATFORM_MANIFEST = {
     "react-dom",
     "react-dom/client",
     "@posthog/quill",
+    "@posthog/quill-charts",
     "recharts",
     "lucide-react",
     "dayjs",
