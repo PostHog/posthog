@@ -100,6 +100,7 @@
         "@posthog/products-authorization": "workspace:*",
         "@posthog/products-autoresearch": "workspace:*",
         "@posthog/products-batch-exports": "workspace:*",
+        "@posthog/products-billing": "workspace:*",
         "@posthog/products-billing-alerts": "workspace:*",
         "@posthog/products-business-intelligence": "workspace:*",
         "@posthog/products-business-knowledge": "workspace:*",
