@@ -7,11 +7,11 @@ import Modal from 'react-modal'
 
 import { IconX } from '@posthog/icons'
 
-import { Resizer } from 'lib/components/Resizer/Resizer'
-import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { useFloatingContainer } from 'lib/hooks/useFloatingContainerContext'
 import { KeyboardShortcut } from 'lib/lemon-ui/KeyboardShortcut/KeyboardShortcut'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { Resizer } from 'lib/lemon-ui/Resizer/Resizer'
+import { ResizerLogicProps, resizerLogic } from 'lib/lemon-ui/Resizer/resizerLogic'
 
 import { Tooltip } from '../Tooltip'
 
