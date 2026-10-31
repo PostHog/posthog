@@ -7,6 +7,7 @@ import temporalio.exceptions
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.delete_teams.activities import (
     check_project_pending_deletion_activity,
+    deactivate_deleted_organization_in_billing_activity,
     delete_batch_exports_activity,
     delete_cohort_members_activity,
     delete_data_modeling_schedules_activity,
@@ -280,6 +281,22 @@ class DeleteOrganizationWorkflow(PostHogWorkflow):
             heartbeat_timeout=LIGHT_HEARTBEAT_TIMEOUT,
             retry_policy=DELETE_RETRY_POLICY,
         )
+
+        # The billing sweep skips deleted orgs, so resync this one now that its row is gone; best-effort.
+        if temporalio.workflow.patched("deactivate-deleted-organization-in-billing"):
+            try:
+                await temporalio.workflow.execute_activity(
+                    deactivate_deleted_organization_in_billing_activity,
+                    OrganizationRecordInputs(organization_id=inputs.organization_id, user_id=inputs.user_id),
+                    start_to_close_timeout=LIGHT_ACTIVITY_TIMEOUT,
+                    heartbeat_timeout=LIGHT_HEARTBEAT_TIMEOUT,
+                    retry_policy=SIDE_EFFECT_RETRY_POLICY,
+                )
+            except temporalio.exceptions.ActivityError:
+                temporalio.workflow.logger.warning(
+                    "deactivate_deleted_organization_in_billing_activity failed; continuing organization deletion",
+                    exc_info=True,
+                )
 
         await temporalio.workflow.execute_activity(
             send_organization_deleted_email_activity,
