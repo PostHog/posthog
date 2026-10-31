@@ -3,6 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { traceDialogOpenLogic } from 'lib/components/ViewTraceButton/traceDialogOpenLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
@@ -16,7 +17,6 @@ import type { Span } from 'products/tracing/frontend/types'
 
 import { traceViewLogic } from '../TraceView/traceViewLogic'
 import { TRACE_DIALOG_VIEW_ID, traceDialogLogic } from './traceDialogLogic'
-import { traceDialogOpenLogic } from './traceDialogOpenLogic'
 
 type TracePage = Awaited<ReturnType<typeof api.tracing.getTrace>>
 
@@ -254,9 +254,18 @@ describe('traceDialogLogic', () => {
     })
 
     it.each([
-        ['a recording opens', () => sessionPlayerModalLogic.actions.openSessionPlayer({ id: 'session-1' })],
-        ['the full-screen logs viewer opens', () => logsViewerModalLogic.actions.openLogsViewerModal()],
-    ])('closes when %s, since that modal sits behind the dialog', async (_name, open) => {
+        [
+            'a recording opens',
+            sessionPlayerModalLogic,
+            () => sessionPlayerModalLogic.actions.openSessionPlayer({ id: 'session-1' }),
+        ],
+        [
+            'the full-screen logs viewer opens',
+            logsViewerModalLogic,
+            () => logsViewerModalLogic.actions.openLogsViewerModal(),
+        ],
+    ])('closes when %s, since that modal sits behind the dialog', async (_name, modalLogic, open) => {
+        modalLogic.mount()
         logic.actions.openTraceDialog({ traceId: 'abc123' }, { entryPoint: 'log_details' })
 
         await expectLogic(logic, open).toMatchValues({ isOpen: false })
