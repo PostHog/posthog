@@ -15,6 +15,7 @@ import { bottomOffset, topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
 import { headlineText } from '../Headline'
 import { useReport } from '../hooks'
+import { ReportCharts } from '../metrics/ReportCharts'
 import { HEADLINE_GAP, TopChrome } from '../TopChrome'
 import { useReportReadTracking } from '../useReportReadTracking'
 import { DetailsFooter } from './DetailsFooter'
@@ -143,6 +144,7 @@ function DetailsBody({ report, refreshing, onBack }: DetailsBodyProps): ReactEle
                 {hasReportDetail(report) ? (
                     <>
                         {report.summary ? <DetailsSummary summary={report.summary} reportId={report.id} /> : null}
+                        <ReportCharts charts={report.charts} reportId={report.id} accent={report.accent} />
                         <SignalsSection signals={report.signals} reportId={report.id} />
                     </>
                 ) : (
