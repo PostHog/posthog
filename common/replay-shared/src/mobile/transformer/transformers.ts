@@ -91,6 +91,12 @@ const BODY_ID = 5
 const NAVIGATION_BAR_PARENT_ID = 7
 const KEYBOARD_PARENT_ID = 9
 export const STATUS_BAR_PARENT_ID = 11
+// the placeholder containers every transformed mobile body carries, empty unless that chrome is showing
+export const SCREEN_CHROME_PARENT_IDS: ReadonlySet<number> = new Set([
+    NAVIGATION_BAR_PARENT_ID,
+    KEYBOARD_PARENT_ID,
+    STATUS_BAR_PARENT_ID,
+])
 // icons are <img> too, so extractImgNodeFromMobileIncremental keys off this instead of tag or size
 export const SCREENSHOT_ATTRIBUTE = 'data-posthog-screenshot'
 
