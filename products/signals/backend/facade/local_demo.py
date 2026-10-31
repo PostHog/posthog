@@ -1,0 +1,1 @@
+from products.signals.backend.local_demo import seed_local_demo_reports as seed_local_demo_reports
