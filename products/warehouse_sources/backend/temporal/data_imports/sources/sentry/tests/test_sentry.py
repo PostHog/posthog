@@ -851,8 +851,33 @@ class TestIssueTagValuesResumable:
                 issue_id="100",
                 tag_key="browser",
                 values_next_url="https://sentry.io/api/0/organizations/acme/issues/100/tags/browser/values/?cursor=0:100:2",
-            )
+            ),
+            SentryResumeConfig(completed_issue_id="100"),
         ]
+
+    def test_failed_run_resumes_after_the_last_completed_issue(self) -> None:
+        failing_issue = "101"
+
+        def script(request: RecordedRequest) -> ScriptedResponse:
+            if request.path.endswith("/organizations/acme/issues/"):
+                return _json([{"id": "100"}, {"id": "101"}])
+            if request.path.endswith(f"/organizations/acme/issues/{failing_issue}/tags/"):
+                return _json({"detail": "Invalid token"}, status=401)
+            if request.path.endswith("/tags/"):
+                return _json([{"key": "browser"}])
+            return _json([{"value": "Chrome"}])
+
+        failed = _driver().run("issue_tag_values", script)
+
+        assert failed.raised is not None
+        assert failed.final_state == SentryResumeConfig(completed_issue_id="100")
+
+        failing_issue = "none"
+        resumed = _driver().run("issue_tag_values", script, resume_state=failed.final_state)
+
+        assert resumed.raised is None
+        assert resumed.rows == [{"value": "Chrome", "issue_id": "101", "tag_key": "browser"}]
+        assert "/api/0/organizations/acme/issues/100/tags/" not in resumed.paths
 
     @parameterized.expand(
         [

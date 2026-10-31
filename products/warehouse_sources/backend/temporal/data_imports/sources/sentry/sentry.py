@@ -74,7 +74,7 @@ _RESUME_ISSUE_SKIP_LIMIT = 5000
 logger = structlog.get_logger(__name__)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class SentryResumeConfig:
     """Resume state for Sentry endpoints.
 
@@ -82,9 +82,12 @@ class SentryResumeConfig:
     ``next_url`` returned by ``SentryPaginator``.
 
     ``issue_tag_values`` is a three-level hand-rolled fan-out
-    (issues -> tags-per-issue -> values-per-tag); its checkpoint is the
+    (issues -> tags-per-issue -> values-per-tag). Its checkpoint is either the
     ``(issue_id, tag_key, values_next_url)`` triple pointing at the next
-    values page to fetch for that specific (issue, tag) combination.
+    values page to fetch for that specific (issue, tag) combination, or
+    ``completed_issue_id``, the last issue whose tags were all read. Most tags
+    have a single page of values and so never write the triple, which is why
+    the issue boundary needs its own checkpoint.
 
     Parent/child fan-out endpoints driven by ``build_dependent_resource``
     don't currently checkpoint — the framework does not expose a resume
@@ -95,6 +98,7 @@ class SentryResumeConfig:
     issue_id: Optional[str] = None
     tag_key: Optional[str] = None
     values_next_url: Optional[str] = None
+    completed_issue_id: Optional[str] = None
     # Which issue ordering the fan-out checkpoint above is a position in: None for the API's
     # `sort=date` listing, or the pinned Delta version when the parent came from the warehouse.
     # Resuming across a change here would fast-forward past issues the new order never reached.
@@ -505,9 +509,9 @@ def _usable_resume_state(
     A checkpoint is a position in an iteration order, so it only means anything to a run
     walking the same order: the API's `sort=date` listing, or one pinned Delta version.
     Applying one across that boundary fast-forwards past issues the new order never reached
-    while the watermark still advances, so the rows are lost until a reset. The full triple
-    has to be present — anything partial is treated as absent rather than applied to the
-    wrong (issue, tag) pair.
+    while the watermark still advances, so the rows are lost until a reset. The checkpoint
+    has to be a full values-page triple or a completed issue. Anything partial is treated as
+    absent rather than applied to the wrong (issue, tag) pair.
 
     Callers must also `clear_state()` when this returns None with state still stored: the
     pipeline reads `can_resume()` itself to pick replace-vs-append for chunk 0, so a source
@@ -516,7 +520,9 @@ def _usable_resume_state(
     if manager is None or not manager.can_resume():
         return None
     loaded = manager.load_state()
-    if loaded is None or not (loaded.issue_id and loaded.tag_key and loaded.values_next_url):
+    if loaded is None:
+        return None
+    if not (loaded.issue_id and loaded.tag_key and loaded.values_next_url) and not loaded.completed_issue_id:
         return None
     if loaded.parent_version != parent_version:
         return None
@@ -573,11 +579,14 @@ def _iter_issue_tag_values_rows(
     resume_issue_id: str | None = None
     resume_tag_key: str | None = None
     resume_values_next_url: str | None = None
+    resume_after_issue_id: str | None = None
     loaded = _usable_resume_state(resumable_source_manager, parent_version)
-    if loaded is not None:
+    if loaded is not None and loaded.values_next_url:
         resume_issue_id = loaded.issue_id
         resume_tag_key = loaded.tag_key
         resume_values_next_url = loaded.values_next_url
+    elif loaded is not None:
+        resume_after_issue_id = loaded.completed_issue_id
 
     stale_issues: set[str] = set()
     skipped_for_resume = 0
@@ -594,6 +603,20 @@ def _iter_issue_tag_values_rows(
                 break
 
         issue_id = str(issue["id"])
+
+        if resume_after_issue_id is not None:
+            if issue_id == resume_after_issue_id:
+                resume_after_issue_id = None
+                continue
+            skipped_for_resume += 1
+            if skipped_for_resume <= _RESUME_ISSUE_SKIP_LIMIT:
+                continue
+            logger.info(
+                "sentry_source.stale_resume_checkpoint",
+                resume_issue_id=resume_after_issue_id,
+                skipped=skipped_for_resume,
+            )
+            resume_after_issue_id = None
 
         # Fast-forward until we reach the saved checkpoint issue. We rely on
         # the deterministic sort=date ordering to land back on the same issue.
@@ -776,6 +799,15 @@ def _iter_issue_tag_values_rows(
             resume_issue_id = None
             resume_tag_key = None
             resume_values_next_url = None
+
+        if resumable_source_manager is not None:
+            # Every row of this issue is already yielded, so the safe point can commit the
+            # checkpoint. Without it, a run whose tags all have one page of values never
+            # commits a checkpoint, and the retry guard stops the run after a few attempts.
+            resumable_source_manager.save_state(
+                SentryResumeConfig(completed_issue_id=issue_id, parent_version=parent_version)
+            )
+            resumable_source_manager.safe_point()
 
     if use_warehouse_parent:
         # Stale issues are ones the snapshot still lists but Sentry has dropped, each costing
