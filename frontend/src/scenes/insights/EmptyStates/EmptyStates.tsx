@@ -1153,7 +1153,9 @@ export function SavedInsightsEmptyState({
     onClearSearch?: () => void
 }): JSX.Element {
     const searchString = filters?.search || null
-    const { title, description } = SAVED_INSIGHTS_COPY[filters.tab as keyof typeof SAVED_INSIGHTS_COPY] ?? {}
+    const { title, description } =
+        SAVED_INSIGHTS_COPY[filters.tab as keyof typeof SAVED_INSIGHTS_COPY] ??
+        SAVED_INSIGHTS_COPY[SavedInsightsTabs.All]
 
     return (
         <div
