@@ -5,6 +5,7 @@ import { useInView } from 'react-intersection-observer'
 
 import { LemonButton, LemonSkeleton, Spinner } from '@posthog/lemon-ui'
 
+import { inStorybookTestRunner } from 'lib/utils/dom'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { observationThumbnailSrc, preloadObservationThumbnail } from '../../components/ObservationThumbnail'
@@ -22,6 +23,7 @@ const FEED_GRID = 'grid grid-cols-1 items-start gap-4 @[72rem]:grid-cols-2 @[120
 const FEED_WIDTH = 'mx-auto w-full max-w-3xl @[72rem]:max-w-none'
 
 const POSTER_WAIT_CAP_MS = 10000
+const SKIP_POSTER_WAIT = inStorybookTestRunner()
 
 /** The cards whose posters are ready, so a card never shows an empty poster frame. */
 function useRevealedItems(
@@ -84,9 +86,16 @@ function useRevealedItems(
 
     // Cut at the first card still waiting, so a card kept from the last result can't show above a new one and shift later.
     const firstPending = items.findIndex((item) => !revealed.has(item.observation.id))
-    const visible = holding ? lastShown.current : firstPending === -1 ? items : items.slice(0, firstPending)
+    // Snapshots wait for images on their own, and a capture mid-reveal would show a partial feed.
+    const visible = SKIP_POSTER_WAIT
+        ? items
+        : holding
+          ? lastShown.current
+          : firstPending === -1
+            ? items
+            : items.slice(0, firstPending)
     lastShown.current = visible
-    return { visible, pendingCount: pendingItems.length, holding }
+    return { visible, pendingCount: SKIP_POSTER_WAIT ? 0 : pendingItems.length, holding: !SKIP_POSTER_WAIT && holding }
 }
 
 /** Reads the column count the grid's container queries chose. */
