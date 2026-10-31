@@ -67,6 +67,44 @@ filters:
         - bin/temporal-django-worker
         - manage.py
         - Dockerfile
+    alertsPlatformDelivery:
+        - 'products/alerts_platform/backend/**'
+        - 'products/logs/backend/**'
+        - 'products/notifications/backend/**'
+        - 'products/access_control/backend/facade/**'
+        - 'products/alerts/backend/facade/destinations.py'
+        - 'products/alerts/backend/logic/delivery_destinations.py'
+        - 'products/alerts/backend/logic/destinations.py'
+        - 'products/alerts/backend/logic/destination_configs.py'
+        - 'products/alerts/backend/logic/alert_email.py'
+        - 'products/alerts/backend/logic/alert_in_app.py'
+        - 'products/signals/backend/**'
+        - 'posthog/email.py'
+        - 'posthog/templates/email/alert_platform_notification.html'
+        - 'posthog/templates/email/base.html'
+        - 'posthog/templates/email/styles.html'
+        - 'posthog/slack/**'
+        - 'posthog/egress/slack/**'
+        - 'posthog/egress/observability/**'
+        - 'posthog/security/**'
+        - 'posthog/helpers/encrypted_fields.py'
+        - 'posthog/kafka_client/**'
+        - 'posthog/hogql*/**'
+        - 'posthog/clickhouse/**'
+        - 'posthog/temporal/common/**'
+        - 'posthog/management/commands/start_temporal_worker.py'
+        - 'posthog/settings/temporal.py'
+        - posthog/schema.py
+        - 'posthog/models/**'
+        - 'posthog/migrations/**'
+        - 'products/*/backend/migrations/**'
+        - posthog/exceptions.py
+        - 'common/hogvm/**'
+        - pyproject.toml
+        - uv.lock
+        - bin/temporal-django-worker
+        - manage.py
+        - Dockerfile
 
 images:
     posthog-cloud:
@@ -83,3 +121,7 @@ images:
                 repository: posthog-temporal-workers/data-warehouse-metadata
                 filter: dataWarehouseMetadata
                 bootstrapPolicyDigest: 49975342dfa3dce5f0c4767e2bc90c295a7ce12cfb5daaa99075026f20dd3620
+            alerts-platform-delivery:
+                repository: posthog-temporal-workers/alerts-platform-delivery
+                filter: alertsPlatformDelivery
+                bootstrapPolicyDigest: 44aa81545fac7148bc440a10aee53985b48c90fbede9193f9da06c4928afdf19
