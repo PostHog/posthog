@@ -958,6 +958,8 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             # Later runs keep the image the task was first provisioned with.
             if carry_sandbox_template and previous_state.get("sandbox_template"):
                 state["sandbox_template"] = previous_state["sandbox_template"]
+            elif carry_sandbox_template and (stored_profile := task.stored_profile) is not None:
+                state["sandbox_template"] = stored_profile.sandbox_templates[0]
             if task._resolves_pr_authorship_per_run() and "pr_authorship_mode" not in state:
                 from products.tasks.backend.temporal.process_task.utils import (
                     PrAuthorshipMode,
@@ -1629,7 +1631,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                 profile=profile,
                 source=source_from_columns(signal_report_id=columns.signal_report_id, hog_flow_id=columns.hog_flow_id),
             )
-        runtime = Task.Runtime.ACP.value
+        runtime = profile.runtimes[0] if profile is not None else Task.Runtime.ACP.value
         if options is not None:
             settings = apply_run_options(
                 options,
@@ -1641,7 +1643,8 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                 ),
                 creates_run=False,
             )
-            runtime = settings.runtime
+            if options.runtime is not None:
+                runtime = settings.runtime
             repositories = settings.repositories
             output_schema = settings.output_schema
             mcp_gateway_server_ids = settings.mcp_gateway_server_ids
@@ -1708,7 +1711,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         client_provenance: TaskClientProvenance | None = None,
         output_schema: type[BaseModel] | dict | None = None,
         interaction_origin: str | None = None,
-        runtime: str = "acp",
+        runtime: str | None = None,
         runtime_adapter: str | None = None,
         model: str | None = None,
         reasoning_effort: str | None = None,
@@ -1769,7 +1772,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             settings = apply_run_options(
                 options,
                 RunSettings(
-                    runtime=runtime,
+                    runtime=runtime or Task.Runtime.ACP.value,
                     runtime_adapter=runtime_adapter,
                     model=model,
                     reasoning_effort=reasoning_effort,
@@ -1786,7 +1789,8 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                     extra_run_state=extra_run_state,
                 ),
             )
-            runtime = settings.runtime
+            if options.runtime is not None:
+                runtime = settings.runtime
             runtime_adapter = settings.runtime_adapter
             model = settings.model
             reasoning_effort = settings.reasoning_effort
@@ -1800,6 +1804,8 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             initial_permission_mode = settings.initial_permission_mode
             mcp_gateway_server_ids = settings.mcp_gateway_server_ids
             extra_run_state = settings.extra_run_state
+        if runtime is None:
+            runtime = profile.runtimes[0] if profile is not None else Task.Runtime.ACP.value
         task, extra_state = Task._build_task(
             team=team,
             title=title,
