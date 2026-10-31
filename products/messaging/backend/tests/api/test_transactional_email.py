@@ -531,9 +531,18 @@ class TestTransactionalEmail(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        assert response.json()["code"] == "sender_not_verified"
+        assert (response.json()["code"], response.json()["attr"]) == ("sender_not_verified", "from")
         assert not TransactionalEmailKey.objects.for_team(self.team.id).exists()
         assert capture.call_args.kwargs["properties"]["error_code"] == "sender_not_verified"
+        mock_post.assert_not_called()
+
+    def test_a_code_send_without_from_names_no_field_when_the_project_has_no_sender(self, mock_post, _flag, _capture):
+        TeamWorkflowsConfig.objects.filter(team_id=self.team.id).update(default_email_integration_id=None)
+
+        response = self._psak_client(["hog_flow:write"]).post(self.send_email_url, self._code_send(), format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert (response.json()["code"], response.json()["attr"]) == ("sender_not_verified", None)
         mock_post.assert_not_called()
 
     def test_a_code_send_the_pipeline_does_not_confirm_warns_it_may_still_go_out(self, mock_post, _flag, _capture):
