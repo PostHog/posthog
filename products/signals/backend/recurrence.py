@@ -5,6 +5,7 @@ A wrong-repo dismissal leaves the issue unresolved. Both need a fresh report for
 signals, but only fixed verdicts supply prior-fix context to research.
 """
 
+from collections.abc import Collection
 from datetime import datetime
 
 from pydantic import ValidationError
@@ -52,6 +53,61 @@ def fixed_dismissal_at(report: SignalReport) -> datetime | None:
 
 def recurrence_dismissal_at(report: SignalReport) -> datetime | None:
     return _dismissal_at(report, FIXED_DISMISSAL_REASONS | {DISMISSAL_REASON_WRONG_REPO})
+
+
+def dismissal_reasons_by_report(*, team_id: int, report_ids: Collection[str]) -> dict[str, list[str | None]]:
+    """Dismissal reasons for several reports in newest-first order, including malformed rows as None."""
+    if not report_ids:
+        return {}
+    rows = (
+        SignalReportArtefact.objects.using("default")
+        .filter(
+            report_id__in=report_ids,
+            team_id=team_id,
+            type=SignalReportArtefact.ArtefactType.DISMISSAL,
+        )
+        .order_by("report_id", "-created_at")
+        .values_list("report_id", "content")
+    )
+    reasons_by_report: dict[str, list[str | None]] = {}
+    for report_id, content in rows:
+        try:
+            reason = Dismissal.model_validate_json(content).reason
+        except ValidationError:
+            reason = None
+        reasons_by_report.setdefault(str(report_id), []).append(reason)
+    return reasons_by_report
+
+
+def reports_fork_recurrence(*, team_id: int, reports: Collection[SignalReport]) -> set[str]:
+    """The reports that fork new evidence, with dismissal state loaded once for the batch."""
+    from products.signals.backend.report_content_gates import (
+        team_report_monitoring_enabled,  # noqa: PLC0415 — keeps the flag client off module startup
+    )
+
+    monitoring_enabled = not any(report.status == SignalReport.Status.MONITORING for report in reports) or (
+        team_report_monitoring_enabled(team_id)
+    )
+    terminal_ids = {
+        str(report.id)
+        for report in reports
+        if report.status in {SignalReport.Status.RESOLVED, SignalReport.Status.CLOSED}
+        or (report.status == SignalReport.Status.MONITORING and not monitoring_enabled)
+    }
+    suppressed_ids = {str(report.id) for report in reports if report.status == SignalReport.Status.SUPPRESSED}
+    reasons_by_report = dismissal_reasons_by_report(team_id=team_id, report_ids=suppressed_ids)
+    return terminal_ids | {
+        report_id
+        for report_id in suppressed_ids
+        if reasons_by_report.get(report_id, [None])[0] in (FIXED_DISMISSAL_REASONS | {DISMISSAL_REASON_WRONG_REPO})
+    }
+
+
+def forks_recurrence(report: SignalReport) -> bool:
+    """Whether a new signal on `report` starts a fresh recurrence report instead of joining it."""
+    if report.effective_status in {SignalReport.Status.RESOLVED, SignalReport.Status.CLOSED}:
+        return True
+    return report.status == SignalReport.Status.SUPPRESSED and recurrence_dismissal_at(report) is not None
 
 
 def recurrence_rejects_repository(*, team_id: int, report_id: str, repository: str) -> bool:

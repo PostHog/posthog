@@ -13,8 +13,10 @@ from products.signals.backend.typed_report_links import (
     duplicate_root,
     has_open_or_merged_pull_request,
     incoming_links,
+    incoming_links_by_report,
     linked_reports,
     outgoing_links,
+    outgoing_links_by_report,
 )
 
 
@@ -66,6 +68,25 @@ class TestReportLinkReaders(BaseTest):
         self._link(source, target, ReportLinkKind.PART_OF)
 
         assert len(incoming_links(team_id=self.team.id, report_id=str(target.id).upper())) == 1
+
+    @parameterized.expand([("outgoing",), ("incoming",)])
+    def test_the_row_budget_applies_to_each_report_in_a_batch(self, direction: str):
+        busy, quiet, other = self._report("busy"), self._report("quiet"), self._report("other")
+        if direction == "outgoing":
+            self._link(busy, other, ReportLinkKind.DEPENDS_ON)
+            self._link(busy, quiet, ReportLinkKind.PART_OF)
+            self._link(quiet, other, ReportLinkKind.RECURRENCE_OF)
+        else:
+            self._link(other, busy, ReportLinkKind.DEPENDS_ON)
+            self._link(quiet, busy, ReportLinkKind.PART_OF)
+            self._link(busy, quiet, ReportLinkKind.RECURRENCE_OF)
+        read = outgoing_links_by_report if direction == "outgoing" else incoming_links_by_report
+
+        with patch.object(SignalReportArtefact, "MAX_REPORT_LINK_GRAPH_ROWS", 1):
+            edges = read(team_id=self.team.id, report_ids=[str(busy.id), str(quiet.id)])
+
+        assert len(edges[str(busy.id)]) == 1
+        assert [edge.kind for edge in edges[str(quiet.id)]] == [ReportLinkKind.RECURRENCE_OF]
 
     @parameterized.expand([("outgoing",), ("incoming",)])
     def test_a_row_that_no_longer_parses_names_no_edge(self, direction: str):

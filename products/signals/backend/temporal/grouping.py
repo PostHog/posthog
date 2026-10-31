@@ -38,7 +38,7 @@ from products.signals.backend.enums import ReportLinkKind, ReportLinkWritePath, 
 from products.signals.backend.models import SignalEmissionRecord, SignalReport, SignalReportArtefact
 from products.signals.backend.quota import capture_signal_report_quota_paused, self_driving_quota_gate
 from products.signals.backend.receivers import _is_safety_suppressed
-from products.signals.backend.recurrence import recurrence_dismissal_at
+from products.signals.backend.recurrence import forks_recurrence
 from products.signals.backend.report_merge import signal_target_report
 from products.signals.backend.signal_metadata import EMBEDDING_MODEL
 from products.signals.backend.spend import begin_report_spend, complete_signal_pipeline, signal_spend_summaries
@@ -916,13 +916,7 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                 # Wrong-repo feedback rejects the repository choice rather than the issue, so new
                 # evidence needs fresh research, just as it does after a fixed verdict.
                 report = signal_target_report(report, lock=True)
-                dismissed_for_recurrence_at = (
-                    recurrence_dismissal_at(report) if report.status == SignalReport.Status.SUPPRESSED else None
-                )
-                if (
-                    report.effective_status in {SignalReport.Status.RESOLVED, SignalReport.Status.CLOSED}
-                    or dismissed_for_recurrence_at is not None
-                ):
+                if forks_recurrence(report):
                     parent_report = report
                     inherit_content = not _is_safety_suppressed(str(parent_report.id), input.team_id)
                     report = SignalReport.objects.create(

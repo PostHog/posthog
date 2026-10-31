@@ -43,9 +43,10 @@ from products.signals.backend.models import (
     SignalReportGithubComment,
     SignalScoutRun,
 )
-from products.signals.backend.recurrence import latest_recurrence_report
+from products.signals.backend.recurrence import dismissal_reasons_by_report, latest_recurrence_report
 from products.signals.backend.report_tags import set_report_tags, union_report_tags
 from products.signals.backend.signal_metadata import REASSIGN_SIGNAL_ROW_CAP
+from products.signals.backend.typed_report_links import incoming_links_by_report, outgoing_links_by_report
 
 logger = structlog.get_logger(__name__)
 
@@ -206,6 +207,105 @@ def signal_target_report(report: SignalReport, *, lock: bool = False) -> SignalR
             break
         report = resolved
     return report
+
+
+def signal_target_reports(*, team_id: int, reports: list[SignalReport]) -> dict[str, SignalReport]:
+    """`signal_target_report` for a batch, loading each graph level in a fixed number of queries."""
+    targets = {str(report.id): report for report in reports}
+    outer_visited: dict[str, set[UUID]] = {report_id: set() for report_id in targets}
+    active = set(targets)
+
+    for _ in range(SignalReportArtefact.MAX_REPORT_LINK_GRAPH_NODES):
+        if not active:
+            break
+        starting_targets = {report_id: targets[report_id] for report_id in active}
+        for report_id, report in starting_targets.items():
+            outer_visited[report_id].add(report.id)
+
+        recurrence_cursors = {report_id: targets[report_id] for report_id in active}
+        recurrence_visited = {report_id: {targets[report_id].id} for report_id in active}
+        recurrence_active = set(active)
+        for _ in range(SignalReportArtefact.MAX_REPORT_LINK_GRAPH_LEVELS):
+            if not recurrence_active:
+                break
+            cursor_ids = {str(recurrence_cursors[report_id].id) for report_id in recurrence_active}
+            recurrence_edges = incoming_links_by_report(
+                team_id=team_id,
+                report_ids=cursor_ids,
+                kinds=(ReportLinkKind.RECURRENCE_OF,),
+                include_deleted_sources=True,
+            )
+            recurrence_ids = {edge.source_id for edges in recurrence_edges.values() for edge in edges}
+            recurrence_reports = {
+                str(report.id): report for report in SignalReport.objects.filter(team_id=team_id, id__in=recurrence_ids)
+            }
+            next_active: set[str] = set()
+            for report_id in recurrence_active:
+                cursor_id = str(recurrence_cursors[report_id].id)
+                candidates = [
+                    recurrence_reports[edge.source_id]
+                    for edge in recurrence_edges.get(cursor_id, [])
+                    if edge.source_id in recurrence_reports
+                ]
+                if not candidates:
+                    continue
+                successor = max(candidates, key=lambda report: report.created_at)
+                if successor.id in recurrence_visited[report_id]:
+                    continue
+                recurrence_visited[report_id].add(successor.id)
+                recurrence_cursors[report_id] = successor
+                if successor.status != SignalReport.Status.DELETED:
+                    targets[report_id] = successor
+                next_active.add(report_id)
+            recurrence_active = next_active
+
+        merge_active = set(active)
+        merge_visited = {report_id: {targets[report_id].id} for report_id in active}
+        for _ in range(SignalReportArtefact.MAX_REPORT_LINK_GRAPH_LEVELS):
+            suppressed_ids = {
+                str(targets[report_id].id)
+                for report_id in merge_active
+                if targets[report_id].status == SignalReport.Status.SUPPRESSED
+            }
+            reasons_by_report = dismissal_reasons_by_report(team_id=team_id, report_ids=suppressed_ids)
+            merged_ids = {
+                report_id
+                for report_id in suppressed_ids
+                if MERGE_DISMISSAL_REASON in reasons_by_report.get(report_id, [])
+            }
+            merge_edges = outgoing_links_by_report(
+                team_id=team_id,
+                report_ids=merged_ids,
+                kinds=(ReportLinkKind.DUPLICATE_OF,),
+            )
+            survivor_ids = {edges[-1].target_id for edges in merge_edges.values() if edges}
+            survivors = {
+                str(report.id): report
+                for report in SignalReport.objects.filter(team_id=team_id, id__in=survivor_ids).exclude(
+                    status=SignalReport.Status.DELETED
+                )
+            }
+            next_active = set()
+            for report_id in merge_active:
+                current_id = str(targets[report_id].id)
+                edges = merge_edges.get(current_id, [])
+                survivor = survivors.get(edges[-1].target_id) if edges else None
+                if survivor is None or survivor.id in merge_visited[report_id]:
+                    continue
+                targets[report_id] = survivor
+                merge_visited[report_id].add(survivor.id)
+                next_active.add(report_id)
+            if not next_active:
+                break
+            merge_active = next_active
+
+        active = {
+            report_id
+            for report_id in active
+            if targets[report_id].id != starting_targets[report_id].id
+            and targets[report_id].id not in outer_visited[report_id]
+        }
+    return targets
 
 
 def _release_source_claim(source: SignalReport, attribution: ArtefactAttribution) -> bool:
