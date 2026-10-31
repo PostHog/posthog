@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, cast
 
 from rest_framework import mixins, serializers, viewsets
 from rest_framework.pagination import PageNumberPagination
@@ -7,7 +7,11 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 
 from products.data_modeling.backend.facade.api import delete_orphaned_table_nodes
 from products.data_modeling.backend.facade.models import Edge, NodeType
-from products.data_modeling.backend.presentation.views.metric_visibility import DELETE_DENIED, MetricNodeVisibilityMixin
+from products.data_modeling.backend.presentation.views.metric_visibility import (
+    DELETE_DENIED,
+    EDIT_DENIED,
+    MetricNodeVisibilityMixin,
+)
 
 _METRIC_EDGE_REFUSAL = "Edges that connect a metric are maintained by the data catalog."
 
@@ -71,7 +75,7 @@ class EdgeViewSet(
     viewsets.GenericViewSet,
 ):
     scope_object = "INTERNAL"
-    queryset = Edge.objects.select_related("dag", "target__saved_query").all()
+    queryset = Edge.objects.select_related("dag", "source__saved_query", "target__saved_query").all()
     serializer_class = EdgeSerializer
     pagination_class = EdgePagination
     ordering = "-created_at"
@@ -82,8 +86,15 @@ class EdgeViewSet(
     def get_serializer_class(self) -> type[serializers.Serializer]:
         return EdgeSummarySerializer if self.action == "list" else EdgeSerializer
 
+    def perform_update(self, serializer: serializers.BaseSerializer) -> None:
+        self._require_warehouse_access(level="editor", message=EDIT_DENIED)
+        edge = cast(Edge, serializer.instance)
+        self._require_view_edit_access(edge.source.saved_query, edge.target.saved_query)
+        serializer.save()
+
     def perform_destroy(self, instance: Edge) -> None:
         self._require_warehouse_access(level="editor", message=DELETE_DENIED)
+        self._require_view_edit_access(instance.source.saved_query, instance.target.saved_query)
         if instance.target.belongs_to_managed_viewset:
             raise serializers.ValidationError("Edges into views PostHog manages cannot be deleted.")
         if _connects_a_metric(instance):
