@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from django.db import connection, models, transaction
 
@@ -17,6 +17,7 @@ from posthog.hogql.database.models import (
     IntegerDatabaseField,
     MapStringDatabaseField,
     StringDatabaseField,
+    TableNode,
 )
 
 from posthog.exceptions_capture import capture_exception
@@ -24,10 +25,16 @@ from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTMode
 
 from products.data_modeling.backend.facade.managed_viewset_hooks import get_expected_views_provider
 from products.data_modeling.backend.facade.system_tables import DATA_MODELING_ALLOWED_SYSTEM_TABLES
+from products.data_modeling.backend.logic.freshness import UnsatisfiableFrequencyError, UnsupportedFrequencyTargetError
+from products.data_modeling.backend.logic.incremental import parse_incremental_config
 from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_modeling.backend.models.node import Node, NodeType
 from products.revenue_analytics.backend.views.schemas import SCHEMAS as REVENUE_ANALYTICS_SCHEMAS
 from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
+
+if TYPE_CHECKING:
+    from posthog.hogql.database.database import Database
 
 logger = structlog.get_logger(__name__)
 
@@ -37,9 +44,11 @@ class ExpectedView:
     name: str
     query: dict[str, Any]
     columns: dict[str, dict[str, Any]]
-    # Materialized views get a 12h sync schedule. A non-materialized view (e.g. engineering
+    # Materialized views get a sync schedule. A non-materialized view (e.g. engineering
     # analytics) is computed at query time — no schedule, no S3 table.
-    materialized: bool = True
+    materialized: bool
+    sync_frequency: timedelta
+    incremental_config: dict[str, Any] | None
 
 
 class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
@@ -77,7 +86,10 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
         """
         # Deferred: schedule_reconcile pulls in temporalio; a module-level import would drag it onto django.setup()
         from products.data_modeling.backend.logic.saved_query_dag_sync import sync_saved_query_to_dag  # noqa: PLC0415
-        from products.data_modeling.backend.logic.schedule_reconcile import maybe_reconcile_dag  # noqa: PLC0415
+        from products.data_modeling.backend.logic.schedule_reconcile import (  # noqa: PLC0415 keeps temporalio off django.setup()
+            apply_saved_query_frequency_target,
+            maybe_reconcile_dag,
+        )
 
         provider = get_expected_views_provider(self.kind)
         if provider is None:
@@ -89,6 +101,8 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
                 query={"kind": "HogQLQuery", "query": view.query},
                 columns=self._get_columns_from_fields(view.fields),
                 materialized=view.materialized,
+                sync_frequency=view.sync_frequency,
+                incremental_config=view.incremental_config,
             )
             for view in provider(self.team)
         ]
@@ -128,6 +142,15 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
                     error=str(e),
                 )
                 external_tables_by_view[view.name] = []
+            # Eligibility must see updated upstream definitions, even before this batch is saved.
+            database.tables.add_child(
+                TableNode.create_nested_for_chain(view.name.split("."), table=temp_sq.hogql_definition()),
+                table_conflict_mode="override",
+            )
+
+        incremental_config_by_view = {
+            view.name: self._eligible_incremental_config(view, database) for view in expected_views
+        }
 
         views_created = 0
         views_updated = 0
@@ -169,13 +192,30 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
                 # Do NOT use get_columns because it runs the query, and these are possibly heavy
                 saved_query.query = view.query
                 saved_query.set_columns(view.columns)
-                saved_query.external_tables = external_tables_by_view[view.name]
-                saved_query.is_materialized = view.materialized
                 # A non-materialized view is computed at query time — no sync schedule, and it never
                 # enters the schedule list below.
-                saved_query.sync_frequency_interval = timedelta(hours=12) if view.materialized else None
+                saved_query.external_tables = external_tables_by_view[view.name]
+                saved_query.is_materialized = view.materialized
+                saved_query.sync_frequency_interval = view.sync_frequency if view.materialized else None
+                saved_query.incremental_config = incremental_config_by_view[view.name]
 
-                saved_query.save()
+                if created:
+                    saved_query.save()
+                else:
+                    # Only the columns this sync sets. A materialization run writes incremental_state
+                    # concurrently, and a whole-row save would put the stale copy read above back.
+                    saved_query.save(
+                        update_fields=[
+                            "query",
+                            "columns",
+                            "column_order",
+                            "external_tables",
+                            "is_materialized",
+                            "sync_frequency_interval",
+                            "incremental_config",
+                            "updated_at",
+                        ]
+                    )
                 saved_queries_to_sync.append(saved_query)
                 if view.materialized:
                     saved_queries_to_schedule.append(saved_query)
@@ -215,9 +255,23 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
                         error=str(e),
                     )
 
+        cadence_rejected: list[DataWarehouseSavedQuery] = []
         for saved_query in saved_queries_to_schedule:
             try:
                 saved_query.schedule_materialization(reconcile=False)
+            except (UnsatisfiableFrequencyError, UnsupportedFrequencyTargetError) as e:
+                # A cadence the view's sources cannot feed. Left materialized the view would have a
+                # table nothing ever builds, so it falls back to query time until the cadence fits.
+                logger.warning(
+                    "managed_view_cadence_rejected",
+                    team_id=self.team_id,
+                    view_name=saved_query.name,
+                    error=str(e),
+                )
+                saved_query.is_materialized = False
+                saved_query.sync_frequency_interval = None
+                saved_query.save(update_fields=["is_materialized", "sync_frequency_interval", "updated_at"])
+                cadence_rejected.append(saved_query)
             except Exception as e:
                 capture_exception(e, {"managed_viewset_id": self.id, "view_name": saved_query.name})
                 logger.warning(
@@ -228,6 +282,12 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
                 )
 
         if saved_queries_to_sync:
+            for saved_query in cadence_rejected:
+                apply_saved_query_frequency_target(saved_query, None, reconcile=False)
+            if cadence_rejected:
+                Node.objects.filter(
+                    team_id=self.team_id, saved_query_id__in=[view.id for view in cadence_rejected]
+                ).update(type=NodeType.VIEW)
             maybe_reconcile_dag(dag)
 
         views_deleted = 0
@@ -311,6 +371,33 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
                 None,
             ),
         }
+
+    def _eligible_incremental_config(self, view: ExpectedView, database: "Database") -> dict[str, Any] | None:
+        """The provider's incremental config, or None when the query cannot carry it.
+
+        The API runs this check before it saves a config. Without it a key the query does not
+        output only fails on the second run, and every later run alternates a rebuild and a failure.
+        """
+        from products.data_modeling.backend.logic.incremental_eligibility import (  # noqa: PLC0415 keeps posthog.schema off django.setup()
+            check_incremental_eligibility,
+        )
+
+        if view.incremental_config is None or not view.materialized:
+            return None
+        config = parse_incremental_config(view.incremental_config)
+        if config is None:
+            logger.warning("managed_view_incremental_config_malformed", team_id=self.team_id, view_name=view.name)
+            return None
+        result = check_incremental_eligibility(view.query["query"], config, database=database)
+        if not result.eligible:
+            logger.warning(
+                "managed_view_not_incremental",
+                team_id=self.team_id,
+                view_name=view.name,
+                blockers=result.blockers,
+            )
+            return None
+        return view.incremental_config
 
     @staticmethod
     def _get_columns_from_fields(fields: dict[str, FieldOrTable]) -> dict[str, dict[str, Any]]:
