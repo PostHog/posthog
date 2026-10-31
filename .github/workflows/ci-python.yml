@@ -582,7 +582,12 @@ jobs:
               uses: ./.github/actions/setup-uv
 
             - name: Install python dependencies
-              run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+              run: |
+                  if grep -q '^from posthog.dataclasses import frozen' tools/hogli-commands/hogli_commands/api_ratchet.py; then
+                      UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+                  else
+                      UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --no-dev --package hogli
+                  fi
 
             # Skip on unrebased branches: the command may not be registered yet.
             - name: Ratchet product paths in lib/api.ts
