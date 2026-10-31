@@ -293,8 +293,10 @@ export const TracingSpansAttributesRetrieveParams = () => zod.object({
         ),
 })
 
+export const tracingSpansAttributesRetrieveQueryLimitDefault = 100
 export const tracingSpansAttributesRetrieveQueryLimitMax = 100
 
+export const tracingSpansAttributesRetrieveQueryOffsetDefault = 0
 export const tracingSpansAttributesRetrieveQueryOffsetMin = 0
 
 export const tracingSpansAttributesRetrieveQuerySearchValuesDefault = false
@@ -319,12 +321,12 @@ export const TracingSpansAttributesRetrieveQueryParams = () => zod.object({
         .number()
         .min(1)
         .max(tracingSpansAttributesRetrieveQueryLimitMax)
-        .optional()
+        .default(tracingSpansAttributesRetrieveQueryLimitDefault)
         .describe('Max results (default: 100).'),
     offset: zod
         .number()
         .min(tracingSpansAttributesRetrieveQueryOffsetMin)
-        .optional()
+        .default(tracingSpansAttributesRetrieveQueryOffsetDefault)
         .describe('Pagination offset (default: 0).'),
     search: zod.string().min(1).optional().describe('Search filter for attribute names.'),
     search_values: zod
@@ -1176,8 +1178,10 @@ export const TracingSpansValuesRetrieveParams = () => zod.object({
         ),
 })
 
+export const tracingSpansValuesRetrieveQueryLimitDefault = 100
 export const tracingSpansValuesRetrieveQueryLimitMax = 100
 
+export const tracingSpansValuesRetrieveQueryOffsetDefault = 0
 export const tracingSpansValuesRetrieveQueryOffsetMin = 0
 
 export const TracingSpansValuesRetrieveQueryParams = () => zod.object({
@@ -1201,12 +1205,12 @@ export const TracingSpansValuesRetrieveQueryParams = () => zod.object({
         .number()
         .min(1)
         .max(tracingSpansValuesRetrieveQueryLimitMax)
-        .optional()
+        .default(tracingSpansValuesRetrieveQueryLimitDefault)
         .describe('Max results (default: 100).'),
     offset: zod
         .number()
         .min(tracingSpansValuesRetrieveQueryOffsetMin)
-        .optional()
+        .default(tracingSpansValuesRetrieveQueryOffsetDefault)
         .describe('Pagination offset (default: 0).'),
     value: zod.string().min(1).optional().describe('Search filter for attribute values.'),
 })

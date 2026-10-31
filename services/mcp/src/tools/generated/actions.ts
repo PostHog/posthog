@@ -144,14 +144,14 @@ const ActionsGetAllSchema = () => {
 
 const actionsGetAll = (): ToolBase<
     ReturnType<typeof ActionsGetAllSchema>,
-    WithPostHogUrl<Schemas.PaginatedActionList>
+    WithPostHogUrl<Schemas.ActionListResponse>
 > =>
     withUiApp('action-list', {
         name: 'actions-get-all',
         schema: ActionsGetAllSchema(),
         handler: async (context: Context, params: z.infer<ReturnType<typeof ActionsGetAllSchema>>) => {
             const projectId = await context.stateManager.getProjectId()
-            const result = await context.api.request<Schemas.PaginatedActionList>({
+            const result = await context.api.request<Schemas.ActionListResponse>({
                 method: 'GET',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/actions/`,
                 query: {

@@ -6788,6 +6788,21 @@ email@example.org,
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn("too much memory", response.json()["last_error_message"].lower())
 
+    @parameterized.expand(
+        [
+            ("non_numeric_limit", "limit=abc"),
+            ("limit_over_max", "limit=501"),
+            ("non_numeric_offset", "offset=abc"),
+            ("negative_offset", "offset=-1"),
+        ]
+    )
+    def test_calculation_history_rejects_bad_paging_params(self, _name: str, query: str) -> None:
+        cohort = Cohort.objects.create(team=self.team, name="Test Cohort")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort.id}/calculation_history/?{query}")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
 
 class TestCohortUsedIn(ClickhouseTestMixin, APIBaseTest):
     def _create_flag_referencing_cohort_transitively(self) -> tuple[int, int]:

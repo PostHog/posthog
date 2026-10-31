@@ -805,6 +805,23 @@ class CohortUsedInResponseSerializer(serializers.Serializer):
     )
 
 
+# Each run carries its per-query stats, so a page stays bounded well above the UI page size of 100.
+COHORT_CALCULATION_HISTORY_MAX_LIMIT = 500
+
+
+class CohortCalculationHistoryQuerySerializer(serializers.Serializer):
+    limit = serializers.IntegerField(
+        required=False,
+        default=100,
+        min_value=1,
+        max_value=COHORT_CALCULATION_HISTORY_MAX_LIMIT,
+        help_text=f"Number of calculation runs to return. Defaults to 100, at most {COHORT_CALCULATION_HISTORY_MAX_LIMIT}.",
+    )
+    offset = serializers.IntegerField(
+        required=False, default=0, min_value=0, help_text="Number of calculation runs to skip. Defaults to 0."
+    )
+
+
 class CohortCalculationHistorySerializer(serializers.ModelSerializer):
     duration_seconds = serializers.ReadOnlyField()
     is_completed = serializers.ReadOnlyField()
@@ -814,7 +831,6 @@ class CohortCalculationHistorySerializer(serializers.ModelSerializer):
     total_read_rows = serializers.ReadOnlyField()
     total_written_rows = serializers.ReadOnlyField()
     main_query = serializers.ReadOnlyField()
-    main_query_id = serializers.ReadOnlyField()
 
     class Meta:
         model = CohortCalculationHistory
@@ -834,8 +850,18 @@ class CohortCalculationHistorySerializer(serializers.ModelSerializer):
             "total_read_rows",
             "total_written_rows",
             "main_query",
-            "main_query_id",
         ]
+
+
+class CohortCalculationHistoryResponseSerializer(serializers.Serializer):
+    results = CohortCalculationHistorySerializer(many=True, help_text="Calculation runs on this page, newest first.")
+    count = serializers.IntegerField(help_text="Number of calculation runs recorded for the cohort.")
+    next = serializers.CharField(
+        allow_null=True, help_text="Query string for the next page, such as `?limit=100&offset=100`, or null."
+    )
+    previous = serializers.CharField(
+        allow_null=True, help_text="Query string for the previous page, or null on the first page."
+    )
 
 
 class CSVConfig:
@@ -2741,10 +2767,16 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         )
         return activity_page_response(activity_page, page_params.limit, page_params.page, request)
 
+    @extend_schema(
+        parameters=[CohortCalculationHistoryQuerySerializer],
+        responses={200: CohortCalculationHistoryResponseSerializer},
+    )
     @action(methods=["GET"], detail=True, required_scopes=["cohort:read"])
     def calculation_history(self, request: request.Request, **kwargs):
-        limit = int(request.query_params.get("limit", "100"))
-        offset = int(request.query_params.get("offset", "0"))
+        query = CohortCalculationHistoryQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        limit: int = query.validated_data["limit"]
+        offset: int = query.validated_data["offset"]
 
         cohort: Cohort = self.get_object()
 
