@@ -953,6 +953,7 @@ def activity_kickoff_training(inp: KickoffTrainingInput) -> KickoffTrainingResul
                     user_id=pipeline.created_by_id,
                     rescue=rescue,
                     kickoff_reason=kickoff_reason,
+                    limits=limits,
                 )
         except (ValueError, SandboxInferenceError, Action.DoesNotExist) as exc:
             # run_training refuses a departed creator or an unresolvable target before it writes

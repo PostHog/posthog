@@ -15,6 +15,7 @@ from products.actions.backend.models.action import Action
 from products.autoresearch.backend.dataset.labeling import TrainingSample
 from products.autoresearch.backend.inference.failures import UnscorableChampion
 from products.autoresearch.backend.inference.sandbox import SandboxInferenceError
+from products.autoresearch.backend.limits import TeamLimits
 from products.autoresearch.backend.models import (
     AutoresearchModel,
     AutoresearchPipeline,
@@ -382,25 +383,36 @@ class TestRunTraining(TeamScopedTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            ("default_ceiling", None, 25, 10),
-            ("under_the_ceiling", None, 5, 5),
-            ("team_override_raises_the_ceiling", 30, 25, 25),
+            ("default_ceiling", None, None, 25, 10),
+            ("under_the_ceiling", None, None, 5, 5),
+            ("team_override_raises_the_ceiling", 30, None, 25, 25),
+            ("caller_limits_skip_the_flag_read", 30, 7, 25, 7),
         ]
     )
     def test_dispatch_caps_iterations_at_the_project_limit(
-        self, facade: MagicMock, _name: str, team_ceiling: int | None, requested: int, expected: int
+        self,
+        facade: MagicMock,
+        _name: str,
+        team_ceiling: int | None,
+        caller_ceiling: int | None,
+        requested: int,
+        expected: int,
     ) -> None:
         self._dispatched(facade)
         payload = (
             {"team_configs": {str(self.team.id): {"max_iterations_per_run": team_ceiling}}} if team_ceiling else None
         )
+        limits = (
+            TeamLimits(max_training_runs_per_day=3, max_iterations_per_run=caller_ceiling) if caller_ceiling else None
+        )
 
         with patch(
             "products.autoresearch.backend.limits.posthoganalytics.get_feature_flag_payload", return_value=payload
-        ):
-            training_run = run_training(self.pipeline, iteration_budget=requested, user_id=self.user.id)
+        ) as flag_read:
+            training_run = run_training(self.pipeline, iteration_budget=requested, user_id=self.user.id, limits=limits)
 
         assert training_run.iteration_budget == expected
+        assert flag_read.called is (limits is None)
         assert f"**Iteration budget**: {expected}" in facade.create_and_run_task.call_args.kwargs["description"]
 
     @parameterized.expand(

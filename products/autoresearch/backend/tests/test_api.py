@@ -921,7 +921,7 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         # The run must not exist before the call: the endpoint rejects pipelines that
         # already have a live run, so the mock creates it the way run_training would.
         def _fake_run_training(
-            *, pipeline: AutoresearchPipeline, iteration_budget: int, user_id: Any, kickoff_reason: str
+            *, pipeline: AutoresearchPipeline, iteration_budget: int, user_id: Any, kickoff_reason: str, limits: Any
         ):
             return AutoresearchTrainingRun.objects.create(
                 pipeline=pipeline,

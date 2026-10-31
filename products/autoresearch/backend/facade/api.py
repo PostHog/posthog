@@ -1511,6 +1511,7 @@ def start_training(
                 iteration_budget=budget,
                 user_id=user_id,
                 kickoff_reason=AutoresearchTrainingRun.KickoffReason.MANUAL,
+                limits=limits,
             )
         except Action.DoesNotExist:
             raise AutoresearchConflict("The pipeline's target action no longer exists.")
