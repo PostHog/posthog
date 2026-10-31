@@ -419,7 +419,7 @@ export const cohortsModel = kea<cohortsModelType>([
                 const response = await loadAllCohortPages((params) =>
                     cohortsApi.cohortsList(projectId, { ...params, basic: true })
                 )
-                const listedIds = new Set(response.results.map(({ id }) => id))
+                const listedIds = new Set<CohortType['id']>(response.results.map(({ id }) => id))
                 return {
                     count: response.count,
                     // `groups` is dropped from the basic payload but required on CohortType, so
