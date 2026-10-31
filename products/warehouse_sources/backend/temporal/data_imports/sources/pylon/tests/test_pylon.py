@@ -8,6 +8,13 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    route,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing.fake_network import RecordedRequest
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.pylon import PylonSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.pylon import pylon
 from products.warehouse_sources.backend.temporal.data_imports.sources.pylon.pylon import (
     PYLON_EU_BASE_URL,
@@ -20,6 +27,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.pylon.pylo
     pylon_source,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.pylon.settings import PYLON_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.pylon.source import PylonSource
 
 
 def _page(items: list[dict[str, Any]], cursor: str | None = None) -> dict[str, Any]:
@@ -247,3 +255,98 @@ class TestPylonSourceResponse:
             assert response.partition_keys == [partition_key]
             assert response.partition_mode == "datetime"
             assert response.partition_format == "month"
+
+
+def _driver() -> SourceDriver:
+    return SourceDriver(PylonSource(), PylonSourceConfig(api_token="pylon_api_token"))
+
+
+def _scripted_page(items: list[dict[str, Any]], cursor: str | None = None) -> ScriptedResponse:
+    return ScriptedResponse(json=_page(items, cursor))
+
+
+class TestChildEndpoints:
+    @parameterized.expand(
+        [
+            ("incremental", True, "2026-01-02T03:04:05Z", "2026-01-02T03:04:05Z"),
+            ("full_refresh", False, None, None),
+        ]
+    )
+    def test_survey_responses_walk_every_survey_to_its_last_page(
+        self, _name: str, should_use_incremental_field: bool, last_value: str | None, expected_filter: str | None
+    ) -> None:
+        result = _driver().run(
+            "survey_responses",
+            route(
+                {
+                    "/surveys": [ScriptedResponse(json={"data": [{"id": "s1"}, {"id": "s2"}], "request_id": "r"})],
+                    "/surveys/s1/responses": [
+                        _scripted_page([{"id": "r1"}], cursor="c2"),
+                        _scripted_page([{"id": "r2", "survey_id": "s1"}]),
+                    ],
+                    "/surveys/s2/responses": [_scripted_page([{"id": "r3"}])],
+                }
+            ),
+            incremental_field="submitted_at",
+            should_use_incremental_field=should_use_incremental_field,
+            db_incremental_field_last_value=last_value,
+        )
+
+        assert result.raised is None
+        assert result.paths == ["/surveys", "/surveys/s1/responses", "/surveys/s1/responses", "/surveys/s2/responses"]
+        assert result.params("cursor") == [None, None, "c2", None]
+        assert result.params("submitted_after")[1:] == [expected_filter] * 3
+        assert [(row["survey_id"], row["id"]) for row in result.rows] == [("s1", "r1"), ("s1", "r2"), ("s2", "r3")]
+        # One request series per survey, so rows are not ordered across the table.
+        assert result.response is not None
+        assert result.response.sort_mode is None
+
+    @parameterized.expand(
+        [
+            (
+                "mid_parent",
+                False,
+                ["/knowledge-bases", "/knowledge-bases/kb2/articles", "/knowledge-bases/kb3/articles"],
+                ["c2", None],
+            ),
+            ("parent_completed", True, ["/knowledge-bases", "/knowledge-bases/kb3/articles"], [None]),
+        ]
+    )
+    def test_articles_resume_at_the_saved_knowledge_base(
+        self, _name: str, parent_completed: bool, expected_paths: list[str], expected_cursors: list[str | None]
+    ) -> None:
+        result = _driver().run(
+            "knowledge_base_articles",
+            route(
+                {
+                    "/knowledge-bases": [_scripted_page([{"id": "kb1"}, {"id": "kb2"}, {"id": "kb3"}])],
+                    "/knowledge-bases/kb2/articles": [_scripted_page([{"id": "a2"}])],
+                    "/knowledge-bases/kb3/articles": [_scripted_page([{"id": "a3"}])],
+                }
+            ),
+            resume_state=PylonResumeConfig(cursor="c2", parent_id="kb2", parent_completed=parent_completed),
+        )
+
+        assert result.raised is None
+        assert result.paths == expected_paths
+        assert result.params("cursor")[1:] == expected_cursors
+        assert all(row["knowledge_base_id"] in {"kb2", "kb3"} for row in result.rows)
+
+    @time_machine.travel("2026-06-23T00:00:00Z", tick=False)
+    def test_issue_messages_fan_out_over_every_issues_window(self) -> None:
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == "/issues":
+                if request.param("start_time") == "2026-06-18T00:00:00Z":
+                    return _scripted_page([{"id": "i1"}])
+                return _scripted_page([])
+            assert request.path == "/issues/i1/messages"
+            return _scripted_page([{"id": "m1"}, {"id": "m2"}])
+
+        result = _driver().run("issue_messages", respond)
+
+        assert result.raised is None
+        issue_requests = [request for request in result.requests if request.path == "/issues"]
+        assert len(issue_requests) == 13
+        assert issue_requests[0].param("start_time") == "2025-06-23T00:00:00Z"
+        assert issue_requests[-1].param("end_time") == "2026-06-23T00:00:00Z"
+        assert [(row["issue_id"], row["id"]) for row in result.rows] == [("i1", "m1"), ("i1", "m2")]

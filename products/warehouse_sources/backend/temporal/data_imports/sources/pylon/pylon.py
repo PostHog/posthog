@@ -2,7 +2,7 @@ import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -39,6 +39,11 @@ class PylonResumeConfig:
     window_start: str | None = None
     # The custom-fields object_type currently being fanned out (fan-out endpoints only).
     object_type: str | None = None
+    # Child endpoints: the cursor that fetched the current parent page, the parent being read, and
+    # whether every child page of that parent has already been yielded.
+    parent_cursor: str | None = None
+    parent_id: str | None = None
+    parent_completed: bool = False
 
 
 def base_url_for_token(api_token: str) -> str:
@@ -281,6 +286,97 @@ def _get_windowed_rows(
             manager.save_state(PylonResumeConfig(cursor=None, window_start=_format_rfc3339(window_start)))
 
 
+def _iter_parent_pages(
+    session: requests.Session,
+    headers: dict[str, str],
+    base_url: str,
+    config: PylonEndpointConfig,
+    logger: FilteringBoundLogger,
+    resume: PylonResumeConfig | None,
+) -> Iterator[tuple[list[str], PylonResumeConfig]]:
+    """Yield (parent ids, position) per parent page, where position locates that page for resume."""
+    assert config.parent is not None
+    parent = config.parent
+
+    windows: list[dict[str, Any]] = [{}]
+    if parent.windowed:
+        now = datetime.now(UTC)
+        if resume is not None and resume.window_start:
+            window_start = _parse_rfc3339(resume.window_start)
+        else:
+            window_start = now - timedelta(days=config.default_lookback_days or ISSUES_MAX_WINDOW_DAYS)
+        windows = []
+        while window_start < now:
+            window_end = min(window_start + timedelta(days=ISSUES_MAX_WINDOW_DAYS), now)
+            windows.append({"start_time": _format_rfc3339(window_start), "end_time": _format_rfc3339(window_end)})
+            window_start = window_end
+
+    page_cursor = resume.parent_cursor if resume else None
+    for window in windows:
+        params = dict(window)
+        if parent.limit:
+            params["limit"] = parent.limit
+        for items, next_cursor in _iter_pages(session, headers, base_url, parent.path, params, logger, page_cursor):
+            parent_ids = [str(item["id"]) for item in items if item.get("id")]
+            yield parent_ids, PylonResumeConfig(window_start=window.get("start_time"), parent_cursor=page_cursor)
+            page_cursor = next_cursor
+        page_cursor = None
+
+
+def _get_child_rows(
+    session: requests.Session,
+    headers: dict[str, str],
+    base_url: str,
+    config: PylonEndpointConfig,
+    logger: FilteringBoundLogger,
+    manager: ResumableSourceManager[PylonResumeConfig],
+    resume: PylonResumeConfig | None,
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Any,
+) -> Iterator[list[dict[str, Any]]]:
+    assert config.parent is not None
+    id_field = config.parent.id_field
+
+    params: dict[str, Any] = {}
+    if config.limit:
+        params["limit"] = config.limit
+    if config.incremental_param and should_use_incremental_field and db_incremental_field_last_value:
+        params[config.incremental_param] = _format_rfc3339(_to_datetime(db_incremental_field_last_value))
+
+    resume_parent_id = resume.parent_id if resume else None
+    for parent_ids, position in _iter_parent_pages(session, headers, base_url, config, logger, resume):
+        resume_cursor: str | None = None
+        # The saved parent is only looked for on the resumed parent page. If it has since been deleted,
+        # the whole page is re-read and merge dedupes on the primary key.
+        if resume is not None and resume_parent_id is not None and resume_parent_id in parent_ids:
+            index = parent_ids.index(resume_parent_id)
+            if resume.parent_completed:
+                parent_ids = parent_ids[index + 1 :]
+            else:
+                parent_ids = parent_ids[index:]
+                resume_cursor = resume.cursor
+        resume_parent_id = None
+
+        for parent_id in parent_ids:
+            path = config.path.format(parent_id=quote(parent_id, safe=""))
+            yielded = False
+            for items, next_cursor in _iter_pages(session, headers, base_url, path, params, logger, resume_cursor):
+                manager.save_state(
+                    dataclasses.replace(
+                        position, parent_id=parent_id, cursor=next_cursor, parent_completed=next_cursor is None
+                    )
+                )
+                if items:
+                    yield [{**item, id_field: item.get(id_field) or parent_id} for item in items]
+                    yielded = True
+            resume_cursor = None
+            if not yielded:
+                manager.safe_point()
+
+        if not parent_ids:
+            manager.safe_point()
+
+
 def get_rows(
     api_token: str,
     endpoint: str,
@@ -300,6 +396,18 @@ def get_rows(
 
     if config.windowed:
         yield from _get_windowed_rows(
+            session,
+            headers,
+            base_url,
+            config,
+            logger,
+            resumable_source_manager,
+            resume,
+            should_use_incremental_field,
+            db_incremental_field_last_value,
+        )
+    elif config.parent:
+        yield from _get_child_rows(
             session,
             headers,
             base_url,
@@ -342,7 +450,8 @@ def pylon_source(
         partition_mode="datetime" if config.partition_key else None,
         partition_format="month" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
-        # Issues windows are processed strictly ascending; the other endpoints are full-refresh cursor
-        # scrolls where sort_mode is not used to checkpoint a watermark.
-        sort_mode="asc",
+        # Issues windows are processed strictly ascending; the other top-level endpoints are full-refresh
+        # cursor scrolls where sort_mode is not used to checkpoint a watermark. Child endpoints read one
+        # series per parent, so their rows are not ordered across the table.
+        sort_mode=None if config.parent else "asc",
     )

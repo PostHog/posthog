@@ -5,6 +5,17 @@ from products.warehouse_sources.backend.types import IncrementalField, Increment
 
 
 @dataclass
+class PylonParentConfig:
+    path: str
+    # Column stamped onto each child row with the parent's id. Child ids are only documented as unique
+    # within their parent, so this column is part of the child's composite primary key.
+    id_field: str
+    # The parent list needs the issues-style <=30-day start_time/end_time window.
+    windowed: bool = False
+    limit: Optional[int] = None
+
+
+@dataclass
 class PylonEndpointConfig:
     name: str
     path: str
@@ -17,8 +28,8 @@ class PylonEndpointConfig:
     # expose no stable timestamp (contacts, users, teams, tags, ...).
     partition_key: Optional[str] = None
     incremental_fields: list[IncrementalField] = field(default_factory=list)
-    # Only issues exposes a genuine server-side time filter (start_time/end_time), so it is the only
-    # endpoint that can sync incrementally. Everything else is cursor-only and ships full refresh.
+    # Only issues (start_time/end_time) and survey responses (submitted_after) expose a genuine
+    # server-side time filter, so only they sync incrementally. Everything else ships full refresh.
     supports_incremental: bool = False
     # `GET /issues` requires an RFC3339 start_time/end_time window capped at 30 days, so its backfill
     # is walked forward one <=30-day window at a time rather than as a single cursor scroll.
@@ -34,6 +45,10 @@ class PylonEndpointConfig:
     # over each object type and stamp it onto every row. The id is only unique within an object type,
     # hence the composite primary key.
     fan_out_object_types: Optional[list[str]] = None
+    # Child endpoints (`path` holds a `{parent_id}` placeholder) are fetched once per parent row.
+    parent: Optional[PylonParentConfig] = None
+    # Server-side "newer than" filter on a child endpoint, sent with the incremental watermark.
+    incremental_param: Optional[str] = None
     should_sync_default: bool = True
 
 
@@ -43,6 +58,9 @@ ISSUES_MAX_WINDOW_DAYS = 30
 # object_type values accepted by `GET /custom-fields` (per the API reference). We fan out over all of
 # them so a single `custom_fields` table covers every custom field definition in the workspace.
 CUSTOM_FIELD_OBJECT_TYPES = ["account", "issue", "contact", "task", "project", "meeting", "opportunity"]
+
+
+ISSUES_PARENT = PylonParentConfig(path="/issues", id_field="issue_id", windowed=True, limit=2000)
 
 
 def _datetime_field(name: str) -> IncrementalField:
@@ -126,6 +144,41 @@ PYLON_ENDPOINTS: dict[str, PylonEndpointConfig] = {
         path="/issue-statuses",
         # IssueStatus objects have no `id`; `slug` is the stable unique key.
         primary_keys=["slug"],
+    ),
+    "activity_types": PylonEndpointConfig(
+        name="activity_types",
+        path="/activity-types",
+    ),
+    "knowledge_base_articles": PylonEndpointConfig(
+        name="knowledge_base_articles",
+        path="/knowledge-bases/{parent_id}/articles",
+        primary_keys=["knowledge_base_id", "id"],
+        partition_key="created_at",
+        limit=999,
+        parent=PylonParentConfig(path="/knowledge-bases", id_field="knowledge_base_id"),
+    ),
+    "survey_responses": PylonEndpointConfig(
+        name="survey_responses",
+        path="/surveys/{parent_id}/responses",
+        primary_keys=["survey_id", "id"],
+        partition_key="submitted_at",
+        limit=999,
+        parent=PylonParentConfig(path="/surveys", id_field="survey_id"),
+        supports_incremental=True,
+        incremental_param="submitted_after",
+        incremental_fields=[_datetime_field("submitted_at")],
+    ),
+    "issue_messages": PylonEndpointConfig(
+        name="issue_messages",
+        path="/issues/{parent_id}/messages",
+        primary_keys=["issue_id", "id"],
+        partition_key="timestamp",
+        limit=1000,
+        # The endpoint has no time filter, and new messages land on old issues, so this is a full
+        # refresh over every issue in the lookback. It costs one request per issue, so it's opt-in.
+        parent=ISSUES_PARENT,
+        default_lookback_days=365,
+        should_sync_default=False,
     ),
 }
 
