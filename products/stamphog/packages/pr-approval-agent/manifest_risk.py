@@ -156,13 +156,15 @@ _GO_MOD_PUNCTUATION = ("(", ")", "=>")
 def _go_mod_line_tokens(line: str) -> list[str]:
     """One go.mod line as Go's lexer splits it, with quoted strings kept exactly as written.
 
+    Go reads a CR as a space and ends a line only at LF, so a lone CR neither ends a comment nor
+    starts a directive.
     Anything this reader can't place raises, so the caller fails closed rather than guessing.
     """
     tokens: list[str] = []
     index = 0
     while index < len(line):
         char = line[index]
-        if char in " \t":
+        if char in " \t\r":
             index += 1
         elif line.startswith("//", index):
             break
@@ -179,7 +181,7 @@ def _go_mod_line_tokens(line: str) -> list[str]:
             index += len(punctuation)
         else:
             end = index
-            while end < len(line) and line[end] not in ' \t"`()' and not line.startswith("=>", end):
+            while end < len(line) and line[end] not in ' \t\r"`()' and not line.startswith("=>", end):
                 if line.startswith("//", end):
                     raise ValueError("go.mod has a comment marker inside a token")
                 end += 1
@@ -253,15 +255,9 @@ def manifest_change_is_risky(path: str, base_text: str, head_text: str) -> bool:
     else:
         return False
     try:
-        return check.extract(_with_lf_line_ends(base_text)) != check.extract(_with_lf_line_ends(head_text))
+        return check.extract(base_text) != check.extract(head_text)
     except check.fails_closed_on:
         return True
-
-
-def _with_lf_line_ends(text: str) -> str:
-    # The checkout scan reads `git show` in text mode, which turns CR and CRLF into LF, while the
-    # worker reads raw blobs. Both paths must parse the same text, or one attests what the other denies.
-    return text.replace("\r\n", "\n").replace("\r", "\n")
 
 
 def _git(args: list[str], repo_root: Path) -> subprocess.CompletedProcess[str]:
@@ -294,15 +290,16 @@ def manifest_script_changes(
 
     risky = []
     for path in manifest_paths:
-        base_show = _git(["show", f"{base}:{path}"], repo_root)
-        head_show = _git(["show", f"{head_sha}:{path}"], repo_root)
-        if manifest_change_is_risky(
-            path,
-            base_show.stdout if base_show.returncode == 0 else "",
-            head_show.stdout if head_show.returncode == 0 else "",
-        ):
+        if manifest_change_is_risky(path, _blob_text(base, path, repo_root), _blob_text(head_sha, path, repo_root)):
             risky.append(path)
     return risky
+
+
+def _blob_text(sha: str, path: str, repo_root: Path) -> str:
+    # Text mode would turn a lone CR into LF, which changes how go.mod and JSONC parse. The worker
+    # reads the same blob raw, so this read keeps CR too, or one path attests what the other denies.
+    show = subprocess.run(["git", "show", f"{sha}:{path}"], capture_output=True, timeout=30, cwd=repo_root)
+    return show.stdout.decode("utf-8", errors="replace") if show.returncode == 0 else ""
 
 
 def manifest_script_changes_from_contents(

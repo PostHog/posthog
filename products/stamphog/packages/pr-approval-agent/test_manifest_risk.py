@@ -188,6 +188,7 @@ def test_manifest_change_is_risky_unparseable_fails_closed(path: str, base: str,
 
 _GO_MOD = "module example.com/app\n\ngo 1.22\n\nrequire example.com/lib v1.0.0\n"
 _GO_MOD_BLOCK = _GO_MOD + "\nreplace (\n\texample.com/a => example.com/a v1.0.0\n)\n"
+_REPLACE_BEHIND_LONE_CRS = "// note\rrequire (\nreplace example.com/lib => ../evil\n// note\r)\n"
 
 
 @pytest.mark.parametrize(
@@ -234,6 +235,9 @@ _GO_MOD_BLOCK = _GO_MOD + "\nreplace (\n\texample.com/a => example.com/a v1.0.0\
             _GO_MOD.replace("\n", "\r\n").replace("v1.0.0", "v1.2.3"),
             False,
             id="crlf-require-bump-clean",
+        ),
+        pytest.param(
+            _GO_MOD, _GO_MOD + _REPLACE_BEHIND_LONE_CRS, True, id="replace-between-comments-ended-by-a-lone-cr"
         ),
     ],
 )
@@ -313,3 +317,22 @@ def test_wrapper_anchors_at_merge_base_not_base_tip(tmp_path, given_merge_base: 
         assert manifest_script_changes(["package.json"], "not-a-commit", head, tmp_path, merge_base) == []
     else:
         assert manifest_script_changes(["package.json"], base_tip, head, tmp_path) == []
+
+
+def test_checkout_scan_keeps_lone_crs(tmp_path) -> None:
+    def run(*args: str) -> str:
+        result = subprocess.run(["git", *args], capture_output=True, text=True, cwd=tmp_path, check=True)
+        return result.stdout.strip()
+
+    run("init", "-q", "-b", "main")
+    run("config", "user.email", "t@t")
+    run("config", "user.name", "t")
+    (tmp_path / "go.mod").write_bytes(_GO_MOD.encode())
+    run("add", ".")
+    run("commit", "-qm", "root")
+    base = run("rev-parse", "HEAD")
+    (tmp_path / "go.mod").write_bytes((_GO_MOD + _REPLACE_BEHIND_LONE_CRS).encode())
+    run("commit", "-qam", "replace behind lone CRs")
+    head = run("rev-parse", "HEAD")
+
+    assert manifest_script_changes(["go.mod"], base, head, tmp_path, base) == ["go.mod"]
