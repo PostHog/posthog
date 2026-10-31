@@ -41,7 +41,10 @@ class TestAIGatewayReload(BaseTest):
 
     def _reload(self, headers: dict | None = None):
         return self.client.post(
-            self.url, {"balance_usd": "4.10"}, format="json", **(headers if headers is not None else self._headers())
+            self.url,
+            {"balance_usd": "4.104512"},
+            format="json",
+            **(headers if headers is not None else self._headers()),
         )
 
     @covers_authentication(AIGatewayReloadJWTAuthentication)
@@ -54,7 +57,7 @@ class TestAIGatewayReload(BaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), {"result": "charged", "amount_usd": "45.90"})
         manager.assert_called_once_with(license.return_value)
-        reload.assert_called_once_with(self.organization, idempotency_key="low-balance-1", balance_usd="4.10")
+        reload.assert_called_once_with(self.organization, idempotency_key="low-balance-1", balance_usd="4.104512")
 
     def test_passes_back_only_the_reason_of_a_decline(self, manager: MagicMock, license: MagicMock):
         manager.return_value.reload_ai_balance.return_value = {

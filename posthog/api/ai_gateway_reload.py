@@ -43,9 +43,12 @@ class AIGatewayReloadJWTAuthentication(ScopedServiceJWTAuthentication):
 
 class AIGatewayReloadRequestSerializer(serializers.Serializer):
     balance_usd = serializers.DecimalField(
-        max_digits=12,
-        decimal_places=2,
-        help_text='The organization\'s AI balance in USD when it dropped below the threshold, such as "4.10".',
+        max_digits=20,
+        decimal_places=6,
+        help_text=(
+            'The organization\'s AI balance in USD when it dropped below the threshold, such as "4.104512". '
+            "Send at most six decimal places, as the gateway keeps it. Billing rounds only the charge."
+        ),
     )
 
 
