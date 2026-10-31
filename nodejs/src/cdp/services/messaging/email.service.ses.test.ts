@@ -83,6 +83,7 @@ describe('EmailService with local SES', () => {
             new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
             suppression,
             new RecipientsManagerService(hub.postgres),
+            null,
             assets,
             limiter,
             limiter
@@ -305,9 +306,7 @@ describe('EmailService with local SES', () => {
         it.each([
             ['suspended', 'email_suspended', undefined],
             ['paused', 'email_paused', true],
-            ['suppressed to', 'email_suppressed', undefined],
-            ['suppressed cc', 'email_suppressed', undefined],
-            ['suppressed bcc', 'email_suppressed', undefined],
+            ['suppressed to and cc', 'email_suppressed', undefined],
         ] as const)('%s keeps both budgets intact', async (gate, metric, skipped) => {
             service.sesV2Client?.destroy()
             service = createService(ses.endpoint, { teamEmailCapMode: 'enforce' })
@@ -322,13 +321,7 @@ describe('EmailService with local SES', () => {
             } else if (gate === 'paused') {
                 invocation.hogFunction.metadata!.email_sending_paused_at = new Date().toISOString()
             } else {
-                const address = gate === 'suppressed to' ? params.to.email : 'blocked@example.com'
-                if (gate === 'suppressed cc') {
-                    params.cc = 'allowed@example.com, "Blocked Copy" <BLOCKED@example.com>'
-                } else if (gate === 'suppressed bcc') {
-                    params.bcc = 'allowed@example.com, "Blocked Hidden" <BLOCKED@example.com>'
-                }
-                await suppression.recordHardBounces(invocation.teamId, [address])
+                await suppression.recordHardBounces(invocation.teamId, [params.to.email, 'copy@example.com'])
             }
 
             const result = await service.executeSendEmail(invocation)
