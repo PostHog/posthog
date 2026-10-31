@@ -203,7 +203,11 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
                                     </div>
                                 )}
                                 <PropertiesTable
-                                    type={PropertyDefinitionType.Event}
+                                    type={
+                                        ['$set_properties', '$set_once_properties'].includes(tabKey)
+                                            ? PropertyDefinitionType.Person
+                                            : PropertyDefinitionType.Event
+                                    }
                                     properties={properties}
                                     useDetectedPropertyType={['flags', 'properties'].includes(tabKey)}
                                     tableProps={tableProps}
