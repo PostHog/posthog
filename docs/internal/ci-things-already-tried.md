@@ -465,6 +465,7 @@ The PR did not merge, and no person reviewed it. The stale bot closed it. Thus t
 
 Sparse-checkout is correct for small jobs, and `ci-storybook.yml`, `ci-security.yaml`, and `pr-resolve-outdated-bot-comments.yml` use it today.
 `ci-depot-action-mirrors.yml` checks out `.depot/`, `.github/actions/`, and `depot_mirrors.py`; its Git diff still covers all changed paths.
+The Dagster path validator also uses a sparse checkout of every internal Python source file, its workflow, and the local uv action. Its import resolver needs the complete internal Python tree, including namespace packages.
 `ci-rust.yml` also uses it on the build and test jobs, but that came before this PR.
 The large Python and frontend test jobs do not use it. Their checkout is complete.
 
