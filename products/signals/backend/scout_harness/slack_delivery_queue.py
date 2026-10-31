@@ -55,6 +55,7 @@ def queue_configured_scout_slack_delivery(
         note_snapshot = (
             edit_note[:MAX_SLACK_NOTE_SNAPSHOT_LEN] if edit_note is not None and not update_existing_message else None
         )
+        slack_message_snapshot = slack_message[:MAX_SCOUT_SLACK_MESSAGE_LENGTH] if slack_message is not None else None
         for index, target in enumerate(destination.targets):
             transaction.on_commit(
                 partial(
@@ -73,7 +74,7 @@ def queue_configured_scout_slack_delivery(
                     integration_id=destination.integration_id,
                     channel=target,
                     edit_note=note_snapshot,
-                    slack_message=slack_message[:MAX_SCOUT_SLACK_MESSAGE_LENGTH] if slack_message is not None else None,
+                    slack_message=slack_message_snapshot,
                     thread_reports=destination.thread_reports,
                     delivery_version=delivery_version,
                 ),
