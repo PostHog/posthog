@@ -662,6 +662,14 @@ class TestTask(TestCase):
             (Task.OriginProduct.AUTORESEARCH, None),
             (Task.OriginProduct.ACCOUNT_AUDIT, None),
             (None, NO_GITHUB_PROFILE),
+            (
+                None,
+                replace(
+                    BUSINESS_KNOWLEDGE,
+                    key="test.github_with_repository",
+                    github_resolution=GithubResolution.WITH_REPOSITORY,
+                ),
+            ),
         ]
     )
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
