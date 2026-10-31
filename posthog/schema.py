@@ -27491,7 +27491,7 @@ class WebVitalsItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    action: WebVitalsItemAction
+    action: WebVitalsItemAction | None = None
     data: list[float]
     days: list[str]
     order: int = Field(..., description="The index of the row's series in the query.")

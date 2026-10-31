@@ -2527,18 +2527,6 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             date_to="2020-11-24",
             result=[
                 {
-                    "action": {
-                        "id": "event_name",
-                        "type": "events",
-                        "order": None,
-                        "name": "event_name",
-                        "custom_name": None,
-                        "math": None,
-                        "math_hogql": None,
-                        "math_property": None,
-                        "math_group_type_index": None,
-                        "properties": [],
-                    },
                     "label": "event_name",
                     "count": 4.0,
                     "data": [0.0, 1.0, 2.0, 1.0, 0.0],
@@ -2568,18 +2556,6 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             date_to="2020-11-24",
             result=[
                 {
-                    "action": {
-                        "id": "event_name",
-                        "type": "events",
-                        "order": None,
-                        "name": "event_name",
-                        "custom_name": None,
-                        "math": None,
-                        "math_hogql": None,
-                        "math_property": None,
-                        "math_group_type_index": None,
-                        "properties": [],
-                    },
                     "label": "event_name",
                     "count": 3.0,
                     "data": [0.0, 2.0, 0.0, 0.0, 1.0, 0.0],
@@ -2611,18 +2587,6 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             date_to="2020-11-24",
             result=[
                 {
-                    "action": {
-                        "id": "event_name",
-                        "type": "events",
-                        "order": None,
-                        "name": "event_name",
-                        "custom_name": None,
-                        "math": None,
-                        "math_hogql": None,
-                        "math_property": None,
-                        "math_group_type_index": None,
-                        "properties": [],
-                    },
                     "label": "event_name",
                     "count": 3.0,  # includes only events after date_from
                     "data": [0.0, 2.0, 1.0, 0.0],
@@ -2645,18 +2609,6 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             date_to="2020-7-30",
             result=[
                 {
-                    "action": {
-                        "id": "event_name",
-                        "type": "events",
-                        "order": None,
-                        "name": "event_name",
-                        "custom_name": None,
-                        "math": None,
-                        "math_hogql": None,
-                        "math_property": None,
-                        "math_group_type_index": None,
-                        "properties": [],
-                    },
                     "label": "event_name",
                     "count": 1.0,
                     "data": [0.0, 1.0],
@@ -2682,18 +2634,6 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             query_time="2020-12-30 10:20:00",
             result=[
                 {
-                    "action": {
-                        "id": "event_name",
-                        "type": "events",
-                        "order": None,
-                        "name": "event_name",
-                        "custom_name": None,
-                        "math": None,
-                        "math_hogql": None,
-                        "math_property": None,
-                        "math_group_type_index": None,
-                        "properties": [],
-                    },
                     "label": "event_name",
                     "count": 6,
                     "data": [6],
@@ -2718,18 +2658,6 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             query_time="2020-04-30 10:20:00",
             result=[
                 {
-                    "action": {
-                        "id": "event_name",
-                        "type": "events",
-                        "order": None,
-                        "name": "event_name",
-                        "custom_name": None,
-                        "math": None,
-                        "math_hogql": None,
-                        "math_property": None,
-                        "math_group_type_index": None,
-                        "properties": [],
-                    },
                     "label": "event_name",
                     "count": 5.0,
                     "data": [2.0, 2.0, 1.0, 0.0],

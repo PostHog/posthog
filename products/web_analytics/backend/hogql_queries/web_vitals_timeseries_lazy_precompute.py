@@ -285,20 +285,6 @@ def _series_dict(
         "days": [item.strftime(day_fmt) for item in buckets],
         "count": float(sum(data)),
         "label": "All events" if series_label is None else series_label,
-        "filter": runner._query_to_filter(),
-        "action": {
-            "days": date_range.all_values(),
-            "id": series_label,
-            "type": "events",
-            "order": order,
-            "name": series_label or "All events",
-            "custom_name": series.custom_name,
-            "math": series.math,
-            "math_property": series.math_property,
-            "math_hogql": series.math_hogql,
-            "math_group_type_index": series.math_group_type_index,
-            "properties": {},
-        },
         "order": order,
     }
 
