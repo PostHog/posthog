@@ -1486,8 +1486,10 @@ def start_training(
     # The runner and the sandbox import pandas and pyarrow, so the router path loads them only here.
     from ..inference.sandbox import SandboxInferenceError  # noqa: PLC0415
     from ..training.runner import run_training  # noqa: PLC0415
+    from ..training.stale import fail_stale_training_runs  # noqa: PLC0415
 
     with transaction.atomic():
+        fail_stale_training_runs(team_id=team_id, pipeline_id=pipeline_id)
         pipeline = _claim_pipeline_for_training(team_id, pipeline_id)
         if not allow_action_target and pipeline.target_definition.get("type") == "action":
             raise InvalidTarget("An action target needs the action:read scope.")

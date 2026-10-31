@@ -29,9 +29,11 @@ from products.tasks.backend.logic.services.sandbox import (
     is_public_sandbox_repo,
     sandbox_repo_path,
 )
+from products.tasks.backend.logic.services.sandbox_config import MAX_SANDBOX_TTL_SECONDS
 
 __all__ = [
     "ExecutionResult",
+    "MAX_SANDBOX_TTL_SECONDS",
     "SandboxBase",
     "SandboxCleanupError",
     "SandboxClass",

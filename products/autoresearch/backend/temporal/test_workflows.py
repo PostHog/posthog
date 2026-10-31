@@ -21,6 +21,7 @@ from temporalio.testing import ActivityEnvironment, WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.models import User
+from products.tasks.backend.facade.contracts import TaskRunDTO
 
 from products.autoresearch.backend.inference.person_property import CleanupOutcome
 from products.autoresearch.backend.models import (
@@ -718,6 +719,115 @@ class TestCoordinatorActivities(TeamScopedTestMixin, BaseTest):
         else:
             result = activity_kickoff_training(KickoffTrainingInput(pipeline_id=str(pipeline.id), team_id=self.team.id))
             assert result.reason == "not_launchable"
+
+    @patch("products.autoresearch.backend.training.stale.tasks_cancellation.cancel_task_run")
+    @patch("products.autoresearch.backend.training.stale.tasks_facade.get_task_run")
+    @patch("products.autoresearch.backend.temporal.workflows.run_training")
+    def test_kickoff_reaps_stale_in_progress_run_and_starts_new_run(
+        self, mock_run_training: MagicMock, mock_get_task_run: MagicMock, mock_cancel_task_run: MagicMock
+    ) -> None:
+        pipeline = self._create_pipeline()
+        past_time = django_timezone.now() - timedelta(days=2)
+        stale_run = AutoresearchTrainingRun.objects.create(
+            pipeline=pipeline,
+            status=AutoresearchTrainingRun.Status.RUNNING,
+            iteration_budget=10,
+            agent_runtime_adapter="anthropic",
+            task_id=uuid.uuid4(),
+            task_run_id=uuid.uuid4(),
+        )
+        AutoresearchTrainingRun.objects.filter(pk=stale_run.pk).update(created_at=past_time)
+
+        task_run_dto = TaskRunDTO(
+            id=stale_run.task_run_id,
+            task_id=stale_run.task_id,
+            team_id=self.team.id,
+            status="in_progress",
+            environment="sandbox",
+            stage=None,
+            branch=None,
+            error_message=None,
+            output=None,
+            state={"autoresearch_training_run_id": str(stale_run.id)},
+            is_terminal=False,
+        )
+        mock_get_task_run.return_value = task_run_dto
+
+        result = activity_kickoff_training(KickoffTrainingInput(pipeline_id=str(pipeline.id), team_id=self.team.id))
+
+        assert result.kicked_off
+        stale_run.refresh_from_db()
+        assert stale_run.status == AutoresearchTrainingRun.Status.FAILED
+        mock_run_training.assert_called_once()
+
+    @patch("products.autoresearch.backend.training.stale.tasks_facade.get_task_run")
+    @patch("products.autoresearch.backend.training.stale.handle_task_run_completed")
+    @patch("products.autoresearch.backend.temporal.workflows.run_training")
+    def test_kickoff_reaps_stale_terminal_run_and_finalizes_it(
+        self, mock_run_training: MagicMock, mock_handle_completed: MagicMock, mock_get_task_run: MagicMock
+    ) -> None:
+        pipeline = self._create_pipeline()
+        past_time = django_timezone.now() - timedelta(days=2)
+        stale_run = AutoresearchTrainingRun.objects.create(
+            pipeline=pipeline,
+            status=AutoresearchTrainingRun.Status.RUNNING,
+            iteration_budget=10,
+            agent_runtime_adapter="anthropic",
+            task_id=uuid.uuid4(),
+            task_run_id=uuid.uuid4(),
+        )
+        AutoresearchTrainingRun.objects.filter(pk=stale_run.pk).update(created_at=past_time)
+
+        task_run_dto = TaskRunDTO(
+            id=stale_run.task_run_id,
+            task_id=stale_run.task_id,
+            team_id=self.team.id,
+            status="completed",
+            environment="sandbox",
+            stage=None,
+            branch=None,
+            error_message=None,
+            output=None,
+            state={"autoresearch_training_run_id": str(stale_run.id)},
+            is_terminal=True,
+        )
+        mock_get_task_run.return_value = task_run_dto
+
+        def _finalize_run(arg):
+            stale_run.status = AutoresearchTrainingRun.Status.COMPLETED
+            stale_run.save(update_fields=["status"])
+
+        mock_handle_completed.side_effect = _finalize_run
+
+        activity_kickoff_training(KickoffTrainingInput(pipeline_id=str(pipeline.id), team_id=self.team.id))
+
+        mock_handle_completed.assert_called_once()
+        stale_run.refresh_from_db()
+        assert stale_run.status == AutoresearchTrainingRun.Status.COMPLETED
+
+    @patch("products.autoresearch.backend.training.stale.tasks_facade.get_task_run")
+    @patch("products.autoresearch.backend.temporal.workflows.run_training")
+    def test_kickoff_skips_when_run_is_inside_cutoff(
+        self, mock_run_training: MagicMock, mock_get_task_run: MagicMock
+    ) -> None:
+        pipeline = self._create_pipeline()
+        run = AutoresearchTrainingRun.objects.create(
+            pipeline=pipeline,
+            status=AutoresearchTrainingRun.Status.RUNNING,
+            iteration_budget=10,
+            agent_runtime_adapter="anthropic",
+            task_id=uuid.uuid4(),
+            task_run_id=uuid.uuid4(),
+        )
+
+        result = activity_kickoff_training(KickoffTrainingInput(pipeline_id=str(pipeline.id), team_id=self.team.id))
+
+        assert not result.kicked_off
+        assert result.reason == "already_running"
+        run.refresh_from_db()
+        assert run.status == AutoresearchTrainingRun.Status.RUNNING
+        mock_run_training.assert_not_called()
+        mock_get_task_run.assert_not_called()
 
 
 @pytest.mark.parametrize(
