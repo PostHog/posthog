@@ -105,7 +105,8 @@ const ROOTS = [
         root: AUTHENTICATED_SHELL,
         label: 'authenticated shell (every logged-in page)',
         // 2026-10-30: 6.75 MiB eager output, stable CSS included. ~0.3% headroom.
-        budgetBytes: 7_100_000,
+        // 2026-10-31: lowered by the 156 KiB that re2js shipped before it left the shell.
+        budgetBytes: 6_940_000,
         forbidden: [
             'node_modules/monaco-editor/',
             'products/product_analytics/frontend/insights/activityDescriptions',
@@ -131,6 +132,9 @@ const ROOTS = [
             // The rich text editor stack is for the scenes that edit text. Rendered markdown needs none of it.
             'node_modules/@tiptap/',
             'node_modules/prosemirror-',
+            // The RE2 regex engine checks regex filters before a query runs, and the shell runs no queries.
+            // A hit means a module on the shell path imports lib/utils/regexp or re2js again.
+            'node_modules/re2js/',
             // The zod-en-locale-only plugin in common/esbuilder/utils.mjs keeps every locale except
             // `en` out of the build. A hit on another locale means zod moved its locales barrel and
             // the plugin no longer matches it.
@@ -175,7 +179,8 @@ const ROOTS = [
         ],
         label: 'today home path',
         // 2026-10-30: 6.94 MiB, stable CSS included. ~0.3% headroom.
-        budgetBytes: 7_300_000,
+        // 2026-10-31: lowered by the 156 KiB that re2js shipped before it left the shell.
+        budgetBytes: 7_140_000,
         forbidden: [
             'src/scenes/project-homepage/ai-first/AiFirstHomepage.tsx',
             'src/scenes/project-homepage/today/TodayReportPage.tsx',
