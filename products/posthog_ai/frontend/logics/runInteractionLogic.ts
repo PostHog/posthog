@@ -21,6 +21,9 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { projectLogic } from 'scenes/projectLogic'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 
+import { type AttachedContextItem, attachedContextItemKey } from '~/layout/ai/attachedContext'
+import { attachedContextLogic } from '~/layout/ai/attachedContextLogic'
+
 import {
     buildRunCreateRequest,
     getDefaultModelForTaskRuntime,
@@ -47,7 +50,6 @@ import {
     type WarmTaskResumeRequestApi,
 } from 'products/tasks/frontend/generated/api.schemas'
 
-import { type AttachedContextItem, attachedContextItemKey } from '../types/contextTypes'
 import type { PermissionRequestRecord, StagedAttachment } from '../types/streamTypes'
 import { isPiTaskRuntime } from '../types/taskTypes'
 import { uploadRunAttachments, uploadStagedTaskAttachments } from '../utils/artifactUpload'
@@ -56,7 +58,6 @@ import type { PendingAttachment } from '../utils/attachments'
 import { extractCommentContexts, withCommentContexts } from '../utils/commentContext'
 import { contextItemLine, wrapWithPosthogContext } from '../utils/posthogContextBlock'
 import { submitWithWarmRunRetry } from '../utils/warmRunSubmission'
-import { attachedContextLogic } from './attachedContextLogic'
 import { codexBillingLogic, pickedCodexModelAccess, usesChatGptPlan } from './codexBillingLogic'
 import { composerAttachmentsLogic } from './composerAttachmentsLogic'
 import { modelCatalogueLogic } from './modelCatalogueLogic'

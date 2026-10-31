@@ -68,7 +68,7 @@ export type runnerPanelLogicType = MakeLogicType<
 >
 
 export const runnerPanelLogic = kea<runnerPanelLogicType>([
-    path(['products', 'posthog_ai', 'frontend', 'logics', 'runnerPanelLogic']),
+    path(['layout', 'ai', 'runnerPanelLogic']),
     props({} as RunnerPanelLogicProps),
     // No `panelId` resolves to the same 'scene' key `taskTrackerSceneLogic` falls back to, so an unkeyed
     // caller pairs with the scene's own singleton.

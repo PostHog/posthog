@@ -1,8 +1,9 @@
 import type { AiFirstSuggestion } from 'scenes/max/aiFirstCreate/AiFirstCreateScene'
 import { AI_FIRST_COMPOSER_OVERRIDE } from 'scenes/max/aiFirstCreate/aiFirstMode'
 
+import { AttachedContextItem } from '~/layout/ai/attachedContext'
+
 import type { ComposerOverride } from 'products/posthog_ai/frontend/api/logics'
-import { AttachedContextItem } from 'products/posthog_ai/frontend/api/types'
 
 // Own dismiss group: a dismissal is global and never resets, so a chip closed elsewhere must not strip this page.
 const NEW_BROADCAST_DISMISS_GROUP = 'new-broadcast-composer'

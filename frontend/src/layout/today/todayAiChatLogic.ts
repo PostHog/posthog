@@ -15,12 +15,11 @@ import {
     type PhaiViewMode,
 } from '~/layout/ai/aiPanelIds'
 import { aiShellLogic } from '~/layout/ai/aiShellLogic'
+import type { AttachedContextItem } from '~/layout/ai/attachedContext'
+import { attachedContextLogic } from '~/layout/ai/attachedContextLogic'
+import { type ActiveCreation, runnerPanelLogic } from '~/layout/ai/runnerPanelLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SidePanelTab } from '~/types'
-
-import { type ActiveCreation, runnerPanelLogic } from 'products/posthog_ai/frontend/api/logics'
-import { attachedContextLogic } from 'products/posthog_ai/frontend/logics/attachedContextLogic'
-import type { AttachedContextItem } from 'products/posthog_ai/frontend/types/contextTypes'
 
 import type { TaskActivityDTOApi } from '../../../../products/tasks/frontend/generated/api.schemas'
 import { todayContextPanelLogic } from './todayContextPanelLogic'

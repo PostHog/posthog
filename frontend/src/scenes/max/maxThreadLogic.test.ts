@@ -18,6 +18,7 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { attachedContextLogic } from '~/layout/ai/attachedContextLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { useMocks } from '~/mocks/jest'
 import { insightsModel } from '~/models/insightsModel'
@@ -42,7 +43,7 @@ import {
     PendingApproval,
 } from '~/types'
 
-import { attachedContextLogic, runStreamLogic } from 'products/posthog_ai/frontend/api/logics'
+import { runStreamLogic } from 'products/posthog_ai/frontend/api/logics'
 import * as tasksApi from 'products/tasks/frontend/generated/api'
 import { TaskRunDetailDTOApi, TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
