@@ -33,39 +33,62 @@ for (let key, value in inputs.attributes) {
     }
 }
 
-fetch(f'https://{inputs.subdomain}.zendesk.com/api/v2/users/create_or_update', {
+// Zendesk is retiring API tokens, so exchange the OAuth client for a short-lived access token on each run.
+let tokenRes := fetch(f'https://{inputs.subdomain}.zendesk.com/oauth/tokens', {
   'headers': {
-    'Authorization': f'Basic {base64Encode(f'{inputs.admin_email}/token:{inputs.token}')}',
+    'Content-Type': 'application/json'
+  },
+  'body': {
+    'grant_type': 'client_credentials',
+    'client_id': inputs.client_id,
+    'client_secret': inputs.client_secret,
+    'scope': 'users:write',
+    'expires_in': 300
+  },
+  'method': 'POST'
+});
+
+if (tokenRes.status >= 400 or empty(tokenRes.body.access_token)) {
+    throw Error(f'Could not get an access token from {inputs.subdomain}.zendesk.com (status {tokenRes.status}). Check the OAuth client identifier and secret, and that the client allows the client credentials grant.')
+}
+
+let res := fetch(f'https://{inputs.subdomain}.zendesk.com/api/v2/users/create_or_update', {
+  'headers': {
+    'Authorization': f'Bearer {tokenRes.body.access_token}',
     'Content-Type': 'application/json'
   },
   'body': body,
   'method': 'POST'
 });
+
+if (res.status >= 400) {
+    throw Error(f'Error from {inputs.subdomain}.zendesk.com (status {res.status}): {res.body}')
+}
 """.strip(),
     inputs_schema=[
         {
             "key": "subdomain",
             "type": "string",
             "label": "Zendesk subdomain",
-            "description": "Generally, Your Zendesk URL has two parts: a subdomain name you chose when you set up your account, followed by zendesk.com (for example: mycompany.zendesk.com). Please share the subdomain name with us so we can set up your account.",
+            "description": "The first part of your Zendesk URL. For mycompany.zendesk.com, enter mycompany.",
             "secret": False,
             "required": True,
         },
         {
-            "key": "admin_email",
+            "key": "client_id",
             "type": "string",
-            "label": "API user email",
-            "secret": True,
+            "label": "OAuth client identifier",
+            "description": "In Zendesk Admin Center, go to Apps and integrations > APIs > OAuth clients. Create a confidential client that allows the client credentials grant and the users:write scope, then copy its identifier here. Changes are attributed to the admin who created the client.",
+            "secret": False,
             "required": True,
-            "description": "Enter the email of an admin in Zendesk. Activity using the API key will be attributed to this user.",
         },
         {
-            "key": "token",
+            "key": "client_secret",
             "type": "string",
-            "label": "API token",
+            "label": "OAuth client secret",
+            "description": "The secret Zendesk shows when you create the OAuth client.",
             "secret": True,
             "required": True,
-            "hint": "Enter your Zendesk API Token",
         },
         {
             "key": "email",
