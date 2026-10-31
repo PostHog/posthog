@@ -34,7 +34,9 @@ from products.tasks.backend.models import (
     SandboxCustomImage,
     SandboxEnvironment,
     Task,
+    TaskClientProvenance,
     TaskRun,
+    UserTasksConfig,
 )
 from products.tasks.backend.redis import get_tasks_cache
 
@@ -1064,6 +1066,36 @@ class TestCreateTaskWarmReuse(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("desktop_takes_stored_default", TaskClientProvenance.POSTHOG_DESKTOP, False),
+            ("api_caller_stays_review_first", None, None),
+        ]
+    )
+    def test_warm_activation_without_auto_publish_uses_user_default(
+        self, _name: str, client_provenance: TaskClientProvenance | None, expected: bool | None
+    ) -> None:
+        UserTasksConfig.objects.for_team(self.team.id).create(
+            team=self.team, user=self.user, task_defaults={"auto_publish_cloud_runs": False}
+        )
+        _, run = self._warm_run()
+        with patch("products.tasks.backend.temporal.client.sync_connect") as connect:
+            connect.return_value.get_workflow_handle.return_value = MagicMock(signal=AsyncMock())
+            facade.create_task(
+                self.team.id,
+                self.user.id,
+                validated_data={
+                    "description": "fix the bug",
+                    "repository": "posthog/posthog",
+                    "github_integration": self.integration,
+                    "branch": "main",
+                },
+                client_provenance=client_provenance,
+            )
+
+        run.refresh_from_db()
+        assert run.state.get("auto_publish") is expected
+
+    @parameterized.expand(
+        [
             (endpoint, outcome)
             for endpoint in ("create", "resume")
             for outcome in (
@@ -1924,6 +1956,32 @@ class TestRunTaskWarmActivation(APIBaseTest):
         run.refresh_from_db()
         assert "await_user_message" not in run.state
         assert run.state.get("auto_publish") is True
+
+    @parameterized.expand(
+        [
+            ("mobile_takes_stored_default", TaskClientProvenance.POSTHOG_MOBILE, False),
+            ("api_caller_stays_review_first", None, None),
+        ]
+    )
+    def test_warm_activation_without_auto_publish_uses_user_default(
+        self, _name: str, client_provenance: TaskClientProvenance | None, expected: bool | None
+    ) -> None:
+        UserTasksConfig.objects.for_team(self.team.id).create(
+            team=self.team, user=self.user, task_defaults={"auto_publish_cloud_runs": False}
+        )
+        task, run = self._warm_run()
+        with patch(f"{FACADE}.signal_task_run_user_message", return_value=True):
+            result = facade.run_task(
+                task.id,
+                self.team.id,
+                self.user.id,
+                validated_data={"mode": "interactive", "branch": "main", "pending_user_message": "do the thing"},
+                client_provenance=client_provenance,
+            )
+
+        assert result is not None and result.error is None
+        run.refresh_from_db()
+        assert run.state.get("auto_publish") is expected
 
     @parameterized.expand([("run_task",), ("user_message",)])
     def test_first_message_to_a_warm_run_logs_a_live_sibling_once(self, activation: str) -> None:
