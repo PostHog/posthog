@@ -187,6 +187,10 @@ The query endpoint needs the `query:read` scope. Without it the request answers 
 - While the live query loads, nothing is drawn, so the chart does not draw the snapshot and then redraw.
 - With no points at all, the observation leaves the chart out. A drawable chart in the Charts section shows a spinner while it loads, then "No data in this window." or an error line.
 
+Each report screen uses `ChartCanvasBudget`, active only while that screen has focus.
+The observation and report charts share the limit of six native canvases.
+Additional charts and charts on an unfocused screen use sparklines of the same height.
+
 ## Actions
 
 - **Sheets.** `mobile_report_sheet_opened` carries `sheet` (`handoff`, `resolve`, `dismiss`, `assignee`, `priority`, `decision`, `pull_request_picker`), `from` (`action_bar`, `chip` for the owner and priority chips, `inbox_menu`) and `report_id`. `mobile_report_sheet_dismissed` carries the same properties and is sent only when the sheet closes without its completion: a successful resolve, dismiss, priority or reviewer save, a hand-off attempt, an external agent opened or a prompt copied, a picked pull request, or an answer sent. The completion events below carry `report_id`.
