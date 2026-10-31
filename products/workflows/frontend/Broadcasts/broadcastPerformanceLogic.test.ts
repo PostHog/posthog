@@ -67,6 +67,28 @@ describe('broadcastPerformanceLogic', () => {
         expect(logic.values.stats?.sent).toEqual(49)
     })
 
+    it('reports why sends were skipped when no email went out', async () => {
+        jest.spyOn(api, 'queryHogQL').mockImplementation(
+            async (query) =>
+                ({
+                    results: String(query).includes('email_link_clicked_by_link')
+                        ? []
+                        : [
+                              [40, 'message_frequency_capped'],
+                              [9, 'email_missing_recipient'],
+                          ],
+                }) as HogQLQueryResponse
+        )
+        const logic = broadcastPerformanceLogic({ runId: 'run-3', runStartedAt: '2026-10-19T22:28:56Z' })
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions(['loadTotalsSuccess'])
+        expect(logic.values.stats).toMatchObject({
+            sent: 0,
+            emailSkips: { frequencyCapped: 40, missingRecipient: 9, bouncePrevented: 0 },
+        })
+    })
+
     it('does not report tracking off before anything was sent', async () => {
         jest.spyOn(api, 'queryHogQL').mockResolvedValue({ results: [] } as unknown as HogQLQueryResponse)
         const logic = broadcastPerformanceLogic({ runId: 'run-2', runStartedAt: '2026-10-19T22:28:56Z' })
