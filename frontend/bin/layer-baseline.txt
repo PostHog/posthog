@@ -113,7 +113,6 @@ frontend/src/layout/today/todayWorkItems.ts -> products/tasks/frontend/spaces/ta
 frontend/src/lib/api.ts -> frontend/src/exporter/exporterViewLogic.ts
 frontend/src/lib/api.ts -> frontend/src/lib/apiRequestTiming.ts
 frontend/src/lib/api.ts -> frontend/src/lib/logic/apiStatusLogic.ts
-frontend/src/lib/api.ts -> frontend/src/lib/oauth/oauthClient.ts
 frontend/src/lib/api.ts -> frontend/src/queries/utils.ts
 frontend/src/lib/api.ts -> frontend/src/scenes/surveys/constants.tsx
 frontend/src/lib/components/Account/AccountMenu.tsx -> frontend/src/scenes/billing/billingLogic.tsx
@@ -458,7 +457,6 @@ frontend/src/lib/ui/ContextMenu/ContextMenu.tsx -> frontend/src/lib/components/S
 frontend/src/lib/ui/DropdownMenu/DropdownMenu.tsx -> frontend/src/lib/components/ScrollableShadows/ScrollableShadows.tsx
 frontend/src/lib/ui/SelectPrimitive/SelectPrimitive.tsx -> frontend/src/lib/components/ScrollableShadows/ScrollableShadows.tsx
 frontend/src/lib/utils/accessControlUtils.ts -> frontend/src/scenes/sceneTypes.ts
-frontend/src/lib/utils/apiHost.ts -> frontend/src/lib/oauth/oauthClient.ts
 frontend/src/lib/utils/dateFilters.ts -> frontend/src/lib/components/DateFilter/types.ts
 frontend/src/lib/utils/deleteWithUndo.tsx -> frontend/src/layout/panel-layout/ProjectTree/projectTreeLogic.tsx
 frontend/src/lib/utils/deleteWithUndo.tsx -> frontend/src/scenes/dashboard/liveDashboardIds.ts
@@ -469,7 +467,6 @@ frontend/src/lib/utils/eventUsageLogic.ts -> frontend/src/scenes/userLogic.ts
 frontend/src/lib/utils/eventUsageLogic.ts -> products/business_intelligence/frontend/biEditorAnalytics.ts
 frontend/src/lib/utils/eventUsageLogic.ts -> products/experiments/frontend/experimentStatus.ts
 frontend/src/lib/utils/events.ts -> frontend/src/taxonomy/taxonomy.tsx
-frontend/src/lib/utils/getAppContext.ts -> frontend/src/lib/oauth/oauthClient.ts
 frontend/src/loadPostHogJS.tsx -> products/webmcp/frontend/webmcpToolError.ts
 frontend/src/models/cohortsModel.ts -> frontend/src/exporter/exporterViewLogic.ts
 frontend/src/models/cohortsModel.ts -> frontend/src/scenes/cohorts/CohortFilters/constants.tsx
