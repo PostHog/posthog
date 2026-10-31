@@ -13,12 +13,12 @@ import {
 import { TRANSACTIONAL_EMAIL_EVENT } from '~/cdp/services/hogflows/hogflow-sensitivity'
 import { CyclotronJobInvocationHogFunction } from '~/cdp/types'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
-import { createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
 import { UUIDT } from '~/common/utils/utils'
 import { waitForExpect } from '~/tests/helpers/expectations'
+import { TestRedisV2 } from '~/tests/helpers/redis-v2'
 import { createTestTeamFixture } from '~/tests/helpers/sql'
 import { INVALID_TEAM_ID_KEYS } from '~/tests/helpers/team'
 
@@ -144,7 +144,9 @@ describe('EmailService', () => {
     let service: EmailService
     let hub: Hub
     let team: Team
+    let testRedisPools: TestRedisV2[]
     beforeEach(async () => {
+        testRedisPools = []
         hub = await createHub({})
         team = (await createTestTeamFixture(hub.postgres)).team
         integrationIdBase = team.id
@@ -169,6 +171,8 @@ describe('EmailService', () => {
         mockFetch.mockClear()
     })
     afterEach(async () => {
+        service.sesV2Client?.destroy()
+        await Promise.all(testRedisPools.map((redis) => redis.close()))
         await closeHub(hub)
     })
     describe('when SES is not configured', () => {
@@ -754,7 +758,7 @@ describe('EmailService', () => {
         // workflow without a limit keeps sending right past the parked backlog.
         describe('a denied backlog cannot crowd out other sends', () => {
             it('spreads denied sends over distinct future slots and leaves unlimited workflows untouched', async () => {
-                const redis = createRedisV2PoolFromConfig({
+                const redis = new TestRedisV2({
                     connection: hub.CDP_REDIS_HOST
                         ? {
                               url: hub.CDP_REDIS_HOST,
@@ -764,6 +768,7 @@ describe('EmailService', () => {
                     poolMinSize: hub.REDIS_POOL_MIN_SIZE,
                     poolMaxSize: hub.REDIS_POOL_MAX_SIZE,
                 })
+                testRedisPools.push(redis)
                 const realLimitedService = new EmailService(
                     {
                         sesAccessKeyId: hub.SES_ACCESS_KEY_ID,
@@ -948,7 +953,7 @@ describe('EmailService', () => {
             it('spreads a capped team over distinct slots while another team keeps sending', async () => {
                 const hourlyCap = 360
                 const dailyCap = 8640
-                const redis = createRedisV2PoolFromConfig({
+                const redis = new TestRedisV2({
                     connection: hub.CDP_REDIS_HOST
                         ? {
                               url: hub.CDP_REDIS_HOST,
@@ -958,6 +963,7 @@ describe('EmailService', () => {
                     poolMinSize: hub.REDIS_POOL_MIN_SIZE,
                     poolMaxSize: hub.REDIS_POOL_MAX_SIZE,
                 })
+                testRedisPools.push(redis)
                 const limiter = new RateLimiterService(redis, { name: 'team-email-cap-test' })
                 const configService = new TeamWorkflowsConfigService(hub.postgres, hub.pubSub)
                 jest.spyOn(configService, 'getEmailSendingTier').mockResolvedValue(0)
