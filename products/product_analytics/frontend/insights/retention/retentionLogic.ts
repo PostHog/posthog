@@ -2,9 +2,9 @@ import { mean, sum } from 'd3'
 import { MakeLogicType, actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
 import { DataColorTheme, DataColorToken } from 'lib/colors'
-import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
 import { dayjs } from 'lib/dayjs'
 import { keyForInsightLogicProps } from 'lib/insights/sharedUtils'
+import { CUSTOM_OPTION_KEY } from 'lib/utils/dateFilters'
 import { formatDateRange } from 'lib/utils/datetime'
 import {
     BreakdownColorConfig,

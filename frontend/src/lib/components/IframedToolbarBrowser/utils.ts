@@ -1,5 +1,5 @@
-import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
 import { HeatmapFilters } from 'lib/components/heatmaps/types'
+import { CUSTOM_OPTION_KEY } from 'lib/utils/dateFilters'
 import { dateMapping } from 'lib/utils/dateFilters'
 
 export enum PostHogAppToolbarEvent {

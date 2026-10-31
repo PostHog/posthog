@@ -313,7 +313,6 @@ frontend/src/lib/hog.ts -> frontend/src/queries/utils.ts
 frontend/src/lib/hooks/useFeatureFlag.ts -> frontend/src/lib/logic/featureFlagLogic.ts
 frontend/src/lib/hooks/useFileSystemLogView.ts -> frontend/src/exporter/exporterViewLogic.ts
 frontend/src/lib/hooks/useFileSystemLogView.ts -> frontend/src/models/recentItemsModel.ts
-frontend/src/lib/hooks/useKeyboardHotkeys.tsx -> frontend/src/lib/posthog-typed.ts
 frontend/src/lib/integrations/VercelIntegrationSuffix.tsx -> frontend/src/scenes/settings/organization/organizationIntegrationsLogic.ts
 frontend/src/lib/lemon-ui/LemonCalendar/LemonCalendar.tsx -> frontend/src/scenes/teamLogic.tsx
 frontend/src/lib/lemon-ui/LemonColor/LemonColorButton.tsx -> frontend/src/lib/logic/dataThemeLogic.tsx
@@ -340,7 +339,6 @@ frontend/src/lib/signals/SignalReportFixOrStatus.tsx -> products/signals/fronten
 frontend/src/lib/signals/SignalReportFixOrStatus.tsx -> products/signals/frontend/inbox/utils/reportPullRequests.ts
 frontend/src/lib/signals/prState.ts -> products/signals/frontend/inbox/types.ts
 frontend/src/lib/utils/accessControlUtils.ts -> frontend/src/scenes/sceneTypes.ts
-frontend/src/lib/utils/dateFilters.ts -> frontend/src/lib/components/DateFilter/types.ts
 frontend/src/lib/utils/deleteWithUndo.tsx -> frontend/src/layout/panel-layout/ProjectTree/projectTreeLogic.tsx
 frontend/src/lib/utils/deleteWithUndo.tsx -> frontend/src/scenes/dashboard/liveDashboardIds.ts
 frontend/src/lib/utils/eventUsageLogic.ts -> frontend/src/lib/logic/preflightLogic.tsx
