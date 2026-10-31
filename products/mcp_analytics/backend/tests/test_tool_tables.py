@@ -524,6 +524,13 @@ class TestMCPToolStatsQueryRunner(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTe
         _emit_tool_call(self.team, distinct_id="d2", tool_name="other", session_id="s2")
         _emit_tool_call(self.team, distinct_id="d2", tool_name="other", session_id="s2")
         _emit_tool_call(self.team, distinct_id="d3", tool_name="other")
+        _emit_tool_call(
+            self.team,
+            distinct_id="d4",
+            tool_name="other",
+            session_id="s4",
+            timestamp=datetime.now(tz=UTC) - timedelta(days=30),
+        )
         flush_persons_and_events()
 
         row = self._run()[0]
@@ -532,6 +539,7 @@ class TestMCPToolStatsQueryRunner(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTe
         assert row.conversations == 1
         assert row.total_calls == 5
         # The call without any session id adds a call but no conversation.
+        # The call before the 7-day window adds to neither total.
         assert row.total_conversations == 2
 
     def test_shared_property_filter_narrows_totals_not_just_this_tool(self) -> None:
