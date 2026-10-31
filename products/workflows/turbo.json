@@ -1,6 +1,13 @@
 {
     "extends": ["//"],
     "tasks": {
+        "backend:test": {
+            "inputs": [
+                "$TURBO_EXTENDS$",
+                "skills/designing-email-templates/references/unlayer-design-json.md",
+                "skills/measuring-email-performance/references/recipes.md"
+            ]
+        },
         "backend:contract-check": {
             "inputs": [
                 "backend/facade/**",
