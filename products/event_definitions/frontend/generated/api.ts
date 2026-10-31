@@ -333,3 +333,17 @@ export const eventDefinitionsTypescriptRetrieve = async (projectId: string, opti
         method: 'GET',
     })
 }
+
+export const getEventDefinitionsTypescriptTypesRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/event_definitions/typescript_types/`
+}
+
+export const eventDefinitionsTypescriptTypesRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getEventDefinitionsTypescriptTypesRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}

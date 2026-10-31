@@ -13,6 +13,7 @@ use crate::invocation_context::context;
 #[serde(rename_all = "lowercase")]
 enum Language {
     TypeScript,
+    TypeScriptTypes,
     Golang,
     Python,
 }
@@ -22,6 +23,7 @@ impl Language {
     fn as_str(&self) -> &'static str {
         match self {
             Language::TypeScript => "typescript",
+            Language::TypeScriptTypes => "typescript_types",
             Language::Golang => "golang",
             Language::Python => "python",
         }
@@ -31,6 +33,7 @@ impl Language {
     fn display_name(&self) -> &'static str {
         match self {
             Language::TypeScript => "TypeScript",
+            Language::TypeScriptTypes => "TypeScript (types only)",
             Language::Golang => "Go",
             Language::Python => "Python",
         }
@@ -40,6 +43,7 @@ impl Language {
     fn default_output_path(&self) -> &'static str {
         match self {
             Language::TypeScript => "posthog-typed.ts",
+            Language::TypeScriptTypes => "posthog-events.ts",
             Language::Golang => "posthog-typed.go",
             // Python uses underscore because hyphens aren't valid in Python module names
             Language::Python => "posthog_typed.py",
@@ -57,6 +61,16 @@ impl Language {
    posthog.capture('event_name', {{ property: 'value' }})
 3. Use captureRaw() when you need to bypass type checking:
    posthog.captureRaw('dynamic_event_name', {{ whatever: 'data' }})
+"#
+            ),
+            Language::TypeScriptTypes => format!(
+                r#"
+1. Import the event types into your analytics code (no SDK dependency):
+   import type {{ EventName, EventProperties }} from './{output_path}'
+2. Use them to type the calls to your PostHog SDK, for example posthog-react-native:
+   function track<K extends EventName>(event: K, properties: EventProperties<K>) {{
+       posthog.capture(event, properties)
+   }}
 "#
             ),
             Language::Golang => format!(
@@ -105,13 +119,19 @@ You can add optional properties through the option functions:
 
     /// Get all available languages
     fn all() -> Vec<Language> {
-        vec![Language::TypeScript, Language::Golang, Language::Python]
+        vec![
+            Language::TypeScript,
+            Language::TypeScriptTypes,
+            Language::Golang,
+            Language::Python,
+        ]
     }
 
     /// Parse a language from a string identifier
     fn from_str(s: &str) -> Option<Language> {
         match s {
             "typescript" => Some(Language::TypeScript),
+            "typescript_types" => Some(Language::TypeScriptTypes),
             "golang" => Some(Language::Golang),
             "python" => Some(Language::Python),
             _ => None,

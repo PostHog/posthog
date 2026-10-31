@@ -20,9 +20,11 @@ from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
+from parameterized import parameterized
 from rest_framework import status
 
-from posthog.api.event_definition_generators.typescript import TypeScriptGenerator
+from posthog.api.event_definition_generators.base import EventDefinitionGenerator
+from posthog.api.event_definition_generators.typescript import TypeScriptGenerator, TypeScriptTypesGenerator
 from posthog.models import EventDefinition, EventSchema, SchemaPropertyGroup, SchemaPropertyGroupProperty
 
 from ee.models.event_definition import EnterpriseEventDefinition
@@ -107,9 +109,9 @@ class TestEventDefinitionTypeScriptGeneration(APIBaseTest):
 
         EventSchema.objects.create(event_definition=self.special_chars_event, property_group=special_property_group)
 
-    def _generate_typescript(self) -> str:
+    def _generate_typescript(self, language: str = "typescript") -> str:
         """Generate TypeScript definitions by calling the actual API endpoint"""
-        response = self.client.get(f"/api/projects/{self.project.id}/event_definitions/typescript/")
+        response = self.client.get(f"/api/projects/{self.project.id}/event_definitions/{language}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         return response.json()["content"]
 
@@ -287,10 +289,18 @@ posthog.capture("a'a\\\\'b\\"c>?>%}}%%>c<[[?${{%}}cake'", {
             # Strip the dynamic timestamp so the snapshot is stable
             self.snapshot.assert_match(self._strip_dynamic_timestamp(ts_content))
 
+    def test_typescript_types_only_has_no_sdk_dependency(self):
+        ts_content = self._generate_typescript("typescript_types")
+
+        self.assertNotRegex(ts_content, r"(?m)^import ")
+        self.assertNotIn("posthog-js", ts_content)
+        self.assertIn("export interface EventSchemas {", ts_content)
+        self.snapshot.assert_match(self._strip_dynamic_timestamp(ts_content))
+
 
 class TestTypeScriptGeneratorOptionalInTypes(SimpleTestCase):
-    def test_optional_in_types_generates_optional_marker(self):
-        generator = TypeScriptGenerator()
+    @parameterized.expand([("sdk_wrapper", TypeScriptGenerator()), ("types_only", TypeScriptTypesGenerator())])
+    def test_optional_in_types_generates_optional_marker(self, _name: str, generator: EventDefinitionGenerator):
         event = MagicMock()
         event.id = "1"
         event.name = "test_event"
