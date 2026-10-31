@@ -58,13 +58,14 @@ def metrics_not_matured(ctx: HealthContext) -> CheckOutcome:
         code=ExperimentHealthFindingCode.METRICS_NOT_MATURED,
         subcode=None,
         severity=ExperimentHealthFindingSeverity.INFO,
-        title="No users count yet because the metric windows aren't complete",
+        title="No results yet because the metric windows aren't complete",
         detail=" ".join(
             [
-                "A user counts for a metric only after the metric's conversion or retention window has passed, so no "
-                "primary metric has users yet.",
+                "The Exposures panel counts users without waiting for these windows.",
+                "A metric counts a user only after its conversion or retention window has passed, so no primary metric "
+                "has results yet.",
                 f"The first users can count {first_users}.",
-                f"To count users sooner, turn off {_SETTING_LABEL} in the experiment's Settings tab.",
+                f"To see results sooner, turn off {_SETTING_LABEL} in the experiment's Settings tab.",
                 "Users whose window is still open then count too.",
             ]
         ),
