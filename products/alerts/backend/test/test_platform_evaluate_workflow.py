@@ -23,6 +23,8 @@ from products.alerts.backend.platform_chart_detail import (
 )
 from products.alerts.backend.platform_source_cycle import PLATFORM_LLM_CHECKS
 from products.alerts.backend.temporal.platform_evaluate import (
+    CHECK_HEARTBEAT_TIMEOUT,
+    CHECK_RETRY_POLICY,
     EVALUATION_BUDGET,
     REAL_TIME_CHECK_HEARTBEAT_TIMEOUT,
     AdmittedInsightCheck,
@@ -73,7 +75,7 @@ async def test_a_check_that_fails_does_not_stop_the_batch_recording_the_rest(env
     failed: list[FailedInsightCheckInputs] = []
     stopped: list[StopInsightQueriesInputs] = []
 
-    # Only the real-time and AI checks have a retry, so the same first failure loses the other one.
+    # Every check retries a first failure. The first check fails every attempt, so it ends errored.
     @activity.defn(name="plan_platform_insight_checks_activity")
     async def plan(inputs: InsightBatchPlanInputs) -> list[AdmittedInsightCheck]:
         admitted = [
@@ -85,7 +87,7 @@ async def test_a_check_that_fails_does_not_stop_the_batch_recording_the_rest(env
 
     @activity.defn(name="evaluate_platform_insight_check_activity")
     async def evaluate(inputs: InsightCheckInputs) -> SourceBatchEvaluation | None:
-        if activity.info().attempt == 1:
+        if activity.info().attempt == 1 or inputs.configuration_id == ADMITTED[0]:
             raise ApplicationError("worker lost")
         return _fired(inputs)
 
@@ -151,23 +153,24 @@ async def test_a_check_that_fails_does_not_stop_the_batch_recording_the_rest(env
         history = await handle.fetch_history()
 
     assert result == 3
-    # The check with no retry left no outcome of its own, so it is recorded as errored, with the reason.
+    # The check whose every attempt failed left no outcome of its own, so it is recorded as errored, with the reason.
     assert [(inputs.configuration_id, inputs.error_message) for inputs in failed] == [(ADMITTED[0], "worker lost")]
-    # Its one attempt's query may still run, which nothing else stops.
-    assert [(inputs.configuration_id, len(inputs.query_ids)) for inputs in stopped] == [(ADMITTED[0], 1)]
+    # Each attempt's query may still run, which nothing else stops.
+    assert [(inputs.configuration_id, len(inputs.query_ids)) for inputs in stopped] == [
+        (ADMITTED[0], CHECK_RETRY_POLICY.maximum_attempts)
+    ]
     assert sorted(
         (str(o.configuration_id), o.groups[0].new_state) for batch in recorded for o in batch.outcomes
     ) == sorted([(ADMITTED[0], "errored"), (ADMITTED[1], "firing"), (AI_CHECK, "firing")])
-    real_time_heartbeats = [
+    check_heartbeats = [
         event.activity_task_scheduled_event_attributes.heartbeat_timeout.ToTimedelta()
         for event in history.events
         if event.event_type == EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED
         and event.activity_task_scheduled_event_attributes.activity_type.name
         == "evaluate_platform_insight_check_activity"
-        and event.activity_task_scheduled_event_attributes.heartbeat_timeout.ToTimedelta()
     ]
-    # Only the real-time check heartbeats, so a dead worker's check is retried inside its budget.
-    assert real_time_heartbeats == [REAL_TIME_CHECK_HEARTBEAT_TIMEOUT]
+    # Every cadence heartbeats, so a check whose worker never ran it is retried inside its budget.
+    assert sorted(check_heartbeats) == sorted([CHECK_HEARTBEAT_TIMEOUT, REAL_TIME_CHECK_HEARTBEAT_TIMEOUT])
     children = [
         event.child_workflow_execution_started_event_attributes
         for event in history.events
