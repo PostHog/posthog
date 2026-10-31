@@ -18,6 +18,10 @@ import {
     DropdownMenuRadioItem,
     DropdownMenuRadioGroup,
     DropdownMenuLabel,
+    DropdownMenuFilterProvider,
+    DropdownMenuInput,
+    DropdownMenuList,
+    DropdownMenuEmpty,
     useDropdownMenuSelectAll,
 } from './dropdown-menu'
 import { Kbd } from './kbd'
@@ -405,6 +409,62 @@ export const Overflow: Story = {
                     </DropdownMenuRadioGroup>
                 </DropdownMenuContent>
             </DropdownMenu>
+        )
+    },
+} satisfies Story
+
+/**
+ * A menu with a search field: the query narrows every item, and the first match is highlighted so Enter runs it.
+ * A submenu wrapped in its own `DropdownMenuFilterProvider` gets its own search field.
+ */
+export const Filterable: Story = {
+    render: () => {
+        const [open, setOpen] = useState(true)
+        const [timezone, setTimezone] = useState('')
+        return (
+            <DropdownMenuFilterProvider autoHighlight>
+                <DropdownMenu open={open} onOpenChange={setOpen}>
+                    <DropdownMenuTrigger render={<Button variant="outline" size="sm" />}>
+                        {timezone || 'Pick a timezone'}
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent
+                        className="w-auto min-w-56"
+                        header={<DropdownMenuInput aria-label="Search timezones" placeholder="Search timezones…" />}
+                    >
+                        <DropdownMenuEmpty>No timezone matches</DropdownMenuEmpty>
+                        <DropdownMenuList>
+                            <DropdownMenuRadioGroup value={timezone} onValueChange={setTimezone}>
+                                {TIMEZONES.map((tz) => (
+                                    <DropdownMenuRadioItem key={tz} value={tz}>
+                                        {tz}
+                                    </DropdownMenuRadioItem>
+                                ))}
+                            </DropdownMenuRadioGroup>
+                        </DropdownMenuList>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuFilterProvider autoHighlight>
+                            <DropdownMenuSub>
+                                <DropdownMenuSubTrigger>
+                                    <Folder />
+                                    Move to
+                                </DropdownMenuSubTrigger>
+                                <DropdownMenuSubContent
+                                    header={
+                                        <DropdownMenuInput aria-label="Search folders" placeholder="Search folders…" />
+                                    }
+                                >
+                                    <DropdownMenuEmpty>No folder matches</DropdownMenuEmpty>
+                                    <DropdownMenuList>
+                                        <DropdownMenuItem>Inbox</DropdownMenuItem>
+                                        <DropdownMenuItem>Archive</DropdownMenuItem>
+                                        <DropdownMenuItem>Shared with me</DropdownMenuItem>
+                                    </DropdownMenuList>
+                                </DropdownMenuSubContent>
+                            </DropdownMenuSub>
+                        </DropdownMenuFilterProvider>
+                    </DropdownMenuContent>
+                </DropdownMenu>
+            </DropdownMenuFilterProvider>
         )
     },
 } satisfies Story

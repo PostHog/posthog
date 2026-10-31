@@ -547,6 +547,25 @@ Checkbox/radio items:
 </DropdownMenuRadioGroup>
 ```
 
+Filterable menu (a long list the user narrows by typing): wrap the menu in `DropdownMenuFilterProvider`, pass a `DropdownMenuInput` as the content's `header` so it stays above the scrolling list, and put the items inside `DropdownMenuList`, which carries the menu role so the input can share the popup. The query hides every item that does not match, including submenu triggers. `autoHighlight` highlights the first match so Enter runs it. The arrow keys move the highlight while the input keeps focus. Wrap a `DropdownMenuSub` in its own provider to give the submenu a search field. Pass `filter={null}` with `value` and `onValueChange` to filter against an API yourself; then nothing hides on its own, so render only the matching rows and keep any row that must always show.
+
+```tsx
+<DropdownMenuFilterProvider autoHighlight>
+  <DropdownMenu>
+    <DropdownMenuTrigger render={<Button variant="outline" />}>Move to</DropdownMenuTrigger>
+    <DropdownMenuContent header={<DropdownMenuInput aria-label="Search folders" placeholder="Search folders…" />}>
+      <DropdownMenuEmpty>No folder matches</DropdownMenuEmpty>
+      <DropdownMenuList>
+        <DropdownMenuItem>Inbox</DropdownMenuItem>
+        <DropdownMenuItem>Archive</DropdownMenuItem>
+      </DropdownMenuList>
+      <DropdownMenuSeparator />
+      <DropdownMenuItem>New folder…</DropdownMenuItem>
+    </DropdownMenuContent>
+  </DropdownMenu>
+</DropdownMenuFilterProvider>
+```
+
 ### Context Menu (right-click)
 
 Same API as DropdownMenu but with `ContextMenu*` prefix:

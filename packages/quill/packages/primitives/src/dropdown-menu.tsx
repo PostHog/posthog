@@ -1,10 +1,10 @@
 import './menu.css'
 
 import { Menu as MenuPrimitive } from '@base-ui/react/menu'
-import { ChevronRightIcon } from 'lucide-react'
+import { ChevronRightIcon, SearchIcon } from 'lucide-react'
 import * as React from 'react'
 
-import { Button } from './button'
+import { Button, buttonVariants } from './button'
 import { Checkbox } from './checkbox'
 import { Kbd } from './kbd'
 import { cn } from './lib/utils'
@@ -34,8 +34,6 @@ function withItemTooltip(
     return withTooltip(item, content, { target: 'block', side: 'inline-end' })
 }
 
-
-
 function DropdownMenu({ ...props }: MenuPrimitive.Root.Props): React.ReactElement {
     return <MenuPrimitive.Root data-slot="dropdown-menu" {...props} />
 }
@@ -53,9 +51,25 @@ const DropdownMenuTrigger = React.forwardRef<HTMLButtonElement, MenuPrimitive.Tr
 const DropdownMenuContent = React.forwardRef<
     React.ComponentRef<typeof MenuPrimitive.Popup>,
     MenuPrimitive.Popup.Props &
-        Pick<MenuPrimitive.Positioner.Props, 'align' | 'alignOffset' | 'side' | 'sideOffset' | 'anchor'>
+        Pick<MenuPrimitive.Positioner.Props, 'align' | 'alignOffset' | 'side' | 'sideOffset' | 'anchor'> & {
+            /**
+             * Rendered above the scrolling item list, so it stays in place while the list scrolls and sits
+             * outside the list's edge fade. This is where a `DropdownMenuInput` goes.
+             */
+            header?: React.ReactNode
+        }
 >(function DropdownMenuContent(
-    { align = 'start', alignOffset = 0, side = 'bottom', sideOffset = 4, className, anchor, children, ...props },
+    {
+        align = 'start',
+        alignOffset = 0,
+        side = 'bottom',
+        sideOffset = 4,
+        className,
+        anchor,
+        header,
+        children,
+        ...props
+    },
     ref
 ) {
     return (
@@ -73,15 +87,66 @@ const DropdownMenuContent = React.forwardRef<
                 <MenuPrimitive.Popup
                     ref={ref}
                     data-slot="dropdown-menu-content"
-                    className={cn('quill-menu__content w-max min-w-(--anchor-width) max-w-(--available-width)', className)}
+                    className={cn(
+                        'quill-menu__content w-max min-w-(--anchor-width) max-w-(--available-width)',
+                        className
+                    )}
                     {...props}
                 >
+                    {header}
                     <div className="quill-menu__scroller scroll-mask-y-4 scroll-py-4">{children}</div>
                 </MenuPrimitive.Popup>
             </MenuPrimitive.Positioner>
         </MenuPrimitive.Portal>
     )
 })
+
+/**
+ * Makes the menu directly inside it filterable: it owns the query that `DropdownMenuInput` edits and that
+ * `DropdownMenuList` matches its items against. Wrap a `DropdownMenuSub` in its own provider to filter a submenu.
+ * Pass `filter={null}` with `value` and `onValueChange` to filter the items yourself, for example against an API.
+ */
+function DropdownMenuFilterProvider({ ...props }: MenuPrimitive.FilterProvider.Props): React.ReactElement {
+    return <MenuPrimitive.FilterProvider {...props} />
+}
+
+/** The search field of a filterable menu. Pass it as `header` on `DropdownMenuContent` so it stays above the list. */
+const DropdownMenuInput = React.forwardRef<React.ComponentRef<typeof MenuPrimitive.Input>, MenuPrimitive.Input.Props>(
+    function DropdownMenuInput({ className, ...props }, ref) {
+        return (
+            <div data-slot="dropdown-menu-input-wrapper" className="quill-menu__input-wrapper">
+                <SearchIcon aria-hidden />
+                <MenuPrimitive.Input
+                    ref={ref}
+                    data-slot="dropdown-menu-input"
+                    className={cn('quill-menu__input', className)}
+                    {...props}
+                />
+            </div>
+        )
+    }
+)
+
+/** The `role="menu"` list of a filterable menu, so the search field can share the popup without sitting inside the menu role. */
+const DropdownMenuList = React.forwardRef<React.ComponentRef<typeof MenuPrimitive.List>, MenuPrimitive.List.Props>(
+    function DropdownMenuList({ ...props }, ref) {
+        return <MenuPrimitive.List ref={ref} data-slot="dropdown-menu-list" {...props} />
+    }
+)
+
+/** Shows while no item of a filterable menu matches the query. */
+const DropdownMenuEmpty = React.forwardRef<React.ComponentRef<typeof MenuPrimitive.Empty>, MenuPrimitive.Empty.Props>(
+    function DropdownMenuEmpty({ className, ...props }, ref) {
+        return (
+            <MenuPrimitive.Empty
+                ref={ref}
+                data-slot="dropdown-menu-empty"
+                className={cn(buttonVariants({ size: 'row', left: true, inert: true }), className)}
+                {...props}
+            />
+        )
+    }
+)
 
 const DropdownMenuGroup = React.forwardRef<React.ComponentRef<typeof MenuPrimitive.Group>, MenuPrimitive.Group.Props>(
     function DropdownMenuGroup({ ...props }, ref) {
@@ -446,6 +511,10 @@ export {
     DropdownMenuPortal,
     DropdownMenuTrigger,
     DropdownMenuContent,
+    DropdownMenuFilterProvider,
+    DropdownMenuInput,
+    DropdownMenuList,
+    DropdownMenuEmpty,
     DropdownMenuGroup,
     DropdownMenuLabel,
     DropdownMenuItem,
