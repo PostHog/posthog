@@ -1,9 +1,13 @@
 from rest_framework import mixins, serializers, viewsets
+from rest_framework.permissions import SAFE_METHODS
+from rest_framework.request import Request
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.schema_property_group import SchemaPropertyGroupSerializer
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.models import EventDefinition, EventSchema, SchemaPropertyGroup
+from posthog.permissions import is_scout_sandbox_request
+from posthog.taxonomy.scout_writes import refuse_scout_taxonomy_write
 
 
 class EventSchemaSerializer(serializers.ModelSerializer):
@@ -54,6 +58,11 @@ class EventSchemaViewSet(
     serializer_class = EventSchemaSerializer
     queryset = EventSchema.objects.all()
     lookup_field = "id"
+
+    def check_permissions(self, request: Request) -> None:
+        super().check_permissions(request)
+        if request.method not in SAFE_METHODS:
+            refuse_scout_taxonomy_write(is_scout_sandbox_request(request))
 
     def _filter_queryset_by_parents_lookups(self, queryset):
         """Override to handle EventSchema which doesn't have a direct team field"""
