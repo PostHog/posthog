@@ -7944,19 +7944,34 @@ class TestFlagGatedTemplates(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "Template not found" in str(response.json())
 
-    def test_a_new_gated_step_is_still_rejected_on_a_flow_that_has_one(self):
+    @parameterized.expand(
+        [
+            ("added_under_a_new_id", "action_2", "template-posthog-create-task", {"prompt": {"value": "Another"}}),
+            (
+                "swapped_in_under_the_stored_id",
+                "action_1",
+                "template-t3-code",
+                {"url": {"value": "https://example.com"}},
+            ),
+        ]
+    )
+    def test_a_new_gated_step_is_still_rejected_on_a_flow_that_has_one(self, _name, step_id, template_id, inputs):
+        t3_code_template = deepcopy(webhook_template)
+        t3_code_template["id"] = "template-t3-code"
+        sync_template_to_db(t3_code_template)
         flow_id = self._create_active_flow_with_gated_step()
 
-        second_step = {
-            "id": "action_2",
-            "name": "action_2",
+        new_step = {
+            "id": step_id,
+            "name": step_id,
             "type": "function",
-            "config": {"template_id": "template-posthog-create-task", "inputs": {"prompt": {"value": "Another"}}},
+            "config": {"template_id": template_id, "inputs": inputs},
         }
+        stored_actions = [action for action in HogFlow.objects.get(id=flow_id).actions if action["id"] != step_id]
         with patch("products.workflows.backend.presentation.views.hog_flow.gated_template_enabled", return_value=False):
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
-                {"actions": [*HogFlow.objects.get(id=flow_id).actions, second_step]},
+                {"actions": [*stored_actions, new_step]},
             )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST

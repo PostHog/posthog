@@ -23,6 +23,7 @@ import {
     fetchErrorDetail,
     isFetchResponseRetriable,
 } from '../utils/cdp-fetch'
+import { resolveHmacSha256Secret, signHmacSha256Request } from '../utils/hmac-sha256-signature'
 import { createInvocationResult } from '../utils/invocation-utils'
 import { isNonFailureStatus } from '../utils/non-failure-status-codes'
 import { ScopedServiceJwt } from '../utils/scoped-service-jwt'
@@ -445,6 +446,7 @@ export class HogExecutorAsyncService {
             return result
         }
 
+        const sentBody = ['GET', 'HEAD'].includes(method) ? '' : (params.body ?? '')
         let signedHeaders = headers
 
         // Secret headers are merged before signing so that the signatures cover them, and they are never written
@@ -465,7 +467,7 @@ export class HogExecutorAsyncService {
             signedHeaders = signAwsRequest({
                 method,
                 url: params.url,
-                body: params.body ?? '',
+                body: sentBody,
                 headers: signedHeaders,
                 credentials: resolved.credentials,
             })
@@ -484,16 +486,29 @@ export class HogExecutorAsyncService {
             }
             signedHeaders = signStandardWebhooksRequest({
                 webhookId: params.standard_webhooks.webhook_id,
-                body: params.body ?? '',
+                body: sentBody,
                 headers: signedHeaders,
                 key: resolved.key,
             })
         }
 
+        if (params.hmac_sha256) {
+            const resolved = resolveHmacSha256Secret(params.hmac_sha256, invocation.hogFunction)
+            if (!resolved.ok) {
+                return failSigning(resolved.error)
+            }
+            signedHeaders = signHmacSha256Request({
+                webhookId: params.hmac_sha256.webhook_id,
+                body: sentBody,
+                headers: signedHeaders,
+                secret: resolved.secret,
+            })
+        }
+
         const fetchParams: FetchOptions = { method, headers: signedHeaders }
 
-        if (!['GET', 'HEAD'].includes(method) && params.body) {
-            fetchParams.body = params.body
+        if (sentBody) {
+            fetchParams.body = sentBody
         }
 
         const { fetchError, fetchResponse, fetchDuration } = await cdpTrackedFetch({

@@ -69,20 +69,23 @@ function logBlockedRequest(
     error: Error,
     { url, templateId, teamId, hogFunctionId }: CdpFetchAttribution & { url: string; templateId: string }
 ): void {
-    let hostname: string | undefined
-    try {
-        hostname = new URL(url).hostname
-    } catch {
-        // Malformed URL (InvalidRequestError) — hostname stays undefined
-    }
     logger.warn('[cdpTrackedFetch] Request blocked by SSRF / URL-validation guard', {
         reason: error.name,
         message: error.message,
-        hostname,
+        hostname: hostnameOf(url),
         teamId,
         hogFunctionId,
         templateId,
     })
+}
+
+function hostnameOf(url: string): string | undefined {
+    try {
+        return new URL(url).hostname
+    } catch {
+        // Malformed URL (InvalidRequestError) — hostname stays undefined
+        return undefined
+    }
 }
 
 // Stale keep-alive connections produce these errors when the server has closed its end before
@@ -162,7 +165,8 @@ export async function cdpTrackedFetch({
 
     if (fetchError && isConnectionLevelError(fetchError)) {
         logger.warn('🦔', '[cdpTrackedFetch] Connection-level error detected, immediately retrying fetch once', {
-            url,
+            hostname: hostnameOf(url),
+            templateId,
             error: fetchError,
         })
         ;[fetchError, fetchResponse] = await doFetch()
