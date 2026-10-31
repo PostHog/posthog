@@ -5119,6 +5119,8 @@ export interface FileSystemHomeFolderApi {
      * @nullable
      */
     readonly path: string | null
+    /** True when this request created the home folder and its sidebar shortcut. */
+    readonly created: boolean
 }
 
 export interface FileSystemRankedSearchItemApi {

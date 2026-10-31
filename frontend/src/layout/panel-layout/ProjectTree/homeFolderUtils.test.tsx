@@ -14,7 +14,7 @@ describe('home folder tree presentation', () => {
         ['project://Users/Alex (1)', 'other', 'Users/Alex (1)', undefined, false],
         ['shortcuts://Alex (1)', 'star-other', 'Alex (1)', 'Users/Alex (1)', false],
     ])('identifies %s and only gives the owner home-folder guidance', (id, recordId, path, ref, own) => {
-        const home = { id: 'home', path: 'Users/Alex' }
+        const home = { id: 'home', path: 'Users/Alex', created: false }
         const item: TreeDataItem = {
             id,
             name: path,

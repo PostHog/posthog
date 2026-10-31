@@ -25,6 +25,7 @@ describe('projectTreeDataLogic', () => {
     let unmount: () => void
 
     beforeEach(async () => {
+        localStorage.clear()
         jest.restoreAllMocks()
         jest.spyOn(api.fileSystem, 'list').mockResolvedValue({ count: 0, results: [], users: [] })
         jest.spyOn(api.fileSystem, 'unfiled').mockResolvedValue(null)
@@ -44,18 +45,30 @@ describe('projectTreeDataLogic', () => {
         jest.restoreAllMocks()
     })
 
-    it('follows the home folder after it moves', async () => {
-        useMocks({ post: { '/api/projects/:team_id/file_system/home_folder/': { id: 'home', path: 'Users/Alex' } } })
-        await expectLogic(logic, () => logic.actions.loadHomeFolder()).toDispatchActions(['loadHomeFolderSuccess'])
-        expect(logic.values.currentHomeFolder).toEqual({ id: 'home', path: 'Users/Alex' })
-        logic.actions.loadFolderSuccess(
-            'Research',
-            [{ id: 'home', path: 'Research/My work', type: 'folder' }],
-            false,
-            0
-        )
-        expect(logic.values.currentHomeFolder?.path).toBe('Research/My work')
-    })
+    it.each([
+        { created: true, reloads: 1 },
+        { created: false, reloads: 0 },
+    ])(
+        'follows the home folder after it moves, and reloads the tree only for a new one (created: $created)',
+        async ({ created, reloads }) => {
+            useMocks({
+                post: {
+                    '/api/projects/:team_id/file_system/home_folder/': { id: 'home', path: 'Users/Alex', created },
+                },
+            })
+            await expectLogic(logic, () => logic.actions.loadHomeFolder()).toDispatchActions(['loadHomeFolderSuccess'])
+            expect(api.fileSystemShortcuts.list).toHaveBeenCalledTimes(reloads)
+            expect(api.fileSystem.list).toHaveBeenCalledTimes(reloads)
+            expect(logic.values.currentHomeFolder).toEqual({ id: 'home', path: 'Users/Alex', created })
+            logic.actions.loadFolderSuccess(
+                'Research',
+                [{ id: 'home', path: 'Research/My work', type: 'folder' }],
+                false,
+                0
+            )
+            expect(logic.values.currentHomeFolder?.path).toBe('Research/My work')
+        }
+    )
 
     it.each(['loaded', 'loading', 'has-more', 'populated'] as const)(
         'renders a starred nested folder with %s contents',
