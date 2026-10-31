@@ -394,11 +394,13 @@ export interface reportListLogicActions {
     setReportClaimed: (
         report: SignalReport,
         claimed: boolean,
-        surface: InboxReportActionSurface
+        surface: InboxReportActionSurface,
+        takeover?: boolean
     ) => {
         claimed: boolean
         report: SignalReport
         surface: InboxReportActionSurface
+        takeover: boolean
     }
     setReportClaimedFinished: (reportId: string) => {
         reportId: string
@@ -538,10 +540,16 @@ export const reportListLogic = kea<reportListLogicType>([
             reason,
         }),
         unassignMeFinished: (reportId: string) => ({ reportId }),
-        setReportClaimed: (report: SignalReport, claimed: boolean, surface: InboxReportActionSurface) => ({
+        setReportClaimed: (
+            report: SignalReport,
+            claimed: boolean,
+            surface: InboxReportActionSurface,
+            takeover: boolean = false
+        ) => ({
             report,
             claimed,
             surface,
+            takeover,
         }),
         setReportClaimedFinished: (reportId: string) => ({ reportId }),
         setSuggestedToMe: (reportIds: string[], isSuggested: boolean) => ({ reportIds, isSuggested }),
@@ -1137,9 +1145,17 @@ export const reportListLogic = kea<reportListLogicType>([
             // The list that started the request can unmount while it runs, for example when triage closes.
             inboxBulkActionsLogic.findMounted()?.actions.unassignedMe([reportId])
         },
-        setReportClaimed: async ({ report, claimed, surface }) => {
-            captureInboxReportAction({ report, actionType: claimed ? 'claim' : 'unclaim', surface })
-            const outcome = await requestReportClaim(String(values.currentTeamId), report, claimed)
+        setReportClaimed: async ({ report, claimed, surface, takeover }) => {
+            captureInboxReportAction({
+                report,
+                actionType: claimed ? 'claim' : 'unclaim',
+                surface,
+                extra: takeover ? { takeover: true } : undefined,
+            })
+            const outcome = await requestReportClaim(String(values.currentTeamId), report, claimed, {
+                currentUserUuid: values.user?.uuid ?? null,
+                takeover,
+            })
             actions.setReportClaimedFinished(report.id)
             if (!outcome.ok) {
                 lemonToast.error(outcome.message)

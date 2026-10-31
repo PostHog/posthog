@@ -529,6 +529,54 @@ class TestSignalReportAssignmentAPI(APIBaseTest):
         claim = SignalReportArtefact.objects.get(report=report, type="work_claim")
         assert json.loads(claim.content)["display_name"] == expected
 
+    @parameterized.expand(
+        [
+            ("agent_without_claim_id", "codex", False, status.HTTP_409_CONFLICT, SignalActorKind.USER),
+            ("agent_with_claim_id", "codex", True, status.HTTP_200_OK, SignalActorKind.AGENT),
+            ("person_with_claim_id", None, True, status.HTTP_200_OK, SignalActorKind.USER),
+        ]
+    )
+    @patch("products.signals.backend.claim_takeover_notification.create_notification")
+    def test_taking_over_another_persons_claim_needs_claim_id_and_notifies_them(
+        self,
+        _name: str,
+        agent: str | None,
+        send_claim_id: bool,
+        expected_status: int,
+        expected_kind: str,
+        mock_create_notification: MagicMock,
+    ):
+        report = self._create_report(title="Checkout fails")
+        teammate = User.objects.create_and_join(self.organization, "dana@example.com", None, first_name="Dana")
+        self.client.force_login(teammate)
+        teammate_claim = self.client.post(self._claim_url(report), data={}, format="json").json()["assignee"]
+        self.client.force_login(self.user)
+
+        data: dict[str, object] = {"takeover": True}
+        if send_claim_id:
+            data["takeover_claim_id"] = teammate_claim["claim_id"]
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(
+                self._claim_url(report),
+                data=data,
+                format="json",
+                headers=self._agent_headers(agent) if agent else None,
+            )
+
+        assert response.status_code == expected_status
+        assignment = get_active_claim(team_id=self.team.id, report_id=report.id)
+        assert assignment is not None
+        assert assignment.actor_kind == expected_kind
+        if expected_status == status.HTTP_409_CONFLICT:
+            assert "Dana is working on this report" in response.json()["detail"]
+            assert assignment.actor_user_id == teammate.id
+            mock_create_notification.assert_not_called()
+        else:
+            mock_create_notification.assert_called_once()
+            notification = mock_create_notification.call_args.args[0]
+            assert notification.target_id == str(teammate.id)
+            assert notification.body == "Checkout fails"
+
     def test_claimants_own_task_works_under_their_claim(self):
         Task = apps.get_model("tasks", "Task")
         report = self._create_report()
