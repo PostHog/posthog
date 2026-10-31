@@ -216,6 +216,42 @@ class TestFunnelDataWarehouse(ClickhouseTestMixin, BaseTest):
         assert results[0]["count"] == 5
         assert results[1]["count"] == 1
 
+    def test_funnels_data_warehouse_with_client_capture_order(self):
+        # Warehouse rows have no device and no capture instant, so every one takes the
+        # fallback. The fallback has to be reachable: resolved to the throwing date parser
+        # it raises on the whole query instead, which no non-warehouse test would catch.
+        table_name = self.setup_data_warehouse()
+        self.team.modifiers = {"funnelUseClientCaptureOrder": True}
+        self.team.save()
+
+        funnels_query = FunnelsQuery(
+            kind="FunnelsQuery",
+            dateRange=DateRange(date_from="2025-11-01"),
+            series=[
+                FunnelsDataWarehouseNode(
+                    id=table_name,
+                    table_name=table_name,
+                    id_field="uuid",
+                    aggregation_target_field="user_id",
+                    timestamp_field="created",
+                ),
+                FunnelsDataWarehouseNode(
+                    id=table_name,
+                    table_name=table_name,
+                    id_field="uuid",
+                    aggregation_target_field="user_id",
+                    timestamp_field="created",
+                ),
+            ],
+        )
+
+        with time_machine.travel("2025-11-07", tick=False):
+            response = FunnelsQueryRunner(query=funnels_query, team=self.team, just_summarize=True).calculate()
+
+        # Same counts as with the modifier off: the fallback keeps the stored order.
+        assert response.results[0]["count"] == 5
+        assert response.results[1]["count"] == 1
+
     def _days_of_week_trends_query(self, table_name: str, days_of_week: list[int] | None) -> FunnelsQuery:
         node = FunnelsDataWarehouseNode(
             id=table_name,

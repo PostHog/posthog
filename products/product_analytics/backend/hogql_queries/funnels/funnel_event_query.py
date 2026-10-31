@@ -50,6 +50,11 @@ from products.product_analytics.backend.hogql_queries.funnels.utils import (
     to_breakdown_string,
 )
 
+# SDKs whose events carry a device clock reading worth anchoring. Server SDKs are left out because
+# their events can reuse a browser's device ID while running on a different clock.
+CAPTURE_ORDER_MOBILE_LIBS = ("posthog-ios", "posthog-android", "posthog-react-native", "posthog-flutter")
+CAPTURE_ORDER_CLIENT_LIBS = ("web", *CAPTURE_ORDER_MOBILE_LIBS)
+
 
 @dataclass
 class TableConfigWithSteps:
@@ -197,6 +202,7 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
         select: list[ast.Expr] = [
             ast.Alias(alias="timestamp", expr=ast.Field(chain=[self.EVENT_TABLE_ALIAS, "timestamp"])),
             ast.Alias(alias="aggregation_target", expr=self._aggregation_target_expr()),
+            *self._capture_order_cols(),
             *all_step_cols,
         ]
 
@@ -259,6 +265,7 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
                 expr=timestamp_expr,
             ),
             ast.Alias(alias="aggregation_target", expr=parse_expr(table_entity.aggregation_target_field)),
+            *self._capture_order_cols(is_warehouse=True),
             *all_step_cols,
         ]
 
@@ -598,6 +605,86 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
             return ast.Field(chain=[self.EVENT_TABLE_ALIAS, field])
 
         return [ast.Alias(alias=field, expr=_expr_for(field)) for field in self.extra_fields]
+
+    def _capture_order_cols(self, is_warehouse: bool = False) -> list[ast.Expr]:
+        """Columns the capture-order key needs, or nothing when the modifier is off.
+
+        `capture_group` is a hash naming the anchor group, or 0 for none. A group is one SDK on one
+        device on one day. Inside it the device clock error is close to constant, so one anchor can
+        cancel it, and the day bound limits how far a device clock change can carry a wrong anchor.
+        Server SDKs get no group, because their events can share a device ID with a browser whose
+        clock differs. Mobile events rarely carry `$device_id`, so they fall back to the distinct ID
+        plus the device model, which keeps two devices that share one distinct ID apart.
+
+        `$client_capture_time` is written by capture when the client sent enough to derive it. It
+        is absent on some events and always on warehouse rows, which also have no group. Both
+        cases keep the stored timestamp.
+        """
+        if not self.context.modifiers.funnelUseClientCaptureOrder:
+            return []
+        if is_warehouse:
+            return [
+                ast.Alias(alias="capture_group", expr=parse_expr("_toUInt64(0)")),
+                # Same expression shape as the events branch so the UNION column types match.
+                ast.Alias(
+                    alias="client_capture_time",
+                    expr=parse_expr("parseDateTimeBestEffort('', 'UTC')"),
+                ),
+            ]
+        event = self.EVENT_TABLE_ALIAS
+        return [
+            ast.Alias(
+                alias="capture_group",
+                expr=parse_expr(
+                    """
+                    if(
+                        {lib} IN {client_libs},
+                        cityHash64(concat(
+                            {lib},
+                            '|',
+                            if(
+                                {device_id} != '',
+                                {device_id},
+                                if({lib} IN {mobile_libs}, concat({distinct_id}, '|', {device_model}), {distinct_id})
+                            ),
+                            '|',
+                            toString(toDate({timestamp}))
+                        )),
+                        _toUInt64(0)
+                    )
+                    """,
+                    placeholders={
+                        "lib": self._string_property(event, "$lib"),
+                        "device_id": self._string_property(event, "$device_id"),
+                        "device_model": self._string_property(event, "$device_model"),
+                        "distinct_id": ast.Field(chain=[event, "distinct_id"]),
+                        "timestamp": ast.Field(chain=[event, "timestamp"]),
+                        "client_libs": ast.Tuple(exprs=[ast.Constant(value=lib) for lib in CAPTURE_ORDER_CLIENT_LIBS]),
+                        "mobile_libs": ast.Tuple(exprs=[ast.Constant(value=lib) for lib in CAPTURE_ORDER_MOBILE_LIBS]),
+                    },
+                ),
+            ),
+            ast.Alias(
+                alias="client_capture_time",
+                # The timezone argument is load-bearing: with one argument the printer emits the throwing
+                # parser, which fails the whole query on any row without a capture instant instead of
+                # letting it fall back. The value is an absolute instant, so the zone does not change it.
+                expr=parse_expr(
+                    "parseDateTimeBestEffort({capture_time}, 'UTC')",
+                    placeholders={"capture_time": self._string_property(event, "$client_capture_time")},
+                ),
+            ),
+        ]
+
+    @staticmethod
+    def _string_property(table_alias: str, name: str) -> ast.Expr:
+        return ast.Call(
+            name="ifNull",
+            args=[
+                ast.Call(name="toString", args=[ast.Field(chain=[table_alias, "properties", name])]),
+                ast.Constant(value=""),
+            ],
+        )
 
     def _aggregation_target_expr(self) -> ast.Expr:
         query, funnelsFilter = self.context.query, self.context.funnelsFilter
