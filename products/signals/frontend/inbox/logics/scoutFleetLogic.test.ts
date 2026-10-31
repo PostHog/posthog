@@ -96,6 +96,7 @@ const BASE_CONFIG: SignalScoutConfigApi = {
     lifecycle_locked: false,
     network_access: 'trusted',
     model: null,
+    default_model: 'claude-sonnet-5-5',
     precheck_query: null,
     precheck_disabled: false,
     effective_precheck_query: null,

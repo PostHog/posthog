@@ -41,6 +41,7 @@ const config: SignalScoutConfigApi = {
     lifecycle_locked: false,
     network_access: 'trusted',
     model: null,
+    default_model: 'claude-sonnet-5-5',
     precheck_query: null,
     precheck_disabled: false,
     effective_precheck_query: null,
@@ -217,6 +218,7 @@ describe('ScoutConfigForm', () => {
 
     // Guards the pin's wire values: a model option must patch the raw model id (not its display
     // label), and Default must patch null (not '') — the backend treats null as "clear the pin".
+    // Default names the model the backend resolves, so a user can see what an unpinned scout runs on.
     it.each([
         ['Claude Sonnet 5.5', 'claude-sonnet-5-5'],
         ['Claude Opus 5.5', 'claude-opus-5-5'],
@@ -242,7 +244,7 @@ describe('ScoutConfigForm', () => {
 
         rerender(<ScoutConfigForm config={{ ...config, model: modelId }} onUpdate={onUpdate} />)
         fireEvent.click(getByLabelText(modelSelectLabel))
-        fireEvent.click(getByText('Default'))
+        fireEvent.click(getByText('Default (Claude Sonnet 5.5)'))
         expect(onUpdate).toHaveBeenLastCalledWith('config-1', { model: null })
         unmount()
     })
