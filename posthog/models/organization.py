@@ -2,7 +2,7 @@ import sys
 from collections.abc import Collection
 from datetime import datetime, timedelta
 from functools import cache as functools_cache
-from typing import TYPE_CHECKING, Any, Literal, Optional, Self, TypedDict, Union
+from typing import TYPE_CHECKING, Any, Literal, NotRequired, Optional, Self, TypedDict, Union
 
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
@@ -70,6 +70,10 @@ class OrganizationUsageInfo(TypedDict):
     logs_mb_ingested: OrganizationUsageResource | None
     replay_vision_credits: OrganizationUsageResource | None
     period: list[str] | None
+    # Billing's AI credit settings in USD, such as "250.00". The AI gateway reads them from llm_gateway_org.json.
+    ai_monthly_spend_limit_usd: NotRequired[str | None]
+    ai_low_balance_threshold_usd: NotRequired[str | None]
+    ai_automatic_reload_enabled: NotRequired[bool]
 
 
 @frozen
