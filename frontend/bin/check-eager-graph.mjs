@@ -46,7 +46,8 @@ const ROOTS = [
         budgetBytes: 1_200_000,
         forbidden: [
             'node_modules/monaco-editor/',
-            'src/lib/components/ActivityLog/describers',
+            // Activity describers load on demand through the activityDescribers registry.
+            'products/product_analytics/frontend/insights/activityDescriptions',
             // Inlined hoggie SVGs are huge (up to ~1 MiB each), and one static barrel import
             // from eager code drags every hoggie used anywhere in the app onto the eager
             // path. All app code uses pngHoggie (lib/brand/hoggies) instead - the package's
@@ -106,7 +107,8 @@ const ROOTS = [
         budgetBytes: 7_100_000,
         forbidden: [
             'node_modules/monaco-editor/',
-            'src/lib/components/ActivityLog/describers',
+            // Activity describers load on demand through the activityDescribers registry.
+            'products/product_analytics/frontend/insights/activityDescriptions',
             // Widget previews render product UI (recordings player, error tracking list, logs) and
             // are only needed by the add-widget modal; the recordings player logic pulls in rrweb.
             {

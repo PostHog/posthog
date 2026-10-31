@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 
 import api, { ActivityLogPaginatedResponse } from 'lib/api'
+import { activityDescriberLoaders } from 'lib/components/ActivityLog/activityDescribers'
 import {
     ActivityLogItem,
     Describer,
@@ -71,28 +72,33 @@ export const activityLogTransforms = {
     },
 }
 
-let loadedDescriberFor: ((logItem?: ActivityLogItem) => Describer | undefined) | null = null
+const loadedDescribers = new Map<string, Describer>()
 let describersImport: Promise<void> | null = null
 
 /**
- * The describer registry statically imports every product's describer — a large graph
- * (insight cards, chart.js, validators) that must stay out of the eagerly-loaded app shell,
- * so it is loaded on demand here. Loaders that fetch activity items await this before
- * returning, which guarantees `describerFor` resolves real describers by the time any
- * selector humanizes those items.
+ * Each describer imports a large graph (insight cards, chart.js, validators) that must stay out of
+ * the eagerly-loaded app shell, so the registry holds loaders and this loads them on demand.
+ * Loaders that fetch activity items await this before returning, which guarantees `describerFor`
+ * resolves real describers by the time any selector humanizes those items.
  *
- * Never rejects: if the chunk fails to load (e.g. a stale tab after a deploy), the loader
- * still resolves and `describerFor` degrades to `defaultDescriber`; the next call retries.
+ * Never rejects: if a chunk fails to load (e.g. a stale tab after a deploy), the loader still
+ * resolves and `describerFor` degrades to `defaultDescriber` for that scope; the next call retries.
  */
 export function ensureActivityDescribersLoaded(): Promise<void> {
-    describersImport ??= import('./describers')
-        .then((registry) => {
-            loadedDescriberFor = registry.describerFor
+    describersImport ??= Promise.allSettled(
+        Object.entries(activityDescriberLoaders).map(async ([scope, load]) => {
+            loadedDescribers.set(scope, await load())
         })
-        .catch((error) => {
+    ).then((results) => {
+        const failures = results.filter((result) => result.status === 'rejected')
+        if (failures.length) {
             describersImport = null
-            console.error('Failed to load activity describers, falling back to default descriptions', error)
-        })
+            console.error(
+                'Failed to load activity describers, falling back to default descriptions',
+                failures.map((failure) => failure.reason)
+            )
+        }
+    })
     return describersImport
 }
 
@@ -102,11 +108,10 @@ export function ensureActivityDescribersLoaded(): Promise<void> {
  * So, we inject the function instead
  * **/
 export const describerFor = (logItem?: ActivityLogItem): Describer | undefined => {
-    if (!loadedDescriberFor) {
+    if (!describersImport) {
         void ensureActivityDescribersLoaded()
-        return defaultDescriber
     }
-    return loadedDescriberFor(logItem)
+    return (logItem && loadedDescribers.get(logItem.scope)) || defaultDescriber
 }
 
 export type ActivityLogLogicProps = {

@@ -8,6 +8,7 @@ import { LayoutItem } from 'react-grid-layout'
 import { LemonTableColumns } from '@posthog/lemon-ui'
 
 import { PaginatedResponse } from 'lib/api'
+import type { Describer } from 'lib/components/ActivityLog/humanizeActivity'
 import { CommonFilters, HeatmapFilters, HeatmapFixedPositionMode } from 'lib/components/heatmaps/types'
 import { HedgehogActorOptions } from 'lib/components/HedgehogMode/types'
 import { SessionRecordingTriggerGroupsConfig, UrlTriggerConfig } from 'lib/components/IngestionControls/types'
@@ -7966,6 +7967,11 @@ export interface ProductManifest {
      * request after login (see `productSetupPreloadLogic`).
      */
     setupProbe?: ProductSetupProbe
+    /**
+     * Describers that turn this product's activity log items into readable changes, keyed by scope.
+     * Aggregated into `productActivityDescribers`. Each one loads on demand, so it stays out of the shell.
+     */
+    activityDescribers?: Partial<Record<ActivityScope, () => Promise<Describer>>>
 }
 
 export interface ProjectTreeRef {
