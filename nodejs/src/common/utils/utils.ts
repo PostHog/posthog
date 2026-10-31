@@ -321,12 +321,23 @@ export function castTimestampOrNow(
     timestampFormat: TimestampFormat.ClickHouseSecondPrecision
 ): ClickHouseTimestampSecondPrecision
 export function castTimestampOrNow(
+    timestamp: DateTime | string | null,
+    timestampFormat: TimestampFormat
+): ISOTimestamp | ClickHouseTimestamp | ClickHouseTimestampSecondPrecision
+export function castTimestampOrNow(
     timestamp?: DateTime | string | null,
     timestampFormat: TimestampFormat = TimestampFormat.ISO
 ): ISOTimestamp | ClickHouseTimestamp | ClickHouseTimestampSecondPrecision {
     if (!timestamp) {
-        timestamp = DateTime.utc()
-    } else if (typeof timestamp === 'string') {
+        return castTimestampToClickhouseFormat(new Date(), timestampFormat)
+    }
+    if (typeof timestamp === 'string') {
+        if (timestampFormat !== TimestampFormat.ISO) {
+            const formatted = clickHouseTimestampFromCanonicalISO(timestamp, timestampFormat)
+            if (formatted !== null) {
+                return formatted
+            }
+        }
         timestamp = DateTime.fromISO(timestamp)
     }
 
@@ -336,24 +347,74 @@ export function castTimestampOrNow(
 const DATETIME_FORMAT_CLICKHOUSE_SECOND_PRECISION = 'yyyy-MM-dd HH:mm:ss'
 const DATETIME_FORMAT_CLICKHOUSE = 'yyyy-MM-dd HH:mm:ss.u'
 
-export function castTimestampToClickhouseFormat(timestamp: DateTime, timestampFormat: TimestampFormat.ISO): ISOTimestamp
+// Luxon prints years outside 0000-9999 differently from toISOString, so those stay on luxon.
+const MIN_FOUR_DIGIT_YEAR_MILLIS = Date.parse('0000-01-01T00:00:00.000Z')
+const MAX_FOUR_DIGIT_YEAR_MILLIS = Date.parse('9999-12-31T23:59:59.999Z')
+
+function clickHouseTimestampFromMillis(
+    millis: number,
+    timestampFormat: TimestampFormat.ClickHouse | TimestampFormat.ClickHouseSecondPrecision
+): ClickHouseTimestamp | ClickHouseTimestampSecondPrecision | null {
+    if (!(millis >= MIN_FOUR_DIGIT_YEAR_MILLIS && millis <= MAX_FOUR_DIGIT_YEAR_MILLIS)) {
+        return null
+    }
+    return isoToClickHouseTimestamp(new Date(millis).toISOString(), timestampFormat)
+}
+
+function clickHouseTimestampFromCanonicalISO(
+    iso: string,
+    timestampFormat: TimestampFormat.ClickHouse | TimestampFormat.ClickHouseSecondPrecision
+): ClickHouseTimestamp | ClickHouseTimestampSecondPrecision | null {
+    const millis = Date.parse(iso)
+    // Date.parse accepts strings luxon rejects, such as 2023-02-30, so only an exact round trip skips luxon.
+    if (
+        !(millis >= MIN_FOUR_DIGIT_YEAR_MILLIS && millis <= MAX_FOUR_DIGIT_YEAR_MILLIS) ||
+        new Date(millis).toISOString() !== iso
+    ) {
+        return null
+    }
+    return isoToClickHouseTimestamp(iso, timestampFormat)
+}
+
+function isoToClickHouseTimestamp(
+    iso: string,
+    timestampFormat: TimestampFormat.ClickHouse | TimestampFormat.ClickHouseSecondPrecision
+): ClickHouseTimestamp | ClickHouseTimestampSecondPrecision {
+    return timestampFormat === TimestampFormat.ClickHouse
+        ? ((iso.slice(0, 10) + ' ' + iso.slice(11, 23)) as ClickHouseTimestamp)
+        : ((iso.slice(0, 10) + ' ' + iso.slice(11, 19)) as ClickHouseTimestampSecondPrecision)
+}
+
 export function castTimestampToClickhouseFormat(
-    timestamp: DateTime,
+    timestamp: DateTime | Date,
+    timestampFormat: TimestampFormat.ISO
+): ISOTimestamp
+export function castTimestampToClickhouseFormat(
+    timestamp: DateTime | Date,
     timestampFormat: TimestampFormat.ClickHouse
 ): ClickHouseTimestamp
 export function castTimestampToClickhouseFormat(
-    timestamp: DateTime,
+    timestamp: DateTime | Date,
     timestampFormat: TimestampFormat.ClickHouseSecondPrecision
 ): ClickHouseTimestampSecondPrecision
 export function castTimestampToClickhouseFormat(
-    timestamp: DateTime,
+    timestamp: DateTime | Date,
     timestampFormat: TimestampFormat
 ): ISOTimestamp | ClickHouseTimestamp | ClickHouseTimestampSecondPrecision
 export function castTimestampToClickhouseFormat(
-    timestamp: DateTime,
+    timestamp: DateTime | Date,
     timestampFormat: TimestampFormat = TimestampFormat.ISO
 ): ISOTimestamp | ClickHouseTimestamp | ClickHouseTimestampSecondPrecision {
-    timestamp = timestamp.toUTC()
+    if (
+        timestampFormat === TimestampFormat.ClickHouse ||
+        timestampFormat === TimestampFormat.ClickHouseSecondPrecision
+    ) {
+        const formatted = clickHouseTimestampFromMillis(timestamp.valueOf(), timestampFormat)
+        if (formatted !== null) {
+            return formatted
+        }
+    }
+    timestamp = (timestamp instanceof Date ? DateTime.fromJSDate(timestamp) : timestamp).toUTC()
     switch (timestampFormat) {
         case TimestampFormat.ClickHouseSecondPrecision:
             return timestamp.toFormat(DATETIME_FORMAT_CLICKHOUSE_SECOND_PRECISION) as ClickHouseTimestampSecondPrecision
