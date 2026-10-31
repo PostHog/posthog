@@ -92,6 +92,7 @@ Leave a blank line above each label, since a label the line above runs onto is p
    An unknown root cause does not disqualify a report. When you name the evidence, the code surface, or a failure path someone can reproduce, the investigation is the action.
 2. `requires_human_input` — a code change is plausible, but a person must first make a call only a person can make: a product decision, a trade-off between valid approaches, business context that is not in the data or the code.
    Name that decision in `actionability_explanation`. If you cannot name it, the report is not waiting on a human.
+   "Confirm whether this is a real regression", "verify the release", and "reproduce the defect" are not such decisions: they are the investigation an agent does.
 3. `not_actionable` — no answer would lead to code work.
 
 In doubt between the first two, pick `immediately_actionable`; in doubt between the last two, pick `not_actionable`.

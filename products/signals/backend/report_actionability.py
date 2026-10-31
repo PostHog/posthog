@@ -18,5 +18,10 @@ ACTIONABILITY_CRITERIA = """1. **immediately_actionable** — A coding agent cou
 2. **requires_human_input** — A code change is plausible, but a person must first make a call only a person can make: a product decision, a trade-off between valid approaches, business context that is not in the data or the code. The input only counts if it's needed *for a code change* — if no answer would lead to code work, this is `not_actionable`. "Someone should look into this first" is not human input; that is the work itself.
 3. **not_actionable** — No path to a code change exists (too vague, insufficient evidence, expected behavior, or the resolution lives entirely outside the codebase — e.g. a pricing/GTM/business call).
 
+Calibration:
+- A metric drop that lines up with a release, an error that escalates without reaching its recorded outcome, and a defect with a known input that reproduces it are all `immediately_actionable`, also when the cause is still a hypothesis. To verify, reproduce, trace, or restore is the agent's work.
+- "Confirm whether this is a real regression", "decide the fix", and "review before work starts" are not human decisions. They do not make a report `requires_human_input`.
+- A `requires_human_input` explanation must name the decision that blocks code and what each answer would change, for example "whether the annual plan toggle stays on the new pricing page". If you cannot name that decision, choose `immediately_actionable`.
+
 When in doubt between `immediately_actionable` and `requires_human_input`, choose `immediately_actionable`.
 When in doubt between `requires_human_input` and `not_actionable`, choose `not_actionable`."""
