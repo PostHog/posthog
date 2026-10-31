@@ -1,6 +1,6 @@
 import * as latestVersions from './latest-versions.json'
-import { NodeKind } from './schema'
-import { integer } from './schema/type-utils'
+import { NodeKind } from './schema-general'
+import { integer } from './type-utils'
 
 // strip comment
 const sanitizedVersions = Object.fromEntries(Object.entries(latestVersions).filter(([key]) => key !== '//'))

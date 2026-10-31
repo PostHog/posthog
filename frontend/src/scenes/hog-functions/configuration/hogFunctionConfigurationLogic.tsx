@@ -45,6 +45,7 @@ import { userLogic } from 'scenes/userLogic'
 import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
+import { setLatestVersionsOnQuery } from '~/queries/schema/query-versions'
 import {
     DataTableNode,
     EventsNode,
@@ -54,7 +55,6 @@ import {
     ProductKey,
     TrendsQuery,
 } from '~/queries/schema/schema-general'
-import { setLatestVersionsOnQuery } from '~/queries/utils'
 import {
     AnyPropertyFilter,
     AvailableFeature,

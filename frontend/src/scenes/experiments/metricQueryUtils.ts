@@ -14,6 +14,7 @@ import {
     isWarehouseSeriesNode,
 } from 'scenes/insights/filters/ActionFilter/seriesNode'
 
+import { setLatestVersionsOnQuery } from '~/queries/schema/query-versions'
 import type {
     ActionsNode,
     BreakdownFilter,
@@ -35,7 +36,6 @@ import type {
     TrendsQuery,
 } from '~/queries/schema/schema-general'
 import { ExperimentMetricType, ExperimentWarehouseNativeMathType, NodeKind } from '~/queries/schema/schema-general'
-import { setLatestVersionsOnQuery } from '~/queries/utils'
 import type { IntervalType } from '~/types'
 import { ChartDisplayType, ExperimentMetricMathType } from '~/types'
 

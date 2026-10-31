@@ -45,6 +45,7 @@ import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLo
 import { cohortsModel } from '~/models/cohortsModel'
 import { tagsModel } from '~/models/tagsModel'
 import { performQuery } from '~/queries/query'
+import { setLatestVersionsOnQuery } from '~/queries/schema/query-versions'
 import {
     Breakdown,
     ExperimentExposureCriteria,
@@ -57,7 +58,6 @@ import {
     NodeKind,
     TrendsQuery,
 } from '~/queries/schema/schema-general'
-import { setLatestVersionsOnQuery } from '~/queries/utils'
 import {
     BreakdownAttributionType,
     BreakdownType,

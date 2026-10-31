@@ -7,6 +7,7 @@ import {
 } from 'scenes/insights/filters/ActionFilter/cleanSeriesNodes'
 
 import { cleanEntityProperties } from '~/queries/nodes/InsightQuery/utils/cleanProperties'
+import { setLatestVersionsOnQuery } from '~/queries/schema/query-versions'
 import {
     ActionsNode,
     AnyDataWarehouseNode,
@@ -19,7 +20,6 @@ import {
     MathType,
     NodeKind,
 } from '~/queries/schema/schema-general'
-import { setLatestVersionsOnQuery } from '~/queries/utils'
 import {
     ActionFilter,
     AnyDataWarehouseFilter,
