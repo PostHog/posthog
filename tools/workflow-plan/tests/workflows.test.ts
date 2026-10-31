@@ -453,6 +453,34 @@ const pathsFilterJobs = workflowFiles.flatMap((file) =>
 
 const STEP_EXPECTATIONS: StepExpectation[] = [
     ...[
+        { name: 'plan-only PR', mode: 'plan', matrix: [{}], fork: false, failed: false, runs: false },
+        { name: 'upload-mode PR', mode: 'upload', matrix: [{}], fork: false, failed: false, runs: true },
+        { name: 'upload-mode fork PR', mode: 'upload', matrix: [{}], fork: true, failed: false, runs: false },
+        { name: 'upload-mode empty matrix', mode: 'upload', matrix: [], fork: false, failed: false, runs: false },
+        { name: 'failed plan', mode: 'upload', matrix: [{}], fork: false, failed: true, runs: false },
+    ].map(({ name, mode, matrix, fork, failed, runs }) => ({
+        file: 'release.yml',
+        job: 'plan',
+        step: 'cache-dist',
+        scenario: {
+            name,
+            github: pullRequest({ fork }),
+            steps: {
+                plan: {
+                    plan: {
+                        outcome: failed ? ('failure' as const) : ('success' as const),
+                        outputs: {
+                            manifest: JSON.stringify({
+                                ci: { github: { pr_run_mode: mode, artifacts_matrix: { include: matrix } } },
+                            }),
+                        },
+                    },
+                },
+            },
+        },
+        runs,
+    })),
+    ...[
         { name: 'exact schema hit', matched: 'posthog-schema-mig-v2-exact', runs: false },
         { name: 'schema cache miss', matched: '', runs: false },
         { name: 'master snapshot fallback', matched: `posthog-schema-master-${'a'.repeat(40)}`, runs: true },
