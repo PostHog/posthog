@@ -6,9 +6,11 @@ import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 import { mswDecorator } from '~/mocks/browser'
 import { toPaginatedResponse } from '~/mocks/handlers'
-import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
+import { AnyPropertyFilter, IntervalType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { FilterBar } from './FilterBar'
+import { FilterBarDateRange } from './FilterBarDateRange'
+import { FilterBarInterval } from './FilterBarInterval'
 import { filterBarLogic } from './filterBarLogic'
 
 const EVENT_PROPERTIES = [
@@ -40,10 +42,17 @@ const FILTERS: AnyPropertyFilter[] = [
     { type: PropertyFilterType.Event, key: '$os', operator: PropertyOperator.IsSet, value: null },
 ]
 
-type StoryArgs = { filters: AnyPropertyFilter[]; openMenu?: boolean; editIndex?: number }
+type StoryArgs = { filters: AnyPropertyFilter[]; dateFrom?: string | null; openMenu?: boolean; editIndex?: number }
 
-function Playground({ filters: initialFilters, openMenu, editIndex }: StoryArgs): JSX.Element {
+function Playground({
+    filters: initialFilters,
+    dateFrom: initialDateFrom = null,
+    openMenu,
+    editIndex,
+}: StoryArgs): JSX.Element {
     const [filters, setFilters] = useState(initialFilters)
+    const [interval, setInterval] = useState<IntervalType | null>(null)
+    const [dates, setDates] = useState<[string | null, string | null]>([initialDateFrom, null])
     useOnMountEffect(() => {
         const logic = filterBarLogic.findMounted({ pageKey: 'story' })
         if (!logic) {
@@ -58,7 +67,14 @@ function Playground({ filters: initialFilters, openMenu, editIndex }: StoryArgs)
     })
     return (
         <div data-quill className="h-96 p-4">
-            <FilterBar pageKey="story" filters={filters} onChange={setFilters} />
+            <FilterBar pageKey="story" filters={filters} onChange={setFilters}>
+                <FilterBarDateRange
+                    dateFrom={dates[0]}
+                    dateTo={dates[1]}
+                    onChange={(dateFrom, dateTo) => setDates([dateFrom, dateTo])}
+                />
+                <FilterBarInterval value={interval} onChange={setInterval} />
+            </FilterBar>
         </div>
     )
 }
@@ -109,7 +125,7 @@ type Story = StoryObj<StoryArgs>
 
 export const Empty: Story = { args: { filters: [] } }
 
-export const WithFilters: Story = { args: { filters: FILTERS } }
+export const WithFilters: Story = { args: { filters: FILTERS, dateFrom: '-30d' } }
 
 export const FieldPicker: Story = {
     args: { filters: FILTERS.slice(0, 1), openMenu: true },

@@ -6,18 +6,24 @@ import {
     DropdownMenu,
     DropdownMenuContent,
     DropdownMenuFilterProvider,
-    DropdownMenuInput,
     DropdownMenuTrigger,
 } from '@posthog/quill'
 
 import { FilterBarFieldRows } from './FilterBarFieldRows'
 import { fieldFromFilter } from './filterBarFields'
 import { FilterBarStage, filterBarLogic } from './filterBarLogic'
+import { FilterBarMenuHeader } from './FilterBarMenuHeader'
 import { FilterBarSaveRows } from './FilterBarSaveRows'
 import { FilterBarValueRows } from './FilterBarValueRows'
 
-function inputCopyForStage(stage: FilterBarStage, fieldLabel?: string): { label: string; placeholder: string } {
+function inputCopyForStage(
+    stage: FilterBarStage,
+    fieldLabel?: string,
+    categoryPlural?: string
+): { label: string; placeholder: string } {
     switch (stage) {
+        case 'category':
+            return { label: `Search ${categoryPlural}`, placeholder: `Search ${categoryPlural}…` }
         case 'values':
             return { label: 'Search or type a value', placeholder: `${fieldLabel ?? 'Value'}…` }
         case 'save':
@@ -28,35 +34,31 @@ function inputCopyForStage(stage: FilterBarStage, fieldLabel?: string): { label:
 }
 
 /**
- * The picker behind the add button. One menu, one search field, three screens: the fields to filter on, then
- * the values of the field just picked, and the name prompt when saving the current filters.
+ * The picker behind the add button. One menu, one search field, four screens: the fields to filter on, the
+ * fields of one category, the values of the field just picked, and the name prompt when saving the current filters.
  */
 export function FilterBarAddMenu(): JSX.Element {
-    const { menuOpen, query, stage, items, editingItem } = useValues(filterBarLogic)
+    const { menuOpen, query, stage, editingItem, browsingCategoryId, categoriesById } = useValues(filterBarLogic)
     const { setMenuOpen, setQuery } = useActions(filterBarLogic)
-    const hasFilters = items.length > 0
 
-    const input = inputCopyForStage(stage, editingItem ? fieldFromFilter(editingItem.filter)?.label : undefined)
+    const input = inputCopyForStage(
+        stage,
+        editingItem ? fieldFromFilter(editingItem.filter)?.label : undefined,
+        browsingCategoryId ? categoriesById[browsingCategoryId]?.plural : undefined
+    )
 
     return (
         <DropdownMenuFilterProvider filter={null} value={query} onValueChange={setQuery} autoHighlight>
             <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen} modal={false}>
                 <DropdownMenuTrigger
-                    render={
-                        hasFilters ? (
-                            <Button size="icon" variant="outline" aria-label="Add filter" tooltip="Add filter" />
-                        ) : (
-                            <Button variant="outline" />
-                        )
-                    }
+                    render={<Button size="icon" variant="outline" aria-label="Add filter" tooltip="Add filter" />}
                     data-attr="filter-bar-add"
                 >
                     <IconFilter />
-                    {!hasFilters && 'Filter'}
                 </DropdownMenuTrigger>
                 <DropdownMenuContent
                     className="w-72"
-                    header={<DropdownMenuInput aria-label={input.label} placeholder={input.placeholder} />}
+                    header={<FilterBarMenuHeader label={input.label} placeholder={input.placeholder} />}
                 >
                     {stage === 'values' && editingItem ? (
                         <FilterBarValueRows item={editingItem} query={query} />

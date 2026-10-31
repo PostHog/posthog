@@ -50,11 +50,22 @@
     }
 
     /*
-     * Inner scroller. Holds padding, overflow, max-height + the edge fade.
-     * Sized via `var(--available-height)` from base-ui's positioner — it
-     * cascades down so it resolves on the child here.
+     * The popup is capped at base-ui's `--available-height` and stacks an optional header above the
+     * scroller. The scroller takes the height the header leaves, so the last row stays reachable.
+     */
+    .quill-menu__content,
+    .quill-menu__sub-content {
+        display: flex;
+        flex-direction: column;
+        max-height: var(--available-height);
+    }
+
+    /*
+     * Inner scroller. Holds padding, overflow + the edge fade.
      */
     .quill-menu__scroller {
+        flex: 1 1 auto;
+        min-height: 0;
         max-height: var(--available-height);
         padding: 0.25rem;
         overflow: hidden auto;
@@ -71,6 +82,7 @@
      */
     .quill-menu__input-wrapper {
         display: flex;
+        flex-shrink: 0;
         gap: 0.5rem;
         align-items: center;
         height: 2rem;

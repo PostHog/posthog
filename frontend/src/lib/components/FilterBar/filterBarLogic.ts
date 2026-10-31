@@ -30,6 +30,7 @@ import { PropertyDefinitionsListType } from '~/generated/core/api.schemas'
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel, Noun } from '~/models/groupsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import {
     AnyPropertyFilter,
     CohortType,
@@ -73,6 +74,8 @@ import {
 
 export const SEARCH_RESULTS_PER_CATEGORY = 5
 export const CATEGORY_LIST_LIMIT = 50
+// PostHog's labelled properties are spread across the alphabet, so one page has to cover all of them.
+const CORE_BROWSE_SCAN_LIMIT = 500
 export const RECENT_FIELDS_SHOWN = 5
 export const POPULAR_FIELDS_SHOWN = 6
 
@@ -85,7 +88,7 @@ export interface FilterBarLogicProps {
     categoryIds?: FilterBarCategoryId[]
 }
 
-export type FilterBarStage = 'fields' | 'values' | 'save'
+export type FilterBarStage = 'fields' | 'category' | 'values' | 'save'
 
 interface ItemsState {
     nextId: number
@@ -133,6 +136,7 @@ export interface filterBarLogicValues {
     recentFilters: RecentTaxonomicFilter[] // recentTaxonomicFiltersLogic
     currentTeamId: number | null // teamLogic
     _itemsState: ItemsState
+    browsingCategoryId: FilterBarCategoryId | null
     categories: FilterBarCategory[]
     categoriesById: Partial<Record<FilterBarCategoryId, FilterBarCategory>>
     categoryFields: Partial<Record<FilterBarCategoryId, FilterBarField[]>>
@@ -180,6 +184,9 @@ export interface filterBarLogicActions {
     }
     applySavedSet: (id: string) => {
         id: string
+    }
+    browseCategory: (categoryId: FilterBarCategoryId | null) => {
+        categoryId: FilterBarCategoryId | null
     }
     cancelSaving: () => {
         value: true
@@ -324,7 +331,7 @@ export interface filterBarLogicMeta {
         items: (_itemsState: ItemsState) => FilterBarItem[]
         completeFilters: (items: FilterBarItem[]) => AnyPropertyFilter[]
         editingItem: (items: FilterBarItem[], editingId: number | null) => FilterBarItem | null
-        stage: (editingItem: FilterBarItem | null, saving: boolean) => FilterBarStage
+        stage: (editingItem: FilterBarItem | null, saving: boolean, browsingCategoryId: any) => FilterBarStage
         recentFilterEntries: (
             recentFilters: RecentTaxonomicFilter[],
             categoriesById: Partial<Record<FilterBarCategoryId, FilterBarCategory>>,
@@ -368,6 +375,7 @@ export const filterBarLogic = kea<filterBarLogicType>([
         setQuery: (query: string) => ({ query }),
         setCategoryQuery: (categoryId: FilterBarCategoryId, query: string) => ({ categoryId, query }),
         setMoreExpanded: (expanded: boolean) => ({ expanded }),
+        browseCategory: (categoryId: FilterBarCategoryId | null) => ({ categoryId }),
         setEditingId: (id: number | null) => ({ id }),
         setItems: (filters: AnyPropertyFilter[]) => ({ filters }),
         replaceItems: (filters: AnyPropertyFilter[]) => ({ filters }),
@@ -512,6 +520,7 @@ export const filterBarLogic = kea<filterBarLogicType>([
             '',
             {
                 setQuery: (_, { query }) => query,
+                browseCategory: () => '',
                 appendItem: () => '',
                 setEditingId: () => '',
                 startSaving: () => '',
@@ -525,6 +534,15 @@ export const filterBarLogic = kea<filterBarLogicType>([
             {
                 setCategoryQuery: (state, { categoryId, query }) => ({ ...state, [categoryId]: query }),
                 setMenuOpen: () => ({}),
+            },
+        ],
+        browsingCategoryId: [
+            null as FilterBarCategoryId | null,
+            {
+                browseCategory: (_, { categoryId }) => categoryId,
+                setMenuOpen: () => null,
+                setEditingId: () => null,
+                startSaving: () => null,
             },
         ],
         moreExpanded: [false, { setMoreExpanded: (_, { expanded }) => expanded, setMenuOpen: () => false }],
@@ -596,9 +614,13 @@ export const filterBarLogic = kea<filterBarLogicType>([
                 items.find((item) => item.id === editingId) ?? null,
         ],
         stage: [
-            (s) => [s.editingItem, s.saving],
-            (editingItem: FilterBarItem | null, saving: boolean): FilterBarStage =>
-                saving ? 'save' : editingItem ? 'values' : 'fields',
+            (s) => [s.editingItem, s.saving, s.browsingCategoryId],
+            (
+                editingItem: FilterBarItem | null,
+                saving: boolean,
+                browsingCategoryId: FilterBarCategoryId | null
+            ): FilterBarStage =>
+                saving ? 'save' : editingItem ? 'values' : browsingCategoryId ? 'category' : 'fields',
         ],
         recentFilterEntries: [
             (s) => [s.recentFilters, s.categoriesById, s.items],
@@ -660,8 +682,15 @@ export const filterBarLogic = kea<filterBarLogicType>([
         setQuery: ({ query }) => {
             if (values.stage === 'fields') {
                 actions.searchFields({ query })
+            } else if (values.stage === 'category' && values.browsingCategoryId) {
+                actions.setCategoryQuery(values.browsingCategoryId, query)
             } else if (values.stage === 'values' && values.editingId != null) {
                 actions.loadItemValues(values.editingId, query)
+            }
+        },
+        browseCategory: ({ categoryId }) => {
+            if (categoryId) {
+                actions.setCategoryQuery(categoryId, '')
             }
         },
         setCategoryQuery: ({ categoryId }) => {
@@ -828,6 +857,14 @@ export const filterBarLogic = kea<filterBarLogicType>([
     }),
 ])
 
+function hasBrowseGroups(categoryId: FilterBarCategoryId): boolean {
+    return (
+        categoryId === 'event_properties' ||
+        categoryId === 'person_properties' ||
+        categoryId.startsWith('group_properties_')
+    )
+}
+
 async function fetchCategoryFields(
     category: FilterBarCategory,
     query: string,
@@ -855,17 +892,51 @@ async function fetchCategoryFields(
             if (!projectId) {
                 return []
             }
-            const response = await generatedApi.propertyDefinitionsList(String(projectId), {
-                type: propertyDefinitionTypeForCategory(category.id) as PropertyDefinitionsListType,
-                group_type_index: category.groupTypeIndex,
-                is_feature_flag:
-                    category.id === 'feature_flags' ? true : category.id === 'event_properties' ? false : undefined,
-                exclude_hidden: true,
-                exclude_restricted: true,
-                search: query || undefined,
-                limit,
-            })
-            return response.results.map((definition) => fieldFromDefinition(category.id, definition))
+            const list = (params: {
+                search?: string
+                exclude_core_properties?: boolean
+                limit: number
+            }): ReturnType<typeof generatedApi.propertyDefinitionsList> =>
+                generatedApi.propertyDefinitionsList(String(projectId), {
+                    type: propertyDefinitionTypeForCategory(category.id) as PropertyDefinitionsListType,
+                    group_type_index: category.groupTypeIndex,
+                    is_feature_flag:
+                        category.id === 'feature_flags' ? true : category.id === 'event_properties' ? false : undefined,
+                    exclude_hidden: true,
+                    exclude_restricted: true,
+                    ...params,
+                })
+            if (query || !hasBrowseGroups(category.id)) {
+                const response = await list({ search: query || undefined, limit })
+                return response.results.map((definition) => fieldFromDefinition(category.id, definition))
+            }
+            // Browsing without a query: the project's own properties, then the PostHog ones that have a label.
+            // PostHog's system, debug and unlabelled `$` properties stay out of the list, and search still finds them.
+            const [project, all] = await Promise.all([
+                list({ exclude_core_properties: true, limit }),
+                list({ limit: CORE_BROWSE_SCAN_LIMIT }),
+            ])
+            const groupType = taxonomicGroupTypeForCategory(category.id)
+            const projectFields = project.results
+                .filter((definition) => !definition.name.startsWith('$'))
+                .map(
+                    (definition): FilterBarField => ({
+                        ...fieldFromDefinition(category.id, definition),
+                        group: 'project',
+                    })
+                )
+            const posthogFields = all.results
+                .filter((definition) => {
+                    const core = getCoreFilterDefinition(definition.name, groupType)
+                    return core && !core.system && !core.used_for_debug
+                })
+                .map(
+                    (definition): FilterBarField => ({
+                        ...fieldFromDefinition(category.id, definition),
+                        group: 'posthog',
+                    })
+                )
+            return [...projectFields, ...posthogFields]
         }
     }
 }

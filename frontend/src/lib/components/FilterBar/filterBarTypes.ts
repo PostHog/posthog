@@ -1,3 +1,5 @@
+import type { ComponentType } from 'react'
+
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator, PropertyType } from '~/types'
 
 /** Where a field comes from. Group properties get one category per group type, keyed by its index. */
@@ -30,6 +32,11 @@ export interface FilterBarField {
     label: string
     propertyType?: PropertyType | null
     description?: string | null
+    /**
+     * Where a category's browse list puts the field: the project's own properties, or the PostHog ones with a known
+     * label. Fields without a group show in one flat list.
+     */
+    group?: 'project' | 'posthog'
 }
 
 export type FilterBarValueKind = 'list' | 'number' | 'date' | 'boolean' | 'cohort' | 'sql' | 'none'
@@ -53,4 +60,15 @@ export interface FilterBarSavedSet {
     name: string
     filters: AnyPropertyFilter[]
     createdAt: number
+}
+
+export interface FilterBarControl {
+    id: string
+    label: string
+    icon: ComponentType
+    hasValue: boolean
+    /** The chip always shows, with a default value when `hasValue` is false, so the add menu leaves the control out. */
+    persistent?: boolean
+    open: () => void
+    clear: () => void
 }

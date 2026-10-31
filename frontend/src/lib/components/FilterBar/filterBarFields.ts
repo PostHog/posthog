@@ -345,6 +345,20 @@ export function cohortNameForFilter(
     return filter.cohort_name || cohortsById[filter.value]?.name || `Cohort ${filter.value}`
 }
 
+export function pluralFieldNoun(label: string): string {
+    const words = label
+        .trim()
+        .split(/\s+/)
+        .map((word) => (word === word.toUpperCase() ? word : word.toLowerCase()))
+    const last = words.pop() ?? ''
+    const plural = /(s|x|ch|sh)$/i.test(last)
+        ? `${last}es`
+        : /[^aeiou]y$/.test(last)
+          ? `${last.slice(0, -1)}ies`
+          : `${last}s`
+    return [...words, plural].join(' ')
+}
+
 export function valueLabelForFilter(
     filter: AnyPropertyFilter,
     cohortsById: Partial<Record<CohortType['id'], CohortType>> = {},
@@ -364,8 +378,11 @@ export function valueLabelForFilter(
     if (values.length === 0) {
         return { text: 'choose a value', placeholder: true }
     }
-    const first = formatValue(values[0])
-    return { text: values.length > 1 ? `${first}, +${values.length - 1}` : first, placeholder: false }
+    if (values.length > 1) {
+        const noun = pluralFieldNoun(fieldFromFilter(filter)?.label ?? 'value')
+        return { text: `${values.length} ${noun}`, placeholder: false }
+    }
+    return { text: formatValue(values[0]), placeholder: false }
 }
 
 export function completeFilters(items: FilterBarItem[]): AnyPropertyFilter[] {

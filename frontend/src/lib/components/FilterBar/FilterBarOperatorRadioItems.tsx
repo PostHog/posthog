@@ -8,7 +8,7 @@ import { filterOperator, operatorOptionsForFilter } from './filterBarFields'
 import { filterBarLogic } from './filterBarLogic'
 import { FilterBarItem } from './filterBarTypes'
 
-/** The operators a filter's field allows, as radio rows. Shared by the chip's operator menu and the value picker. */
+/** The operators a filter's field allows, as radio rows in the chip's operator menu. */
 export function FilterBarOperatorRadioItems({
     item,
     propertyType,

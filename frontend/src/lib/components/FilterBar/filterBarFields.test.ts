@@ -8,6 +8,7 @@ import {
     newFilterForField,
     operatorLabelForFilter,
     operatorOptionsForFilter,
+    pluralFieldNoun,
     valueLabelForFilter,
 } from './filterBarFields'
 
@@ -63,10 +64,20 @@ describe('filterBarFields', () => {
         expect(operatorLabelForFilter(browser(['Chrome', 'Safari'], PropertyOperator.IsNot))).toBe('is none of')
     })
 
+    it.each([
+        ['Browser', 'browsers'],
+        ['Current URL', 'current URLs'],
+        ['OS', 'OSes'],
+        ['Country', 'countries'],
+    ])('pluralizes %s as %s for a value count', (label, plural) => {
+        expect(pluralFieldNoun(label)).toBe(plural)
+    })
+
     it('summarizes the value segment of a chip', () => {
         expect(valueLabelForFilter(browser(null))).toEqual({ text: 'choose a value', placeholder: true })
+        expect(valueLabelForFilter(browser(['Chrome']))).toEqual({ text: 'Chrome', placeholder: false })
         expect(valueLabelForFilter(browser(['Chrome', 'Safari', 'Edge']))).toEqual({
-            text: 'Chrome, +2',
+            text: '3 browsers',
             placeholder: false,
         })
         expect(valueLabelForFilter(browser(null, PropertyOperator.IsNotSet)).text).toBe('')

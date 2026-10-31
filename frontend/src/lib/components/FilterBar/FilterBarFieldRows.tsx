@@ -10,8 +10,13 @@ import {
     MenuEmpty,
 } from '@posthog/quill'
 
-import { FilterBarCategorySubmenu } from './FilterBarCategorySubmenu'
+import { canBreakDownByCategory } from './filterBarBreakdownFields'
+import { FilterBarCategoryItem } from './FilterBarCategoryItem'
+import { FilterBarCategoryRows } from './FilterBarCategoryRows'
+import { FilterBarControlItem } from './FilterBarControlItem'
+import { useFilterBarControls } from './filterBarControls'
 import { FilterBarFieldItem } from './FilterBarFieldItem'
+import { useFilterBarFieldPicker } from './filterBarFieldPicker'
 import { filterBarLogic } from './filterBarLogic'
 import { FilterBarRecentFilterItem } from './FilterBarRecentFilterItem'
 import { FilterBarSavedSetSubmenu } from './FilterBarSavedSetSubmenu'
@@ -28,29 +33,51 @@ function CategoryRow({ category }: { category: FilterBarCategory }): JSX.Element
             </DropdownMenuItem>
         )
     }
-    return <FilterBarCategorySubmenu category={category} />
+    return <FilterBarCategoryItem category={category} />
 }
 
-/** The first screen of the picker: what the person used lately, what most people use, then everything by category. */
 export function FilterBarFieldRows(): JSX.Element {
     const {
         query,
-        recentFilterEntries,
         popularFields,
-        primaryCategories,
-        moreCategories,
         moreExpanded,
         savedSets,
         completeFilters,
+        recentFilterEntries: allRecentFilterEntries,
+        primaryCategories: allPrimaryCategories,
+        moreCategories: allMoreCategories,
+        browsingCategoryId,
+        categoriesById,
     } = useValues(filterBarLogic)
     const { setMoreExpanded, startSaving } = useActions(filterBarLogic)
+    const forFilter = useFilterBarFieldPicker().purpose === 'filter'
+    const controls = useFilterBarControls()
+    const controlsWithoutValue = forFilter ? controls.filter((control) => !control.hasValue && !control.persistent) : []
+    const recentFilterEntries = forFilter ? allRecentFilterEntries : []
+    const offered = (category: FilterBarCategory): boolean => forFilter || canBreakDownByCategory(category.id)
+    const primaryCategories = allPrimaryCategories.filter(offered)
+    const moreCategories = allMoreCategories.filter(offered)
 
+    const browsingCategory = browsingCategoryId ? categoriesById[browsingCategoryId] : null
+    if (browsingCategory) {
+        return <FilterBarCategoryRows category={browsingCategory} />
+    }
     if (query.trim()) {
         return <FilterBarSearchRows />
     }
 
     return (
         <DropdownMenuList>
+            {controlsWithoutValue.length > 0 && (
+                <>
+                    <DropdownMenuGroup>
+                        {controlsWithoutValue.map((control) => (
+                            <FilterBarControlItem key={control.id} control={control} />
+                        ))}
+                    </DropdownMenuGroup>
+                    <DropdownMenuSeparator />
+                </>
+            )}
             {recentFilterEntries.length > 0 && (
                 <>
                     <DropdownMenuGroup>
@@ -82,7 +109,7 @@ export function FilterBarFieldRows(): JSX.Element {
                 {primaryCategories.map((category) => (
                     <CategoryRow key={category.id} category={category} />
                 ))}
-                {!moreExpanded && (
+                {!moreExpanded && (forFilter || moreCategories.length > 0) && (
                     <DropdownMenuItem
                         closeOnClick={false}
                         onClick={() => setMoreExpanded(true)}
@@ -95,27 +122,35 @@ export function FilterBarFieldRows(): JSX.Element {
             </DropdownMenuGroup>
             {moreExpanded && (
                 <>
-                    <DropdownMenuSeparator />
-                    {/* The label lands where the More row was, so the pointer rests on nothing that opens on hover. */}
-                    <DropdownMenuGroup>
-                        <DropdownMenuLabel>Saved filters</DropdownMenuLabel>
-                        {savedSets.map((set) => (
-                            <FilterBarSavedSetSubmenu key={set.id} set={set} />
-                        ))}
-                        {completeFilters.length > 0 ? (
-                            <DropdownMenuItem closeOnClick={false} onClick={startSaving} data-attr="filter-bar-save">
-                                <IconPlus />
-                                Save current filters…
-                            </DropdownMenuItem>
-                        ) : (
-                            savedSets.length === 0 && (
-                                <MenuEmpty>
-                                    <IconBookmark />
-                                    Add a filter, then save it here
-                                </MenuEmpty>
-                            )
-                        )}
-                    </DropdownMenuGroup>
+                    {forFilter && (
+                        <>
+                            <DropdownMenuSeparator />
+                            {/* The label lands where the More row was, so the pointer rests on nothing that opens on hover. */}
+                            <DropdownMenuGroup>
+                                <DropdownMenuLabel>Saved filters</DropdownMenuLabel>
+                                {savedSets.map((set) => (
+                                    <FilterBarSavedSetSubmenu key={set.id} set={set} />
+                                ))}
+                                {completeFilters.length > 0 ? (
+                                    <DropdownMenuItem
+                                        closeOnClick={false}
+                                        onClick={startSaving}
+                                        data-attr="filter-bar-save"
+                                    >
+                                        <IconPlus />
+                                        Save current filters…
+                                    </DropdownMenuItem>
+                                ) : (
+                                    savedSets.length === 0 && (
+                                        <MenuEmpty>
+                                            <IconBookmark />
+                                            Add a filter, then save it here
+                                        </MenuEmpty>
+                                    )
+                                )}
+                            </DropdownMenuGroup>
+                        </>
+                    )}
                     <DropdownMenuSeparator />
                     <DropdownMenuGroup>
                         <DropdownMenuLabel>More</DropdownMenuLabel>

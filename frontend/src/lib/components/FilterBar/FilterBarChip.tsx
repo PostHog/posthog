@@ -67,10 +67,7 @@ export function FilterBarChip({ item }: { item: FilterBarItem }): JSX.Element | 
             </ButtonGroupText>
             {!isSql && (
                 <DropdownMenu modal={false}>
-                    <DropdownMenuTrigger
-                        render={<Button variant="outline" className="text-muted-foreground" />}
-                        data-attr="filter-bar-chip-operator"
-                    >
+                    <DropdownMenuTrigger render={<Button variant="outline" />} data-attr="filter-bar-chip-operator">
                         {operatorLabelForFilter(filter)}
                     </DropdownMenuTrigger>
                     <DropdownMenuContent>

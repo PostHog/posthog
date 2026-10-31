@@ -1,17 +1,8 @@
 import { useActions, useValues } from 'kea'
 
-import {
-    DropdownMenuCheckboxItem,
-    DropdownMenuList,
-    DropdownMenuSeparator,
-    DropdownMenuSub,
-    DropdownMenuSubContent,
-    DropdownMenuSubTrigger,
-    MenuEmpty,
-} from '@posthog/quill'
+import { DropdownMenuCheckboxItem, DropdownMenuList, MenuEmpty } from '@posthog/quill'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { PropertyFilterType } from '~/types'
 
 import { categoryIdForFilter } from './filterBarCategories'
 import { FilterBarCohortValueItems } from './FilterBarCohortValueItems'
@@ -19,19 +10,17 @@ import { FilterBarDateValueItems } from './FilterBarDateValueItems'
 import {
     filterValues,
     groupTypeIndexForCategory,
-    operatorLabelForFilter,
     propertyDefinitionTypeForCategory,
     valueKindForFilter,
 } from './filterBarFields'
 import { FilterBarListValueItems } from './FilterBarListValueItems'
 import { filterBarLogic } from './filterBarLogic'
 import { FilterBarNumberValueItems } from './FilterBarNumberValueItems'
-import { FilterBarOperatorRadioItems } from './FilterBarOperatorRadioItems'
 import { FilterBarItem } from './filterBarTypes'
 
 /**
- * The value picker for one filter: the values for its kind, then an operator submenu. The menu's search field
- * doubles as the place to type a value the list does not offer.
+ * The value picker for one filter: the values for its kind. The menu's search field doubles as the place to type a
+ * value the list does not offer. The operator is set from the chip's own operator segment.
  */
 export function FilterBarValueRows({ item, query }: { item: FilterBarItem; query: string }): JSX.Element {
     const { describeProperty } = useValues(propertyDefinitionsModel)
@@ -85,24 +74,5 @@ export function FilterBarValueRows({ item, query }: { item: FilterBarItem; query
             rows = <FilterBarListValueItems item={item} query={query} />
     }
 
-    // The operator row comes after the list, so typing highlights the first value and Enter picks it.
-    return (
-        <>
-            <DropdownMenuList>{rows}</DropdownMenuList>
-            {filter.type !== PropertyFilterType.HogQL && (
-                <>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuSub>
-                        <DropdownMenuSubTrigger data-attr="filter-bar-operator-menu">
-                            Operator
-                            <span className="ms-auto text-muted-foreground">{operatorLabelForFilter(filter)}</span>
-                        </DropdownMenuSubTrigger>
-                        <DropdownMenuSubContent>
-                            <FilterBarOperatorRadioItems item={item} propertyType={propertyType} />
-                        </DropdownMenuSubContent>
-                    </DropdownMenuSub>
-                </>
-            )}
-        </>
-    )
+    return <DropdownMenuList>{rows}</DropdownMenuList>
 }
