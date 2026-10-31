@@ -1,4 +1,4 @@
-import { isUpward, layerOf } from './layers.mjs'
+import { compareWithBaseline, isUpward, layerOf } from './layers.mjs'
 
 describe('layers.mjs', () => {
     it.each([
@@ -26,5 +26,24 @@ describe('layers.mjs', () => {
         ['frontend/src/layout/Navigation.tsx', 'frontend/src/layout/panel-layout/PanelLayout.tsx', false],
     ])('%s -> %s is upward: %s', (from, to, upward) => {
         expect(isUpward(from, to)).toEqual(upward)
+    })
+
+    const NEW = 'frontend/src/layout/Navigation.tsx -> frontend/src/scenes/max/maxLogic.tsx'
+    const KEPT = 'frontend/src/lib/components/Command/Command.tsx -> frontend/src/scenes/max/maxLogic.tsx'
+    const FIXED = 'frontend/src/models/thing.ts -> frontend/src/scenes/dashboard/dashboardLogic.tsx'
+
+    const PRUNE_HINT = `1 baseline entries are fixed. Run \`hogli lint:frontend-layers --prune-baseline\` to drop them:\n  ${FIXED}`
+
+    it.each([
+        ['an exact match passes', [KEPT], [KEPT], { added: [], fixed: [], failed: false, pruneHint: null }],
+        ['a new edge fails', [KEPT, NEW], [KEPT], { added: [NEW], fixed: [], failed: true, pruneHint: null }],
+        [
+            'a fixed edge fails with the prune hint',
+            [KEPT],
+            [KEPT, FIXED],
+            { added: [], fixed: [FIXED], failed: true, pruneHint: PRUNE_HINT },
+        ],
+    ])('compares with the baseline: %s', (_, current, baseline, expected) => {
+        expect(compareWithBaseline(current, baseline)).toEqual(expected)
     })
 })

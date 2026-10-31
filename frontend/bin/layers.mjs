@@ -27,6 +27,16 @@ export function isUpward(fromFile, toFile) {
     return LAYERS.indexOf(layerOf(toFile)) > LAYERS.indexOf(layerOf(fromFile))
 }
 
+// A fixed entry fails too. If it stayed in the baseline, the same upward import could come back unnoticed.
+export function compareWithBaseline(current, baseline) {
+    const added = current.filter((edge) => !baseline.includes(edge))
+    const fixed = baseline.filter((edge) => !current.includes(edge))
+    const pruneHint = fixed.length
+        ? `${fixed.length} baseline entries are fixed. Run \`hogli lint:frontend-layers --prune-baseline\` to drop them:\n${fixed.map((edge) => `  ${edge}`).join('\n')}`
+        : null
+    return { added, fixed, failed: added.length > 0 || fixed.length > 0, pruneHint }
+}
+
 export const shortName = (file) => file.replace(/^frontend\/src\//, '')
 
 // Folder a report shows a file under: a product, a lib component, or a top-level folder.
