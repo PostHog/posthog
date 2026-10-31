@@ -1,3 +1,4 @@
+import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 
 import { createExampleInvocation } from '../_tests/fixtures'
@@ -11,6 +12,7 @@ jest.mock('@posthog/hogvm-node', () => ({
     registerProgram: jest.fn(),
     releaseProgram: jest.fn(),
     executeRegisteredSync: jest.fn(),
+    executeRegisteredSyncJson: jest.fn(),
     executeRegisteredBatch: jest.fn(),
 }))
 
@@ -51,6 +53,10 @@ describe('RustVmExecutor', () => {
         mockHogvmNode.init.mockImplementation(() => {})
         mockHogvmNode.registerProgram.mockImplementation(() => nextHandle++)
         mockHogvmNode.executeRegisteredSync.mockReturnValue(rustResult())
+        mockHogvmNode.executeRegisteredSyncJson.mockImplementation((handle, globalsJson, options) => {
+            const { result, ...rest } = mockHogvmNode.executeRegisteredSync(handle, parseJSON(globalsJson), options)
+            return result === undefined ? rest : { ...rest, resultJson: JSON.stringify(result) }
+        })
         mockHogvmNode.executeSync.mockReturnValue(rustResult())
         mockHogvmNode.executeRegisteredBatch.mockImplementation((_handle, events) =>
             Promise.resolve(events.map(() => rustResult()))
@@ -145,6 +151,30 @@ describe('RustVmExecutor', () => {
         })
 
         expect(executor.execute(createExampleInvocation(), [])).toBeNull()
+    })
+
+    it.each([NaN, Infinity, -Infinity])(
+        'falls back to the node vm for %s in globals instead of sending it to the rust vm as null',
+        (value) => {
+            const invocation = createExampleInvocation()
+            invocation.state.globals.event.properties.score = { values: [1, value] }
+
+            expect(executor.execute(invocation, [])).toBeNull()
+            expect(mockHogvmNode.executeRegisteredSyncJson).not.toHaveBeenCalled()
+        }
+    )
+
+    it('passes the globals object to executeRegisteredSync when the addon lacks the json binding', async () => {
+        const invocation = createExampleInvocation()
+
+        await withoutBinding('executeRegisteredSyncJson', () => {
+            const result = executor.execute(invocation, [])
+
+            expect(mockHogvmNode.executeRegisteredSync).toHaveBeenCalledWith(0, invocation.state.globals, {
+                maxSteps: 1_000_000,
+            })
+            expect(result!.execResult).toEqual({ properties: { a: 1 } })
+        })
     })
 
     it('redacts sensitive values from fallback logs', () => {
