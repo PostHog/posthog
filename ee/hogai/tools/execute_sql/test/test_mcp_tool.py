@@ -377,6 +377,23 @@ class TestExecuteSQLMCPTool(ClickhouseTestMixin, NonAtomicBaseTest):
 
         self.assertEqual(str(ctx.exception), "Connection refused by the upstream source")
 
+    async def test_raw_query_rejection_gets_no_hogql_hint(self):
+        async def fake_execute_and_format(self, *args, **kwargs):
+            raise MaxToolRetryableError(
+                "Code: 43. DB::Exception: Illegal type String of argument for aggregate function sum. (ILLEGAL_TYPE_OF_ARGUMENT)"
+            )
+
+        with patch(
+            "ee.hogai.tools.execute_sql.mcp_tool.InsightContext.execute_and_format",
+            new=fake_execute_and_format,
+        ):
+            with self.assertRaises(MaxToolRetryableError) as ctx:
+                await self.tool.execute(
+                    ExecuteSQLMCPToolArgs(query="SELECT sum('12') FROM t", connectionId="conn_abc", sendRawQuery=True),
+                )
+
+        self.assertNotIn("<hogql_compatibility_hint>", str(ctx.exception))
+
     async def test_send_raw_query_without_a_connection_raises(self):
         # There is nothing to send it to, and silently compiling it as HogQL instead would run
         # something other than what the caller asked for.
