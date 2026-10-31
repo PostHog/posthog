@@ -6,8 +6,8 @@ import {
     defaultDescriber,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { getDisplayNameFromEntityFilter } from 'lib/insights/entityFilterNames'
 import { Link } from 'lib/lemon-ui/Link'
-import { getDisplayNameFromEntityFilter } from 'scenes/insights/utils'
 import { urls } from 'scenes/urls'
 
 import { getFilterLabel } from '~/taxonomy/helpers'
