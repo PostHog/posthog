@@ -67,10 +67,17 @@ database "posthog" {
       type = "Int64"
     }
     engine "kafka" {
-      collection = "warpstream_ingestion"
-      topic_list = "clickhouse_app_metrics2"
-      group_name = "clickhouse_app_metrics2_ws"
-      format     = "JSONEachRow"
+      collection           = "warpstream_ingestion"
+      topic_list           = "clickhouse_app_metrics2"
+      group_name           = "clickhouse_app_metrics2_ws"
+      format               = "JSONEachRow"
+      num_consumers        = 1
+      thread_per_consumer  = true
+      max_block_size       = 300000
+      skip_broken_messages = 100
+      poll_timeout_ms      = 10000
+      poll_max_batch_size  = 300000
+      flush_interval_ms    = 7500
     }
   }
 
@@ -613,7 +620,7 @@ database "posthog" {
       type = "UInt64"
     }
     engine "distributed" {
-      cluster_name    = "posthog"
+      cluster_name    = "aux"
       remote_database = "posthog"
       remote_table    = "sharded_app_metrics2"
       sharding_key    = "rand()"

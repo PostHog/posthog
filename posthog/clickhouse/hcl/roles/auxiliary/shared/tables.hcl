@@ -409,6 +409,23 @@ database "posthog" {
       replica_name = "{replica}-{shard}"
     }
   }
+  table "sharded_app_metrics2" {
+    order_by = ["team_id", "app_source", "app_source_id", "instance_id", "toStartOfHour(timestamp)", "metric_kind", "metric_name"]
+    ttl      = "toDate(timestamp) + toIntervalDay(90)"
+    settings = {
+      index_granularity = "8192"
+    }
+    extend = "_app_metrics2_columns"
+    index "timestamp_minmax" {
+      expr        = "timestamp"
+      type        = "minmax"
+      granularity = 1
+    }
+    engine "replicated_aggregating_merge_tree" {
+      zoo_path     = "/clickhouse/tables/{shard}/posthog.sharded_app_metrics2"
+      replica_name = "{replica}"
+    }
+  }
   table "sharded_session_replay_features" {
     order_by     = ["team_id", "session_id"]
     partition_by = "toYYYYMM(min_first_timestamp)"
