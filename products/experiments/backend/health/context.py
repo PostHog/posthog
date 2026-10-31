@@ -270,6 +270,9 @@ class ExposureTotals:
     # reads them can report a finding with them. None when not loaded or when the query failed.
     segments: tuple[ExposureSegment, ...] | None = None
     exposed_without_test_account_filter: int | None = None
+    # Whether the totals come from precomputed exposures. These lag the events that the count without the test account
+    # filter scans, so a burst of new users would read as users that the filter removes. Only the exposure query sets it.
+    reads_precomputed_exposures: bool = False
 
     @property
     def total(self) -> int:

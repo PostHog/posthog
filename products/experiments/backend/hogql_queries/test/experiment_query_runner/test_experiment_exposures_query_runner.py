@@ -1510,6 +1510,26 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         self.assertEqual(response.sample_ratio_mismatch.expected["control"], 50.0)
         self.assertEqual(response.sample_ratio_mismatch.expected["test"], 50.0)
 
+    def _expose_users_behind_a_test_account_filter(
+        self, users: int, test_accounts: int, test_account_filter: dict[str, Any]
+    ) -> None:
+        self.feature_flag.last_called_at = datetime(2024, 1, 1, 12, tzinfo=UTC)
+        self.feature_flag.save()
+        self.team.test_account_filters = [test_account_filter]
+        self.team.save()
+        self.experiment.exposure_criteria = {"filterTestAccounts": True}
+        for i in range(users + test_accounts):
+            domain = "example.com" if i >= users else "example.org"
+            _create_person(distinct_ids=[f"person_{i}"], properties={"email": f"person{i}@{domain}"}, team=self.team)
+            _create_event(
+                distinct_id=f"person_{i}",
+                event="$feature_flag_called",
+                timestamp="2024-01-01T10:00:00Z",
+                properties={"$feature_flag_response": "test", "$feature_flag": self.feature_flag.key},
+                team=self.team,
+            )
+        flush_persons_and_events()
+
     def _running_exposure_query(self) -> ExperimentExposureQuery:
         self.experiment.end_date = None
         self.experiment.save()
@@ -2097,23 +2117,7 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         now: str,
         expected: list[tuple[ExperimentExposureHealthFindingCode, str | None, str, int | None]],
     ) -> None:
-        self.feature_flag.last_called_at = datetime(2024, 1, 1, 12, tzinfo=UTC)
-        self.feature_flag.save()
-        self.team.test_account_filters = [test_account_filter]
-        self.team.save()
-        self.experiment.exposure_criteria = {"filterTestAccounts": True}
-        for i in range(users + test_accounts):
-            domain = "example.com" if i >= users else "example.org"
-            _create_person(distinct_ids=[f"person_{i}"], properties={"email": f"person{i}@{domain}"}, team=self.team)
-            _create_event(
-                distinct_id=f"person_{i}",
-                event="$feature_flag_called",
-                timestamp="2024-01-01T10:00:00Z",
-                properties={"$feature_flag_response": "test", "$feature_flag": self.feature_flag.key},
-                team=self.team,
-            )
-        flush_persons_and_events()
-
+        self._expose_users_behind_a_test_account_filter(users, test_accounts, test_account_filter)
         query_types: list[str] = []
 
         def execute(**kwargs: Any) -> Any:
@@ -2146,6 +2150,51 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
             "ExperimentExposuresWithoutTestAccountFilterQuery" in query_types,
             any(count is not None for *_, count in expected),
         )
+
+    @parameterized.expand([("direct", False, True), ("precomputed", True, False)])
+    @time_machine.travel(LATER, tick=False)
+    def test_compares_the_count_without_the_filter_only_with_direct_exposures(
+        self, _name: str, use_precomputation: bool, compared: bool
+    ) -> None:
+        self._setup_precomputation_test(use_precomputation)
+        self._expose_users_behind_a_test_account_filter(3, 100, KEEPS_MATCHING_USERS)
+        self._save_experiment_with_precomputation(self.experiment, use_precomputation)
+        query_types: list[str] = []
+
+        def execute(**kwargs: Any) -> Any:
+            query_types.append(kwargs["query_type"])
+            return execute_hogql_query(**kwargs)
+
+        with patch(f"{ExperimentExposuresQueryRunner.__module__}.execute_hogql_query", side_effect=execute):
+            response = ExperimentExposuresQueryRunner(
+                team=self.team, query=self._running_exposure_query(), user=self.user
+            ).calculate()
+
+        self.assertEqual("ExperimentExposuresWithoutTestAccountFilterQuery" in query_types, compared)
+        self.assertEqual(
+            [finding.code for finding in response.health_findings or []],
+            [ExperimentExposureHealthFindingCode.TEST_ACCOUNT_FILTER_REMOVES_EXPOSURES] if compared else [],
+        )
+
+    @parameterized.expand([("counted", None), ("timed_out", ClickHouseQueryTimeOut())])
+    @time_machine.travel(LATER, tick=False)
+    def test_recalculating_reuses_the_count_without_the_filter(self, _name: str, error: Exception | None) -> None:
+        self._expose_users_behind_a_test_account_filter(3, 100, KEEPS_MATCHING_USERS)
+        query = self._running_exposure_query()
+        counts: list[str] = []
+
+        def execute(**kwargs: Any) -> Any:
+            if kwargs["query_type"] == "ExperimentExposuresWithoutTestAccountFilterQuery":
+                counts.append(kwargs["query_type"])
+                if error:
+                    raise error
+            return execute_hogql_query(**kwargs)
+
+        with patch(f"{ExperimentExposuresQueryRunner.__module__}.execute_hogql_query", side_effect=execute):
+            for _ in range(2):
+                ExperimentExposuresQueryRunner(team=self.team, query=query, user=self.user).calculate()
+
+        self.assertEqual(len(counts), 1)
 
     @parameterized.expand([("direct", False), ("precomputed", True)])
     @time_machine.travel("2024-01-07T12:00:00Z", tick=False)

@@ -36,6 +36,7 @@ from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.user import User
+from posthog.utils import generate_cache_key, get_safe_cache, safe_cache_set
 
 from products.access_control.backend.facade.api import (
     get_restricted_properties_with_group_type_index_for_team,
@@ -96,6 +97,9 @@ QUERY_ROW_LIMIT = 5000  # The result has one row per (day, variant) pair
 # The queries that explain a health finding scan the exposure events. A timeout keeps the finding without the
 # explanation, so it must not hold up the exposure answer as long as its own query can.
 HEALTH_QUERY_TIMEOUT_SECONDS = 60
+# The page recalculates an experiment with few exposures on every entry, and the count without the test account filter
+# must not repeat its scan each time.
+EXPOSED_WITHOUT_FILTER_CACHE_SECONDS = 60 * 60
 
 
 def build_experiment_exposure_query(experiment: Experiment) -> ExperimentExposureQuery:
@@ -133,6 +137,7 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         # The user id and whether that user may read the flag's history.
         self._flag_history_access: tuple[int, bool] | None = None
         self._health_findings_shown: tuple[int, bool] | None = None
+        self._reads_precomputed_exposures = False
 
         if not self.query.experiment_id:
             raise ValidationError("experiment_id is required")
@@ -240,6 +245,7 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
                 if result.ready:
                     job_ids = [str(job_id) for job_id in result.job_ids]
                     tag_queries(experiment_exposures_path="precomputed")
+                    self._reads_precomputed_exposures = True
                     return builder.get_daily_exposures_from_precomputed(job_ids)
                 else:
                     logger.warning("exposure_lazy_computation_not_ready", experiment_id=self.experiment.id)
@@ -395,11 +401,20 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         )
 
     def _exposed_without_test_account_filter(self, exposure_params: ExposureQueryParams) -> int | None:
+        identity = self.query.model_dump_json(include={"experiment_id", "exposure_criteria", "start_date", "end_date"})
+        cache_key = generate_cache_key(
+            self.team.pk,
+            f"experiment_exposed_without_filter_{identity}_{self.variants}_{self.group_type_index}",
+        )
+        cached = get_safe_cache(cache_key)
+        if cached is not None:
+            return cached["exposed"]
         query = self._query_builder(replace(exposure_params, filter_test_accounts=False)).get_exposed_count_query()
         rows = self._run_health_query("ExperimentExposuresWithoutTestAccountFilterQuery", query)
-        if rows is None:
-            return None
-        return int(rows[0][0]) if rows else 0
+        exposed = None if rows is None else int(rows[0][0]) if rows else 0
+        # The cache keeps a failed count too, so a project that hits the timeout doesn't wait for it on every entry.
+        safe_cache_set(cache_key, {"exposed": exposed}, EXPOSED_WITHOUT_FILTER_CACHE_SECONDS)
+        return exposed
 
     def _run_health_query(self, query_type: str, query: ast.SelectQuery) -> list[Any] | None:
         """The rows of a query that only explains a health finding. None when it fails, so that the finding keeps the
@@ -541,6 +556,7 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
                 counts_groups=aggregates_by_group(self.group_type_index),
                 filters_test_accounts=applies_test_account_filters(self.team, self.exposure_criteria),
                 has_positive_test_account_filter=has_positive_test_account_filter(self.team),
+                reads_precomputed_exposures=self._reads_precomputed_exposures,
             ),
             exposure_params,
         )

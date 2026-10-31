@@ -307,6 +307,7 @@ class TestEvaluate(TestCase):
             ("none_counted", {"total_exposures": {"control": 0, "test": 0}}, False),
             ("filter_off", {"filters_test_accounts": False}, False),
             ("no_positive_filter", {"has_positive_test_account_filter": False}, False),
+            ("precomputed_exposures", {"reads_precomputed_exposures": True}, False),
         ]
     )
     def test_the_count_without_the_test_account_filter_runs_only_on_few_exposures(
