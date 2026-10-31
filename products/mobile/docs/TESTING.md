@@ -121,8 +121,10 @@ background request. A first load without cached data still shows the full loadin
 
 On Android and iOS, open Resolve and Dismiss for a report with a long title.
 Repeat in portrait and landscape, including a larger text size.
+Include an Android 17 emulator with a Pixel 9 display profile (1080 × 2424 at 420 dpi).
 Scroll through every reason and the optional note. The list must use the available space without clipped rows.
 Select a reason, focus the note, type, and hide the keyboard. The confirm button must stay visible above the keyboard and return to the bottom after it closes.
+Repeat after you open and close the chat keyboard. The sheet must not reserve space for a keyboard that is hidden.
 Confirm the verdict and check that the report leaves the inbox. Close and reopen a sheet to check that its reason and note reset.
 
 ## Notification checks
