@@ -24,6 +24,7 @@ from posthog.models.person.util import (
     _flush_person_producers,
     _person_row,
     create_person_distinct_id,
+    get_distinct_id_rows,
     get_persons_by_uuids,
     raise_person_version,
 )
@@ -519,3 +520,28 @@ def repair_persons(
             if undelivered:
                 log(f"{undelivered} ClickHouse messages were not delivered; rerun the repair for the same input")
     return outcomes.summary(applied=apply, persons=processed, undelivered=undelivered)
+
+
+def republish_named(
+    team_id: int,
+    *,
+    person_uuids: Sequence[str] = (),
+    distinct_ids: Sequence[str] = (),
+    apply: bool,
+    on_action: Callable[[datatypes.RepairAction], None],
+    log: Callable[[str], None],
+) -> datatypes.RepairSummary:
+    """Republish named persons, and the live owners of named distinct ids, where ClickHouse disagrees.
+
+    A scan routes a mapping that ClickHouse still gives to another live person to `merge`, which is wrong when
+    Postgres moved it on purpose and only the publish was lost, as after a split. This republishes from Postgres.
+    The owners are read on the primary, so a distinct id moved moments ago resolves to its new person.
+    """
+    rows = get_distinct_id_rows(team_id, list(dict.fromkeys(distinct_ids)), strong=True) if distinct_ids else []
+    owners = [row.person_uuid for row in rows if not row.is_deleted and row.person_uuid]
+    not_live = len(set(distinct_ids)) - len(owners)
+    if not_live:
+        log(f"republish: {not_live} distinct ids are not live in Postgres, so they have no owner to republish")
+    targets = [datatypes.PersonRef(team_id=team_id, person_uuid=uuid) for uuid in [*person_uuids, *owners]]
+    return repair_persons(targets, apply=apply, on_action=on_action, log=log)
+

@@ -394,7 +394,9 @@ class TestRepairVerbs(DivergenceFixturesMixin, ClickhouseTestMixin, BaseTest):
                 f"SELECT blocked_at IS NOT NULL FROM {PG_CLEANUP_QUEUE_TABLE} WHERE team_id = %s AND person_uuid = %s",
                 [self.team.pk, person_uuid],
             )
-            return cursor.fetchone()[0]
+            row = cursor.fetchone()
+            assert row is not None
+            return row[0]
 
     def test_a_run_stopped_by_sigterm_records_its_undelivered_keys_for_resume(self):
         key = self._hidden_person_with_stale_mapping()

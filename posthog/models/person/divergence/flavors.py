@@ -256,6 +256,7 @@ def classify_mapping(
     if pg.is_deleted:
         if (
             ch_live
+            and ch is not None
             and pg.person_is_deleted
             and ch.winner_person_uuid == pg.person_uuid
             and not ch.winner_tied
