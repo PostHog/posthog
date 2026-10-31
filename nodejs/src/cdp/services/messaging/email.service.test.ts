@@ -1917,10 +1917,15 @@ describe('EmailService', () => {
             })
 
             it('records an email_untracked app metric for untracked sends but not for test sends', async () => {
+                invocation.state.renderedWorkflowVersion = 3
                 const normal = await service.executeSendEmail(invocation)
                 expect(normal.metrics.map((m) => m.metric_name)).toEqual(
                     expect.arrayContaining(['email_sent', 'email_untracked'])
                 )
+                expect(normal.metrics.find((m) => m.metric_name === 'email_untracked')?.app_source_version).toEqual({
+                    id: invocation.functionId,
+                    version: 3,
+                })
 
                 const testSend = await service.executeSendEmail(invocation, true)
                 expect(testSend.metrics).toEqual([])
@@ -2078,17 +2083,19 @@ describe('EmailService', () => {
         })
 
         it.each([
-            ['an ordinary template', {}, 'Test Subject'],
-            ['a sensitive template', { sensitive: true }, undefined],
+            ['an ordinary template', {}, 'Test Subject', undefined],
+            ['a sensitive template', { sensitive: true }, undefined, undefined],
+            ['a workflow step', {}, 'Test Subject', 3],
         ])(
-            'should capture a $workflows_email_sent PostHog event on success, for %s',
-            async (_name, extraMetadata, subject) => {
+            'should capture a $workflows_email_sent PostHog event and version the email_sent metric on success, for %s',
+            async (_name, extraMetadata, subject, workflowVersion) => {
                 // Engagement capture is team-opt-in; enable it for this team so the captured event is emitted.
                 jest.spyOn(
                     (service as any).teamWorkflowsConfigService,
                     'shouldCaptureEngagementEvents'
                 ).mockResolvedValue(true)
                 invocation.hogFunction.metadata = { ...invocation.hogFunction.metadata, ...extraMetadata }
+                invocation.state.renderedWorkflowVersion = workflowVersion
                 sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
                 const result = await service.executeSendEmail(invocation)
                 expect(result.error).toBeUndefined()
@@ -2100,11 +2107,19 @@ describe('EmailService', () => {
                     properties: {
                         $workflow_id: invocation.functionId,
                         $workflow_action_id: invocation.state.actionId,
+                        $workflow_invocation_id: 'invocation-1',
+                        $email_message_id: 'test-message-id',
                         $email_to: 'test@example.com',
                         $email_tracking_enabled: true,
                     },
                 })
                 expect(result.capturedPostHogEvents[0].properties.$email_subject).toEqual(subject)
+                expect(result.capturedPostHogEvents[0].properties.$workflow_version).toEqual(workflowVersion)
+                expect(
+                    result.metrics.find((metric) => metric.metric_name === 'email_sent')?.app_source_version
+                ).toEqual(
+                    workflowVersion === undefined ? undefined : { id: invocation.functionId, version: workflowVersion }
+                )
             }
         )
 

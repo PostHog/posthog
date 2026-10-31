@@ -1,6 +1,6 @@
 import { createMockJobQueue } from '~/tests/helpers/mocks/job-queue.mock'
 import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
-import { mockFetch } from '~/tests/helpers/mocks/request.mock'
+import { mockFetch, mockInternalFetch } from '~/tests/helpers/mocks/request.mock'
 
 import { Server } from 'http'
 import supertest from 'supertest'
@@ -17,12 +17,14 @@ import { KAFKA_APP_METRICS_2, KAFKA_EMAIL_STATUS, KAFKA_LOG_ENTRIES } from '~/co
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
 import * as envUtils from '~/common/utils/env-utils'
+import { parseJSON } from '~/common/utils/json-parse'
 import { UUIDT } from '~/common/utils/utils'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { createTestTeamFixture } from '~/tests/helpers/sql'
 
 import { Hub, Team } from '../../../types'
+import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { EmailSuppressionService } from './email-suppression.service'
 import {
     METRIC_NAME_TO_EVENT_NAME,
@@ -58,6 +60,7 @@ describe('EmailTrackingService', () => {
             functionId: 'fn-1',
             id: 'inv-1',
             teamId: 1,
+            state: {},
         } as any
 
         const extractTarget = (html: string): string => {
@@ -97,7 +100,7 @@ describe('EmailTrackingService', () => {
         // clicks we record ourselves, so a version missing here means those engagement metrics never
         // split by version however the send path is configured.
         it('carries the sending version into the pixel and redirect codes', () => {
-            const flowInvocation = { ...invocation, hogFlow: { id: 'flow-1', version: 7 } } as any
+            const flowInvocation = { ...invocation, state: { ...invocation.state, renderedWorkflowVersion: 7 } }
             const html = '<body><a href="https://example.com/">x</a></body>'
 
             const out = addTrackingToEmail(html, flowInvocation, signer)
@@ -441,15 +444,18 @@ describe('EmailTrackingService', () => {
             // The route enforces a real SNS signature; verifying it needs AWS's private key, so we
             // stub the check and let a posted SNS envelope flow through the real handler + service.
             let verifySignatureSpy: jest.SpyInstance
+            let captureEngagementSpy: jest.SpyInstance
 
             beforeEach(() => {
                 verifySignatureSpy = jest
                     .spyOn(SesWebhookHandler.prototype as any, 'verifySnsSignature')
                     .mockResolvedValue(true)
+                captureEngagementSpy = jest.spyOn(TeamWorkflowsConfigService.prototype, 'shouldCaptureEngagementEvents')
             })
 
             afterEach(() => {
                 verifySignatureSpy.mockRestore()
+                captureEngagementSpy.mockRestore()
             })
 
             const postBounce = async ({
@@ -457,12 +463,14 @@ describe('EmailTrackingService', () => {
                 parentRunId,
                 workflowVersion,
                 transactionalMessageId,
+                distinctId,
             }: {
                 functionId: string
                 parentRunId?: string
                 workflowVersion?: number
                 // Sends the bounce as SES reports it for a transactional email with this message id.
                 transactionalMessageId?: string
+                distinctId?: string
             }): Promise<supertest.Response> => {
                 // Third arg opts into the versioned payload, which `generate` won't emit by default
                 // until phase two of the rollout — see EMIT_VERSIONED_PAYLOAD in tracking-code.ts.
@@ -473,6 +481,7 @@ describe('EmailTrackingService', () => {
                         teamId: team.id,
                         parentRunId,
                         workflowVersion,
+                        distinctId,
                     },
                     false,
                     workflowVersion !== undefined
@@ -610,6 +619,32 @@ describe('EmailTrackingService', () => {
                     expect(
                         metrics.filter((m) => m.value.app_source === 'hog_flow').map((m) => m.value.metric_name)
                     ).toEqual(['email_bounced', 'email_bounced_hard'])
+                })
+            })
+
+            it('captures the bounce event with the send it came from', async () => {
+                captureEngagementSpy.mockResolvedValue(true)
+                const hogFlow = await insertHogFlow(hub.postgres, {
+                    ...new FixtureHogFlowBuilder().withTeamId(team.id).build(),
+                    version: 5,
+                })
+
+                const res = await postBounce({ functionId: hogFlow.id, workflowVersion: 2, distinctId: 'user-1' })
+                expect(res.status).toBe(200)
+
+                await waitForExpect(() => {
+                    const captured = mockInternalFetch.mock.calls.map(([, options]) => parseJSON(options.body))
+                    expect(captured).toHaveLength(1)
+                    expect(captured[0]).toMatchObject({
+                        event: '$workflows_email_bounced',
+                        distinct_id: 'user-1',
+                        properties: {
+                            $workflow_id: hogFlow.id,
+                            $workflow_invocation_id: invocationId,
+                            $workflow_version: 2,
+                            $email_message_id: 'ses-message-id',
+                        },
+                    })
                 })
             })
 

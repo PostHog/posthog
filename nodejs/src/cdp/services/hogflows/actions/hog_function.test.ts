@@ -789,12 +789,13 @@ describe('HogFunctionHandler', () => {
     // received — the same version `email_sent` is counted under — so a send re-pins the attribution
     // version. A non-message step must leave it alone.
     it.each([
-        { billingType: 'email' as const, expected: 3 },
-        { billingType: 'push' as const, expected: 3 },
-        { billingType: 'fetch' as const, expected: 1 },
+        { billingType: 'email' as const, renderedVersion: 3, expected: 3, billedVersion: 3 },
+        { billingType: 'email' as const, renderedVersion: 2, expected: 2, billedVersion: 2 },
+        { billingType: 'push' as const, renderedVersion: 2, expected: 3, billedVersion: undefined },
+        { billingType: 'fetch' as const, renderedVersion: 2, expected: 1, billedVersion: undefined },
     ])(
-        'a completed $billingType step leaves the attribution version at $expected',
-        async ({ billingType, expected }) => {
+        'a completed $billingType step rendered under v$renderedVersion leaves the attribution version at $expected',
+        async ({ billingType, renderedVersion, expected, billedVersion }) => {
             const handler = new HogFunctionHandler(
                 mockHogFlowFunctionsService,
                 mockRecipientPreferencesService,
@@ -808,6 +809,13 @@ describe('HogFunctionHandler', () => {
                 hogFlow: { ...invocation.hogFlow, version: 3 },
                 state: { ...invocation.state, flowVersion: 1 },
             }
+            const build = mockHogFlowFunctionsService.buildHogFunctionInvocation.bind(mockHogFlowFunctionsService)
+            jest.spyOn(mockHogFlowFunctionsService, 'buildHogFunctionInvocation').mockImplementation(
+                async (flowInvocation, hogFunction, globals) => {
+                    const built = await build(flowInvocation, hogFunction, globals)
+                    return { ...built, state: { ...built.state, renderedWorkflowVersion: renderedVersion } }
+                }
+            )
 
             const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(republished, {
                 queue: 'hog',
@@ -817,6 +825,10 @@ describe('HogFunctionHandler', () => {
             await handler.execute({ invocation: republished, action, result: invocationResult })
 
             expect(invocationResult.invocation.state.flowVersion).toBe(expected)
+            expect(
+                invocationResult.metrics.find((metric) => metric.metric_name === 'billable_invocation')
+                    ?.app_source_version?.version
+            ).toBe(billedVersion)
         }
     )
 
