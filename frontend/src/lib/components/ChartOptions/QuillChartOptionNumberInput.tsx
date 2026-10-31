@@ -6,16 +6,14 @@ import type { ChartOptionNumberInputProps } from './ChartOptionNumberInput'
 import { QuillChartOptionLabel } from './QuillChartOptionLabel'
 
 export interface QuillChartOptionNumberInputProps extends ChartOptionNumberInputProps {
-    draft: number | undefined
-    setDraft: (draft: number | undefined) => void
+    draft: string
+    setDraft: (draft: string) => void
     commit: () => void
 }
 
 export function QuillChartOptionNumberInput({
     label,
     info,
-    min,
-    max,
     suffix,
     placeholder,
     disabledReason,
@@ -34,17 +32,13 @@ export function QuillChartOptionNumberInput({
                 <InputGroup className="w-28" aria-disabled={disabled || undefined}>
                     <InputGroupInput
                         id={id}
-                        type="number"
-                        value={draft ?? ''}
-                        min={min}
-                        max={max}
-                        step={1}
+                        // Text, not a number input: a number input reports "-" as empty while typing "-10".
+                        type="text"
+                        inputMode="decimal"
+                        value={draft}
                         placeholder={placeholder}
                         disabled={disabled}
-                        onChange={(event) => {
-                            const next = event.target.valueAsNumber
-                            setDraft(Number.isFinite(next) ? next : undefined)
-                        }}
+                        onChange={(event) => setDraft(event.target.value)}
                         onBlur={commit}
                         onKeyDown={(event) => {
                             if (event.key === 'Enter') {

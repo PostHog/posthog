@@ -4,11 +4,14 @@ import { Tooltip } from '@posthog/lemon-ui'
 export interface ChartOptionLabelProps {
     label: string
     info?: string
+    /** The id of the input this label names. */
+    htmlFor?: string
 }
 
-export function ChartOptionLabel({ label, info }: ChartOptionLabelProps): JSX.Element {
+export function ChartOptionLabel({ label, info, htmlFor }: ChartOptionLabelProps): JSX.Element {
+    const Element = htmlFor ? 'label' : 'span'
     return (
-        <span className="font-normal">
+        <Element className="font-normal" htmlFor={htmlFor}>
             {label}
             {info && (
                 <>
@@ -18,6 +21,6 @@ export function ChartOptionLabel({ label, info }: ChartOptionLabelProps): JSX.El
                     </Tooltip>
                 </>
             )}
-        </span>
+        </Element>
     )
 }

@@ -1,32 +1,46 @@
 import { useEffect, useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 
-// A number input reads as empty mid-entry, so only a finite value is sent while typing; a field
-// left empty clears the setting when it loses focus.
+const toText = (value: number | undefined): string => (value === undefined ? '' : String(value))
+
+export const parseChartOptionNumber = (text: string): number | undefined => {
+    if (text.trim() === '') {
+        return undefined
+    }
+    const parsed = Number(text)
+    return Number.isFinite(parsed) ? parsed : undefined
+}
+
+// The draft stays raw text, so partial entries like "-" or "1." survive until they parse. Only a
+// finite value is sent while typing; a field left empty clears the setting when it loses focus.
 export function useChartOptionNumberDraft(
     value: number | undefined,
     onChange: (value: number | undefined) => void
-): { draft: number | undefined; setDraft: (draft: number | undefined) => void; commit: () => void } {
-    const [draft, setDraftState] = useState(value)
+): { draft: string; setDraft: (draft: string) => void; commit: () => void } {
+    const [draft, setDraftState] = useState(toText(value))
 
     useEffect(() => {
-        setDraftState(value)
+        setDraftState((current) => (parseChartOptionNumber(current) === value ? current : toText(value)))
     }, [value])
 
     const sendWhileTyping = useDebouncedCallback((next: number) => onChange(next), 300)
 
-    const setDraft = (next: number | undefined): void => {
+    const setDraft = (next: string): void => {
         setDraftState(next)
-        if (typeof next === 'number' && Number.isFinite(next)) {
-            sendWhileTyping(next)
+        const parsed = parseChartOptionNumber(next)
+        if (parsed === undefined) {
+            sendWhileTyping.cancel()
+        } else {
+            sendWhileTyping(parsed)
         }
     }
 
     const commit = (): void => {
         sendWhileTyping.cancel()
-        const finite = typeof draft === 'number' && Number.isFinite(draft) ? draft : undefined
-        if (finite !== value) {
-            onChange(finite)
+        const parsed = parseChartOptionNumber(draft)
+        setDraftState(toText(parsed))
+        if (parsed !== value) {
+            onChange(parsed)
         }
     }
 
