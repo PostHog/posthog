@@ -2012,6 +2012,7 @@ const goalDraft: DraftScannerResponseApi = {
             },
         ],
     },
+    query_additions: null,
     sampling_mode: 'comprehensive',
     sampling_rate: 0.25,
     model: 'gemini-3-flash-preview',
