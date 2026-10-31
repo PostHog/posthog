@@ -26,7 +26,7 @@ def multiple_variants_share(ctx: HealthContext) -> CheckOutcome:
     if exposures.multiple_variant_handling != MultipleVariantHandling.EXCLUDE:
         return not_checked("Couldn't check because the First seen handling doesn't count these users")
     multiple = exposures.total_exposures.get(MULTIPLE_VARIANT_KEY, 0)
-    total = sum(exposures.total_exposures.values())
+    total = exposures.total
     if multiple < MULTIPLE_VARIANTS_MINIMUM_COUNT:
         return None
     percentage = multiple / total * 100
