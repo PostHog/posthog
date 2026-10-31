@@ -41,6 +41,7 @@ import { isConnectionLevelError } from '../utils/cdp-fetch'
 import { EncryptedFields } from '../utils/encryption-utils'
 import { EXTEND_OBJECT_KEY } from './hog-inputs.service'
 import { SELF_LOOP_DEPTH_PROPERTY, selfLoopGuardCounter } from './self-loop-guard'
+import { WorkflowStepCallbacks } from './hogflows/step-callback'
 
 // Mock before importing fetch
 jest.mock('~/common/utils/request', () => {
@@ -117,6 +118,7 @@ describe('Hog Executor', () => {
                 recipientTokensService,
                 // No push sends in this suite - the push queue type is covered by push-notification.service.test.ts
                 pushNotificationService: undefined as any,
+                workflowStepCallbacks: new WorkflowStepCallbacks(hub),
             }
         )
     }

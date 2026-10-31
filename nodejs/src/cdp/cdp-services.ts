@@ -27,6 +27,7 @@ import { HogFlowDuplicateObserverService } from './services/hogflows/hogflow-dup
 import { HogFlowExecutorService } from './services/hogflows/hogflow-executor.service'
 import { HogFlowFunctionsService } from './services/hogflows/hogflow-functions.service'
 import { HogFlowManagerService } from './services/hogflows/hogflow-manager.service'
+import { WorkflowStepCallbacks } from './services/hogflows/step-callback'
 import { InvocationResultsService } from './services/invocation-results.service'
 import { HogFunctionManagerService } from './services/managers/hog-function-manager.service'
 import { HogFunctionTemplateManagerService } from './services/managers/hog-function-template-manager.service'
@@ -131,6 +132,7 @@ export type CdpCoreServicesConfig = Pick<
     | 'ENCRYPTION_SALT_KEYS'
     | 'SITE_URL'
     | 'INTERNAL_API_BASE_URL'
+    | 'CLOUD_DEPLOYMENT'
 > &
     UsageIngestionConfig &
     Pick<
@@ -178,6 +180,7 @@ export type CdpCoreServicesConfig = Pick<
         | 'CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN'
         | 'CONVERSATIONS_TICKETS_JWT_SECRET'
         | 'CUSTOMER_ANALYTICS_ACCOUNTS_JWT_SECRET'
+        | 'WORKFLOWS_STEP_CALLBACK_JWT_SECRET'
         | 'CDP_FETCH_RETRIES'
         | 'CDP_FETCH_BACKOFF_BASE_MS'
         | 'CDP_FETCH_BACKOFF_MAX_MS'
@@ -526,6 +529,7 @@ export function createCdpCoreServices(
             emailService,
             recipientTokensService,
             pushNotificationService,
+            workflowStepCallbacks: new WorkflowStepCallbacks(config),
         }
     )
 
