@@ -1,4 +1,4 @@
-import { getBackendHost } from 'lib/oauth/oauthClient'
+import { getBackendHost } from 'lib/utils/oauthClient'
 
 import { inStorybook, inStorybookTestRunner } from './dom'
 import { getAppContext } from './getAppContext'

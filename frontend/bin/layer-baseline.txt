@@ -113,7 +113,6 @@ frontend/src/layout/today/todayWorkItems.ts -> products/tasks/frontend/spaces/ta
 frontend/src/lib/api.ts -> frontend/src/exporter/exporterViewLogic.ts
 frontend/src/lib/api.ts -> frontend/src/lib/apiRequestTiming.ts
 frontend/src/lib/api.ts -> frontend/src/lib/logic/apiStatusLogic.ts
-frontend/src/lib/api.ts -> frontend/src/lib/oauth/oauthClient.ts
 frontend/src/lib/api.ts -> frontend/src/queries/utils.ts
 frontend/src/lib/api.ts -> frontend/src/scenes/surveys/constants.tsx
 frontend/src/lib/components/Account/AccountMenu.tsx -> frontend/src/scenes/billing/billingLogic.tsx
@@ -458,7 +457,6 @@ frontend/src/lib/ui/ContextMenu/ContextMenu.tsx -> frontend/src/lib/components/S
 frontend/src/lib/ui/DropdownMenu/DropdownMenu.tsx -> frontend/src/lib/components/ScrollableShadows/ScrollableShadows.tsx
 frontend/src/lib/ui/SelectPrimitive/SelectPrimitive.tsx -> frontend/src/lib/components/ScrollableShadows/ScrollableShadows.tsx
 frontend/src/lib/utils/accessControlUtils.ts -> frontend/src/scenes/sceneTypes.ts
-frontend/src/lib/utils/apiHost.ts -> frontend/src/lib/oauth/oauthClient.ts
 frontend/src/lib/utils/dateFilters.ts -> frontend/src/lib/components/DateFilter/types.ts
 frontend/src/lib/utils/deleteWithUndo.tsx -> frontend/src/layout/panel-layout/ProjectTree/projectTreeLogic.tsx
 frontend/src/lib/utils/deleteWithUndo.tsx -> frontend/src/scenes/dashboard/liveDashboardIds.ts
@@ -469,7 +467,6 @@ frontend/src/lib/utils/eventUsageLogic.ts -> frontend/src/scenes/userLogic.ts
 frontend/src/lib/utils/eventUsageLogic.ts -> products/business_intelligence/frontend/biEditorAnalytics.ts
 frontend/src/lib/utils/eventUsageLogic.ts -> products/experiments/frontend/experimentStatus.ts
 frontend/src/lib/utils/events.ts -> frontend/src/taxonomy/taxonomy.tsx
-frontend/src/lib/utils/getAppContext.ts -> frontend/src/lib/oauth/oauthClient.ts
 frontend/src/loadPostHogJS.tsx -> products/webmcp/frontend/webmcpToolError.ts
 frontend/src/models/cohortsModel.ts -> frontend/src/exporter/exporterViewLogic.ts
 frontend/src/models/cohortsModel.ts -> frontend/src/scenes/cohorts/CohortFilters/constants.tsx
@@ -522,17 +519,7 @@ frontend/src/queries/nodes/DataTable/renderColumn.tsx -> products/mcp_analytics/
 frontend/src/queries/nodes/DataTable/renderColumn.tsx -> products/persons/frontend/components/GroupActorDisplay.tsx
 frontend/src/queries/nodes/DataTable/renderColumn.tsx -> products/persons/frontend/components/PersonDisplay.tsx
 frontend/src/queries/nodes/DataTable/renderColumn.tsx -> products/persons/frontend/person-utils.ts
-frontend/src/queries/nodes/DataVisualization/Components/Charts/SqlBarGraph.tsx -> products/product_analytics/frontend/insights/trends/shared/chartErrorHandler.ts
-frontend/src/queries/nodes/DataVisualization/Components/Charts/SqlBoxPlot.tsx -> products/product_analytics/frontend/insights/trends/shared/chartErrorHandler.ts
-frontend/src/queries/nodes/DataVisualization/Components/Charts/SqlComboGraph.tsx -> products/product_analytics/frontend/insights/trends/shared/chartErrorHandler.ts
-frontend/src/queries/nodes/DataVisualization/Components/Charts/SqlLineGraph.tsx -> products/product_analytics/frontend/insights/trends/shared/chartErrorHandler.ts
 frontend/src/queries/nodes/DataVisualization/Components/Charts/SqlMetricCard.tsx -> frontend/src/scenes/insights/EmptyStates/index.ts
-frontend/src/queries/nodes/DataVisualization/Components/Charts/SqlMetricCard.tsx -> products/product_analytics/frontend/insights/trends/shared/chartErrorHandler.ts
-frontend/src/queries/nodes/DataVisualization/Components/Charts/SqlPieGraph.tsx -> products/product_analytics/frontend/insights/trends/TrendsPieChart/DonutCenterLabel.tsx
-frontend/src/queries/nodes/DataVisualization/Components/Charts/SqlPieGraph.tsx -> products/product_analytics/frontend/insights/trends/shared/chartErrorHandler.ts
-frontend/src/queries/nodes/DataVisualization/Components/Charts/SqlProportionBar.tsx -> products/product_analytics/frontend/insights/trends/shared/chartErrorHandler.ts
-frontend/src/queries/nodes/DataVisualization/Components/Charts/SqlScatterGraph.tsx -> products/product_analytics/frontend/insights/trends/shared/chartErrorHandler.ts
-frontend/src/queries/nodes/DataVisualization/Components/Charts/sqlLineGraphAdapter.ts -> products/product_analytics/frontend/insights/shared/chartStyleAdapter.ts
 frontend/src/queries/nodes/DataVisualization/Components/Charts/sqlLineGraphAdapter.ts -> products/product_analytics/frontend/insights/trends/shared/goalLinesAdapter.ts
 frontend/src/queries/nodes/DataVisualization/Components/Heatmap/TwoDimensionalHeatmap.tsx -> frontend/src/scenes/insights/EmptyStates/index.ts
 frontend/src/queries/nodes/DataVisualization/Components/SeriesTab.tsx -> frontend/src/scenes/insights/aggregationAxisFormat.ts
