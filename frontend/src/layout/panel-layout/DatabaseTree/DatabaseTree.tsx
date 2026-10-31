@@ -3,8 +3,8 @@ import { memo, useRef } from 'react'
 
 import { IconSidebarClose } from '@posthog/icons'
 
-import { Resizer } from 'lib/components/Resizer/Resizer'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
+import { Resizer } from 'lib/lemon-ui/Resizer/Resizer'
 import { ScrollableShadows } from 'lib/lemon-ui/ScrollableShadows/ScrollableShadows'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { cn } from 'lib/utils/css-classes'
