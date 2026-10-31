@@ -18,6 +18,7 @@ from products.autoresearch.backend.models import (
     AutoresearchTrainingRun,
 )
 from products.autoresearch.backend.testing import TeamScopedTestMixin
+from products.autoresearch.backend.training.artifacts import BundleNotFound
 from products.autoresearch.backend.training.ingestion import FinishedTaskRun, handle_task_run_completed
 from products.autoresearch.backend.training.stale import STALE_TRAINING_RUN_AFTER, fail_stale_training_runs
 
@@ -239,7 +240,8 @@ class TestHandleTaskRunCompleted(TeamScopedTestMixin, BaseTest):
         )
         cancellation.cancel_task_run.return_value = ("accepted", None)
 
-        fail_stale_training_runs()
+        with patch("products.autoresearch.backend.training.artifacts.read_bundle", side_effect=BundleNotFound):
+            fail_stale_training_runs()
 
         training_run.refresh_from_db()
         assert training_run.status == expected_status
