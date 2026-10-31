@@ -39,7 +39,7 @@ graph TB
 
     subgraph "Surface (thin)"
         Endpoints["named typed DRF endpoints<br/>@extend_schema → OpenAPI → MCP tools + UI client"]
-        WV["managed warehouse views<br/>job_costs / ci_job_history / ci_failures / pr_friction"]
+        WV["managed warehouse views<br/>job_costs / ci_job_history / ci_failures / pr_friction<br/>ci_runs / ci_jobs (stored)"]
     end
 
     subgraph "Curated read layer (domain rules defined ONCE)"
@@ -103,7 +103,7 @@ The endpoint catalog is `presentation/views.py`; the agent-facing descriptions l
 Per-team managed views (`DataWarehouseSavedQuery`, kind `engineering_analytics`) expose the curated CI substrate to insights, subscriptions, other products, and `execute-sql`: the only surface where the read layer is reachable as data rather than through the named endpoints.
 One gate for the three per-job views: a team gets them only when a GitHub source has **both** `workflow_runs` and `workflow_jobs` synced, so they appear together or not at all.
 They are non-materialized: the rendered SQL is persisted per team and re-synced on every runs/jobs load and every Depot job-attempts load, so a builder change reaches active teams within one sync cycle.
-The per-PR friction view is the exception, below: it also needs the `pull_requests` snapshot, and it is materialized.
+The per-PR friction view and the stored CI rows are the exceptions, below: they are materialized, and the friction view also needs the `pull_requests` snapshot.
 
 #### `engineering_analytics_job_costs`
 
@@ -139,6 +139,14 @@ The per-PR friction view is the exception, below: it also needs the `pull_reques
 - Materialized on the managed-view schedule, because the replay is too heavy to run on every read. Each run replaces the table, so it only holds the pull requests inside the window.
 - A materialized view spends the team's warehouse compute, so it exists only for organizations the `engineering-analytics-friction` flag targets. The flag is evaluated per organization, because the view sync runs with no user. When the flag service gives no answer, the sync keeps the view the team already has.
 - The view unions every GitHub source of the team, and each row carries its `source_id`. A product read filters on the one source the caller may use. A query on the materialized view itself checks access to the view, not to each source in it, like any materialized managed view.
+
+#### `engineering_analytics_ci_runs` and `engineering_analytics_ci_jobs`
+
+- The stored CI rows: the output of the runs builder and of the jobs builder with the cost columns, as two materialized views that data modeling updates in place every 15 minutes (`logic/views/ci_rows.py`). A run upserts the rows created since two days before the newest stored row, keyed on the parsed `created_at`. Runs use `(source_id, ci_engine, id)` as their unique key, so a retry replaces the previous snapshot. Jobs use `(source_id, ci_engine, native_job_id, run_attempt)`, so a Depot job retry replaces its carried-over copy even though the execution ID changes. A row that settles later than two days after its creation is read again only by a full build, which a definition change triggers. Until then its stored snapshot keeps the earlier conclusion and duration in every historical aggregate and cost total. A rerun of a run created more than two days earlier is stored as a new attempt without rewriting the run row, and a rerun whose first attempt is more than nine days before the window (the two-day lookback plus the seven-day duplicate scan) is counted as an execution because the scan no longer sees the copy it re-lists.
+- Two grains, never joined rows. A re-run mutates the run row and adds job rows with new ids, so a stored joined row would go stale. A read joins them on `(ci_engine, run_id)`, as `job_costs` does.
+- `is_handoff_shell` is a flag on both stored grains, not a filter. A jobs build resolves the flag from raw run and handoff evidence in the same query, across run history because a new retry job can belong to an old run. A reader filters each grain on its own flag, so independently refreshed runs cannot remove jobs before their replacement jobs arrive. This is the one exception to the §6 rule that a shell is filtered at the substrate: the stored rows are storage under the read layer, and the read that swaps onto them applies the flag, so every consumer still sees the same suppression.
+- The views name the run's window start as `{incremental_window_start}` (`logic/views/incremental_floor.py`) and floor their primary scans on the raw `created_at` string formatted from it, because a predicate on the parsed `created_at` cannot prune the parquet scan. The duplicate scan and the runs build's handoff scan start seven days earlier. The jobs build resolves suppression across run history so a recent job from an older run still gets its flag. On a full build the placeholder is NULL and the floors keep every row.
+- Rows carry `source_id` and `repository`, so a product read filters on the one source the caller may use, like the friction view. They spend the team's warehouse compute every 15 minutes, so they exist only for the organizations the friction flag targets. When flag evaluation gives no answer, each existing managed view is preserved individually and no new one is enabled. A team whose GitHub source syncs less often than every 15 minutes cannot be fed at that cadence; data modeling then leaves the views computed at query time.
 
 ## 6. Locked decisions
 
