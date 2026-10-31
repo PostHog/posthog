@@ -180,6 +180,28 @@ def validate_saved_metric_link_overrides(metadata: dict, *, error_prefix: str) -
         raise ValidationError(f"{error_prefix}{_pydantic_error_message(e)}")
 
 
+def metric_nodes(metric: dict) -> list[dict]:
+    """The event, action and warehouse nodes that a stored metric definition reads."""
+    nodes: list[dict] = []
+    metric_type = metric.get("metric_type")
+    if metric_type == "mean":
+        if source := metric.get("source"):
+            nodes.append(source)
+    elif metric_type == "funnel":
+        nodes.extend(metric.get("series") or [])
+    elif metric_type == "ratio":
+        if num := metric.get("numerator"):
+            nodes.append(num)
+        if den := metric.get("denominator"):
+            nodes.append(den)
+    elif metric_type == "retention":
+        if se := metric.get("start_event"):
+            nodes.append(se)
+        if ce := metric.get("completion_event"):
+            nodes.append(ce)
+    return nodes
+
+
 def extract_entity_nodes(metrics: list[dict] | None) -> tuple[set[str], set[int]]:
     """Extract event names and action IDs from all EventsNode/ActionsNode refs in metrics."""
     event_names: set[str] = set()
@@ -188,23 +210,7 @@ def extract_entity_nodes(metrics: list[dict] | None) -> tuple[set[str], set[int]
         return event_names, action_ids
 
     for metric in metrics:
-        nodes: list[dict] = []
-        metric_type = metric.get("metric_type")
-        if metric_type == "mean":
-            if source := metric.get("source"):
-                nodes.append(source)
-        elif metric_type == "funnel":
-            nodes.extend(metric.get("series") or [])
-        elif metric_type == "ratio":
-            if num := metric.get("numerator"):
-                nodes.append(num)
-            if den := metric.get("denominator"):
-                nodes.append(den)
-        elif metric_type == "retention":
-            if se := metric.get("start_event"):
-                nodes.append(se)
-            if ce := metric.get("completion_event"):
-                nodes.append(ce)
+        nodes = metric_nodes(metric)
 
         for node in nodes:
             kind = node.get("kind")

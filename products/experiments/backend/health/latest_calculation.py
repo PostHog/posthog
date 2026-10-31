@@ -1,11 +1,27 @@
 import re
+from collections.abc import Collection, Mapping
+from datetime import datetime
 from typing import Any
 
+from posthog.schema import (
+    ExperimentStatsBaseValidated,
+    ExperimentVariantResultBayesian,
+    ExperimentVariantResultFrequentist,
+)
+
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 
+from products.event_definitions.backend.models import EventDefinition, effective_project_id_expr
 from products.experiments.backend.facade.enums import ExposuresPath
-from products.experiments.backend.health.context import LatestCalculation, MetricCalculationFailure
+from products.experiments.backend.health.context import (
+    LatestCalculation,
+    MetricCalculationFailure,
+    RatioSide,
+    ZeroMetric,
+)
 from products.experiments.backend.health.metric_compiles import can_hold_evaluation_rules, without_available_fields
+from products.experiments.backend.logic.result_stats import parse_stored_response
 from products.experiments.backend.metric_calculation.config import (
     MetricCalculationConfig,
     build_calculation_configs,
@@ -13,9 +29,12 @@ from products.experiments.backend.metric_calculation.config import (
     team_experiments_configs,
 )
 from products.experiments.backend.metric_calculation.results import MetricResultStore
+from products.experiments.backend.metric_validation import metric_nodes
 from products.experiments.backend.models.experiment import Experiment, ExperimentMetricResult
 from products.experiments.backend.recalculation import get_latest_recalculation
 from products.experiments.backend.temporal.models import RECALCULATION_WINDOW_TOO_LONG_ERROR_TYPE
+
+ExperimentVariantResult = ExperimentVariantResultBayesian | ExperimentVariantResultFrequentist
 
 # The calculation doesn't apply the reader's warehouse access, so the names that HogQL suggests in its message can name
 # a table or a column that the reader may not query.
@@ -53,7 +72,7 @@ def _load_latest_calculation(experiment: Experiment) -> LatestCalculation:
         )
     metric_errors = run.metric_errors if isinstance(run.metric_errors, dict) else {}
     results = MetricResultStore(experiment_id=experiment.id)
-    rows = {row.metric_uuid: row for row in results.for_run(run, with_result=False)}
+    rows = {row.metric_uuid: row for row in results.for_run(run)}
     failures = tuple(
         failure
         for metric_id, calculation_config in configs.items()
@@ -76,6 +95,100 @@ def _load_latest_calculation(experiment: Experiment) -> LatestCalculation:
         failures=failures,
         completed_count=len(completed),
         completed_exposures_paths=results.exposures_paths(completed) if failures else frozenset(),
+        zero_metrics=_zero_metrics(experiment, [(configs[row.metric_uuid], row) for row in completed]),
+        hours_of_data=(run.query_to - experiment.start_date).total_seconds() / 3600
+        if run.query_to is not None and experiment.start_date is not None
+        else None,
+    )
+
+
+@frozen
+class _ZeroResult:
+    calculation_config: MetricCalculationConfig
+    # None when the metric itself reads zero, rather than a side of a ratio.
+    ratio_side: RatioSide | None
+    stats: tuple[ExperimentStatsBaseValidated | ExperimentVariantResult, ...]
+    # The nodes that the zero reads, without the other side of a ratio.
+    nodes: tuple[dict, ...]
+
+    @property
+    def events(self) -> tuple[str, ...]:
+        names = (node.get("event") for node in self.nodes if node.get("kind") == "EventsNode")
+        return tuple(dict.fromkeys(name for name in names if isinstance(name, str) and name.strip()))
+
+
+def _zero_metrics(
+    experiment: Experiment, completed: list[tuple[MetricCalculationConfig, ExperimentMetricResult]]
+) -> tuple[ZeroMetric, ...]:
+    zero = [result for config, row in completed if (result := _zero_result(config, row)) is not None]
+    if not zero:
+        return ()
+    last_seen = _event_last_seen(experiment.team.project_id, {event for result in zero for event in result.events})
+    return tuple(_zero_metric(experiment, result, last_seen) for result in zero)
+
+
+def _zero_result(calculation_config: MetricCalculationConfig, row: ExperimentMetricResult) -> _ZeroResult | None:
+    response = parse_stored_response(row.result)
+    if response is None or response.baseline is None:
+        return None
+    stats = (response.baseline, *(response.variant_results or []))
+    definition = calculation_config.definition
+    # `sum_squares` tells a metric of zeros from values that cancel out.
+    numerator_is_zero = all(stat.sum == 0 and stat.sum_squares == 0 for stat in stats)
+    if definition.get("metric_type") != "ratio":
+        if not numerator_is_zero:
+            return None
+        return _ZeroResult(
+            calculation_config=calculation_config,
+            ratio_side=None,
+            stats=stats,
+            nodes=tuple(metric_nodes(dict(definition))),
+        )
+    if numerator_is_zero:
+        side: RatioSide = "numerator"
+    elif all(stat.denominator_sum == 0 for stat in stats):
+        side = "denominator"
+    else:
+        return None
+    node = definition.get(side)
+    return _ZeroResult(
+        calculation_config=calculation_config,
+        ratio_side=side,
+        stats=stats,
+        nodes=(node,) if isinstance(node, dict) else (),
+    )
+
+
+def _event_last_seen(project_id: int, names: Collection[str]) -> dict[str, datetime]:
+    definitions = EventDefinition.objects.alias(effective_project_id=effective_project_id_expr()).filter(
+        effective_project_id=project_id, name__in=names
+    )
+    return {name: seen for name, seen in definitions.values_list("name", "last_seen_at") if seen is not None}
+
+
+def _zero_metric(experiment: Experiment, result: _ZeroResult, last_seen: Mapping[str, datetime]) -> ZeroMetric:
+    calculation_config = result.calculation_config
+    start_date = experiment.start_date
+    return ZeroMetric(
+        metric_id=calculation_config.metric_id,
+        name=calculation_metric_name(experiment, calculation_config),
+        role=calculation_config.role,
+        exposures=sum(stat.number_of_samples for stat in result.stats),
+        ratio_side=result.ratio_side,
+        definition=calculation_config.definition,
+        # `step_counts` holds the entities that reached each step of the metric, so its first count is the largest.
+        reached_earlier_step=sum(stat.step_counts[0] for stat in result.stats if stat.step_counts),
+        events=result.events,
+        has_blank_event=any(
+            node.get("kind") == "EventsNode" and node.get("event") is not None and not str(node["event"]).strip()
+            for node in result.nodes
+        ),
+        has_filters=any(node.get("properties") for node in result.nodes),
+        stopped_events={
+            event: seen
+            for event in result.events
+            if (seen := last_seen.get(event)) is not None and start_date is not None and seen < start_date
+        },
     )
 
 
