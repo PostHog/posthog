@@ -3,6 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { traceDialogOpenLogic } from 'lib/components/ViewTraceButton/traceDialogOpenLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
@@ -16,7 +17,6 @@ import type { Span } from 'products/tracing/frontend/types'
 
 import { traceViewLogic } from '../TraceView/traceViewLogic'
 import { TRACE_DIALOG_VIEW_ID, traceDialogLogic } from './traceDialogLogic'
-import { traceDialogOpenLogic } from './traceDialogOpenLogic'
 
 type TracePage = Awaited<ReturnType<typeof api.tracing.getTrace>>
 
