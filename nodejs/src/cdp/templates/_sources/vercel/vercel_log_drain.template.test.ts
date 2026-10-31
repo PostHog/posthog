@@ -34,7 +34,7 @@ describe('vercel log drain template', () => {
         })
     })
 
-    it('should capture only first log from JSON array and log warning', async () => {
+    it('should capture every log from a JSON array batch', async () => {
         const logs = [
             { ...vercelLogDrain, id: 'log1', requestId: 'req1' },
             { ...vercelLogDrain, id: 'log2', requestId: 'req2', source: 'edge' },
@@ -49,17 +49,15 @@ describe('vercel log drain template', () => {
         )
 
         expect(response.error).toBeUndefined()
-        expect(response.capturedPostHogEvents).toHaveLength(1)
-        // Only first log is captured
-        expect(response.capturedPostHogEvents[0].properties.vercel_log_id).toBe('log1')
-        expect(response.capturedPostHogEvents[0].properties.source).toBe('lambda')
-        // Warning should be logged about dropped logs
-        expect(response.logs.map((l) => l.message)).toContainEqual(
-            expect.stringContaining('Dropped 2 additional log(s)')
-        )
+        expect(response.capturedPostHogEvents.map((e) => [e.properties.vercel_log_id, e.properties.source])).toEqual([
+            ['log1', 'lambda'],
+            ['log2', 'edge'],
+            ['log3', 'build'],
+        ])
+        expect(response.execResult).toMatchObject({ httpResponse: { status: 200 } })
     })
 
-    it('should capture only first log from NDJSON format', async () => {
+    it('should capture every log from NDJSON format', async () => {
         const log1 = { ...vercelLogDrain, id: 'ndjson1', requestId: 'ndjson-req1' }
         const log2 = { ...vercelLogDrain, id: 'ndjson2', requestId: 'ndjson-req2' }
         const ndjsonBody = `${JSON.stringify(log1)}\n${JSON.stringify(log2)}`
@@ -78,8 +76,48 @@ describe('vercel log drain template', () => {
         )
 
         expect(response.error).toBeUndefined()
-        expect(response.capturedPostHogEvents).toHaveLength(1)
-        expect(response.capturedPostHogEvents[0].properties.vercel_log_id).toBe('ndjson1')
+        expect(response.capturedPostHogEvents.map((e) => e.properties.vercel_log_id)).toEqual(['ndjson1', 'ndjson2'])
+    })
+
+    it.each([
+        ['JSON array', (logs: Record<string, any>[]) => createVercelRequest(logs)],
+        [
+            'NDJSON',
+            (logs: Record<string, any>[]) => ({
+                method: 'POST',
+                headers: {},
+                body: {},
+                stringBody: logs.map((log) => JSON.stringify(log)).join('\n'),
+                query: {},
+            }),
+        ],
+    ])('caps a %s batch at 100 lines and reports the dropped count', async (_name, buildRequest) => {
+        const logs = Array.from({ length: 105 }, (_, i) => ({ ...vercelLogDrain, id: `log${i}`, requestId: `req${i}` }))
+
+        const response = await tester.invoke({}, { request: buildRequest(logs) })
+
+        expect(response.error).toBeUndefined()
+        expect(response.capturedPostHogEvents).toHaveLength(100)
+        expect(response.capturedPostHogEvents[99].properties.vercel_log_id).toBe('log99')
+        expect(response.logs.map((l) => l.message)).toContainEqual(expect.stringContaining('Dropped 5 log(s)'))
+        expect(response.execResult).toMatchObject({ httpResponse: { status: 200 } })
+    })
+
+    it('stops parsing an NDJSON body after 1000 lines and reports the rest', async () => {
+        const lines = Array.from({ length: 1005 }, (_, i) =>
+            JSON.stringify({ id: `tiny${i}`, deploymentId: 'dpl_x', source: 'static', host: 'example.com' })
+        )
+
+        const response = await tester.invoke(
+            {},
+            { request: { method: 'POST', headers: {}, body: {}, stringBody: lines.join('\n'), query: {} } }
+        )
+
+        expect(response.error).toBeUndefined()
+        expect(response.capturedPostHogEvents).toHaveLength(100)
+        expect(response.logs.map((l) => l.message)).toContainEqual(
+            expect.stringContaining('Skipped 5 unparsed line(s)')
+        )
     })
 
     it('should return 405 for non-POST methods', async () => {
@@ -380,8 +418,7 @@ describe('vercel log drain template', () => {
         )
 
         expect(response.error).toBeUndefined()
-        expect(response.capturedPostHogEvents).toHaveLength(1)
-        expect(response.capturedPostHogEvents[0].properties.vercel_log_id).toBe('body1')
+        expect(response.capturedPostHogEvents.map((e) => e.properties.vercel_log_id)).toEqual(['body1', 'body2'])
     })
 
     it('should extract $pathname and $host from URL', async () => {
@@ -787,19 +824,69 @@ describe('vercel log drain template', () => {
             })
         })
 
-        it('selects the first page-route log from a batch even when an asset comes first', async () => {
+        it('keeps every page-route log in a batch and drops the asset logs', async () => {
             const batch = [
                 { ...logWithPath('/static/app.abc123.js'), id: 'asset1' },
                 { ...logWithPath('/pricing'), id: 'page1' },
                 { ...logWithPath('/styles/main.css'), id: 'asset2' },
+                { ...logWithPath('/docs/x'), id: 'page2' },
             ]
 
             const response = await tester.invoke({ page_routes_only: true }, { request: createVercelRequest(batch) })
 
             expect(response.error).toBeUndefined()
-            expect(response.capturedPostHogEvents).toHaveLength(1)
-            expect(response.capturedPostHogEvents[0].properties.vercel_log_id).toBe('page1')
-            expect(response.capturedPostHogEvents[0].properties.$pathname).toBe('/pricing')
+            expect(
+                response.capturedPostHogEvents.map((e) => [e.properties.vercel_log_id, e.properties.$pathname])
+            ).toEqual([
+                ['page1', '/pricing'],
+                ['page2', '/docs/x'],
+            ])
+        })
+
+        it('filters sub-resources before the 100-line cap, so page views at the tail of a batch survive', async () => {
+            const batch = [
+                ...Array.from({ length: 120 }, (_, i) => ({
+                    ...logWithPath(`/static/chunk-${i}.js`),
+                    id: `asset${i}`,
+                })),
+                ...Array.from({ length: 30 }, (_, i) => ({ ...logWithPath(`/docs/page-${i}`), id: `page${i}` })),
+            ]
+
+            const response = await tester.invoke({ page_routes_only: true }, { request: createVercelRequest(batch) })
+
+            expect(response.error).toBeUndefined()
+            expect(response.capturedPostHogEvents).toHaveLength(30)
+            expect(response.capturedPostHogEvents[29].properties.$pathname).toBe('/docs/page-29')
+            expect(response.logs.map((l) => l.message)).not.toContainEqual(expect.stringContaining('Dropped'))
+        })
+
+        it('reports unparsed lines even when every parsed line was filtered out', async () => {
+            const assets = Array.from({ length: 1000 }, (_, i) =>
+                JSON.stringify({ ...logWithPath(`/static/chunk-${i}.js`), id: `asset${i}` })
+            )
+            const pages = Array.from({ length: 3 }, (_, i) =>
+                JSON.stringify({ ...logWithPath(`/docs/${i}`), id: `page${i}` })
+            )
+
+            const response = await tester.invoke(
+                { page_routes_only: true },
+                {
+                    request: {
+                        method: 'POST',
+                        headers: {},
+                        body: {},
+                        stringBody: [...assets, ...pages].join('\n'),
+                        query: {},
+                    },
+                }
+            )
+
+            expect(response.error).toBeUndefined()
+            expect(response.capturedPostHogEvents).toHaveLength(0)
+            expect(response.execResult).toMatchObject({ httpResponse: { status: 200 } })
+            expect(response.logs.map((l) => l.message)).toContainEqual(
+                expect.stringContaining('Skipped 3 unparsed line(s)')
+            )
         })
 
         it('skips a batch with no page-route log and acknowledges with 200', async () => {

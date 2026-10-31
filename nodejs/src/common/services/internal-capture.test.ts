@@ -58,6 +58,30 @@ describe('InternalCaptureService', () => {
         })
     })
 
+    it('captureBatch posts every event of one token in a single array body', async () => {
+        const res = await service.captureBatch([
+            { team_token: 'token', event: 'one', distinct_id: 'd1' },
+            { team_token: 'token', event: 'two', distinct_id: 'd2' },
+        ])
+        expect(res.status).toBe(200)
+        expect(mockInternalFetch).toHaveBeenCalledTimes(1)
+        const body = parseJSON(mockInternalFetch.mock.calls[0][1].body)
+        expect(body.map((e: any) => [e.api_key, e.event])).toEqual([
+            ['token', 'one'],
+            ['token', 'two'],
+        ])
+    })
+
+    it('captureBatch refuses a batch that mixes team tokens', async () => {
+        await expect(
+            service.captureBatch([
+                { team_token: 'token-a', event: 'one', distinct_id: 'd1' },
+                { team_token: 'token-b', event: 'two', distinct_id: 'd2' },
+            ])
+        ).rejects.toThrow('exactly one team_token')
+        expect(mockInternalFetch).not.toHaveBeenCalled()
+    })
+
     it('should allow some overrides', async () => {
         await service.capture({
             team_token: 'token',

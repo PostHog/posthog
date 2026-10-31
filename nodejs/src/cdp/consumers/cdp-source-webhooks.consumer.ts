@@ -310,7 +310,12 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
             }
 
             const capturedPostHogEvent = functionResult.capturedPostHogEvents[0]
-            // Add all logs to the result
+            if (functionResult.capturedPostHogEvents.length > 1) {
+                addLog(
+                    'warn',
+                    `Only the first of ${functionResult.capturedPostHogEvents.length} captured events starts the workflow. The rest were ignored.`
+                )
+            }
 
             if (capturedPostHogEvent) {
                 // For workflows, the captured event is only used as trigger data and not to actually capture the event
@@ -476,7 +481,7 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
                 }
             } else {
                 // Run the initial step - this allows functions not using fetches to respond immediately
-                result = await this.hogExecutorAsync.execute(invocation)
+                result = await this.hogExecutorAsync.execute(invocation, await this.hogExecutionOptionsFor(hogFunction))
 
                 // Queue any queued work here. This allows us to enable delayed work like fetching eventually without blocking the API.
                 if (!result.finished) {

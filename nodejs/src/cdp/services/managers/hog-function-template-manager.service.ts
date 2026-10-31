@@ -8,6 +8,7 @@ const HOG_FUNCTION_TEMPLATE_FIELDS = ['id', 'template_id', 'sha', 'name', 'input
 
 export class HogFunctionTemplateManagerService {
     private lazyLoader: LazyLoader<DBHogFunctionTemplate>
+    private versionsLoader: LazyLoader<DBHogFunctionTemplate[]>
     // private started: boolean
 
     constructor(private postgres: PostgresRouter) {
@@ -16,6 +17,10 @@ export class HogFunctionTemplateManagerService {
         this.lazyLoader = new LazyLoader({
             name: 'hog_function_template_manager',
             loader: async (ids) => await this.fetchHogFunctionTemplates(ids),
+        })
+        this.versionsLoader = new LazyLoader({
+            name: 'hog_function_template_versions_manager',
+            loader: async (ids) => await this.fetchHogFunctionTemplateVersions(ids),
         })
     }
 
@@ -37,6 +42,26 @@ export class HogFunctionTemplateManagerService {
         ids: DBHogFunctionTemplate['id'][]
     ): Promise<Record<DBHogFunctionTemplate['id'], DBHogFunctionTemplate | null>> {
         return await this.lazyLoader.getMany(ids)
+    }
+
+    /** Every stored version of a template. A function keeps the bytecode it was saved with, so a check against the template has to accept older versions too. */
+    public async getHogFunctionTemplateVersions(templateId: string): Promise<DBHogFunctionTemplate[]> {
+        return (await this.versionsLoader.get(templateId)) ?? []
+    }
+
+    private async fetchHogFunctionTemplateVersions(ids: string[]): Promise<Record<string, DBHogFunctionTemplate[]>> {
+        const response = await this.postgres.query<DBHogFunctionTemplate>(
+            PostgresUse.COMMON_READ,
+            `SELECT ${HOG_FUNCTION_TEMPLATE_FIELDS.join(
+                ', '
+            )} FROM posthog_hogfunctiontemplate WHERE template_id = ANY($1)`,
+            [ids],
+            'fetchHogFunctionTemplateVersions'
+        )
+        return response.rows.reduce<Record<string, DBHogFunctionTemplate[]>>((acc, template) => {
+            ;(acc[template.template_id] ??= []).push(template)
+            return acc
+        }, {})
     }
 
     // NOTE: Currently this essentially loads the "latest" template each time. We may need to swap this to using a specific version
