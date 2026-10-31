@@ -53,6 +53,8 @@ PRODUCT_GATED_ENDPOINTS = {
     "investment_holdings": "investments",
     "investment_transactions": "investments",
     "liabilities": "liabilities",
+    "recurring_transactions": "transactions",
+    "identity": "identity",
 }
 
 
@@ -172,6 +174,19 @@ def get_rows(
             yield items
         return
 
+    if endpoint == "balances":
+        data = post("/accounts/balance/get", {})
+        items = data.get("accounts", []) or []
+        if items:
+            yield items
+        return
+
+    if endpoint == "items":
+        data = post("/item/get", {})
+        if item := data.get("item"):
+            yield [{**item, "status": data.get("status")}]
+        return
+
     if endpoint == "institutions":
         institution_id = get_item().get("institution_id")
         if not institution_id:
@@ -210,6 +225,24 @@ def get_rows(
             ]
             if rows:
                 yield rows
+            return
+
+        if endpoint == "recurring_transactions":
+            data = post("/transactions/recurring/get", {})
+            rows = [
+                {**stream, "direction": direction}
+                for direction, streams_key in (("inflow", "inflow_streams"), ("outflow", "outflow_streams"))
+                for stream in data.get(streams_key) or []
+            ]
+            if rows:
+                yield rows
+            return
+
+        if endpoint == "identity":
+            data = post("/identity/get", {})
+            items = data.get("accounts", []) or []
+            if items:
+                yield items
             return
 
         path, rows_key, total_key = OFFSET_PAGINATED_ENDPOINTS[endpoint]
