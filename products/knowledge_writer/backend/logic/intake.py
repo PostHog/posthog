@@ -14,7 +14,17 @@ from products.tasks.backend.facade.contracts import TaskDetailDTO
 from ..facade.contracts import AdapterVerdict, IntakeOutcome, InvalidAdapterVerdict
 from ..feature_flags import is_agent_launch_enabled
 from ..settings import writer_settings
-from .launch import restart_writer, start_writer
+from .caps import (
+    OPEN_PULL_REQUEST_CAP,
+    WriterSectionBusy,
+    alert_cap_reached,
+    daily_run_cap_reached,
+    in_flight_writer_runs,
+)
+from .launch import start_writer
+from .pull_requests import open_writer_pull_requests, source_repository_github
+from .records import WriterPullRequest
+from .routing import route_request
 
 logger = structlog.get_logger(__name__)
 
@@ -45,14 +55,45 @@ def submit(payload: object, *, team_id: int) -> IntakeOutcome:
     team = Team.objects.get(id=team_id)
     if not is_agent_launch_enabled(team):
         return IntakeOutcome(status="shadow")
-    if existing_task is not None:
-        restart_writer(existing_task.id, request, team=team, writer=writer)
-        return IntakeOutcome(status="started", task_id=existing_task.id)
+    if daily_run_cap_reached(writer):
+        alert_cap_reached("daily_run", team_id=team_id, dedupe_id=request.dedupe_id)
+        return IntakeOutcome(status="capped")
+    routing = route_request(request, team_id=team_id, github=source_repository_github(team_id))
+    if routing.is_every_page_in_source_repository:
+        return IntakeOutcome(status="docs_in_source_repo")
+    in_flight = in_flight_writer_runs(writer)
+    if routing.section and routing.section in in_flight.busy_sections:
+        return IntakeOutcome(status="section_busy")
+    open_pull_requests = open_writer_pull_requests(writer)
+    if open_pull_requests is None:
+        alert_cap_reached("open_pull_request_lookup", team_id=team_id, dedupe_id=request.dedupe_id)
+        return IntakeOutcome(status="capped")
+    joining = pull_request_to_join(open_pull_requests, routing.section)
+    if joining is None and len(open_pull_requests) + in_flight.unpublished_runs >= OPEN_PULL_REQUEST_CAP:
+        alert_cap_reached("open_pull_request", team_id=team_id, dedupe_id=request.dedupe_id)
+        return IntakeOutcome(status="capped")
     try:
-        task_id = start_writer(request, team=team, writer=writer)
+        task_id = start_writer(
+            request,
+            routing,
+            team=team,
+            writer=writer,
+            joining=joining,
+            rerun_task_id=existing_task.id if existing_task is not None else None,
+        )
     except IntegrityError:
         return IntakeOutcome(status="duplicate")
+    except WriterSectionBusy:
+        return IntakeOutcome(status="section_busy")
+    if joining is not None:
+        return IntakeOutcome(status="joined", task_id=task_id, pull_request_url=joining.url)
     return IntakeOutcome(status="started", task_id=task_id)
+
+
+def pull_request_to_join(open_pull_requests: list[WriterPullRequest], section: str | None) -> WriterPullRequest | None:
+    if not section:
+        return None
+    return next((pull_request for pull_request in open_pull_requests if pull_request.section == section), None)
 
 
 def latest_run_failed(task: TaskDetailDTO) -> bool:
