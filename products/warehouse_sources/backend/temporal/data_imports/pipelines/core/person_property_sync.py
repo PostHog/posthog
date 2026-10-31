@@ -22,13 +22,14 @@ config models. The pure functions (bundle building, hashing, diff) are unit-test
 S3/personhog/Kafka helpers are the boundaries and are mocked in the orchestration test.
 """
 
+import io
 import json
 import asyncio
 import hashlib
 import dataclasses
 from datetime import date, datetime, time
 from decimal import Decimal
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
 
@@ -46,7 +47,7 @@ from posthog.models.group_type_mapping import get_group_types_for_project
 from posthog.models.person.util import get_persons_mapped_by_distinct_id
 from posthog.sync import database_sync_to_async
 
-from products.data_warehouse.backend.facade.api import aget_s3_client
+from products.data_warehouse.backend.facade.api import aget_s3_client, get_s3_client
 from products.warehouse_sources.backend.facade.person_property_provenance import stamp_person_property_provenance
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.temporal.data_imports.external_product_hooks import (
@@ -62,6 +63,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.per
     job_staged_prefix,
     snapshot_prefix,
 )
+
+if TYPE_CHECKING:
+    from s3fs import S3FileSystem
 
 logger = structlog.get_logger(__name__)
 
@@ -83,6 +87,15 @@ def _log_fields(binding: WarehouseBinding) -> dict[str, str]:
 # changed set — an organization group carries tens of KB of properties, so a six-figure changed set
 # would otherwise materialize gigabytes and get the worker OOM-killed.
 _EXISTENCE_LOOKUP_CHUNK_SIZE = 1_000
+
+# Rows per streamed parquet/Delta batch. Batches are processed then discarded, so peak memory is one
+# batch plus the per-source {distinct_id: bundle} accumulator (bounded by distinct-person cardinality).
+ROW_BATCH_SIZE = 50_000
+
+# Sources folded per pass over the staged files. Every source in a pass keeps its own
+# {distinct_id: bundle} map, so a binding with many sources would otherwise hold one map per source
+# for every person at once. Each extra pass reads only its own sources' columns.
+SOURCES_PER_STAGED_PASS = 4
 
 
 @frozen(frozen=False)
@@ -178,6 +191,20 @@ def select_changed(
     return list(changed.items()), new_hashes
 
 
+def _accumulate_bundles(
+    accumulated: dict[str, dict[str, dict]], rows: list[dict], sources: list[PersonPropertySyncSource]
+) -> None:
+    """Fold one batch of rows into {source_id: {distinct_id: bundle}}, last write winning per distinct_id."""
+    for source in sources:
+        bucket = accumulated[str(source.source_id)]
+        for distinct_id, bundle in build_bundles(rows, source.key_column, source.column_property_map or {}):
+            bucket[distinct_id] = bundle
+
+
+def _wanted_columns(sources: list[PersonPropertySyncSource]) -> set[str]:
+    return {column for source in sources for column in (source.key_column, *(source.column_property_map or {}).keys())}
+
+
 # --- S3 / Kafka / personhog boundaries (mocked in tests) ---------------------------------
 
 
@@ -189,9 +216,36 @@ def _snapshot_prefix(team_id: int, binding: WarehouseBinding, source_id: str) ->
     return snapshot_prefix(team_id, binding, source_id)
 
 
-async def _read_staged_rows(team_id: int, binding: WarehouseBinding, job_id: str) -> list[dict]:
+@frozen
+class StagedBundleRead:
+    """What one job's staged files yielded for an incremental sync."""
+
+    bundles_by_source: dict[str, dict[str, dict]]
+    rows_read: int
+
+
+def _accumulate_staged_file(
+    s3_client: "S3FileSystem",
+    path: str,
+    sources: list[PersonPropertySyncSource],
+    accumulated: dict[str, dict[str, dict]],
+) -> int:
+    """Stream one staged parquet file batch by batch into ``accumulated``. Returns the rows read."""
+    rows_read = 0
+    with s3_client.open(path, "rb", cache_type="none") as file:
+        parquet = pq.ParquetFile(file, pre_buffer=False)
+        # Staged chunks can differ in columns after schema drift, and requesting an absent column raises.
+        columns = sorted(_wanted_columns(sources) & set(parquet.schema_arrow.names))
+        for batch in parquet.iter_batches(batch_size=ROW_BATCH_SIZE, columns=columns):
+            rows = batch.to_pylist()
+            rows_read += len(rows)
+            _accumulate_bundles(accumulated, rows, sources)
+    return rows_read
+
+
+async def _list_staged_files(team_id: int, binding: WarehouseBinding, job_id: str) -> list[str]:
+    """S3 keys of the job's staged files in write order. Empty when the run staged nothing."""
     prefix = job_staged_prefix(team_id, binding, job_id)
-    rows: list[dict] = []
     async with aget_s3_client() as s3_client:
         try:
             listing = await s3_client._ls(f"s3://{prefix}/", detail=True)
@@ -199,24 +253,41 @@ async def _read_staged_rows(team_id: int, binding: WarehouseBinding, job_id: str
             # No staged folder — the run staged nothing (common on a no-change incremental run).
             logger.debug("person-property sync: no staged rows folder", team_id=team_id, **_log_fields(binding))
             return []
-        values = listing.values() if isinstance(listing, dict) else listing
-        files = [f["Key"] for f in values if f.get("type") != "directory"]
-        for file_path in files:
-            data = await s3_client._cat_file(f"s3://{file_path}" if not file_path.startswith("s3://") else file_path)
-            # Decode off the event loop: a large parquet chunk would otherwise block the async
-            # activity long enough to starve the heartbeater and trip its timeout.
-            rows.extend(await asyncio.to_thread(_decode_parquet_rows, data))
-    return rows
+    values = listing.values() if isinstance(listing, dict) else listing
+    files = [f for f in values if f.get("type") != "directory"]
+    # Staged filenames sort in attempt and chunk order, so last-write-wins follows write order.
+    file_keys = sorted(f["Key"] for f in files)
+    logger.info(
+        "person-property sync: reading staged files",
+        team_id=team_id,
+        **_log_fields(binding),
+        job_id=job_id,
+        staged_files=len(file_keys),
+        staged_bytes=sum(f.get("size") or 0 for f in files),
+    )
+    return file_keys
 
 
-def _bytes_reader(data: bytes):
-    import io  # noqa: PLC0415 — local to keep the module import light
+async def _read_staged_bundles(file_keys: list[str], sources: list[PersonPropertySyncSource]) -> StagedBundleRead:
+    """Stream the staged files into {source_id: {distinct_id: bundle}}, one file and one batch at a
+    time, so peak memory tracks distinct persons rather than staged row count."""
+    accumulated: dict[str, dict[str, dict]] = {str(source.source_id): {} for source in sources}
+    s3_sync_client = get_s3_client()
+    rows_read = 0
+    for key in file_keys:
+        # Read off the event loop so a large file can't starve the heartbeater.
+        rows_read += await asyncio.to_thread(
+            _accumulate_staged_file, s3_sync_client, _s3_uri(key), sources, accumulated
+        )
+    return StagedBundleRead(bundles_by_source=accumulated, rows_read=rows_read)
 
-    return io.BytesIO(data)
 
-
-def _decode_parquet_rows(data: bytes) -> list[dict]:
-    return pq.read_table(_bytes_reader(data)).to_pylist()
+def _merge_snapshot_file(data: bytes, hashes: dict[str, str]) -> None:
+    parquet = pq.ParquetFile(io.BytesIO(data))
+    for batch in parquet.iter_batches(batch_size=ROW_BATCH_SIZE, columns=["distinct_id", "sent_hash"]):
+        distinct_ids = batch.column("distinct_id").to_pylist()
+        sent_hashes = batch.column("sent_hash").to_pylist()
+        hashes.update((str(distinct_id), str(sent_hash)) for distinct_id, sent_hash in zip(distinct_ids, sent_hashes))
 
 
 def _snapshot_file_order(entry: dict) -> tuple:
@@ -261,8 +332,7 @@ async def _merge_snapshot_files(s3_client, file_keys: list[str]) -> dict[str, st
             # after we listed the folder but before we read it. Its rows survive in that new file (or
             # whichever one replaces it next run) — skip rather than fail the whole read.
             continue
-        for record in await asyncio.to_thread(_decode_parquet_rows, data):
-            hashes[record["distinct_id"]] = record["sent_hash"]
+        await asyncio.to_thread(_merge_snapshot_file, data, hashes)
     return hashes
 
 
@@ -518,6 +588,30 @@ async def _process_source_bundles(
     return ps
 
 
+async def _process_accumulated_source(
+    *,
+    team_id: int,
+    team: Team,
+    binding: WarehouseBinding,
+    source: PersonPropertySyncSource,
+    bundles_by_source: dict[str, dict[str, dict]],
+    rows_read: int,
+    run_token: str,
+) -> PerSourceResult:
+    bundles = list(bundles_by_source.pop(str(source.source_id)).items())
+    return await _process_source_bundles(
+        team_id=team_id,
+        project_id=team.project_id,
+        binding=binding,
+        team_api_token=team.api_token,
+        team_uuid=str(team.uuid),
+        source=source,
+        bundles=bundles,
+        rows_read=rows_read,
+        run_token=run_token,
+    )
+
+
 def _accumulate(result: SyncResult, ps: PerSourceResult) -> None:
     result.per_source.append(ps)
     result.changed += ps.changed
@@ -539,42 +633,38 @@ async def run_person_property_sync(*, team_id: int, binding: WarehouseBinding, j
         return result
 
     team = await database_sync_to_async(Team.objects.get, thread_sensitive=False)(id=team_id)
-    rows = await _read_staged_rows(team_id, binding, job_id)
+    file_keys = await _list_staged_files(team_id, binding, job_id)
     result.sources = len(sources)
-    result.rows_read = len(rows)
-    logger.info(
-        "person-property sync: read staged rows",
-        team_id=team_id,
-        **_log_fields(binding),
-        job_id=job_id,
-        sources=len(sources),
-        rows_read=len(rows),
-    )
 
-    for source in sources:
-        bundles = await asyncio.to_thread(build_bundles, rows, source.key_column, source.column_property_map or {})
-        ps = await _process_source_bundles(
+    for start in range(0, len(sources), SOURCES_PER_STAGED_PASS):
+        pass_sources = sources[start : start + SOURCES_PER_STAGED_PASS]
+        read = await _read_staged_bundles(file_keys, pass_sources)
+        result.rows_read = read.rows_read
+        logger.info(
+            "person-property sync: read staged rows",
             team_id=team_id,
-            project_id=team.project_id,
-            binding=binding,
-            team_api_token=team.api_token,
-            team_uuid=str(team.uuid),
-            source=source,
-            bundles=bundles,
-            rows_read=len(rows),
-            run_token=job_id,
+            **_log_fields(binding),
+            job_id=job_id,
+            sources=len(pass_sources),
+            rows_read=read.rows_read,
         )
-        _accumulate(result, ps)
+        for source in pass_sources:
+            ps = await _process_accumulated_source(
+                team_id=team_id,
+                team=team,
+                binding=binding,
+                source=source,
+                bundles_by_source=read.bundles_by_source,
+                rows_read=read.rows_read,
+                run_token=job_id,
+            )
+            _accumulate(result, ps)
 
     await _clear_staged(team_id, binding, job_id)
     return result
 
 
 # --- backfill (full Delta read) ----------------------------------------------------------
-
-# Rows per streamed Delta batch. Batches are processed then discarded, so peak memory is one batch
-# plus the per-source {distinct_id: bundle} accumulator (bounded by distinct-person cardinality).
-BACKFILL_BATCH_SIZE = 50_000
 
 # Backfill runs share one snapshot filename per source (a full-table read replaces the whole set),
 # distinct from the incremental job-id filenames, so the two writers never collide.
@@ -608,11 +698,8 @@ def _read_delta_bundles(
 
     dataset = deltalake.DeltaTable(uri, storage_options=storage_options).to_pyarrow_dataset()
     available = set(dataset.schema.names)
-    wanted = {
-        column for source in sources for column in (source.key_column, *(source.column_property_map or {}).keys())
-    }
     # Project only columns that exist — a misconfigured column drops out rather than erroring.
-    project = sorted(wanted & available)
+    project = sorted(_wanted_columns(sources) & available)
 
     # A source whose key column itself is missing produces zero bundles for the whole table, which is
     # otherwise indistinguishable from a genuinely idle backfill. Report it back so the caller can fail
@@ -629,13 +716,10 @@ def _read_delta_bundles(
             )
 
     rows_read = 0
-    for batch in dataset.to_batches(columns=project, batch_size=BACKFILL_BATCH_SIZE):
+    for batch in dataset.to_batches(columns=project, batch_size=ROW_BATCH_SIZE):
         rows = batch.to_pylist()
         rows_read += len(rows)
-        for source in sources:
-            bucket = accumulated[str(source.source_id)]
-            for distinct_id, bundle in build_bundles(rows, source.key_column, source.column_property_map or {}):
-                bucket[distinct_id] = bundle
+        _accumulate_bundles(accumulated, rows, sources)
     return DeltaBundleRead(
         bundles_by_source=accumulated,
         rows_read=rows_read,
@@ -726,15 +810,12 @@ async def run_person_property_backfill(*, team_id: int, binding: WarehouseBindin
                 ),
             )
             continue
-        bundles = list(read.bundles_by_source[str(source.source_id)].items())
-        ps = await _process_source_bundles(
+        ps = await _process_accumulated_source(
             team_id=team_id,
-            project_id=team.project_id,
+            team=team,
             binding=binding,
-            team_api_token=team.api_token,
-            team_uuid=str(team.uuid),
             source=source,
-            bundles=bundles,
+            bundles_by_source=read.bundles_by_source,
             rows_read=read.rows_read,
             run_token=BACKFILL_RUN_TOKEN,
         )

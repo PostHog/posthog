@@ -225,8 +225,13 @@ def _source_values(rows: list[dict[str, Any]], key_column: str, source_column: s
     }
 
 
-def _decode_parquet_rows(data: bytes) -> list[dict[str, Any]]:
-    return pq.read_table(io.BytesIO(data)).to_pylist()
+def _merge_snapshot_file(data: bytes, hashes: dict[str, str]) -> None:
+    for batch in _parquet_batches(data):
+        external_ids = batch.column("external_id").to_pylist()
+        value_hashes = batch.column("value_hash").to_pylist()
+        hashes.update(
+            (str(external_id), str(value_hash)) for external_id, value_hash in zip(external_ids, value_hashes)
+        )
 
 
 def _encode_snapshot(hashes: dict[str, str]) -> bytes:
@@ -310,8 +315,7 @@ async def _merge_snapshot_files(s3_client: _SnapshotS3Client, file_keys: list[st
         except FileNotFoundError:
             complete = False
             continue
-        for row in await asyncio.to_thread(_decode_parquet_rows, data):
-            hashes[str(row["external_id"])] = str(row["value_hash"])
+        await asyncio.to_thread(_merge_snapshot_file, data, hashes)
     return _SnapshotMerge(hashes=hashes, complete=complete)
 
 
