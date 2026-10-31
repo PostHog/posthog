@@ -631,6 +631,7 @@ export const SdkHealthReportHealthEnumApi = {
  * * `posthog-unreal` - posthog-unreal
  * * `posthog-go-mcp` - posthog-go-mcp
  * * `posthog-ruby-mcp` - posthog-ruby-mcp
+ * * `posthog-roblox` - posthog-roblox
  * * `js` - js
  */
 export type LibEnumApi = (typeof LibEnumApi)[keyof typeof LibEnumApi]
@@ -664,6 +665,7 @@ export const LibEnumApi = {
     PosthogUnreal: 'posthog-unreal',
     PosthogGoMcp: 'posthog-go-mcp',
     PosthogRubyMcp: 'posthog-ruby-mcp',
+    PosthogRoblox: 'posthog-roblox',
     Js: 'js',
 } as const
 
@@ -757,6 +759,7 @@ export interface SdkAssessmentApi {
      * * `posthog-unreal` - posthog-unreal
      * * `posthog-go-mcp` - posthog-go-mcp
      * * `posthog-ruby-mcp` - posthog-ruby-mcp
+     * * `posthog-roblox` - posthog-roblox
      * * `js` - js */
     lib: LibEnumApi
     /** Human-readable SDK name matching the SDK Health UI (e.g. 'Python', 'Node.js', 'Web', 'iOS'). */
