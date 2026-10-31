@@ -239,6 +239,9 @@ export class SessionTracker {
             return unbilled
         }
 
+        // Sessions that code billing at first sight already billed. They get a billed mark, so a late upload does
+        // not bill them again after their seen key expires.
+        const billedAtFirstSight: BilledSession[] = []
         const startTime = performance.now()
         let client
         try {
@@ -252,18 +255,17 @@ export class SessionTracker {
             }
             const values = pipelineValues(await pipeline.exec(), misses.length * 3)
             for (let i = 0; i < misses.length; i++) {
-                const { teamId, sessionId, timestampMs } = misses[i]
+                const { teamId, sessionId, timestampMs, ttlSeconds } = misses[i]
                 const [billedValue, seenValue] = [values[3 * i + 1], values[3 * i + 2]]
-                if (
-                    (typeof billedValue === 'string' && billedValue.startsWith(BILLED_PREFIX)) ||
-                    seenValue === BILLED_AT_FIRST_SIGHT
-                ) {
+                if (typeof billedValue === 'string' && billedValue.startsWith(BILLED_PREFIX)) {
                     this.billedCache.set(this.generateBilledKey(teamId, sessionId), true)
+                } else if (seenValue === BILLED_AT_FIRST_SIGHT) {
+                    const storedTimestampMs = storedBillingTime(billedValue) ?? timestampMs
+                    billedAtFirstSight.push({ teamId, sessionId, timestampMs: storedTimestampMs, ttlSeconds })
                 } else {
                     unbilled.set(teamId, sessionId, storedBillingTime(billedValue) ?? timestampMs)
                 }
             }
-            return unbilled
         } catch (error) {
             logger.error('session_tracker_claim_billing_times_redis_error', { error: String(error) })
             SessionBatchMetrics.incrementSessionTrackerRedisErrors()
@@ -277,11 +279,15 @@ export class SessionTracker {
             }
             SessionBatchMetrics.observeSessionTrackerRedisLatency((performance.now() - startTime) / 1000)
         }
+
+        await this.markBilled(billedAtFirstSight)
+        return unbilled
     }
 
     /**
-     * Call only after the sessions' usage records reached the usage service. Fails open, like {@link markSeen}:
-     * a lost mark can only bill the session again on another consumer.
+     * Call only after the sessions' usage records reached the usage service. Fails open, like {@link markSeen}. The
+     * local cache keeps the mark when the Redis write fails, so a Redis failure does not resend the session on every
+     * flush. A later resend carries the billing time that Redis stored, and the usage table removes it.
      */
     public async markBilled(sessions: BilledSession[]): Promise<void> {
         if (sessions.length === 0) {
@@ -298,7 +304,7 @@ export class SessionTracker {
                 this.billedCache.set(key, true)
                 pipeline.set(key, `${BILLED_PREFIX}${timestampMs}`, 'EX', ttlSeconds)
             }
-            await pipeline.exec()
+            pipelineValues(await pipeline.exec(), sessions.length)
         } catch (error) {
             logger.error('session_tracker_mark_billed_redis_error', { error: String(error) })
             SessionBatchMetrics.incrementSessionTrackerRedisErrors()

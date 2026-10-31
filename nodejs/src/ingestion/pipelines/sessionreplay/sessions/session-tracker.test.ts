@@ -168,4 +168,16 @@ describe('SessionTracker', () => {
             expect(mockRedisClient.mget).not.toHaveBeenCalled()
         })
     })
+
+    describe('markBilled', () => {
+        it('counts a Redis error that the pipeline returns as a command result', async () => {
+            mockPipeline.exec = jest.fn().mockResolvedValue([[new Error('OOM command not allowed'), null]])
+
+            await sessionTracker.markBilled([
+                { teamId: 1, sessionId: 'a', timestampMs: 1_700_000_000_000, ttlSeconds: 60 },
+            ])
+
+            expect(SessionBatchMetrics.incrementSessionTrackerRedisErrors).toHaveBeenCalledTimes(1)
+        })
+    })
 })

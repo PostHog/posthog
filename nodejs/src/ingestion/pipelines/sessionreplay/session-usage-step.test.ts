@@ -172,10 +172,12 @@ describe('session usage', () => {
         it.each([
             ['a session the tracker marked seen but did not bill', 'seen', ['session-1']],
             ['nothing for a session that an earlier release billed when it first saw it', '1', []],
-        ])('bills %s', async (_name, trackerValue, billedSessionIds) => {
+        ])('bills %s, also after the seen key expires', async (_name, trackerValue, billedSessionIds) => {
             redisValues.set(seenKey, trackerValue)
 
-            await flush([metadata('web', FIRST_FLUSH)])
+            await flush([metadata('mobile', FIRST_FLUSH)])
+            redisValues.delete(seenKey)
+            await flush([metadata('mobile', SECOND_FLUSH)])
 
             expect(ingested.map((record) => record.recordId)).toEqual(billedSessionIds)
         })
