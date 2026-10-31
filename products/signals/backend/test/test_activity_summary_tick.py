@@ -131,6 +131,7 @@ _CONFIG_CASES: list[tuple[str, Any, ActivitySummaryConfig]] = [
             "view_update_interval_hours": -5,
             "cold_start_min_active_days": 2.5,
             "mcp_buffer_enabled": "yes",
+            "mcp_render_enabled": 1,
             "mcp_calls_per_day": 0,
             "mcp_buffer_days": 10_000,
         },
@@ -165,6 +166,7 @@ _CONFIG_CASES: list[tuple[str, Any, ActivitySummaryConfig]] = [
             "mcp_buffer_organization_ids": ["org-a"],
             "mcp_calls_per_day": 20,
             "mcp_buffer_days": 14,
+            "mcp_render_enabled": True,
         },
         ActivitySummaryConfig(
             enabled=True,
@@ -188,6 +190,7 @@ _CONFIG_CASES: list[tuple[str, Any, ActivitySummaryConfig]] = [
             mcp_buffer_organization_ids=("org-a",),
             mcp_calls_per_day=20,
             mcp_buffer_days=14,
+            mcp_render_enabled=True,
         ),
     ),
     (
@@ -934,6 +937,7 @@ def _plan(pairs: int, **overrides: Any) -> ActivitySummaryTickPlan:
         "enrollment": EnrollmentCounts(qualifying_organizations=3, enrolled_organizations=2, enrolled_teams=4),
         "due_by_trigger": {"activity": 1, "views": pairs - 1},
         "stop_reason": None,
+        "mcp_buffer_days": 10,
     }
     return ActivitySummaryTickPlan(**{**fields, **overrides})
 
@@ -1006,7 +1010,9 @@ async def test_the_tick_bounds_concurrency_and_stops_at_the_daily_caps_and_the_e
     result, peak, captured, pair_inputs = await _run_tick(plan, pair_cost, pair_status)
 
     assert peak <= plan.max_concurrency
-    assert {(pair.trigger, pair.view_update_interval_hours) for pair in pair_inputs} == {("views", 168.0)}
+    assert {(pair.trigger, pair.view_update_interval_hours, pair.mcp_buffer_days) for pair in pair_inputs} == {
+        ("views", 168.0, 10)
+    }
     assert result.due_by_trigger == plan.due_by_trigger
     assert (result.picked, result.statuses, result.stop_reason) == (picked, {pair_status: picked}, stop_reason)
     assert result.tiers == plan.tiers

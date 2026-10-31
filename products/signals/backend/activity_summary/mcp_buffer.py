@@ -16,6 +16,7 @@ Redis keys, each with a TTL of `mcp_buffer_days`:
 - `as:mcp:dirty`: a set of `{team_id}:{user_id}` members that have new records.
 
 A record is `ts|session_or_conversation_id|route_name|intent`, with `ts` in Unix seconds.
+`inputs.user_mcp_records` reads the buffer through the key and record helpers of this module.
 """
 
 import os
@@ -36,10 +37,12 @@ from prometheus_client import Counter, Histogram
 from posthog.dataclasses import frozen
 from posthog.redis import get_client
 
+from products.signals.backend.activity_summary.render import MCP_INTENT_CHARS, McpItem
+
 logger = structlog.get_logger(__name__)
 
 QUEUE_SIZE = 10_000
-INTENT_MAX_CHARS = 200
+INTENT_MAX_CHARS = MCP_INTENT_CHARS
 # Session ids and route names are much shorter. The cap only bounds a caller-asserted header.
 _FIELD_MAX_CHARS = 100
 FLUSH_INTERVAL_SECONDS = 1.0
@@ -67,6 +70,32 @@ def records_key(team_id: int, user_id: int, day: str) -> str:
 
 def count_key(team_id: int, user_id: int, day: str) -> str:
     return f"as:mcp:n:{team_id}:{user_id}:{day}"
+
+
+def record_day(at: datetime.datetime) -> str:
+    """The UTC day of a record, as its keys name it."""
+    return at.astimezone(datetime.UTC).strftime("%Y%m%d")
+
+
+def window_days(start: datetime.datetime, end: datetime.datetime, max_days: int) -> list[str]:
+    """The UTC days that hold the records of [start, end), the newest `max_days` only, oldest first."""
+    last = (end - datetime.timedelta(microseconds=1)).astimezone(datetime.UTC).date()
+    first = max(start.astimezone(datetime.UTC).date(), last - datetime.timedelta(days=max_days - 1))
+    return [(first + datetime.timedelta(days=offset)).strftime("%Y%m%d") for offset in range((last - first).days + 1)]
+
+
+def parse_record(value: bytes | str) -> McpItem | None:
+    """The record that `build_record` wrote, or None when the value is not one."""
+    text = value.decode("utf-8", errors="replace") if isinstance(value, bytes) else value
+    parts = text.split("|", 3)
+    if len(parts) != 4:
+        return None
+    ts, session_id, route_name, intent = parts
+    try:
+        at = datetime.datetime.fromtimestamp(int(ts), tz=datetime.UTC)
+    except (ValueError, OverflowError, OSError):
+        return None
+    return McpItem(at=at, session_id=session_id, route_name=route_name, intent=intent)
 
 
 @frozen
@@ -100,9 +129,7 @@ def build_record(
             _field(intent, INTENT_MAX_CHARS),
         )
     )
-    return McpIntentRecord(
-        team_id=team_id, user_id=user_id, day=at.astimezone(datetime.UTC).strftime("%Y%m%d"), value=value
-    )
+    return McpIntentRecord(team_id=team_id, user_id=user_id, day=record_day(at), value=value)
 
 
 def load_settings() -> BufferSettings:

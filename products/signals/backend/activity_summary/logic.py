@@ -17,12 +17,20 @@ from posthog.dataclasses import frozen
 from posthog.models import Team
 
 from products.signals.backend.activity_summary.computed import compute_fields
-from products.signals.backend.activity_summary.inputs import activity_parents, user_activity, user_tasks, user_views
+from products.signals.backend.activity_summary.inputs import (
+    McpRead,
+    activity_parents,
+    user_activity,
+    user_mcp_records,
+    user_tasks,
+    user_views,
+)
 from products.signals.backend.activity_summary.prompt import PROMPT_VERSION, summary_text
 from products.signals.backend.activity_summary.render import (
     DEFAULT_LIMITS,
     RENDER_VERSION,
     ActivityItem,
+    McpItem,
     Product,
     RenderedInput,
     RenderLimits,
@@ -140,13 +148,29 @@ class _WindowInputs:
     tasks: list[TaskItem]
     activity: list[ActivityItem]
     views: list[ViewItem]
+    mcp: McpRead | None = None
+
+    @property
+    def mcp_records(self) -> tuple[McpItem, ...]:
+        return self.mcp.records if self.mcp is not None else ()
 
 
-def _read_inputs(team_id: int, user_id: int, start: datetime.datetime, end: datetime.datetime) -> _WindowInputs:
+def _read_inputs(
+    team_id: int,
+    user_id: int,
+    start: datetime.datetime,
+    end: datetime.datetime,
+    mcp_buffer_days: int | None = None,
+) -> _WindowInputs:
     return _WindowInputs(
         tasks=user_tasks(team_id, user_id, start, end),
         activity=user_activity(team_id, user_id, start, end),
         views=user_views(team_id, user_id, start, end),
+        mcp=(
+            user_mcp_records(team_id, user_id, start, end, max_days=mcp_buffer_days)
+            if mcp_buffer_days is not None
+            else None
+        ),
     )
 
 
@@ -159,6 +183,7 @@ def _render(
     *,
     as_of: datetime.datetime,
     limits: RenderLimits,
+    mcp: tuple[McpItem, ...] = (),
 ) -> RenderedInput | None:
     return build_input(
         tasks,
@@ -168,11 +193,12 @@ def _render(
         views=views,
         limits=limits,
         parents=activity_parents(team_id, activity),
+        mcp=mcp,
     )
 
 
-def _inputs_used(rendered: RenderedInput, limits: RenderLimits) -> dict[str, Any]:
-    return {
+def _inputs_used(rendered: RenderedInput, limits: RenderLimits, mcp: McpRead | None = None) -> dict[str, Any]:
+    used: dict[str, Any] = {
         "tasks": rendered.n_tasks,
         "activity_lines": rendered.n_activity_lines,
         "view_lines": rendered.n_view_lines,
@@ -182,6 +208,18 @@ def _inputs_used(rendered: RenderedInput, limits: RenderLimits) -> dict[str, Any
         "drops": rendered.drops,
         "limits": dataclasses.asdict(limits),
     }
+    if mcp is not None:
+        used.update(
+            {
+                "mcp_sessions": rendered.mcp_pool,
+                "mcp_lines": rendered.n_mcp_lines,
+                "mcp_chars": rendered.mcp_chars,
+                "mcp_records": len(mcp.records),
+                "mcp_truncated_days": mcp.truncated_days,
+                "mcp_read_error": mcp.read_error,
+            }
+        )
+    return used
 
 
 def _call_model(
@@ -336,6 +374,7 @@ def update_activity_summary(
     rebuild_before: datetime.datetime | None = None,
     max_versions: int = MAX_VERSIONS,
     max_skip_backoff: datetime.timedelta = MAX_SKIP_BACKOFF,
+    mcp_buffer_days: int | None = None,
 ) -> ActivitySummaryUpdate:
     """Update the stored activity summary of one user in one project.
 
@@ -347,6 +386,7 @@ def update_activity_summary(
     empty first profile sets it to `skip_backoff` from now, which doubles with each skip until a good update
     resets it. An empty first profile keeps the cost of its model call.
     A successful update also appends a `UserActivitySummaryVersion` and keeps the latest `max_versions`.
+    With `mcp_buffer_days`, the update also reads up to that many UTC days of the MCP intent buffer.
     """
     team = Team.objects.select_related("organization").get(id=team_id)
     if team.organization.is_ai_data_processing_approved is not True:
@@ -360,9 +400,9 @@ def update_activity_summary(
     rebuild = is_stale(stored, rebuild_before)
     window_start = _input_start(None, now, limits.window_days)
     start = _input_start(stored.input_watermark if stored and not rebuild else None, now, limits.window_days)
-    window = _read_inputs(team_id, user_id, start, now)
+    window = _read_inputs(team_id, user_id, start, now, mcp_buffer_days)
     tasks, activity, views = window.tasks, window.activity, window.views
-    rendered = _render(team_id, user_id, tasks, activity, views, as_of=now, limits=limits)
+    rendered = _render(team_id, user_id, tasks, activity, views, as_of=now, limits=limits, mcp=window.mcp_records)
     if rendered is None or rendered.units < min_units:
         if not dry_run:
             _back_off(team_id, user_id, stored, now, max_skip_backoff)
@@ -372,8 +412,13 @@ def update_activity_summary(
             inputs_used={"drops": rendered.drops} if rendered else None,
         )
 
-    inputs_used = _inputs_used(rendered, limits)
-    watermark = max([task.at for task in tasks] + [item.at for item in activity] + [view.at for view in views])
+    inputs_used = _inputs_used(rendered, limits, window.mcp)
+    watermark = max(
+        [task.at for task in tasks]
+        + [item.at for item in activity]
+        + [view.at for view in views]
+        + [record.at for record in window.mcp_records]
+    )
     # An incremental update reads only the rows after the watermark, so the computed fields read the full window.
     if start == window_start:
         computed = compute_fields(tasks, activity, views).as_json()
@@ -480,18 +525,19 @@ def render_as_of(
     *,
     limits: RenderLimits = DEFAULT_LIMITS,
     exclude_products: frozenset[Product] = frozenset(),
+    mcp_buffer_days: int | None = None,
 ) -> AsOfInput | None:
     """The rendered input and computed fields of `[as_of - limits.window_days, as_of)`, or None when nothing renders.
 
     Views come from the latest view of each object, so an object opened again after `as_of` is missing."""
-    window = _read_inputs(team_id, user_id, as_of - datetime.timedelta(days=limits.window_days), as_of)
+    window = _read_inputs(team_id, user_id, as_of - datetime.timedelta(days=limits.window_days), as_of, mcp_buffer_days)
     tasks, activity, views = window.tasks, window.activity, window.views
     excluded: Counter[str] = Counter()
     activity, views = without_products(activity, views, exclude_products, excluded)
-    rendered = _render(team_id, user_id, tasks, activity, views, as_of=as_of, limits=limits)
+    rendered = _render(team_id, user_id, tasks, activity, views, as_of=as_of, limits=limits, mcp=window.mcp_records)
     if rendered is None:
         return None
-    inputs_used = _inputs_used(rendered, limits)
+    inputs_used = _inputs_used(rendered, limits, window.mcp)
     inputs_used["drops"] = {**rendered.drops, **excluded}
     return AsOfInput(
         rendered=rendered, computed=compute_fields(tasks, activity, views).as_json(), inputs_used=inputs_used
@@ -507,11 +553,14 @@ def build_summary_as_of(
     min_units: int = MIN_UNITS,
     exclude_products: frozenset[Product] = frozenset(),
     trace_variant: str | None = None,
+    mcp_buffer_days: int | None = None,
 ) -> ActivitySummaryUpdate:
     """A summary of one user in one project as of `as_of`, from the inputs before it only.
 
     The model gets no previous summary, and the sample seed comes from the `as_of` date. Nothing is written."""
-    built = render_as_of(team_id, user_id, as_of, limits=limits, exclude_products=exclude_products)
+    built = render_as_of(
+        team_id, user_id, as_of, limits=limits, exclude_products=exclude_products, mcp_buffer_days=mcp_buffer_days
+    )
     if built is None or built.rendered.units < min_units:
         return ActivitySummaryUpdate(
             status=UpdateStatus.SKIPPED_TOO_FEW_UNITS,
