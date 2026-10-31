@@ -1,0 +1,15 @@
+{
+  "run_date": "2026-10-17",
+  "model": "claude-sonnet-5-5",
+  "effort": "medium",
+  "repeats": 5,
+  "metric": "runs whose specific_enough verdict matches expected_accept",
+  "cases": {
+    "roster_skeleton_blamed_on_404": {"expected_accept": false, "before": 0, "after": 5},
+    "roster_skeleton_next_to_404": {"expected_accept": false, "before": 3, "after": 5},
+    "other_blank_section_blamed_on_404": {"expected_accept": false, "before": 0, "after": 5},
+    "same_404_on_another_endpoint": {"expected_accept": false, "before": 5, "after": 5},
+    "repeat_of_researched_404": {"expected_accept": true, "before": 5, "after": 5},
+    "symptom_the_research_explains": {"expected_accept": true, "before": 5, "after": 5}
+  }
+}
