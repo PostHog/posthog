@@ -380,6 +380,31 @@ describe('sqlEditorLogic', () => {
             logic.mount()
         }
 
+        it('opens a raw Trino view without unsaved changes', async () => {
+            const trinoQuery = {
+                ...MOCK_VIEW.query,
+                query: 'SELECT * FROM "catalog".schema.events',
+                filters: {},
+                executionTarget: 'managed_trino',
+                sendRawQuery: true,
+            }
+            useMocks({
+                get: {
+                    '/api/:scope/:team_id/warehouse_saved_queries/:id/': [200, { ...MOCK_VIEW, query: trinoQuery }],
+                },
+            })
+            mountEditor()
+            await expectLogic(logic, () => router.actions.push(urls.sqlEditor(), { open_view: MOCK_VIEW.id }))
+                .toDispatchActions(['createTab', 'setQueryInput'])
+                .toFinishAllListeners()
+
+            expect(logic.values.sourceQuery.source).toMatchObject({
+                executionTarget: 'managed_trino',
+                sendRawQuery: true,
+            })
+            expect(logic.values.hasEditorChanges).toBe(false)
+        })
+
         it.each(
             [
                 { searchParams: { open_view: MOCK_VIEW.id }, savedQuery: MOCK_VIEW.query.query },

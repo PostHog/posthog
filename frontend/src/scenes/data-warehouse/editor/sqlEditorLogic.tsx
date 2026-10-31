@@ -419,6 +419,11 @@ export function normalizeRawQuerySource(source: HogQLQuery): HogQLQuery {
     }
 }
 
+// Raw Trino views run only on hosted Trino, so they have no lineage node and cannot be materialized.
+export function isRawTrinoView(view: DataWarehouseSavedQuery): boolean {
+    return view.query?.executionTarget === 'managed_trino' && !!view.query?.sendRawQuery
+}
+
 function hogQLEditorSourceQuery(source: Partial<HogQLQuery> = {}): DataVisualizationNode {
     return {
         kind: NodeKind.DataVisualizationNode,
@@ -2525,6 +2530,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     current: candidates.queries[candidates.initialIndex],
                 }
                 const selectionProblem = await findSelectionProblem(candidates, values.sendRawQueryEnabled)
+                const isRawTrinoSave =
+                    values.sourceQuery.source.executionTarget === 'managed_trino' &&
+                    !!values.sourceQuery.source.sendRawQuery
 
                 const folderOptions: { value: string | null; label: string }[] = [
                     { value: null, label: 'No folder' },
@@ -2567,7 +2575,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         viewName: values.activeTab?.name || '',
                         folderId: null,
                         isTest: false,
-                        materializeAfterSave,
+                        materializeAfterSave: isRawTrinoSave ? false : materializeAfterSave,
                         incrementalEnabled: false,
                         incrementalKey: null,
                         incrementalUniqueKey: [],
@@ -2655,6 +2663,11 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                                                     checked={value}
                                                     onChange={onChange}
                                                     data-attr="sql-editor-input-save-view-materialize"
+                                                    disabledReason={
+                                                        isRawTrinoSave
+                                                            ? 'Views that run raw Trino SQL cannot be materialized yet.'
+                                                            : undefined
+                                                    }
                                                     label="Materialize this view"
                                                 />
                                                 <Tooltip title="Pre-compute the results into a table for faster queries. Syncs daily by default — you can adjust the frequency later in the view's materialization settings.">
@@ -3574,7 +3587,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             }
         },
         editingView: (editingView) => {
-            if (editingView) {
+            if (editingView && !isRawTrinoView(editingView)) {
                 actions.loadUpstream(editingView.id)
             }
         },
