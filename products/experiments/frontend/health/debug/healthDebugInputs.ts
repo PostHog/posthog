@@ -333,6 +333,12 @@ export function buildMetricFacts(
                 failure.message ?? 'message hidden, it can hold evaluation rules'
             }`,
         })),
+        ...(state.inputs?.latest_calculation?.zero_metrics ?? []).map((metric) => ({
+            label: `Zero: ${metric.name} (${metric.role})`,
+            value: `${metric.exposures} exposures${metric.ratio_side ? `, ${metric.ratio_side}` : ''}${
+                metric.stopped_events.length ? `, stopped: ${metric.stopped_events.join(', ')}` : ''
+            }`,
+        })),
     ]
 }
 
