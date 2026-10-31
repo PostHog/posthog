@@ -1,13 +1,12 @@
-import { NodeKind, type DateRange } from '~/queries/schema/schema-general'
-import { FunnelVizType } from '~/types'
-
 import {
     computeDaysOfWeekUpdate,
     getExcludedDaysOfWeek,
     invertDaysOfWeek,
     querySupportsDaysOfWeek,
     type IsoDayOfWeek,
-} from './daysOfWeekFilterUtils'
+} from '~/queries/nodes/InsightViz/daysOfWeekFilterUtils'
+import { NodeKind, type DateRange } from '~/queries/schema/schema-general'
+import { FunnelVizType } from '~/types'
 
 describe('daysOfWeekFilterUtils', () => {
     it.each([

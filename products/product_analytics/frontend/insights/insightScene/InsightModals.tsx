@@ -13,6 +13,7 @@ import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { urls } from 'scenes/urls'
 
 import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
+import { INSIGHT_SCREENSHOT_KEY } from '~/queries/nodes/InsightViz/insightImageCapture'
 import { EndpointQueryNode, HogQLQuery } from '~/queries/schema/schema-general'
 import { InsightLogicProps, InsightShortId, ItemMode } from '~/types'
 
@@ -23,7 +24,6 @@ import { MetricFromInsightModal } from 'products/data_catalog/frontend/component
 import { metricsLogic } from 'products/data_catalog/frontend/metricsLogic'
 import { EndpointFromInsightModal } from 'products/endpoints/frontend/EndpointFromInsightModal'
 import { endpointLogic } from 'products/endpoints/frontend/endpointLogic'
-import { INSIGHT_SCREENSHOT_KEY } from 'products/product_analytics/frontend/insights/shared/insightImageCapture'
 import { SubscriptionsModal } from 'products/subscriptions/frontend/components/Subscriptions/SubscriptionsModal'
 
 import { insightModalsLogic } from './insightModalsLogic'

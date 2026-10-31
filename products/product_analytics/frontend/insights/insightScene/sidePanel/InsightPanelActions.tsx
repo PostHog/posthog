@@ -24,6 +24,7 @@ import { urls } from 'scenes/urls'
 
 import { ScenePanelActionsSection } from '~/layout/scenes/SceneLayout'
 import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
+import { INSIGHT_GRAPH_SELECTOR, INSIGHT_SCREENSHOT_KEY } from '~/queries/nodes/InsightViz/insightImageCapture'
 import {
     isDataTableNode,
     isDataVisualizationNode,
@@ -35,10 +36,6 @@ import { AccessControlLevel, AccessControlResourceType, ExporterFormat, InsightL
 
 import { metricsLogic } from 'products/data_catalog/frontend/metricsLogic'
 import { endpointLogic } from 'products/endpoints/frontend/endpointLogic'
-import {
-    INSIGHT_GRAPH_SELECTOR,
-    INSIGHT_SCREENSHOT_KEY,
-} from 'products/product_analytics/frontend/insights/shared/insightImageCapture'
 
 import { insightModalsLogic } from '../insightModalsLogic'
 import { openSaveAsCohortDialog } from './insightSidePanelDialogs'
