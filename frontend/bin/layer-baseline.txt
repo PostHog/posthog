@@ -409,7 +409,6 @@ frontend/src/lib/hooks/useKeyboardHotkeys.tsx -> frontend/src/lib/posthog-typed.
 frontend/src/lib/hooks/useThemedHtml.ts -> frontend/src/lib/logic/themeLogic.ts
 frontend/src/lib/hooks/useThemedHtml.ts -> frontend/src/scenes/sceneLogic.tsx
 frontend/src/lib/integrations/VercelIntegrationSuffix.tsx -> frontend/src/scenes/settings/organization/organizationIntegrationsLogic.ts
-frontend/src/lib/lemon-ui/LemonCalendar/LemonCalendar.tsx -> frontend/src/lib/components/ScrollableShadows/ScrollableShadows.tsx
 frontend/src/lib/lemon-ui/LemonCalendar/LemonCalendar.tsx -> frontend/src/scenes/teamLogic.tsx
 frontend/src/lib/lemon-ui/LemonColor/LemonColorButton.tsx -> frontend/src/lib/logic/dataThemeLogic.tsx
 frontend/src/lib/lemon-ui/LemonColor/LemonColorGlyph.tsx -> frontend/src/lib/logic/dataThemeLogic.tsx
@@ -433,14 +432,11 @@ frontend/src/lib/lemon-ui/LemonRichContent/LemonRichContentEditor.tsx -> fronten
 frontend/src/lib/lemon-ui/LemonRichContent/LemonRichContentEditor.tsx -> frontend/src/lib/components/RichContentEditor/types.ts
 frontend/src/lib/lemon-ui/LemonRichContent/LemonRichContentEditor.tsx -> frontend/src/lib/components/RichContentEditor/utils.ts
 frontend/src/lib/lemon-ui/LemonRichContent/LemonRichContentEditor.tsx -> frontend/src/lib/logic/preflightLogic.tsx
-frontend/src/lib/lemon-ui/LemonTable/LemonTable.tsx -> frontend/src/lib/components/ScrollableShadows/ScrollableShadows.tsx
 frontend/src/lib/lemon-ui/LemonTable/columnUtils.tsx -> frontend/src/lib/components/TZLabel/index.tsx
 frontend/src/lib/lemon-ui/LemonTextArea/LemonTextAreaMarkdown.tsx -> frontend/src/lib/components/Cards/TextCard/TextCard.tsx
 frontend/src/lib/lemon-ui/LemonTextArea/LemonTextAreaMarkdown.tsx -> frontend/src/lib/components/EmojiPicker/EmojiPickerPopover.tsx
 frontend/src/lib/lemon-ui/LemonTextArea/LemonTextAreaMarkdown.tsx -> frontend/src/lib/logic/preflightLogic.tsx
-frontend/src/lib/lemon-ui/LemonTree/LemonTree.tsx -> frontend/src/lib/components/ScrollableShadows/ScrollableShadows.tsx
 frontend/src/lib/lemon-ui/Link/Link.tsx -> frontend/src/scenes/urls.ts
-frontend/src/lib/lemon-ui/Popover/Popover.tsx -> frontend/src/lib/components/ScrollableShadows/ScrollableShadows.tsx
 frontend/src/lib/lemon-ui/ProfilePicture/ProfilePicture.tsx -> frontend/src/lib/components/HedgehogMode/HedgehogModeStatic.tsx
 frontend/src/lib/lemon-ui/ProfilePicture/ProfilePicture.tsx -> frontend/src/scenes/userLogic.ts
 frontend/src/lib/logic/apiStatusLogic.ts -> frontend/src/scenes/authentication/two-factor-setup/twoFactorLogic.ts
@@ -453,10 +449,6 @@ frontend/src/lib/signals/SignalReportFixOrStatus.tsx -> products/signals/fronten
 frontend/src/lib/signals/SignalReportFixOrStatus.tsx -> products/signals/frontend/inbox/utils/reportPresentation.ts
 frontend/src/lib/signals/SignalReportFixOrStatus.tsx -> products/signals/frontend/inbox/utils/reportPullRequests.ts
 frontend/src/lib/signals/prState.ts -> products/signals/frontend/inbox/types.ts
-frontend/src/lib/ui/Combobox/Combobox.tsx -> frontend/src/lib/components/ScrollableShadows/ScrollableShadows.tsx
-frontend/src/lib/ui/ContextMenu/ContextMenu.tsx -> frontend/src/lib/components/ScrollableShadows/ScrollableShadows.tsx
-frontend/src/lib/ui/DropdownMenu/DropdownMenu.tsx -> frontend/src/lib/components/ScrollableShadows/ScrollableShadows.tsx
-frontend/src/lib/ui/SelectPrimitive/SelectPrimitive.tsx -> frontend/src/lib/components/ScrollableShadows/ScrollableShadows.tsx
 frontend/src/lib/utils/accessControlUtils.ts -> frontend/src/scenes/sceneTypes.ts
 frontend/src/lib/utils/apiHost.ts -> frontend/src/lib/oauth/oauthClient.ts
 frontend/src/lib/utils/dateFilters.ts -> frontend/src/lib/components/DateFilter/types.ts
