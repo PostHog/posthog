@@ -3707,7 +3707,10 @@ async fn a_drain_holds_every_partition_and_dispatches_nothing_until_its_release(
         .into_iter()
         .filter(|(_, count)| *count > 1)
         .collect();
-    assert!(duplicates.is_empty(), "processed more than once: {duplicates:?}");
+    assert!(
+        duplicates.is_empty(),
+        "processed more than once: {duplicates:?}"
+    );
 
     second.stop().await;
     harness.stop().await;
@@ -3777,9 +3780,9 @@ async fn a_drain_that_times_out_hands_the_partitions_over_uncommitted() {
     guards.clear();
     let everything_twice = |harness: &Harness| {
         let counts = processed_counts(harness);
-        ["user-1", "user-2"].iter().all(|user| {
-            (0..5usize).all(|seq| counts.get(&(user.to_string(), seq)) == Some(&2))
-        })
+        ["user-1", "user-2"]
+            .iter()
+            .all(|user| (0..5usize).all(|seq| counts.get(&(user.to_string(), seq)) == Some(&2)))
     };
     wait_until(
         Duration::from_secs(30),
