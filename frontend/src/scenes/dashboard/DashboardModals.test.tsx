@@ -8,7 +8,6 @@ import type { DashboardType } from '~/types'
 
 import { ImageTileModal } from 'products/dashboards/frontend/components/ImageTile/ImageTileModal'
 
-import { EditModeActions } from './DashboardHeaderActions'
 import { dashboardLogic } from './dashboardLogic'
 import { DashboardModals } from './DashboardModals'
 
@@ -102,7 +101,6 @@ const mockedUseActions = useActions as jest.Mock
 const mockedUseValues = useValues as jest.Mock
 const push = jest.fn()
 const closeTileModal = jest.fn()
-const cancelLayoutEdit = jest.fn()
 
 describe('DashboardModals', () => {
     beforeEach(() => {
@@ -129,7 +127,6 @@ describe('DashboardModals', () => {
         mockedUseActions.mockImplementation(() => ({
             push,
             closeTileModal,
-            cancelLayoutEdit,
             setTerraformModalOpen: jest.fn(),
             setAddWidgetModalOpen: jest.fn(),
             addWidgetTiles: jest.fn(),
@@ -189,52 +186,5 @@ describe('DashboardModals', () => {
         } finally {
             router.values.location.pathname = '/project/1/dashboard/5'
         }
-    })
-})
-
-describe('dashboard layout edit shortcut with a tile dialog', () => {
-    beforeEach(() => {
-        jest.clearAllMocks()
-    })
-
-    const renderActions = (visibleKey?: string): ReturnType<typeof render> => {
-        mockedUseValues.mockImplementation((logic) =>
-            logic === dashboardLogic
-                ? {
-                      dashboard: { id: 5 },
-                      tiles: [],
-                      canEditDashboard: true,
-                      layoutEditMode: true,
-                      dashboardLoading: false,
-                      showImageTileModal: false,
-                      showButtonTileModal: false,
-                      showTextTileModal: false,
-                      addWidgetModalOpen: false,
-                      ...(visibleKey ? { [visibleKey]: true } : {}),
-                  }
-                : {}
-        )
-        mockedUseActions.mockImplementation(() => ({ cancelLayoutEdit, saveLayout: jest.fn() }))
-        return render(<EditModeActions />)
-    }
-
-    it.each(['showImageTileModal', 'showButtonTileModal', 'showTextTileModal', 'addWidgetModalOpen'] as const)(
-        'does not bind Escape to discard while %s is open',
-        (visibleKey) => {
-            const { container } = renderActions(visibleKey)
-
-            expect(container.querySelector('[data-shortcut-name="CancelDashboardEdit"]')).toBeNull()
-            const cancelButton = container.querySelector(
-                '[data-attr="dashboard-edit-mode-discard"]'
-            ) as HTMLButtonElement
-            expect(cancelButton.disabled).toBe(false)
-            expect(cancelLayoutEdit).not.toHaveBeenCalled()
-        }
-    )
-
-    it('binds Escape to discard when no tile dialog is open', () => {
-        const { container } = renderActions()
-
-        expect(container.querySelector('[data-shortcut-name="CancelDashboardEdit"]')).not.toBeNull()
     })
 })

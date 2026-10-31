@@ -250,8 +250,6 @@ describe('DashboardItems', () => {
                     layouts: {
                         sm: [{ i: '1', x: 0, y: 0, w: 6, h: 5 }],
                     },
-                    dashboardEditing: { filters: true, layout: true },
-                    layoutEditMode: true,
                     placement: DashboardPlacement.Dashboard,
                     isRefreshingQueued: () => false,
                     isRefreshing: () => false,
@@ -264,7 +262,6 @@ describe('DashboardItems', () => {
                     temporaryBreakdownColors: [],
                     dataColorThemeId: null,
                     canEditDashboard,
-                    layoutZoom: 0.75,
                     tileGroupSections: [],
                 }
             }
@@ -326,7 +323,7 @@ describe('DashboardItems', () => {
         })
     })
 
-    it('matches snapshot in edit mode with layout zoom enabled', () => {
+    it('matches snapshot for an editor', () => {
         const { container } = render(<DashboardItems />)
         expect(container.firstChild).toMatchSnapshot()
     })
@@ -362,27 +359,19 @@ describe('DashboardItems', () => {
                       ...defaultValues(logic),
                       placement: DashboardPlacement.Builtin,
                       readOnly,
-                      layoutEditMode: false,
-                      dashboardEditing: null,
                   }
                 : defaultValues(logic)
         )
 
-        const setDashboardEditing = jest.fn()
-        const defaultActions = mockedUseActions.getMockImplementation()!
-        mockedUseActions.mockImplementation((logic) =>
-            logic === dashboardLogic ? { ...defaultActions(logic), setDashboardEditing } : defaultActions(logic)
-        )
-
-        render(<DashboardItems />)
+        const { container } = render(<DashboardItems />)
 
         const cardProps = mockInsightCard.mock.calls[mockInsightCard.mock.calls.length - 1][0]
         expect(cardProps.showEditingControls).toBe(editable)
-        cardProps.onEnterEditModeFromEdge(
-            { target: document.body, clientX: 0, clientY: 0, nativeEvent: new MouseEvent('mousemove') },
-            'e'
+        expect(cardProps.showResizeHandles).toBe(editable)
+        expect(container.querySelector('[data-attr="react-grid-layout"]')).toHaveAttribute(
+            'data-drag-enabled',
+            String(editable)
         )
-        expect(setDashboardEditing).toHaveBeenCalledTimes(editable ? 1 : 0)
     })
 
     it.each([
@@ -413,8 +402,6 @@ describe('DashboardItems', () => {
                     dashboard: { id: 5, customization: { tile_spacing: tileSpacing } },
                     tiles: [],
                     layouts: { sm: [] },
-                    dashboardEditing: { filters: true, layout: true },
-                    layoutEditMode: true,
                     placement: DashboardPlacement.Dashboard,
                     isRefreshingQueued: () => false,
                     isRefreshing: () => false,
@@ -425,7 +412,6 @@ describe('DashboardItems', () => {
                     currentDashboardVariables: {},
                     dataColorThemeId: null,
                     canEditDashboard: true,
-                    layoutZoom: 1,
                     widgetResultsByTileId: {},
                     widgetRefreshStatus: {},
                     tileGroupSections: [],
@@ -449,8 +435,6 @@ describe('DashboardItems', () => {
                     dashboard: { id: 5, customization: { tile_spacing: 'unknown' } },
                     tiles: [],
                     layouts: { sm: [] },
-                    dashboardEditing: { filters: true, layout: true },
-                    layoutEditMode: true,
                     placement: DashboardPlacement.Dashboard,
                     isRefreshingQueued: () => false,
                     isRefreshing: () => false,
@@ -461,7 +445,6 @@ describe('DashboardItems', () => {
                     currentDashboardVariables: {},
                     dataColorThemeId: null,
                     canEditDashboard: true,
-                    layoutZoom: 1,
                     widgetResultsByTileId: {},
                     widgetRefreshStatus: {},
                     tileGroupSections: [],
@@ -503,7 +486,6 @@ describe('DashboardItems', () => {
                     temporaryBreakdownColors: [],
                     dataColorThemeId: null,
                     canEditDashboard: false,
-                    layoutZoom: 1,
                     widgetResultsByTileId: {},
                     widgetRefreshStatus: {},
                     tileGroupSections: [],
@@ -541,7 +523,6 @@ describe('DashboardItems', () => {
                     temporaryBreakdownColors: [],
                     dataColorThemeId: null,
                     canEditDashboard: true,
-                    layoutZoom: 1,
                     widgetResultsByTileId: {},
                     widgetRefreshStatus: {},
                     tileGroupSections: [],
@@ -594,7 +575,6 @@ describe('DashboardItems', () => {
                     temporaryBreakdownColors: [],
                     dataColorThemeId: null,
                     canEditDashboard: true,
-                    layoutZoom: 1,
                     widgetResultsByTileId: {},
                     widgetRefreshStatus: {},
                     tileGroupSections: [],
@@ -651,7 +631,6 @@ describe('DashboardItems', () => {
                     temporaryBreakdownColors: [],
                     dataColorThemeId: null,
                     canEditDashboard: true,
-                    layoutZoom: 1,
                     widgetResultsByTileId: {},
                     widgetRefreshStatus: {},
                     tileGroupSections: [],

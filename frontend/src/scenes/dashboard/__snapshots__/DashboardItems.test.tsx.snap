@@ -1,6 +1,6 @@
 // Jest Snapshot v1, https://goo.gl/fbAQLP
 
-exports[`DashboardItems matches snapshot in edit mode with layout zoom enabled 1`] = `
+exports[`DashboardItems matches snapshot for an editor 1`] = `
 <div
   class="dashboard-items-wrapper"
 >
@@ -9,21 +9,21 @@ exports[`DashboardItems matches snapshot in edit mode with layout zoom enabled 1
   >
     <div
       data-attr="grid-background"
-      data-margin="14.4,14.4"
-      data-row-height="60"
+      data-margin="16,16"
+      data-row-height="80"
     />
     <div
       data-attr="react-grid-layout"
-      data-class-name="dashboard-edit-mode box-content pb-[40vh]"
+      data-class-name="mb-8 dashboard-edit-mode dashboard-drop-space-end"
       data-drag-enabled="true"
-      data-margin="14.4,14.4"
-      data-resize-enabled="false"
-      data-row-height="60"
+      data-margin="16,16"
+      data-resize-enabled="true"
+      data-row-height="80"
       data-style-width="1200"
     >
       <div
         data-attr="insight-card"
-        data-show-resize-handles="false"
+        data-show-resize-handles="true"
         data-tile-id="1"
       />
     </div>

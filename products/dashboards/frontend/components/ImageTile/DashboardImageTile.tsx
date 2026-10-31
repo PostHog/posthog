@@ -22,6 +22,7 @@ interface DashboardImageTileProps extends React.HTMLAttributes<HTMLDivElement>, 
     moreButtonOverlay?: MoreProps['overlay']
     onDragHandleMouseDown?: React.MouseEventHandler<HTMLDivElement>
     showEditingControls?: boolean
+    isDraggingRef?: React.RefObject<boolean>
 }
 
 function DashboardImageTileInternal(
@@ -37,6 +38,7 @@ function DashboardImageTileInternal(
         onEnterEditModeFromEdge,
         onDragHandleMouseDown,
         showEditingControls,
+        isDraggingRef,
         ...divProps
     }: DashboardImageTileProps,
     ref: React.Ref<HTMLDivElement>
@@ -74,7 +76,12 @@ function DashboardImageTileInternal(
                     onMouseDown={onDragHandleMouseDown}
                 >
                     {showResizeHandles ? (
-                        <div className="flex h-full w-full items-center justify-center overflow-hidden rounded">
+                        // Not a button: the grid will not start a drag from one. A click that ends a drag is ignored.
+                        <div
+                            className="flex h-full w-full items-center justify-center overflow-hidden rounded"
+                            onClick={() => !isDraggingRef?.current && setIsImagePreviewOpen(true)}
+                            data-attr="open-image-tile-preview"
+                        >
                             <img
                                 src={image.src}
                                 alt={image.alt}

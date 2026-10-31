@@ -30,6 +30,7 @@ interface DashboardTextItemProps
     onCopyToDashboard?: (target: Pick<DashboardType, 'id' | 'name'>) => void
     onDuplicate: () => void
     onRemove?: () => void
+    isDraggingRef?: React.RefObject<boolean>
 }
 
 function DashboardTextItemInternal(
@@ -44,6 +45,7 @@ function DashboardTextItemInternal(
         onMoveToTileGroup,
         onDuplicate,
         onRemove,
+        isDraggingRef,
         ...textCardProps
     }: DashboardTextItemProps,
     ref: React.ForwardedRef<HTMLDivElement>
@@ -98,6 +100,7 @@ function DashboardTextItemInternal(
                 image={image}
                 placement={placement}
                 moreButtonOverlay={moreButtonOverlay}
+                isDraggingRef={isDraggingRef}
                 {...textCardProps}
             />
         )

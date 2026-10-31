@@ -2,9 +2,10 @@ import '@testing-library/jest-dom'
 
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { BindLogic } from 'kea'
+import { expectLogic } from 'kea-test-utils'
 
-import { shortcutLogic } from 'lib/components/Shortcuts/shortcutLogic'
-import { LemonModal } from 'lib/lemon-ui/LemonModal'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -84,7 +85,7 @@ describe('DashboardHeader', () => {
     function renderHeader(opts: {
         dashboard?: DashboardType | null
         dashboardMode?: DashboardMode | null
-        dashboardEditing?: { filters: boolean; layout: boolean } | null
+        dashboardEditing?: { filters: boolean } | null
         dashboardModeSource?: DashboardEventSource
         loading?: boolean
         spyOnLoadDashboard?: boolean
@@ -121,36 +122,6 @@ describe('DashboardHeader', () => {
         return { logic, loadDashboard }
     }
 
-    it('closes an open tile dialog on Escape without discarding the layout draft', () => {
-        const dashboard = makeDashboard({
-            tiles: [{ id: 1, color: null, layouts: {}, text: { body: 'Dashboard note' } }],
-        })
-        const { logic } = renderHeader({ dashboard, dashboardEditing: { filters: true, layout: true } })
-        logic.actions.updateLayouts({
-            ...logic.values.layouts,
-            sm: logic.values.layouts.sm?.map((layout) => ({ ...layout, x: layout.x + 1 })),
-        })
-        expect(shortcutLogic.values.registeredShortcuts.some(({ name }) => name === 'CancelDashboardEdit')).toBe(true)
-        act(() => logic.actions.openImageTileModal())
-        expect(shortcutLogic.values.registeredShortcuts.some(({ name }) => name === 'CancelDashboardEdit')).toBe(false)
-
-        const { unmount } = render(
-            <LemonModal isOpen onClose={() => logic.actions.closeTileModal()}>
-                <button type="button">Dialog action</button>
-            </LemonModal>
-        )
-        const dialogButton = screen.getByText('Dialog action')
-        dialogButton.focus()
-        fireEvent.keyDown(dialogButton, { key: 'Escape', code: 'Escape' })
-
-        expect(logic.values.showImageTileModal).toBe(false)
-        expect(logic.values.dashboardEditing?.layout).toBe(true)
-        expect(logic.values.hasUnsavedLayoutChanges).toBe(true)
-
-        unmount()
-        logic.unmount()
-    })
-
     it('keeps the scene header visible while the dashboard is loading', () => {
         const { logic } = renderHeader({ dashboard: null, loading: true })
 
@@ -159,37 +130,33 @@ describe('DashboardHeader', () => {
         logic.unmount()
     })
 
-    test.each([
-        { mode: 'view', dashboardEditing: null, access: AccessControlLevel.Editor, canEdit: true },
-        {
-            mode: 'filter edit',
-            dashboardEditing: { filters: true, layout: false },
-            access: AccessControlLevel.Editor,
-            canEdit: true,
-        },
-        { mode: 'view', dashboardEditing: null, access: AccessControlLevel.Viewer, canEdit: false },
-    ])(
-        'pressing E in $mode mode with $access access enters layout editing=$canEdit',
-        ({ dashboardEditing, access, canEdit }) => {
-            const dashboard = makeDashboard({
-                user_access_level: access,
-                tiles: [{ id: 1, color: null, layouts: {}, text: { body: 'Dashboard note' } }],
-            })
-            const { logic } = renderHeader({ dashboard, dashboardEditing })
-            act(() => logic.actions.updateContainerWidth(1200, 12))
+    it.each([true, false])('offers Undo once a layout change has saved, when the undo flag is %s', async (flagOn) => {
+        featureFlagLogic.actions.setFeatureFlags(flagOn ? [FEATURE_FLAGS.DASHBOARD_LAYOUT_UNDO] : [], {
+            [FEATURE_FLAGS.DASHBOARD_LAYOUT_UNDO]: flagOn,
+        })
+        const dashboard = makeDashboard({
+            user_access_level: AccessControlLevel.Editor,
+            tiles: [{ id: 1, color: null, layouts: {}, text: { body: 'Dashboard note' } }],
+        })
+        const { logic } = renderHeader({ dashboard })
+        expect(document.querySelector('[data-attr="dashboard-layout-undo"]')).not.toBeInTheDocument()
 
-            fireEvent.keyDown(document.body, { key: 'e', code: 'KeyE' })
-
-            expect(logic.values.layoutEditMode).toBe(canEdit)
-            if (canEdit) {
-                expect(document.querySelector('[data-attr="dashboard-edit-mode-save"]')).toBeInTheDocument()
-            }
-
-            logic.unmount()
+        act(() => logic.actions.pushLayoutUndo({ 1: { layouts: {}, group_key: null } }))
+        const undoButton = document.querySelector('[data-attr="dashboard-layout-undo"]') as HTMLElement | null
+        if (!flagOn) {
+            expect(undoButton).not.toBeInTheDocument()
+        } else {
+            expect(undoButton).toBeInTheDocument()
+            await expectLogic(logic, () => {
+                fireEvent.click(undoButton!)
+            }).toDispatchActions(['undoLayoutChange'])
+            expect(logic.values.canUndoLayoutChange).toBe(false)
         }
-    )
 
-    it.each([600, 768])('shows customization without layout editing at %ipx', async (width) => {
+        logic.unmount()
+    })
+
+    it.each([600, 768])('shows customization at %ipx', async (width) => {
         const originalWidth = window.innerWidth
         Object.defineProperty(window, 'innerWidth', { configurable: true, value: width })
         window.dispatchEvent(new Event('resize'))
@@ -207,7 +174,6 @@ describe('DashboardHeader', () => {
             )
             expect(await screen.findByText('Tile density')).toBeInTheDocument()
             expect(screen.queryByText('When you move a tile')).not.toBeInTheDocument()
-            expect(logic.values.layoutEditMode).toBe(false)
 
             logic.unmount()
         } finally {
@@ -329,7 +295,7 @@ describe('DashboardHeader', () => {
         },
         {
             scenario: 'Filter edit mode',
-            dashboardEditing: { filters: true, layout: false },
+            dashboardEditing: { filters: true },
             dashboardModeSource: DashboardEventSource.DashboardFilters,
             canEdit: true,
             hasTiles: false,
@@ -346,7 +312,7 @@ describe('DashboardHeader', () => {
         },
         {
             scenario: 'Filter edit mode, cannot edit',
-            dashboardEditing: { filters: true, layout: false },
+            dashboardEditing: { filters: true },
             dashboardModeSource: DashboardEventSource.DashboardFilters,
             canEdit: false,
             hasTiles: true,
@@ -356,21 +322,6 @@ describe('DashboardHeader', () => {
                 'dashboard-edit-mode-discard',
                 'dashboard-edit-mode-save',
                 'dashboard-share-button',
-            ],
-        },
-        {
-            scenario: 'Layout edit mode',
-            dashboardEditing: { filters: true, layout: true },
-            dashboardModeSource: DashboardEventSource.SceneCommonButtons,
-            canEdit: true,
-            hasTiles: false,
-            visible: ['dashboard-edit-mode-discard', 'dashboard-edit-mode-save'],
-            notVisible: [
-                'dashboard-add-tile',
-                'dashboard-share-button',
-                'dashboard-edit-layout-customize-dropdown',
-                'add-text-tile-to-dashboard',
-                'dashboard-add-graph-header',
             ],
         },
         {

@@ -111,30 +111,13 @@ export function dashboardViewedProperties(
 export function reportDashboardModeToggled(
     dashboard: DashboardType | null,
     mode: DashboardMode | null,
-    source: DashboardEventSource | null,
-    layoutZoom: number | null,
-    layoutEditMode?: boolean
+    source: DashboardEventSource | null
 ): void {
     posthog.capture('dashboard mode toggled', {
         dashboard_id: dashboard?.id,
         dashboard: sanitizeDashboard(dashboard),
         mode,
         source,
-        layout_zoom: layoutZoom ?? undefined,
-        layout_edit_mode: layoutEditMode ?? undefined,
-    })
-}
-
-export function reportDashboardLayoutEditModeEntered(
-    dashboard: DashboardType | null,
-    source: DashboardEventSource,
-    layoutZoom: number | null
-): void {
-    posthog.capture('dashboard layout edit mode entered', {
-        dashboard_id: dashboard?.id,
-        dashboard: sanitizeDashboard(dashboard),
-        source,
-        layout_zoom: layoutZoom ?? undefined,
     })
 }
 
@@ -154,17 +137,6 @@ export function reportDashboardTileDensityConfigured(tileDensity: DashboardTileS
     posthog.capture('dashboard tile density configured', { tile_density: tileDensity })
 }
 
-export function reportDashboardEditModeDiscardPrompt(
-    dashboard: DashboardType | null,
-    action: 'shown' | 'discarded' | 'kept_editing'
-): void {
-    posthog.capture('dashboard edit mode discard prompt', {
-        dashboard_id: dashboard?.id,
-        dashboard: sanitizeDashboard(dashboard),
-        action,
-    })
-}
-
 export function reportDashboardMoveInitiated(method: 'single' | 'bulk', count: number): void {
     posthog.capture('dashboard move initiated', { method, count })
 }
@@ -175,15 +147,10 @@ export function reportDashboardInsightDeleteAfterRemovalClicked(otherDashboardCo
     })
 }
 
-export function reportDashboardTileRepositioned(
-    dashboardId: number,
-    action: 'moved' | 'resized',
-    layoutZoom: number
-): void {
+export function reportDashboardTileRepositioned(dashboardId: number, action: 'moved' | 'resized'): void {
     posthog.capture('dashboard tile repositioned', {
         dashboard_id: dashboardId,
         action,
-        layout_zoom: layoutZoom,
     })
 }
 

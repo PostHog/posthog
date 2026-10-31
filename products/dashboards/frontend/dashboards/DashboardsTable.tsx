@@ -260,26 +260,6 @@ export function DashboardsTable({
                                           View
                                       </LemonButton>
 
-                                      <AccessControlAction
-                                          resourceType={AccessControlResourceType.Dashboard}
-                                          minAccessLevel={AccessControlLevel.Editor}
-                                          userAccessLevel={user_access_level}
-                                      >
-                                          <LemonButton
-                                              to={urls.dashboard(id)}
-                                              onClick={() => {
-                                                  dashboardLogic({ id }).mount()
-                                                  dashboardLogic({ id }).actions.setDashboardEditing(
-                                                      { filters: true, layout: true },
-                                                      DashboardEventSource.DashboardsList
-                                                  )
-                                              }}
-                                              fullWidth
-                                          >
-                                              Edit
-                                          </LemonButton>
-                                      </AccessControlAction>
-
                                       <LemonButton
                                           onClick={() => {
                                               showDuplicateDashboardModal(id, name)

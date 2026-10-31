@@ -1,28 +1,24 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconGridMasonry, IconPlusSmall, IconShare } from '@posthog/icons'
+import { IconPlusSmall, IconShare } from '@posthog/icons'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
-import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { LemonBadge } from 'lib/lemon-ui/LemonBadge'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonMenu, LemonMenuItem, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { MaxTool } from 'scenes/max/MaxTool'
-import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { AccessControlLevel, AccessControlResourceType, DashboardPlacement, DashboardType } from '~/types'
 
-import { DashboardCustomizeMenu } from 'products/dashboards/frontend/components/DashboardCustomizeMenu/DashboardCustomizeMenu'
-
 import { DashboardAddTileHandlers, DashboardAddTileKey, getDashboardAddTileOptions } from './dashboardAddTileOptions'
 import { DashboardCustomizeButton } from './DashboardCustomizeButton'
 import { reportDashboardAddMenuOpened } from './dashboardEvents'
+import { DashboardLayoutUndoButton } from './DashboardLayoutUndoButton'
 import { DashboardLoadAction, dashboardLogic } from './dashboardLogic'
 import { DashboardSubscribeButton } from './DashboardSubscribeButton'
 
@@ -115,130 +111,14 @@ export function DashboardAddTileButton(): JSX.Element | null {
     )
 }
 
-export function DashboardEditSaveCancelButtons({
-    withShortcuts = true,
-    applyFiltersButton,
-}: {
-    withShortcuts?: boolean
-    /** The large-dashboard "Apply filters" preview button, rendered between Cancel and Save. */
-    applyFiltersButton?: JSX.Element | null
-}): JSX.Element {
-    const { dashboardLoading, canEditDashboard } = useValues(dashboardLogic)
-    const { cancelLayoutEdit, saveLayout } = useActions(dashboardLogic)
-
-    const cancelButton = (
-        <LemonButton
-            data-attr="dashboard-edit-mode-discard"
-            type="secondary"
-            onClick={cancelLayoutEdit}
-            size="small"
-            tooltip="Discard layout changes and exit layout editing"
-        >
-            Cancel
-        </LemonButton>
-    )
-
-    const saveButton = (
-        <LemonButton
-            data-attr="dashboard-edit-mode-save"
-            type="primary"
-            onClick={saveLayout}
-            size="small"
-            tooltip="Save dashboard layout"
-            tooltipPlacement="bottom"
-            disabledReason={
-                dashboardLoading
-                    ? 'Wait for dashboard to finish loading'
-                    : canEditDashboard
-                      ? undefined
-                      : 'Not privileged to edit this dashboard'
-            }
-        >
-            Save layout
-        </LemonButton>
-    )
-
-    if (!withShortcuts) {
-        return (
-            <>
-                {cancelButton}
-                {applyFiltersButton}
-                {saveButton}
-            </>
-        )
-    }
-
-    return (
-        <>
-            <Shortcut
-                name="CancelDashboardEdit"
-                keybind={[keyBinds.escape]}
-                intent="Cancel edit mode"
-                interaction="click"
-                scope={Scene.Dashboard}
-            >
-                {cancelButton}
-            </Shortcut>
-            {applyFiltersButton}
-            <Shortcut
-                name="SaveDashboard"
-                keybind={[keyBinds.edit, keyBinds.save]}
-                intent="Save dashboard layout"
-                interaction="click"
-                scope={Scene.Dashboard}
-                disabled={!canEditDashboard}
-            >
-                {saveButton}
-            </Shortcut>
-        </>
-    )
-}
-
 export function EditModeActions(): JSX.Element {
-    const {
-        canEditDashboard,
-        layoutEditMode,
-        tiles,
-        dashboardCustomizeMenuOpen,
-        showTextTileModal,
-        showImageTileModal,
-        showButtonTileModal,
-        addWidgetModalOpen,
-    } = useValues(dashboardLogic)
-    const { setDashboardCustomizeMenuOpen } = useActions(dashboardLogic)
+    const { canEditDashboard, tiles } = useValues(dashboardLogic)
 
     return (
         <>
             <DashboardSubscribeButton />
-            {layoutEditMode && (
-                <DashboardEditSaveCancelButtons
-                    withShortcuts={
-                        !(showTextTileModal || showImageTileModal || showButtonTileModal || addWidgetModalOpen)
-                    }
-                />
-            )}
-            {canEditDashboard && !layoutEditMode && tiles.length > 0 && <DashboardCustomizeButton />}
-            {layoutEditMode && tiles.length > 0 && (
-                <LemonMenu
-                    items={[{ label: () => <DashboardCustomizeMenu /> }]}
-                    closeOnClickInside={false}
-                    placement="bottom-end"
-                    visible={dashboardCustomizeMenuOpen}
-                    onVisibilityChange={setDashboardCustomizeMenuOpen}
-                >
-                    <LemonButton
-                        type="secondary"
-                        data-attr="dashboard-edit-layout-customize-dropdown"
-                        size="small"
-                        icon={<IconGridMasonry fontSize="16" />}
-                        disabledReason={
-                            tiles.length === 0 ? 'Add at least one tile to customize this dashboard' : undefined
-                        }
-                    >
-                        Customize
-                    </LemonButton>
-                </LemonMenu>
-            )}
+            <DashboardLayoutUndoButton />
+            {canEditDashboard && tiles.length > 0 && <DashboardCustomizeButton />}
             <DashboardAddTileButton />
         </>
     )
@@ -313,6 +193,7 @@ export function ViewModeActions(): JSX.Element {
     return (
         <>
             <DashboardSubscribeButton />
+            <DashboardLayoutUndoButton />
             {(tiles.length > 0 || dashboard.is_shared) && <DashboardShareButton dashboard={dashboard} />}
             {canEditDashboard && tiles.length > 0 && <DashboardCustomizeButton />}
             <DashboardAddTileButton />
