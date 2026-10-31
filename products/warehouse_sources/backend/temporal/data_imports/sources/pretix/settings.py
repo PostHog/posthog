@@ -26,20 +26,21 @@ class PretixEndpointConfig:
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     # Stable created-style datetime field for partitioning. Never a last-modified field.
     partition_key: Optional[str] = None
-    # When set, the endpoint supports pretix's server-side `modified_since` filter targeting
-    # this resource field (true incremental sync); otherwise the stream is full refresh only.
-    modified_since_field: Optional[str] = None
+    # When set, the endpoint supports a server-side `since_param` filter targeting this resource
+    # field (true incremental sync); otherwise the stream is full refresh only.
+    since_field: Optional[str] = None
+    since_param: str = "modified_since"
     # Explicit `ordering` value to request. Only set where the docs list it as a valid
     # ordering field for that endpoint — pretix rejects unknown ordering values.
     ordering: Optional[str] = None
 
 
-def _last_modified_incremental_field() -> list[IncrementalField]:
+def _datetime_incremental_field(field_name: str) -> list[IncrementalField]:
     return [
         {
-            "label": "last_modified",
+            "label": field_name,
             "type": IncrementalFieldType.DateTime,
-            "field": "last_modified",
+            "field": field_name,
             "field_type": IncrementalFieldType.DateTime,
         }
     ]
@@ -53,12 +54,15 @@ EVENT_SLUG_KEY = "event_slug"
 
 
 # Stream list cross-referenced against the Airbyte `source-pretix` connector plus the official API
-# docs. `orders` is the only stream with a documented server-side timestamp filter
-# (`modified_since`, orderable by `last_modified`), so it is the only incremental stream — every
-# other list endpoint is full refresh. `orders` and `invoices` use the organizer-level endpoints
+# docs. `orders` (`modified_since`) and `transactions` (`created_since`) are the only streams with a
+# documented server-side timestamp filter, so they are the only incremental streams — every other
+# list endpoint is full refresh. `orders` and `invoices` use the organizer-level endpoints
 # (added in pretix 2023.8) that span all events and stamp each row with its parent `event` slug,
 # avoiding a per-event fan-out for the two largest tables. Order positions arrive embedded in each
-# order's `positions` array, so they don't need a dedicated stream.
+# order's `positions` array, so they don't need a dedicated stream. The same holds for payments and
+# refunds (each order's `payments`/`refunds` arrays) and item variations (each item's `variations`
+# array): their dedicated endpoints are per-order or per-item, so a table would cost a request per
+# parent row for data the parent stream already carries.
 PRETIX_ENDPOINTS: dict[str, PretixEndpointConfig] = {
     "events": PretixEndpointConfig(
         name="events",
@@ -73,9 +77,9 @@ PRETIX_ENDPOINTS: dict[str, PretixEndpointConfig] = {
         scope=EndpointScope.ORGANIZER,
         # Order codes are only documented unique within their event; rows carry the event slug.
         primary_keys=["event", "code"],
-        incremental_fields=_last_modified_incremental_field(),
+        incremental_fields=_datetime_incremental_field("last_modified"),
         partition_key="datetime",
-        modified_since_field="last_modified",
+        since_field="last_modified",
         ordering="last_modified",
     ),
     "invoices": PretixEndpointConfig(
@@ -84,6 +88,19 @@ PRETIX_ENDPOINTS: dict[str, PretixEndpointConfig] = {
         scope=EndpointScope.ORGANIZER,
         # Invoice numbers are prefixed per event; rows carry the event slug.
         primary_keys=["event", "number"],
+    ),
+    # Organizer-level financial ledger (pretix 2025.7+). Rows are append-only: a cancellation adds a
+    # row with a negative count instead of changing an existing one, so `created` is a safe cursor.
+    "transactions": PretixEndpointConfig(
+        name="transactions",
+        path="/organizers/{organizer}/transactions/",
+        scope=EndpointScope.ORGANIZER,
+        incremental_fields=_datetime_incremental_field("created"),
+        partition_key="created",
+        since_field="created",
+        since_param="created_since",
+        # `id` is unique, so page boundaries stay stable when many rows share a `created` value.
+        ordering="id",
     ),
     "customers": PretixEndpointConfig(
         name="customers",
@@ -162,4 +179,4 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     name: config.incremental_fields for name, config in PRETIX_ENDPOINTS.items()
 }
 
-INCREMENTAL_ENDPOINTS = tuple(name for name, config in PRETIX_ENDPOINTS.items() if config.modified_since_field)
+INCREMENTAL_ENDPOINTS = tuple(name for name, config in PRETIX_ENDPOINTS.items() if config.since_field)

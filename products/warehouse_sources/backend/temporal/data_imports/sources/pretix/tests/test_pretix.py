@@ -86,16 +86,24 @@ class TestQuoteOrganizer:
 
 
 class TestOrganizerScopePagination:
-    def test_orders_incremental_url_has_filter_and_stable_ordering(self) -> None:
+    @parameterized.expand(
+        [
+            ("orders", "last_modified", "modified_since", "last_modified"),
+            ("transactions", "created", "created_since", "id"),
+        ]
+    )
+    def test_incremental_url_has_filter_and_stable_ordering(
+        self, endpoint: str, incremental_field: str, since_param: str, ordering: str
+    ) -> None:
         result = _driver().run(
-            "orders",
-            [_envelope([{"code": "A1", "event": "conf"}])],
-            incremental_field="last_modified",
+            endpoint,
+            [_envelope([{"id": 1, "code": "A1", "event": "conf"}])],
+            incremental_field=incremental_field,
             db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
         )
 
-        assert result.requests[0].param("modified_since") == "2026-01-01T00:00:00Z"
-        assert result.requests[0].param("ordering") == "last_modified"
+        assert result.requests[0].param(since_param) == "2026-01-01T00:00:00Z"
+        assert result.requests[0].param("ordering") == ordering
 
     @parameterized.expand(
         [

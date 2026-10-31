@@ -16,10 +16,11 @@ class TestPretixSource:
         # the preserved token at a host they control.
         assert self.source.connection_host_fields == ["base_url"]
 
-    def test_orders_is_the_only_incremental_endpoint(self):
-        # Only `orders` has a documented server-side `modified_since` filter; advertising incremental
-        # on another endpoint would silently full-refresh under an incremental label.
-        assert set(INCREMENTAL_ENDPOINTS) == {"orders"}
+    def test_only_endpoints_with_a_server_side_filter_are_incremental(self):
+        # Only `orders` (`modified_since`) and `transactions` (`created_since`) have a documented
+        # server-side timestamp filter; advertising incremental on another endpoint would silently
+        # full-refresh under an incremental label.
+        assert set(INCREMENTAL_ENDPOINTS) == {"orders", "transactions"}
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.pretix.source.pretix_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_pretix_source):
