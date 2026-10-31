@@ -118,12 +118,12 @@ const sesSendDurationMs = new Histogram({
 
 const emailQueueToSendMs = new Histogram({
     name: 'cdp_email_queue_to_send_ms',
-    help: 'Milliseconds an email waits on the email queue before its handoff to SES. For source="transactional_api" the wait starts when cdp-api created the job, so it is the time from the API\'s 202 to SES and includes every throttled or rate-limited retry. For source="workflow" the wait starts at the job\'s scheduled time: when the job joined the email queue, or when a delayed or rescheduled send became due, so a retried send measures only its last wait. priority_class is the email queue lane.',
-    labelNames: ['source', 'priority_class'],
+    help: 'Milliseconds an email waits on the email queue before its handoff to SES. For source="transactional_api" the wait starts when cdp-api created the job, so it is the time from the API\'s 202 to SES and includes every throttled or rate-limited retry. For source="workflow" the wait starts at the job\'s scheduled time: when the job joined the email queue, or when a delayed or rescheduled send became due, so a retried send measures only its last wait. priority_class is the email queue lane. team_capped is true when the team sending cap delayed the send, so that alerts can leave out a wait that the cap causes on purpose.',
+    labelNames: ['source', 'priority_class', 'team_capped'],
     buckets: [100, 250, 500, 1_000, 2_500, 5_000, 10_000, 30_000, 60_000, 120_000, 300_000],
 })
 
-type EmailQueueWait = { source: 'transactional_api' | 'workflow'; startedAt: DateTime }
+type EmailQueueWait = { source: 'transactional_api' | 'workflow'; startedAt: DateTime; teamCapped: boolean }
 
 // A transactional API job is created on the email queue, so its creation time is when the caller got its 202. A
 // workflow job can join the email queue long after it was created, so its wait starts at the time it became due.
@@ -132,7 +132,7 @@ function emailQueueWait(invocation: CyclotronJobInvocationHogFunction): EmailQue
     const source =
         invocation.state.globals.event?.event === TRANSACTIONAL_EMAIL_EVENT ? 'transactional_api' : 'workflow'
     const startedAt = source === 'transactional_api' ? invocation.queueCreatedAt : invocation.queueDueAt
-    return startedAt ? { source, startedAt } : undefined
+    return startedAt ? { source, startedAt, teamCapped: invocation.queueMetadata?.teamCapped === true } : undefined
 }
 
 /**
@@ -693,6 +693,7 @@ export class EmailService {
                 // per-workflow limit above: createInvocationResult cleared queueParameters, and
                 // without them the rescheduled dequeue resumes the Hog VM and drops the send.
                 result.invocation.queueParameters = params
+                result.invocation.queueMetadata = { ...invocation.queueMetadata, teamCapped: true }
                 result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: capDelay.retryDelayMs })
                 const capRetrySeconds = Math.round(capDelay.retryDelayMs / 1000)
                 addLog(
@@ -1284,6 +1285,7 @@ export class EmailService {
                 .labels({
                     source: queueWait.source,
                     priority_class: getEmailQueuePriorityClass(result.invocation.hogFunction.metadata),
+                    team_capped: queueWait.teamCapped ? 'true' : 'false',
                 })
                 .observe(Math.max(0, Date.now() - queueWait.startedAt.toMillis()))
         }
