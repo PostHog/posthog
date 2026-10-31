@@ -3,6 +3,7 @@ import { router } from 'kea-router'
 
 import { IconArrowLeft } from '@posthog/icons'
 
+import { mathsLogic } from 'lib/insights/mathsLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { summarizeInsightQuery } from 'scenes/insights/summarizeInsight'
 import { urls } from 'scenes/urls'
@@ -10,8 +11,6 @@ import { urls } from 'scenes/urls'
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-
-import { mathsLogic } from 'products/product_analytics/frontend/insights/trends/mathsLogic'
 
 export function BackToSource(): JSX.Element | null {
     const { aggregationLabel } = useValues(groupsModel)

@@ -2,6 +2,8 @@ import { useValues } from 'kea'
 
 import { PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE } from 'lib/components/PropertyFilters/utils'
 import { RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS } from 'lib/constants'
+import { MathCategory, apiValueToMathType, mathsLogic } from 'lib/insights/mathsLogic'
+import type { mathsLogicType } from 'lib/insights/mathsLogic'
 import { alphabet, capitalizeFirstLetter } from 'lib/utils/strings'
 import {
     getDisplayNameFromEntityFilter,
@@ -43,12 +45,6 @@ import { BreakdownKeyType, BreakdownType, EntityFilter, FilterType, FunnelVizTyp
 
 import { summarizeJourneys } from 'products/product_analytics/frontend/insights/journeys/journeysSummary'
 import { retentionOptions } from 'products/product_analytics/frontend/insights/retention/constants'
-import {
-    MathCategory,
-    apiValueToMathType,
-    mathsLogic,
-} from 'products/product_analytics/frontend/insights/trends/mathsLogic'
-import type { mathsLogicType } from 'products/product_analytics/frontend/insights/trends/mathsLogic'
 
 function summarizeSingularBreakdown(
     breakdown: BreakdownKeyType | undefined,

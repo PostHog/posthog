@@ -23,6 +23,7 @@ import { compareFilterLabel } from 'lib/components/CompareFilter/compareFilterLa
 import { convertPropertiesToPropertyGroup } from 'lib/components/PropertyFilters/utils'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { MathCategory, apiValueToMathType, mathsLogic } from 'lib/insights/mathsLogic'
 import { IconCalculate } from 'lib/lemon-ui/icons'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
@@ -87,11 +88,6 @@ import {
 
 import { BreakdownTag } from 'products/product_analytics/frontend/insights/editor/filters/BreakdownFilter/BreakdownTag'
 import { journeysSummaryParts } from 'products/product_analytics/frontend/insights/journeys/journeysSummary'
-import {
-    MathCategory,
-    apiValueToMathType,
-    mathsLogic,
-} from 'products/product_analytics/frontend/insights/trends/mathsLogic'
 
 import { PropertyKeyInfo } from '../../PropertyKeyInfo'
 import { TZLabel } from '../../TZLabel'

@@ -4,6 +4,18 @@ import { useState } from 'react'
 import { IconWarning } from '@posthog/icons'
 import { LemonSelect, LemonSelectOption, LemonSelectOptions } from '@posthog/lemon-ui'
 
+import {
+    COUNT_PER_ACTOR_MATH_DEFINITIONS,
+    MathDefinition,
+    PROPERTY_MATH_DEFINITIONS,
+    mathTypeToApiValues,
+    mathsLogic,
+} from 'lib/insights/mathsLogic'
+import {
+    getDefaultPropertyMathType,
+    isCountPerActorMath,
+    SUPPORTED_PROPERTY_MATH_FOR_HISTOGRAM_BREAKDOWN,
+} from 'lib/insights/mathUtils'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 
 import { MathType } from '~/queries/schema/schema-general'
@@ -17,19 +29,7 @@ import {
 import { BaseMathType, ChartDisplayType, CountPerActorMathType, HogQLMathType, PropertyMathType } from '~/types'
 
 import { GroupIntroductionFooter } from 'products/groups/frontend/components/GroupsIntroduction'
-import {
-    COUNT_PER_ACTOR_MATH_DEFINITIONS,
-    MathDefinition,
-    PROPERTY_MATH_DEFINITIONS,
-    mathTypeToApiValues,
-    mathsLogic,
-} from 'products/product_analytics/frontend/insights/trends/mathsLogic'
 
-import {
-    getDefaultPropertyMathType,
-    isCountPerActorMath,
-    SUPPORTED_PROPERTY_MATH_FOR_HISTOGRAM_BREAKDOWN,
-} from './mathUtils'
 import { MathAvailability } from './types'
 import type { MathSelectorProps } from './types'
 

@@ -21,6 +21,8 @@ import {
     TaxonomicPopoverProps,
     TaxonomicStringPopover,
 } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
+import { MathCategory, mathsLogic } from 'lib/insights/mathsLogic'
+import { getDefaultMathHogQLExpression } from 'lib/insights/mathUtils'
 import { SortableDragIcon } from 'lib/lemon-ui/icons'
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
 import { teamLogic } from 'scenes/teamLogic'
@@ -28,11 +30,8 @@ import { teamLogic } from 'scenes/teamLogic'
 import { GroupNode, NodeKind } from '~/queries/schema/schema-general'
 import { BaseMathType, InsightType } from '~/types'
 
-import { MathCategory, mathsLogic } from 'products/product_analytics/frontend/insights/trends/mathsLogic'
-
 import { ActionFilterRow, MathSelector } from '../ActionFilterRow/ActionFilterRow'
 import { taxonomicGroupTypeToSeriesNodeKind } from '../ActionFilterRow/actionFilterRowUtils'
-import { getDefaultMathHogQLExpression } from '../ActionFilterRow/mathUtils'
 import { MathAvailability } from '../ActionFilterRow/types'
 import { entityFilterLogic } from '../entityFilterLogic'
 import { actionFilterGroupLogic } from './actionFilterGroupLogic'

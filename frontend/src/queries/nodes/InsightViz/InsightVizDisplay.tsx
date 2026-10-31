@@ -6,6 +6,7 @@ import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
+import { SUPPORTED_PROPERTY_MATH_FOR_HISTOGRAM_BREAKDOWN, isPropertyValueMath } from 'lib/insights/mathUtils'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { ChunkLoadErrorBoundary } from 'scenes/ChunkLoadErrorBoundary'
@@ -21,10 +22,6 @@ import {
     InsightTimeoutState,
     InsightValidationError,
 } from 'scenes/insights/EmptyStates'
-import {
-    SUPPORTED_PROPERTY_MATH_FOR_HISTOGRAM_BREAKDOWN,
-    isPropertyValueMath,
-} from 'scenes/insights/filters/ActionFilter/ActionFilterRow/mathUtils'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'

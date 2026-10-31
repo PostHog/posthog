@@ -22,6 +22,8 @@ import { ApiError } from 'lib/api'
 import { isTransientServerError, shouldReportApiFailure } from 'lib/api-error'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
+import { mathsLogic } from 'lib/insights/mathsLogic'
+import type { MathDefinition } from 'lib/insights/mathsLogic'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -80,8 +82,6 @@ import {
     titleMentionsMCP,
     tryShowMCPAnalyticsNudge,
 } from 'products/mcp_analytics/frontend/nudge/mcpAnalyticsNudgeLogic'
-import { mathsLogic } from 'products/product_analytics/frontend/insights/trends/mathsLogic'
-import type { MathDefinition } from 'products/product_analytics/frontend/insights/trends/mathsLogic'
 import { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
 
 import type { AlertType } from '../../../../products/alerts/frontend/types'
@@ -1056,12 +1056,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     deferToUserWording?: boolean
                 ) => import('~/models/groupsModel').Noun,
                 cohortsById: Partial<Record<number | string, import('~/types').CohortType>>,
-                mathDefinitions: Partial<
-                    Record<
-                        string,
-                        import('products/product_analytics/frontend/insights/trends/mathsLogic').MathDefinition
-                    >
-                >
+                mathDefinitions: Partial<Record<string, import('lib/insights/mathsLogic').MathDefinition>>
             ) =>
                 summarizeInsight(query, {
                     aggregationLabel,

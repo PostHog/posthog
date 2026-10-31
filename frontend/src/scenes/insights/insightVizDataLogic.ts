@@ -17,6 +17,7 @@ import {
     PIE_DISPLAY_TYPES,
 } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { BASE_MATH_DEFINITIONS } from 'lib/insights/mathsLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dateMapping, is12HoursOrLess, isLessThan2Days } from 'lib/utils/dateFilters'
 import { objectsEqual } from 'lib/utils/objects'
@@ -139,7 +140,6 @@ import {
 
 import { getClampedFunnelStepRange } from 'products/product_analytics/frontend/insights/funnels/funnelUtils'
 import { AggregationType } from 'products/product_analytics/frontend/insights/shared/InsightsTable/insightsTableDataLogic'
-import { BASE_MATH_DEFINITIONS } from 'products/product_analytics/frontend/insights/trends/mathsLogic'
 
 import type { DataColorTheme } from '../../lib/colors'
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'

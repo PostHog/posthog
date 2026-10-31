@@ -2,17 +2,12 @@ import { MakeLogicType, actions, connect, kea, key, listeners, path, props, redu
 import { subscriptions } from 'kea-subscriptions'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { MathCategory, mathTypeToApiValues, mathsLogic } from 'lib/insights/mathsLogic'
+import type { MathDefinition } from 'lib/insights/mathsLogic'
 import { uuid } from 'lib/utils/dom'
 
 import { AnyEntityNode, GroupNode, NodeKind } from '~/queries/schema/schema-general'
 import { AnyPropertyFilter, FilterLogicalOperator } from '~/types'
-
-import {
-    MathCategory,
-    mathTypeToApiValues,
-    mathsLogic,
-} from 'products/product_analytics/frontend/insights/trends/mathsLogic'
-import type { MathDefinition } from 'products/product_analytics/frontend/insights/trends/mathsLogic'
 
 import { LocalSeries, SeriesEntityUpdate, entityFilterLogic } from '../entityFilterLogic'
 import { SeriesNode, isGroupSeriesNode, withLatestVersion } from '../seriesNode'

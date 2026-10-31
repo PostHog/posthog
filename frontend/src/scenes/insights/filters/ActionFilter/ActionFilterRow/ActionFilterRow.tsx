@@ -26,6 +26,8 @@ import {
 } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover, TaxonomicPopoverProps } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { MathCategory, mathTypeToApiValues, mathsLogic } from 'lib/insights/mathsLogic'
+import { getDefaultMathHogQLExpression } from 'lib/insights/mathUtils'
 import { IconWithCount, SortableDragIcon } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -53,11 +55,6 @@ import {
 } from '~/types'
 
 import { funnelDataLogic } from 'products/product_analytics/frontend/insights/funnels/funnelDataLogic'
-import {
-    MathCategory,
-    mathTypeToApiValues,
-    mathsLogic,
-} from 'products/product_analytics/frontend/insights/trends/mathsLogic'
 
 import {
     FLAG_CALLS_SERIES_DESCRIPTION,
@@ -78,7 +75,6 @@ import { ActionFilterRowMenu } from './ActionFilterRowMenu'
 import { getValue, taxonomicGroupTypeToSeriesNodeKind } from './actionFilterRowUtils'
 import { HogQLMathEditorDropdown } from './HogQLMathEditor'
 import { MathSelector } from './MathSelector'
-import { getDefaultMathHogQLExpression } from './mathUtils'
 import { PropertyValueMathSelector } from './PropertyValueMathSelector'
 import { SaveAsActionBanner } from './SaveAsActionBanner'
 import type { ActionFilterRowProps } from './types'

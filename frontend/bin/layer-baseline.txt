@@ -158,7 +158,6 @@ frontend/src/lib/components/Cards/InsightCard/InsightDetails.tsx -> frontend/src
 frontend/src/lib/components/Cards/InsightCard/InsightDetails.tsx -> frontend/src/scenes/saved-insights/insightTypesMetadata.tsx
 frontend/src/lib/components/Cards/InsightCard/InsightDetails.tsx -> products/product_analytics/frontend/insights/editor/filters/BreakdownFilter/BreakdownTag.tsx
 frontend/src/lib/components/Cards/InsightCard/InsightDetails.tsx -> products/product_analytics/frontend/insights/journeys/journeysSummary.ts
-frontend/src/lib/components/Cards/InsightCard/InsightDetails.tsx -> products/product_analytics/frontend/insights/trends/mathsLogic.tsx
 frontend/src/lib/components/Cards/InsightCard/InsightMeta.tsx -> frontend/src/queries/nodes/DataNode/QueryScanTileTooltip.tsx
 frontend/src/lib/components/Cards/InsightCard/InsightMeta.tsx -> frontend/src/queries/nodes/DataNode/WarehouseSyncWarningList.tsx
 frontend/src/lib/components/Cards/InsightCard/InsightMeta.tsx -> frontend/src/queries/nodes/DataNode/queryScan.ts
@@ -248,7 +247,6 @@ frontend/src/lib/components/IngestionControls/triggers/triggerGroups/TriggerGrou
 frontend/src/lib/components/IngestionControls/triggers/triggerGroups/TriggerGroupsEditor.tsx -> frontend/src/scenes/settings/environment/SessionRecordingSettings.tsx
 frontend/src/lib/components/InsightLabel/index.tsx -> frontend/src/scenes/insights/utils.tsx
 frontend/src/lib/components/InsightLabel/index.tsx -> frontend/src/scenes/insights/utils/resultSeries.ts
-frontend/src/lib/components/InsightLabel/index.tsx -> products/product_analytics/frontend/insights/trends/mathsLogic.tsx
 frontend/src/lib/components/InsightLegend/InsightLegend.tsx -> frontend/src/scenes/insights/insightLogic.tsx
 frontend/src/lib/components/InsightLegend/InsightLegend.tsx -> products/product_analytics/frontend/insights/trends/trendsDataLogic.ts
 frontend/src/lib/components/InsightLegend/InsightLegendRow.tsx -> frontend/src/scenes/insights/aggregationAxisFormat.ts
@@ -443,7 +441,6 @@ frontend/src/queries/nodes/DataNode/TestAccountFilters.tsx -> frontend/src/scene
 frontend/src/queries/nodes/DataNode/dataNodeLogic.ts -> frontend/src/scenes/insights/insightLogic.tsx
 frontend/src/queries/nodes/DataNode/dataNodeLogic.ts -> frontend/src/scenes/insights/utils/queryUtils.ts
 frontend/src/queries/nodes/DataTable/BackToSource.tsx -> frontend/src/scenes/insights/summarizeInsight.ts
-frontend/src/queries/nodes/DataTable/BackToSource.tsx -> products/product_analytics/frontend/insights/trends/mathsLogic.tsx
 frontend/src/queries/nodes/DataTable/DataTable.tsx -> frontend/src/scenes/insights/EmptyStates/index.ts
 frontend/src/queries/nodes/DataTable/DataTable.tsx -> frontend/src/scenes/web-analytics/tabs/marketing-analytics/frontend/components/CampaignMapping/CampaignMappingCellActions.tsx
 frontend/src/queries/nodes/DataTable/DataTable.tsx -> frontend/src/scenes/web-analytics/tabs/marketing-analytics/frontend/components/CampaignMapping/mappingUtils.ts
@@ -526,7 +523,6 @@ frontend/src/queries/nodes/InsightViz/InsightViz.tsx -> products/product_analyti
 frontend/src/queries/nodes/InsightViz/InsightViz.tsx -> products/product_analytics/frontend/insights/shared/selectorMatchChange/SelectorMatchChangeNotice.tsx
 frontend/src/queries/nodes/InsightViz/InsightVizDisplay.tsx -> frontend/src/scenes/dashboard/dashboardLogic.tsx
 frontend/src/queries/nodes/InsightViz/InsightVizDisplay.tsx -> frontend/src/scenes/insights/EmptyStates/index.ts
-frontend/src/queries/nodes/InsightViz/InsightVizDisplay.tsx -> frontend/src/scenes/insights/filters/ActionFilter/ActionFilterRow/mathUtils.ts
 frontend/src/queries/nodes/InsightViz/InsightVizDisplay.tsx -> frontend/src/scenes/insights/insightDataLogic.tsx
 frontend/src/queries/nodes/InsightViz/InsightVizDisplay.tsx -> frontend/src/scenes/insights/insightLogic.tsx
 frontend/src/queries/nodes/InsightViz/InsightVizDisplay.tsx -> frontend/src/scenes/insights/insightVizDataLogic.ts

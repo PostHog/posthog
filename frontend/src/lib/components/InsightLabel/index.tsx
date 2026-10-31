@@ -9,6 +9,7 @@ import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { parseAliasToReadable } from 'lib/components/PathCleanFilters/PathCleanFilterItem'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
+import { mathsLogic } from 'lib/insights/mathsLogic'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { hexToRGBA } from 'lib/utils/colors'
 import { capitalizeFirstLetter, midEllipsis } from 'lib/utils/strings'
@@ -17,8 +18,6 @@ import { ResultSeries, getResultSeriesCustomName } from 'scenes/insights/utils/r
 
 import { groupsModel } from '~/models/groupsModel'
 import { BreakdownKeyType } from '~/types'
-
-import { mathsLogic } from 'products/product_analytics/frontend/insights/trends/mathsLogic'
 
 import { TaxonomicFilterGroupType } from '../TaxonomicFilter/types'
 

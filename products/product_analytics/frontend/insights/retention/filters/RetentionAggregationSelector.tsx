@@ -6,6 +6,7 @@ import { LemonSelect, LemonSelectOption } from '@posthog/lemon-ui'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicStringPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
+import { PROPERTY_MATH_DEFINITIONS } from 'lib/insights/mathsLogic'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -13,8 +14,6 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { DatabaseSchemaField, RetentionFilter } from '~/queries/schema/schema-general'
 import { PropertyMathType } from '~/types'
-
-import { PROPERTY_MATH_DEFINITIONS } from 'products/product_analytics/frontend/insights/trends/mathsLogic'
 
 const aggregationTypeToTaxonomicType = {
     event: TaxonomicFilterGroupType.EventProperties,
