@@ -69,6 +69,7 @@ from posthog.tasks.tasks import (
     update_survey_iteration,
 )
 from posthog.tasks.team_event_volume import update_team_event_volumes
+from posthog.tasks.team_llm_gateway_org import refresh_expiring_llm_gateway_org_cache_entries
 from posthog.tasks.team_llm_gateway_policy import refresh_expiring_llm_gateway_policy_cache_entries
 from posthog.tasks.team_llm_gateway_quota import reconcile_llm_gateway_quota_projection
 from posthog.tasks.team_metadata import cleanup_stale_expiry_tracking_task, refresh_expiring_team_metadata_cache_entries
@@ -372,6 +373,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="*", minute="5"),
         refresh_expiring_llm_gateway_policy_cache_entries.s(),
         name="llm-gateway policy cache sync",
+    )
+
+    # LLM gateway organization entries - hourly at :20 to stagger from the policy and credential syncs
+    sender.add_periodic_task(
+        crontab(hour="*", minute="20"),
+        refresh_expiring_llm_gateway_org_cache_entries.s(),
+        name="llm-gateway organization entry sync",
     )
 
     # Gateway credential cache sync - hourly at :10 to stagger from the others

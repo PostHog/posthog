@@ -1965,12 +1965,18 @@ class TestQuotaLimiting(BaseTest):
     def test_usage_keys_stay_in_sync(self):
         """
         Ensure QuotaResource, UsageCounters, and OrganizationUsageInfo all use the same keys
-        (except for `period`).
+        (except for `period` and billing's AI credit settings, which are not usage).
         """
         from posthog.models.organization import OrganizationUsageInfo
 
-        # OrganizationUsageInfo is source of truth (excluding 'period`)
-        org_usage_keys = set(OrganizationUsageInfo.__annotations__.keys()) - {"period"}
+        from ee.billing.billing_manager import AI_AUTOMATIC_RELOAD_KEY, AI_CREDIT_SETTING_KEYS
+
+        # OrganizationUsageInfo is source of truth (excluding `period` and the AI credit settings)
+        org_usage_keys = set(OrganizationUsageInfo.__annotations__.keys()) - {
+            "period",
+            AI_AUTOMATIC_RELOAD_KEY,
+            *AI_CREDIT_SETTING_KEYS,
+        }
 
         quota_resource_keys = {resource.value for resource in QuotaResource}
         usage_counter_keys = set(UsageCounters.__annotations__.keys())
