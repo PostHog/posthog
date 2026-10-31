@@ -514,6 +514,17 @@ jobs:
             - name: Build frontend (bundle-size + eager-graph report)
               run: pnpm --filter=@posthog/frontend build:with-report
 
+            # The PR's layer graph, written by build:with-report before the base build replaces it.
+            - name: Upload frontend layer graph
+              id: layer-graph
+              if: github.event_name == 'pull_request' && hashFiles('frontend/layer-graph.html') != ''
+              continue-on-error: true
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: frontend-layer-graph
+                  path: frontend/layer-graph.html
+                  retention-days: 14
+
             # Measured before the base build overwrites dist/. Untracked, so it survives the
             # git reset --hard onto the base tree; the dist-size section reads it back.
             - name: Measure PR dist size
@@ -537,6 +548,13 @@ jobs:
               run: |
                   if [ -f frontend/bin/post-toolbar-size-comment.mjs ]; then
                       cp frontend/bin/post-toolbar-size-comment.mjs frontend/bin/post-toolbar-size-comment-pr.mjs
+                  fi
+
+            - name: Preserve PR layer report poster
+              if: github.event_name == 'pull_request'
+              run: |
+                  if [ -f frontend/bin/post-layer-comment.mjs ]; then
+                      cp frontend/bin/post-layer-comment.mjs frontend/bin/post-layer-comment-pr.mjs
                   fi
 
             - name: Build base branch for size comparison
@@ -586,6 +604,20 @@ jobs:
                       node frontend/bin/post-eager-graph-comment.mjs
                   else
                       echo "Skipping eager graph section — script not present on this checkout"
+                  fi
+
+            - name: Post CI report — frontend layers
+              if: always() && github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/')
+              env:
+                  GITHUB_TOKEN: ${{ github.token }}
+                  LAYER_GRAPH_URL: ${{ steps.layer-graph.outputs.artifact-url }}
+              run: |
+                  if [ -f frontend/bin/post-layer-comment-pr.mjs ]; then
+                      node frontend/bin/post-layer-comment-pr.mjs
+                  elif [ -f frontend/bin/post-layer-comment.mjs ]; then
+                      node frontend/bin/post-layer-comment.mjs
+                  else
+                      echo "Skipping frontend layers section, script not present on this checkout"
                   fi
 
             - name: Post CI report — bundle size
