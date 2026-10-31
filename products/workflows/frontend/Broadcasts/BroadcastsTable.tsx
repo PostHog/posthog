@@ -17,15 +17,22 @@ import type { HogFlowMinimalApi } from 'products/workflows/frontend/generated/ap
 
 import { archiveDisabledReason, manageDisabledReason } from './broadcastLifecycle'
 import { BroadcastsEmptyState } from './BroadcastsEmptyState'
-import { BROADCASTS_PAGE_SIZE, BroadcastsStatusFilter, broadcastsLogic, getBroadcastStatus } from './broadcastsLogic'
+import {
+    BROADCASTS_PAGE_SIZE,
+    BroadcastsStatusFilter,
+    broadcastsLogic,
+    getBroadcastChannel,
+    getBroadcastStatus,
+} from './broadcastsLogic'
 import { BroadcastStatusTag } from './BroadcastStatusTag'
 
-const METRIC_COLUMNS: { title: string; metricName: string }[] = [
-    { title: 'Sent', metricName: 'email_sent' },
-    { title: 'Delivered', metricName: 'email_delivered' },
-    { title: 'Opened', metricName: 'email_opened' },
-    { title: 'Clicked', metricName: 'email_link_clicked' },
-    { title: 'Converted', metricName: 'conversion' },
+// Push has no delivery receipts or link tracking, so those columns stay empty for a push broadcast.
+const METRIC_COLUMNS: { title: string; metricName: string; pushMetricName: string | null }[] = [
+    { title: 'Sent', metricName: 'email_sent', pushMetricName: 'push_sent' },
+    { title: 'Delivered', metricName: 'email_delivered', pushMetricName: null },
+    { title: 'Opened', metricName: 'email_opened', pushMetricName: 'push_opened' },
+    { title: 'Clicked', metricName: 'email_link_clicked', pushMetricName: null },
+    { title: 'Converted', metricName: 'conversion', pushMetricName: 'conversion' },
 ]
 
 export function BroadcastsTable(): JSX.Element {
@@ -105,19 +112,20 @@ export function BroadcastsTable(): JSX.Element {
                 )
             },
         },
-        ...METRIC_COLUMNS.map(({ title, metricName }) => ({
+        ...METRIC_COLUMNS.map(({ title, metricName, pushMetricName }) => ({
             title,
             width: 0,
             align: 'right' as const,
             render: (_: unknown, item: HogFlowMinimalApi) => {
                 const details = rowDetailsById[item.id]
-                if (item.status === 'draft') {
+                const metric = getBroadcastChannel(item.actions as any) === 'push' ? pushMetricName : metricName
+                if (item.status === 'draft' || !metric) {
                     return <span className="text-muted">-</span>
                 }
                 if (!details?.totals) {
                     return <span className="text-muted">…</span>
                 }
-                return <span>{humanFriendlyNumber(details.totals[metricName] ?? 0)}</span>
+                return <span>{humanFriendlyNumber(details.totals[metric] ?? 0)}</span>
             },
         })),
         createdByColumn() as LemonTableColumns<HogFlowMinimalApi>[number],

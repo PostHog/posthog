@@ -250,10 +250,18 @@ class TestEndpointConfigConsistency:
 
 
 class TestAccountFanout:
-    @pytest.mark.parametrize("status_code", [403, 404])
-    def test_skips_account_the_token_cannot_read(self, status_code: int) -> None:
+    @pytest.mark.parametrize(
+        "endpoint, status_code",
+        [
+            ("kv_namespaces", 403),
+            ("kv_namespaces", 404),
+            ("kv_namespaces", 401),
+            ("d1_databases", 401),
+        ],
+    )
+    def test_skips_account_the_token_cannot_read(self, endpoint: str, status_code: int) -> None:
         result = _driver().run(
-            "kv_namespaces",
+            endpoint,
             [
                 _response([{"id": "a1"}, {"id": "a2"}], total_pages=1),
                 _error_response(status_code),
@@ -333,19 +341,41 @@ class TestDnsAnalyticsReport:
         assert (graphql_request.method, graphql_request.path) == ("POST", "/client/v4/graphql")
         assert graphql_request.json()["variables"]["zoneTag"] == "z2"
 
-    def test_fails_when_every_zone_is_refused(self) -> None:
+    def test_token_without_analytics_permission_syncs_no_rows(self) -> None:
+        denied = "Actor 'com.cloudflare.api.token.abc' does not have permission 'com.cloudflare.api.account.zone.analytics.read' for zone z1"
+        result = _driver().run(
+            "dns_analytics_report",
+            [
+                _response([{"id": "z1"}, {"id": "z2"}], total_pages=1),
+                _graphql_error(denied),
+                _graphql_error(denied),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.rows == []
+
+    @pytest.mark.parametrize(
+        "second_zone_error",
+        [
+            "unknown field dnsAnalyticsAdaptiveGroups",
+            "Actor 'com.cloudflare.api.token.abc' does not have permission 'com.cloudflare.api.account.zone.analytics.read' for zone z2",
+        ],
+    )
+    def test_broken_query_on_every_zone_fails_without_disabling(self, second_zone_error: str) -> None:
         result = _driver().run(
             "dns_analytics_report",
             [
                 _response([{"id": "z1"}, {"id": "z2"}], total_pages=1),
                 _graphql_error("unknown field dnsAnalyticsAdaptiveGroups"),
-                _graphql_error("unknown field dnsAnalyticsAdaptiveGroups"),
+                _graphql_error(second_zone_error),
             ],
         )
 
         assert isinstance(result.raised, ValueError)
         assert DNS_ANALYTICS_ALL_ZONES_FAILED in str(result.raised)
         assert "unknown field dnsAnalyticsAdaptiveGroups" in str(result.raised)
+        assert not error_message_matches(str(result.raised), CloudflareSource().get_non_retryable_errors().keys())
 
 
 class TestLogpushDestinationRedaction:

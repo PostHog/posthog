@@ -1,1412 +1,1415 @@
-source_type,connection_fields,sync_settings,runtime_keys
-AbTasty,,,
-Ably,api_key,unit,
-AbnormalSecurity,api_key region,,
-Acast,api_key,,
-Acculynx,api_key,appointment_start_date appointment_end_date,
-Actionstep,,,
-ActiveCampaign,api_url api_key,,
-AcuityScheduling,,,
-AdRoll,client_id personal_access_token,,
-Adapty,api_key,start_date,
-Adjust,api_token,app_tokens,
-AdobeAnalytics,client_id client_secret report_suite_id global_company_id,report_dimension report_metrics start_date,
-AdobeCommerce,store_url store_code auth_method,,
-AdpWorkforceNow,,,
-Adyen,environment api_key balance_platform merchant_account,start_date settlement_report_start_batch,
-Aftership,api_key,,
-AgileCRM,domain email api_key,,
-Aha,subdomain api_key,,
-AhaIdeas,subdomain api_key,,
-Ahrefs,api_key project_id,,
-AikidoSecurity,,,
-AirOps,api_key,,
-Airbrake,api_key,,
-Airbridge,,,
-Airbyte,,,
-Aircall,api_id api_token,,
-Airship,,,
-Airtable,personal_access_token,,
-Airwallex,client_id api_key environment,,
-Aiven,api_token,,
-AkamaiReporting,,,
-Akeneo,,,
-Alation,,,
-Alegra,email api_token,,
-Algolia,application_id api_key region,index_name,
-Alguna,api_key,,
-Allegro,,,
-AlpacaBrokerAPI,,,
-AlphaVantage,api_key,symbols,
-AmazonAds,region client_id client_secret refresh_token,,
-AmazonCloudWatch,aws_access_key_id aws_secret_access_key aws_session_token aws_region,log_group_names metric_queries start_date,
-AmazonEventBridge,,,
-AmazonKinesis,,,
-AmazonS3,url_pattern access_key_id secret_access_key,file_format combine_files,
-AmazonSNS,,,
-AmazonSQS,,,
-AmazonSellingPartner,region client_id client_secret refresh_token,marketplace_ids,
-Amplemarket,api_key,,
-Amplitude,api_key secret_key region,,
-AnodotCost,,,
-Anomalo,,,
-Anthropic,api_key,,
-Anvil,api_key,,
-Apaleo,,,
-ApifyDataset,api_token dataset_id,,
-Apitally,api_key,,
-Apollo,api_key,,
-AppLovin,api_key campaign_api_key account_id,,
-AppStoreConnect,issuer_id key_id private_key vendor_number,app_ids,
-Appcues,api_key api_secret account_id region,,
-Appdirect,,,
-Appdynamics,host account_name auth_method,metric_paths event_types,
-Appfigures,personal_access_token,aso_countries,
-Appfolio,,,
-Appfollow,api_key,,
-AppleSearchAds,auth_method ad_account_id org_id,start_date,
-AppsFlyer,app_id api_token,,
-Appsignal,api_token app_id,,
-Appstack,api_key,,
-Apptivo,,,
-Appwrite,,,
-Arcade,api_key team_id,start_date,
-Argocd,host api_token project,,
-Arxiv,,,
-Asaas,api_key environment,,
-Asana,access_token,,
-Ashby,api_key,,
-Asknicely,subdomain api_key,,
-AssemblyAI,api_key region,,
-Astronomer,api_token organization_id,,
-Athenahealth,,,
-Atlan,,,
-Attentive,api_key,,
-Attio,api_key,,
-AudioGO,,,
-Auth0,auth0_domain client_id client_secret,,
-AutodeskConstructionCloud,,,
-Automox,api_key organization_id,,
-Autumn,api_key,,
-Avalara,environment account_id license_key,,
-Aviationstack,access_key airport_iata_codes,flights_future_days,
-Aviator,api_token,,
-Awin,api_token region,,
-AwsAthena,aws_access_key_id aws_secret_access_key aws_session_token aws_region database workgroup output_location,,
-AwsBatch,aws_access_key_id aws_secret_access_key aws_session_token region,,
-AwsBudgets,aws_access_key_id aws_secret_access_key aws_session_token,,
-AwsCloudTrail,aws_access_key_id aws_secret_access_key aws_session_token region,,
-AwsCloudformation,,,
-AwsComputeOptimizer,aws_access_key_id aws_secret_access_key aws_session_token region,,
-AwsConfig,aws_access_key_id aws_secret_access_key aws_session_token region,,
-AwsConnect,,,
-AwsCostAndUsageReport,aws_access_key_id aws_secret_access_key aws_session_token aws_region bucket,prefix export_name first_billing_period,
-AwsCostAnomalyDetection,aws_access_key_id aws_secret_access_key aws_session_token,,
-AwsCostExplorer,aws_access_key_id aws_secret_access_key aws_session_token,start_date,
-AwsDocumentDB,connection_string database_name,,
-AwsGlueDataCatalog,aws_access_key_id aws_secret_access_key aws_session_token aws_region,,
-AwsGuardduty,aws_access_key_id aws_secret_access_key aws_session_token aws_region,,
-AwsHealth,,,
-AwsIamAccessAnalyzer,aws_access_key_id aws_secret_access_key aws_session_token region,,
-AwsInspector,aws_access_key_id aws_secret_access_key aws_session_token region,,
-AwsMacie,aws_access_key_id aws_secret_access_key aws_session_token region,,
-AwsOrganizations,aws_access_key_id aws_secret_access_key aws_session_token,,
-AwsRdsPerformanceInsights,,,
-AwsS3Tables,,,
-AwsSagemaker,aws_access_key_id aws_secret_access_key aws_session_token region,,
-AwsSavingsPlans,aws_access_key_id aws_secret_access_key aws_session_token,start_date,
-AwsSecurityHub,aws_access_key_id aws_secret_access_key aws_session_token region,,
-AwsSes,aws_access_key_id aws_secret_access_key aws_region aws_session_token,,
-AwsStepFunctions,aws_access_key_id aws_secret_access_key aws_session_token region,,
-AwsSupport,,,
-AwsSystemsManager,aws_access_key_id aws_secret_access_key aws_region aws_session_token,,
-AwsTrustedAdvisor,,,
-AwsWaf,aws_access_key_id aws_secret_access_key aws_session_token aws_region scope,,
-AwsXray,,,
-Axiom,api_token org_id,,
-AzureActivityLog,,,
-AzureAdvisor,,,
-AzureApiManagement,tenant_id client_id client_secret workspace_id,,
-AzureApplicationInsights,tenant_id client_id client_secret application_id,,
-AzureBlob,url_pattern account_key,file_format combine_files,
-AzureCostManagement,tenant_id client_id client_secret scope,start_date,
-AzureDataExplorer,,,
-AzureDataFactory,,,
-AzureDevOps,organization personal_access_token,,
-AzureLogAnalytics,tenant_id client_id client_secret workspace_id,tables,
-AzureMonitorAlerts,,,
-AzureMonitorMetrics,,,
-AzureOpenaiUsage,,,
-AzurePolicyInsights,,,
-AzureReservations,,,
-AzureResourceGraph,,,
-AzureResourceHealth,,,
-AzureServiceHealth,,,
-AzureSynapse,,,
-AzureTableStorage,,,
-BCMS,,,
-Babelforce,environment access_id access_token,,
-BackMarket,api_token,,
-Backblaze,,,
-BambooHR,subdomain api_key,,
-Basecamp,,,
-Baserow,database_token base_url,,
-Baseten,api_key,,
-Beacons,,,
-Beamer,api_key,,
-Beehiiv,api_key publication_id,,
-BetterStack,api_token,,
-Bettermode,region client_id client_secret network_id,,
-Bexio,,,
-BigCommerce,store_hash access_token,,
-BigMailer,api_key,,
-BigQuery,auth_type use_custom_region dataset_project,dataset_id temporary-dataset,
-Bigeye,api_key host workspace_id,,
-BillCom,username password organization_id dev_key environment,,
-Billit,,,
-Billomat,billomat_id api_key registered_app,,
-BingAds,bing_ads_integration_id account_id,,
-BingWebmasterTools,api_key site_urls,,
-Bitbucket,workspace auth_method,,
-Bitly,,,
-Bitrise,api_token,,
-Bitwarden,,,
-BlackbaudRaisersEdgeNxt,,,
-BlackboardLearn,,,
-BlandAI,api_key,,
-Bling,,,
-Blogger,api_key blog_id,,
-Bloomerang,api_key,,
-Blueshift,api_key region,,
-Bluesky,actor,,
-Bluetally,api_key tenant_id,,
-BolRetailer,client_id client_secret,,
-BoldSign,api_key region,,
-Boulevard,,,
-Box,,,
-Braintree,environment public_key private_key,,
-Braintrust,api_key api_url,,
-Branch,,,
-Braze,api_key url,,
-Breezometer,api_key,locations,
-BreezyHR,,,
-Brevo,api_key,,
-Brex,api_key,,
-BrowseAI,api_key,,
-BrowserUse,api_key,,
-Browserbase,api_key,,
-Buffer,,,
-Bugherd,api_key,,
-Bugsnag,auth_token,,
-BuildBetter,api_key,,
-Buildium,client_id client_secret,,
-Buildkite,api_access_token organization,,
-Bunny,access_key,,
-Buttondown,api_key,,
-BuyMeACoffee,access_token,,
-Buzzsprout,api_token podcast_id,,
-CalCom,api_key region,,
-Calendarific,api_key,country year,
-Calendly,personal_access_token,,
-Calibre,,,
-CallRail,api_key account_id,,
-CampaignManager360,,,
-CampaignMonitor,api_key client_id,,
-Campayn,subdomain api_key,,
-Campfire,api_key,,
-Canny,api_key,,
-CanvasLms,canvas_domain account_id api_key,,
-CapsuleCRM,access_token,,
-CaptainData,,,
-Capterra,,,
-Captivate,,,
-CareQualityCommission,api_key partner_code,,
-CartCom,,,
-Cashfree,,,
-CastAi,api_key,,
-CastorEDC,,,
-Catchpoint,api_key,,
-CdcOpenData,app_token,dataset_ids,
-Census,api_key region,,
-Chameleon,account_secret,,
-ChannelIO,access_key access_secret,,
-ChargebackStop,,,
-Chargebee,api_key site_name,,
-Chargedesk,api_key,,
-Chargeflow,,,
-Chargify,api_key subdomain,,
-ChartHop,api_key org_id,,
-ChartMogul,api_key,,
-Chatwoot,host account_id api_access_token,,
-CheckHQ,,,
-Checkly,api_key account_id,,
-Checkmarx,tenant_name region api_key,,
-CheckoutCom,environment client_id client_secret,start_date,
-ChessCom,,usernames,
-Chift,,,
-Chorus,,,
-Churnkey,api_key app_id,,
-Cimis,app_key,targets unit_of_measure,
-Cin7,,,
-CircleCI,api_token org_slug,,
-CircleSo,,,
-CircleciInsights,api_token project_slugs,reporting_window branch_scope,
-CiscoDuo,api_hostname integration_key secret_key,,
-CiscoMeraki,api_key organization_id region,,
-Clari,api_key forecast_id,,
-Clarifai,personal_access_token user_id app_id api_host,,
-Clarify,,,
-Classy,,,
-Clay,api_key,table_ids,
-Clazar,,,
-Cleartax,,,
-Clerk,secret_key,,
-Clever,bearer_token,,
-Clevertap,account_id passcode region,event_name start_date,
-ClickHouse,connection_string host port database user password secure verify ssh_tunnel,,
-ClickUp,api_key workspace_id,,
-ClickhouseCloud,key_id key_secret,,
-Cliniko,api_key,,
-Clio,,,
-Clip,api_key secret_key,start_date,
-Clockify,api_key,,
-Clockodo,api_user api_key,,
-Close,api_key,,
-Cloudability,api_key region view_id,,
-Cloudbeds,api_key property_id,,
-Cloudflare,api_token,,
-CloudflareD1,api_token account_id database_id,,
-CloudflareR2,url_pattern access_key_id secret_access_key,file_format combine_files,
-Cloudinary,cloud_name api_key api_secret region,,
-Cloudsmith,api_key workspace,,
-Cloudzero,api_key,granularity cost_type group_by,
-Clover,region merchant_id api_token,,
-Coassemble,workspace_id api_key,,
-CockroachDB,,,
-Coda,api_token,,
-Codacy,api_token provider organization,,
-Codecov,service owner_username api_token repositories,,
-Codefresh,api_key,,
-Codemagic,api_token,,
-Codescene,api_token base_url,,
-Cody,instance_url access_token,,
-Cohere,api_key,,
-CoinApi,api_key,exchange_rate_base_asset exchange_rate_quote_asset symbol_id period_id metric_id start_date,
-CoinGecko,plan api_key,coin_ids start_date,
-CoinMarketCap,api_key,,
-Collibra,,,
-Commercetools,region project_key client_id client_secret,,
-CommissionJunction,,,
-Commslayer,,,
-Companycam,api_key,,
-Concord,api_key environment organization_id,,
-ConectoCRM,,,
-Conekta,api_key,,
-ConfigCat,basic_auth_username basic_auth_password,,
-Confluence,subdomain email api_token,,
-ConfluentCloud,api_key api_secret,kafka_cluster_ids connector_ids ksqldb_cluster_ids schema_registry_ids compute_pool_ids,
-ConstantContact,,,
-ContaAzul,,,
-Contentsquare,,,
-ConvertKit,api_key,,
-Convex,deploy_url deploy_key,,
-Convonite,,,
-Coolify,base_url api_token,,
-Copper,api_key user_email,,
-Coralogix,domain api_key,tier,
-Cortex,api_key,,
-CosmosDB,account_endpoint key database,,
-Couchbase,,,
-Coupa,instance_url client_id client_secret,,
-Courier,api_key,,
-Coveralls,service repositories api_token,,
-CratesIO,,crates,
-Creem,,,
-Crisp,website_id token_identifier token_key,,
-Criteo,client_id client_secret,start_date currency,
-Cronitor,api_key,,
-Crossref,mailto,member_id funder_id issn,
-CrowdstrikeFalcon,,,
-Crunchbase,api_key,,
-CubeCloud,,,
-CultureAmp,client_id client_secret account_id,,
-Cursor,api_key,,
-Curve,,,
-Custom,manifest_json auth_token auth_api_key auth_password auth_oauth2_client_secret auth_oauth2_refresh_token auth_oauth2_integration_id,,
-CustomerIO,app_api_key region,,
-Customerly,access_token,,
-Cybersource,,,
-D2lBrightspace,,,
-DagsterCloud,organization deployment api_token,,
-DataForSEO,api_login api_password targets keywords,location_name language_name,
-Databricks,host http_path auth_type catalog,schema,
-Datadog,site api_key application_key,,
-Datahub,instance_url api_token,,
-Datascope,,,
-DatoCMS,,,
-Datorama,,,
-Dayforce,,,
-Db2,,,
-Dbt,account_id api_token region custom_base_url discovery_api_url,,
-Debugbear,api_key,,
-Decagon,api_key,,
-Deel,api_token,,
-DeelFlows,,,
-Deepgram,api_key,,
-Deepsource,api_token account_login vcs_provider,,
-Demodesk,api_key,,
-DenoDeploy,access_token,,
-Depot,api_token,repository,
-Deputy,,,
-Descope,project_id management_key,,
-Develocity,instance_url access_key,,
-DevinAI,api_key org_id,,
-Dialpad,,,
-DigitalOcean,api_key,,
-DingConnect,api_key,,
-Directus,,,
-Discord,,,
-Discourse,base_url api_key api_username,,
-DisplayVideo360,,,
-Dixa,api_token,,
-DoIt,api_key,,
-Dockerhub,username personal_access_token namespace,,
-Docuseal,api_key region,,
-Docusign,environment auth_type account_id,start_date,
-DodoPayments,api_key mode,,
-Dokploy,,,
-Dolibarr,,,
-Donorbox,email api_key,,
-Doorloop,,,
-Doppler,api_token,,
-Dovetail,api_key,,
-Dragonboat,,,
-Drata,api_key region,,
-Drchrono,,,
-Dreamdata,,,
-Dremio,,,
-Drip,api_token account_id,,
-Dripify,,,
-Dropbox,,,
-DropboxSign,api_key,,
-Dub,api_key,,
-Dubsado,,,
-DuckLake,,,
-Dwolla,,,
-Dynamics365,organization_url tenant_id client_id client_secret,,
-Dynamics365BusinessCentral,tenant_id environment client_id client_secret,,
-DynamoDB,aws_access_key_id aws_secret_access_key aws_region aws_session_token,,
-Dynatrace,environment_url api_token,metric_selector,
-E2B,api_key team_id,,
-EConomic,app_secret_token agreement_grant_token,,
-EZOfficeInventory,subdomain api_key,,
-Easybill,api_key,,
-Easypost,api_key,,
-Easypromos,access_token,,
-Ebay,,,
-EcbDataPortal,,,
-Elasticemail,api_key,,
-Elasticsearch,host auth_method,,
-ElectricityMaps,api_token,zones pricing_nodes history_days,
-ElevenLabs,api_key,,
-Eloqua,,,
-EmailOctopus,api_key,,
-Emarsys,,,
-Embrace,api_token app_id region,,
-EmploymentHero,,,
-Encharge,,,
-Entsoe,,,
-Env0,api_key_id api_key_secret,,
-Eppo,api_key,,
-Etsy,api_key shared_secret refresh_token shop_id,,
-Eurostat,,,
-Eventbrite,api_token,,
-Eventee,api_key,,
-Eventzilla,api_key,,
-Everflow,api_key region,currency_code,
-Everhour,api_key,,
-ExactOnline,,,
-ExchangeRatesApi,access_key,base_currency start_date,
-Expensify,,,
-Expo,access_token project_id,,
-FacebookPages,,,
-Factorial,api_key,,
-Faire,api_key,,
-FarosAi,,,
-Fastbill,,,
-Fastly,api_key,,
-Fauna,,,
-Featurebase,api_key,,
-Feishu,,,
-Fieldpulse,api_key,,
-Fieldwire,,,
-FileUpload,,,file_format filename schema_name upload_id
-Filevine,,,
-Fillout,api_key api_base_url,,
-Finage,api_key,symbols forex_symbols crypto_symbols start_date,
-FinancialModelling,api_key,symbols,
-Finnhub,api_key,symbols indices exchange,
-Finnworlds,api_key,tickers countries,
-Finout,,,
-Fintoc,api_key link_tokens,,
-FireHydrant,api_key region,,
-Firebase,key_file database_id realtime_database_url realtime_database_paths,,
-Firebolt,,,
-Firecrawl,api_key,,
-FireworksAI,api_key account_id,,
-FirstPromoter,api_key account_id,,
-Five9,,,
-Flagsmith,api_key base_url,,
-Fleetio,api_key account_token,,
-FlexeraCloudCost,,,
-Flexmail,account_id personal_access_token,,
-Flexport,,,
-FloatApp,api_key,,
-Flowlu,api_key subdomain,,
-Flutterwave,client_id client_secret secret_key,,
-FlyIo,api_token organization_slug,,
-Folk,api_key,,
-Formbricks,host api_key,,
-Fortnox,,,
-Fourthwall,username password,,
-Framer,project_url api_key,,
-Fred,api_key,series_ids,
-FreeAgent,,,
-Freightview,,,
-FreshBooks,,,
-Freshcaller,subdomain api_key,,
-Freshchat,domain api_key,,
-Freshdesk,subdomain api_key,,
-Freshsales,domain api_key,,
-Freshservice,domain api_key,,
-Frill,api_key,,
-Front,api_token,,
-Frontegg,client_id api_key region,,
-Fulcrum,api_token,,
-FullStory,api_key,,
-FusionAuth,base_url api_key,,
-G2,access_token product_id,,
-GNews,api_key,query category language country,
-GainsightCs,domain access_key,custom_objects,
-GainsightPx,api_key region,,
-Gcore,api_key,,
-GcpApigee,,,
-GcpArtifactRegistry,,,
-GcpBigtable,,,
-GcpChronicle,,,
-GcpCloudAssetInventory,,,
-GcpCloudBilling,key_file,,
-GcpCloudBuild,,,
-GcpCloudDeploy,,,
-GcpCloudDns,,,
-GcpCloudFunctions,,,
-GcpCloudLogging,,,
-GcpCloudMonitoring,,,
-GcpCloudRun,,,
-GcpCloudSpanner,,,
-GcpCloudSql,,,
-GcpCloudTrace,,,
-GcpCloudWorkflows,,,
-GcpComputeEngine,,,
-GcpContainerAnalysis,,,
-GcpDataflow,,,
-GcpDataplex,,,
-GcpDataproc,,,
-GcpErrorReporting,,,
-GcpGke,,,
-GcpPubsub,,,
-GcpRecaptchaEnterprise,,,
-GcpRecommender,,,
-GcpSecurityCommandCenter,,,
-Gdelt,,,
-Gem,,,
-GenesysCloud,region client_id client_secret,,
-Gerrit,host username http_password,,
-GetStream,,,
-Getdx,api_key,,
-Ghost,admin_domain admin_api_key,,
-Giphy,api_key,search_query,
-GitBook,api_token,,
-GitLab,gitlab_host personal_access_token project,,
-Gitea,base_url access_token repository,,
-Gitguardian,api_key base_url,,
-Github,auth_method,repositories repository,
-Givebutter,api_key,,
-Gladly,organization agent_email api_token domain,,
-Glassfrog,api_key,,
-Gleif,,,
-Gmail,,,
-GoCardless,environment access_token,,
-GoLogin,api_key,,
-Gojiberry,,,
-Goldcast,access_key,,
-Gong,access_key access_key_secret,,
-GoogleAdManager,,,
-GoogleAdMob,,,
-GoogleAdSense,,,
-GoogleAds,google_ads_integration_id customer_id is_mcc_account,start_date skip_removed_keywords,
-GoogleAnalytics,google_analytics_integration_id property_id,custom_reports history_days,
-GoogleBusinessProfile,,,
-GoogleCalendar,,,
-GoogleChat,,,
-GoogleClassroom,,,
-GoogleCloudStorage,url_pattern access_key_id secret_access_key,file_format combine_files,
-GoogleDirectory,,,
-GoogleDrive,,,
-GoogleForms,,,
-GoogleMerchantCenter,,,
-GooglePageSpeedInsights,api_key,urls,
-GooglePlayConsole,key_file app_package_names,,
-GooglePostmasterTools,,,
-GoogleSearchConsole,google_search_console_integration_id site_url,search_types,
-GoogleSheets,spreadsheet_url,,
-GoogleTasks,,,
-GoogleWebfonts,api_key,,
-GoogleWorkspaceAdminReports,,,
-Gorgias,gorgias_domain email api_key,,
-Grafana,host auth_method org_id,,
-GrafanaIRM,stack_url oncall_api_url token,,
-Granola,api_key,,
-Greenhouse,client_id client_secret api_key,,
-GreytHr,,,
-Gridly,api_key view_id,,
-Groq,api_key,,
-Growi,,,
-GrowthBook,api_key base_url,,
-Guardian,api_key,,
-Guesty,,,
-Gumloop,,,
-Gumroad,access_token,,
-Guru,username api_token,,
-Gusto,environment client_id client_secret refresh_token,,
-Harness,api_key account_id organization_id project_id region,,
-HarnessCcm,,,
-HarnessSei,,,
-Harvest,account_id access_token,,
-Harvey,api_key region,,
-Hatchet,api_token host tenant_id,,
-Healthchecks,api_key base_url,,
-Healthie,,,
-Heap,,,
-Height,api_key,,
-Helicone,api_key region,,
-Hellobaton,company api_key,,
-HelpScout,helpscout_integration_id,,
-Heroku,api_key,,
-Hetzner,api_token,,
-Hex,api_key workspace_url,,
-HeyGen,api_key,,
-HeyReach,api_key,,
-HiBob,service_user_id service_user_token,,
-HighLevel,,,
-Hightouch,api_key,,
-Hitpay,api_key platform_api_key environment,,
-Hivebrite,,,
-Holded,,,
-Honeybadger,api_key,,
-Honeycomb,api_key region,,
-Hookdeck,api_key,,
-HoorayHR,api_key,,
-Hootsuite,,,
-Hostaway,,,
-HousecallPro,api_key,,
-Hubplanner,api_key,,
-Hubspot,hubspot_integration_id,custom_properties,
-HuggingFace,api_token author,,
-Humanitec,api_token organization_id,,
-Humanitix,api_key,,
-Huntr,access_token,,
-Hyperspell,api_key region user_ids,,
-Hyros,api_key,,
-IP2Whois,api_key,domains,
-Ikas,,,
-IlluminaBasespace,,,
-Imagga,api_key api_secret,,
-ImfData,,,
-Impact,account_sid auth_token,,
-ImpactPartner,account_sid auth_token,,
-Imperva,api_id api_key account_id,,
-IncidentIo,api_key,,
-Infisical,base_url organization_id client_id client_secret,,
-Inflowinventory,company_id api_key,,
-InfluxdbCloud,,,
-InforNexus,,,
-Inngest,signing_key environment,,
-Insightful,,,
-Insightly,pod api_key,,
-Instagram,instagram_integration_id instagram_account_id,start_date,
-Instana,base_url api_token,,
-Instantly,api_key,,
-Instatus,api_key,,
-Intercom,intercom_integration_id,,
-Interzoid,,,
-Inth,,,
-Intruder,access_token,,
-Invoiced,api_key,,
-Invoiceninja,api_token base_url,,
-IronSourceAds,,,
-Iterable,api_key region,,
-Iyzico,,,
-JamfPro,instance_url auth_method,,
-Jellyfish,api_token,,
-Jenkins,host username api_token,,
-JfrogArtifactory,base_url access_token,,
-Jira,subdomain email api_token,,
-JobNimbus,api_key,,
-Jobber,,,
-Jobtread,,,
-Jotform,api_key region enterprise_domain,,
-JudgeMeReviews,shop_domain api_token,,
-Jumpcloud,api_key region org_id,,
-JustCall,api_key api_secret,,
-JustSift,api_key,,
-K6Cloud,api_token stack_id,,
-KYVE,,,
-Kafka,bootstrap_servers authentication encryption ca_certificate,value_format,
-Kajabi,client_id client_secret site_id,,
-Kalshi,api_key_id private_key,,
-Kameleoon,,,
-Kandji,api_token subdomain region,,
-KapaAI,api_key project_id,,
-Katana,api_key,,
-KauflandMarketplace,,,
-Keka,,,
-Kernel,api_key,,
-Kestra,host tenant auth_method,,
-Kick,,,
-Kickscale,api_key client_id,,
-Kickstarter,,,
-Kinde,,,
-Kion,,,
-Kisi,api_key,,
-Kissmetrics,,,
-Klar,,,
-Klarna,api_key username region environment,,
-Klaus,subdomain api_token,,
-Klaviyo,api_key,conversion_metric_id,
-Knock,api_key,object_collections audience_keys,
-Knowbe4,api_key region,,
-Kommo,subdomain api_key,,
-Komodor,api_key region,,
-KongKonnect,api_token region,lookback_days,
-Koyeb,api_token,,
-Kubecost,host api_key,,
-Kustomer,org_name api_key,,
-Labelbox,,,
-Lacework,account_name key_id secret_key,,
-Lago,api_key api_url,,
-LambdaLabs,api_key,,
-LangSmith,api_key host,,
-Langfuse,host public_key secret_key,,
-LaravelCloud,,,
-Latitude,,,
-Lattice,region api_key,,
-LaunchDarkly,access_token,,
-Lawmatics,,,
-Leadfeeder,api_token,start_date,
-Leantime,,,
-Learnworlds,,,
-Ledyer,,,
-Leexi,api_key_id api_key_secret,,
-Lemlist,api_key,,
-LemonSqueezy,api_key,,
-LessAnnoyingCRM,api_key,,
-LettrLabs,,,
-Lever,api_key,,
-LexwareOffice,api_key,,
-Liana,,,
-Lightdash,instance_url api_token,,
-Lightfield,api_key,,
-LightspeedRetail,domain_prefix api_token,,
-Linear,linear_integration_id,,
-Linearb,api_key,,
-LingoDev,api_key,,
-LinkedinAds,linkedin_ads_integration_id account_id,,
-LinkedinPages,,,
-Linkrunner,api_key,,
-Linnworks,,,
-Linode,api_token,,
-Listmonk,host api_user api_token,,
-LiteLLM,base_url api_key,,
-Liveblocks,,,
-Livestorm,api_token,,
-LlamaCloud,api_key region,,
-Lob,api_key,,
-Lodgify,api_key,,
-Logicmonitor,portal_url bearer_token,,
-Logrocket,api_key organization_id project_id,,
-LogzIO,api_token region,,
-Lokalise,api_token,,
-Looker,instance_url client_id client_secret,,
-Loom,,,
-LoopReturns,api_key,start_date,
-Loops,api_key,,
-Lovable,api_key,,
-Luma,api_key,,
-M3ter,,,
-MSG91,,,
-MSSQL,connection_string host port database user password require_encryption ssh_tunnel,schema,
-Mailchimp,api_key,,
-MailerLite,api_key,,
-MailerSend,api_token,,
-Mailgun,api_key region,,
-Mailjet,api_key secret_key,,
-Mailosaur,api_key,,
-Mailtrap,api_token,,
-Mantle,,,
-Manychat,,,
-Marketo,munchkin_id client_id client_secret,start_date,
-Marketstack,access_key,symbols cik_codes,
-Mastodon,,,
-Matomo,host site_id api_token,,
-Maxio,subdomain api_key region,,
-Medusa,base_url api_key,,
-Meetup,,,
-Megaphone,api_token organization_id,,
-Meltwater,,,
-Mem0,api_key org_id project_id,,
-Memberful,,,
-Membrain,api_key subdomain,,
-Mendeley,,,
-Mention,access_token,,
-MercadoAds,,,
-MercadoPago,access_token,,
-Mercury,api_key,,
-Merge,,,
-MetaAds,meta_ads_integration_id account_id,sync_lookback_days action_attribution_windows use_unified_attribution_setting,
-Metabase,host auth_method,,
-Metaplane,api_key,,
-Meteostat,api_key,station_ids locations units start_date,
-Metorial,api_key,,
-Metricool,,,
-Metriport,,,
-Metronome,api_key,usage_hourly_history_days usage_daily_history_months,
-Mews,,,
-Mezmo,api_key account_id,,
-Microsoft365UsageReports,,,
-MicrosoftAdvertising,,,
-MicrosoftClarity,api_token,num_of_days dimension1 dimension2 dimension3,
-MicrosoftDataverse,,,
-MicrosoftDefenderCloudApps,portal_url api_token,,
-MicrosoftDefenderEndpoint,,,
-MicrosoftDefenderForCloud,,,
-MicrosoftEntraId,,,
-MicrosoftExcel,,,
-MicrosoftIntune,,,
-MicrosoftLists,,,
-MicrosoftPurview,,,
-MicrosoftPurviewAudit,,,
-MicrosoftSentinel,,,
-MicrosoftTeams,,,
-MicrosoftTeamsCallRecords,,,
-Midtrans,,,
-MightyNetworks,network_id api_key,,
-Mindbody,,,
-Mintlify,api_key project_id,,
-Mirakl,,,
-Miro,,,
-Missive,,,
-MistralAI,api_key,,
-MixMax,api_key,,
-Mixpanel,region project_id service_account_username service_account_secret,,
-MoEngage,data_center workspace_id api_key project_code,start_date flow_teams,
-Modal,token_id token_secret,,
-Mode,,,
-Moesif,,,
-Mollie,api_key,,
-Monaco,,,
-Monday,api_token,,
-Moneybird,,,
-MongoDB,connection_string database_name,,
-Mono,api_key,start_date,
-MonteCarlo,api_key_id api_key_secret,,
-Moodle,,,
-Motherduck,access_token database,schema,
-Motion,api_key,,
-Moxie,base_url api_key,,
-Mux,access_token_id secret_key,,
-MyHours,api_key,,
-MySQL,host port database user password using_ssl verify_server_certificate ca_certificate client_certificate client_key ssh_tunnel,schema,
-Mycase,,,
-N8n,host api_key,,
-NagerDate,,country_codes,
-Nasa,,,
-NationBuilder,,,
-Navan,,,
-NaverAds,api_key secret_key customer_id,,
-NebiusAI,api_key,,
-Neo4j,host database username password,,
-Neon,connection_string host port database user password verify_server_certificate ca_certificate client_certificate client_key ssh_tunnel,schema,
-NeonCrm,,,
-NetSuite,,,
-Netlify,api_token,,
-NewRelic,api_key account_id region,,
-NewYorkTimes,api_key,article_search_query,
-NewsApi,api_key,query language,
-NewsData,api_key,,
-Nexhealth,,,
-Nexiopay,,,
-NextdoorAds,,,
-NinjaOneRMM,,,
-NoCRM,subdomain api_key,,
-NoaaCdo,api_token,dataset_id station_id start_date,
-Nobl9,,,
-Nolt,,,
-Nops,,,
-Northbeam,,,
-Northflank,api_token,,
-NorthpassLMS,api_key,,
-Notion,api_key admin_api_key,,
-NpmRegistry,,package_names,
-Nuget,,package_ids,
-Nuntly,api_key,,
-Nutshell,,,
-Nylas,,,
-OPUSWatch,api_key,start_date,
-Octolens,api_key,,
-OctopusDeploy,host api_key,,
-Odoo,,,
-Oecd,,,
-Okendo,user_id api_key,,
-Okta,okta_domain api_key,,
-Omni,host api_key,,
-Omnisend,api_key,,
-Oncehub,api_key,,
-OneDrive,,,
-OneHundredMs,app_access_key app_secret,,
-OnePassword,region api_token,,
-OneSignal,app_id api_key,,
-Oneleet,,,
-Onelogin,,,
-Onepagecrm,user_id api_key,,
-Onfleet,api_key,,
-OpenAI,api_key project_api_key,,
-OpenAIAds,api_key,,
-OpenAQ,api_key,,
-OpenDataDc,,,
-OpenDental,,,
-OpenExchangeRates,app_id,base_currency start_date,
-OpenFDA,api_key,,
-OpenMeteo,api_key,locations start_date,
-OpenRouter,api_key,,
-OpenWeather,api_key,locations,
-Openalex,api_key,works_filter authors_filter awards_filter locations_filter,
-Opencorporates,api_token,query jurisdiction_code,
-Openfec,,,
-OpinionStage,api_key,,
-OpnPayments,secret_key,,
-Opsgenie,api_key region,,
-Opslevel,,,
-Optimizely,api_token,,
-Oracle,,,
-OracleEbs,,,
-OracleFusion,,,
-Orb,api_key,,
-Orbit,,,
-OrcaSecurity,api_token region,,
-Ortto,region api_key,,
-OttoMarket,,,
-Oura,access_token,,
-Outbrain,username password,,
-Outlook,,,
-Outreach,,,
-Oveit,,,
-Ownerrez,email api_key,,
-PabblySubscriptionsBilling,api_key secret_key,,
-Packagist,,packages,
-Paddle,paddle_api_key,,
-Pagbank,,,
-PagerDuty,api_token,,
-PandaDoc,api_key,,
-Paperform,api_key,,
-Papersign,api_token,,
-Pardot,pardot_integration_id environment business_unit_id,,
-Particle,access_token product_id,event_prefixes,
-PartnerStack,public_key private_key,,
-Partnerize,application_key user_api_key publisher_id,,
-Patreon,,,
-Pax8,,,
-PayFit,api_key,,
-PayPal,,,
-Paychex,,,
-Paylocity,,,
-Paymob,,,
-Paymongo,api_key,,
-Paystack,secret_api_key,,
-PeecAI,api_key project_id,start_date,
-Pendo,integration_key region,,
-Pennylane,,,
-Perigon,api_key,,
-Perk,,,
-PersistIq,api_key,,
-Persona,api_key,,
-Personio,client_id client_secret,,
-Pexels,api_key,search_query,
-PgAnalyze,api_key organization_slug api_url,,
-Phonepe,,,
-Phyllo,client_id client_secret environment,,
-Picqer,account_name api_key,,
-Pike13,,,
-Pinecone,api_key,,
-Pingdom,api_token,,
-Pingone,,,
-PinterestAds,pinterest_ads_integration_id ad_account_id,,
-PinterestOrganic,,,
-Pipedrive,company_domain api_token,,
-Pipeliner,service_url space_id username password,,
-PivotalTracker,,,
-Piwik,,,
-Plaid,environment client_id secret access_token,,
-Plain,api_key,,
-Plane,api_key workspace_slug base_url,,
-PlanetScaleMySQL,host port database user password,schema,
-PlanetScalePostgres,connection_string host port database user password verify_server_certificate ca_certificate client_certificate client_key,schema,
-Planhat,api_key,,
-PlanningCenter,,,
-PlatformSh,api_token platform,,
-Plausible,api_key site_id host,,
-Plivo,auth_id auth_token,,
-Plunk,api_key base_url,,
-PluralsightFlow,workspace api_key,,
-Pocket,,,
-Podbean,,,
-Podium,,,
-Polar,polar_api_key,,
-Polygon,,,
-Polymarket,,,
-Poplar,access_token,,
-PostNord,,,
-Postgres,connection_string host port database user password verify_server_certificate ca_certificate client_certificate client_key ssh_tunnel,schema,
-Postmark,server_token,,
-Postscript,api_key,,
-PowerBiAdmin,tenant_id client_id client_secret,,
-Practicepanther,,,
-PrefectCloud,account_id workspace_id api_key,,
-Preset,,,
-PrestaShop,,,
-Pretix,organizer api_token base_url,,
-Primetric,,,
-Printavo,,,
-Printify,api_key,,
-Procore,,,
-Productboard,access_token,,
-Productiv,,,
-Productive,api_token organization_id,,
-Profound,api_key,,
-PromptWatch,api_key project_id,start_date,
-PromptingCompany,api_key product_id,start_date,
-ProofpointTap,service_principal secret,,
-Propertyware,client_id client_secret system_id,,
-Pubnub,,,
-PulumiCloud,access_token organization,,
-PyPI,,packages,
-Pylon,api_token,,
-Qdrant,api_key account_id,,
-Qonto,login secret_key,,
-Qualaroo,api_key api_secret,,
-Qualtrics,datacenter_id auth_method,,
-QualysVmdr,api_server username password gateway_server,,
-Quay,,,
-QuickBooks,,,
-Quo,api_key,,
-RB2B,,,
-RDStationMarketing,,,
-RKICovid,,history_days,
-Railway,api_token,,
-Railz,,,
-RainforestPay,,,
-Raisely,,,
-Raken,,,
-RakutenAdvertising,,,
-Ramp,environment client_id client_secret,,
-Rapid7Insightvm,api_key region,,
-Raygun,personal_access_token,,
-Razorpay,key_id key_secret,,
-RecallAI,api_key region,,
-Recharge,api_key,,
-Recreation,api_key,,
-Recruitee,company_id api_token,,
-Recurly,api_key region,,
-Reddit,,,
-RedditAds,reddit_integration_id account_id,,
-Redis,,,
-RedpandaCloud,,,
-Redshift,connection_string host port database user password verify_server_certificate ca_certificate ssh_tunnel,schema,
-ReferralHero,api_token,,
-Render,api_key owner_id,,
-RentCast,api_key,zip_codes,
-RentManager,,,
-Repairshopr,,,
-Replicate,api_key,,
-ReplyIo,api_key,,
-Resend,auth_method,,
-RetailExpress,,,
-RetellAI,api_key,,
-Retently,api_key,,
-Retreaver,,,
-RevenueCat,secret_api_key project_id,,
-Reverb,api_token,,
-RevolutMerchant,api_key environment,,
-Rewardful,api_secret,,
-RingCentral,,,
-Rippling,api_token,,
-Roark,api_key,,
-RocketChat,,,
-RocketMatter,,,
-Rocketlane,api_key,,
-RoktAds,app_id app_secret account_id,timezone_variation currency_code,
-Rollbar,access_token,,
-Rootly,api_key,,
-Rss,api_key,,
-Rubygems,,gems,
-RudderStack,access_token organization_access_token region,,
-Ruddr,api_key,,
-RunPod,api_key,,
-SAPFieldglass,,,
-SFTP,host port user auth_type,path file_pattern file_format csv_delimiter combine_files,
-SQLite,,,
-SafetyCulture,api_token,,
-SageHR,subdomain api_key,,
-SageIntacct,client_id client_secret username,,
-Sailthru,,,
-SalesLoft,api_key,,
-Salesflare,api_key,,
-Salesforce,salesforce_integration_id,,
-SalesforceMarketingCloud,,,
-Salestrics,,,
-SamCart,,,
-Sanity,project_id dataset api_token,,
-SapConcur,,,
-SapErp,,,
-SapHana,,,
-SapSuccessFactors,,,
-SavvyCal,api_key,,
-ScaleAI,api_key,,
-Scaleway,secret_key organization_id,,
-Scalr,host account_id api_token,,
-Scarf,api_token owner,backfill_days,
-Schematic,api_key,,
-Scrunch,api_key,,
-SearchAds360,,,
-SecEdgar,,,
-Secoda,api_key,,
-Secureframe,region api_key api_secret,,
-Segment,region api_token,,
-SelectStar,api_token,,
-SemanticScholar,api_key,query,
-Semaphore,api_token organization project_id,,
-Semgrep,api_token,,
-Semrush,api_key project_id,,
-SendGrid,api_key,,
-SendPulse,,,
-Sendowl,api_key api_secret,,
-Senseforce,,,
-Sentinelone,console_url api_token,,
-Sentry,auth_token organization_slug api_base_url,,
-Sequenzy,api_key company_id,,
-Serpstat,api_key project_id project_region_id domain,search_engine,
-ServiceFusion,,,
-ServiceNow,instance_url auth_method,,
-Servicem8,api_key,,
-Servicetitan,,,
-Servicetrade,,,
-Sevalla,,,
-Sevdesk,api_token,,
-SevenShifts,access_token company_id,,
-SharePoint,tenant_id client_id client_secret,site_urls import_files,
-Sharetribe,,,
-ShipStation,api_key api_secret,,
-Shipmail,api_key,,
-Shippo,api_key,,
-ShopWired,api_key api_secret,,
-Shopify,shopify_store_id auth_method,,
-Shopware,,,
-Shortcut,api_token,,
-Shortio,api_key,,
-Shutterstock,auth_method,,
-SideShift,,,
-SigNoz,host api_key,,
-SigmaComputing,region client_id client_secret,,
-SignNow,,,
-Sim,api_key workspace_id,,
-SimFin,api_key,tickers,
-Similarweb,api_key,domains country granularity start_date,
-SimonData,,,
-SimpleCast,api_key,,
-Simplesat,api_key,,
-Simpro,,,
-Sinch,,,
-Singlestore,api_key,,
-Singular,api_key,dimensions metrics cohort_metrics cohort_periods,
-Site24x7,,,
-Skio,api_token,,
-Skyvern,api_key base_url,,
-Slack,slack_access_token,join_public_channels,
-Slash,api_key legal_entity_id,,
-Sleekplan,api_key,,
-Sleuth,,,
-Smaily,subdomain username password,,
-SmartEngage,api_key,,
-Smartlead,api_key,,
-Smartlook,api_token region,,
-Smartreach,api_key team_id,,
-Smartrecruiters,,,
-Smartsheet,access_token,,
-Smartwaiver,api_key,,
-Smokeball,,,
-SnapchatAds,snapchat_integration_id ad_account_id,,
-Snovio,,,
-Snowflake,connection_string account_id database warehouse auth_type role,schema,
-Snowplow,organization_id api_key_id api_key,,
-Snyk,api_token region organization_id,,
-SocialPilot,,,
-SodaCloud,api_key_id api_key_secret region,,
-SolarwindsServiceDesk,region api_token,,
-SonarCloud,token organization region,,
-Sonarqube,host token,,
-SonatypeNexus,host username password,,
-Sourcegraph,host access_token,,
-Spacelift,account_name api_key_id api_key_secret,,
-SparkPost,region api_key,,
-Speedcurve,api_key,,
-SplitIo,api_key,,
-SplunkObservabilityCloud,realm access_token,signalflow_program,
-SpotIo,api_token account_id,,
-SpotifyAds,,,
-SpotlerCRM,access_token,,
-Sprig,api_key,,
-Sprinklr,,,
-Sprinto,,,
-SproutSocial,,,
-Squadcast,refresh_token region,,
-Square,access_token environment,,
-Squarespace,api_key,,
-StackAdapt,,,
-StackOverflowForTeams,team api_token,,
-Starburst,,,
-Statsig,api_key,,
-Statuscake,api_key,,
-Statuspage,api_key,,
-Steam,api_key,steam_ids,
-Stigg,api_key,,
-StockData,api_token,symbols,
-Stockx,,,
-Strato,api_token,,
-Strava,,,
-StreamElements,api_token,,
-Streamlabs,,,
-Stripe,auth_method stripe_account_id,balance_history_all_customers,
-Stytch,project_id secret,,
-Substack,,,
-SumoLogic,deployment access_id access_key,search_query,
-Sumsub,,,
-Supabase,connection_string host port database user password verify_server_certificate ca_certificate client_certificate client_key ssh_tunnel,schema,
-Supermetrics,,,
-Superwall,api_key project_id application_id,,
-SurveyMonkey,access_token data_center,,
-SurveySparrow,access_token data_center,,
-Survicate,api_key,attribute_names,
-Svix,api_key,,
-Swan,,,
-Swarmia,api_key,,
-Swonkie,,,
-Synthesia,api_key,,
-Systeme,api_key,,
-TMDb,api_key,,
-TVMaze,,,
-Taboola,client_id client_secret account_id,,
-TackleIo,,,
-Tailscale,auth_method tailnet,,
-Talkdesk,,,
-Talkwalker,,,
-Tally,api_key,submission_filter,
-Tana,,,
-Tavus,api_key,,
-TawkTo,api_key property_id,,
-Teachable,api_key,,
-Teamcity,host access_token,,
-Teamtailor,api_key,,
-TeamupFitness,m2m_token provider_id,,
-Teamwork,site api_key,,
-Tebra,,,
-Telli,api_key,,
-Telnyx,api_key,,
-Tempo,api_token,,
-TemporalIO,host port namespace encryption_key fallback_decryption_keys server_client_root_ca client_certificate client_private_key,,
-TenableVulnerabilityManagement,access_key secret_key region,,
-Tenjin,api_key,,
-TeraBox,,,
-Ternary,,,
-TerraApi,,,
-TerraformCloud,api_token organization,,
-Tessitura,,,
-TestDino,personal_access_token project_id,,
-Testomatio,,,
-Testrail,subdomain username api_key,,
-Thinkific,api_key subdomain,,
-ThinkificCourses,api_key subdomain,,
-Thoughtspot,,,
-Thousandeyes,api_token account_group_id,,
-Threads,,,
-ThriveLearning,,,
-TickTick,,,
-TicketTailor,api_key,,
-Ticketmaster,api_key,keyword,
-TikTokAds,tiktok_integration_id advertiser_id,,
-TiktokShop,,,
-Tile38,,,
-Timely,,,
-TinyErp,,,
-Tinybird,,,
-Tinyemail,api_key,,
-Tipalti,,,
-Toast,,,
-Todoist,api_token,,
-TogetherAI,api_key,,
-Toggl,,,
-Torii,api_key,,
-TrackPMS,,,
-Tracklution,,,
-TradableBits,,,
-TrafficStars,api_key,,
-Transistor,api_key,,
-TravisCI,api_token,,
-Trello,api_key api_token,,
-Tremendous,environment api_key,,
-TriggerDev,api_key base_url,,
-Trino,host port catalog auth_type use_ssl verify_ssl,schema,
-TripleWhale,api_key shop,start_date,
-TrunkIo,api_token org_url_slug repo_host,repo_owner repo_name merge_queue_target_branch,
-TrustPilot,api_key api_secret business_unit,,
-Trustradius,api_key,,
-Turso,organization_slug api_token,,
-TwelveData,api_key,symbols interval start_date,
-TwelveLabs,api_key,,
-Twenty,api_key base_url,,
-Twilio,account_sid auth_method,,
-Twitch,,,
-Twitter,bearer_token username,,
-TwitterAds,twitter_ads_integration_id account_id,,
-TwoC2p,,,
-TyntecSMS,api_key,request_ids,
-Typeform,auth_token api_base_url,response_types,
-Typesense,,,
-USCensus,api_key,custom_dataset custom_variables custom_geography custom_geography_filter,
-Ubidots,api_token api_base_url,,
-UkCompaniesHouse,api_key company_numbers,,
-UkOns,,,
-Umami,host api_key username password,,
-UnComtrade,,,
-UnityAds,organization_id key_id secret_key,,
-Unleash,instance_url api_token,,
-Unstructured,api_key base_url,,
-UpPromote,api_key,,
-Uploadcare,,,
-Upstash,email api_key,,
-Uptick,,,
-Uptimerobot,api_key,,
-UsBea,api_key,custom_dataset_name custom_query_params,
-UsBls,,,
-UsEia,api_key,,
-UsTreasuryFiscalData,,,
-UserCom,,,
-Userback,,,
-Usersnap,jwt_secret jwt_id,,
-Uservoice,subdomain api_key,,
-VWO,api_token account_id,,
-Vanta,,,
-Vantage,api_key,,
-Vapi,api_key,,
-Veeqo,api_key,,
-Vellum,api_key,,
-Vendr,api_key,,
-Veracode,api_id api_secret region,,
-Vercel,access_token team_id,,
-Vespa,,,
-Vimeo,access_token,,
-Virtuous,,,
-VismaEconomic,,,
-Vitally,secret_token region,,
-Vonage,,,
-Vturb,,,
-Vultr,api_key,,
-WHMCS,,,
-WPSOffice,,,
-Waiteraid,,,
-WalmartMarketplace,,,
-Wasabi,api_key,,
-Watchmode,api_key,,
-Waydev,api_key,,
-Wayfair,,,
-Webflow,api_token site_id,,
-WeightsAndBiases,api_key entity host,,
-WhatsappBusinessManagement,,,
-WhenIWork,,,
-WhoGho,,indicator_codes,
-Whop,api_key company_id,,
-WikipediaPageviews,,project access agent article_names start_date,
-Windmill,host workspace api_token,,
-WindsorAi,,,
-Wise,,,
-WisprFlow,,,
-Wistia,,,
-Wix,api_key site_id,,
-Wiz,,,
-Wompi,,,
-WooCommerce,store_url consumer_key consumer_secret,,
-WooPayments,,,
-Wordpress,site_url username application_password,,
-WorkOS,api_key,,
-Workable,subdomain api_token,,
-Workato,,,
-Workday,hostname tenant client_id client_secret refresh_token,,
-Workflowmax,,,
-Workiz,api_token,,
-Workramp,,,
-WorldBank,,indicator_codes,
-Wrike,access_token host,,
-Writesonic,api_key site_url project_id,,
-Wufoo,subdomain api_key,,
-Xendit,api_key sub_account_user_id,,
-Xero,,,
-Xmatters,subdomain username password,,
-Xsolla,merchant_id api_key,,
-YahooFinance,,,
-YandexMetrica,,,
-Ynab,api_key,,
-Yoco,api_key,,
-Yotpo,app_key api_secret,start_date,
-YouSign,api_key environment,,
-YouTubeAnalytics,youtube_analytics_integration_id channel_id,start_date,
-Younium,,,
-YoutubeData,api_key channel_id,,
-ZalandoZdirect,,,
-ZapSign,api_token environment,,
-ZapierSupportedStorage,secret,,
-Zellify,,,
-Zenchef,,,
-Zendesk,subdomain api_key email_address,,
-ZendeskSell,access_token,,
-ZendeskSunshine,subdomain api_key email_address,,
-Zenduty,api_key,,
-Zenefits,,,
-Zenloop,api_token,,
-Zep,api_key,,
-Zero,api_key,,
-Zitadel,,,
-Zluri,,,
-ZohoAnalytics,,,
-ZohoBigin,,,
-ZohoBilling,,,
-ZohoBooks,,,
-ZohoCRM,region client_id client_secret refresh_token,,
-ZohoCampaign,,,
-ZohoDesk,,,
-ZohoExpense,,,
-ZohoInventory,,,
-ZohoInvoice,,,
-ZonkaFeedback,auth_token data_center,,
-Zoom,account_id client_id client_secret,,
-ZoomInfo,,,
-Zuora,environment client_id client_secret,,
-Zylo,token_id token_secret,,
+source_type,connection_fields,reference_fields,selector_fields,sync_settings,runtime_keys,credential_kind
+AbTasty,,,,,,ab-tasty
+Ably,api_key,,,unit,,ably
+AbnormalSecurity,api_key region,,,,,abnormal-security
+Acast,api_key,,,,,acast
+Acculynx,api_key,,,appointment_start_date appointment_end_date,,acculynx
+Actionstep,,,,,,actionstep
+ActiveCampaign,api_url api_key,,,,,active-campaign
+AcuityScheduling,,,,,,acuity-scheduling
+AdRoll,client_id personal_access_token,,,,,ad-roll
+Adapty,api_key,,,start_date,,adapty
+Adjust,api_token,,,app_tokens,,adjust
+AdobeAnalytics,client_id client_secret report_suite_id global_company_id,,,report_dimension report_metrics start_date,,adobe-analytics
+AdobeCommerce,store_url store_code auth_method,,,,,adobe-commerce
+AdpWorkforceNow,,,,,,adp-workforce-now
+Adyen,environment api_key balance_platform merchant_account,,,start_date settlement_report_start_batch,,adyen
+Aftership,api_key,,,,,aftership
+AgileCRM,domain email api_key,,,,,agile-crm
+Aha,subdomain api_key,,,,,aha
+AhaIdeas,subdomain api_key,,,,,aha-ideas
+Ahrefs,api_key project_id,,,,,ahrefs
+AikidoSecurity,,,,,,aikido-security
+AirOps,api_key,,,,,air-ops
+Airbrake,api_key,,,,,airbrake
+Airbridge,,,,,,airbridge
+Airbyte,,,,,,airbyte
+Aircall,api_id api_token,,,,,aircall
+Airship,,,,,,airship
+Airtable,personal_access_token,,,,,airtable
+Airwallex,client_id api_key environment,,,,,airwallex
+Aiven,api_token,,,,,aiven
+AkamaiReporting,,,,,,akamai-reporting
+Akeneo,,,,,,akeneo
+Alation,,,,,,alation
+Alegra,email api_token,,,,,alegra
+Algolia,application_id api_key region,,,index_name,,algolia
+Alguna,api_key,,,,,alguna
+Allegro,,,,,,allegro
+AlpacaBrokerAPI,,,,,,alpaca-broker-api
+AlphaVantage,api_key,,,symbols,,alpha-vantage
+AmazonAds,region client_id client_secret refresh_token,,,,,amazon-ads
+AmazonCloudWatch,aws_access_key_id aws_secret_access_key aws_session_token aws_region,,,log_group_names metric_queries start_date,,amazon-cloud-watch
+AmazonEventBridge,,,,,,amazon-event-bridge
+AmazonKinesis,,,,,,amazon-kinesis
+AmazonS3,url_pattern access_key_id secret_access_key,,,file_format combine_files,,aws-s3
+AmazonSNS,,,,,,amazon-sns
+AmazonSQS,,,,,,amazon-sqs
+AmazonSellingPartner,region client_id client_secret refresh_token,,,marketplace_ids,,amazon-selling-partner
+Amplemarket,api_key,,,,,amplemarket
+Amplitude,api_key secret_key region,,,,,amplitude
+AnodotCost,,,,,,anodot-cost
+Anomalo,,,,,,anomalo
+Anthropic,api_key,,,,,anthropic
+Anvil,api_key,,,,,anvil
+Apaleo,,,,,,apaleo
+ApifyDataset,api_token dataset_id,,,,,apify-dataset
+Apitally,api_key,,,,,apitally
+Apollo,api_key,,,,,apollo
+AppLovin,api_key campaign_api_key account_id,,,,,app-lovin
+AppStoreConnect,issuer_id key_id private_key vendor_number,,,app_ids,,app-store-connect
+Appcues,api_key api_secret account_id region,,,,,appcues
+Appdirect,,,,,,appdirect
+Appdynamics,host account_name auth_method,,,metric_paths event_types,,appdynamics
+Appfigures,personal_access_token,,,aso_countries,,appfigures
+Appfolio,,,,,,appfolio
+Appfollow,api_key,,,,,appfollow
+AppleSearchAds,auth_method ad_account_id org_id,auth_method=oauth,,start_date,,apple-ads
+AppsFlyer,app_id api_token,,,,,apps-flyer
+Appsignal,api_token app_id,,,,,appsignal
+Appstack,api_key,,,,,appstack
+Apptivo,,,,,,apptivo
+Appwrite,,,,,,appwrite
+Arcade,api_key team_id,,,start_date,,arcade
+Argocd,host api_token project,,,,,argocd
+Arxiv,,,,,,arxiv
+Asaas,api_key environment,,,,,asaas
+Asana,access_token,,,,,asana
+Ashby,api_key,,,,,ashby
+Asknicely,subdomain api_key,,,,,asknicely
+AssemblyAI,api_key region,,,,,assembly-ai
+Astronomer,api_token organization_id,,,,,astronomer
+Athenahealth,,,,,,athenahealth
+Atlan,,,,,,atlan
+Attentive,api_key,,,,,attentive
+Attio,api_key,,,,,attio
+AudioGO,,,,,,audio-go
+Auth0,auth0_domain client_id client_secret,,,,,auth0
+AutodeskConstructionCloud,,,,,,autodesk-construction-cloud
+Automox,api_key organization_id,,,,,automox
+Autumn,api_key,,,,,autumn
+Avalara,environment account_id license_key,,,,,avalara
+Aviationstack,access_key airport_iata_codes,,,flights_future_days,,aviationstack
+Aviator,api_token,,,,,aviator
+Awin,api_token region,,,,,awin
+AwsAthena,aws_access_key_id aws_secret_access_key aws_session_token aws_region database workgroup output_location,,,,,aws-athena
+AwsBatch,aws_access_key_id aws_secret_access_key aws_session_token region,,,,,aws-batch
+AwsBudgets,aws_access_key_id aws_secret_access_key aws_session_token,,,,,aws-budgets
+AwsCloudTrail,aws_access_key_id aws_secret_access_key aws_session_token region,,,,,aws-cloud-trail
+AwsCloudformation,,,,,,aws-cloudformation
+AwsComputeOptimizer,aws_access_key_id aws_secret_access_key aws_session_token region,,,,,aws-compute-optimizer
+AwsConfig,aws_access_key_id aws_secret_access_key aws_session_token region,,,,,aws-config
+AwsConnect,,,,,,aws-connect
+AwsCostAndUsageReport,aws_access_key_id aws_secret_access_key aws_session_token aws_region bucket,,,prefix export_name first_billing_period,,aws-cost-and-usage-report
+AwsCostAnomalyDetection,aws_access_key_id aws_secret_access_key aws_session_token,,,,,aws-cost-anomaly-detection
+AwsCostExplorer,aws_access_key_id aws_secret_access_key aws_session_token,,,start_date,,aws-cost-explorer
+AwsDocumentDB,connection_string database_name,,,,,aws-documentdb
+AwsGlueDataCatalog,aws_access_key_id aws_secret_access_key aws_session_token aws_region,,,,,aws-glue-data-catalog
+AwsGuardduty,aws_access_key_id aws_secret_access_key aws_session_token aws_region,,,,,aws-guardduty
+AwsHealth,,,,,,aws-health
+AwsIamAccessAnalyzer,aws_access_key_id aws_secret_access_key aws_session_token region,,,,,aws-iam-access-analyzer
+AwsInspector,aws_access_key_id aws_secret_access_key aws_session_token region,,,,,aws-inspector
+AwsMacie,aws_access_key_id aws_secret_access_key aws_session_token region,,,,,aws-macie
+AwsOrganizations,aws_access_key_id aws_secret_access_key aws_session_token,,,,,aws-organizations
+AwsRdsPerformanceInsights,,,,,,aws-rds-performance-insights
+AwsS3Tables,,,,,,aws-s3-tables
+AwsSagemaker,aws_access_key_id aws_secret_access_key aws_session_token region,,,,,aws-sagemaker
+AwsSavingsPlans,aws_access_key_id aws_secret_access_key aws_session_token,,,start_date,,aws-savings-plans
+AwsSecurityHub,aws_access_key_id aws_secret_access_key aws_session_token region,,,,,aws-security-hub
+AwsSes,aws_access_key_id aws_secret_access_key aws_region aws_session_token,,,,,aws-ses
+AwsStepFunctions,aws_access_key_id aws_secret_access_key aws_session_token region,,,,,aws-step-functions
+AwsSupport,,,,,,aws-support
+AwsSystemsManager,aws_access_key_id aws_secret_access_key aws_region aws_session_token,,,,,aws-systems-manager
+AwsTrustedAdvisor,,,,,,aws-trusted-advisor
+AwsWaf,aws_access_key_id aws_secret_access_key aws_session_token aws_region scope,,,,,aws-waf
+AwsXray,,,,,,aws-xray
+Axiom,api_token org_id,,,,,axiom
+AzureActivityLog,,,,,,azure-activity-log
+AzureAdvisor,,,,,,azure-advisor
+AzureApiManagement,tenant_id client_id client_secret workspace_id,,,,,azure-api-management
+AzureApplicationInsights,tenant_id client_id client_secret application_id,,,,,azure-application-insights
+AzureBlob,url_pattern account_key,,,file_format combine_files,,azure-blob
+AzureCostManagement,tenant_id client_id client_secret scope,,,start_date,,azure-cost-management
+AzureDataExplorer,,,,,,azure-data-explorer
+AzureDataFactory,,,,,,azure-data-factory
+AzureDevOps,organization personal_access_token,,,,,azure-dev-ops
+AzureLogAnalytics,tenant_id client_id client_secret workspace_id,,,tables,,azure-log-analytics
+AzureMonitorAlerts,,,,,,azure-monitor-alerts
+AzureMonitorMetrics,,,,,,azure-monitor-metrics
+AzureOpenaiUsage,,,,,,azure-openai-usage
+AzurePolicyInsights,,,,,,azure-policy-insights
+AzureReservations,,,,,,azure-reservations
+AzureResourceGraph,,,,,,azure-resource-graph
+AzureResourceHealth,,,,,,azure-resource-health
+AzureServiceHealth,,,,,,azure-service-health
+AzureSynapse,,,,,,azure-synapse
+AzureTableStorage,,,,,,azure-table-storage
+BCMS,,,,,,bcms
+Babelforce,environment access_id access_token,,,,,babelforce
+BackMarket,api_token,,,,,back-market
+Backblaze,,,,,,backblaze
+BambooHR,subdomain api_key,,,,,bamboo-hr
+Basecamp,,,,,,basecamp
+Baserow,database_token base_url,,,,,baserow
+Baseten,api_key,,,,,baseten
+Beacons,,,,,,beacons
+Beamer,api_key,,,,,beamer
+Beehiiv,api_key publication_id,,,,,beehiiv
+BetterStack,api_token,,,,,better-stack
+Bettermode,region client_id client_secret network_id,,,,,bettermode
+Bexio,,,,,,bexio
+BigCommerce,store_hash access_token,,,,,big-commerce
+BigMailer,api_key,,,,,big-mailer
+BigQuery,auth_type use_custom_region dataset_project,auth_type=service_account,,dataset_id temporary-dataset,,google-cloud-service-account
+Bigeye,api_key host workspace_id,,,,,bigeye
+BillCom,username password organization_id dev_key environment,,,,,bill-com
+Billit,,,,,,billit
+Billomat,billomat_id api_key registered_app,,,,,billomat
+BingAds,,bing_ads_integration_id,account_id,,,bing-ads
+BingWebmasterTools,api_key site_urls,,,,,bing-webmaster-tools
+Bitbucket,workspace auth_method,,,,,bitbucket
+Bitly,,,,,,bitly
+Bitrise,api_token,,,,,bitrise
+Bitwarden,,,,,,bitwarden
+BlackbaudRaisersEdgeNxt,,,,,,blackbaud-raisers-edge-nxt
+BlackboardLearn,,,,,,blackboard-learn
+BlandAI,api_key,,,,,bland-ai
+Bling,,,,,,bling
+Blogger,api_key blog_id,,,,,blogger
+Bloomerang,api_key,,,,,bloomerang
+Blueshift,api_key region,,,,,blueshift
+Bluesky,actor,,,,,bluesky
+Bluetally,api_key tenant_id,,,,,bluetally
+BolRetailer,client_id client_secret,,,,,bol-retailer
+BoldSign,api_key region,,,,,bold-sign
+Boulevard,,,,,,boulevard
+Box,,,,,,box
+Braintree,environment public_key private_key,,,,,braintree
+Braintrust,api_key api_url,,,,,braintrust
+Branch,,,,,,branch
+Braze,api_key url,,,,,braze
+Breezometer,api_key,,,locations,,breezometer
+BreezyHR,,,,,,breezy-hr
+Brevo,api_key,,,,,brevo
+Brex,api_key,,,,,brex
+BrowseAI,api_key,,,,,browse-ai
+BrowserUse,api_key,,,,,browser-use
+Browserbase,api_key,,,,,browserbase
+Buffer,,,,,,buffer
+Bugherd,api_key,,,,,bugherd
+Bugsnag,auth_token,,,,,bugsnag
+BuildBetter,api_key,,,,,build-better
+Buildium,client_id client_secret,,,,,buildium
+Buildkite,api_access_token organization,,,,,buildkite
+Bunny,access_key,,,,,bunny
+Buttondown,api_key,,,,,buttondown
+BuyMeACoffee,access_token,,,,,buy-me-a-coffee
+Buzzsprout,api_token podcast_id,,,,,buzzsprout
+CalCom,api_key region,,,,,cal-com
+Calendarific,api_key,,,country year,,calendarific
+Calendly,personal_access_token,,,,,calendly
+Calibre,,,,,,calibre
+CallRail,api_key account_id,,,,,call-rail
+CampaignManager360,,,,,,campaign-manager360
+CampaignMonitor,api_key client_id,,,,,campaign-monitor
+Campayn,subdomain api_key,,,,,campayn
+Campfire,api_key,,,,,campfire
+Canny,api_key,,,,,canny
+CanvasLms,canvas_domain account_id api_key,,,,,canvas-lms
+CapsuleCRM,access_token,,,,,capsule-crm
+CaptainData,,,,,,captain-data
+Capterra,,,,,,capterra
+Captivate,,,,,,captivate
+CareQualityCommission,api_key partner_code,,,,,care-quality-commission
+CartCom,,,,,,cart-com
+Cashfree,,,,,,cashfree
+CastAi,api_key,,,,,cast-ai
+CastorEDC,,,,,,castor-edc
+Catchpoint,api_key,,,,,catchpoint
+CdcOpenData,app_token,,,dataset_ids,,cdc-open-data
+Census,api_key region,,,,,census
+Chameleon,account_secret,,,,,chameleon
+ChannelIO,access_key access_secret,,,,,channel-io
+ChargebackStop,,,,,,chargeback-stop
+Chargebee,api_key site_name,,,,,chargebee
+Chargedesk,api_key,,,,,chargedesk
+Chargeflow,,,,,,chargeflow
+Chargify,api_key subdomain,,,,,chargify
+ChartHop,api_key org_id,,,,,chart-hop
+ChartMogul,api_key,,,,,chart-mogul
+Chatwoot,host account_id api_access_token,,,,,chatwoot
+CheckHQ,,,,,,check-hq
+Checkly,api_key account_id,,,,,checkly
+Checkmarx,tenant_name region api_key,,,,,checkmarx
+CheckoutCom,environment client_id client_secret,,,start_date,,checkout-com
+ChessCom,,,,usernames,,chess-com
+Chift,,,,,,chift
+Chorus,,,,,,chorus
+Churnkey,api_key app_id,,,,,churnkey
+Cimis,app_key,,,targets unit_of_measure,,cimis
+Cin7,,,,,,cin7
+CircleCI,api_token org_slug,,,,,circle-ci
+CircleSo,,,,,,circle-so
+CircleciInsights,api_token project_slugs,,,reporting_window branch_scope,,circleci-insights
+CiscoDuo,api_hostname integration_key secret_key,,,,,cisco-duo
+CiscoMeraki,api_key organization_id region,,,,,cisco-meraki
+Clari,api_key forecast_id,,,,,clari
+Clarifai,personal_access_token user_id app_id api_host,,,,,clarifai
+Clarify,,,,,,clarify
+Classy,,,,,,classy
+Clay,api_key,,,table_ids,,clay
+Clazar,,,,,,clazar
+Cleartax,,,,,,cleartax
+Clerk,secret_key,,,,,clerk
+Clever,bearer_token,,,,,clever
+Clevertap,account_id passcode region,,,event_name start_date,,clevertap
+ClickHouse,connection_string host port database user password secure verify ssh_tunnel,,,,,clickhouse
+ClickUp,api_key workspace_id,,,,,clickup
+ClickhouseCloud,key_id key_secret,,,,,clickhouse-cloud
+Cliniko,api_key,,,,,cliniko
+Clio,,,,,,clio
+Clip,api_key secret_key,,,start_date,,clip
+Clockify,api_key,,,,,clockify
+Clockodo,api_user api_key,,,,,clockodo
+Close,api_key,,,,,close
+Cloudability,api_key region view_id,,,,,cloudability
+Cloudbeds,api_key property_id,,,,,cloudbeds
+Cloudflare,api_token,,,,,cloudflare
+CloudflareD1,api_token account_id database_id,,,,,cloudflare-d1
+CloudflareR2,url_pattern access_key_id secret_access_key,,,file_format combine_files,,cloudflare-r2
+Cloudinary,cloud_name api_key api_secret region,,,,,cloudinary
+Cloudsmith,api_key workspace,,,,,cloudsmith
+Cloudzero,api_key,,,granularity cost_type group_by,,cloudzero
+Clover,region merchant_id api_token,,,,,clover
+Coassemble,workspace_id api_key,,,,,coassemble
+CockroachDB,,,,,,cockroachdb
+Coda,api_token,,,,,coda
+Codacy,api_token provider organization,,,,,codacy
+Codecov,service owner_username api_token repositories,,,,,codecov
+Codefresh,api_key,,,,,codefresh
+Codemagic,api_token,,,,,codemagic
+Codescene,api_token base_url,,,,,codescene
+Cody,instance_url access_token,,,,,cody
+Cohere,api_key,,,,,cohere
+CoinApi,api_key,,,exchange_rate_base_asset exchange_rate_quote_asset symbol_id period_id metric_id start_date,,coin-api
+CoinGecko,plan api_key,,,coin_ids start_date,,coin-gecko
+CoinMarketCap,api_key,,,,,coin-market-cap
+Collibra,,,,,,collibra
+Commercetools,region project_key client_id client_secret,,,,,commercetools
+CommissionJunction,,,,,,commission-junction
+Commslayer,,,,,,commslayer
+Companycam,api_key,,,,,companycam
+Concord,api_key environment organization_id,,,,,concord
+ConectoCRM,,,,,,conecto-crm
+Conekta,api_key,,,,,conekta
+ConfigCat,basic_auth_username basic_auth_password,,,,,config-cat
+Confluence,subdomain email api_token,,,,,confluence
+ConfluentCloud,api_key api_secret,,,kafka_cluster_ids connector_ids ksqldb_cluster_ids schema_registry_ids compute_pool_ids,,confluent-cloud
+ConstantContact,,,,,,constant-contact
+ContaAzul,,,,,,conta-azul
+Contentsquare,,,,,,contentsquare
+ConvertKit,api_key,,,,,convert-kit
+Convex,deploy_url deploy_key,,,,,convex
+Convonite,,,,,,convonite
+Coolify,base_url api_token,,,,,coolify
+Copper,api_key user_email,,,,,copper
+Coralogix,domain api_key,,,tier,,coralogix
+Cortex,api_key,,,,,cortex
+CosmosDB,account_endpoint key database,,,,,cosmosdb
+Couchbase,,,,,,couchbase
+Coupa,instance_url client_id client_secret,,,,,coupa
+Courier,api_key,,,,,courier
+Coveralls,service repositories api_token,,,,,coveralls
+CratesIO,,,,crates,,crates-io
+Creem,,,,,,creem
+Crisp,website_id token_identifier token_key,,,,,crisp
+Criteo,client_id client_secret,,,start_date currency,,criteo
+Cronitor,api_key,,,,,cronitor
+Crossref,mailto,,,member_id funder_id issn,,crossref
+CrowdstrikeFalcon,,,,,,crowdstrike-falcon
+Crunchbase,api_key,,,,,crunchbase
+CubeCloud,,,,,,cube-cloud
+CultureAmp,client_id client_secret account_id,,,,,culture-amp
+Cursor,api_key,,,,,cursor
+Curve,,,,,,curve
+Custom,manifest_json auth_token auth_api_key auth_password auth_oauth2_client_secret auth_oauth2_refresh_token auth_oauth2_integration_id,,,,,
+CustomerIO,app_api_key region,,,,,customer-io
+Customerly,access_token,,,,,customerly
+Cybersource,,,,,,cybersource
+D2lBrightspace,,,,,,d2l-brightspace
+DagsterCloud,organization deployment api_token,,,,,dagster-cloud
+DataForSEO,api_login api_password targets keywords,,,location_name language_name,,data-for-seo
+Databricks,host http_path auth_type catalog,,,schema,,databricks
+Datadog,site api_key application_key,,,,,datadog
+Datahub,instance_url api_token,,,,,datahub
+Datascope,,,,,,datascope
+DatoCMS,,,,,,dato-cms
+Datorama,,,,,,datorama
+Dayforce,,,,,,dayforce
+Db2,,,,,,db2
+Dbt,account_id api_token region custom_base_url discovery_api_url,,,,,dbt
+Debugbear,api_key,,,,,debugbear
+Decagon,api_key,,,,,decagon
+Deel,api_token,,,,,deel
+DeelFlows,,,,,,deel-flows
+Deepgram,api_key,,,,,deepgram
+Deepsource,api_token account_login vcs_provider,,,,,deepsource
+Demodesk,api_key,,,,,demodesk
+DenoDeploy,access_token,,,,,deno-deploy
+Depot,api_token,,,repository,,depot
+Deputy,,,,,,deputy
+Descope,project_id management_key,,,,,descope
+Develocity,instance_url access_key,,,,,develocity
+DevinAI,api_key org_id,,,,,devin-ai
+Dialpad,,,,,,dialpad
+DigitalOcean,api_key,,,,,digital-ocean
+DingConnect,api_key,,,,,ding-connect
+Directus,,,,,,directus
+Discord,,,,,,discord
+Discourse,base_url api_key api_username,,,,,discourse
+DisplayVideo360,,,,,,display-video360
+Dixa,api_token,,,,,dixa
+DoIt,api_key,,,,,do-it
+Dockerhub,username personal_access_token namespace,,,,,dockerhub
+Docuseal,api_key region,,,,,docuseal
+Docusign,environment auth_type account_id,,,start_date,,docusign
+DodoPayments,api_key mode,,,,,dodo-payments
+Dokploy,,,,,,dokploy
+Dolibarr,,,,,,dolibarr
+Donorbox,email api_key,,,,,donorbox
+Doorloop,,,,,,doorloop
+Doppler,api_token,,,,,doppler
+Dovetail,api_key,,,,,dovetail
+Dragonboat,,,,,,dragonboat
+Drata,api_key region,,,,,drata
+Drchrono,,,,,,drchrono
+Dreamdata,,,,,,dreamdata
+Dremio,,,,,,dremio
+Drip,api_token account_id,,,,,drip
+Dripify,,,,,,dripify
+Dropbox,,,,,,dropbox
+DropboxSign,api_key,,,,,dropbox-sign
+Dub,api_key,,,,,dub
+Dubsado,,,,,,dubsado
+DuckLake,,,,,,duck-lake
+Dwolla,,,,,,dwolla
+Dynamics365,organization_url tenant_id client_id client_secret,,,,,dynamics365
+Dynamics365BusinessCentral,tenant_id environment client_id client_secret,,,,,dynamics365-business-central
+DynamoDB,aws_access_key_id aws_secret_access_key aws_region aws_session_token,,,,,dynamodb
+Dynatrace,environment_url api_token,,,metric_selector,,dynatrace
+E2B,api_key team_id,,,,,e2b
+EConomic,app_secret_token agreement_grant_token,,,,,e-conomic
+EZOfficeInventory,subdomain api_key,,,,,ez-office-inventory
+Easybill,api_key,,,,,easybill
+Easypost,api_key,,,,,easypost
+Easypromos,access_token,,,,,easypromos
+Ebay,,,,,,ebay
+EcbDataPortal,,,,,,ecb-data-portal
+Elasticemail,api_key,,,,,elasticemail
+Elasticsearch,host auth_method,,,,,elasticsearch
+ElectricityMaps,api_token,,,zones pricing_nodes history_days,,electricity-maps
+ElevenLabs,api_key,,,,,eleven-labs
+Eloqua,,,,,,eloqua
+EmailOctopus,api_key,,,,,email-octopus
+Emarsys,,,,,,emarsys
+Embrace,api_token app_id region,,,,,embrace
+EmploymentHero,,,,,,employment-hero
+Encharge,,,,,,encharge
+Entsoe,,,,,,entsoe
+Env0,api_key_id api_key_secret,,,,,env0
+Eppo,api_key,,,,,eppo
+Etsy,api_key shared_secret refresh_token shop_id,,,,,etsy
+Eurostat,,,,,,eurostat
+Eventbrite,api_token,,,,,eventbrite
+Eventee,api_key,,,,,eventee
+Eventzilla,api_key,,,,,eventzilla
+Everflow,api_key region,,,currency_code,,everflow
+Everhour,api_key,,,,,everhour
+ExactOnline,,,,,,exact-online
+ExchangeRatesApi,access_key,,,base_currency start_date,,exchange-rates-api
+Expensify,,,,,,expensify
+Expo,access_token project_id,,,,,expo
+FacebookPages,,,,,,facebook-pages
+Factorial,api_key,,,,,factorial
+Faire,api_key,,,,,faire
+FarosAi,,,,,,faros-ai
+Fastbill,,,,,,fastbill
+Fastly,api_key,,,,,fastly
+Fathom,,,,,,fathom
+Fauna,,,,,,fauna
+Featurebase,api_key,,,,,featurebase
+Feishu,,,,,,feishu
+Fieldpulse,api_key,,,,,fieldpulse
+Fieldwire,,,,,,fieldwire
+FileUpload,,,,,file_format filename schema_name upload_id,file-upload
+Filevine,,,,,,filevine
+Fillout,api_key api_base_url,,,,,fillout
+Finage,api_key,,,symbols forex_symbols crypto_symbols start_date,,finage
+FinancialModelling,api_key,,,symbols,,financial-modelling
+Finnhub,api_key,,,symbols indices exchange,,finnhub
+Finnworlds,api_key,,,tickers countries,,finnworlds
+Finout,,,,,,finout
+Fintoc,api_key link_tokens,,,,,fintoc
+FireHydrant,api_key region,,,,,fire-hydrant
+Firebase,key_file database_id realtime_database_url realtime_database_paths,,,,,firebase
+Firebolt,,,,,,firebolt
+Firecrawl,api_key,,,,,firecrawl
+FireworksAI,api_key account_id,,,,,fireworks-ai
+FirstPromoter,api_key account_id,,,,,first-promoter
+Five9,,,,,,five9
+Flagsmith,api_key base_url,,,,,flagsmith
+Fleetio,api_key account_token,,,,,fleetio
+FlexeraCloudCost,,,,,,flexera-cloud-cost
+Flexmail,account_id personal_access_token,,,,,flexmail
+Flexport,,,,,,flexport
+FloatApp,api_key,,,,,float-app
+Flowlu,api_key subdomain,,,,,flowlu
+Flutterwave,client_id client_secret secret_key,,,,,flutterwave
+FlyIo,api_token organization_slug,,,,,fly-io
+Folk,api_key,,,,,folk
+Formbricks,host api_key,,,,,formbricks
+Fortnox,,,,,,fortnox
+Fourthwall,username password,,,,,fourthwall
+Framer,project_url api_key,,,,,framer
+Fred,api_key,,,series_ids,,fred
+FreeAgent,,,,,,free-agent
+Freightview,,,,,,freightview
+FreshBooks,,,,,,fresh-books
+Freshcaller,subdomain api_key,,,,,freshcaller
+Freshchat,domain api_key,,,,,freshchat
+Freshdesk,subdomain api_key,,,,,freshdesk
+Freshsales,domain api_key,,,,,freshsales
+Freshservice,domain api_key,,,,,freshservice
+Frill,api_key,,,,,frill
+Front,api_token,,,,,front
+Frontegg,client_id api_key region,,,,,frontegg
+Fulcrum,api_token,,,,,fulcrum
+FullStory,api_key,,,,,full-story
+FusionAuth,base_url api_key,,,,,fusion-auth
+G2,access_token product_id,,,,,g2
+GNews,api_key,,,query category language country,,gnews
+GainsightCs,domain access_key,,,custom_objects,,gainsight-cs
+GainsightPx,api_key region,,,,,gainsight-px
+Gcore,api_key,,,,,gcore
+GcpApigee,,,,,,gcp-apigee
+GcpArtifactRegistry,,,,,,gcp-artifact-registry
+GcpBigtable,,,,,,gcp-bigtable
+GcpChronicle,,,,,,gcp-chronicle
+GcpCloudAssetInventory,,,,,,gcp-cloud-asset-inventory
+GcpCloudBilling,key_file,,,,,gcp-cloud-billing
+GcpCloudBuild,,,,,,gcp-cloud-build
+GcpCloudDeploy,,,,,,gcp-cloud-deploy
+GcpCloudDns,,,,,,gcp-cloud-dns
+GcpCloudFunctions,,,,,,gcp-cloud-functions
+GcpCloudLogging,,,,,,gcp-cloud-logging
+GcpCloudMonitoring,,,,,,gcp-cloud-monitoring
+GcpCloudRun,,,,,,gcp-cloud-run
+GcpCloudSpanner,,,,,,gcp-cloud-spanner
+GcpCloudSql,,,,,,gcp-cloud-sql
+GcpCloudTrace,,,,,,gcp-cloud-trace
+GcpCloudWorkflows,,,,,,gcp-cloud-workflows
+GcpComputeEngine,,,,,,gcp-compute-engine
+GcpContainerAnalysis,,,,,,gcp-container-analysis
+GcpDataflow,,,,,,gcp-dataflow
+GcpDataplex,,,,,,gcp-dataplex
+GcpDataproc,,,,,,gcp-dataproc
+GcpErrorReporting,,,,,,gcp-error-reporting
+GcpGke,,,,,,gcp-gke
+GcpPubsub,,,,,,gcp-pubsub
+GcpRecaptchaEnterprise,,,,,,gcp-recaptcha-enterprise
+GcpRecommender,,,,,,gcp-recommender
+GcpSecurityCommandCenter,,,,,,gcp-security-command-center
+Gdelt,,,,,,gdelt
+Gem,,,,,,gem
+GenesysCloud,region client_id client_secret,,,,,genesys-cloud
+Gerrit,host username http_password,,,,,gerrit
+GetStream,,,,,,get-stream
+Getdx,api_key,,,,,getdx
+Ghost,admin_domain admin_api_key,,,,,ghost
+Giphy,api_key,,,search_query,,giphy
+GitBook,api_token,,,,,git-book
+GitLab,gitlab_host personal_access_token project,,,,,gitlab
+Gitea,base_url access_token repository,,,,,gitea
+Gitguardian,api_key base_url,,,,,gitguardian
+Github,auth_method,auth_method=oauth,,repositories repository,,github
+Givebutter,api_key,,,,,givebutter
+Gladly,organization agent_email api_token domain,,,,,gladly
+Glassfrog,api_key,,,,,glassfrog
+Gleif,,,,,,gleif
+Gmail,,,,,,gmail
+GoCardless,environment access_token,,,,,go-cardless
+GoLogin,api_key,,,,,go-login
+Gojiberry,,,,,,gojiberry
+Goldcast,access_key,,,,,goldcast
+Gong,access_key access_key_secret,,,,,gong
+GoogleAdManager,,,,,,google-ad-manager
+GoogleAdMob,,,,,,google-ad-mob
+GoogleAdSense,,,,,,google-ad-sense
+GoogleAds,,google_ads_integration_id,customer_id is_mcc_account,start_date skip_removed_keywords,,google-ads
+GoogleAnalytics,,google_analytics_integration_id,property_id,custom_reports history_days,,google-analytics
+GoogleBusinessProfile,,,,,,google-business-profile
+GoogleCalendar,,,,,,google-calendar
+GoogleChat,,,,,,google-chat
+GoogleClassroom,,,,,,google-classroom
+GoogleCloudStorage,url_pattern access_key_id secret_access_key,,,file_format combine_files,,google-cloud-storage
+GoogleDirectory,,,,,,google-directory
+GoogleDrive,,,,,,google-drive
+GoogleForms,,,,,,google-forms
+GoogleMerchantCenter,,,,,,google-merchant-center
+GooglePageSpeedInsights,api_key,,,urls,,google-page-speed-insights
+GooglePlayConsole,key_file app_package_names,,,,,google-play-console
+GooglePostmasterTools,,,,,,google-postmaster-tools
+GoogleSearchConsole,,google_search_console_integration_id,site_url,search_types,,google-search-console
+GoogleSheets,spreadsheet_url,,,,,google-sheets
+GoogleTasks,,,,,,google-tasks
+GoogleWebfonts,api_key,,,,,google-webfonts
+GoogleWorkspaceAdminReports,,,,,,google-workspace-admin-reports
+Gorgias,gorgias_domain email api_key,,,,,gorgias
+Grafana,host auth_method org_id,,,,,grafana
+GrafanaIRM,stack_url oncall_api_url token,,,,,grafana-irm
+Granola,api_key,,,,,granola
+Greenhouse,client_id client_secret api_key,,,,,greenhouse
+GreytHr,,,,,,greyt-hr
+Gridly,api_key view_id,,,,,gridly
+Groq,api_key,,,,,groq
+Growi,,,,,,growi
+GrowthBook,api_key base_url,,,,,growth-book
+Guardian,api_key,,,,,guardian
+Guesty,,,,,,guesty
+Gumloop,,,,,,gumloop
+Gumroad,access_token,,,,,gumroad
+Guru,username api_token,,,,,guru
+Gusto,environment client_id client_secret refresh_token,,,,,gusto
+Harness,api_key account_id organization_id project_id region,,,,,harness
+HarnessCcm,,,,,,harness-ccm
+HarnessSei,,,,,,harness-sei
+Harvest,account_id access_token,,,,,harvest
+Harvey,api_key region,,,,,harvey
+Hatchet,api_token host tenant_id,,,,,hatchet
+Healthchecks,api_key base_url,,,,,healthchecks
+Healthie,,,,,,healthie
+Heap,,,,,,heap
+Height,api_key,,,,,height
+Helicone,api_key region,,,,,helicone
+Hellobaton,company api_key,,,,,hellobaton
+HelpScout,,helpscout_integration_id,,,,helpscout
+Heroku,api_key,,,,,heroku
+Hetzner,api_token,,,,,hetzner
+Hex,api_key workspace_url,,,,,hex
+HeyGen,api_key,,,,,hey-gen
+HeyReach,api_key,,,,,hey-reach
+HiBob,service_user_id service_user_token,,,,,hi-bob
+HighLevel,,,,,,high-level
+Hightouch,api_key,,,,,hightouch
+Hitpay,api_key platform_api_key environment,,,,,hitpay
+Hivebrite,,,,,,hivebrite
+Holded,,,,,,holded
+Honeybadger,api_key,,,,,honeybadger
+Honeycomb,api_key region,,,,,honeycomb
+Hookdeck,api_key,,,,,hookdeck
+HoorayHR,api_key,,,,,hooray-hr
+Hootsuite,,,,,,hootsuite
+Hostaway,,,,,,hostaway
+HousecallPro,api_key,,,,,housecall-pro
+Hubplanner,api_key,,,,,hubplanner
+Hubspot,,hubspot_integration_id,,custom_properties,,hubspot
+HuggingFace,api_token author,,,,,hugging-face
+Humanitec,api_token organization_id,,,,,humanitec
+Humanitix,api_key,,,,,humanitix
+Huntr,access_token,,,,,huntr
+Hyperspell,api_key region user_ids,,,,,hyperspell
+Hyros,api_key,,,,,hyros
+IP2Whois,api_key,,,domains,,ip2-whois
+Ikas,,,,,,ikas
+IlluminaBasespace,,,,,,illumina-basespace
+Imagga,api_key api_secret,,,,,imagga
+ImfData,,,,,,imf-data
+Impact,account_sid auth_token,,,,,impact
+ImpactPartner,account_sid auth_token,,,,,impact-partner
+Imperva,api_id api_key account_id,,,,,imperva
+IncidentIo,api_key,,,,,incident-io
+Infisical,base_url organization_id client_id client_secret,,,,,infisical
+Inflowinventory,company_id api_key,,,,,inflowinventory
+InfluxdbCloud,,,,,,influxdb-cloud
+InforNexus,,,,,,infor-nexus
+Inngest,signing_key environment,,,,,inngest
+Insightful,,,,,,insightful
+Insightly,pod api_key,,,,,insightly
+Instagram,,instagram_integration_id,instagram_account_id,start_date,,instagram
+Instana,base_url api_token,,,,,instana
+Instantly,api_key,,,,,instantly
+Instatus,api_key,,,,,instatus
+Intercom,,intercom_integration_id,,,,intercom
+Interzoid,,,,,,interzoid
+Inth,,,,,,inth
+Intruder,access_token,,,,,intruder
+Invoiced,api_key,,,,,invoiced
+Invoiceninja,api_token base_url,,,,,invoiceninja
+IronSourceAds,,,,,,iron-source-ads
+Iterable,api_key region,,,,,iterable
+Iyzico,,,,,,iyzico
+JamfPro,instance_url auth_method,,,,,jamf-pro
+Jellyfish,api_token,,,,,jellyfish
+Jenkins,host username api_token,,,,,jenkins
+JfrogArtifactory,base_url access_token,,,,,jfrog-artifactory
+Jira,subdomain email api_token,,,,,jira
+JobNimbus,api_key,,,,,job-nimbus
+Jobber,,,,,,jobber
+Jobtread,,,,,,jobtread
+Jotform,api_key region enterprise_domain,,,,,jotform
+JudgeMeReviews,shop_domain api_token,,,,,judge-me-reviews
+Jumpcloud,api_key region org_id,,,,,jumpcloud
+JustCall,api_key api_secret,,,,,just-call
+JustSift,api_key,,,,,just-sift
+K6Cloud,api_token stack_id,,,,,k6-cloud
+KYVE,,,,,,kyve
+Kafka,bootstrap_servers authentication encryption ca_certificate,,,value_format,,kafka
+Kajabi,client_id client_secret site_id,,,,,kajabi
+Kalshi,api_key_id private_key,,,,,kalshi
+Kameleoon,,,,,,kameleoon
+Kandji,api_token subdomain region,,,,,kandji
+KapaAI,api_key project_id,,,,,kapa-ai
+Katana,api_key,,,,,katana
+KauflandMarketplace,,,,,,kaufland-marketplace
+Keka,,,,,,keka
+Kernel,api_key,,,,,kernel
+Kestra,host tenant auth_method,,,,,kestra
+Kick,,,,,,kick
+Kickscale,api_key client_id,,,,,kickscale
+Kickstarter,,,,,,kickstarter
+Kinde,,,,,,kinde
+Kion,,,,,,kion
+Kisi,api_key,,,,,kisi
+Kissmetrics,,,,,,kissmetrics
+Klar,,,,,,klar
+Klarna,api_key username region environment,,,,,klarna
+Klaus,subdomain api_token,,,,,klaus
+Klaviyo,api_key,,,conversion_metric_id,,klaviyo
+Knock,api_key,,,object_collections audience_keys,,knock
+Knowbe4,api_key region,,,,,knowbe4
+Kommo,subdomain api_key,,,,,kommo
+Komodor,api_key region,,,,,komodor
+KongKonnect,api_token region,,,lookback_days,,kong-konnect
+Koyeb,api_token,,,,,koyeb
+Kubecost,host api_key,,,,,kubecost
+Kustomer,org_name api_key,,,,,kustomer
+Labelbox,,,,,,labelbox
+Lacework,account_name key_id secret_key,,,,,lacework
+Lago,api_key api_url,,,,,lago
+LambdaLabs,api_key,,,,,lambda-labs
+LangSmith,api_key host,,,,,lang-smith
+Langfuse,host public_key secret_key,,,,,langfuse
+LaravelCloud,,,,,,laravel-cloud
+Latitude,,,,,,latitude
+Lattice,region api_key,,,,,lattice
+LaunchDarkly,access_token,,,,,launch-darkly
+Lawmatics,,,,,,lawmatics
+Leadfeeder,api_token,,,start_date,,leadfeeder
+Leantime,,,,,,leantime
+Learnworlds,,,,,,learnworlds
+Ledyer,,,,,,ledyer
+Leexi,api_key_id api_key_secret,,,,,leexi
+Lemlist,api_key,,,,,lemlist
+LemonSqueezy,api_key,,,,,lemon-squeezy
+LessAnnoyingCRM,api_key,,,,,less-annoying-crm
+LettrLabs,,,,,,lettr-labs
+Lever,api_key,,,,,lever
+LexwareOffice,api_key,,,,,lexware-office
+Liana,,,,,,liana
+Lightdash,instance_url api_token,,,,,lightdash
+Lightfield,api_key,,,,,lightfield
+LightspeedRetail,domain_prefix api_token,,,,,lightspeed-retail
+Linear,,linear_integration_id,,,,linear
+Linearb,api_key,,,,,linearb
+LingoDev,api_key,,,,,lingo-dev
+LinkedinAds,,linkedin_ads_integration_id,account_id,,,linkedin-ads
+LinkedinPages,,,,,,linkedin-pages
+Linkrunner,api_key,,,,,linkrunner
+Linnworks,,,,,,linnworks
+Linode,api_token,,,,,linode
+Listmonk,host api_user api_token,,,,,listmonk
+LiteLLM,base_url api_key,,,,,lite-llm
+Liveblocks,,,,,,liveblocks
+Livestorm,api_token,,,,,livestorm
+LlamaCloud,api_key region,,,,,llama-cloud
+Lob,api_key,,,,,lob
+Lodgify,api_key,,,,,lodgify
+Logicmonitor,portal_url bearer_token,,,,,logicmonitor
+Logrocket,api_key organization_id project_id,,,,,logrocket
+LogzIO,api_token region,,,,,logz-io
+Lokalise,api_token,,,,,lokalise
+Looker,instance_url client_id client_secret,,,,,looker
+Loom,,,,,,loom
+LoopReturns,api_key,,,start_date,,loop-returns
+Loops,api_key,,,,,loops
+Lovable,api_key,,,,,lovable
+Luma,api_key,,,,,luma
+M3ter,,,,,,m3ter
+MSG91,,,,,,msg91
+MSSQL,connection_string host port database user password require_encryption ssh_tunnel,,,schema,,mssql
+Mailchimp,api_key,,,,,mailchimp
+MailerLite,api_key,,,,,mailer-lite
+MailerSend,api_token,,,,,mailer-send
+Mailgun,api_key region,,,,,mailgun
+Mailjet,api_key secret_key,,,,,mailjet
+Mailosaur,api_key,,,,,mailosaur
+Mailtrap,api_token,,,,,mailtrap
+Mantle,,,,,,mantle
+Manychat,,,,,,manychat
+Marketo,munchkin_id client_id client_secret,,,start_date,,marketo
+Marketstack,access_key,,,symbols cik_codes,,marketstack
+Mastodon,,,,,,mastodon
+Matomo,host site_id api_token,,,,,matomo
+Maxio,subdomain api_key region,,,,,maxio
+Medusa,base_url api_key,,,,,medusa
+Meetup,,,,,,meetup
+Megaphone,api_token organization_id,,,,,megaphone
+Meltwater,,,,,,meltwater
+Mem0,api_key org_id project_id,,,,,mem0
+Memberful,,,,,,memberful
+Membrain,api_key subdomain,,,,,membrain
+Mendeley,,,,,,mendeley
+Mention,access_token,,,,,mention
+MercadoAds,,,,,,mercado-ads
+MercadoPago,access_token,,,,,mercado-pago
+Mercury,api_key,,,,,mercury
+Merge,,,,,,merge
+MetaAds,,meta_ads_integration_id,account_id,sync_lookback_days action_attribution_windows use_unified_attribution_setting,,meta-ads
+Metabase,host auth_method,,,,,metabase
+Metaplane,api_key,,,,,metaplane
+Meteostat,api_key,,,station_ids locations units start_date,,meteostat
+Metorial,api_key,,,,,metorial
+Metricool,,,,,,metricool
+Metriport,,,,,,metriport
+Metronome,api_key,,,usage_hourly_history_days usage_daily_history_months,,metronome
+Mews,,,,,,mews
+Mezmo,api_key account_id,,,,,mezmo
+Microsoft365UsageReports,,,,,,microsoft365-usage-reports
+MicrosoftAdvertising,,,,,,microsoft-advertising
+MicrosoftClarity,api_token,,,num_of_days dimension1 dimension2 dimension3,,microsoft-clarity
+MicrosoftDataverse,,,,,,microsoft-dataverse
+MicrosoftDefenderCloudApps,portal_url api_token,,,,,microsoft-defender-cloud-apps
+MicrosoftDefenderEndpoint,,,,,,microsoft-defender-endpoint
+MicrosoftDefenderForCloud,,,,,,microsoft-defender-for-cloud
+MicrosoftEntraId,,,,,,microsoft-entra-id
+MicrosoftExcel,,,,,,microsoft-excel
+MicrosoftIntune,,,,,,microsoft-intune
+MicrosoftLists,,,,,,microsoft-lists
+MicrosoftPurview,,,,,,microsoft-purview
+MicrosoftPurviewAudit,,,,,,microsoft-purview-audit
+MicrosoftSentinel,,,,,,microsoft-sentinel
+MicrosoftTeams,,,,,,microsoft-teams
+MicrosoftTeamsCallRecords,,,,,,microsoft-teams-call-records
+Midtrans,,,,,,midtrans
+MightyNetworks,network_id api_key,,,,,mighty-networks
+Mindbody,,,,,,mindbody
+Mintlify,api_key project_id,,,,,mintlify
+Mirakl,,,,,,mirakl
+Miro,,,,,,miro
+Missive,,,,,,missive
+MistralAI,api_key,,,,,mistral-ai
+MixMax,api_key,,,,,mix-max
+Mixpanel,region project_id service_account_username service_account_secret,,,,,mixpanel
+MoEngage,data_center workspace_id api_key project_code,,,start_date flow_teams,,mo-engage
+Modal,token_id token_secret,,,,,modal
+Mode,,,,,,mode
+Moesif,,,,,,moesif
+Mollie,api_key,,,,,mollie
+Monaco,,,,,,monaco
+Monday,api_token,,,,,monday
+Moneybird,,,,,,moneybird
+MongoDB,connection_string database_name,,,,,mongodb
+Mono,api_key,,,start_date,,mono
+MonteCarlo,api_key_id api_key_secret,,,,,monte-carlo
+Moodle,,,,,,moodle
+Motherduck,access_token database,,,schema,,motherduck
+Motion,api_key,,,,,motion
+Moxie,base_url api_key,,,,,moxie
+Mux,access_token_id secret_key,,,,,mux
+MyHours,api_key,,,,,my-hours
+MySQL,host port database user password using_ssl verify_server_certificate ca_certificate client_certificate client_key ssh_tunnel,,,schema,,mysql
+Mycase,,,,,,mycase
+N8n,host api_key,,,,,n8n
+NagerDate,,,,country_codes,,nager-date
+Nango,,,,,,nango
+Nasa,,,,,,nasa
+NationBuilder,,,,,,nation-builder
+Navan,,,,,,navan
+NaverAds,api_key secret_key customer_id,,,,,naver-ads
+NebiusAI,api_key,,,,,nebius-ai
+Neo4j,host database username password,,,,,neo4j
+Neon,connection_string host port database user password verify_server_certificate ca_certificate client_certificate client_key ssh_tunnel,,,schema,,neon
+NeonCrm,,,,,,neon-crm
+NetSuite,,,,,,net-suite
+Netlify,api_token,,,,,netlify
+NewRelic,api_key account_id region,,,,,new-relic
+NewYorkTimes,api_key,,,article_search_query,,new-york-times
+NewsApi,api_key,,,query language,,news-api
+NewsData,api_key,,,,,news-data
+Nexhealth,,,,,,nexhealth
+Nexiopay,,,,,,nexiopay
+NextdoorAds,,,,,,nextdoor-ads
+NinjaOneRMM,,,,,,ninja-one-rmm
+NoCRM,subdomain api_key,,,,,no-crm
+NoaaCdo,api_token,,,dataset_id station_id start_date,,noaa-cdo
+Nobl9,,,,,,nobl9
+Nolt,,,,,,nolt
+Nops,,,,,,nops
+Northbeam,,,,,,northbeam
+Northflank,api_token,,,,,northflank
+NorthpassLMS,api_key,,,,,northpass-lms
+Notion,api_key admin_api_key,,,,,notion
+NpmRegistry,,,,package_names,,npm-registry
+Nuget,,,,package_ids,,nuget
+Nuntly,api_key,,,,,nuntly
+Nutshell,,,,,,nutshell
+Nylas,,,,,,nylas
+OPUSWatch,api_key,,,start_date,,opus-watch
+Octolens,api_key,,,,,octolens
+OctopusDeploy,host api_key,,,,,octopus-deploy
+Odoo,,,,,,odoo
+Oecd,,,,,,oecd
+Okendo,user_id api_key,,,,,okendo
+Okta,okta_domain api_key,,,,,okta
+Omni,host api_key,,,,,omni
+Omnisend,api_key,,,,,omnisend
+Oncehub,api_key,,,,,oncehub
+OneDrive,,,,,,one-drive
+OneHundredMs,app_access_key app_secret,,,,,one-hundred-ms
+OnePassword,region api_token,,,,,one-password
+OneSignal,app_id api_key,,,,,one-signal
+Oneleet,,,,,,oneleet
+Onelogin,,,,,,onelogin
+Onepagecrm,user_id api_key,,,,,onepagecrm
+Onfleet,api_key,,,,,onfleet
+OpenAI,api_key project_api_key,,,,,open-ai
+OpenAIAds,api_key,,,,,open-ai-ads
+OpenAQ,api_key,,,,,open-aq
+OpenDataDc,,,,,,open-data-dc
+OpenDental,,,,,,open-dental
+OpenExchangeRates,app_id,,,base_currency start_date,,open-exchange-rates
+OpenFDA,api_key,,,,,open-fda
+OpenMeteo,api_key,,,locations start_date,,open-meteo
+OpenRouter,api_key,,,,,open-router
+OpenWeather,api_key,,,locations,,open-weather
+Openalex,api_key,,,works_filter authors_filter awards_filter locations_filter,,openalex
+Opencorporates,api_token,,,query jurisdiction_code,,opencorporates
+Openfec,,,,,,openfec
+OpinionStage,api_key,,,,,opinion-stage
+OpnPayments,secret_key,,,,,opn-payments
+Opsgenie,api_key region,,,,,opsgenie
+Opslevel,,,,,,opslevel
+Optimizely,api_token,,,,,optimizely
+Oracle,,,,,,oracle
+OracleEbs,,,,,,oracle-ebs
+OracleFusion,,,,,,oracle-fusion
+Orb,api_key,,,,,orb
+Orbit,,,,,,orbit
+OrcaSecurity,api_token region,,,,,orca-security
+Ortto,region api_key,,,,,ortto
+OttoMarket,,,,,,otto-market
+Oura,access_token,,,,,oura
+Outbrain,username password,,,,,outbrain
+Outlook,,,,,,outlook
+Outreach,,,,,,outreach
+Oveit,,,,,,oveit
+Ownerrez,email api_key,,,,,ownerrez
+PabblySubscriptionsBilling,api_key secret_key,,,,,pabbly-subscriptions-billing
+Packagist,,,,packages,,packagist
+Paddle,paddle_api_key,,,,,paddle
+Pagbank,,,,,,pagbank
+PagerDuty,api_token,,,,,pager-duty
+PandaDoc,api_key,,,,,panda-doc
+Paperform,api_key,,,,,paperform
+Papersign,api_token,,,,,papersign
+Pardot,environment,pardot_integration_id,business_unit_id,,,pardot
+Particle,access_token product_id,,,event_prefixes,,particle
+PartnerStack,public_key private_key,,,,,partner-stack
+Partnerize,application_key user_api_key publisher_id,,,,,partnerize
+Patreon,,,,,,patreon
+Pax8,,,,,,pax8
+PayFit,api_key,,,,,pay-fit
+PayPal,,,,,,pay-pal
+Paychex,,,,,,paychex
+Paylocity,,,,,,paylocity
+Paymob,,,,,,paymob
+Paymongo,api_key,,,,,paymongo
+Paystack,secret_api_key,,,,,paystack
+PeecAI,api_key project_id,,,start_date,,peec-ai
+Pendo,integration_key region,,,,,pendo
+Pennylane,,,,,,pennylane
+Perigon,api_key,,,,,perigon
+Perk,,,,,,perk
+PersistIq,api_key,,,,,persist-iq
+Persona,api_key,,,,,persona
+Personio,client_id client_secret,,,,,personio
+Pexels,api_key,,,search_query,,pexels
+PgAnalyze,api_key organization_slug api_url,,,,,pg-analyze
+Phonepe,,,,,,phonepe
+Phyllo,client_id client_secret environment,,,,,phyllo
+Picqer,account_name api_key,,,,,picqer
+Pike13,,,,,,pike13
+Pinecone,api_key,,,,,pinecone
+Pingdom,api_token,,,,,pingdom
+Pingone,,,,,,pingone
+PinterestAds,,pinterest_ads_integration_id,ad_account_id,,,pinterest-ads
+PinterestOrganic,,,,,,pinterest-organic
+Pipedrive,company_domain api_token,,,,,pipedrive
+Pipeliner,service_url space_id username password,,,,,pipeliner
+PivotalTracker,,,,,,pivotal-tracker
+Piwik,,,,,,piwik
+Plaid,environment client_id secret access_token,,,,,plaid
+Plain,api_key,,,,,plain
+Plane,api_key workspace_slug base_url,,,,,plane
+PlanetScaleMySQL,host port database user password,,,schema,,planetscale-mysql
+PlanetScalePostgres,connection_string host port database user password verify_server_certificate ca_certificate client_certificate client_key,,,schema,,planetscale-postgres
+Planhat,api_key,,,,,planhat
+PlanningCenter,,,,,,planning-center
+PlatformSh,api_token platform,,,,,platform-sh
+Plausible,api_key site_id host,,,custom_property_keys,,plausible
+Plivo,auth_id auth_token,,,,,plivo
+Plunk,api_key base_url,,,,,plunk
+PluralsightFlow,workspace api_key,,,,,pluralsight-flow
+Pocket,,,,,,pocket
+Podbean,,,,,,podbean
+Podium,,,,,,podium
+Polar,polar_api_key,,,,,polar
+Polygon,,,,,,polygon
+Polymarket,,,,,,polymarket
+Poplar,access_token,,,,,poplar
+PostNord,,,,,,post-nord
+Postgres,connection_string host port database user password verify_server_certificate ca_certificate client_certificate client_key ssh_tunnel,,,schema,,postgresql
+Postmark,server_token,,,,,postmark
+Postscript,api_key,,,,,postscript
+PowerBiAdmin,tenant_id client_id client_secret,,,,,power-bi-admin
+Practicepanther,,,,,,practicepanther
+PrefectCloud,account_id workspace_id api_key,,,,,prefect-cloud
+Preset,,,,,,preset
+PrestaShop,,,,,,presta-shop
+Pretix,organizer api_token base_url,,,,,pretix
+Primetric,,,,,,primetric
+Printavo,,,,,,printavo
+Printify,api_key,,,,,printify
+Procore,,,,,,procore
+Productboard,access_token,,,,,productboard
+Productiv,,,,,,productiv
+Productive,api_token organization_id,,,,,productive
+Profound,api_key,,,,,profound
+PromptWatch,api_key project_id,,,start_date,,prompt-watch
+PromptingCompany,api_key product_id,,,start_date,,prompting-company
+ProofpointTap,service_principal secret,,,,,proofpoint-tap
+Propertyware,client_id client_secret system_id,,,,,propertyware
+Pubnub,,,,,,pubnub
+PulumiCloud,access_token organization,,,,,pulumi-cloud
+PyPI,,,,packages,,pypi
+Pylon,api_token,,,,,pylon
+Qdrant,api_key account_id,,,,,qdrant
+Qonto,login secret_key,,,,,qonto
+Qualaroo,api_key api_secret,,,,,qualaroo
+Qualtrics,datacenter_id auth_method,,,,,qualtrics
+QualysVmdr,api_server username password gateway_server,,,,,qualys-vmdr
+Quay,,,,,,quay
+QuickBooks,,,,,,quick-books
+Quo,api_key,,,,,quo
+RB2B,,,,,,rb2b
+RDStationMarketing,,,,,,rd-station-marketing
+RKICovid,,,,history_days,,rki-covid
+Railway,api_token,,,,,railway
+Railz,,,,,,railz
+RainforestPay,,,,,,rainforest-pay
+Raisely,,,,,,raisely
+Raken,,,,,,raken
+RakutenAdvertising,,,,,,rakuten-advertising
+Ramp,environment client_id client_secret,,,,,ramp
+Rapid7Insightvm,api_key region,,,,,rapid7-insightvm
+Raygun,personal_access_token,,,,,raygun
+Razorpay,key_id key_secret,,,,,razorpay
+RecallAI,api_key region,,,,,recall-ai
+Recharge,api_key,,,,,recharge
+Recreation,api_key,,,,,recreation
+Recruitee,company_id api_token,,,,,recruitee
+Recurly,api_key region,,,,,recurly
+Reddit,,,,,,reddit
+RedditAds,,reddit_integration_id,account_id,,,reddit-ads
+Redis,,,,,,redis
+RedpandaCloud,,,,,,redpanda-cloud
+Redshift,connection_string host port database user password verify_server_certificate ca_certificate ssh_tunnel,,,schema,,aws-redshift
+ReferralHero,api_token,,,,,referral-hero
+Render,api_key owner_id,,,,,render
+RentCast,api_key,,,zip_codes,,rent-cast
+RentManager,,,,,,rent-manager
+Repairshopr,,,,,,repairshopr
+Replicate,api_key,,,,,replicate
+ReplyIo,api_key,,,,,reply-io
+Resend,auth_method,auth_method=oauth,,,,resend
+RetailExpress,,,,,,retail-express
+RetellAI,api_key,,,,,retell-ai
+Retently,api_key,,,,,retently
+Retreaver,,,,,,retreaver
+RevenueCat,secret_api_key project_id,,,,,revenue-cat
+Reverb,api_token,,,,,reverb
+RevolutMerchant,api_key environment,,,,,revolut-merchant
+Rewardful,api_secret,,,,,rewardful
+RingCentral,,,,,,ring-central
+Rippling,api_token,,,,,rippling
+Roark,api_key,,,,,roark
+RocketChat,,,,,,rocket-chat
+RocketMatter,,,,,,rocket-matter
+Rocketlane,api_key,,,,,rocketlane
+RoktAds,app_id app_secret account_id,,,timezone_variation currency_code,,rokt-ads
+Rollbar,access_token,,,,,rollbar
+Rootly,api_key,,,,,rootly
+Rss,api_key,,,,,rss
+Rubygems,,,,gems,,rubygems
+RudderStack,access_token organization_access_token region,,,,,rudder-stack
+Ruddr,api_key,,,,,ruddr
+RunPod,api_key,,,,,run-pod
+SAPFieldglass,,,,,,sap-fieldglass
+SFTP,host port user auth_type,,,path file_pattern file_format csv_delimiter combine_files,,sftp
+SQLite,,,,,,sqlite
+SafetyCulture,api_token,,,,,safety-culture
+SageHR,subdomain api_key,,,,,sage-hr
+SageIntacct,client_id client_secret username,,,,,sage-intacct
+Sailthru,,,,,,sailthru
+SalesLoft,api_key,,,,,sales-loft
+Salesflare,api_key,,,,,salesflare
+Salesforce,,salesforce_integration_id,,,,salesforce
+SalesforceMarketingCloud,,,,,,salesforce-marketing-cloud
+Salestrics,,,,,,salestrics
+SamCart,,,,,,sam-cart
+Sanity,project_id dataset api_token,,,,,sanity
+SapConcur,,,,,,sap-concur
+SapErp,,,,,,sap-erp
+SapHana,,,,,,sap-hana
+SapSuccessFactors,,,,,,sap-success-factors
+SavvyCal,api_key,,,,,savvy-cal
+ScaleAI,api_key,,,,,scale-ai
+Scaleway,secret_key organization_id,,,,,scaleway
+Scalr,host account_id api_token,,,,,scalr
+Scarf,api_token owner,,,backfill_days,,scarf
+Schematic,api_key,,,,,schematic
+Scrunch,api_key,,,,,scrunch
+SearchAds360,,,,,,search-ads360
+SecEdgar,,,,,,sec-edgar
+Secoda,api_key,,,,,secoda
+Secureframe,region api_key api_secret,,,,,secureframe
+Segment,region api_token,,,,,segment
+SelectStar,api_token,,,,,select-star
+SemanticScholar,api_key,,,query,,semantic-scholar
+Semaphore,api_token organization project_id,,,,,semaphore
+Semgrep,api_token,,,,,semgrep
+Semrush,api_key project_id,,,,,semrush
+SendGrid,api_key,,,,,send-grid
+SendPulse,,,,,,send-pulse
+Sendowl,api_key api_secret,,,,,sendowl
+Senseforce,,,,,,senseforce
+Sentinelone,console_url api_token,,,,,sentinelone
+Sentry,auth_token organization_slug api_base_url,,,,,sentry
+Sequenzy,api_key company_id,,,,,sequenzy
+Serpstat,api_key project_id project_region_id domain,,,search_engine,,serpstat
+ServiceFusion,,,,,,service-fusion
+ServiceNow,instance_url auth_method,,,,,service-now
+Servicem8,api_key,,,,,servicem8
+Servicetitan,,,,,,servicetitan
+Servicetrade,,,,,,servicetrade
+Sevalla,,,,,,sevalla
+Sevdesk,api_token,,,,,sevdesk
+SevenShifts,access_token company_id,,,,,seven-shifts
+SharePoint,tenant_id client_id client_secret,,,site_urls import_files,,sharepoint
+Sharetribe,,,,,,sharetribe
+ShipStation,api_key api_secret,,,,,ship-station
+Shipmail,api_key,,,,,shipmail
+Shippo,api_key,,,,,shippo
+ShopWired,api_key api_secret,,,,,shop-wired
+Shopify,shopify_store_id auth_method,,,,,shopify
+Shopware,,,,,,shopware
+Shortcut,api_token,,,,,shortcut
+Shortio,api_key,,,,,shortio
+Shutterstock,auth_method,,,,,shutterstock
+SideShift,,,,,,side-shift
+SigNoz,host api_key,,,,,sig-noz
+SigmaComputing,region client_id client_secret,,,,,sigma-computing
+SignNow,,,,,,sign-now
+Sim,api_key workspace_id,,,,,sim
+SimFin,api_key,,,tickers,,sim-fin
+Similarweb,api_key,,,domains country granularity start_date,,similarweb
+SimonData,,,,,,simon-data
+SimpleCast,api_key,,,,,simple-cast
+Simplesat,api_key,,,,,simplesat
+Simpro,,,,,,simpro
+Sinch,,,,,,sinch
+Singlestore,api_key,,,,,singlestore
+Singular,api_key,,,dimensions metrics cohort_metrics cohort_periods,,singular
+Site24x7,,,,,,site24x7
+Skio,api_token,,,,,skio
+Skyvern,api_key base_url,,,,,skyvern
+Slack,slack_access_token,,,join_public_channels,,slack
+Slash,api_key legal_entity_id,,,,,slash
+Sleekplan,api_key,,,,,sleekplan
+Sleuth,,,,,,sleuth
+Smaily,subdomain username password,,,,,smaily
+SmartEngage,api_key,,,,,smart-engage
+Smartlead,api_key,,,,,smartlead
+Smartlook,api_token region,,,,,smartlook
+Smartreach,api_key team_id,,,,,smartreach
+Smartrecruiters,,,,,,smartrecruiters
+Smartsheet,access_token,,,,,smartsheet
+Smartwaiver,api_key,,,,,smartwaiver
+Smokeball,,,,,,smokeball
+SnapchatAds,,snapchat_integration_id,ad_account_id,,,snapchat
+Snovio,,,,,,snovio
+Snowflake,connection_string account_id database warehouse auth_type role,,,schema,,snowflake
+Snowplow,organization_id api_key_id api_key,,,,,snowplow
+Snyk,api_token region organization_id,,,,,snyk
+SocialPilot,,,,,,social-pilot
+SodaCloud,api_key_id api_key_secret region,,,,,soda-cloud
+SolarwindsServiceDesk,region api_token,,,,,solarwinds-service-desk
+SonarCloud,token organization region,,,,,sonar-cloud
+Sonarqube,host token,,,,,sonarqube
+SonatypeNexus,host username password,,,,,sonatype-nexus
+Soniox,,,,,,soniox
+Sourcegraph,host access_token,,,,,sourcegraph
+Spacelift,account_name api_key_id api_key_secret,,,,,spacelift
+SparkPost,region api_key,,,,,spark-post
+Speedcurve,api_key,,,,,speedcurve
+SplitIo,api_key,,,,,split-io
+SplunkObservabilityCloud,realm access_token,,,signalflow_program,,splunk-observability-cloud
+SpotIo,api_token account_id,,,,,spot-io
+SpotifyAds,,,,,,spotify-ads
+SpotlerCRM,access_token,,,,,spotler-crm
+Sprig,api_key,,,,,sprig
+Sprinklr,,,,,,sprinklr
+Sprinto,,,,,,sprinto
+SproutSocial,,,,,,sprout-social
+Squadcast,refresh_token region,,,,,squadcast
+Square,access_token environment,,,,,square
+Squarespace,api_key,,,,,squarespace
+StackAdapt,,,,,,stack-adapt
+StackOverflowForTeams,team api_token,,,,,stack-overflow-for-teams
+Starburst,,,,,,starburst
+Statsig,api_key,,,,,statsig
+Statuscake,api_key,,,,,statuscake
+Statuspage,api_key,,,,,statuspage
+Steam,api_key,,,steam_ids,,steam
+Stigg,api_key,,,,,stigg
+StockData,api_token,,,symbols,,stock-data
+Stockx,,,,,,stockx
+Strato,api_token,,,,,strato
+Strava,,,,,,strava
+StreamElements,api_token,,,,,stream-elements
+Streamlabs,,,,,,streamlabs
+Stripe,auth_method,auth_method=oauth,stripe_account_id,balance_history_all_customers,,stripe
+Stytch,project_id secret,,,,,stytch
+Substack,,,,,,substack
+SumoLogic,deployment access_id access_key,,,search_query,,sumo-logic
+Sumsub,,,,,,sumsub
+Supabase,connection_string host port database user password verify_server_certificate ca_certificate client_certificate client_key ssh_tunnel,,,schema,,supabase
+Supermetrics,,,,,,supermetrics
+Superwall,api_key project_id application_id,,,,,superwall
+SurveyMonkey,access_token data_center,,,,,survey-monkey
+SurveySparrow,access_token data_center,,,,,survey-sparrow
+Survicate,api_key,,,attribute_names,,survicate
+Svix,api_key,,,,,svix
+Swan,,,,,,swan
+Swarmia,api_key,,,,,swarmia
+Swonkie,,,,,,swonkie
+Synthesia,api_key,,,,,synthesia
+Systeme,api_key,,,,,systeme
+TMDb,api_key,,,,,tmdb
+TVMaze,,,,,,tv-maze
+Taboola,client_id client_secret account_id,,,,,taboola
+TackleIo,,,,,,tackle-io
+Tailscale,auth_method tailnet,,,,,tailscale
+Talkdesk,,,,,,talkdesk
+Talkwalker,,,,,,talkwalker
+Tally,api_key,,,submission_filter,,tally
+Tana,,,,,,tana
+Tavus,api_key,,,,,tavus
+TawkTo,api_key property_id,,,,,tawk-to
+Teachable,api_key,,,,,teachable
+Teamcity,host access_token,,,,,teamcity
+Teamtailor,api_key,,,,,teamtailor
+TeamupFitness,m2m_token provider_id,,,,,teamup-fitness
+Teamwork,site api_key,,,,,teamwork
+Tebra,,,,,,tebra
+Telli,api_key,,,,,telli
+Telnyx,api_key,,,,,telnyx
+Tempo,api_token,,,,,tempo
+TemporalIO,host port namespace encryption_key fallback_decryption_keys server_client_root_ca client_certificate client_private_key,,,,,temporal-io
+TenableVulnerabilityManagement,access_key secret_key region,,,,,tenable-vulnerability-management
+Tenjin,api_key,,,,,tenjin
+TeraBox,,,,,,tera-box
+Ternary,,,,,,ternary
+TerraApi,,,,,,terra-api
+TerraformCloud,api_token organization,,,,,terraform-cloud
+Tessitura,,,,,,tessitura
+TestDino,personal_access_token project_id,,,,,test-dino
+Testomatio,,,,,,testomatio
+Testrail,subdomain username api_key,,,,,testrail
+Thinkific,api_key subdomain,,,,,thinkific
+ThinkificCourses,api_key subdomain,,,,,thinkific-courses
+Thoughtspot,,,,,,thoughtspot
+Thousandeyes,api_token account_group_id,,,,,thousandeyes
+Threads,,,,,,threads
+ThriveLearning,,,,,,thrive-learning
+TickTick,,,,,,tick-tick
+TicketTailor,api_key,,,,,ticket-tailor
+Ticketmaster,api_key,,,keyword,,ticketmaster
+TikTokAds,,tiktok_integration_id,advertiser_id,,,tiktok-ads
+TiktokShop,,,,,,tiktok-shop
+Tile38,,,,,,tile38
+Timely,,,,,,timely
+TinyErp,,,,,,tiny-erp
+Tinybird,,,,,,tinybird
+Tinyemail,api_key,,,,,tinyemail
+Tipalti,,,,,,tipalti
+Toast,,,,,,toast
+Todoist,api_token,,,,,todoist
+TogetherAI,api_key,,,,,together-ai
+Toggl,,,,,,toggl
+Torii,api_key,,,,,torii
+TrackPMS,,,,,,track-pms
+Tracklution,,,,,,tracklution
+TradableBits,,,,,,tradable-bits
+TrafficStars,api_key,,,,,traffic-stars
+Transistor,api_key,,,,,transistor
+TravisCI,api_token,,,,,travis-ci
+Trello,api_key api_token,,,,,trello
+Tremendous,environment api_key,,,,,tremendous
+TriggerDev,api_key base_url,,,,,trigger-dev
+Trino,host port catalog auth_type use_ssl verify_ssl,,,schema,,trino
+TripleWhale,api_key shop,,,start_date,,triple-whale
+TrunkIo,api_token org_url_slug repo_host,,,repo_owner repo_name merge_queue_target_branch trunk_repository_id,,trunk-io
+TrustPilot,api_key api_secret business_unit,,,,,trust-pilot
+Trustradius,api_key,,,,,trustradius
+Turso,organization_slug api_token,,,,,turso
+TwelveData,api_key,,,symbols interval start_date,,twelve-data
+TwelveLabs,api_key,,,,,twelve-labs
+Twenty,api_key base_url,,,,,twenty
+Twilio,account_sid auth_method,,,,,twilio
+Twitch,,,,,,twitch
+Twitter,bearer_token username,,,,,twitter
+TwitterAds,,twitter_ads_integration_id,account_id,,,twitter-ads
+TwoC2p,,,,,,two-c2p
+TyntecSMS,api_key,,,request_ids,,tyntec-sms
+Typeform,auth_token api_base_url,,,response_types,,typeform
+Typesense,,,,,,typesense
+USCensus,api_key,,,custom_dataset custom_variables custom_geography custom_geography_filter,,us-census
+Ubidots,api_token api_base_url,,,,,ubidots
+UkCompaniesHouse,api_key company_numbers,,,,,uk-companies-house
+UkOns,,,,,,uk-ons
+Umami,host api_key username password,,,,,umami
+UnComtrade,,,,,,un-comtrade
+UnityAds,organization_id key_id secret_key,,,,,unity-ads
+Unleash,instance_url api_token,,,,,unleash
+Unstructured,api_key base_url,,,,,unstructured
+UpPromote,api_key,,,,,up-promote
+Uploadcare,,,,,,uploadcare
+Upstash,email api_key,,,,,upstash
+Uptick,,,,,,uptick
+Uptimerobot,api_key,,,,,uptimerobot
+UsBea,api_key,,,custom_dataset_name custom_query_params,,us-bea
+UsBls,,,,,,us-bls
+UsEia,api_key,,,,,us-eia
+UsTreasuryFiscalData,,,,,,us-treasury-fiscal-data
+UserCom,,,,,,user-com
+Userback,,,,,,userback
+Usersnap,jwt_secret jwt_id,,,,,usersnap
+Uservoice,subdomain api_key,,,,,uservoice
+VWO,api_token account_id,,,,,vwo
+Vanta,,,,,,vanta
+Vantage,api_key,,,,,vantage
+Vapi,api_key,,,,,vapi
+Veeqo,api_key,,,,,veeqo
+Vellum,api_key,,,,,vellum
+Vendr,api_key,,,,,vendr
+Veracode,api_id api_secret region,,,,,veracode
+Vercel,access_token team_id,,,,,vercel
+Vespa,,,,,,vespa
+Vimeo,access_token,,,,,vimeo
+Virtuous,,,,,,virtuous
+VismaEconomic,,,,,,visma-economic
+Vitally,secret_token region,,,,,vitally
+Vonage,,,,,,vonage
+Vturb,,,,,,vturb
+Vultr,api_key,,,,,vultr
+WHMCS,,,,,,whmcs
+WPSOffice,,,,,,wps-office
+Waiteraid,,,,,,waiteraid
+WalmartMarketplace,,,,,,walmart-marketplace
+Wasabi,api_key,,,,,wasabi
+Watchmode,api_key,,,,,watchmode
+Waydev,api_key,,,,,waydev
+Wayfair,,,,,,wayfair
+Webflow,api_token site_id,,,,,webflow
+WeightsAndBiases,api_key entity host,,,,,weights-and-biases
+WhatsappBusinessManagement,,,,,,whatsapp-business-management
+WhenIWork,,,,,,when-i-work
+WhoGho,,,,indicator_codes,,who-gho
+Whop,api_key company_id,,,,,whop
+WikipediaPageviews,,,,project access agent article_names countries start_date,,wikipedia-pageviews
+Windmill,host workspace api_token,,,,,windmill
+WindsorAi,,,,,,windsor-ai
+Wise,,,,,,wise
+WisprFlow,,,,,,wispr-flow
+Wistia,,,,,,wistia
+Wix,api_key site_id,,,,,wix
+Wiz,,,,,,wiz
+Wompi,,,,,,wompi
+WooCommerce,store_url consumer_key consumer_secret,,,,,woo-commerce
+WooPayments,,,,,,woo-payments
+Wordpress,site_url username application_password,,,,,wordpress
+WorkOS,api_key,,,,,work-os
+Workable,subdomain api_token,,,,,workable
+Workato,,,,,,workato
+Workday,hostname tenant client_id client_secret refresh_token,,,,,workday
+Workflowmax,,,,,,workflowmax
+Workiz,api_token,,,,,workiz
+Workramp,,,,,,workramp
+WorldBank,,,,indicator_codes,,world-bank
+Wrike,access_token host,,,,,wrike
+Writesonic,api_key site_url project_id,,,,,writesonic
+Wufoo,subdomain api_key,,,,,wufoo
+Xendit,api_key sub_account_user_id,,,,,xendit
+Xero,,,,,,xero
+Xmatters,subdomain username password,,,,,xmatters
+Xsolla,merchant_id api_key,,,,,xsolla
+YahooFinance,,,,,,yahoo-finance
+YandexMetrica,,,,,,yandex-metrica
+Ynab,api_key,,,,,ynab
+Yoco,api_key,,,,,yoco
+Yotpo,app_key api_secret,,,start_date,,yotpo
+YouSign,api_key environment,,,,,you-sign
+YouTubeAnalytics,,youtube_analytics_integration_id,channel_id,start_date,,youtube-analytics
+Younium,,,,,,younium
+YoutubeData,api_key channel_id,,,,,youtube-data
+ZalandoZdirect,,,,,,zalando-zdirect
+ZapSign,api_token environment,,,,,zap-sign
+ZapierSupportedStorage,secret,,,,,zapier-supported-storage
+Zellify,,,,,,zellify
+Zenchef,,,,,,zenchef
+Zendesk,subdomain api_key email_address,,,,,zendesk
+ZendeskSell,access_token,,,,,zendesk-sell
+ZendeskSunshine,subdomain api_key email_address,,,,,zendesk-sunshine
+Zenduty,api_key,,,,,zenduty
+Zenefits,,,,,,zenefits
+Zenloop,api_token,,,,,zenloop
+Zep,api_key,,,,,zep
+Zero,api_key,,,,,zero
+Zitadel,,,,,,zitadel
+Zluri,,,,,,zluri
+ZohoAnalytics,,,,,,zoho-analytics
+ZohoBigin,,,,,,zoho-bigin
+ZohoBilling,,,,,,zoho-billing
+ZohoBooks,,,,,,zoho-books
+ZohoCRM,region client_id client_secret refresh_token,,,,,zoho-crm
+ZohoCampaign,,,,,,zoho-campaign
+ZohoDesk,,,,,,zoho-desk
+ZohoExpense,,,,,,zoho-expense
+ZohoInventory,,,,,,zoho-inventory
+ZohoInvoice,,,,,,zoho-invoice
+ZonkaFeedback,auth_token data_center,,,,,zonka-feedback
+Zoom,account_id client_id client_secret,,,,,zoom
+ZoomInfo,,,,,,zoom-info
+Zuora,environment client_id client_secret,,,,,zuora
+Zylo,token_id token_secret,,,,,zylo

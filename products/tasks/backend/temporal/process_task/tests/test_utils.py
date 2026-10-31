@@ -13,11 +13,7 @@ from posthog.models.user import User
 from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
 
 from products.mcp_store.backend.facade.contracts import ActiveInstallation, SandboxInstallations
-from products.tasks.backend.constants import (
-    DEFAULT_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATH,
-    DEFAULT_SANDBOX_WORKING_DIR,
-    SNAPSHOT_KIND_DIRECTORY,
-)
+from products.tasks.backend.constants import DEFAULT_SANDBOX_WORKING_DIR, RESUME_SNAPSHOT_KIND
 from products.tasks.backend.exceptions import CredentialUnavailableError
 from products.tasks.backend.models import Task
 from products.tasks.backend.redis import get_tasks_cache
@@ -25,6 +21,7 @@ from products.tasks.backend.temporal.process_task.utils import (
     POSTHOG_MCP_DESCRIPTION,
     GitHubCredentialSource,
     McpServerConfig,
+    PrAuthorshipMode,
     RunState,
     build_imported_mcp_server_configs,
     build_sandbox_environment_variables,
@@ -33,6 +30,7 @@ from products.tasks.backend.temporal.process_task.utils import (
     get_github_token,
     get_imported_mcp_server_configs,
     get_models_for_runtime_adapter,
+    get_pr_authorship_mode,
     get_relayed_mcp_server_names,
     get_sandbox_github_token,
     get_sandbox_ph_mcp_configs,
@@ -132,33 +130,16 @@ class TestRunStateResumeCompatibility(SimpleTestCase):
         self.assertEqual(parsed.same_run_resume_idle, expected_idle)
 
 
-class TestRunStateSnapshotPaths(TestCase):
+class TestRunStateSnapshotPaths(SimpleTestCase):
     @parameterized.expand(
         [
-            (
-                "new_directory_snapshot",
-                {"snapshot_kind": SNAPSHOT_KIND_DIRECTORY},
-                DEFAULT_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATH,
-            ),
-            (
-                "stored_directory_snapshot_path",
-                {"snapshot_kind": SNAPSHOT_KIND_DIRECTORY, "snapshot_mount_path": DEFAULT_SANDBOX_WORKING_DIR},
-                DEFAULT_SANDBOX_WORKING_DIR,
-            ),
+            ("workspace_path", {"snapshot_mount_path": DEFAULT_SANDBOX_WORKING_DIR}, DEFAULT_SANDBOX_WORKING_DIR),
             # A disallowed stored path invalidates the snapshot (None) — it must NOT be remapped
             # to the default: the snapshot's content layout only fits the path it was captured
             # from. "/tmp" is the legacy default whose re-mount killed the sandbox.
-            (
-                "legacy_tmp_directory_snapshot",
-                {"snapshot_kind": SNAPSHOT_KIND_DIRECTORY, "snapshot_mount_path": "/tmp"},
-                None,
-            ),
-            (
-                "unsupported_directory_snapshot_path",
-                {"snapshot_kind": SNAPSHOT_KIND_DIRECTORY, "snapshot_mount_path": "/tmp/agent-env"},
-                None,
-            ),
-            ("filesystem_snapshot", {"snapshot_kind": "filesystem"}, None),
+            ("legacy_tmp_path", {"snapshot_mount_path": "/tmp"}, None),
+            ("unsupported_path", {"snapshot_mount_path": "/tmp/agent-env"}, None),
+            ("no_path", {}, None),
         ]
     )
     def test_resume_snapshot_mount_path(self, _name: str, state: dict[str, str], expected_path: str | None) -> None:
@@ -166,19 +147,9 @@ class TestRunStateSnapshotPaths(TestCase):
 
     @parameterized.expand(
         [
-            (
-                "directory_workspace_path",
-                {"snapshot_kind": SNAPSHOT_KIND_DIRECTORY, "snapshot_mount_path": DEFAULT_SANDBOX_WORKING_DIR},
-                True,
-            ),
-            ("directory_no_path", {"snapshot_kind": SNAPSHOT_KIND_DIRECTORY}, True),
-            (
-                "directory_legacy_tmp_path",
-                {"snapshot_kind": SNAPSHOT_KIND_DIRECTORY, "snapshot_mount_path": "/tmp"},
-                False,
-            ),
-            ("filesystem", {"snapshot_kind": "filesystem"}, True),
-            ("no_kind", {}, True),
+            ("workspace_path", {"snapshot_mount_path": DEFAULT_SANDBOX_WORKING_DIR}, True),
+            ("legacy_tmp_path", {"snapshot_mount_path": "/tmp"}, False),
+            ("no_path", {}, False),
         ]
     )
     def test_resume_snapshot_is_usable(self, _name: str, state: dict[str, str], expected: bool) -> None:
@@ -190,30 +161,25 @@ class TestRunStateSnapshotPaths(TestCase):
                 "directory_full_triple",
                 {
                     "snapshot_external_id": "im-dir",
-                    "snapshot_kind": SNAPSHOT_KIND_DIRECTORY,
+                    "snapshot_kind": RESUME_SNAPSHOT_KIND,
                     "snapshot_mount_path": DEFAULT_SANDBOX_WORKING_DIR,
                 },
                 {
                     "snapshot_external_id": "im-dir",
-                    "snapshot_kind": SNAPSHOT_KIND_DIRECTORY,
+                    "snapshot_kind": RESUME_SNAPSHOT_KIND,
                     "snapshot_mount_path": DEFAULT_SANDBOX_WORKING_DIR,
                 },
             ),
             (
-                "filesystem_no_mount_path",
-                {"snapshot_external_id": "im-fs", "snapshot_kind": "filesystem"},
-                {"snapshot_external_id": "im-fs", "snapshot_kind": "filesystem"},
-            ),
-            (
-                "legacy_no_kind",
+                "legacy_no_mount_path",
                 {"snapshot_external_id": "im-old"},
-                {"snapshot_external_id": "im-old", "snapshot_kind": "filesystem"},
+                {},
             ),
             (
                 "unusable_directory",
                 {
                     "snapshot_external_id": "im-dir",
-                    "snapshot_kind": SNAPSHOT_KIND_DIRECTORY,
+                    "snapshot_kind": RESUME_SNAPSHOT_KIND,
                     "snapshot_mount_path": "/tmp",
                 },
                 {},
@@ -751,6 +717,7 @@ class TestGetGitIdentityEnvVars(TestCase):
     def _make_task(origin_product: str, user: object | None = None) -> MagicMock:
         task = MagicMock(spec=Task)
         task.origin_product = origin_product
+        task.stored_profile = None
         task.created_by = user
         return task
 
@@ -1270,6 +1237,18 @@ class TestGetSandboxGitHubToken(SimpleTestCase):
             ("task_repository", {}, "acme/api", ["acme/api"]),
             ("pinned_list_ignores_changed_task_repository", {"repositories": ["acme/api"]}, "acme/new", ["acme/api"]),
             ("empty_pinned_list_ignores_task_repository", {"repositories": []}, "acme/api", []),
+            (
+                "access_list_widens_clone_list",
+                {"repositories": ["acme/api"], "github_access_repositories": ["acme/api", "acme/assets"]},
+                "acme/api",
+                ["acme/api", "acme/assets"],
+            ),
+            (
+                "empty_access_list_keeps_clone_list",
+                {"repositories": ["acme/api"], "github_access_repositories": []},
+                "acme/api",
+                ["acme/api"],
+            ),
         ]
     )
     @patch("products.tasks.backend.temporal.process_task.utils.get_github_token")
@@ -1827,6 +1806,11 @@ class TestUpgradeRunToUserAuthorship(_AuthorshipFixture):
         self.task.origin_product = Task.OriginProduct.SIGNAL_REPORT
         self.task.save(update_fields=["origin_product"])
 
+    def _profile_without_user_authorable_prs(self) -> None:
+        self.connect_personal_github()
+        self.task.profile = "business_knowledge"
+        self.task.save(update_fields=["profile"])
+
     def _set_state(self, state: dict) -> None:
         self.task_run.state = state
         self.task_run.save(update_fields=["state"])
@@ -1839,6 +1823,7 @@ class TestUpgradeRunToUserAuthorship(_AuthorshipFixture):
             ("already_user_authored",),
             ("caller_token_run",),
             ("signal_report_origin",),
+            ("profile_without_user_authorable_prs",),
             ("a_different_actor_than_the_creator",),
         ]
     )
@@ -1874,18 +1859,44 @@ class TestIsBotAuthorshipFallback(_AuthorshipFixture):
         self.task.origin_product = Task.OriginProduct.SIGNAL_REPORT
         self.task.save(update_fields=["origin_product"])
 
+    def _profile_without_user_authorable_prs(self) -> None:
+        self.task.profile = "business_knowledge"
+        self.task.save(update_fields=["profile"])
+
     @parameterized.expand(
         [
             ("user_authored",),
             ("caller_token_run",),
             ("signal_report_run",),
             ("signal_report_origin",),
+            ("profile_without_user_authorable_prs",),
         ]
     )
     def test_nothing_is_flagged(self, case: str) -> None:
         getattr(self, f"_{case}")()
 
         assert is_bot_authorship_fallback(self.task, str(self.task_run.id), self.task_run.state) is False
+
+
+class TestGetPrAuthorshipMode(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("profile_wins_over_origin", "business_knowledge", None, PrAuthorshipMode.BOT),
+            ("unregistered_profile_uses_origin", "test.unregistered", None, PrAuthorshipMode.USER),
+            (
+                "run_state_wins_over_profile",
+                "business_knowledge",
+                {"pr_authorship_mode": "user"},
+                PrAuthorshipMode.USER,
+            ),
+        ]
+    )
+    def test_reads_run_state_then_profile_then_origin(
+        self, _name: str, profile: str, state: dict | None, expected: PrAuthorshipMode
+    ) -> None:
+        task = Task(origin_product=Task.OriginProduct.USER_CREATED, profile=profile)
+
+        assert get_pr_authorship_mode(task, state) == expected
 
 
 class TestMcpExecSkillsEnvVars(SimpleTestCase):

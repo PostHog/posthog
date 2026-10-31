@@ -2080,6 +2080,29 @@ describe('sqlEditorLogic', () => {
     })
 
     describe('save dialog selection guard', () => {
+        it('opens the view dialog without checking incremental materialization', async () => {
+            const openForm = jest.spyOn(LemonDialog, 'openForm').mockImplementation(() => {})
+            const checkIncremental = jest.fn(() => [500, { detail: 'Check unavailable' }])
+            useMocks({
+                post: {
+                    '/api/environments/:team_id/warehouse_saved_queries/check_incremental/': checkIncremental,
+                },
+            })
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+            logic.actions.setQueryInput('SELECT 1 AS value')
+
+            await logic.asyncActions.saveAsView()
+
+            expect(openForm).toHaveBeenCalledWith(expect.objectContaining({ title: 'Save as view' }))
+            expect(checkIncremental).not.toHaveBeenCalled()
+            openForm.mockRestore()
+        })
+
         // Monaco reports a non-empty selection after a double-click, which is the editor state
         // that let a single identifier reach the API as the query to save.
         function createEditorWithSelection(selected: string): any {

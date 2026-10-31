@@ -18,6 +18,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { insightVizDataCollectionId, insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
 import {
     AnyResponseType,
@@ -71,6 +72,7 @@ import { AddVariableButton } from './Components/Variables/AddVariableButton'
 import { variableModalLogic } from './Components/Variables/variableModalLogic'
 import { VariablesForInsight } from './Components/Variables/Variables'
 import { VariablesLogicProps, variablesLogic } from './Components/Variables/variablesLogic'
+import { conditionalFormattingColor } from './conditionalFormatting'
 import { DataVisualizationLogicProps, SideBarTab, dataVisualizationLogic } from './dataVisualizationLogic'
 import { displayLogic } from './displayLogic'
 import { applyDataVisualizationQueryUpdate } from './queryUpdateUtils'
@@ -125,6 +127,7 @@ export function DataTableVisualization({
     const vizKey = insightVizDataNodeKey(insightProps)
     const dataNodeCollectionId = insightVizDataCollectionId(insightProps, key)
     const dataVisualizationLogicProps: DataVisualizationLogicProps = {
+        loadQueue: context?.loadQueue,
         key: vizKey,
         query,
         dashboardId: insightProps.dashboardId,
@@ -142,6 +145,7 @@ export function DataTableVisualization({
     }
 
     const dataNodeLogicProps: DataNodeLogicProps = {
+        loadQueue: context?.loadQueue,
         query: getBIVisualizationSource(query),
         retainResponseOnUnmount: insightProps.retainResponseOnUnmount,
         key: vizKey,
@@ -221,10 +225,16 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         yData,
         columns,
         chartSettings,
+        conditionalFormattingRules,
+        hogVm,
+        hogVmLoadFailed,
         dashboardId,
         dataVisualizationProps,
         presetChartHeight: scenePresetChartHeight,
     } = useValues(dataVisualizationLogic)
+
+    const { isDarkModeOn } = useValues(themeLogic)
+    const columnTypes = useMemo(() => new Map(columns.map((column) => [column.name, column.type.name])), [columns])
 
     const presetChartHeight =
         !props.embedded &&
@@ -235,6 +245,9 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         query,
         filtersOverride: props.filtersOverride,
         variablesOverride: props.variablesOverride,
+        onFilterDashboard: !props.inSharedMode ? props.context?.onSelectBIMark : undefined,
+        isDashboardFilterSelected: !props.inSharedMode ? props.context?.isBIMarkActiveFilter : undefined,
+        getDashboardFilterUrl: !props.inSharedMode ? props.context?.getBIMarkDashboardUrl : undefined,
     }
     const drilldownLogic = biDrilldownLogic(drilldownProps)
     const { inspect: inspectResult, setInteraction, close: closeResultMenu } = useActions(drilldownLogic)
@@ -473,7 +486,21 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
             onInspect: canDrill ? inspect : undefined,
         }
         component = isBIPivotTable(query.config) ? (
-            <BIPivotTable {...resultProps} embedded={props.embedded} />
+            <BIPivotTable
+                {...resultProps}
+                embedded={props.embedded}
+                formattingLoadFailed={hogVmLoadFailed}
+                cellBackground={(record, column) =>
+                    conditionalFormattingColor(
+                        conditionalFormattingRules,
+                        hogVm?.execHog,
+                        column,
+                        columnTypes.get(column) ?? 'UNKNOWN',
+                        record[column],
+                        isDarkModeOn
+                    )
+                }
+            />
         ) : (
             <BIComparisonSummary {...resultProps} card={effectiveVisualizationType !== ChartDisplayType.ActionsTable} />
         )
@@ -775,8 +802,8 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                             />
 
                             {query.kind === NodeKind.BIVisualizationNode &&
-                                effectiveVisualizationType === ChartDisplayType.ActionsTable &&
-                                !isBIPivotTable(query.config) && (
+                                (effectiveVisualizationType === ChartDisplayType.ActionsTable ||
+                                    isBIPivotTable(query.config)) && (
                                     <LemonButton
                                         size={controlSize}
                                         type="secondary"

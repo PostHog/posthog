@@ -27,6 +27,8 @@ from posthog.utils import UUID_REGEX
 from ..facade import api
 from ..facade.api import is_warehouse_suggestions_enabled
 from ..facade.contracts import (
+    SUBJECT_SCOPE_OBJECTS,
+    WAREHOUSE_SCOPE_OBJECT,
     AcceptFailedError,
     AcceptOptionRefusedError,
     AcceptOptions,
@@ -76,10 +78,6 @@ ASSIGNEE_CANNOT_ACT = (
 ONLY_OPEN_ASSIGNABLE = "Only open suggestions can be assigned."
 ACCEPT_SCOPES = ["data_catalog_approval:write", "warehouse_view:write"]
 ScopeLevel = Literal["read", "write"]
-SUBJECT_SCOPE_OBJECTS = {
-    WarehouseSuggestionSubjectKind.SAVED_QUERY: "warehouse_view",
-    WarehouseSuggestionSubjectKind.TABLE: "warehouse_table",
-}
 
 
 class SuggestionPagination(LimitOffsetPagination):
@@ -102,7 +100,7 @@ class ProjectAccessPermission(BasePermission):
 
 
 class WarehouseSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
-    scope_object = "warehouse_objects"
+    scope_object = WAREHOUSE_SCOPE_OBJECT
     scope_object_read_actions = ["list", "retrieve", "status"]
     scope_object_write_actions = ["accept", "assign", "dismiss", "resume"]
     pagination_class = SuggestionPagination

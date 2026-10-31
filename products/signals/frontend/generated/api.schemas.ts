@@ -394,7 +394,7 @@ export interface AnomalyInsightSeriesApi {
 }
 
 export interface AnomalyInsightResponseApi {
-    /** Whether anomaly scoring covers this project. */
+    /** Whether anomaly scoring scores this project now. False when scoring does not cover the project, or when the project turned it off in its self-driving settings. Scores written before scoring was turned off are still returned. */
     scoring_enabled: boolean
     /** The numeric id of the insight. */
     insight_id: number
@@ -612,9 +612,9 @@ export interface AnomalyInsightRowApi {
 }
 
 export interface AnomalySearchResponseApi {
-    /** Whether anomaly scoring covers this project. */
+    /** Whether anomaly scoring scores this project now. False when scoring does not cover the project, or when the project turned it off in its self-driving settings. Scores written before scoring was turned off are still returned. */
     scoring_enabled: boolean
-    /** Insights that scoring watches: saved trends insights on a dashboard or viewed in the last 30 days. */
+    /** Active insights that scoring checks: saved trends insights that a person viewed, that sit on a dashboard someone opened, or that were edited in the active window (90 days by default), or that have an enabled alert or subscription. */
     watched_insights: number
     /** Insights with at least one scored bucket in the range. Results cover only these insights. */
     insights_scored_in_range: number
@@ -681,6 +681,11 @@ export interface SignalTeamConfigApi {
      * @nullable
      */
     default_slack_notification_channel?: string | null
+    /**
+     * Connected Slack integration that owns `default_slack_notification_channel`. Send it together with the channel. A channel saved without it is routed through the team's oldest Slack integration, and clearing the channel clears this too.
+     * @nullable
+     */
+    default_slack_notification_integration?: number | null
     /** Per-repository base branch overrides for auto-started inbox PRs, keyed by 'organization/repository'. The branch is what the auto-PR targets; omit a repo (or send {}) to keep targeting the repo default branch. */
     autostart_base_branches?: SignalTeamConfigApiAutostartBaseBranches
     /**
@@ -724,6 +729,16 @@ export interface SignalTeamConfigApi {
      * @nullable
      */
     pull_request_label?: string | null
+    /**
+     * Extra GitHub repositories, as 'organization/repository', that self-driving implementation tasks can read and write within the connected GitHub App's permissions, for example an assets repository for PR screenshots. A task gets only the entries with the same owner as its selected repository. They are not cloned, and the PR still targets the selected repository. Each new entry must be reachable through one of the project's GitHub installations. Changes apply to tasks started afterwards. Empty by default.
+     * @maxItems 20
+     * @items.maxLength 255
+     */
+    implementation_repositories?: string[]
+    /** Whether anomaly scoring scores this project's active trends insights every hour and writes the results as $anomaly_score events, which are not billed. True by default. Set false to stop new scores; events written before stay. Turning it on does not enroll a project that anomaly_scoring_available reports as not covered. */
+    anomaly_scoring_enabled?: boolean
+    /** Whether anomaly scoring covers this project, so anomaly_scoring_enabled has an effect. PostHog decides which projects anomaly scoring covers. */
+    readonly anomaly_scoring_available: boolean
     /**
      * How many reports first became visible in the inbox during the current project-timezone day. This is the count the daily report limit compares against.
      * @minimum 0
@@ -856,6 +871,15 @@ export interface InboxOnboardingJobsApi {
 }
 
 /**
+ * * `github_optional` - GitHub optional
+ */
+export type InboxActivationModeEnumApi = (typeof InboxActivationModeEnumApi)[keyof typeof InboxActivationModeEnumApi]
+
+export const InboxActivationModeEnumApi = {
+    GithubOptional: 'github_optional',
+} as const
+
+/**
  * * `signals` - Signals
  * * `scouts` - Scouts
  * * `github` - GitHub
@@ -866,6 +890,18 @@ export const InboxOnboardingStepEnumApi = {
     Signals: 'signals',
     Scouts: 'scouts',
     Github: 'github',
+} as const
+
+/**
+ * * `quick` - Quick
+ * * `guided` - Guided
+ */
+export type InboxOnboardingSetupModeEnumApi =
+    (typeof InboxOnboardingSetupModeEnumApi)[keyof typeof InboxOnboardingSetupModeEnumApi]
+
+export const InboxOnboardingSetupModeEnumApi = {
+    Quick: 'quick',
+    Guided: 'guided',
 } as const
 
 /**
@@ -1363,12 +1399,21 @@ export interface ScoutSuggestionItemApi {
 }
 
 export interface InboxOnboardingDraftApi {
+    /** Activate the GitHub-optional pilot. Requires project eligibility and leaves automatic implementation off.
+     *
+     * * `github_optional` - GitHub optional */
+    activation_mode?: InboxActivationModeEnumApi
     /** Step to resume after returning.
      *
      * * `signals` - Signals
      * * `scouts` - Scouts
      * * `github` - GitHub */
     step: InboxOnboardingStepEnumApi
+    /** How setup was chosen: quick activation from the welcome screen, or the guided steps.
+     *
+     * * `quick` - Quick
+     * * `guided` - Guided */
+    setup_mode?: InboxOnboardingSetupModeEnumApi
     /** Staged signal source choices. */
     sources: InboxOnboardingSourceApi[]
     /**
@@ -1396,21 +1441,9 @@ export interface InboxOnboardingDraftApi {
     implementation_priority: AutonomyPriorityEnumApi
 }
 
-/**
- * * `control` - Control
- * * `test-ui` - Focused steps
- * * `test-github` - Activate and explore
- */
-export type InboxOnboardingVariantEnumApi =
-    (typeof InboxOnboardingVariantEnumApi)[keyof typeof InboxOnboardingVariantEnumApi]
-
-export const InboxOnboardingVariantEnumApi = {
-    Control: 'control',
-    TestUi: 'test-ui',
-    TestGithub: 'test-github',
-} as const
-
 export interface InboxOnboardingStateApi {
+    /** Whether this project can activate Self-driving without connecting GitHub. */
+    github_optional_available?: boolean
     /** Whether the current user can receive an in-app notification when this investigation finishes. */
     first_report_completion_notification?: boolean
     /**
@@ -1429,21 +1462,6 @@ export interface InboxOnboardingStateApi {
      * @nullable
      */
     completed_at: string | null
-    /** Variant recorded at the first eligible impression.
-     *
-     * * `control` - Control
-     * * `test-ui` - Focused steps
-     * * `test-github` - Activate and explore */
-    variant: InboxOnboardingVariantEnumApi | null
-}
-
-export interface InboxOnboardingExposureApi {
-    /** Assigned experiment variant at the eligible Inbox impression.
-     *
-     * * `control` - Control
-     * * `test-ui` - Focused steps
-     * * `test-github` - Activate and explore */
-    variant: InboxOnboardingVariantEnumApi
 }
 
 export interface PauseStateResponseApi {
@@ -1511,6 +1529,7 @@ export interface ReviewerControlResponseApi {
  * * `ready` - Ready
  * * `monitoring` - Monitoring
  * * `resolved` - Resolved
+ * * `closed` - Closed
  * * `failed` - Failed
  * * `deleted` - Deleted
  * * `suppressed` - Suppressed
@@ -1525,10 +1544,82 @@ export const SignalReportStatusEnumApi = {
     Ready: 'ready',
     Monitoring: 'monitoring',
     Resolved: 'resolved',
+    Closed: 'closed',
     Failed: 'failed',
     Deleted: 'deleted',
     Suppressed: 'suppressed',
 } as const
+
+/**
+ * * `claude` - Claude
+ * * `codex` - Codex
+ * * `pi` - Pi
+ */
+export type StartupProviderEnumApi = (typeof StartupProviderEnumApi)[keyof typeof StartupProviderEnumApi]
+
+export const StartupProviderEnumApi = {
+    Claude: 'claude',
+    Codex: 'codex',
+    Pi: 'pi',
+} as const
+
+/**
+ * * `session_setup` - Session setup
+ * * `sdk_initialization` - SDK initialization
+ * * `setup_hooks` - Setup hooks
+ */
+export type StartupPhaseEnumApi = (typeof StartupPhaseEnumApi)[keyof typeof StartupPhaseEnumApi]
+
+export const StartupPhaseEnumApi = {
+    SessionSetup: 'session_setup',
+    SdkInitialization: 'sdk_initialization',
+    SetupHooks: 'setup_hooks',
+} as const
+
+/**
+ * * `requires_action` - Requires action
+ * * `transient` - Transient
+ * * `unknown` - Unknown
+ */
+export type StartupRetryabilityEnumApi = (typeof StartupRetryabilityEnumApi)[keyof typeof StartupRetryabilityEnumApi]
+
+export const StartupRetryabilityEnumApi = {
+    RequiresAction: 'requires_action',
+    Transient: 'transient',
+    Unknown: 'unknown',
+} as const
+
+export interface ReportStartupFailureApi {
+    /** Agent provider that failed to start.
+     *
+     * * `claude` - Claude
+     * * `codex` - Codex
+     * * `pi` - Pi */
+    provider: StartupProviderEnumApi
+    /** Startup stage that failed.
+     *
+     * * `session_setup` - Session setup
+     * * `sdk_initialization` - SDK initialization
+     * * `setup_hooks` - Setup hooks */
+    phase: StartupPhaseEnumApi
+    /**
+     * Validated provider reason code, when available.
+     * @nullable
+     */
+    reason: string | null
+    /** Whether an unchanged startup can be retried.
+     *
+     * * `requires_action` - Requires action
+     * * `transient` - Transient
+     * * `unknown` - Unknown */
+    retryability: StartupRetryabilityEnumApi
+    /** Research task that could not start. */
+    task_id: string
+    /** Failed research task run. */
+    run_id: string
+    /** Safe explanation and suggested next action. */
+    message: string
+}
 
 /**
  * * `small` - small
@@ -1787,6 +1878,51 @@ export const SignalReportSuppressionSourceEnumApi = {
 } as const
 
 /**
+ * * `code` - Code context
+ * * `data_only` - Project data
+ */
+export type ReportResearchModeEnumApi = (typeof ReportResearchModeEnumApi)[keyof typeof ReportResearchModeEnumApi]
+
+export const ReportResearchModeEnumApi = {
+    Code: 'code',
+    DataOnly: 'data_only',
+} as const
+
+/**
+ * * `available` - Available
+ * * `no_integration` - Not connected
+ * * `no_repositories` - No repositories
+ * * `selection_unresolved` - No repository selected
+ * * `github_unavailable` - GitHub unavailable
+ */
+export type ReportRepositoryStatusEnumApi =
+    (typeof ReportRepositoryStatusEnumApi)[keyof typeof ReportRepositoryStatusEnumApi]
+
+export const ReportRepositoryStatusEnumApi = {
+    Available: 'available',
+    NoIntegration: 'no_integration',
+    NoRepositories: 'no_repositories',
+    SelectionUnresolved: 'selection_unresolved',
+    GithubUnavailable: 'github_unavailable',
+} as const
+
+export interface ReportResearchContextApi {
+    /** Whether research had access to a repository.
+     *
+     * * `code` - Code context
+     * * `data_only` - Project data */
+    mode: ReportResearchModeEnumApi
+    /** Code availability when the report was researched; not a live integration health check.
+     *
+     * * `available` - Available
+     * * `no_integration` - Not connected
+     * * `no_repositories` - No repositories
+     * * `selection_unresolved` - No repository selected
+     * * `github_unavailable` - GitHub unavailable */
+    repository_status: ReportRepositoryStatusEnumApi
+}
+
+/**
  * * `unknown` - Unknown
  * * `draft` - Draft
  * * `open` - Open
@@ -1924,6 +2060,8 @@ export interface SignalReportAssigneeApi {
     agent: string | null
     /** @nullable */
     claimed_at: string | null
+    /** The person who answers for the claim: the user for a user claim, the user an MCP agent acts for, or the user who started an internal task. Null when no person stands behind the claim. */
+    responsible_user: _UserApi | null
 }
 
 /**
@@ -2097,6 +2235,7 @@ export interface ReportPlanStepApi {
      * * `ready` - Ready
      * * `monitoring` - Monitoring
      * * `resolved` - Resolved
+     * * `closed` - Closed
      * * `failed` - Failed
      * * `deleted` - Deleted
      * * `suppressed` - Suppressed */
@@ -2137,6 +2276,7 @@ export interface ReportPlanApi {
      * * `ready` - Ready
      * * `monitoring` - Monitoring
      * * `resolved` - Resolved
+     * * `closed` - Closed
      * * `failed` - Failed
      * * `deleted` - Deleted
      * * `suppressed` - Suppressed */
@@ -2167,6 +2307,8 @@ export interface SignalReportListApi {
     readonly signals_at_run: number
     /** How many scout notes this report received beyond the few its work log keeps as entries. 0 when nothing was dropped. These say the finding still holds, so the count is shown in place of the entries. */
     readonly collapsed_note_count: number
+    /** Startup failure from the latest failed research attempt, when available. */
+    readonly startup_failure: ReportStartupFailureApi | null
     readonly created_at: string
     readonly updated_at: string
     readonly artefact_count: number
@@ -2217,6 +2359,10 @@ export interface SignalReportListApi {
      * @nullable
      */
     readonly repo_slug: string | null
+    /** Whether this is a scout self-improvement report. Most update a team-owned skill in the skills store, but reports with a selected repository can still produce a pull request. */
+    readonly is_self_improvement_report: boolean
+    /** Evidence available to the latest research pass. Null for legacy reports. */
+    readonly research_context: ReportResearchContextApi | null
     readonly is_suggested_reviewer: boolean
     /** Distinct source products contributing signals to this report (from ClickHouse). */
     readonly source_products: readonly string[]
@@ -2417,6 +2563,8 @@ export interface SignalReportApi {
     readonly signals_at_run: number
     /** How many scout notes this report received beyond the few its work log keeps as entries. 0 when nothing was dropped. These say the finding still holds, so the count is shown in place of the entries. */
     readonly collapsed_note_count: number
+    /** Startup failure from the latest failed research attempt, when available. */
+    readonly startup_failure: ReportStartupFailureApi | null
     readonly created_at: string
     readonly updated_at: string
     readonly artefact_count: number
@@ -2467,6 +2615,10 @@ export interface SignalReportApi {
      * @nullable
      */
     readonly repo_slug: string | null
+    /** Whether this is a scout self-improvement report. Most update a team-owned skill in the skills store, but reports with a selected repository can still produce a pull request. */
+    readonly is_self_improvement_report: boolean
+    /** Evidence available to the latest research pass. Null for legacy reports. */
+    readonly research_context: ReportResearchContextApi | null
     readonly is_suggested_reviewer: boolean
     /** Distinct source products contributing signals to this report (from ClickHouse). */
     readonly source_products: readonly string[]
@@ -3149,6 +3301,22 @@ export interface SuggestedReviewerEntryWriteApi {
     reason?: string | null
 }
 
+/**
+ * * `wrong_area` - Not their area
+ * * `already_covered` - Someone else is on it
+ * * `unavailable` - No bandwidth
+ * * `other` - Other
+ */
+export type ReviewerRemovalReasonEnumApi =
+    (typeof ReviewerRemovalReasonEnumApi)[keyof typeof ReviewerRemovalReasonEnumApi]
+
+export const ReviewerRemovalReasonEnumApi = {
+    WrongArea: 'wrong_area',
+    AlreadyCovered: 'already_covered',
+    Unavailable: 'unavailable',
+    Other: 'other',
+} as const
+
 export interface SignalReportArtefactWriteApi {
     /** Add or remove only the supplied people, replace the list, or explicitly confirm it.
      *
@@ -3169,6 +3337,18 @@ export interface SignalReportArtefactWriteApi {
      * @maxItems 10
      */
     targets?: SuggestedReviewerEntryWriteApi[]
+    /** Why the people in `targets` are removed. Remove action only. 'wrong_area': the work should not be on them, because it is outside their area, they moved off it, or someone else owns it. 'already_covered': another reviewer already covers the report. 'unavailable': they do not have bandwidth right now. The last two say nothing about ownership. 'other': explain in removal_note. Research and scouts read the reason when they pick reviewers for later reports.
+     *
+     * * `wrong_area` - Not their area
+     * * `already_covered` - Someone else is on it
+     * * `unavailable` - No bandwidth
+     * * `other` - Other */
+    removal_reason?: ReviewerRemovalReasonEnumApi
+    /**
+     * Optional context for the removal, such as the area the person does not work on. Remove action only.
+     * @maxLength 500
+     */
+    removal_note?: string
 }
 
 /**
@@ -3224,6 +3404,8 @@ export interface SuggestedReviewerEntryReadApi {
     reason: string | null
     /** True when the scout owner guardrail added the entry rather than commit authorship. */
     is_skill_owner: boolean
+    /** True when no evidence selected anyone and the report fell back to the project's default owner. The entry routes the report, but it is not ownership evidence. */
+    is_default_owner: boolean
     /**
      * Scout skill whose run wrote the entry. Null when no scout did.
      * @nullable
@@ -3281,6 +3463,21 @@ export interface SignalReportSuggestedReviewersArtefactApi {
      * @nullable
      */
     readonly task_id: string | null
+}
+
+export interface SignalReportLeaveReviewersApi {
+    /** Why the user steps off. 'wrong_area': the work should not be on them, for example they moved off the area or left the team. 'already_covered': someone else is on it. 'unavailable': they do not have bandwidth right now. 'other': explain in removal_note. Research reads the reason when it picks reviewers for later reports.
+     *
+     * * `wrong_area` - Not their area
+     * * `already_covered` - Someone else is on it
+     * * `unavailable` - No bandwidth
+     * * `other` - Other */
+    removal_reason?: ReviewerRemovalReasonEnumApi
+    /**
+     * The user's own words for why, such as "I'm not on the payments team any more". Scouts read it when they route later reports.
+     * @maxLength 500
+     */
+    removal_note?: string
 }
 
 /**
@@ -3630,6 +3827,11 @@ export interface ZendeskTicketSignalExtraApi {
     status: string
 }
 
+export interface GithubIssueDependencyRefApi {
+    repository: string
+    number: number
+}
+
 export interface GithubIssueSignalExtraApi {
     html_url: string
     number: number
@@ -3640,6 +3842,7 @@ export interface GithubIssueSignalExtraApi {
     state: string
     author_login?: string | null
     author_association?: string | null
+    depends_on_issues?: GithubIssueDependencyRefApi[]
 }
 
 export interface LinearIssueSignalExtraApi {
@@ -5008,14 +5211,14 @@ export const DismissalReasonEnumApi = {
 } as const
 
 export interface SignalReportStateRequestApi {
-    /** Target state for the report. Use 'suppressed' to dismiss the report from the inbox, 'potential' to snooze/reopen it for later review, or 'resolved' when the report is finished. Resolving is allowed from ready, pending_input, failed, or monitoring, or from a suppressed report that previously held one of those statuses or resolved. Resolving an already resolved report succeeds. Other statuses return 409 (skipped in bulk). Dismissing or resolving closes the report's open implementation PR, if it has one. Use 'monitoring' when implementation is complete and outcome verification is pending. Entry requires the organization rollout and snapshots this report's pending or active, unexpired checks. Without applicable checks the report resolves directly. Manual completion records caller attribution, stops remaining follow-up checks, and does not claim automatic verification or an evidence amendment.
+    /** Target state for the report. Use 'suppressed' to dismiss the report from the inbox, 'potential' to snooze/reopen it for later review, or 'resolved' when the report is finished. Resolving is allowed from ready, pending_input, failed, closed, or monitoring, or from a suppressed report that previously held one of those statuses or resolved. Resolving an already resolved report succeeds. Other statuses return 409 (skipped in bulk). Dismissing or resolving closes the report's open implementation PR, if it has one. Use 'monitoring' when implementation is complete and outcome verification is pending. Entry requires the organization rollout and snapshots this report's pending or active, unexpired checks. Without applicable checks the report resolves directly. Manual completion records caller attribution, stops remaining follow-up checks, and does not claim automatic verification or an evidence amendment.
      *
      * * `suppressed` - suppressed
      * * `potential` - potential
      * * `resolved` - resolved
      * * `monitoring` - monitoring */
     state: SignalReportStateEnumApi
-    /** Optional canonical reason code recorded with the transition. Must be one of: already_fixed, report_unclear, analysis_wrong, wrong_assignee, wrong_repo, wontfix_intentional, wontfix_irrelevant, fixed_outside_posthog, verified_manually, no_action_needed, pr_merged, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work this report asked for is done, the honest transition is state='resolved' with 'fixed_outside_posthog' (the fix landed without a pull request), 'pr_merged' (a pull request with the fix was merged but did not resolve the report on its own), or 'already_fixed' (it was fixed before the report was filed). Use 'no_action_needed' with state='resolved' when the report was useful but needs no implementation. A report that failed in processing resolves too, so a fix that landed is recorded as a fix rather than as a dismissal. These three codes claim the issue is gone, so a later signal about the same issue starts a fresh report linked to this one. Fixed reason codes require state='suppressed' or state='resolved', not 'potential'. The dismissal codes (report_unclear, analysis_wrong, wrong_assignee, wrong_repo, wontfix_*) go with state='suppressed' and absorb later signals silently. Use 'wrong_assignee' when the report was routed to the wrong person or team. 'wrong_repo' when the agent picked the wrong repository for this report, ideally with corrected_repository naming the right one. Use 'verified_manually' with state='resolved' to stop Monitoring after manual verification. It requires Monitoring to be enabled and a report with a Monitoring period, and records no automatic verification result or evidence amendment. Use 'other' together with a dismissal_note for anything that doesn't fit a code.
+    /** Optional canonical reason code recorded with the transition. Must be one of: already_fixed, report_unclear, analysis_wrong, wrong_assignee, wrong_repo, wontfix_intentional, wontfix_irrelevant, fixed_outside_posthog, verified_manually, no_action_needed, pr_merged, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work this report asked for is done, the honest transition is state='resolved' with 'fixed_outside_posthog' (the fix landed without a pull request), 'pr_merged' (a pull request with the fix was merged but did not resolve the report on its own), or 'already_fixed' (it was fixed before the report was filed). Use 'no_action_needed' with state='resolved' when the report was useful but needs no implementation. A report that failed in processing resolves too, so a fix that landed is recorded as a fix rather than as a dismissal. These three codes claim the issue is gone, so a later signal about the same issue starts a fresh report linked to this one. Fixed reason codes require state='suppressed' or state='resolved', not 'potential'. The dismissal codes (report_unclear, analysis_wrong, wrong_assignee, wontfix_*) go with state='suppressed' and absorb later signals silently. 'wrong_assignee' is accepted from older clients, but a report sent to the wrong person still holds work: remove the person from the report's reviewers with a removal_reason instead of suppressing it. 'wrong_repo' when the agent picked the wrong repository for this report, ideally with corrected_repository naming the right one. The report stays suppressed, but a later matching signal starts a fresh linked report with a new repository selection informed by the project's correction feedback, even when no corrected_repository was supplied. Use 'verified_manually' with state='resolved' to stop Monitoring after manual verification. It requires Monitoring to be enabled and a report with a Monitoring period, and records no automatic verification result or evidence amendment. Use 'other' together with a dismissal_note for anything that doesn't fit a code.
      *
      * * `already_fixed` - Already fixed
      * * `report_unclear` - Report is unclear to me
@@ -5077,6 +5280,7 @@ export interface SignalReportStateRequestApi {
  * * `check_result` - Check Result
  * * `check_observation` - Check Observation
  * * `check_scheduled` - Check Scheduled
+ * * `check_authoring` - Check Authoring
  * * `check_expired` - Check Expired
  * * `check_cancelled` - Check Cancelled
  * * `implementation_decision` - Implementation Decision
@@ -5118,6 +5322,7 @@ export const SignalReportArtefactArtefactTypeEnumApi = {
     CheckResult: 'check_result',
     CheckObservation: 'check_observation',
     CheckScheduled: 'check_scheduled',
+    CheckAuthoring: 'check_authoring',
     CheckExpired: 'check_expired',
     CheckCancelled: 'check_cancelled',
     ImplementationDecision: 'implementation_decision',
@@ -5645,14 +5850,14 @@ export interface SignalReportCheckReplacementApi {
 }
 
 export interface SignalReportBulkStateRequestApi {
-    /** Target state for the report. Use 'suppressed' to dismiss the report from the inbox, 'potential' to snooze/reopen it for later review, or 'resolved' when the report is finished. Resolving is allowed from ready, pending_input, failed, or monitoring, or from a suppressed report that previously held one of those statuses or resolved. Resolving an already resolved report succeeds. Other statuses return 409 (skipped in bulk). Dismissing or resolving closes the report's open implementation PR, if it has one. Use 'monitoring' when implementation is complete and outcome verification is pending. Entry requires the organization rollout and snapshots this report's pending or active, unexpired checks. Without applicable checks the report resolves directly. Manual completion records caller attribution, stops remaining follow-up checks, and does not claim automatic verification or an evidence amendment.
+    /** Target state for the report. Use 'suppressed' to dismiss the report from the inbox, 'potential' to snooze/reopen it for later review, or 'resolved' when the report is finished. Resolving is allowed from ready, pending_input, failed, closed, or monitoring, or from a suppressed report that previously held one of those statuses or resolved. Resolving an already resolved report succeeds. Other statuses return 409 (skipped in bulk). Dismissing or resolving closes the report's open implementation PR, if it has one. Use 'monitoring' when implementation is complete and outcome verification is pending. Entry requires the organization rollout and snapshots this report's pending or active, unexpired checks. Without applicable checks the report resolves directly. Manual completion records caller attribution, stops remaining follow-up checks, and does not claim automatic verification or an evidence amendment.
      *
      * * `suppressed` - suppressed
      * * `potential` - potential
      * * `resolved` - resolved
      * * `monitoring` - monitoring */
     state: SignalReportStateEnumApi
-    /** Optional canonical reason code recorded with the transition. Must be one of: already_fixed, report_unclear, analysis_wrong, wrong_assignee, wrong_repo, wontfix_intentional, wontfix_irrelevant, fixed_outside_posthog, verified_manually, no_action_needed, pr_merged, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work this report asked for is done, the honest transition is state='resolved' with 'fixed_outside_posthog' (the fix landed without a pull request), 'pr_merged' (a pull request with the fix was merged but did not resolve the report on its own), or 'already_fixed' (it was fixed before the report was filed). Use 'no_action_needed' with state='resolved' when the report was useful but needs no implementation. A report that failed in processing resolves too, so a fix that landed is recorded as a fix rather than as a dismissal. These three codes claim the issue is gone, so a later signal about the same issue starts a fresh report linked to this one. Fixed reason codes require state='suppressed' or state='resolved', not 'potential'. The dismissal codes (report_unclear, analysis_wrong, wrong_assignee, wrong_repo, wontfix_*) go with state='suppressed' and absorb later signals silently. Use 'wrong_assignee' when the report was routed to the wrong person or team. 'wrong_repo' when the agent picked the wrong repository for this report, ideally with corrected_repository naming the right one. Use 'verified_manually' with state='resolved' to stop Monitoring after manual verification. It requires Monitoring to be enabled and a report with a Monitoring period, and records no automatic verification result or evidence amendment. Use 'other' together with a dismissal_note for anything that doesn't fit a code.
+    /** Optional canonical reason code recorded with the transition. Must be one of: already_fixed, report_unclear, analysis_wrong, wrong_assignee, wrong_repo, wontfix_intentional, wontfix_irrelevant, fixed_outside_posthog, verified_manually, no_action_needed, pr_merged, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work this report asked for is done, the honest transition is state='resolved' with 'fixed_outside_posthog' (the fix landed without a pull request), 'pr_merged' (a pull request with the fix was merged but did not resolve the report on its own), or 'already_fixed' (it was fixed before the report was filed). Use 'no_action_needed' with state='resolved' when the report was useful but needs no implementation. A report that failed in processing resolves too, so a fix that landed is recorded as a fix rather than as a dismissal. These three codes claim the issue is gone, so a later signal about the same issue starts a fresh report linked to this one. Fixed reason codes require state='suppressed' or state='resolved', not 'potential'. The dismissal codes (report_unclear, analysis_wrong, wrong_assignee, wontfix_*) go with state='suppressed' and absorb later signals silently. 'wrong_assignee' is accepted from older clients, but a report sent to the wrong person still holds work: remove the person from the report's reviewers with a removal_reason instead of suppressing it. 'wrong_repo' when the agent picked the wrong repository for this report, ideally with corrected_repository naming the right one. The report stays suppressed, but a later matching signal starts a fresh linked report with a new repository selection informed by the project's correction feedback, even when no corrected_repository was supplied. Use 'verified_manually' with state='resolved' to stop Monitoring after manual verification. It requires Monitoring to be enabled and a report with a Monitoring period, and records no automatic verification result or evidence amendment. Use 'other' together with a dismissal_note for anything that doesn't fit a code.
      *
      * * `already_fixed` - Already fixed
      * * `report_unclear` - Report is unclear to me
@@ -5719,6 +5924,220 @@ export interface SignalReportBulkStateResponseApi {
     failed_count: number
     /** Number of requested ids not visible to the caller. */
     not_found_count: number
+}
+
+export interface SignalReportBulkClaimRequestApi {
+    /**
+     * Report ids to claim for the caller in one call (1–100). Duplicates are de-duplicated. Each id is claimed independently, so a report that cannot be claimed does not block the rest.
+     * @minItems 1
+     * @maxItems 100
+     */
+    ids: string[]
+    /** Take over a report that an agent or an internal task holds. A report that a person holds directly is never taken over and comes back as a conflict. */
+    takeover_agent_claims?: boolean
+}
+
+export interface SignalReportBulkClaimResultApi {
+    /** The report id this result refers to. */
+    id: string
+    /** One of: claimed, conflict, not_found. claimed: the caller holds the claim, including when it already did. conflict: the claim was refused, because someone else holds the report or its status does not allow a claim (a 409 on the single-report endpoint). not_found: no report with this id is visible to you. */
+    outcome: string
+    /**
+     * Human-readable explanation for a conflict or not_found outcome.
+     * @nullable
+     */
+    detail?: string | null
+}
+
+export interface SignalReportBulkClaimResponseApi {
+    /** One result per requested id, in request order (after de-duplication). */
+    results: SignalReportBulkClaimResultApi[]
+    /** Number of reports the caller now holds. */
+    claimed_count: number
+    /** Number of reports whose claim was refused. */
+    conflict_count: number
+    /** Number of requested ids not visible to the caller. */
+    not_found_count: number
+}
+
+/**
+ * * `ready` - ready
+ * * `unavailable` - unavailable
+ */
+export type PersonalRankingStatusEnumApi =
+    (typeof PersonalRankingStatusEnumApi)[keyof typeof PersonalRankingStatusEnumApi]
+
+export const PersonalRankingStatusEnumApi = {
+    Ready: 'ready',
+    Unavailable: 'unavailable',
+} as const
+
+/**
+ * * `top` - top
+ * * `worth_a_look` - worth_a_look
+ * * `later` - later
+ */
+export type PersonalRankingTierEnumApi = (typeof PersonalRankingTierEnumApi)[keyof typeof PersonalRankingTierEnumApi]
+
+export const PersonalRankingTierEnumApi = {
+    Top: 'top',
+    WorthALook: 'worth_a_look',
+    Later: 'later',
+} as const
+
+/**
+ * * `suggested_reviewer` - suggested_reviewer
+ * * `claimed` - claimed
+ * * `waiting_on_input` - waiting_on_input
+ */
+export type PersonalRankingNeedsYouEnumApi =
+    (typeof PersonalRankingNeedsYouEnumApi)[keyof typeof PersonalRankingNeedsYouEnumApi]
+
+export const PersonalRankingNeedsYouEnumApi = {
+    SuggestedReviewer: 'suggested_reviewer',
+    Claimed: 'claimed',
+    WaitingOnInput: 'waiting_on_input',
+} as const
+
+export interface PersonalRankingMatchedApi {
+    /**
+     * The theme of your activity summary that the report matches, or null.
+     * @nullable
+     */
+    theme: string | null
+    /** Why the report needs you: you are a suggested reviewer, you claimed it, or it waits on your input. */
+    needs_you: PersonalRankingNeedsYouEnumApi[]
+}
+
+/**
+ * * `llm` - llm
+ * * `model` - model
+ */
+export type PersonalRankingRankedByEnumApi =
+    (typeof PersonalRankingRankedByEnumApi)[keyof typeof PersonalRankingRankedByEnumApi]
+
+export const PersonalRankingRankedByEnumApi = {
+    Llm: 'llm',
+    Model: 'model',
+} as const
+
+export interface PersonalRankingReportApi {
+    /** The report id. Pass it to inbox-reports-retrieve for the full report. */
+    id: string
+    /** The report title. */
+    title: string
+    /** The report status.
+     *
+     * * `potential` - Potential
+     * * `candidate` - Candidate
+     * * `in_progress` - In Progress
+     * * `pending_input` - Pending Input
+     * * `ready` - Ready
+     * * `monitoring` - Monitoring
+     * * `resolved` - Resolved
+     * * `closed` - Closed
+     * * `failed` - Failed
+     * * `deleted` - Deleted
+     * * `suppressed` - Suppressed */
+    status: SignalReportStatusEnumApi
+    /** The report priority, P0 to P4, or null.
+     *
+     * * `P0` - P0
+     * * `P1` - P1
+     * * `P2` - P2
+     * * `P3` - P3
+     * * `P4` - P4 */
+    priority: AutonomyPriorityEnumApi | null
+    /** The state of the report's implementation pull request, or null when it has none.
+     *
+     * * `unknown` - Unknown
+     * * `draft` - Draft
+     * * `open` - Open
+     * * `closed` - Closed
+     * * `merged` - Merged */
+    implementation_pr_state: SignalReportAssignmentPrStateEnumApi | null
+    /** The ranking model's predictions for the report. */
+    ranking: ReportRankingApi
+}
+
+export interface PersonalRankingEntryApi {
+    /** The position in your list. 1 is the first. */
+    rank: number
+    /** top, worth_a_look or later.
+     *
+     * * `top` - top
+     * * `worth_a_look` - worth_a_look
+     * * `later` - later */
+    tier: PersonalRankingTierEnumApi
+    /** Why the report has this place in your list. */
+    reason: string
+    /**
+     * A suggested next step for the top entries. Null for the others.
+     * @nullable
+     */
+    next_step: string | null
+    /** What in your work the report matches. */
+    matched: PersonalRankingMatchedApi
+    /** llm: the language model placed the report. model: it kept its place in the inbox order.
+     *
+     * * `llm` - llm
+     * * `model` - model */
+    ranked_by: PersonalRankingRankedByEnumApi
+    /** A compact view of the report. */
+    report: PersonalRankingReportApi
+}
+
+export interface PersonalRankingFoldApi {
+    /** The report that the list leaves out. */
+    report_id: string
+    /** The report in the list that covers the same work. */
+    into_report_id: string
+    /** Why the two reports are about the same work. */
+    reason: string
+}
+
+export interface PersonalRankingApi {
+    /** ready: the list is in `results`. unavailable: personal ranking is off now, and `results` is empty.
+     *
+     * * `ready` - ready
+     * * `unavailable` - unavailable */
+    status: PersonalRankingStatusEnumApi
+    /** True when the language model ranked the list with your activity summary. False when you have no summary yet or the build fell back to the inbox order. */
+    personalized: boolean
+    /** True when the list is a stored one. False when it is the inbox order fallback or the new list that `wait_seconds` waited for. */
+    cached: boolean
+    /** True when the list does not match your current inbox or focus. When `building` is true, a newer list is on the way. Otherwise you reached the build limit, so try again later. */
+    stale: boolean
+    /** True when a new list is being built in the background. Call again in a few seconds, or pass `wait_seconds`, to get it. */
+    building: boolean
+    /**
+     * Why the list is in inbox order and not ranked by the language model. building: no list is stored yet and one is being built. rate_limited: no list is stored yet and you reached the build limit. build_failed: no list is stored yet and the build could not start. llm_error, timeout, malformed_output, truncated_output, no_candidates or ai_not_approved: the stored build fell back. Null when the model ranked it.
+     * @nullable
+     */
+    fallback_reason: string | null
+    /**
+     * When the list was built.
+     * @nullable
+     */
+    generated_at: string | null
+    /**
+     * How long the model call of the build took, in ms. Null when there was no model call.
+     * @nullable
+     */
+    latency_ms: number | null
+    /**
+     * The version of your activity summary that the build read, or null.
+     * @nullable
+     */
+    activity_summary_version: number | null
+    /** How many reports the build considered. */
+    candidates_considered: number
+    /** How many reports the stored list ranks. `results` holds at most `limit` of them. */
+    ranked_count: number
+    /** Your reports, best first. A report that left your inbox since the build, for example a resolved one, is left out. */
+    results: PersonalRankingEntryApi[]
+    /** Reports the list leaves out because another report in it covers the same work. */
+    folded: PersonalRankingFoldApi[]
 }
 
 /**
@@ -5869,6 +6288,13 @@ export interface SignalReportRefundSummaryResponseApi {
     period_billable_credits: number
     /** Whether autonomous PR generation is currently paused for this project because the organization is over its self-driving credits quota. Read from the quota limiter, so it reflects the same state the pipeline gates enforce. */
     quota_limited: boolean
+}
+
+export interface SignalReportSectionCountsApi {
+    /** Ready reports with an implementation pull request. */
+    pull_requests: number
+    /** Ready reports without an implementation pull request. */
+    reports: number
 }
 
 export interface SignalReportSourceMetadataRequestApi {
@@ -8092,6 +8518,13 @@ export interface ReviewerCorrectionEntryApi {
     /** GitHub logins on the report after the human edit (lowercased). */
     after: string[]
     /**
+     * Why the editor removed reviewers: wrong_area, already_covered, unavailable, or other.
+     * @nullable
+     */
+    removal_reason?: string | null
+    /** The removed identities that `removal_reason` applies to. */
+    removal_reason_reviewers?: string[]
+    /**
      * ISO-8601 timestamp of the edit.
      * @nullable
      */
@@ -9785,6 +10218,69 @@ export interface LighthouseAuditResponseApi {
 }
 
 /**
+ * * `sufficient` - Sufficient
+ * * `insufficient` - Insufficient
+ * * `unsupported` - Unsupported
+ * * `errored` - Errored
+ */
+export type SignalReportMonitoringResultEvidenceStatusEnumApi =
+    (typeof SignalReportMonitoringResultEvidenceStatusEnumApi)[keyof typeof SignalReportMonitoringResultEvidenceStatusEnumApi]
+
+export const SignalReportMonitoringResultEvidenceStatusEnumApi = {
+    Sufficient: 'sufficient',
+    Insufficient: 'insufficient',
+    Unsupported: 'unsupported',
+    Errored: 'errored',
+} as const
+
+export interface SubmitMonitoringResultRequestApi {
+    /** Whether the fixed-window evidence is sufficient, insufficient, unsupported, or errored.
+     *
+     * * `sufficient` - Sufficient
+     * * `insufficient` - Insufficient
+     * * `unsupported` - Unsupported
+     * * `errored` - Errored */
+    evidence_status: SignalReportMonitoringResultEvidenceStatusEnumApi
+    /**
+     * Explain why the evidence supports this qualification. Must not be blank.
+     * @minLength 1
+     * @maxLength 2000
+     */
+    evidence_reason: string
+    /**
+     * Whether the authored expectation holds: a boolean for sufficient evidence, null for unsupported or errored evidence.
+     * @nullable
+     */
+    expectation_matches: boolean | null
+    /**
+     * Explain the conclusion using evidence from the assignment's fixed window.
+     * @minLength 1
+     * @maxLength 16000
+     */
+    explanation: string
+    /**
+     * Evidence references supporting the conclusion, or an empty list when none are available.
+     * @maxItems 50
+     * @items.minLength 1
+     */
+    evidence_refs: string[]
+}
+
+export interface SubmitMonitoringResultResponseApi {
+    /** True when the result is stored, including an identical retry. */
+    accepted: boolean
+    /** The immutable Monitoring result's identifier. */
+    result_id: string
+    /** The recorded verdict; this does not change the report's status.
+     *
+     * * `passed` - Passed
+     * * `failed` - Failed
+     * * `errored` - Errored
+     * * `inconclusive` - Inconclusive */
+    outcome: SignalReportCheckOutcomeEnumApi
+}
+
+/**
  * The record itself, as a JSON object. Must validate against the scout config's `structured_output_schema` (shown in the run prompt); any invalid record fails the whole call with nothing written.
  */
 export type StructuredOutputRecordApiPayload = { [key: string]: unknown }
@@ -10108,6 +10604,11 @@ export const SignalSourceSyncStatusEnumApi = {
  */
 export type SignalSourceConfigApiConfig = { [key: string]: unknown }
 
+/**
+ * Top-level config keys to set atomically on update. Unspecified keys are preserved. Cannot be combined with config.
+ */
+export type SignalSourceConfigApiConfigSet = { [key: string]: unknown }
+
 export interface SignalSourceConfigApi {
     readonly id: string
     source_product: SignalSourceProductEnumApi
@@ -10115,6 +10616,10 @@ export interface SignalSourceConfigApi {
     enabled?: boolean
     /** Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. */
     config?: SignalSourceConfigApiConfig
+    /** Top-level config keys to set atomically on update. Unspecified keys are preserved. Cannot be combined with config. */
+    config_set?: SignalSourceConfigApiConfigSet
+    /** Top-level config keys to remove atomically on update. Missing keys are ignored. Cannot overlap config_set or be combined with config. */
+    config_remove?: string[]
     readonly created_at: string
     readonly updated_at: string
     /** Sync state of the warehouse import behind this source: `running`, `failed`, or `completed`. Null for a source that imports nothing from the warehouse, for an import that has never synced, and when the sync state could not be read. */
@@ -10135,6 +10640,11 @@ export interface PaginatedSignalSourceConfigListApi {
  */
 export type PatchedSignalSourceConfigApiConfig = { [key: string]: unknown }
 
+/**
+ * Top-level config keys to set atomically on update. Unspecified keys are preserved. Cannot be combined with config.
+ */
+export type PatchedSignalSourceConfigApiConfigSet = { [key: string]: unknown }
+
 export interface PatchedSignalSourceConfigApi {
     readonly id?: string
     source_product?: SignalSourceProductEnumApi
@@ -10142,6 +10652,10 @@ export interface PatchedSignalSourceConfigApi {
     enabled?: boolean
     /** Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. */
     config?: PatchedSignalSourceConfigApiConfig
+    /** Top-level config keys to set atomically on update. Unspecified keys are preserved. Cannot be combined with config. */
+    config_set?: PatchedSignalSourceConfigApiConfigSet
+    /** Top-level config keys to remove atomically on update. Missing keys are ignored. Cannot overlap config_set or be combined with config. */
+    config_remove?: string[]
     readonly created_at?: string
     readonly updated_at?: string
     /** Sync state of the warehouse import behind this source: `running`, `failed`, or `completed`. Null for a source that imports nothing from the warehouse, for an import that has never synced, and when the sync state could not be read. */
@@ -10345,7 +10859,7 @@ export type SignalsReportsListParams = {
      */
     already_addressed?: boolean
     /**
-     * Use 'me' to return reports claimed by the current user, task, or MCP agent.
+     * 'me' returns reports claimed by exactly the requesting actor: the user, the internal task, or the MCP agent. 'mine' returns every report the requesting user claimed: their own claims and claims by MCP agents acting for them. Internal task claims are not included.
      */
     assignee?: SignalsReportsListAssignee
     /**
@@ -10361,7 +10875,7 @@ export type SignalsReportsListParams = {
      */
     created_after?: string
     /**
-     * Report ids to leave out of `results` and `count`, for example the reports a client already shows, as repeated parameters or comma-separated. The other reports keep their order. At most 100.
+     * Report ids to leave out of the results and counts, for example the reports a client already shows, as repeated parameters or comma-separated. The other reports keep their order. At most 100.
      * @maxItems 100
      */
     exclude?: string[]
@@ -10471,6 +10985,7 @@ export type SignalsReportsListAssignee = (typeof SignalsReportsListAssignee)[key
 
 export const SignalsReportsListAssignee = {
     Me: 'me',
+    Mine: 'mine',
 } as const
 
 export type SignalsReportPrChecksParams = {
@@ -10546,7 +11061,7 @@ export type SignalsReportChecksListParams = {
 
 export type SignalsReportsAvailableReviewersRetrieveParams = {
     /**
-     * Case-insensitive filter on name or email.
+     * Case-insensitive filter on name or email. Use search to find members outside the first 100 results.
      */
     query?: string
 }
@@ -10560,12 +11075,136 @@ export type SignalsReportsAvailableReviewersRetrieve200 = {
     }
 }
 
+export type SignalsReportsForMeRetrieveParams = {
+    /**
+     * Free text about what to put first, such as `error tracking` or `billing reports`. A request with focus always starts a new build, and an unfocused request never reuses it. Pass `wait_seconds` to wait for it.
+     * @maxLength 2000
+     */
+    focus?: string
+    /**
+     * The most reports to return, best first. Defaults to 25. Values above the configured maximum (50) use the maximum.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
+    /**
+     * Start a new build even when the stored one is current. The build runs in the background, so the response has `building: true`. Pass `wait_seconds` to wait for it.
+     */
+    refresh?: boolean
+    /**
+     * When the request starts a build or one is running, wait up to this many seconds for its list. Defaults to 0, which returns at once. A build usually takes 10 to 60 seconds.
+     * @minimum 0
+     * @maximum 30
+     */
+    wait_seconds?: number
+}
+
 export type SignalsReportsPrCiStatusesParams = {
     /**
      * Comma-separated report UUIDs to resolve CI state for, at most 100 per request.
      */
     report_ids: string
 }
+
+export type SignalsReportsSectionCountsRetrieveParams = {
+    /**
+     * Comma-separated actionability judgments to include. Valid values: immediately_actionable, requires_human_input, not_actionable. Reports without a judgment are excluded.
+     */
+    actionability?: string
+    /**
+     * Filter by whether the latest actionability judgment says the issue is already being handled. False also includes older reports where that judgment did not record a value.
+     */
+    already_addressed?: boolean
+    /**
+     * 'me' returns reports claimed by exactly the requesting actor: the user, the internal task, or the MCP agent. 'mine' returns every report the requesting user claimed: their own claims and claims by MCP agents acting for them. Internal task claims are not included.
+     */
+    assignee?: SignalsReportsSectionCountsRetrieveAssignee
+    /**
+     * Narrow to reports assigned to one space (channel). Absent or empty means all reports regardless of assignment.
+     */
+    channel_id?: string
+    /**
+     * ISO 8601 datetime. Keeps reports created at or after this time.
+     */
+    created_after?: string
+    /**
+     * Report ids to leave out of the results and counts, for example the reports a client already shows, as repeated parameters or comma-separated. The other reports keep their order. At most 100.
+     * @maxItems 100
+     */
+    exclude?: string[]
+    /**
+     * Include reports kept out of the shared inbox. A report is kept out when the scout that authored it turned off its `inbox` output destination. Defaults to false. Fetching a report by id always works, whatever this value is.
+     */
+    include_unlisted?: boolean
+    /**
+     * Comma-separated list of priorities to include. Valid values: P0, P1, P2, P3, P4. Reports without a priority assignment are excluded when this filter is set.
+     */
+    priority?: string
+    /**
+     * Comma-separated <outcome>:<lift> pairs, e.g. fix:2,open:1.5. Keeps reports whose served ranking lift is at least the value for every named outcome. Outcomes: open, action, fix. Read inbox-ranking-outcomes-list for what each outcome means. Unscored and stale reports never match. Needs staff or the inbox model sort rollout: other users get a 400.
+     */
+    ranking_min_lift?: string
+    /**
+     * Comma-separated <outcome>:<probability> pairs, e.g. fix:0.3. Keeps reports whose served ranking probability is at least the value for every named outcome. Outcomes: open, action, fix. Read inbox-ranking-outcomes-list for what each outcome means. Unscored and stale reports never match. Needs staff or the inbox model sort rollout: other users get a 400.
+     */
+    ranking_min_probability?: string
+    /**
+     * Reviewer scope: for_me, entire_project, or teammate. Pass teammate_uuid with teammate.
+     */
+    scope?: string
+    /**
+     * Comma-separated list of scout skill_name slugs (e.g. signals-scout-error-tracking). Reports are kept if at least one of their contributing signals was authored by one of these scouts. Combines with source_product as an AND.
+     */
+    scout?: string
+    /**
+     * Scout skill_name prefix (e.g. signals-scout-customer-analytics). Reports are kept if at least one of their contributing signals was authored by a scout whose skill_name starts with this prefix — new scouts in the family match without callers listing every name. Combines with the other filters as an AND.
+     */
+    scout_prefix?: string
+    /**
+     * Case-insensitive substring match against report title and summary.
+     */
+    search?: string
+    /**
+     * Comma-separated list of source record ids. Reports are kept if at least one of their contributing signals came from one of these records — e.g. pass a support ticket's UUID to see what the inbox already found for that ticket. Requires exactly one source_product, since a source id is only unique within its product.
+     */
+    source_id?: string
+    /**
+     * Comma-separated list of source products to include. Reports are kept if at least one of their contributing signals comes from one of these products (e.g. error_tracking, session_replay).
+     */
+    source_product?: string
+    /**
+     * Comma-separated list of PostHog user UUIDs. Reports are kept if their suggested reviewers include any of the given users.
+     */
+    suggested_reviewers?: string
+    /**
+     * Only reports associated with this task (via the report's task associations).
+     */
+    task_id?: string
+    /**
+     * PostHog user UUID used when scope=teammate.
+     */
+    teammate_uuid?: string
+    /**
+     * Filter by whether the report has no owner and no draft, open, or unknown PR. Resolved reports are never unclaimed.
+     */
+    unclaimed?: boolean
+    /**
+     * Filter by the current user's report read state.
+     */
+    unread?: boolean
+    /**
+     * When true and priority is omitted, include priorities at or above the requesting user's personal PR-generation threshold, falling back to the project threshold.
+     */
+    use_priority_preference?: boolean
+}
+
+export type SignalsReportsSectionCountsRetrieveAssignee =
+    (typeof SignalsReportsSectionCountsRetrieveAssignee)[keyof typeof SignalsReportsSectionCountsRetrieveAssignee]
+
+export const SignalsReportsSectionCountsRetrieveAssignee = {
+    Me: 'me',
+    Mine: 'mine',
+} as const
 
 export type SignalsScoutConfigListParams = {
     /**

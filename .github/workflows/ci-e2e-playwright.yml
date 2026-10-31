@@ -93,7 +93,7 @@ jobs:
         steps:
             - name: Ask Trunk which jobs this diff needs
               continue-on-error: true
-              uses: trunk-io/dynamic-ci@7e3af9331e8ebdfe0c71ba7d0ff6b7424dde8c57 # v1
+              uses: trunk-io/dynamic-ci@5bfe63e878e3ec8bf14c0fa3b7e250685e668d75 # v0.1.6
               with:
                   token: ${{ secrets.TRUNK_API_TOKEN }}
 
@@ -101,7 +101,9 @@ jobs:
         permissions:
             contents: read
             pull-requests: read
-        runs-on: ubuntu-24.04
+        # Merge-queue runs use Depot because GitHub-hosted runners queue for minutes at busy hours
+        # and this job sits on the queue's required-check path. Other runs stay on free GitHub-hosted runners.
+        runs-on: ${{ startsWith(github.head_ref, 'trunk-merge/') && 'depot-ubuntu-24.04' || 'ubuntu-24.04' }}
         # 7 not 5: the debounce step below sleeps up to 60s, so widen the budget to
         # keep ample headroom. A timeout here skips Playwright, which the aggregator
         # would count as a pass.
@@ -126,6 +128,7 @@ jobs:
             schema_cache_key: ${{ steps.schema-key.outputs.key }}
             schema_migrations_key: ${{ steps.schema-key.outputs.migrations_key }}
             schema_prefix_key: ${{ steps.schema-key.outputs.prefix_key }}
+            hogql_parser_changed: ${{ steps.changes.outputs.hogqlParser }}
         steps:
             # fetch-depth=1000 + blob:none mirrors ci-backend / ci-dagster so HEAD^2
             # (PR branch tip) is reachable for the merge-base step below without the
@@ -174,6 +177,10 @@ jobs:
                         - 'posthog/!(temporal/**)/**'
                         # The personhog gRPC stubs the backend's person reads go through
                         - 'packages/personhog-proto/**'
+                        # quill workspace packages (charts, primitives, components) compile into the frontend bundle
+                        - 'packages/quill/**'
+                        # The setup step builds the plugin transpiler from source
+                        - 'common/plugin_transpiler/**'
                         - 'bin/*'
                         - frontend/**/*
                         - package.json
@@ -181,7 +188,9 @@ jobs:
                         - uv.lock
                         - .github/clickhouse-versions.json
                         - docker-compose.dev.yml
-                        - Dockerfile
+                        # docker-compose.dev.yml extends the base file, and the job adds the profiles file
+                        - docker-compose.base.yml
+                        - docker-compose.profiles.yml
                         # Spec-selection selector + map: changes must run the suite (they're
                         # force-full anyway) so the map validation step actually executes.
                         - tools/playwright_spec_selection.py
@@ -207,6 +216,12 @@ jobs:
                         - '!posthog/**/conftest.py'
                         - '!ee/**/test_*.py'
                         - '!ee/**/conftest.py'
+                        # Dagster code never loads in the E2E stack. No Dagster process runs there,
+                        # and no web app or worker module imports posthog.dags, because its
+                        # __init__.py calls django.setup() again. ci-dagster.yml runs its tests.
+                        - '!posthog/dags/**'
+                      hogqlParser:
+                        - 'common/hogql_parser/**'
 
             # Visual Review auto-commits a snapshot baseline after human review and CI
             # approval. Re-running the full E2E stack for that bot push is pure waste;
@@ -266,8 +281,9 @@ jobs:
               # launches. After the wait, if the PR head has already moved past this run's
               # SHA, skip: the newer run is the real gate (and always runs, since the tip
               # is never stale against itself). Single pushes just pay the short wait.
+              # Trunk rarely re-pushes a merge-queue branch, and the concurrency group cancels the older run.
               id: debounce
-              if: steps.decide.outputs.shouldRun == 'true' && github.event_name == 'pull_request'
+              if: steps.decide.outputs.shouldRun == 'true' && github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/')
               env:
                   GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
                   REPO: ${{ github.repository }}
@@ -536,10 +552,9 @@ jobs:
         if: |
             !cancelled()
             && needs.changes.outputs.shouldRun == 'true'
-        # 8-core depot: 18% avg / 30% peak memory observed on 16-core runs (#46853 noted
-        # the workload "is not resource constrained" even after sharding was removed).
-        # Talk to #team-devex before changing.
-        runs-on: depot-ubuntu-24.04-8
+        # The merge queue's full suite gates every merge, so it gets the larger runner. Other runs
+        # mostly run selected specs, where setup dominates. Talk to #team-devex before changing.
+        runs-on: ${{ startsWith(github.head_ref, 'trunk-merge/') && 'depot-ubuntu-24.04-16' || 'depot-ubuntu-24.04-8' }}
         timeout-minutes: 45
         permissions:
             contents: read
@@ -557,10 +572,10 @@ jobs:
             INKEEP_API_KEY: ${{ secrets.INKEEP_API_KEY }}
             AZURE_INFERENCE_CREDENTIAL: ${{ secrets.AZURE_INFERENCE_CREDENTIAL }}
             AZURE_INFERENCE_ENDPOINT: ${{ secrets.AZURE_INFERENCE_ENDPOINT }}
-            # Tuned together for this runner: more Playwright workers without more Granian workers
-            # added test failures and no speedup. Talk to #team-devex before changing either.
-            GRANIAN_WORKERS: 4
-            PLAYWRIGHT_WORKERS: 6
+            # Tuned together per runner and doubled for the queue: more Playwright workers without more
+            # Granian workers added test failures and no speedup. Talk to #team-devex before changing either.
+            GRANIAN_WORKERS: ${{ startsWith(github.head_ref, 'trunk-merge/') && 8 || 4 }}
+            PLAYWRIGHT_WORKERS: ${{ startsWith(github.head_ref, 'trunk-merge/') && 12 || 6 }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
@@ -634,17 +649,6 @@ jobs:
                   cache-dependency-glob: uv.lock
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
 
-            - name: Determine if hogql-parser has changed compared to master
-              shell: bash
-              id: hogql-parser-diff
-              env:
-                  GH_TOKEN: ${{ github.token }}
-              run: |
-                  git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')" \
-                      fetch --no-tags --prune --depth=1 origin master
-                  changed=$(git diff --quiet HEAD origin/master -- common/hogql_parser/ && echo "false" || echo "true")
-                  echo "changed=$changed" >> $GITHUB_OUTPUT
-
             - name: Install SAML (python3-saml) dependencies
               if: steps.setup-uv.outputs.cache-hit != 'true'
               shell: bash
@@ -679,23 +683,85 @@ jobs:
                   key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
                   restore-keys: pnpm-${{ runner.os }}-
 
-            # Workaround for SIGABRT (exit 134) raised after all tests pass.
-            # See https://pytest-qt.readthedocs.io/en/latest/troubleshooting.html#tlambert03-setup-qt-libs
-            - uses: tlambert03/setup-qt-libs@19e4ef2d781d81f5f067182e228b54ec90d23b76 # v1.8
-
-            - name: Install plugin_transpiler
+            # Runs before Start Docker services, because the feature-flags container reads
+            # the GeoIP database that bin/download-mmdb fetches when the container starts.
+            - name: Set up needed files
               shell: bash
               run: |
-                  pnpm --filter=@posthog/plugin-transpiler... install --frozen-lockfile
-                  bin/turbo --filter=@posthog/plugin-transpiler build
+                  mkdir -p frontend/dist
+                  touch frontend/dist/index.html
+                  touch frontend/dist/layout.html
+                  touch frontend/dist/exporter.html
+                  ./bin/download-mmdb
 
-            - name: Install Python dependencies
-              shell: bash
+            - name: Log in to Docker Hub
+              continue-on-error: true
+              if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
+              uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+              with:
+                  username: ${{ vars.DOCKERHUB_USER }}
+                  password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+            - name: Resolve Rust capture container image tag
+              id: capture-image
               run: |
-                  UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+                  if [ -n "${{ github.event.pull_request.number }}" ]; then
+                    TAG="pr-${{ github.event.pull_request.number }}"
+                  else
+                    TAG="${{ github.sha }}"
+                  fi
+                  if docker manifest inspect "ghcr.io/posthog/posthog/capture:${TAG}" > /dev/null 2>&1; then
+                    echo "capture image found: ${TAG}"
+                    echo "POSTHOG_CAPTURE_TAG=${TAG}" >> "$GITHUB_ENV"
+                  else
+                    echo "capture image not found for ${TAG}, using master"
+                    echo "POSTHOG_CAPTURE_TAG=master" >> "$GITHUB_ENV"
+                  fi
+
+            # Actions that write $GITHUB_PATH or $GITHUB_ENV stay out of the `parallel:` blocks,
+            # because concurrent writes from actions crash the runner (docs/internal/ci-things-already-tried.md).
+            # The runner holds a `run:` step's writes, such as the COMPOSE_PROJECT_NAME that
+            # bin/ci-wait-for-docker sets, and applies them when the block ends.
+            - parallel:
+                  # Workaround for SIGABRT (exit 134) raised after all tests pass.
+                  # See https://pytest-qt.readthedocs.io/en/latest/troubleshooting.html#tlambert03-setup-qt-libs
+                  - uses: tlambert03/setup-qt-libs@19e4ef2d781d81f5f067182e228b54ec90d23b76 # v1.8
+
+                  - name: Install plugin_transpiler
+                    shell: bash
+                    run: |
+                        pnpm --filter=@posthog/plugin-transpiler... install --frozen-lockfile
+                        bin/turbo --filter=@posthog/plugin-transpiler build
+
+                  - name: Start Docker services
+                    env:
+                        COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
+                        COMPOSE_PROFILES: capture,temporal
+                    run: bin/ci-wait-for-docker launch --down
+
+            - parallel:
+                  - name: Install Python dependencies
+                    shell: bash
+                    run: |
+                        UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+
+                  - name: Install package.json dependencies with pnpm
+                    run: |
+                        pnpm --filter=@posthog/playwright... install --frozen-lockfile
+                        bin/turbo --filter=@posthog/frontend prepare
+
+                  - name: Wait for Docker services
+                    env:
+                        COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
+                        COMPOSE_PROFILES: capture,temporal
+                    run: bin/ci-wait-for-docker wait capture temporal
 
             - name: Install the working version of hogql-parser
-              if: needs.changes.outputs.shouldRun == 'true' && steps.hogql-parser-diff.outputs.changed == 'true'
+              # The paths filter runs on pull requests only. A dispatched branch always builds its own parser,
+              # so that a forced run of a draft that edits the parser tests that edit and not the published version.
+              if: |
+                  needs.changes.outputs.hogql_parser_changed == 'true'
+                  || (github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/master')
               shell: bash
               # This is not cached, because the current HEAD version of hogql-parser must be built if it has
               # changed (requirements.txt has the already-published version)
@@ -722,70 +788,6 @@ jobs:
                   cd ..
                   pip install ./common/hogql_parser
 
-            - name: Set up needed files
-              shell: bash
-              run: |
-                  mkdir -p frontend/dist
-                  touch frontend/dist/index.html
-                  touch frontend/dist/layout.html
-                  touch frontend/dist/exporter.html
-                  ./bin/download-mmdb
-
-            - name: Install package.json dependencies with pnpm
-              run: |
-                  pnpm --filter=@posthog/playwright... install --frozen-lockfile
-                  bin/turbo --filter=@posthog/frontend prepare
-
-            - name: Log in to Docker Hub
-              continue-on-error: true
-              if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
-              uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
-              with:
-                  username: ${{ vars.DOCKERHUB_USER }}
-                  password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-            - name: Resolve Rust capture container image tag
-              id: capture-image
-              run: |
-                  if [ -n "${{ github.event.pull_request.number }}" ]; then
-                    TAG="pr-${{ github.event.pull_request.number }}"
-                  else
-                    TAG="${{ github.sha }}"
-                  fi
-                  if docker manifest inspect "ghcr.io/posthog/posthog/capture:${TAG}" > /dev/null 2>&1; then
-                    echo "capture image found: ${TAG}"
-                    echo "POSTHOG_CAPTURE_TAG=${TAG}" >> "$GITHUB_ENV"
-                  else
-                    echo "capture image not found for ${TAG}, using master"
-                    echo "POSTHOG_CAPTURE_TAG=master" >> "$GITHUB_ENV"
-                  fi
-
-            - name: Start Docker services
-              env:
-                  COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
-                  COMPOSE_PROFILES: capture,temporal
-              run: bin/ci-wait-for-docker launch --down
-
-            - name: Wait for Docker services
-              env:
-                  COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
-                  COMPOSE_PROFILES: capture,temporal
-              run: bin/ci-wait-for-docker wait capture temporal
-
-            - name: Build frontend
-              run: |
-                  pnpm --filter=@posthog/frontend... install --frozen-lockfile
-                  pnpm --filter=@posthog/frontend build:products
-                  pnpm --filter=@posthog/frontend build
-
-            - name: Collect static files without compression
-              # The image-bitmap-data-url-worker-*.js.map files are already mirrored
-              # into frontend/dist/ by copyRRWebWorkerFiles() in frontend/build.mjs
-              # (see common/esbuilder/utils.mjs), which runs as part of the
-              # `pnpm --filter=@posthog/frontend build` step above. No extra cp needed.
-              env:
-                  STATIC_PRECOMPRESS: '0'
-              run: python manage.py collectstatic --noinput
             - name: Create test database
               shell: bash
               run: |
@@ -856,33 +858,56 @@ jobs:
                       echo "::warning::Schema restore failed (stale/incompatible cached dump?) — the migrate step below runs the full history"
                   fi
 
-            - name: Apply postgres and clickhouse migrations and setup dev
-              run: |
-                  # Postgres migrations must run first — ClickHouse migration 0026
-                  # depends on the posthog_instancesetting table in Postgres.
-                  # On cache hit this is near no-op; on cache miss it's a full migrate.
-                  # Either way, any PR-added migrations get applied here.
-                  python manage.py migrate --noinput
+            - parallel:
+                  - name: Apply postgres and clickhouse migrations and setup dev
+                    run: |
+                        # Postgres migrations must run first — ClickHouse migration 0026
+                        # depends on the posthog_instancesetting table in Postgres.
+                        # On cache hit this is near no-op; on cache miss it's a full migrate.
+                        # Either way, any PR-added migrations get applied here.
+                        python manage.py migrate --noinput
 
-                  # Run Rust migrations for persons e2e test database
-                  PERSONS_DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons_e2e_test"
-                  sqlx database create -D "$PERSONS_DATABASE_URL"
-                  sqlx migrate run -D "$PERSONS_DATABASE_URL" --source rust/persons_migrations/
+                        # Run Rust migrations for persons e2e test database
+                        PERSONS_DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons_e2e_test"
+                        sqlx database create -D "$PERSONS_DATABASE_URL"
+                        sqlx migrate run -D "$PERSONS_DATABASE_URL" --source rust/persons_migrations/
 
-                  # Cyclotron node DB — the plugins container runs the CDP rerun worker
-                  # (default capabilities), which requires CYCLOTRON_NODE_DATABASE_URL to point
-                  # at a real, migrated database or it throws on startup and the server exits.
-                  CYCLOTRON_NODE_DATABASE_URL="postgres://posthog:posthog@localhost:5432/cyclotron_node"
-                  sqlx database create -D "$CYCLOTRON_NODE_DATABASE_URL"
-                  sqlx migrate run -D "$CYCLOTRON_NODE_DATABASE_URL" --source rust/cyclotron-node-migrations/
+                        # Cyclotron node DB — the plugins container runs the CDP rerun worker
+                        # (default capabilities), which requires CYCLOTRON_NODE_DATABASE_URL to point
+                        # at a real, migrated database or it throws on startup and the server exits.
+                        CYCLOTRON_NODE_DATABASE_URL="postgres://posthog:posthog@localhost:5432/cyclotron_node"
+                        sqlx database create -D "$CYCLOTRON_NODE_DATABASE_URL"
+                        sqlx migrate run -D "$CYCLOTRON_NODE_DATABASE_URL" --source rust/cyclotron-node-migrations/
 
-                  python manage.py migrate_clickhouse 2>&1
+                        python manage.py migrate_clickhouse 2>&1
 
-                  # Person/group reads go through personhog (no ORM fallback), so the replica
-                  # and router must be running before setup_dev creates demo persons.
-                  COMPOSE_FILE=docker-compose.dev.yml COMPOSE_PROFILES=ingestion bin/ci-wait-for-docker launch personhog-replica personhog-router
+                        # Person/group reads go through personhog (no ORM fallback), so the replica
+                        # and router must be running before setup_dev creates demo persons.
+                        COMPOSE_FILE=docker-compose.dev.yml COMPOSE_PROFILES=ingestion bin/ci-wait-for-docker launch personhog-replica personhog-router
 
-                  python manage.py setup_dev
+                        python manage.py setup_dev
+
+                  - name: Build frontend
+                    run: |
+                        pnpm --filter=@posthog/frontend... install --frozen-lockfile
+                        pnpm --filter=@posthog/frontend build:products
+                        pnpm --filter=@posthog/frontend build
+
+            # collectstatic finishes before Start PostHog web, because each Granian worker loads
+            # WhiteNoise, which reads STATIC_ROOT once when the worker starts (autorefresh is off
+            # without DEBUG). WhiteNoise does not serve files that collectstatic writes after that.
+            - parallel:
+                  - name: Collect static files without compression
+                    # The image-bitmap-data-url-worker-*.js.map files are already mirrored
+                    # into frontend/dist/ by copyRRWebWorkerFiles() in frontend/build.mjs
+                    # (see common/esbuilder/utils.mjs), which runs as part of the
+                    # `pnpm --filter=@posthog/frontend build` step above. No extra cp needed.
+                    env:
+                        STATIC_PRECOMPRESS: '0'
+                    run: python manage.py collectstatic --noinput
+
+                  - name: Install Playwright browsers
+                    run: pnpm --filter=@posthog/playwright exec playwright install chromium --with-deps
 
             - name: Source celery queues
               run: |
@@ -922,10 +947,6 @@ jobs:
                   # capture-ai: AI event capture (/i/v0/ai/batch/, CAPTURE_MODE=ai); ingestion-general's
                   # combined-mode AI consumer ingests the lane incl. multimodal blob offload
                   COMPOSE_FILE=docker-compose.dev.yml COMPOSE_PROFILES=capture,ingestion bin/ci-wait-for-docker launch plugins ingestion-general ingestion-sessionreplay recording-api ingestion-error-tracking ingestion-logs ingestion-traces capture-ai
-
-            # Install Playwright browsers while we wait for PostHog to be ready
-            - name: Install Playwright browsers
-              run: pnpm --filter=@posthog/playwright exec playwright install chromium --with-deps
 
             - name: Wait for PostHog to be ready
               uses: iFaxity/wait-on-action@1fe019e0475491e9e8c4f421b6914ccc3ed8f99c # v1.2.1
@@ -1170,8 +1191,6 @@ jobs:
               continue-on-error: true
               if: ${{ !cancelled() && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true' }}
               uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
-              env:
-                  TRUNK_HIDE_TEST_COLLECTION_LINKS: 'true'
               with:
                   junit-paths: playwright/junit-results.xml
                   org-slug: posthog-inc
@@ -1411,7 +1430,8 @@ jobs:
     playwright_tests:
         needs: [changes, playwright, vr-complete]
         name: Playwright tests pass
-        runs-on: ubuntu-24.04
+        # Same runner choice as `changes`.
+        runs-on: ${{ startsWith(github.head_ref, 'trunk-merge/') && 'depot-ubuntu-24.04' || 'ubuntu-24.04' }}
         timeout-minutes: 5
         if: ${{ !cancelled() }}
         steps:

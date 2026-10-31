@@ -111,6 +111,9 @@ class TaskProcessingContext:
     repository: str | None
     distinct_id: str
     origin_product: str | None = None
+    profile_key: str | None = None
+    profile_idle_minutes: int | None = None
+    profile_max_wake_minutes: int | None = None
     startup_requested_at: str | None = None
     task_runtime: str = Task.Runtime.ACP
     environment: str | None = None
@@ -131,10 +134,8 @@ class TaskProcessingContext:
     json_schema: dict | None = None
     ci_prompt: str | None = None
     # Captured at workflow start so snapshot creation is deterministic across
-    # activity retries. This means "create any Modal resume snapshot"; filesystem
-    # snapshots are guarded by the legacy setting, directory snapshots by feature flag.
+    # activity retries.
     use_modal_resume_snapshots: bool = True
-    use_modal_directory_resume_snapshots: bool = True  # Temporal payload compatibility
     # Captured at workflow start so the sandbox event transport branch is
     # deterministic for the full run.
     sandbox_event_ingest_enabled: bool = False
@@ -219,6 +220,17 @@ class TaskProcessingContext:
         return [self.repository] if self.repository else []
 
     @property
+    def github_access_repositories(self) -> list[str]:
+        """Repositories the run's GitHub token covers: the cloned ones plus any granted at creation.
+
+        Only token minting reads this. Remote rewrites and cloning stay on ``repositories``.
+        """
+        access = (self.state or {}).get("github_access_repositories")
+        if isinstance(access, list) and access and all(isinstance(repository, str) for repository in access):
+            return access
+        return self.repositories
+
+    @property
     def github_read_access(self) -> bool:
         """Run that asked to be downscoped to a read-only GitHub token (see Task.create_and_run).
 
@@ -294,7 +306,10 @@ class TaskProcessingContext:
     def inactivity_timeout(self) -> timedelta:
         """Idle time before the workflow times the run out; longer for user-driven runs."""
         return resolve_inactivity_timeout(
-            is_user_origin=self._is_user_origin(), origin_product=self.origin_product, state=self.state
+            is_user_origin=self._is_user_origin(),
+            origin_product=self.origin_product,
+            state=self.state,
+            profile_idle_minutes=self.profile_idle_minutes,
         )
 
     def _is_user_origin(self) -> bool:
@@ -312,13 +327,23 @@ class TaskProcessingContext:
         sessions can legitimately run for hours, so they are uncapped — except interactive
         signals-origin runs, whose inference is unbilled and which therefore get their own
         (longer) ceiling, resolved activity-side into the field below. Autonomous runs get
-        the cap as a safety net unless the setting disables it deployment-wide.
+        the cap as a safety net unless the setting disables it deployment-wide. A task with
+        a profile takes the exemption from the profile's `max_wake_minutes`. Its cap is the
+        lower of `max_wake_minutes` and the setting.
         """
-        if self.mode == "interactive" or self._is_user_origin():
+        if self.mode == "interactive" or self._exempt_from_max_run_duration():
             if self.interactive_max_run_duration_seconds:
                 return timedelta(seconds=self.interactive_max_run_duration_seconds)
             return None
-        return resolve_max_run_duration()
+        cap = resolve_max_run_duration()
+        if cap is None or self.profile_max_wake_minutes is None:
+            return cap
+        return min(cap, timedelta(minutes=self.profile_max_wake_minutes))
+
+    def _exempt_from_max_run_duration(self) -> bool:
+        if self.profile_key:
+            return self.profile_max_wake_minutes is None
+        return self._is_user_origin()
 
     def sandbox_resource_overrides(self) -> dict[str, float | int]:
         """Per-task SandboxConfig overrides (compute + TTL), clamped to server-owned bounds.
@@ -1266,6 +1291,8 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         if user_github_integration is not None:
             user_github_integration_id = str(user_github_integration.integration.id)
 
+    profile = task.stored_profile
+
     return TaskProcessingContext(
         task_id=str(task.id),
         run_id=run_id,
@@ -1278,10 +1305,13 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         repository=run_repository,
         distinct_id=distinct_id,
         origin_product=task.origin_product,
+        profile_key=profile.key if profile else None,
+        profile_idle_minutes=profile.idle_minutes if profile else None,
+        profile_max_wake_minutes=profile.max_wake_minutes if profile else None,
         task_runtime=task.runtime,
         environment=task_run.environment,
         task_created_by_id=task.created_by_id,
-        create_pr=input.create_pr,
+        create_pr=input.create_pr and (profile is None or profile.create_pr),
         pr_loop_enabled=pr_loop_enabled,
         pr_babysit_enabled=pr_loop_enabled,
         context_layer_enabled=context_layer_enabled,
@@ -1304,7 +1334,6 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         ci_prompt=task.ci_prompt,
         # Hogland has no resume-snapshot support yet; every run cold-boots there.
         use_modal_resume_snapshots=sandbox_backend != "hogland",
-        use_modal_directory_resume_snapshots=sandbox_backend != "hogland",
         sandbox_event_ingest_enabled=sandbox_event_ingest_enabled,
         sandbox_rotation_enabled=True,
         agent_otel_telemetry_enabled=agent_otel_telemetry_enabled,

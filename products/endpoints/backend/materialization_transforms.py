@@ -246,12 +246,14 @@ def get_reaggregation(func_name: str) -> AggregateReaggregation | None:
 
 
 def _is_aggregate(func_name: str) -> bool:
-    """Whether ``func_name`` resolves to a known aggregate, registered or combinator-derived.
-
-    ``find_hogql_aggregation`` only covers names in the registry; combinator-derived names
-    (``sumIf``, ``maxIf``, ``countArrayIf``, …) live outside it and need ``_strip_combinators``.
-    """
-    return find_hogql_aggregation(func_name) is not None or _strip_combinators(func_name) is not None
+    sorted_suffixes = sorted(COMBINATORS.keys(), key=len, reverse=True)
+    name = func_name
+    while find_hogql_aggregation(name) is None:
+        suffix = next((s for s in sorted_suffixes if name.lower().endswith(s.lower()) and len(name) > len(s)), None)
+        if suffix is None:
+            return False
+        name = name[: -len(suffix)]
+    return True
 
 
 SUPPORTED_MATERIALIZATION_OPS = frozenset(

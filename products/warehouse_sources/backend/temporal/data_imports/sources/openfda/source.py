@@ -49,7 +49,7 @@ class OpenFDASource(ResumableSource[OpenFDASourceConfig, OpenFDAResumeConfig]):
             name=ExternalDataSourceType.OPENFDA,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="openFDA",
-            releaseStatus=ReleaseStatus.BETA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Pull U.S. FDA drug, device, and food data — adverse event reports, recalls, drug labeling, drug applications and shortages, 510(k) clearances, device classifications, the UDI device registry, and the NDC directory — into the PostHog Data warehouse.
 
 An API key is optional but recommended. Without one, openFDA limits you to 1,000 requests/day per IP; with one, 120,000 requests/day. Get a free key from the [openFDA API basics page](https://open.fda.gov/apis/authentication/).""",

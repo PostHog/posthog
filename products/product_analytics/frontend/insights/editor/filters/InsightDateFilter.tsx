@@ -8,15 +8,16 @@ import { type DateFilterExclusions } from 'lib/components/DateFilter/DateFilterE
 import { dateMapping } from 'lib/utils/dateFilters'
 import { alignResolvedDateRangeToInterval } from 'lib/utils/datetime'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+
 import {
     computeDaysOfWeekUpdate,
     daysOfWeekSetsEqual,
     getExcludedDaysOfWeek,
     parseIsoDaysOfWeek,
     querySupportsDaysOfWeek,
-} from 'scenes/insights/filters/InsightDateFilter/daysOfWeekFilterUtils'
-import { insightLogic } from 'scenes/insights/insightLogic'
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+} from './daysOfWeekFilterUtils'
 
 type InsightDateFilterProps = {
     disabled: boolean

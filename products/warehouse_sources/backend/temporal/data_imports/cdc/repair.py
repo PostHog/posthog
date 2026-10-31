@@ -32,6 +32,7 @@ import structlog
 
 from posthog.redis import get_client
 
+from products.warehouse_sources.backend.logic.source_inputs import SourceInputsStore
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import (
     ExternalDataSchema,
@@ -124,7 +125,7 @@ def _repair_locked(source: ExternalDataSource) -> int:
     # A sync that hands over after its table's reset leaves the reset pending on a streaming table,
     # whose next run wipes it. Capture finishes those resets once the syncs stop, after this repair.
     # They wait for the slot as well, because the one they would snapshot against is gone until
-    # `recreate_slot` below, and a capture run firing meanwhile must not start that snapshot.
+    # `recreate_stream` below, and a capture run firing meanwhile must not start that snapshot.
     handed_over = {
         schema.id
         for schema in all_cdc_schemas
@@ -152,9 +153,9 @@ def _repair_locked(source: ExternalDataSource) -> int:
     for schema_id in all_cdc_schema_ids:
         purge_buffer_prefix(source.team_id, str(schema_id), log, strict=True)
 
-    default_schema = (source.job_inputs or {}).get("schema")
+    default_schema = SourceInputsStore.load_settings(source).get("schema")
     try:
-        resource_fields = adapter.recreate_slot(
+        resource_fields = adapter.recreate_stream(
             source, tables=[cdc_qualified_table_name(schema, default_schema) for schema in cdc_schemas]
         )
     except Exception as e:
@@ -167,9 +168,8 @@ def _repair_locked(source: ExternalDataSource) -> int:
             raise
         raise CDCRepairError(customer_message) from e
 
-    source.job_inputs = {**(source.job_inputs or {}), **resource_fields}
     source.status = ExternalDataSource.Status.RUNNING
-    source.save(update_fields=["job_inputs", "status", "updated_at"])
+    SourceInputsStore.update_runtime(source, resource_fields, extra_update_fields=("status", "updated_at"))
 
     _resume_schedules(source, reset_now)
 
@@ -216,7 +216,7 @@ def _require_broken_evidence(
         return
 
     live_status = adapter.get_status(source)
-    if live_status.get("slot_exists") is False or live_status.get("publication_exists") is False:
+    if not adapter.capture_resources_present(live_status):
         return
 
     raise CDCRepairError(

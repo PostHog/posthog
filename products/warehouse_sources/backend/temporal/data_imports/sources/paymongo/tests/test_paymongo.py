@@ -94,15 +94,16 @@ def respond(http: MagicMock, bodies: list[dict[str, Any]], statuses: list[int] |
 
 
 @pytest.mark.parametrize(
-    "name,metadata",
+    "name,metadata,url,cursor_param",
     [
-        ("payments", {"has_more": True}),
-        ("webhooks", {"has_more": True}),
-        ("payouts", {"pagination": {"next_cursor": "pay_1"}}),
+        ("payments", {"has_more": True}, "https://api.paymongo.com/v1/payments", "after"),
+        ("webhooks", {"has_more": True}, "https://api.paymongo.com/v1/webhooks", "after"),
+        ("payouts", {"pagination": {"next_cursor": "pay_1"}}, "https://api.paymongo.com/v1/payouts", "after"),
+        ("invoices", {"has_more": True}, "https://invoices-api.paymongo.com/v1/invoices", "starting_after"),
     ],
 )
 def test_pagination_auth_normalization_and_checkpoint(
-    http: MagicMock, manager: MagicMock, name: str, metadata: dict[str, Any]
+    http: MagicMock, manager: MagicMock, name: str, metadata: dict[str, Any], url: str, cursor_param: str
 ) -> None:
     sent = respond(
         http,
@@ -120,8 +121,9 @@ def test_pagination_auth_normalization_and_checkpoint(
     assert list(pages) == []
     assert manager.save_state.call_args.args[0].finished
     assert sent[0].headers["Authorization"] == "Basic c2tfdGVzdF9mYWtlOg=="
+    assert (sent[0].url or "").split("?")[0] == url
     assert parse_qs(urlsplit(sent[0].url or "").query) == {"limit": ["10"]}
-    assert parse_qs(urlsplit(sent[1].url or "").query) == {"limit": ["10"], "after": ["pay_1"]}
+    assert parse_qs(urlsplit(sent[1].url or "").query) == {"limit": ["10"], cursor_param: ["pay_1"]}
 
 
 @pytest.mark.parametrize("finished", [False, True])
@@ -158,6 +160,35 @@ def test_refund_fanout_keeps_payment_and_child_cursors() -> None:
         },
         {"data.attributes.payment_id": ("pay_two",), "data.attributes.limit": ("10",)},
     ]
+
+
+def test_payout_transaction_fanout_keys_rows_by_payout() -> None:
+    result = driver().run(
+        "payout_transactions",
+        [
+            ScriptedResponse(json={"data": [row("po_one")], "pagination": {"next_cursor": "po_one"}}),
+            ScriptedResponse(
+                json={"data": [row("pay_one", payout_id="po_one")], "pagination": {"next_cursor": "pay_one"}}
+            ),
+            ScriptedResponse(json={"data": [row("ref_one", payout_id="po_one")], "pagination": {"next_cursor": None}}),
+            ScriptedResponse(json={"data": [row("po_two")], "pagination": {"next_cursor": None}}),
+            ScriptedResponse(json={"data": [row("pay_one", payout_id="po_two")], "pagination": {"next_cursor": None}}),
+        ],
+    )
+    assert result.raised is None
+    assert [(item["_payouts_id"], item["id"]) for item in result.rows] == [
+        ("po_one", "pay_one"),
+        ("po_one", "ref_one"),
+        ("po_two", "pay_one"),
+    ]
+    assert result.paths == [
+        "/v1/payouts",
+        "/v1/payouts/po_one/transactions",
+        "/v1/payouts/po_one/transactions",
+        "/v1/payouts",
+        "/v1/payouts/po_two/transactions",
+    ]
+    assert result.queries[2] == {"limit": ("10",), "after": ("pay_one",)}
 
 
 @pytest.mark.parametrize(
@@ -388,22 +419,38 @@ def test_webhook_info_finds_matching_url_on_later_page(exists: bool) -> None:
     assert "fake-secret" not in repr(info)
 
 
-@pytest.mark.parametrize("status", [200, 403])
-def test_refund_permissions_probe_child_endpoint(status: int) -> None:
+@pytest.mark.parametrize(
+    "status,schema,parent_path,child_path,child_query",
+    [
+        (
+            status,
+            "refunds",
+            "/v1/payments",
+            "/v1/refunds",
+            {"data.attributes.payment_id": ("pay_one",), "data.attributes.limit": ("1",)},
+        )
+        for status in (200, 403)
+    ]
+    + [
+        (status, "payout_transactions", "/v1/payouts", "/v1/payouts/pay_one/transactions", {"limit": ("1",)})
+        for status in (200, 403)
+    ],
+)
+def test_child_permissions_probe_child_endpoint(
+    status: int, schema: str, parent_path: str, child_path: str, child_query: dict[str, tuple[str, ...]]
+) -> None:
     with scripted_network(
         [
             ScriptedResponse(json={"data": [row("pay_one")]}),
             ScriptedResponse(status=status, json={"data": []}),
         ]
     ) as network:
-        valid, message = PaymongoClient("fake").validate_credentials("refunds")
+        valid, message = PaymongoClient("fake").validate_credentials(schema)
     assert valid is (status == 200)
     if status == 200:
         assert message is None
     else:
         assert message is not None and "permissions" in message
-    assert network.requests_log[1].path == "/v1/refunds"
-    assert network.requests_log[1].query == {
-        "data.attributes.payment_id": ("pay_one",),
-        "data.attributes.limit": ("1",),
-    }
+    assert network.requests_log[0].path == parent_path
+    assert network.requests_log[1].path == child_path
+    assert network.requests_log[1].query == child_query

@@ -20,6 +20,20 @@ class ModelUsageEngine(models.TextChoices):
     MANAGED_WAREHOUSE = "managed_warehouse", "Managed warehouse"
 
 
+class ModelUsageSortBy(models.TextChoices):
+    NAME = "name", "Model"
+    READ_BYTES = "read_bytes", "Bytes read"
+    CLICKHOUSE_READ_BYTES = "clickhouse_read_bytes", "ClickHouse bytes"
+    MANAGED_WAREHOUSE_READ_BYTES = "managed_warehouse_read_bytes", "Managed warehouse bytes"
+    CPU_MICROSECONDS = "cpu_microseconds", "CPU time"
+    RUNS = "runs", "Runs"
+
+
+class ModelUsageSortDirection(models.TextChoices):
+    ASC = "asc", "Ascending"
+    DESC = "desc", "Descending"
+
+
 class ModelUsageQuerySerializer(serializers.Serializer):
     days = serializers.IntegerField(
         required=False, min_value=1, max_value=90, help_text="Number of complete UTC days, up to 90."
@@ -33,6 +47,14 @@ class ModelUsageQuerySerializer(serializers.Serializer):
     page = serializers.IntegerField(default=1, min_value=1, help_text="Model breakdown page, starting at 1.")
     page_size = serializers.IntegerField(
         default=20, min_value=1, max_value=100, help_text="Models per page, up to 100."
+    )
+    sort_by = serializers.ChoiceField(
+        choices=ModelUsageSortBy.choices, default=ModelUsageSortBy.READ_BYTES, help_text="Column to sort models by."
+    )
+    sort_direction = serializers.ChoiceField(
+        choices=ModelUsageSortDirection.choices,
+        default=ModelUsageSortDirection.DESC,
+        help_text="Sort direction. Unmeasured values are always last.",
     )
     engine = serializers.ChoiceField(
         choices=ModelUsageEngine.choices,
@@ -134,7 +156,7 @@ class ModelUsageSerializer(serializers.Serializer):
     date_to = serializers.DateField(help_text="Exclusive UTC end date. Today's incomplete usage is excluded.")
     overview = ModelUsageTotalsSerializer(help_text="Totals over the whole date range.")
     trends = ModelUsageDaySerializer(many=True, help_text="Daily usage, attributed to when each run finished.")
-    models = ModelUsageRowSerializer(many=True, help_text="Model breakdown, highest measured bytes first.")
+    models = ModelUsageRowSerializer(many=True, help_text="Model breakdown in the requested sort order.")
     count = serializers.IntegerField(help_text="Total number of models in the breakdown.")
     status_breakdown = ModelStatusBreakdownSerializer(
         many=True, help_text="Latest run status for each model and engine in the selected complete-day range."
@@ -175,6 +197,8 @@ class ModelUsageViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     start_date=query_data["start_date"],
                     end_date=query_data["end_date"],
                     engines=engines,
+                    sort_by=query_data["sort_by"],
+                    sort_direction=query_data["sort_direction"],
                 )
             ).data
         )

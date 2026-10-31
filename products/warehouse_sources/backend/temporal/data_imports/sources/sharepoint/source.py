@@ -82,6 +82,10 @@ class SharePointSource(ResumableSource[SharePointSourceConfig, SharePointResumeC
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.SHAREPOINT
 
+    @property
+    def credential_kind(self) -> str | None:
+        return "sharepoint"
+
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             INVALID_SITE_URL_ERROR: None,

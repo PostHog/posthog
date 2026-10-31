@@ -17,6 +17,10 @@ let body := {
   'text': inputs.text
 };
 
+if (not empty(inputs.attachments)) {
+  body['attachments'] := inputs.attachments;
+}
+
 // Slack rejects an empty thread_ts, so only send it when there is one to reply under.
 if (not empty(inputs.thread_ts)) {
   body['thread_ts'] := inputs.thread_ts;
@@ -52,6 +56,13 @@ if (res.status != 200 or res.body.ok == false) {
 return {'channel': res.body.channel, 'ts': res.body.ts};
 `.trim(),
     inputs_schema: [
+        {
+            key: 'attachments',
+            type: 'json',
+            label: 'Attachments',
+            description: 'Optional Slack attachments for grouped message content.',
+            required: false,
+        },
         {
             key: 'slack_workspace',
             type: 'integration',

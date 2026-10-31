@@ -261,7 +261,7 @@ jobs:
 
     unit-tests:
         name: Unit Tests
-        runs-on: ubuntu-24.04
+        runs-on: depot-ubuntu-24.04-4
         timeout-minutes: 10
         needs: changes
         # Not on master push — master coverage comes from the hourly run (see `schedule`).
@@ -807,21 +807,6 @@ jobs:
             contents: write
             pull-requests: write
         steps:
-            - name: Get app token
-              id: app-token
-              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
-              with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
-                  private-key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
-
-            - name: Checkout
-              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-              with:
-                  ref: ${{ github.event.pull_request.head.sha }}
-                  repository: ${{ github.event.pull_request.head.repo.full_name }}
-                  token: ${{ steps.app-token.outputs.token }}
-                  fetch-depth: 1
-
             - name: Download snapshot patches
               id: download-patches
               continue-on-error: true
@@ -848,6 +833,23 @@ jobs:
                     echo "has-patches=false" >> $GITHUB_OUTPUT
                     echo "Patch files empty or missing - no snapshot changes"
                   fi
+
+            - name: Get app token
+              if: steps.check-patches.outputs.has-patches == 'true'
+              id: app-token
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
+
+            - name: Checkout
+              if: steps.check-patches.outputs.has-patches == 'true'
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  ref: ${{ github.event.pull_request.head.sha }}
+                  repository: ${{ github.event.pull_request.head.repo.full_name }}
+                  token: ${{ steps.app-token.outputs.token }}
+                  fetch-depth: 1
 
             - name: Commit snapshots
               if: steps.check-patches.outputs.has-patches == 'true'

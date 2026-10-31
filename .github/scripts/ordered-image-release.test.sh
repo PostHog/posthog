@@ -196,7 +196,6 @@ git -C "$scratch/executing" -c core.hooksPath=/dev/null -c commit.gpgsign=false 
 git -C "$scratch/executing" -c core.hooksPath=/dev/null -c commit.gpgsign=false merge -q --no-ff feature -m merge
 GITHUB_SHA="$(git -C "$scratch/executing" rev-parse HEAD)"
 export GITHUB_SHA
-export GITHUB_REF=refs/heads/main GITHUB_REF_NAME=main
 test "$(git -C "$scratch/executing" rev-list --first-parent --count HEAD)" = 3
 test "$(git -C "$scratch/executing" rev-list --count HEAD)" = 4
 : > "$GITHUB_OUTPUT"
@@ -212,14 +211,35 @@ git -C "$scratch/mirror" -c advice.detachedHead=false checkout -q --detach "$GIT
 (cd "$scratch/mirror" && bash "$helper" tag)
 test "$(cat "$GITHUB_OUTPUT")" = "$executing_tag"
 echo 'PASS two clones of one history preserve first-parent ordinal and tag'
+export REAL_GIT
+REAL_GIT="$(command -v git)"
+export FETCH_CALLS="$scratch/fetch-calls"
+cat > "$scratch/shims/git" <<'SHIM'
+#!/usr/bin/env bash
+if [ "$1" = fetch ]; then
+    printf '%s\n' "$*" >> "$FETCH_CALLS"
+    exit 1
+fi
+exec "$REAL_GIT" "$@"
+SHIM
+chmod +x "$scratch/shims/git"
+: > "$FETCH_CALLS"
+: > "$GITHUB_OUTPUT"
+(cd "$scratch/executing" && bash "$helper" tag) > "$scratch/tag-annotations"
+test ! -s "$FETCH_CALLS"
+test ! -s "$scratch/tag-annotations"
+test "$(cat "$GITHUB_OUTPUT")" = "$executing_tag"
+echo 'PASS complete checkout generates a tag without fetching'
 git clone -q --depth 1 "file://$scratch/executing" "$scratch/shallow"
 test "$(git -C "$scratch/shallow" rev-parse --is-shallow-repository)" = true
 test "$(git -C "$scratch/shallow" rev-list --first-parent --count HEAD)" = 1
 : > "$GITHUB_OUTPUT"
-(cd "$scratch/shallow" && bash "$helper" tag)
-test "$(git -C "$scratch/shallow" rev-parse --is-shallow-repository)" = false
-test "$(cat "$GITHUB_OUTPUT")" = "$executing_tag"
-echo 'PASS shallow checkout fetches its configured origin and recovers first-parent ordinal'
+(cd "$scratch/shallow" && bash "$helper" tag) > "$scratch/shallow-annotations"
+test ! -s "$FETCH_CALLS"
+test ! -s "$GITHUB_OUTPUT"
+grep -Fxq '::warning title=Ordered release tag skipped::The checkout must fetch full history.' "$scratch/shallow-annotations"
+echo 'PASS shallow checkout warns without fetching or producing a tag'
+rm "$scratch/shims/git"
 GITHUB_SHA="$(git -C "$scratch/mirror" rev-parse HEAD^1)"
 git -C "$scratch/mirror" cat-file -e "$GITHUB_SHA^{commit}"
 test "$GITHUB_SHA" != "$(git -C "$scratch/mirror" rev-parse HEAD)"

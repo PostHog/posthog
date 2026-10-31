@@ -10,6 +10,8 @@ import { NodeDetailHeader } from './NodeDetailHeader'
 import { NodeMessagesTab } from './NodeMessagesTab'
 import { NodePropertyList } from './NodePropertyList'
 import { NodeRawTab } from './NodeRawTab'
+import { StepFeedbackChipsProps } from './StepFeedbackChips'
+import { useSearchHighlight } from './useSearchHighlight'
 
 export interface NodeDetailProps {
     node: TraceNodeApi
@@ -23,12 +25,16 @@ export interface NodeDetailProps {
     onViewInThread: (() => void) | null
     onSelectNode: (nodeId: string) => void
     actions?: ReactNode
+    stepFeedback?: StepFeedbackChipsProps | null
+    highlightQuery?: string | null
+    matchStepCount?: number
 }
 
 export function NodeDetail(props: NodeDetailProps): JSX.Element {
+    const highlightRef = useSearchHighlight(props.highlightQuery ?? null, props.matchStepCount)
     return (
-        <div className="flex min-w-0 flex-col gap-2">
-            <NodeDetailHeader node={props.node} actions={props.actions} />
+        <div className="flex min-w-0 flex-col gap-2" ref={highlightRef}>
+            <NodeDetailHeader node={props.node} actions={props.actions} stepFeedback={props.stepFeedback} />
             <LemonTabs<NodeDetailTab>
                 size="small"
                 activeKey={props.tab}
@@ -44,6 +50,7 @@ export function NodeDetail(props: NodeDetailProps): JSX.Element {
                                 content={props.content}
                                 error={props.error}
                                 onViewInThread={props.onViewInThread}
+                                highlightQuery={props.highlightQuery}
                             />
                         ),
                     },

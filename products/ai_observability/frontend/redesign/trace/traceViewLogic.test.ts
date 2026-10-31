@@ -10,12 +10,19 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import type { TraceTimelineRowApi } from '../../generated/api.schemas'
-import { decodeIdSegment, makeEvaluationResult, makeNodeDetail, makeTraceResource } from './adapter/testFixtures'
+import {
+    decodeIdSegment,
+    makeEvaluationResult,
+    makeEvaluationResults,
+    makeNodeDetail,
+    makeTraceResource,
+} from './adapter/testFixtures'
 import { traceViewLogic } from './traceViewLogic'
 
 const TRACE_URL = '/api/projects/:team_id/ai_observability/traces/:id/'
 const NODE_URL = '/api/projects/:team_id/ai_observability/traces/:id/nodes/:node_id/'
 const EVALUATIONS_URL = '/api/projects/:team_id/ai_observability/traces/:id/evaluations/'
+const answered = makeEvaluationResults({ results: [makeEvaluationResult()] })
 const EXPIRED_ROW: TraceTimelineRowApi = {
     id: 'expired-1',
     kind: 'span',
@@ -73,7 +80,7 @@ describe('traceViewLogic', () => {
                     requestedPath = url.pathname
                     return [200, makeTraceResource({ name: null })]
                 },
-                [EVALUATIONS_URL]: () => [200, { results: [] }],
+                [EVALUATIONS_URL]: () => [200, makeEvaluationResults()],
             },
         })
         initKeaTests()
@@ -134,7 +141,7 @@ describe('traceViewLogic', () => {
     })
 
     it.each([
-        ['answers', 200, { evaluationResults: [makeEvaluationResult()], evaluationResultsFailed: false }, false],
+        ['answers', 200, { evaluationResults: answered, evaluationResultsFailed: false }, false],
         ['fails', 500, { evaluationResults: null, evaluationResultsFailed: true }, true],
     ] as const)(
         'reads the evaluation results alongside the trace and keeps the trace ready, without a toast, when that read %s',
@@ -153,9 +160,7 @@ describe('traceViewLogic', () => {
                     },
                     [EVALUATIONS_URL]: () => {
                         evaluationsReadBeforeTrace = !traceAnswered
-                        return statusCode === 200
-                            ? [200, { results: [makeEvaluationResult()] }]
-                            : [statusCode, { detail: 'nope' }]
+                        return statusCode === 200 ? [200, answered] : [statusCode, { detail: 'nope' }]
                     },
                 },
             })

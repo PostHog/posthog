@@ -208,6 +208,7 @@ rules:
                               |ErrorTrackingSymbolSet
                               |Evaluation
                               |EvaluationDirectory
+                              |EventsHealthDaily
                               |Experiment
                               |ExperimentHoldout
                               |ExperimentMetricsRecalculation
@@ -336,6 +337,7 @@ rules:
                               |PluginConfig
                               |ProductBrief
                               |ProductTour
+                              |ProviderImportRun
                               |ProjectSecretAPIKey
                               |PropertyAccessControl
                               |PullRequestAudience
@@ -349,16 +351,23 @@ rules:
                               |QueueSchedulerState
                               |QuickFilter
                               |QuickFilterContext
+                              |ReplayHighlightFeedEntry
+                              |ReplayHighlightFeedState
                               |ReplayObservation
+                              |ReplayObservationAnchorSimilarity
                               |ReplayObservationFeedDismissal
                               |ReplayObservationFeedImpression
                               |ReplayObservationLabel
                               |ReplayObservationMedia
+                              |ReplayObservationRank
                               |ReplayObservationRequest
                               |ReplayObservationUsage
                               |ReplayObservationView
                               |ReplayScanner
                               |ReplayScannerBackfill
+                              |ReplayScannerFeedGroup
+                              |ReplayScannerSearchTheme
+                              |ReplayScannerSemanticCenter
                               |ReplayVisionLearnedRuleset
                               |Repo
                               |RepoRoutingRule
@@ -380,7 +389,9 @@ rules:
                               |HeatmapCaptureConfigVersion
                               |HeatmapCaptureRequest
                               |HeatmapScreenshotHistory
+                              |HostProxyDaily
                               |ScheduledChange
+                              |SdkVersionsDaily
                               |SessionGroupSummary
                               |SessionRecording
                               |SessionRecordingPlaylist
@@ -414,6 +425,8 @@ rules:
                               |SignalScoutSuggestionSet
                               |SignalScoutBackgroundBand
                               |SignalSpend
+                              |LegacySignalSpend
+
                               |AnomalyScoringState
                               |SignalScratchpad
                               |SignalProjectProfile
@@ -432,6 +445,7 @@ rules:
                               |PlatformAlertDeliveryPath
                               |PlatformAlertThread
                               |AlertDestination
+                              |SupabaseAuthEmailConfig
                               |Survey
                               |SurveyResponseArchive
                               |TableCertification
@@ -494,6 +508,7 @@ rules:
                               |WizardSession
                               |WizardWorker
                               |WorkflowIdea
+                              |WorkflowImport
                               |WorkflowProposal
                           )$
                 - focus-metavariable: $SINK
@@ -698,6 +713,7 @@ rules:
                         |ErrorTrackingSymbolSet
                         |Evaluation
                         |EvaluationDirectory
+                        |EventsHealthDaily
                         |Experiment
                         |ExperimentHoldout
                         |ExperimentMetricsRecalculation
@@ -816,6 +832,7 @@ rules:
                         |PluginConfig
                         |ProductBrief
                         |ProductTour
+                        |ProviderImportRun
                         |ProjectSecretAPIKey
                         |PropertyAccessControl
                         |PullRequestAudience
@@ -829,16 +846,23 @@ rules:
                         |QueueSchedulerState
                         |QuickFilter
                         |QuickFilterContext
+                        |ReplayHighlightFeedEntry
+                        |ReplayHighlightFeedState
                         |ReplayObservation
+                        |ReplayObservationAnchorSimilarity
                         |ReplayObservationFeedDismissal
                         |ReplayObservationFeedImpression
                         |ReplayObservationLabel
                         |ReplayObservationMedia
+                        |ReplayObservationRank
                         |ReplayObservationRequest
                         |ReplayObservationUsage
                         |ReplayObservationView
                         |ReplayScanner
                         |ReplayScannerBackfill
+                        |ReplayScannerFeedGroup
+                        |ReplayScannerSearchTheme
+                        |ReplayScannerSemanticCenter
                         |ReplayVisionLearnedRuleset
                         |Repo
                         |RepoRoutingRule
@@ -860,7 +884,9 @@ rules:
                         |HeatmapCaptureConfigVersion
                         |HeatmapCaptureRequest
                         |HeatmapScreenshotHistory
+                        |HostProxyDaily
                         |ScheduledChange
+                        |SdkVersionsDaily
                         |SessionGroupSummary
                         |SessionRecording
                         |SessionRecordingPlaylist
@@ -894,6 +920,8 @@ rules:
                         |SignalScoutSuggestionSet
                         |SignalScoutBackgroundBand
                         |SignalSpend
+                        |LegacySignalSpend
+
                         |AnomalyScoringState
                         |SignalScratchpad
                         |SignalProjectProfile
@@ -912,6 +940,7 @@ rules:
                         |PlatformAlertDeliveryPath
                         |PlatformAlertThread
                         |AlertDestination
+                        |SupabaseAuthEmailConfig
                         |Survey
                         |SurveyResponseArchive
                         |TableCertification
@@ -973,6 +1002,7 @@ rules:
                         |WizardSession
                         |WizardWorker
                         |WorkflowIdea
+                        |WorkflowImport
                         |WorkflowProposal
                     )$
           # Exclude when team filter is present
@@ -1116,6 +1146,7 @@ rules:
                         |Event
                         |EventFilterConfig
                         |EventFilterPipelineOverride
+                        |EventsHealthDaily
                         |ExperimentTimeseriesRecalculation
                         |ExplicitTeamMembership
                         |ExportedAsset
@@ -1139,6 +1170,7 @@ rules:
                         |HogFlowTemplate
                         |HogFunction
                         |Hook
+                        |HostProxyDaily
                         |InsightViewed
                         |Integration
                         |IntegrationRepositoryCacheEntry
@@ -1198,6 +1230,7 @@ rules:
                         |QueueSchedulerState
                         |QuickFilter
                         |QuickFilterContext
+                        |RealtimeCohortTeamAccess
                         |RemoteConfig
                         |ReplayObservation
                         |ReplayObservationLabel
@@ -1211,6 +1244,7 @@ rules:
                         |SandboxEnvironment
                         |SavedHeatmap
                         |ScoreDefinition
+                        |SdkVersionsDaily
                         |SessionRecording
                         |SessionRecordingEvent
                         |SessionRecordingPlaylist
@@ -1691,6 +1725,7 @@ rules:
                               |InsightViewed
                               |KernelRuntime
                               |MCPServerInstallation
+                              |PersonalInboxRanking
                               |Reminder
                               |SessionRecordingViewed
                               |UserActivitySummary
@@ -1766,6 +1801,7 @@ rules:
                         |FileSystemViewLog
                         |InsightViewed
                         |KernelRuntime
+                        |PersonalInboxRanking
                         |Reminder
                         |SessionRecordingViewed
                         |UserActivitySummary

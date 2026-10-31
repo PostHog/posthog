@@ -13,7 +13,7 @@ from uuid import UUID
 
 from django.db.models import Expression, Prefetch, Q, QuerySet, Subquery, Value
 from django.db.models.fields.json import KeyTextTransform, KeyTransform
-from django.db.models.functions import Concat, Lower
+from django.db.models.functions import Coalesce, Concat, Lower
 from django.utils import timezone
 
 from social_django.models import UserSocialAuth
@@ -297,7 +297,10 @@ def _with_reviewer_presentation(
     safe_reason = bounded_reviewer_reason(reason)
     explanation: str | None
 
-    if safe_commits:
+    if reviewer.get("is_default_owner"):
+        source_label = "Default owner"
+        explanation = safe_reason
+    elif safe_commits:
         source_label = "Code history"
         explanation = _commit_explanation(safe_commits)
     elif isinstance(source_skill, str) and source_skill:
@@ -914,20 +917,34 @@ def resolve_org_users_by_uuid(team_id: int, user_uuids: Iterable[str]) -> dict[s
     return {str(user.uuid): user for user in users}
 
 
-def get_org_member_users_by_uuid(team_id: int) -> dict[str, User] | None:
-    """Every active org member on the team's organization, keyed by user UUID.
-
-    Backs the inbox reviewer picker. A linked GitHub identity is not required, so a member who
-    never connected GitHub can be picked (and can pick themselves). Returns None if the team doesn't
-    exist, otherwise a dict (possibly empty).
-    """
+def search_org_member_users_by_uuid(team_id: int, *, query: str = "", limit: int) -> dict[str, User] | None:
+    """Search active org members for the inbox reviewer picker, keyed by user UUID."""
     try:
         org_id = str(Team.objects.values_list("organization_id", flat=True).get(id=team_id))
     except Team.DoesNotExist:
         return None
 
     member_ids = OrganizationMembership.objects.filter(organization_id=org_id).values_list("user_id", flat=True)
-    users = User.objects.filter(id__in=member_ids, is_active=True).order_by("id")
+    users = User.objects.filter(id__in=member_ids, is_active=True)
+    if query:
+        users = users.annotate(
+            _full_name=Concat(
+                Coalesce("first_name", Value("")),
+                Value(" "),
+                Coalesce("last_name", Value("")),
+            )
+        ).filter(
+            Q(first_name__icontains=query)
+            | Q(last_name__icontains=query)
+            | Q(email__icontains=query)
+            | Q(_full_name__icontains=query)
+        )
+    users = users.order_by(
+        Lower(Coalesce("first_name", Value(""))),
+        Lower(Coalesce("last_name", Value(""))),
+        Lower(Coalesce("email", Value(""))),
+        "uuid",
+    )[:limit]
     return {str(user.uuid): user for user in users}
 
 

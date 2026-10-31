@@ -66,6 +66,7 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
         lifecycleFilter,
         formula,
         hasPersonsModal,
+        actionNames,
         querySource,
         showValuesOnSeries,
         showPercentagesOnSeries,
@@ -113,8 +114,8 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
     )
 
     const buildMeta = useCallback(
-        (r: IndexedTrendResult): TrendsSeriesMeta => buildTrendsSeriesMeta(r, querySource),
-        [querySource]
+        (r: IndexedTrendResult): TrendsSeriesMeta => buildTrendsSeriesMeta(r, querySource, actionNames),
+        [querySource, actionNames]
     )
 
     const {

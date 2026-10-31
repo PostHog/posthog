@@ -14,6 +14,7 @@ import { objectsEqual } from 'lib/utils/objects'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { REPORT_AI_PANEL, SCOUT_AI_PANEL, SIDE_PANEL_PANEL_ID, type PhaiViewMode } from '~/layout/ai/aiPanelIds'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { productUrls } from '~/products'
@@ -33,13 +34,11 @@ import {
     runnerPanelLogic,
     taskLogic,
 } from 'products/posthog_ai/frontend/api/logics'
-import { REPORT_AI_PANEL } from 'products/signals/frontend/inbox/inboxTaskKickoffLogic'
-import { SCOUT_AI_PANEL } from 'products/signals/frontend/inbox/logics/scoutAiLogic'
 
 import type { ToolRegistration } from './max-constants'
 import { PENDING_AI_PROMPT_KEY } from './max-storage-keys'
 import { maxContextLogic } from './maxContextLogic'
-import { maxGlobalLogic, type PhaiViewMode } from './maxGlobalLogic'
+import { maxGlobalLogic } from './maxGlobalLogic'
 import { MaxUIContext } from './maxTypes'
 import type { TopicSuggestion } from './suggestionTopics'
 import { nextTypingDelayMs } from './utils/typing'
@@ -147,9 +146,6 @@ function handleCommandString(options: string, actions: maxLogicType['actions'], 
 
 const CHAT_TITLE_NEW = 'New chat'
 const CHAT_TITLE_HISTORY = 'Chat history'
-
-// Fixed panelId for the floating side panel chat, which is not a scene tab.
-export const SIDE_PANEL_PANEL_ID = 'sidepanel'
 
 // Fallback panelId for the bare /ai scene, which has no tab id and no side panel chrome.
 export const SCENE_PANEL_ID = 'scene'

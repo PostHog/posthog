@@ -183,6 +183,7 @@ def test_provision_worker_uses_persisted_run_identity(team, user) -> None:
     worker_record = apps.get_model("wizard", "WizardWorker").objects.for_team(team.id).get(run_id=run.id)
     assert worker_record.sandbox_id == "worker-id"
     assert worker_record.cleanup_status == "active"
+    assert worker_record.resource_usage is not None
     assert worker_record.resource_usage["cpu_cores"] == 2.0
 
     provision.reset_mock()
@@ -466,5 +467,6 @@ def test_create_run_artifacts_persists_git_diff_and_pull_request(_write: MagicMo
     assert pull_request_artifact.number == pull_request.number
     assert wizard_facade.get_run(team.id, run.id).status == WizardRunStatus.COMPLETED
     worker = apps.get_model("wizard", "WizardWorker").objects.for_team(team.id).get(run_id=run.id)
+    assert worker.resource_usage is not None
     assert worker.resource_usage["provider_cpu_usage_usec"] == 1_000_000
     assert worker.resource_usage["provider_billed_cpu_usage_usec"] == 2_000_000

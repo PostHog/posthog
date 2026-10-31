@@ -9,7 +9,7 @@ import type { ReviewerEditActionEnumApi } from 'products/signals/frontend/genera
 
 import { captureInboxReportAction, InboxReportActionSurface } from '../../inboxAnalytics'
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
-import { EnrichedReviewer, SignalReport } from '../../types'
+import { EnrichedReviewer, ReviewerRemoval, SignalReport } from '../../types'
 import {
     AvailableReviewerOption,
     getReviewerOptionDisplayName,
@@ -36,7 +36,8 @@ export function removeSuggestedReviewer({
     updateReviewers: (
         content: Record<string, string>[],
         optimistic: EnrichedReviewer[],
-        action: Extract<ReviewerEditActionEnumApi, 'add' | 'remove'>
+        action: Extract<ReviewerEditActionEnumApi, 'add' | 'remove'>,
+        removal?: ReviewerRemoval
     ) => void
 }): void {
     removeSuggestedReviewers({ report, surface, targets: [target], reviewers, updateReviewers })
@@ -48,15 +49,18 @@ export function removeSuggestedReviewers({
     targets,
     reviewers,
     updateReviewers,
+    removal,
 }: {
     report: SignalReport
     surface: InboxReportActionSurface
     targets: EnrichedReviewer[]
     reviewers: EnrichedReviewer[]
+    removal?: ReviewerRemoval
     updateReviewers: (
         content: Record<string, string>[],
         optimistic: EnrichedReviewer[],
-        action: Extract<ReviewerEditActionEnumApi, 'add' | 'remove'>
+        action: Extract<ReviewerEditActionEnumApi, 'add' | 'remove'>,
+        removal?: ReviewerRemoval
     ) => void
 }): void {
     for (const target of targets) {
@@ -64,15 +68,18 @@ export function removeSuggestedReviewers({
             report,
             actionType: 'remove_suggested_reviewer',
             surface,
+            // pinned: analytics property names — renaming breaks dashboards
             extra: {
                 suggested_reviewer_login: target.github_login || undefined,
                 suggested_reviewer_uuid: target.user?.uuid,
+                removal_reason: removal?.reason ?? undefined,
+                has_removal_note: removal ? !!removal.note?.trim() : undefined,
             },
         })
     }
     const removed = new Set(targets)
     const next = reviewers.filter((reviewer) => !removed.has(reviewer))
-    updateReviewers(reviewersToWriteContent(targets), next, 'remove')
+    updateReviewers(reviewersToWriteContent(targets), next, 'remove', removal)
 }
 
 /**

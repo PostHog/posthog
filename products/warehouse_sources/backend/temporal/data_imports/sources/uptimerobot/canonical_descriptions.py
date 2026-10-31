@@ -3,6 +3,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 
 _DOCS_URL = "https://uptimerobot.com/api/"
+_V3_DOCS_URL = "https://uptimerobot.com/api/v3/"
 
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     "monitors": {
@@ -79,6 +80,41 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "monitors": "Monitors shown on the status page (0 means all monitors).",
             "sort": "Sort order of monitors on the page: 1 = friendly name (a-z), 2 = friendly name (z-a), 3 = status (up-down-paused), 4 = status (down-up-paused).",
             "status": "Status page status: 0 = paused, 1 = active.",
+        },
+    },
+    "incidents": {
+        "description": "Downtime incidents across the account's monitors, one row per incident.",
+        "docs_url": _V3_DOCS_URL,
+        "columns": {
+            "id": "Unique identifier of the incident.",
+            "status": "Current status of the incident, for example whether it is still ongoing or resolved.",
+            "type": "Type of the incident.",
+            "cause": "Numeric code of the cause of the incident, if known.",
+            "reason": "Human-readable reason for the incident.",
+            "monitor": "The affected monitor, as an object with its id and friendlyName.",
+            "commentsCount": "Number of comments on the incident.",
+            "startedAt": "When the incident started.",
+            "resolvedAt": "When the incident was resolved. Empty while the incident is ongoing.",
+            "duration": "Duration of the incident, in seconds. Empty while the incident is ongoing.",
+            "includeInReports": "Whether the incident counts toward uptime reports.",
+        },
+    },
+    "monitor_groups": {
+        "description": "Groups that organize monitors. Resolves the group id carried on each monitor.",
+        "docs_url": _V3_DOCS_URL,
+        "columns": {
+            "id": "Unique identifier of the monitor group.",
+            "name": "Name of the monitor group.",
+            "createdAt": "When the monitor group was created.",
+            "updatedAt": "When the monitor group was last updated.",
+        },
+    },
+    "tags": {
+        "description": "Tags that label monitors. Resolves the tag ids carried on each monitor.",
+        "docs_url": _V3_DOCS_URL,
+        "columns": {
+            "id": "Unique identifier of the tag.",
+            "name": "Name of the tag.",
         },
     },
 }

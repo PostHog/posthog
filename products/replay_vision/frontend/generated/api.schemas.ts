@@ -871,7 +871,7 @@ export const FeedDismissalReasonEnumApi = {
 } as const
 
 /**
- * Why the calling user marked an observation not useful in What to watch.
+ * Why the calling user marked an observation not useful in the Highlights feed.
  */
 export interface ObservationFeedDismissalApi {
     /** Optional reason the observation was not useful. Omit or send null when the user gave none.
@@ -935,7 +935,7 @@ export interface ObservationSearchResponseApi {
 }
 
 export interface SearchSuggestionsResponseApi {
-    /** Up to 4 example searches naming themes in recent observations. Empty until a scheduled refresh has run for a scanner someone viewed. */
+    /** Up to 4 example searches naming the largest active themes in recent issue observations. Empty until a scanner has a named theme. */
     queries: string[]
 }
 
@@ -971,6 +971,8 @@ export interface VisionQuotaApi {
     readonly projected_monthly_credits: number
     /** Credit-weighted sum of enabled scanners' projected observations/month across the organization. A capped scanner contributes at most what its own credit limit has left this period, folded back into a 30-day rate. A monthly rate: only the part falling in the days left of the period lands this period. Scanners without a computed estimate contribute 0. */
     readonly scanners_monthly_credits: number
+    /** The part of `scanners_monthly_credits` that lands between now and `period_end`. Use it for rest-of-period forecasts; billing forecasts from the same figure. */
+    readonly scanners_period_credits: number
     /** Committed-but-unspent credits of the organization's active backfills. A one-off charge rather than a rate, so it lands in full regardless of how much of the period is left. */
     readonly backfills_committed_credits: number
     /** Credits per period included for free. Already counted inside `credit_limit`; only credits beyond this number are billed. */
@@ -1366,6 +1368,11 @@ export interface ReplayScannerApi {
     readonly dashboard_suggested: boolean
     /** Watermark for the scanner's last scheduled fire. Mirrors Temporal schedule state for recovery. */
     readonly last_swept_at: string
+    /**
+     * Why the scanner's recording filter cannot run, from the last sweep or estimate that tried it. Cleared when the filter changes or a sweep runs it.
+     * @nullable
+     */
+    readonly filter_error: string | null
     readonly created_at: string
     /** User who created the scanner. */
     readonly created_by: UserBasicApi | null
@@ -1510,6 +1517,11 @@ export interface PatchedReplayScannerApi {
     readonly dashboard_suggested?: boolean
     /** Watermark for the scanner's last scheduled fire. Mirrors Temporal schedule state for recovery. */
     readonly last_swept_at?: string
+    /**
+     * Why the scanner's recording filter cannot run, from the last sweep or estimate that tried it. Cleared when the filter changes or a sweep runs it.
+     * @nullable
+     */
+    readonly filter_error?: string | null
     readonly created_at?: string
     /** User who created the scanner. */
     readonly created_by?: UserBasicApi | null
@@ -2697,6 +2709,8 @@ export interface DraftScannerRequestApi {
      * @maximum 2147483647
      */
     experiment_id?: number
+    /** A `RecordingsQuery` the person already chose, as the replay list holds it. The draft starts from it and never removes or widens it. When the goal asks for narrower recordings, the draft can AND its own page, event, action or cohort filters onto it. It keeps them only when the combined filter still matches recent recordings, returns them in `query_additions`, and sizes the sampling dials against the combined `query`. `experiment_exposure` becomes the scanner's experiment and variants, which the draft keeps as they are. `date_from`/`date_to` are dropped, because a scanner's schedule owns time. `comment_text`, `hide_viewed_recordings` and in-session exposure are refused, because a scanner cannot apply them. A query with no filters starts from every new recording. Omit to let the draft pick the sessions. */
+    query?: unknown
 }
 
 /**
@@ -2721,6 +2735,8 @@ export interface DraftScannerResponseApi {
     rationale: string
     /** `RecordingsQuery` narrowing which sessions get scanned; null when the draft targets every session. */
     query: unknown
+    /** When the request passed a `query`: the filters the draft ANDed onto it, which `query` already includes. Show them to the person as added by AI. Null when nothing was added or no `query` was passed. */
+    query_additions: unknown
     /** The quality pre-filter the draft chose for the goal. Null when the costing estimate failed, in which case the wizard keeps its defaults.
      *
      * * `focused` - Focused
@@ -2827,6 +2843,97 @@ export interface EstimateResponseApi {
 }
 
 /**
+ * * `embedding_pick` - Embedding Pick
+ * * `unviewed_recent` - Unviewed Recent
+ * * `recent` - Recent
+ */
+export type HighlightFeedReasonEnumApi = (typeof HighlightFeedReasonEnumApi)[keyof typeof HighlightFeedReasonEnumApi]
+
+export const HighlightFeedReasonEnumApi = {
+    EmbeddingPick: 'embedding_pick',
+    UnviewedRecent: 'unviewed_recent',
+    Recent: 'recent',
+} as const
+
+/**
+ * * `failure` - Failure
+ * * `struggle` - Struggle
+ * * `revenue` - Revenue
+ */
+export type HighlightFeedCategoryEnumApi =
+    (typeof HighlightFeedCategoryEnumApi)[keyof typeof HighlightFeedCategoryEnumApi]
+
+export const HighlightFeedCategoryEnumApi = {
+    Failure: 'failure',
+    Struggle: 'struggle',
+    Revenue: 'revenue',
+} as const
+
+/**
+ * Machine-readable reason an observation made the feed; the frontend renders the copy.
+ */
+export interface HighlightFeedReasonApi {
+    /** Why the observation is in the feed: `embedding_pick` (the session reads like a failure, struggle, or revenue moment and ranks in its scanner's top fifth), `unviewed_recent` (new to you), `recent` (nothing special, newest available).
+     *
+     * * `embedding_pick` - Embedding Pick
+     * * `unviewed_recent` - Unviewed Recent
+     * * `recent` - Recent */
+    kind: HighlightFeedReasonEnumApi
+    /** What the session reads like, for `embedding_pick`.
+     *
+     * * `failure` - Failure
+     * * `struggle` - Struggle
+     * * `revenue` - Revenue */
+    watch_category?: HighlightFeedCategoryEnumApi
+    /**
+     * Other sessions from the same scanner in the window that describe nearly the same thing, for `embedding_pick`. The feed shows one session per group.
+     * @nullable
+     */
+    similar_count?: number | null
+    /**
+     * Distinct people across the session's feed group in the window, for `embedding_pick`. A finding that reached more people ranks higher.
+     * @nullable
+     */
+    affected_people?: number | null
+}
+
+/**
+ * One feed entry: the observation plus why it ranked.
+ */
+export interface HighlightFeedItemApi {
+    /** The observation, in the standard shape. */
+    observation: ReplayObservationApi
+    /** Why this observation made the feed. */
+    reason: HighlightFeedReasonApi
+}
+
+/**
+ * Response of GET /vision/scanners/highlight_feed/.
+ */
+export interface HighlightFeedResponseApi {
+    /** Succeeded observations in the window worth watching, most interesting first, each carrying the reason it ranked. Every observation that carries a finding is returned; observations that carry none (`unviewed_recent`, `recent`) are returned only to pad a near-empty feed to three items, so a quiet window answers with a handful of rows rather than a full page of newest clips. */
+    results: HighlightFeedItemApi[]
+    /** Whether a later page holds more ranked items. Request it with `offset` set past this page. */
+    has_more: boolean
+    /** The time this feed ranks as of. Send it back with later pages. */
+    as_of: string
+}
+
+/**
+ * Body of POST /vision/scanners/highlight_feed_impressions/.
+ */
+export interface HighlightFeedImpressionsApi {
+    /** The client's id for the feed load that showed these cards. One load counts each card once. */
+    feed_load_id: string
+    /**
+     * Observations the calling user saw in the Highlights feed, at most 100. Ids the user cannot read are ignored.
+     * @minItems 1
+     * @maxItems 100
+     */
+    observation_ids: string[]
+}
+
+/**
  * Body of POST /vision/scanners/inline_scan/ - a prompt or built-in scan plus the sessions to point it at.
  */
 export interface InlineScanRequestApi {
@@ -2909,254 +3016,6 @@ export interface ScannerStatsResponseApi {
     enabled: number
     /** Per-scanner-type breakdown (monitor / classifier / scorer / summarizer / experiment). */
     by_type: ScannerStatsByTypeApi
-}
-
-/**
- * * `signal_emitted` - Signal Emitted
- * * `unusual_verdict` - Unusual Verdict
- * * `notable` - Notable
- * * `verdict_yes` - Verdict Yes
- * * `outlier_score` - Outlier Score
- * * `rare_tag` - Rare Tag
- * * `novel_summary` - Novel Summary
- * * `friction` - Friction
- * * `jev_watchable` - Jev Watchable
- * * `embedding_pick` - Embedding Pick
- * * `unviewed_recent` - Unviewed Recent
- * * `recent` - Recent
- */
-export type WatchFeedReasonEnumApi = (typeof WatchFeedReasonEnumApi)[keyof typeof WatchFeedReasonEnumApi]
-
-export const WatchFeedReasonEnumApi = {
-    SignalEmitted: 'signal_emitted',
-    UnusualVerdict: 'unusual_verdict',
-    Notable: 'notable',
-    VerdictYes: 'verdict_yes',
-    OutlierScore: 'outlier_score',
-    RareTag: 'rare_tag',
-    NovelSummary: 'novel_summary',
-    Friction: 'friction',
-    JevWatchable: 'jev_watchable',
-    EmbeddingPick: 'embedding_pick',
-    UnviewedRecent: 'unviewed_recent',
-    Recent: 'recent',
-} as const
-
-/**
- * One signal an observation raised, named rather than counted.
- */
-export interface WatchFeedSignalApi {
-    /** Issue type: `bug`, `crash`, `design_flaw`, or `ux_friction`. */
-    problem_type: string
-    /** The finding in a few words, written by the scan. The full description lives on the signal itself. */
-    headline: string
-}
-
-/**
- * * `visible_error` - Error on screen
- * * `silent_failure` - Action silently failed
- * * `unresponsive` - Clicks went nowhere
- * * `slow_or_stuck` - Slow or stuck
- * * `blocked` - Blocked
- * * `cant_find` - Couldn't find it
- * * `confused` - Confused
- * * `workaround` - Took a workaround
- * * `abandoned` - Gave up
- * * `churn_signal` - Churn signal
- * * `success` - Worked well
- */
-export type JevWatchReasonEnumApi = (typeof JevWatchReasonEnumApi)[keyof typeof JevWatchReasonEnumApi]
-
-export const JevWatchReasonEnumApi = {
-    VisibleError: 'visible_error',
-    SilentFailure: 'silent_failure',
-    Unresponsive: 'unresponsive',
-    SlowOrStuck: 'slow_or_stuck',
-    Blocked: 'blocked',
-    CantFind: 'cant_find',
-    Confused: 'confused',
-    Workaround: 'workaround',
-    Abandoned: 'abandoned',
-    ChurnSignal: 'churn_signal',
-    Success: 'success',
-} as const
-
-/**
- * * `failure` - Failure
- * * `struggle` - Struggle
- * * `revenue` - Revenue
- */
-export type WatchFeedCategoryEnumApi = (typeof WatchFeedCategoryEnumApi)[keyof typeof WatchFeedCategoryEnumApi]
-
-export const WatchFeedCategoryEnumApi = {
-    Failure: 'failure',
-    Struggle: 'struggle',
-    Revenue: 'revenue',
-} as const
-
-/**
- * Machine-readable reason an observation made the feed; the frontend renders the copy.
- */
-export interface WatchFeedReasonApi {
-    /** Highest-priority rule the observation satisfied: `signal_emitted` (it pushed a signal), `unusual_verdict` (a monitor answer that is the minority for that scanner this window), `verdict_yes` (a monitor hit, when the window is too thin to know which answer is unusual), `outlier_score` (far from the scanner's window average), `rare_tag` (a tag uncommon for the scanner this window), `novel_summary` (a summary that reads unlike the scanner's other sessions this window), `notable` (the scan itself judged the session worth watching), `friction` (the scan describes errors, retries, or dead ends), `jev_watchable` (the decision model judged the session worth watching; teams on the Jev ranker experiment only), `embedding_pick` (the session reads like a failure, struggle, or revenue moment and ranks in its scanner's top fifth; teams on the embedding ranker only), `unviewed_recent` (new to you), `recent` (nothing special, newest available).
-     *
-     * * `signal_emitted` - Signal Emitted
-     * * `unusual_verdict` - Unusual Verdict
-     * * `notable` - Notable
-     * * `verdict_yes` - Verdict Yes
-     * * `outlier_score` - Outlier Score
-     * * `rare_tag` - Rare Tag
-     * * `novel_summary` - Novel Summary
-     * * `friction` - Friction
-     * * `jev_watchable` - Jev Watchable
-     * * `embedding_pick` - Embedding Pick
-     * * `unviewed_recent` - Unviewed Recent
-     * * `recent` - Recent */
-    kind: WatchFeedReasonEnumApi
-    /**
-     * Signals this observation emitted, for `signal_emitted`.
-     * @nullable
-     */
-    signals_count?: number | null
-    /** Issue type of each emitted signal (`bug`, `crash`, `design_flaw`, `ux_friction`), one entry per signal in the order raised, for `signal_emitted`. Absent on signals scanned before this shipped. */
-    problem_types?: string[]
-    /** Each emitted signal in the order raised, for `signal_emitted`. Carries what the card needs to name the findings instead of counting them. Absent on sessions scanned before this shipped, which carry `problem_types` alone. */
-    signals?: WatchFeedSignalApi[]
-    /**
-     * The monitor's answer, for `unusual_verdict`.
-     * @nullable
-     */
-    verdict?: string | null
-    /**
-     * Share (0-1) of the scanner's window observations with this answer, for `unusual_verdict`.
-     * @nullable
-     */
-    verdict_share?: number | null
-    /**
-     * The scan's own 0-1 judgment of how much a team would benefit from watching, for `notable`.
-     * @nullable
-     */
-    notability?: number | null
-    /**
-     * The decision model's 0-1 judgment that the session is worth watching, for `jev_watchable`.
-     * @nullable
-     */
-    jev_probability?: number | null
-    /**
-     * The scan's own sentence naming why the session is worth watching. Present on the `notable` and `jev_watchable` reason kinds when the scan itself found the session notable, and preferred over copy derived from the reason kind. Absent on observations scanned before notability shipped.
-     * @nullable
-     */
-    notability_reason?: string | null
-    /** Why the decision model rated the session worth watching, picked from a fixed list, for `jev_watchable`. Absent when no reason on the list fits, or on sessions judged before reasons shipped.
-     *
-     * * `visible_error` - Error on screen
-     * * `silent_failure` - Action silently failed
-     * * `unresponsive` - Clicks went nowhere
-     * * `slow_or_stuck` - Slow or stuck
-     * * `blocked` - Blocked
-     * * `cant_find` - Couldn't find it
-     * * `confused` - Confused
-     * * `workaround` - Took a workaround
-     * * `abandoned` - Gave up
-     * * `churn_signal` - Churn signal
-     * * `success` - Worked well */
-    watch_reason?: JevWatchReasonEnumApi
-    /**
-     * The observation's score, for `outlier_score`.
-     * @nullable
-     */
-    score?: number | null
-    /**
-     * The scanner's mean score in the window, for `outlier_score`.
-     * @nullable
-     */
-    window_mean?: number | null
-    /**
-     * The rare tag that ranked the observation, for `rare_tag`.
-     * @nullable
-     */
-    tag?: string | null
-    /**
-     * Share (0-1) of the scanner's window observations carrying `tag`, for `rare_tag`.
-     * @nullable
-     */
-    tag_share?: number | null
-    /** What the session reads like, for `embedding_pick`.
-     *
-     * * `failure` - Failure
-     * * `struggle` - Struggle
-     * * `revenue` - Revenue */
-    watch_category?: WatchFeedCategoryEnumApi
-    /**
-     * Other sessions from the same scanner in the window that describe nearly the same thing, for `embedding_pick`. The feed shows one session per group.
-     * @nullable
-     */
-    similar_count?: number | null
-    /**
-     * Distinct people across the session's duplicate group in the window, for `embedding_pick`. A finding that reached more people ranks higher.
-     * @nullable
-     */
-    affected_people?: number | null
-}
-
-/**
- * One feed entry: the observation plus why it ranked.
- */
-export interface WatchFeedItemApi {
-    /** The observation, in the standard shape. */
-    observation: ReplayObservationApi
-    /** Why this observation made the feed. */
-    reason: WatchFeedReasonApi
-}
-
-/**
- * * `weighted-score` - Weighted Score
- * * `jev` - Jev
- * * `embedding` - Embedding
- */
-export type WatchFeedRankerEnumApi = (typeof WatchFeedRankerEnumApi)[keyof typeof WatchFeedRankerEnumApi]
-
-export const WatchFeedRankerEnumApi = {
-    WeightedScore: 'weighted-score',
-    Jev: 'jev',
-    Embedding: 'embedding',
-} as const
-
-/**
- * Response of GET /vision/scanners/watch_feed/.
- */
-export interface WatchFeedResponseApi {
-    /** Succeeded observations in the window worth watching, most interesting first, each carrying the reason it ranked. Every observation that carries a finding is returned; observations that carry none (`unviewed_recent`, `recent`) are returned only to pad a near-empty feed to three items, so a quiet window answers with a handful of rows rather than a full page of newest clips. */
-    results: WatchFeedItemApi[]
-    /** Whether a later page holds more ranked items. Request it with `offset` set past this page. */
-    has_more: boolean
-    /** The time this feed ranks as of. Send it back with later pages. */
-    as_of: string
-    /** Which ranker ordered this feed: `jev` ranks on the decision model's cached judgments, `embedding` on the rank the watch rank consumer wrote from the observation's embedding, `weighted-score` on the deterministic blend. The arm is decided server-side per team, so clients read it from here rather than evaluating the flag themselves.
-     *
-     * * `weighted-score` - Weighted Score
-     * * `jev` - Jev
-     * * `embedding` - Embedding */
-    ranker: WatchFeedRankerEnumApi
-    /**
-     * The team's variant of the `vision-watch-feed-ranker` experiment flag (`control`, `jev-shadow`, `jev`, `embedding`), or null when the team takes no part. Unlike `ranker`, it tells the shadow arm from control. Clients report it on the feed-viewed event as `$feature/vision-watch-feed-ranker`, which is the exposure the experiment counts.
-     * @nullable
-     */
-    ranker_variant: string | null
-}
-
-/**
- * Body of POST /vision/scanners/watch_feed_impressions/.
- */
-export interface WatchFeedImpressionsApi {
-    /** The client's id for the feed load that showed these cards. One load counts each card once. */
-    feed_load_id: string
-    /**
-     * Observations the calling user saw in What to watch, at most 100. Ids the user cannot read are ignored.
-     * @minItems 1
-     * @maxItems 100
-     */
-    observation_ids: string[]
 }
 
 export type VisionAlertsListParams = {
@@ -3278,7 +3137,11 @@ export type VisionObservationsRetrieveParams = {
      */
     verdict?: string
     /**
-     * Only observations the watch feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
+     * Only observations the watch feed ranks under any of these kinds (comma-separated: failure, struggle, revenue). Pair it with `watch_group` and the feed's `categories`.
+     */
+    watch_category?: string
+    /**
+     * Only observations the highlight feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
      */
     watch_group?: string
 }
@@ -3525,7 +3388,11 @@ export type VisionScannersObservationsListParams = {
      */
     verdict?: string
     /**
-     * Only observations the watch feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
+     * Only observations the watch feed ranks under any of these kinds (comma-separated: failure, struggle, revenue). Pair it with `watch_group` and the feed's `categories`.
+     */
+    watch_category?: string
+    /**
+     * Only observations the highlight feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
      */
     watch_group?: string
 }
@@ -3588,7 +3455,11 @@ export type VisionScannersObservationsRetrieveParams = {
      */
     verdict?: string
     /**
-     * Only observations the watch feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
+     * Only observations the watch feed ranks under any of these kinds (comma-separated: failure, struggle, revenue). Pair it with `watch_group` and the feed's `categories`.
+     */
+    watch_category?: string
+    /**
+     * Only observations the highlight feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
      */
     watch_group?: string
 }
@@ -3651,7 +3522,11 @@ export type VisionScannersObservationsSignalReportsListParams = {
      */
     verdict?: string
     /**
-     * Only observations the watch feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
+     * Only observations the watch feed ranks under any of these kinds (comma-separated: failure, struggle, revenue). Pair it with `watch_group` and the feed's `categories`.
+     */
+    watch_category?: string
+    /**
+     * Only observations the highlight feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
      */
     watch_group?: string
 }
@@ -3738,16 +3613,25 @@ export type VisionScannersObservationsStatsRetrieveParams = {
      */
     verdict?: string
     /**
-     * Only observations the watch feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
+     * Only observations the watch feed ranks under any of these kinds (comma-separated: failure, struggle, revenue). Pair it with `watch_group` and the feed's `categories`.
+     */
+    watch_category?: string
+    /**
+     * Only observations the highlight feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
      */
     watch_group?: string
 }
 
-export type VisionScannersWatchFeedRetrieveParams = {
+export type VisionScannersHighlightFeedRetrieveParams = {
     /**
      * The time the first page loaded. Later pages rank as of that time: observations, views, dismissals and impressions after it are ignored, so pages do not shift under a reader who scrolls.
      */
     as_of?: string
+    /**
+     * Comma-separated kinds of moment to include: `failure` (errors, failed requests, dead ends), `struggle` (repeated attempts, rage clicks, abandoned forms), `revenue` (failed payments, cancellations, usage limits). Defaults to all three. A pick keeps its rank within its scanner, so leaving a kind out drops its sessions without promoting weaker ones.
+     * @minLength 1
+     */
+    categories?: string
     /**
      * Comma-separated user IDs. Restrict the feed to observations from scanners those users created.
      * @minLength 1
@@ -3790,12 +3674,7 @@ export type VisionScannersWatchFeedRetrieveParams = {
      * * `experiment` - Experiment
      * @minLength 1
      */
-    scanner_type?: VisionScannersWatchFeedRetrieveScannerType
-    /**
-     * Case-insensitive text to match against the scan's own words (title, summary, reasoning, and the notability sentence) and the scanner's name. Applied before ranking, so it searches the whole window rather than the items that would have surfaced without it.
-     * @minLength 1
-     */
-    search?: string
+    scanner_type?: VisionScannersHighlightFeedRetrieveScannerType
     /**
      * Comma-separated scanner tags to restrict the feed to. A team with many scanners uses these to follow one area without naming every scanner in it.
      * @minLength 1
@@ -3803,10 +3682,10 @@ export type VisionScannersWatchFeedRetrieveParams = {
     tags?: string
 }
 
-export type VisionScannersWatchFeedRetrieveScannerType =
-    (typeof VisionScannersWatchFeedRetrieveScannerType)[keyof typeof VisionScannersWatchFeedRetrieveScannerType]
+export type VisionScannersHighlightFeedRetrieveScannerType =
+    (typeof VisionScannersHighlightFeedRetrieveScannerType)[keyof typeof VisionScannersHighlightFeedRetrieveScannerType]
 
-export const VisionScannersWatchFeedRetrieveScannerType = {
+export const VisionScannersHighlightFeedRetrieveScannerType = {
     Monitor: 'monitor',
     Classifier: 'classifier',
     Scorer: 'scorer',

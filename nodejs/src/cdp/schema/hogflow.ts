@@ -249,6 +249,10 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
             sensitive: z.boolean().optional(),
             // When true, links get utm_source, utm_medium and utm_campaign tags they don't already carry.
             utm_tags_enabled: z.boolean().optional(),
+            // When true, a marketing send ignores the team's frequency cap and takes no slot under it. Opt-outs
+            // and unsubscribe headers still apply. For product email that is marketing in form but must not
+            // crowd out, or be crowded out by, other marketing email.
+            skip_frequency_cap: z.boolean().optional(),
             // Liquid templates that replace the default tag values. An empty value keeps the default.
             utm_params: z
                 .object({
@@ -296,6 +300,9 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
             message_category_type: z.enum(['marketing', 'transactional']).optional(),
             template_uuid: z.string().uuid().optional(),
             template_id: z.literal('template-native-push'),
+            // When true, the stored asset keeps a placeholder instead of the notification's content, and the
+            // run snapshot keeps no variables.
+            sensitive: z.boolean().optional(),
             inputs: z.record(z.string(), CyclotronInputSchema),
             mappings: z.array(CyclotronInputMappingSchema).optional(),
         }),

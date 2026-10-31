@@ -28,12 +28,13 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import UndecryptedIntegrationSecretError
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.activity_context import current_activity_attempt
-from posthog.temporal.common.errors import NonReportableError
+from posthog.temporal.common.errors import NonReportableApplicationError, NonReportableError
 from posthog.temporal.common.heartbeat import LivenessHeartbeater as Heartbeater
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.shutdown import DEFAULT_GRACEFUL_SHUTDOWN_TIMEOUT, ShutdownMonitor, WorkerShuttingDownError
 from posthog.temporal.common.utils import is_stale_connection_read_only_error
 
+from products.warehouse_sources.backend.logic.source_inputs import SourceInputsStore
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import (
     WORKER_RESTART_ERROR_MESSAGE,
@@ -323,6 +324,10 @@ if TYPE_CHECKING:
 # after the conversion shipped, the swap costs ~3s a run against a listing of ~0.5s per 100-row
 # page, putting break-even near 700 rows. This floor sits above it with margin.
 MIN_WAREHOUSE_PARENT_ROWS = 1_000
+
+# The longest server-provided delay that the next import attempt waits for. Anthropic's Claude Code
+# report asks for about an hour. The cap stops a wrong header from pushing a run back by days.
+MAX_SERVER_RETRY_DELAY = dt.timedelta(hours=2)
 
 
 def _parent_unusable_reason(parent: ExternalDataSchema | None) -> str | None:
@@ -820,7 +825,8 @@ async def _import_data_with_reporting(
             )
 
             try:
-                config = new_source.parse_config(model.pipeline.job_inputs)
+                stored_inputs = await SourceInputsStore.aload(model.pipeline)
+                config = new_source.parse_config(stored_inputs)
             except CredentialsServiceFailure as e:
                 # A source whose config carries a PostHog-owned credential resolves it here, so a
                 # failure at this point is ours and not a corrupt `job_inputs`. Route it through the
@@ -1195,6 +1201,14 @@ async def _handle_import_error(
     if isinstance(error, RESTClientRetryableError):
         await logger.awarning(error_msg)
         await logger.adebug("REST client exhausted its retries - re-raising for Temporal retry")
+        if error.retry_after:
+            # Defer the next Temporal attempt past the server's window instead of holding a worker in it.
+            raise NonReportableApplicationError(
+                error_msg,
+                type=RESTClientRetryableError.__name__,
+                # Clamp the float first: timedelta raises OverflowError for inf or huge header values.
+                next_retry_delay=dt.timedelta(seconds=min(error.retry_after, MAX_SERVER_RETRY_DELAY.total_seconds())),
+            ) from error
         raise error
 
     # The web pods and the data-import workers deploy separately, so a table that ships in one

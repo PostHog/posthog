@@ -9,6 +9,7 @@
 # The stages are used to:
 #
 # - node-base: shared Node.js base with pnpm already provisioned
+# - product-manifests: collect the package.json of each products/* workspace package
 # - frontend-build: build the frontend (static assets)
 # - sourcemap-upload: upload sourcemaps to PostHog (isolated, no artifacts)
 # - node-scripts-build: build plugin transpiler and other Node.js build artifacts
@@ -42,6 +43,15 @@ ENV COREPACK_ENABLE_NETWORK=0
 #
 # ---------------------------------------------------------
 #
+# Only the package.json files, so a product source change does not rerun the frontend pnpm install.
+FROM node:24.22.1-bookworm-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205 AS product-manifests
+COPY products/ /tmp/products/
+RUN cd /tmp/products && for manifest in */package.json; do install -D -m 644 "$manifest" "/manifests/products/$manifest"; done
+
+
+#
+# ---------------------------------------------------------
+#
 FROM node-base AS frontend-build
 
 COPY turbo.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.json ./
@@ -56,11 +66,12 @@ COPY common/tailwind/ common/tailwind/
 COPY packages/quill/ packages/quill/
 COPY packages/llm-normalizer/ packages/llm-normalizer/
 COPY packages/agent/packages/agent-contracts/src/ packages/agent/packages/agent-contracts/src/
-COPY products/ products/
+COPY --from=product-manifests /manifests/products/ products/
 COPY docs/onboarding/ docs/onboarding/
 RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v24 \
     CI=1 pnpm --filter=@posthog/frontend... install --frozen-lockfile --store-dir /tmp/pnpm-store-v24
 
+COPY products/ products/
 COPY frontend/ frontend/
 RUN bin/turbo --filter=@posthog/frontend build
 

@@ -59,7 +59,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.Coupons]: () => import('./coupons/Coupons'),
     [Scene.LiveEvents]: () => import('./activity/live/LiveEventsTable'),
     [Scene.Login2FA]: () => import('./authentication/login-2fa/Login2FA'),
-    [Scene.Login]: () => import('./authentication/login/Login'),
+    [Scene.Login]: () => import('./authentication/auth/Auth'),
     [Scene.MarketingAnalytics]: () => import('./marketing-analytics/MarketingAnalyticsScene'),
     [Scene.Max]: () => import('./max/Max'),
     [Scene.MoveToPostHogCloud]: () => import('./moveToPostHogCloud/MoveToPostHogCloud'),
@@ -113,7 +113,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.Settings]: () => import('./settings/SettingsScene'),
     [Scene.IdentityProviderConfig]: () =>
         import('./settings/organization/IdentityProviderConfig/IdentityProviderConfigScene'),
-    [Scene.Signup]: () => import('./authentication/signup/Signup'),
+    [Scene.Signup]: () => import('./authentication/auth/Auth'),
     [Scene.Site]: () => import('./sites/Site'),
     [Scene.StartupProgram]: () => import('./startups/StartupProgram'),
     [Scene.Survey]: () => import('./surveys/Survey'),
