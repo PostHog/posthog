@@ -52,8 +52,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.instagram.
     ACCOUNT_INSIGHTS_WINDOW_DAYS,
     INSTAGRAM_ENDPOINTS,
     MAX_INSIGHTS_LOOKBACK_DAYS,
+    MEDIA_FIELDS,
     MEDIA_INSIGHT_METRICS,
     MEDIA_PAGE_SAFE_FIELDS,
+    MEDIA_REFUSABLE_FIELDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.instagram.source import InstagramSource
 
@@ -354,28 +356,40 @@ class TestInstagramEdges:
         assert result.rows[0]["timestamp"] == "2024-03-01T18:10:00+00:00"
         assert result.params("after") == [None, "CUR"]
 
-    @pytest.mark.parametrize("second_post_code,fails", [(9005, False), (100, True)])
+    @pytest.mark.parametrize("second_post_code,fails", [(9005, False), (100, False), (803, True)])
     def test_a_media_page_meta_refuses_for_one_video_is_read_again_without_the_refusable_fields(
         self, second_post_code: int, fails: bool
     ) -> None:
-        video_not_found = ScriptedResponse(status=400, json={"error": {"code": 9005, "message": "not found"}})
-        result = _drive(
-            "media",
-            [
-                video_not_found,
-                ScriptedResponse(json=_page([{"id": "1"}, {"id": "2"}])),
-                ScriptedResponse(json={"id": "1", "owner": {"id": "o1"}}),
-                ScriptedResponse(status=400, json={"error": {"code": second_post_code, "message": "no"}}),
-            ],
-        )
+        def refused(code: int) -> ScriptedResponse:
+            return ScriptedResponse(status=400, json={"error": {"code": code, "message": "no"}})
+
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            fields = request.param("fields")
+            if request.path.endswith("/media"):
+                return (
+                    refused(9005)
+                    if fields == MEDIA_FIELDS
+                    else ScriptedResponse(json=_page([{"id": "1"}, {"id": "2"}]))
+                )
+            if request.path.endswith("/1"):
+                return ScriptedResponse(json={"id": "1", "owner": {"id": "o1"}})
+            if fields == MEDIA_REFUSABLE_FIELDS:
+                return refused(second_post_code)
+            if fields == "owner":
+                return ScriptedResponse(json={"id": "2", "owner": {"id": "o2"}})
+            if fields == "is_shared_to_feed":
+                return ScriptedResponse(json={"id": "2"})
+            return refused(100)
+
+        result = _drive("media", respond)
 
         assert result.params("fields")[1] == MEDIA_PAGE_SAFE_FIELDS
-        assert result.paths[2:] == ["/v23.0/1", "/v23.0/2"]
         if fails:
             assert isinstance(result.raised, InstagramBadRequestError)
         else:
             assert result.raised is None
-            assert result.rows == [{"id": "1", "owner": {"id": "o1"}}, {"id": "2"}]
+            assert result.rows == [{"id": "1", "owner": {"id": "o1"}}, {"id": "2", "owner": {"id": "o2"}}]
+            assert result.params("fields")[4:] == MEDIA_REFUSABLE_FIELDS.split(",")
 
     def test_media_stops_when_the_cursor_is_missing_even_though_next_is_present(self) -> None:
         result = _drive("media", [ScriptedResponse(json={"data": [{"id": "1"}], "paging": {"next": "https://x/next"}})])
