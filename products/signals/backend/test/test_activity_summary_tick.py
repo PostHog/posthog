@@ -50,6 +50,7 @@ from products.signals.backend.activity_summary.queue import (
     is_team_enrolled_for_read,
     max_input_chars,
     max_update_cost_usd,
+    mcp_buffer_team_ids,
     organization_rollout_bucket,
     seed_queue,
     select_pairs,
@@ -129,8 +130,11 @@ _CONFIG_CASES: list[tuple[str, Any, ActivitySummaryConfig]] = [
             "min_score": 0,
             "view_update_interval_hours": -5,
             "cold_start_min_active_days": 2.5,
+            "mcp_buffer_enabled": "yes",
+            "mcp_calls_per_day": 0,
+            "mcp_buffer_days": 10_000,
         },
-        ActivitySummaryConfig(enabled=True, organization_ids=("org-a",), skip_team_ids=(3,)),
+        ActivitySummaryConfig(enabled=True, organization_ids=("org-a",), skip_team_ids=(3,), mcp_buffer_days=30),
     ),
     (
         "a boolean percentage falls back to the default",
@@ -157,6 +161,10 @@ _CONFIG_CASES: list[tuple[str, Any, ActivitySummaryConfig]] = [
             "min_score": 4.5,
             "view_update_interval_hours": 72,
             "cold_start_min_active_days": 5,
+            "mcp_buffer_enabled": True,
+            "mcp_buffer_organization_ids": ["org-a"],
+            "mcp_calls_per_day": 20,
+            "mcp_buffer_days": 14,
         },
         ActivitySummaryConfig(
             enabled=True,
@@ -176,6 +184,10 @@ _CONFIG_CASES: list[tuple[str, Any, ActivitySummaryConfig]] = [
             min_score=4.5,
             view_update_interval_hours=72.0,
             cold_start_min_active_days=5,
+            mcp_buffer_enabled=True,
+            mcp_buffer_organization_ids=("org-a",),
+            mcp_calls_per_day=20,
+            mcp_buffer_days=14,
         ),
     ),
     (
@@ -406,6 +418,19 @@ class TestActivitySummaryQueue(BaseTest):
         config = ActivitySummaryConfig(enabled=True, enroll_all_approved=True, skip_team_ids=(skipped.id,))
 
         assert sorted(self._select(config)) == sorted([(self.team.id, user.id), (approved.id, user.id)])
+
+    @parameterized.expand([("every_enrolled_team", False), ("listed_organizations", True)])
+    def test_mcp_buffer_team_ids(self, _name: str, listed: bool) -> None:
+        other = Team.objects.create(organization=Organization.objects.create(name="Other"), name="Other")
+        config = ActivitySummaryConfig(
+            enabled=True,
+            enroll_all_approved=True,
+            mcp_buffer_enabled=True,
+            mcp_buffer_organization_ids=(str(self.organization.id),) if listed else (),
+        )
+
+        assert mcp_buffer_team_ids(dataclasses.replace(config, mcp_buffer_enabled=False)) == []
+        assert set(mcp_buffer_team_ids(config)) == ({self.team.id} if listed else {self.team.id, other.id})
 
     def test_selects_nothing_without_ai_data_processing_approval(self) -> None:
         self.organization.is_ai_data_processing_approved = False

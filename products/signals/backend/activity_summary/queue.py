@@ -261,6 +261,20 @@ def enrolled_team_ids(config: ActivitySummaryConfig) -> list[int]:
     return enrollment(config).team_ids
 
 
+def mcp_buffer_team_ids(config: ActivitySummaryConfig) -> list[int]:
+    """The enrolled teams whose MCP intents the buffer keeps."""
+    if not config.mcp_buffer_enabled:
+        return []
+    team_ids = enrolled_team_ids(config)
+    if not config.mcp_buffer_organization_ids or not team_ids:
+        return team_ids
+    return sorted(
+        Team.objects.filter(
+            id__in=team_ids, organization_id__in=_parse_organization_ids(config.mcp_buffer_organization_ids)
+        ).values_list("id", flat=True)
+    )
+
+
 def is_team_enrolled_for_generation(config: ActivitySummaryConfig, team: Team) -> bool:
     """The tick may generate summaries for the team. The single-team form of `enrolled_team_ids`.
 
