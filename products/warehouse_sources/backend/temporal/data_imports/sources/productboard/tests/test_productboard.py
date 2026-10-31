@@ -142,7 +142,8 @@ class TestRelationshipFanout:
             ("e2", "component", "child", "e1", "feature"),
         ]
         assert all("target" not in row for row in result.rows)
-        assert result.saved_states and all(state.fanout_state is not None for state in result.saved_states)
+        # The checkpoint tracks the parent page, so it does not keep every finished entity.
+        assert result.saved_states and all("parent" in (state.fanout_state or {}) for state in result.saved_states)
 
     def test_note_relationships_skip_a_note_deleted_after_listing(self):
         result = _driver().run(

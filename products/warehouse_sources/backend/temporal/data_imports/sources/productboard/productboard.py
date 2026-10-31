@@ -26,7 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.productboa
 PRODUCTBOARD_BASE_URL = "https://api.productboard.com/v2"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class ProductboardResumeConfig:
     # Full URL of the next unfetched page — Productboard returns it in the `links.next` body field.
     next_url: Optional[str] = None
@@ -109,6 +109,10 @@ def productboard_source(
         "base_url": PRODUCTBOARD_BASE_URL,
         "headers": _non_secret_headers(),
         "auth": {"type": "bearer", "token": access_token},
+        # `links.next` comes from the response body, so pin every request to the API host and refuse
+        # redirects to keep the bearer token from being sent anywhere else.
+        "allowed_hosts": [],
+        "allow_redirects": False,
         # Next-page URL lives in the response body under `links.next`; absence of it ends the sync.
         "paginator": JSONResponsePaginator(next_url_path="links.next"),
     }
@@ -136,6 +140,9 @@ def productboard_source(
             child_endpoint_extra={"data_selector": "data"},
             resume_hook=save_fanout_checkpoint,
             initial_paginator_state=resume.fanout_state if resume else None,
+            # Saves the parent page too, so the checkpoint keeps two pages of finished parents rather
+            # than every parent of a large entity or note listing.
+            resume_parent_pagination=True,
         )
         resource = cast(Resource, fanout_resource).add_map(_flatten_relationship_target)
     else:
