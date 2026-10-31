@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Optional, cast
+from typing import TYPE_CHECKING, Final, Optional, cast
 
 from django.db.models import Case, CharField, Count, Exists, Model, OuterRef, QuerySet, Value, When
 from django.db.models.fields.reverse_related import ForeignObjectRel
@@ -11,10 +11,10 @@ from products.feature_flags.backend.facade.config import detect_config_format
 if TYPE_CHECKING:
     from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
-FLAG_OWNER_EXPERIMENT = "experiment"
-FLAG_OWNER_SURVEY = "survey"
-FLAG_OWNER_PRODUCT_TOUR = "product_tour"
-FLAG_OWNER_EARLY_ACCESS = "early_access_feature"
+FLAG_OWNER_EXPERIMENT: Final = "experiment"
+FLAG_OWNER_SURVEY: Final = "survey"
+FLAG_OWNER_PRODUCT_TOUR: Final = "product_tour"
+FLAG_OWNER_EARLY_ACCESS: Final = "early_access_feature"
 
 # Serializer context key that names the product a create mints its flag for. Only the flag facade
 # sets it, from `create_flag(owner=...)`. Request data never reaches serializer context, so a caller
