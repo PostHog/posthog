@@ -4,9 +4,11 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
     dependencies = [("event_definitions", "0017_eventdefinition_enterprise_copies")]
 
-    # Database only: the model does not declare these columns yet, see enterprise_copies.py. The
-    # field names exist only inside this operation. Nullable with no default, so each ADD COLUMN only
-    # changes the catalog.
+    # Database only: the model does not declare these columns yet, see enterprise_copies.py.
+    # Each column takes its name from `db_column` (description, verified, ...). The `copy_` field
+    # names exist only inside this operation: a field named like the enterprise field would clash
+    # with it when Django builds the migration state. Nullable with no default, so each ADD COLUMN
+    # only changes the catalog.
     operations = [
         migrations.SeparateDatabaseAndState(
             database_operations=[
