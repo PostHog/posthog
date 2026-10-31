@@ -310,7 +310,7 @@ class ViewLinkViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewset
             200: ViewLinkValidationResponseSerializer,
             400: OpenApiResponse(
                 response=ViewLinkValidationErrorSerializer,
-                description="The join does not compile or reference valid fields.",
+                description="The join does not compile, does not reference valid fields, or uses incompatible key types.",
             ),
             500: OpenApiResponse(
                 response=ViewLinkValidationErrorSerializer,
@@ -404,20 +404,22 @@ class ViewLinkViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewset
             response_data["matched_rows"] = matched_rows
             response_data["match_rate"] = match_rate
         except ServerException as e:
-            capture_exception(e)
             response_data = {
                 "attr": None,
                 "code": e.__class__.__name__,
                 "detail": "An internal error occurred while validating.",
                 "type": "query_error",
                 "hogql": validation_query.to_hogql(),
+                "is_valid": False,
             }
-            status_code = status.HTTP_500_INTERNAL_SERVER_ERROR  # type: ignore[assignment]
-            response_data["is_valid"] = False
-
-            is_safe = look_up_clickhouse_error_code_meta(e).user_safe
-            if is_safe:
+            # A user-safe error comes from the keys the user picked (for example incompatible key types),
+            # so it is a bad request and not a server failure.
+            if look_up_clickhouse_error_code_meta(e).user_safe:
                 response_data["detail"] = str(e)
+                status_code = status.HTTP_400_BAD_REQUEST  # type: ignore[assignment]
+            else:
+                capture_exception(e)
+                status_code = status.HTTP_500_INTERNAL_SERVER_ERROR  # type: ignore[assignment]
         except QueryError as e:
             capture_exception(e)
             response_data = {
