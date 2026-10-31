@@ -69,6 +69,7 @@ jobs:
             bin_scripts: ${{ steps.filter.outputs.bin_scripts || 'true' }}
             api_ratchet: ${{ steps.filter.outputs.api_ratchet || 'true' }}
             mypy_cache_key: ${{ steps.filter.outputs.mypy_cache_key || 'false' }}
+            schema_python: ${{ steps.filter.outputs.schema_python || 'true' }}
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
@@ -110,6 +111,20 @@ jobs:
                           - 'uv.lock'
                           - '**/pyproject.toml'
                           - '**/mypy.ini'
+                      schema_python:
+                          - 'frontend/src/queries/schema.json'
+                          - 'posthog/schema.py'
+                          - 'posthog/schema_enums.py'
+                          - 'bin/build-schema-python.sh'
+                          - 'bin/patch-schema-array-discriminators.py'
+                          - 'bin/patch-schema-property-filter-discriminator.py'
+                          - 'bin/split-schema-enums.py'
+                          - '**/pyproject.toml'
+                          - '**/ruff.toml'
+                          - '**/.ruff.toml'
+                          - 'uv.lock'
+                          - '.github/actions/paths-filter/**'
+                          - '.github/workflows/ci-python.yml'
                       python:
                         # ruff/mypy/ty run repo-wide (`.`) in code-quality, so any Python
                         # file anywhere must trigger this workflow — otherwise an unformatted
@@ -117,12 +132,16 @@ jobs:
                         - '**/*.py'
                         - '*.py' # root-level scripts (e.g. manage.py); '**/' alone may not match root
                         - 'pyproject.toml'
+                        - '**/pyproject.toml'
+                        - '**/ruff.toml'
+                        - '**/.ruff.toml'
                         - 'uv.lock'
                         - 'posthog/**/*'
                         # Make sure we run if someone is explicitly change the workflows
                         - .github/workflows/ci-python.yml
                         - .github/workflows/ci-dagster.yml
                         - .github/actions/setup-uv/**
+                        - '.github/actions/paths-filter/**'
                         - .depot/actions/setup-uv/**
                         - '.depot/workflows/*.yml'
                         - .flox/env/manifest.toml
@@ -369,9 +388,10 @@ jobs:
                   key: ${{ steps.mypy-cache.outputs.cache-primary-key }}
 
             - name: Check if "schema.py" is up to date
+              if: github.event_name != 'pull_request' || startsWith(github.head_ref, 'trunk-merge/') || needs.changes.outputs.schema_python != 'false'
               shell: bash
               run: |
-                  npm run schema:build:python && git diff --exit-code
+                  bash bin/build-schema-python.sh && git diff --exit-code
 
             # Every projection renderer is Python, so this job needs neither pnpm nor
             # node_modules. Keep the step after "Install Python dependencies": the taxonomy

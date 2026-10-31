@@ -994,6 +994,27 @@ describe('CI workflow run plans', () => {
     })
 
     it.each([
+        ['unrelated PR', pullRequest(), 'false', false],
+        ['schema PR', pullRequest(), 'true', true],
+        ['missing filter output', pullRequest(), '', true],
+        ['unrelated fork PR', pullRequest({ fork: true }), 'false', false],
+        ['schema fork PR', pullRequest({ fork: true }), 'true', true],
+        ['merge queue', mergeQueue(), 'false', true],
+        ['hourly schedule', schedule(), 'false', true],
+    ] as const)('Python schema generation on %s', (name, github, schema, runs) => {
+        const wf = workflow('ci-python.yml')
+        const plan = planWorkflow(wf, {
+            name,
+            github,
+            steps: { changes: { filter: { outputs: { python: 'true', schema_python: schema } } } },
+        })
+        expect(plan.errors).toEqual([])
+        expect(
+            plan.jobs['code-quality']?.steps.find((step) => step.name === 'Check if "schema.py" is up to date')?.runs
+        ).toBe(runs)
+    })
+
+    it.each([
         ['master schedule', schedule(), 'success', true],
         ['same-repo PR', pullRequest(), 'success', false],
         ['fork PR', pullRequest({ fork: true }), 'success', false],
