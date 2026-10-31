@@ -8,18 +8,19 @@ import { LemonButton, LemonCheckbox, LemonInput, LemonSelect } from '@posthog/le
 import { DataWarehousePopoverField, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { getOrdinalSuffix } from 'lib/utils/strings'
-import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
+import { SeriesActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
 import { groupsModel } from '~/models/groupsModel'
-import { EditorFilterProps, EntityTypes, FilterType, RetentionPeriod, RetentionType } from '~/types'
+import { ChartDisplayCategory, EditorFilterProps, RetentionPeriod, RetentionType } from '~/types'
 
 import { getRetentionPropertyFilterGroupTypes } from 'products/product_analytics/frontend/insights/editor/propertyTaxonomicGroupTypes'
 import { AggregationSelect } from 'products/product_analytics/frontend/insights/shared/AggregationSelect'
 
 import { dateOptionPlurals, dateOptions, retentionOptionDescriptions, retentionOptions } from '../constants'
 import { MAX_BRACKETS, retentionLogic } from '../retentionLogic'
+import { retentionEntityToSeries, seriesToRetentionEntity } from './retentionEntitySeries'
 
 const MAX_RANGE = 1000
 
@@ -33,33 +34,6 @@ const actionsTaxonomicGroupTypes = [
     TaxonomicFilterGroupType.Actions,
     TaxonomicFilterGroupType.DataWarehouse,
 ]
-
-function retentionEntityToFilter(entity: Record<string, any> | undefined): FilterType {
-    if (!entity) {
-        return {}
-    }
-
-    if (entity.type === EntityTypes.ACTIONS) {
-        return { actions: [entity] }
-    }
-    if (entity.type === EntityTypes.DATA_WAREHOUSE) {
-        return { data_warehouse: [entity] }
-    }
-    return { events: [entity] }
-}
-
-function filterToRetentionEntity(newFilters: FilterType): Record<string, any> | undefined {
-    if (newFilters.events && newFilters.events.length > 0) {
-        return newFilters.events[0]
-    }
-    if (newFilters.actions && newFilters.actions.length > 0) {
-        return newFilters.actions[0]
-    }
-    if (newFilters.data_warehouse && newFilters.data_warehouse.length > 0) {
-        return newFilters.data_warehouse[0]
-    }
-    return undefined
-}
 
 function CustomBrackets({ insightProps }: { insightProps: EditorFilterProps['insightProps'] }): JSX.Element {
     const { retentionFilter, localCustomBrackets } = useValues(retentionLogic(insightProps))
@@ -178,14 +152,13 @@ export function RetentionCondition({ insightProps }: EditorFilterProps): JSX.Ele
                 )}
             </div>
             <div>who performed</div>
-            <ActionFilter
+            <SeriesActionFilter
                 entitiesLimit={1}
                 mathAvailability={MathAvailability.None}
                 hideRename
-                filters={retentionEntityToFilter(targetEntity)} // retention filters use target and returning entity instead of events
-                setFilters={(newFilters: FilterType) => {
-                    updateInsightFilter({ targetEntity: filterToRetentionEntity(newFilters) })
-                }}
+                series={retentionEntityToSeries(targetEntity)}
+                onChange={(series) => updateInsightFilter({ targetEntity: seriesToRetentionEntity(series) })}
+                trendsDisplayCategory={ChartDisplayCategory.TimeSeries}
                 typeKey={`${keyForInsightLogicProps('new')(insightProps)}-targetEntity`}
                 propertiesTaxonomicGroupTypes={getRetentionPropertyFilterGroupTypes()}
                 actionsTaxonomicGroupTypes={actionsTaxonomicGroupTypes}
@@ -216,15 +189,14 @@ export function RetentionCondition({ insightProps }: EditorFilterProps): JSX.Ele
             />
 
             <div>and then returned to perform</div>
-            <ActionFilter
+            <SeriesActionFilter
                 entitiesLimit={1}
                 mathAvailability={MathAvailability.None}
                 hideRename
                 buttonCopy="Add graph series"
-                filters={retentionEntityToFilter(returningEntity)}
-                setFilters={(newFilters: FilterType) => {
-                    updateInsightFilter({ returningEntity: filterToRetentionEntity(newFilters) })
-                }}
+                series={retentionEntityToSeries(returningEntity)}
+                onChange={(series) => updateInsightFilter({ returningEntity: seriesToRetentionEntity(series) })}
+                trendsDisplayCategory={ChartDisplayCategory.TimeSeries}
                 typeKey={`${keyForInsightLogicProps('new')(insightProps)}-returningEntity`}
                 propertiesTaxonomicGroupTypes={getRetentionPropertyFilterGroupTypes()}
                 actionsTaxonomicGroupTypes={actionsTaxonomicGroupTypes}
