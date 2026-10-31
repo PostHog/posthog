@@ -18,8 +18,8 @@ import trendsNumber from '~/mocks/fixtures/api/projects/team_id/insights/trendsN
 import { useMocks } from '~/mocks/jest'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { performQuery } from '~/queries/query'
+import { isInsightQueryNode, isRetentionQuery, isTrendsQuery } from '~/queries/schema/node-guards'
 import type { DataNode } from '~/queries/schema/schema-general'
-import { isInsightQueryNode, isRetentionQuery, isTrendsQuery } from '~/queries/utils'
 import { initKeaTests } from '~/test/init'
 import { ChartDisplayType } from '~/types'
 

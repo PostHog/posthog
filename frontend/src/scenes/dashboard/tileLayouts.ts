@@ -12,11 +12,11 @@ import { BREAKPOINT_COLUMN_COUNTS } from 'scenes/dashboard/dashboardUtils'
 import {
     isFunnelsQuery,
     isInsightVizNode,
-    isMetricInsightQuery,
     isPathsQuery,
     isRetentionQuery,
     isTrendsQuery,
-} from '~/queries/utils'
+} from '~/queries/schema/node-guards'
+import { isMetricInsightQuery } from '~/queries/utils'
 import { ChartDisplayType, DashboardLayoutSize, DashboardTile } from '~/types'
 
 import { getImageOnlyTextCardImage } from 'products/dashboards/frontend/components/ImageTile/imageTileUtils'

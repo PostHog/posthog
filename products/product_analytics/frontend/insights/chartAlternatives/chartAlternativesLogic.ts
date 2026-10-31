@@ -16,8 +16,8 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import type { FeatureFlagsSet } from '~/lib/logic/featureFlagLogic'
+import { isTrendsQuery } from '~/queries/schema/node-guards'
 import type { Node, TrendsQuery } from '~/queries/schema/schema-general'
-import { isTrendsQuery } from '~/queries/utils'
 import type { InsightLogicProps } from '~/types'
 import { ChartDisplayType } from '~/types'
 
