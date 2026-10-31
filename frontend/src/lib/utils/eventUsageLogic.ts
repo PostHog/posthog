@@ -1099,6 +1099,13 @@ export interface eventUsageLogicActions {
         failedCount: number
         pendingApprovalCount: number
     }
+    reportFeatureFlagsBulkRestored: (
+        restoredCount: number,
+        failedCount: number
+    ) => {
+        failedCount: number
+        restoredCount: number
+    }
     reportFlagsCodeExampleInteraction: (optionType: string) => {
         optionType: string
     }
@@ -1734,6 +1741,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             pendingApprovalCount,
             failedCount,
         }),
+        reportFeatureFlagsBulkRestored: (restoredCount: number, failedCount: number) => ({
+            restoredCount,
+            failedCount,
+        }),
         reportInviteMembersButtonClicked: true,
         reportAxisUnitsChanged: (properties: Record<string, any>) => ({ ...properties }),
         reportFlagsCodeExampleInteraction: (optionType: string) => ({
@@ -2343,6 +2354,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             posthog.capture('feature flags bulk archived', {
                 archived_count: archivedCount,
                 pending_approval_count: pendingApprovalCount,
+                failed_count: failedCount,
+            })
+        },
+        reportFeatureFlagsBulkRestored: ({ restoredCount, failedCount }) => {
+            posthog.capture('feature flags bulk restored', {
+                restored_count: restoredCount,
                 failed_count: failedCount,
             })
         },
