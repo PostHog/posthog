@@ -91,6 +91,11 @@ describe('mcpMissingCapabilitiesLogic', () => {
             (l) => l.actions.setDateFilter('-7d', null),
             { dateRange: { date_from: '-7d', date_to: null }, offset: 0 },
         ],
+        [
+            'the internal users toggle',
+            (l) => l.actions.setFilterTestAccounts(true),
+            { filterTestAccounts: true, offset: 0 },
+        ],
     ])('reloads from the first page on %s', async (_label, act, expected) => {
         const mounted = mountLogic()
         await expectLogic(mounted).toDispatchActions(['loadReportsSuccess'])
