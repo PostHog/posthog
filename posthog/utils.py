@@ -16,6 +16,7 @@ import ipaddress
 import dataclasses
 from collections.abc import Callable, Generator, Mapping, Sequence
 from contextlib import contextmanager, suppress
+from contextvars import ContextVar
 from enum import Enum
 from functools import lru_cache, wraps
 from operator import itemgetter
@@ -101,6 +102,8 @@ UUID_REGEX = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
 DEFAULT_DATE_FROM_DAYS = 7
 
 logger = structlog.get_logger(__name__)
+
+_relative_date_reads: ContextVar[Optional[list[str]]] = ContextVar("relative_date_reads", default=None)
 
 # https://stackoverflow.com/questions/4060221/how-to-reliably-open-a-file-in-the-same-directory-as-a-python-script
 __location__ = os.path.realpath(os.path.join(os.getcwd(), os.path.dirname(__file__)))
@@ -201,6 +204,22 @@ def get_current_day(at: Optional[datetime.datetime] = None) -> DayRange:
     return DayRange(start=period_start, end=period_end)
 
 
+@contextmanager
+def record_relative_date_reads() -> Generator[list[str]]:
+    reads: list[str] = []
+    token = _relative_date_reads.set(reads)
+    try:
+        yield reads
+    finally:
+        _relative_date_reads.reset(token)
+
+
+def _note_relative_date_read(input: str) -> None:
+    reads = _relative_date_reads.get()
+    if reads is not None:
+        reads.append(input)
+
+
 def relative_date_parse_with_delta_mapping(
     input: str,
     timezone_info: ZoneInfo,
@@ -235,6 +254,7 @@ def relative_date_parse_with_delta_mapping(
             parsed_dt = parsed_dt.astimezone(timezone_info)
         return parsed_dt, None, None
 
+    _note_relative_date_read(input)
     regex = r"\-?(?P<number>[0-9]+)?(?P<kind>[hdwmqysHDWMQY])(?P<position>Start|End)?"
     match = re.search(regex, input)
     parsed_dt = (now or dt.datetime.now()).astimezone(timezone_info)

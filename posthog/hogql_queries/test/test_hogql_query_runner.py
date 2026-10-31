@@ -1,19 +1,30 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import cast
 
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
+import time_machine
+from posthog.test.base import (
+    APIBaseTest,
+    BaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    _create_person,
+    flush_persons_and_events,
+)
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
 from posthog.schema import (
     CachedHogQLQueryResponse,
+    DateRange,
+    EventPropertyFilter,
     HogQLFilters,
     HogQLPropertyFilter,
     HogQLQuery,
     HogQLQueryModifiers,
     HogQLQueryResponse,
     HogQLVariable,
+    PropertyOperator,
     QueryStatus,
     SessionTableVersion,
 )
@@ -26,8 +37,11 @@ from posthog.hogql.user_query_validator import HOGQL_PERSONAL_API_KEY_OFFSET_ALL
 from posthog.hogql.visitor import clear_locations
 
 from posthog.caching.utils import ThresholdMode, staleness_threshold_map
-from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
-from posthog.hogql_queries.query_runner import ExecutionMode
+from posthog.clickhouse.query_tagging import tags_context
+from posthog.hogql_queries.hogql_query_runner import API_SQL_WINDOW_CACHE_AGE_FLAG, HogQLQueryRunner
+from posthog.hogql_queries.query_runner import CACHE_ENTRY_FRESHNESS_KEY, ExecutionMode
+from posthog.hogql_queries.sql_freshness.classifier import SqlFreshness, freshness_record
+from posthog.hogql_queries.sql_freshness.rules import FreshnessReason, Reject, SqlWindowClass
 from posthog.models.utils import UUIDT
 
 from products.managed_warehouse.backend.facade.query_labels import MANAGED_WAREHOUSE_QUERY_STATUS_LABEL_PREFIX
@@ -573,3 +587,131 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         response = runner.calculate()
         self.assertEqual(len(response.results), 5)
+
+    def test_api_key_result_stays_cached_for_its_window(self) -> None:
+        query = HogQLQuery(
+            query=f"select count() from events where timestamp > now() - interval 7 day and event != '{self.random_uuid}'"
+        )
+        with (
+            patch(
+                "posthog.hogql_queries.query_runner.posthoganalytics.feature_enabled",
+                side_effect=lambda key, *args, **kwargs: key == API_SQL_WINDOW_CACHE_AGE_FLAG,
+            ),
+            tags_context(access_method="personal_api_key"),
+        ):
+            with time_machine.travel("2026-10-29T15:00:00Z", tick=False):
+                first = self._create_runner(query).run()
+            with time_machine.travel("2026-10-29T15:10:00Z", tick=False):
+                second = self._create_runner(query).run()
+        assert (getattr(first, "is_cached", None), getattr(second, "is_cached", None)) == (False, True)
+
+    def test_recompute_drops_window_inherited_from_the_cached_entry(self) -> None:
+        runner = self._create_runner(
+            HogQLQuery(query="select count() from events where timestamp > now() - interval 7 day")
+        )
+        runner._read_cache_entry_freshness(
+            {
+                "window": "up_to_now_long",
+                "fresh_until": "2020-01-01T00:00:00+00:00",
+                "reason": "window_age",
+            }
+        )
+        runner.calculate()
+        assert CACHE_ENTRY_FRESHNESS_KEY not in runner._cache_entry_with_freshness({})
+
+
+class TestHogQLQueryRunnerApiSqlFreshness(BaseTest):
+    def _flag(self, on: bool):
+        return patch(
+            "posthog.hogql_queries.query_runner.posthoganalytics.feature_enabled",
+            side_effect=lambda key, *args, **kwargs: on and key == API_SQL_WINDOW_CACHE_AGE_FLAG,
+        )
+
+    @parameterized.expand(
+        [
+            ("api_key_uses_its_window", "personal_api_key", True, True, False),
+            ("app_keeps_default", None, True, True, True),
+            ("flag_off_keeps_default", "personal_api_key", False, True, True),
+            ("entry_recomputed_without_window", "personal_api_key", True, False, True),
+        ]
+    )
+    @time_machine.travel("2026-10-29T15:00:00Z", tick=False)
+    def test_entry_window_age_applies_only_to_flagged_api_key_reads(
+        self, _name: str, access_method: str | None, flag_on: bool, entry_has_window: bool, expected_stale: bool
+    ) -> None:
+        now = datetime(2026, 10, 29, 15, 0, tzinfo=UTC)
+        window = SqlFreshness(
+            window=SqlWindowClass.UP_TO_NOW_LONG,
+            fresh_until=now + timedelta(hours=1),
+            reason=FreshnessReason.WINDOW_AGE,
+        )
+        with self._flag(flag_on), tags_context(access_method=access_method):
+            runner = HogQLQueryRunner(team=self.team, query=HogQLQuery(query="select 1"))
+            runner._read_cache_entry_freshness(freshness_record(window) if entry_has_window else None)
+            stale = runner._is_stale_for_request(last_refresh=now - timedelta(minutes=10))
+        assert stale is expected_stale
+
+    def _built_freshness(self, query: HogQLQuery) -> SqlFreshness | Reject | None:
+        with self._flag(True), tags_context(access_method="personal_api_key"):
+            runner = HogQLQueryRunner(team=self.team, query=query)
+            runner._build_query()
+        return runner._sql_classification
+
+    @parameterized.expand(
+        [
+            ("padded_relative_date_range", HogQLFilters(dateRange=DateRange(date_from="-3d ", date_to="-2d ")), 1),
+            ("sub_day_relative_date_range", HogQLFilters(dateRange=DateRange(date_from="-72h", date_to="-48h")), 1),
+            (
+                "relative_date_property_filter",
+                HogQLFilters(
+                    properties=[
+                        EventPropertyFilter(key="signed_up_at", operator=PropertyOperator.IS_DATE_AFTER, value="-7d")
+                    ]
+                ),
+                1,
+            ),
+            ("static_property_filter", HogQLFilters(properties=[HogQLPropertyFilter(key="event = 'x'")]), 6),
+        ]
+    )
+    @time_machine.travel("2026-10-29T15:00:00Z", tick=False)
+    def test_relative_filter_values_cap_a_past_window(self, _name: str, filters: HogQLFilters, hours: int) -> None:
+        freshness = self._built_freshness(
+            HogQLQuery(
+                query="select count() from events where timestamp >= '2026-10-01' and timestamp < '2026-10-20' and {filters}",
+                filters=filters,
+            )
+        )
+        assert isinstance(freshness, SqlFreshness)
+        assert (freshness.window, freshness.fresh_until) == (
+            SqlWindowClass.FIXED_PAST,
+            datetime(2026, 10, 29, 15, 0, tzinfo=UTC) + timedelta(hours=hours),
+        )
+
+    @time_machine.travel("2026-10-29T23:55:00Z", tick=False)
+    def test_relative_date_variable_expires_at_midnight(self) -> None:
+        variable = InsightVariable.objects.create(team=self.team, name="Cutoff", code_name="cutoff", type="Date")
+        freshness = self._built_freshness(
+            HogQLQuery(
+                query="select count() from events where timestamp >= '2026-10-01' and timestamp < {variables.cutoff}",
+                variables={
+                    str(variable.id): HogQLVariable(code_name="cutoff", variableId=str(variable.id), value="-10d")
+                },
+            )
+        )
+        assert isinstance(freshness, SqlFreshness)
+        assert freshness.fresh_until == datetime(2026, 10, 30, tzinfo=UTC)
+
+    @parameterized.expand([("project_timezone", None, "fixed_past"), ("utc", False, "up_to_now_long")])
+    def test_bounds_follow_the_query_timezone(
+        self, _name: str, convert_to_project_timezone: bool | None, expected_window: str
+    ) -> None:
+        self.team.timezone = "Asia/Tokyo"
+        self.team.save()
+        query = HogQLQuery(
+            query="select count() from events where timestamp >= '2026-10-20' and timestamp < '2026-10-29'",
+            modifiers=HogQLQueryModifiers(convertToProjectTimezone=convert_to_project_timezone),
+        )
+        with time_machine.travel(datetime(2026, 10, 28, 16, 0, tzinfo=UTC), tick=False):
+            freshness = self._built_freshness(query)
+        assert isinstance(freshness, SqlFreshness)
+        assert freshness.window.value == expected_window

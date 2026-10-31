@@ -303,6 +303,7 @@ def _contains_user_hogql_label() -> str:
 
 
 EXTENDED_CACHE_AGE = timedelta(days=1)
+CACHE_ENTRY_FRESHNESS_KEY = "_freshness"
 
 QUERY_HASH_VERSION = 1
 
@@ -2291,6 +2292,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             if raw_results is not None:
                 cached_response_candidate["results"] = []
             cached_response_candidate["is_cached"] = True
+            self._read_cache_entry_freshness(cached_response_candidate.pop(CACHE_ENTRY_FRESHNESS_KEY, None))
             # When rolling out schema changes, cached responses may not match the new schema.
             # Trigger recomputation in this case.
             try:
@@ -2320,7 +2322,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             if custom_names_modified:
                 # Update cache with patched response so subsequent requests get the updated names
                 cache_manager.store_result(
-                    response=cached_response.model_dump(),
+                    response=self._cache_entry_with_freshness(cached_response.model_dump()),
                     target_age=cached_response.cache_target_age,
                 )
 
@@ -2836,6 +2838,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             **query_run.event_properties(self.modifiers),
             "cache_hit": isinstance(results, self.cached_response_type),
             "cache_age_override": self._cache_age_override,
+            **self._staleness_event_properties(),
             "response_time_ms": query_run.elapsed_ms(),
             "clickhouse_rows_read": cached_query_scan.rows_read if cached_query_scan else None,
             "clickhouse_duration_ms": cached_query_scan.duration_ms if cached_query_scan else None,
@@ -3064,7 +3067,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             if cacheable:
                 with self.timings.measure("cache_write"):
                     stored = cache_manager.store_result(
-                        response=fresh_response_dict,
+                        response=self._cache_entry_with_freshness(fresh_response_dict),
                         # This would be a possible place to decide to not ever keep this cache warm
                         # Example: Not for super quickly calculated insights
                         # Set target_age to None in that case
@@ -3090,6 +3093,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 "last_refresh": last_refresh.isoformat(),
                 "cache_write_success": stored,
                 "cache_age_override": getattr(self, "_cache_age_override", None),
+                **self._staleness_event_properties(),
                 "calculation_trigger": query_run.trigger,
                 "response_time_ms": query_run.elapsed_ms(),
                 "query_duration_ms": query_duration_ms,
@@ -3530,6 +3534,22 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         if last_refresh is None:
             return True
         return datetime.now(UTC) > last_refresh + timedelta(seconds=override)
+
+    def _staleness_event_properties(self) -> dict[str, Any]:
+        return {}
+
+    def _cache_entry_with_freshness(self, response: dict[str, Any]) -> dict[str, Any]:
+        """Adds the runner's freshness decision to a cache entry before it is stored.
+
+        A cache hit returns before the runner compiles its query, so the runner cannot work out
+        freshness again on that request. A runner that decides freshness from the compiled query
+        stores the decision under CACHE_ENTRY_FRESHNESS_KEY and reads it back on the hit.
+        """
+        return response
+
+    def _read_cache_entry_freshness(self, record: Any) -> None:
+        """Restores the decision that `_cache_entry_with_freshness` stored, before the response is parsed."""
+        pass
 
     def _is_stale(self, last_refresh: Optional[datetime], lazy: bool = False) -> bool:
         query_date_range = getattr(self, "query_date_range", None)
