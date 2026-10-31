@@ -1,10 +1,10 @@
 import datetime as dt
 from typing import Any
 
-from posthog.test.base import TestMigrations
+from posthog.test.base import NonAtomicTestMigrations
 
 
-class TestBackfillPromptVersions(TestMigrations):
+class TestBackfillPromptVersions(NonAtomicTestMigrations):
     app = "aeo"
     migrate_from = "0005_prompt_versions_and_archive"
     migrate_to = "0006_backfill_prompt_versions"
