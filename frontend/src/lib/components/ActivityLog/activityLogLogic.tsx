@@ -76,13 +76,14 @@ const loadedDescribers = new Map<string, Describer>()
 let describersImport: Promise<void> | null = null
 
 /**
- * Each describer imports a large graph (insight cards, chart.js, validators) that must stay out of
- * the eagerly-loaded app shell, so the registry holds loaders and this loads them on demand.
- * Loaders that fetch activity items await this before returning, which guarantees `describerFor`
- * resolves real describers by the time any selector humanizes those items.
+ * The describer registry points at every product's describer — a large graph
+ * (insight cards, chart.js, validators) that must stay out of the eagerly-loaded app shell,
+ * so it is loaded on demand here. Loaders that fetch activity items await this before
+ * returning, which guarantees `describerFor` resolves real describers by the time any
+ * selector humanizes those items.
  *
- * Never rejects: if a chunk fails to load (e.g. a stale tab after a deploy), the loader still
- * resolves and `describerFor` degrades to `defaultDescriber` for that scope; the next call retries.
+ * Never rejects: if the chunk fails to load (e.g. a stale tab after a deploy), the loader
+ * still resolves and `describerFor` degrades to `defaultDescriber`; the next call retries.
  */
 export function ensureActivityDescribersLoaded(): Promise<void> {
     describersImport ??= Promise.allSettled(

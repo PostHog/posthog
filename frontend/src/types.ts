@@ -7967,10 +7967,7 @@ export interface ProductManifest {
      * request after login (see `productSetupPreloadLogic`).
      */
     setupProbe?: ProductSetupProbe
-    /**
-     * Describers that turn this product's activity log items into readable changes, keyed by scope.
-     * Aggregated into `productActivityDescribers`. Each one loads on demand, so it stays out of the shell.
-     */
+    /** Aggregated into `productActivityDescribers`, which loads each one on demand. */
     activityDescribers?: Partial<Record<ActivityScope, () => Promise<Describer>>>
 }
 
