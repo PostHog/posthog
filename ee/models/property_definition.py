@@ -1,7 +1,15 @@
 from django.contrib.postgres.fields import ArrayField
-from django.db import models
+from django.db import models, transaction
+from django.db.models.signals import pre_delete
+from django.dispatch import receiver
 
 from products.event_definitions.backend.models import PropertyDefinition
+from products.event_definitions.backend.models.enterprise_copies import (
+    PROPERTY_DEFINITION_COPIED_FIELDS,
+    clear_copied_user_ids,
+    copy_enterprise_fields,
+    lock_base_row,
+)
 
 
 class EnterprisePropertyDefinition(PropertyDefinition):
@@ -30,3 +38,18 @@ class EnterprisePropertyDefinition(PropertyDefinition):
         default=None,
         db_column="tags",
     )
+
+    def save(self, *args, **kwargs) -> None:
+        # One transaction: an overlapping save waits on the row locks, so the copies cannot end up
+        # older than this row.
+        with transaction.atomic():
+            lock_base_row(self, PropertyDefinition)
+            super().save(*args, **kwargs)
+            copy_enterprise_fields(
+                self, PropertyDefinition, PROPERTY_DEFINITION_COPIED_FIELDS, kwargs.get("update_fields")
+            )
+
+
+@receiver(pre_delete, sender="posthog.User")
+def _clear_copied_user_ids(sender: type[models.Model], instance: models.Model, **kwargs: object) -> None:
+    clear_copied_user_ids(EnterprisePropertyDefinition, PropertyDefinition, ("updated_by", "verified_by"), instance.pk)

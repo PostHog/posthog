@@ -5,6 +5,7 @@ import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.db import connection
 from django.utils import timezone
 
 import dateutil.parser
@@ -698,6 +699,23 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         assert event_def.verified is True
         assert event_def.verified_by == self.user
         assert event_def.verified_at is not None
+
+    def test_list_reads_enterprise_columns_while_base_copies_are_empty(self):
+        License.objects.create(key="test_key", plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7))
+        event = EnterpriseEventDefinition.objects.create(
+            team=self.demo_team, name="checkout_completed", description="Paid", verified=True
+        )
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "UPDATE posthog_eventdefinition SET description = NULL, verified = NULL WHERE id = %s", [event.pk]
+            )
+
+        response = self.client.get("/api/projects/@current/event_definitions/?verified=true&search=checkout_completed")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [(row["name"], row["description"], row["verified"]) for row in response.json()["results"]] == [
+            ("checkout_completed", "Paid", True)
+        ]
 
     def test_clear_owner(self):
         License.objects.create(key="test_key", plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7))
