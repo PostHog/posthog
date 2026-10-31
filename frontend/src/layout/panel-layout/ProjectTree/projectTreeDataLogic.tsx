@@ -1792,12 +1792,9 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
         recordProductIntentOnboardingCompleteSuccess: () => {
             actions.loadShortcuts()
         },
-        loadHomeFolderSuccess: ({ homeFolder }) => {
-            // Only a new home folder adds a root folder and a shortcut that the mount requests can miss.
-            if (homeFolder?.created) {
-                actions.loadShortcuts()
-                actions.loadFolder('', true)
-            }
+        loadHomeFolderSuccess: () => {
+            actions.loadShortcuts()
+            actions.loadFolder('', true)
         },
         reorderShortcutByDrag: ({ activeTreeId, overTreeId, position }) => {
             const map = values.shortcutEntryIdMap

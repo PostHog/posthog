@@ -19,13 +19,12 @@ class FileSystemHomeFolder(TeamScopedRootMixin, UUIDModel):
         constraints = [models.UniqueConstraint(fields=["team", "user"], name="posthog_unique_home_folder_user")]
 
     @classmethod
-    def ensure_for_user(cls, *, team: Team, user: User) -> tuple[FileSystem | None, bool]:
-        """Return the user's home folder, and whether this call created the folder and its shortcut."""
+    def ensure_for_user(cls, *, team: Team, user: User) -> FileSystem | None:
         team = team.parent_team or team
         homes = cls.objects.for_team(team.pk)
         existing = homes.select_related("folder").filter(user=user).first()
         if existing is not None:
-            return existing.folder, False
+            return existing.folder
 
         with transaction.atomic():
             # Serialize name allocation across users without locking the hot Team row.
@@ -33,7 +32,7 @@ class FileSystemHomeFolder(TeamScopedRootMixin, UUIDModel):
                 cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", [f"home-folder:{team.pk}"])
             existing = homes.select_related("folder").filter(user=user).first()
             if existing is not None:
-                return existing.folder, False
+                return existing.folder
 
             name = user.first_name.strip() or "My home"
             # Shortcut refs allow 100 characters, including escaping and a collision suffix.
@@ -48,7 +47,7 @@ class FileSystemHomeFolder(TeamScopedRootMixin, UUIDModel):
                 own_folder = occupied.filter(type="folder", created_by=user).exclude(shortcut=True).first()
                 if own_folder is not None and not homes.filter(folder=own_folder).exists():
                     homes.create(team=team, user=user, folder=own_folder)
-                    return own_folder, False
+                    return own_folder
                 if not occupied.exists():
                     break
                 suffix += 1
@@ -75,4 +74,4 @@ class FileSystemHomeFolder(TeamScopedRootMixin, UUIDModel):
                 order=-1,
                 surface=DEFAULT_SURFACE,
             )
-            return folder, True
+            return folder
