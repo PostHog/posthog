@@ -177,6 +177,8 @@ def _inputs_used(rendered: RenderedInput, limits: RenderLimits) -> dict[str, Any
         "activity_lines": rendered.n_activity_lines,
         "view_lines": rendered.n_view_lines,
         "input_chars": rendered.input_chars,
+        "intent_lines": rendered.intent_lines,
+        "intent_chars": rendered.intent_chars,
         "drops": rendered.drops,
         "limits": dataclasses.asdict(limits),
     }
