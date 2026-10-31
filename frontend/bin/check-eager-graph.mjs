@@ -142,6 +142,9 @@ const ROOTS = [
             'node_modules/re2js/',
             // react-markdown and its remark plugins load on first render. Shell code uses LazyLemonMarkdown.
             'node_modules/react-markdown/',
+            // The command palette loads on its first open, and its flagged search pulls in quill.
+            'src/lib/components/Command/Command.tsx',
+            'packages/quill/packages/',
             // The zod-en-locale-only plugin in common/esbuilder/utils.mjs keeps every locale except
             // `en` out of the build. A hit on another locale means zod moved its locales barrel and
             // the plugin no longer matches it.

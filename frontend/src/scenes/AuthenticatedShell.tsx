@@ -2,7 +2,7 @@ import { useMountedLogic, useValues } from 'kea'
 import { Suspense } from 'react'
 import { Slide, ToastContainer } from 'react-toastify'
 
-import { Command } from 'lib/components/Command/Command'
+import { commandLogic } from 'lib/components/Command/commandLogic'
 import { productSetupPreloadLogic } from 'lib/components/ProductEmptyState/productSetupPreloadLogic'
 import { globalSetupLogic, useSetupHighlight } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -32,6 +32,10 @@ import { sceneLogic } from './sceneLogic'
 
 const TerminalDock = lazyWithRetry(() =>
     import('./terminal/TerminalDock').then(({ TerminalDock }) => ({ default: TerminalDock }))
+)
+// Loads on the first open of the palette, so the shell skips its search code until a user asks for it.
+const Command = lazyWithRetry(() =>
+    import('lib/components/Command/Command').then(({ Command }) => ({ default: Command }))
 )
 // Staff-only, so everyone else skips the chunk and the toolbar selector code it pulls in.
 const InternalFeedbackWidget = lazyWithRetry(() =>
@@ -67,6 +71,7 @@ export default function AuthenticatedShell({ children }: { children: React.React
     const { featureFlags } = useValues(featureFlagLogic)
     const { isDarkModeOn } = useValues(themeLogic)
     const { user } = useValues(userLogic)
+    const { hasOpenedCommand } = useValues(commandLogic)
     const showInternalFeedback =
         !!featureFlags[FEATURE_FLAGS.INTERNAL_FEEDBACK_WIDGET] && !!user?.email?.toLowerCase().endsWith('@posthog.com')
     const runSyncEnabled = featureFlags[FEATURE_FLAGS.WIZARD_RUN_SYNC] === 'wizard-run'
@@ -106,7 +111,15 @@ export default function AuthenticatedShell({ children }: { children: React.React
                         </Suspense>
                     </ErrorBoundary>
                 )}
-                <Command />
+                {hasOpenedCommand && (
+                    <ErrorBoundary>
+                        <ChunkLoadErrorBoundary>
+                            <Suspense fallback={null}>
+                                <Command />
+                            </Suspense>
+                        </ChunkLoadErrorBoundary>
+                    </ErrorBoundary>
+                )}
                 <ImpersonationNotice />
                 <ErrorBoundary>
                     <ChunkLoadErrorBoundary>
