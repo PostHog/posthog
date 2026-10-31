@@ -10,12 +10,14 @@
         "@posthog/quill-components": "workspace:*",
         "@posthog/quill-primitives": "workspace:*",
         "kea": "catalog:",
+        "kea-forms": "catalog:",
         "kea-loaders": "catalog:",
         "kea-router": "catalog:",
         "posthog-js": "catalog:",
         "react-intersection-observer": "9.5.3"
     },
     "devDependencies": {
+        "@testing-library/react": "^14.3.1",
         "kea-test-utils": "catalog:"
     },
     "peerDependencies": {
@@ -23,6 +25,7 @@
         "@posthog/icons": "catalog:",
         "@storybook/react": "catalog:",
         "@testing-library/dom": "*",
+        "@testing-library/user-event": "*",
         "@types/react": "*",
         "react": "*"
     }
