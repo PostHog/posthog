@@ -1,7 +1,6 @@
 import json
-from collections.abc import Callable
 from datetime import UTC, date, datetime
-from typing import Any, Optional, cast
+from typing import Any, Optional
 
 from posthog.dataclasses import frozen
 
@@ -10,24 +9,27 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     RESTAPIConfig,
     rest_api_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    OffsetPaginator,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.zero.settings import (
+    CREATED_AT,
     ENDPOINT_CONFIGS,
+    PAGE_LIMIT,
     ZERO_BASE_URL,
 )
-
-PAGE_LIMIT = 100
 
 
 @frozen
 class ZeroResumeConfig:
     offset: int
+
+
+@frozen
+class ZeroCredentialCheck:
+    status: int | None
+    workspace_ids: tuple[str, ...] = ()
 
 
 def _format_zero_datetime(value: Any) -> str:
@@ -40,59 +42,34 @@ def _format_zero_datetime(value: Any) -> str:
     return str(value)
 
 
-def _build_where(workspace_id: Optional[str], date_field: Optional[str]) -> Callable[[Any], str]:
-    """Build the `convert` callable for the declarative incremental `where` param.
-
-    Zero's `where` filter is a single JSON-encoded object, so the static workspace scope and the
-    dynamic incremental cursor have to be merged into one value here rather than sent as two
-    separate query params.
-    """
-
-    def convert(last_value: Any) -> str:
-        where: dict[str, Any] = {}
-        if workspace_id is not None:
-            where["workspaceId"] = workspace_id
-        if date_field is not None and last_value is not None:
-            where[date_field] = {"$gt": _format_zero_datetime(last_value)}
-        return json.dumps(where)
-
-    return convert
-
-
 def get_resource(
     endpoint: str,
-    workspace_id: str,
-    should_use_incremental_field: bool,
+    workspace_id: Optional[str],
     incremental_field: Optional[str],
+    db_incremental_field_last_value: Optional[Any],
 ) -> EndpointResource:
+    """Build the resource for one endpoint.
+
+    ``incremental_field`` is the cursor field for an incremental sync and ``None`` for a full refresh.
+    """
     config = ENDPOINT_CONFIGS[endpoint]
-    is_incremental = should_use_incremental_field and bool(config.incremental_fields)
-    scoped_workspace_id = workspace_id if config.scoped_by_workspace else None
+    advertised = {incremental["field"] for incremental in config.incremental_fields}
+    is_incremental = incremental_field is not None and bool(advertised)
 
-    # Stable, ascending sort so offset pagination doesn't skip or duplicate rows as new records
-    # are created mid-sync — createdAt never changes, so new rows always land after the current
-    # offset. Incremental syncs instead sort on the cursor field, matching SourceResponse.sort_mode.
-    sort_field = "createdAt"
-    params: dict[str, Any] = {}
+    # Zero takes one JSON `where` object, so the workspace scope and the cursor go in together.
+    where: dict[str, Any] = {}
+    if workspace_id and config.workspace_filter_key is not None:
+        where[config.workspace_filter_key] = workspace_id
+    if is_incremental and db_incremental_field_last_value is not None:
+        cursor = incremental_field if incremental_field in advertised else config.incremental_fields[0]["field"]
+        where[cursor] = {"$gt": _format_zero_datetime(db_incremental_field_last_value)}
 
-    if is_incremental:
-        advertised = {incremental["field"] for incremental in config.incremental_fields}
-        cursor = (
-            incremental_field
-            if incremental_field is not None and incremental_field in advertised
-            else config.incremental_fields[0]["field"]
-        )
-        sort_field = cursor
-        params["where"] = {
-            "type": "incremental",
-            "cursor_path": cursor,
-            "initial_value": None,
-            "convert": _build_where(scoped_workspace_id, cursor),
-        }
-    elif scoped_workspace_id is not None:
-        params["where"] = json.dumps({"workspaceId": scoped_workspace_id})
-
-    params["orderBy"] = json.dumps({sort_field: "asc"})
+    # Sort on the immutable createdAt, also for incremental syncs. A row updated mid-sync moves to
+    # the end of an updatedAt order and shifts every later offset page back by one row, which skips
+    # a row. New rows land after the current offset in a createdAt order.
+    params: dict[str, Any] = {"orderBy": json.dumps({CREATED_AT: "asc"})}
+    if where:
+        params["where"] = json.dumps(where)
 
     return {
         "name": config.name,
@@ -104,72 +81,52 @@ def get_resource(
             "data_selector": "data",
             "data_selector_required": True,
             "params": params,
-            "paginator": OffsetPaginator(limit=PAGE_LIMIT, total_path="total"),
+            "paginator": {"type": "offset", "limit": PAGE_LIMIT, "total_path": "total"},
         },
         "table_format": "delta",
     }
 
 
-def resolve_workspace_id(api_key: str) -> str:
-    """Resolve the workspace this API key belongs to.
-
-    Most Zero resources are workspace-scoped and require an explicit `where={"workspaceId": ...}`
-    filter, so the sync resolves the workspace once up front. `GET /api/workspaces` returns every
-    workspace the key can see, unfiltered — for a key with access to more than one, taking the
-    first result would pick an unintended workspace boundary silently, so this fails loud instead
-    and asks for a key scoped to a single workspace.
-    """
-    session = make_tracked_session(redact_values=(api_key,))
-    response = session.get(
-        f"{ZERO_BASE_URL}/api/workspaces",
-        headers={"Authorization": f"Bearer {api_key}"},
-        params={"fields": "id"},
-        timeout=10,
-    )
-    response.raise_for_status()
-    data = response.json().get("data") or []
-    if not data:
-        raise ValueError("This Zero API key isn't a member of any workspace.")
-    if len(data) > 1:
-        raise ValueError(
-            "This Zero API key has access to multiple workspaces. Use an API key scoped to a "
-            "single workspace so PostHog imports data from the intended workspace only."
+def check_credentials(api_key: str) -> ZeroCredentialCheck:
+    """List the workspaces the key can reach, and report the probe status."""
+    try:
+        response = make_tracked_session(redact_values=(api_key,)).get(
+            f"{ZERO_BASE_URL}/api/workspaces",
+            headers={"Authorization": f"Bearer {api_key}"},
+            params={"fields": "id"},
+            timeout=10,
         )
-    return cast(str, data[0]["id"])
-
-
-def validate_credentials(api_key: str) -> bool:
-    ok, _status = validate_via_probe(
-        lambda: make_tracked_session(redact_values=(api_key,)),
-        f"{ZERO_BASE_URL}/api/workspaces",
-        headers={"Authorization": f"Bearer {api_key}"},
+    except Exception:
+        return ZeroCredentialCheck(status=None)
+    if response.status_code != 200:
+        return ZeroCredentialCheck(status=response.status_code)
+    try:
+        rows = response.json().get("data") or []
+    except ValueError:
+        return ZeroCredentialCheck(status=response.status_code)
+    return ZeroCredentialCheck(
+        status=response.status_code,
+        workspace_ids=tuple(str(row["id"]) for row in rows if isinstance(row, dict) and row.get("id")),
     )
-    return ok
 
 
 def zero_source(
     api_key: str,
+    workspace_id: Optional[str],
     endpoint: str,
     team_id: int,
     job_id: str,
     resumable_source_manager: ResumableSourceManager[ZeroResumeConfig],
+    incremental_field: Optional[str],
     db_incremental_field_last_value: Optional[Any],
-    incremental_field: Optional[str] = None,
-    should_use_incremental_field: bool = False,
-) -> Resource:
-    workspace_id = resolve_workspace_id(api_key)
-
+) -> SourceResponse:
     config: RESTAPIConfig = {
         "client": {
             "base_url": ZERO_BASE_URL,
             "auth": {"type": "bearer", "token": api_key},
         },
-        "resource_defaults": {
-            "write_disposition": {"disposition": "merge", "strategy": "upsert"}
-            if should_use_incremental_field
-            else "replace",
-        },
-        "resources": [get_resource(endpoint, workspace_id, should_use_incremental_field, incremental_field)],
+        "resource_defaults": {},
+        "resources": [get_resource(endpoint, workspace_id, incremental_field, db_incremental_field_last_value)],
     }
 
     initial_paginator_state: Optional[dict[str, Any]] = None
@@ -182,11 +139,23 @@ def zero_source(
         if state and "offset" in state:
             resumable_source_manager.save_state(ZeroResumeConfig(offset=int(state["offset"])))
 
-    return rest_api_resource(
+    resource: Resource = rest_api_resource(
         config,
         team_id,
         job_id,
         db_incremental_field_last_value,
         resume_hook=save_checkpoint,
         initial_paginator_state=initial_paginator_state,
+    )
+
+    return SourceResponse(
+        name=resource.name,
+        items=lambda: resource,
+        primary_keys=["id"],
+        partition_count=1,
+        partition_size=1,
+        partition_mode="datetime",
+        partition_format="month",
+        partition_keys=[CREATED_AT],
+        column_hints=resource.column_hints,
     )

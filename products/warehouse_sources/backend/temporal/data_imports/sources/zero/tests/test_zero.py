@@ -4,176 +4,154 @@ from typing import Any
 
 import pytest
 
-import requests
-from parameterized import parameterized
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     DriveResult,
     ScriptedResponse,
     SourceDriver,
     always,
-    route,
     scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.zero import ZeroSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.zero.source import ZeroSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.zero.zero import (
-    ZeroResumeConfig,
-    _build_where,
-    _format_zero_datetime,
-    get_resource,
-    resolve_workspace_id,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.zero.zero import ZeroResumeConfig
 
 WORKSPACE_ID = "11111111-1111-1111-1111-111111111111"
+OTHER_WORKSPACE_ID = "22222222-2222-2222-2222-222222222222"
 
 
-def _make_http_response(body: dict[str, Any] | None, status_code: int = 200) -> ScriptedResponse:
-    return ScriptedResponse(status=status_code, json=body if body is not None else {})
+def _page(rows: list[dict[str, Any]], total: int) -> ScriptedResponse:
+    return ScriptedResponse(json={"data": rows, "total": total})
 
 
-class TestFormatZeroDatetime:
-    def test_date_is_combined_with_midnight_utc(self) -> None:
-        assert _format_zero_datetime(date(2026, 1, 1)) == "2026-01-01T00:00:00+00:00"
-
-    def test_string_value_passes_through(self) -> None:
-        assert _format_zero_datetime("2026-01-01T00:00:00Z") == "2026-01-01T00:00:00Z"
-
-
-class TestBuildWhere:
-    def test_workspace_and_date_filter_combined(self) -> None:
-        convert = _build_where(WORKSPACE_ID, "updatedAt")
-        result = json.loads(convert(datetime(2026, 1, 1, tzinfo=UTC)))
-        assert result == {
-            "workspaceId": WORKSPACE_ID,
-            "updatedAt": {"$gt": "2026-01-01T00:00:00+00:00"},
-        }
-
-    def test_no_date_field_never_adds_a_date_filter(self) -> None:
-        convert = _build_where(WORKSPACE_ID, None)
-        result = json.loads(convert(datetime(2026, 1, 1, tzinfo=UTC)))
-        assert result == {"workspaceId": WORKSPACE_ID}
+def _drive(
+    endpoint: str,
+    responses: list[ScriptedResponse],
+    workspace_id: str | None = WORKSPACE_ID,
+    resume_state: ZeroResumeConfig | None = None,
+    **inputs: Any,
+) -> DriveResult:
+    driver = SourceDriver(ZeroSource(), ZeroSourceConfig(api_key="test-key", workspace_id=workspace_id))
+    return driver.run(endpoint, responses, resume_state=resume_state, **inputs)
 
 
-class TestGetResource:
-    @parameterized.expand(
-        [
-            ("Companies", "companies", "/api/companies"),
-            ("Contacts", "contacts", "/api/contacts"),
-            ("Deals", "deals", "/api/deals"),
-            ("Pipelines", "pipelines", "/api/pipelines"),
-            ("PipelineStages", "pipeline_stages", "/api/pipelineStages"),
-            ("Notes", "notes", "/api/notes"),
-            ("Tasks", "tasks", "/api/tasks"),
-            ("Meetings", "meetings", "/api/calendarEvents"),
-            ("Memberships", "memberships", "/api/memberships"),
-            ("Workspaces", "workspaces", "/api/workspaces"),
-            ("Users", "users", "/api/users"),
-        ]
-    )
-    def test_endpoint_name_maps_to_table_and_path(self, endpoint: str, table_name: str, path: str) -> None:
-        resource = get_resource(endpoint, WORKSPACE_ID, should_use_incremental_field=False, incremental_field=None)
-        assert resource["table_name"] == table_name
-        endpoint_config = resource["endpoint"]
-        assert isinstance(endpoint_config, dict)
-        assert endpoint_config["path"] == path
-        assert resource["primary_key"] == ["id"]
-
-    def test_incremental_field_falls_back_to_first_advertised_option(self) -> None:
-        resource = get_resource(
-            "Companies", WORKSPACE_ID, should_use_incremental_field=True, incremental_field="not_a_real_field"
-        )
-        endpoint_config = resource["endpoint"]
-        assert isinstance(endpoint_config, dict)
-        params = endpoint_config["params"]
-        assert isinstance(params, dict)
-        where = params["where"]
-        assert isinstance(where, dict)
-        assert where["cursor_path"] == "updatedAt"  # ty: ignore[invalid-key]
-
-    def test_incremental_convert_omits_workspace_for_users(self) -> None:
-        resource = get_resource("Users", WORKSPACE_ID, should_use_incremental_field=True, incremental_field="updatedAt")
-        endpoint_config = resource["endpoint"]
-        assert isinstance(endpoint_config, dict)
-        params = endpoint_config["params"]
-        assert isinstance(params, dict)
-        where = params["where"]
-        assert isinstance(where, dict)
-        convert = where["convert"]  # ty: ignore[invalid-key]
-        assert convert is not None
-        assert json.loads(convert(None)) == {}
-
-    def test_workspaces_endpoint_never_goes_incremental(self) -> None:
-        # Workspaces declares no incremental_fields, so should_use_incremental_field=True must
-        # still fall through to a plain, full-refresh where filter.
-        resource = get_resource("Workspaces", WORKSPACE_ID, should_use_incremental_field=True, incremental_field=None)
-        endpoint_config = resource["endpoint"]
-        assert isinstance(endpoint_config, dict)
-        params = endpoint_config["params"]
-        assert isinstance(params, dict)
-        assert "where" not in params
-        assert resource["write_disposition"] == "replace"
-
-
-class TestResolveWorkspaceId:
-    def test_returns_the_single_workspace_id(self) -> None:
-        with scripted_network(always(_make_http_response({"data": [{"id": WORKSPACE_ID}], "total": 1}))):
-            assert resolve_workspace_id("api-key") == WORKSPACE_ID
-
-    def test_raises_when_key_has_multiple_workspaces(self) -> None:
-        response = _make_http_response(
-            {"data": [{"id": WORKSPACE_ID}, {"id": "22222222-2222-2222-2222-222222222222"}], "total": 2}
-        )
-        with scripted_network(always(response)):
-            with pytest.raises(ValueError, match="access to multiple workspaces"):
-                resolve_workspace_id("api-key")
-
-    def test_raises_when_key_has_no_workspace(self) -> None:
-        with scripted_network(always(_make_http_response({"data": [], "total": 0}))):
-            with pytest.raises(ValueError, match="isn't a member of any workspace"):
-                resolve_workspace_id("api-key")
-
-    def test_raises_on_http_error(self) -> None:
-        with scripted_network(always(_make_http_response(None, status_code=401))):
-            with pytest.raises(requests.HTTPError):
-                resolve_workspace_id("api-key")
-
-
-class TestZeroSourceResumeBehavior:
-    """End-to-end resume behaviour of ``ZeroSource``, driven through ``source_for_pipeline``."""
-
-    def _drive(
-        self,
-        endpoint: str,
-        responses: list[ScriptedResponse],
-        resume_state: ZeroResumeConfig | None = None,
-    ) -> DriveResult:
-        driver = SourceDriver(ZeroSource(), ZeroSourceConfig(api_key="test-key"))
-        workspaces = _make_http_response({"data": [{"id": WORKSPACE_ID}], "total": 1})
-        return driver.run(
-            endpoint,
-            route({"/api/workspaces": [workspaces], "/api/companies": responses}),
-            resume_state=resume_state,
-        )
-
-    def test_fresh_run_saves_offset_after_each_non_terminal_page(self) -> None:
-        # The offset paginator's default limit is 100, so a non-terminal page must carry a full
-        # 100 rows — anything smaller would (correctly) be read as the last page and stop pagination.
+class TestZeroPagination:
+    def test_walks_offset_pages_and_saves_the_next_offset(self) -> None:
         responses = [
-            _make_http_response({"data": [{"id": f"c{i}"} for i in range(100)], "total": 250}),
-            _make_http_response({"data": [{"id": f"c{i}"} for i in range(100, 200)], "total": 250}),
-            _make_http_response({"data": [{"id": f"c{i}"} for i in range(200, 250)], "total": 250}),
+            _page([{"id": f"c{i}"} for i in range(100)], total=250),
+            _page([{"id": f"c{i}"} for i in range(100, 200)], total=250),
+            _page([{"id": f"c{i}"} for i in range(200, 250)], total=250),
         ]
-        result = self._drive("Companies", responses)
+        result = _drive("Companies", responses)
 
-        company_requests = [request for request in result.requests if request.path == "/api/companies"]
-        assert [request.param("offset") for request in company_requests] == ["0", "100", "200"]
+        assert result.raised is None
+        assert result.paths == ["/api/companies"] * 3
+        assert result.params("offset") == ["0", "100", "200"]
+        assert [request.headers["authorization"] for request in result.requests] == ["Bearer test-key"] * 3
         assert [row["id"] for row in result.rows] == [f"c{i}" for i in range(250)]
         assert result.saved_states == [ZeroResumeConfig(offset=100), ZeroResumeConfig(offset=200)]
 
-    def test_resume_seeds_paginator_with_saved_offset(self) -> None:
-        responses = [_make_http_response({"data": [{"id": "c4"}], "total": 201})]
-        result = self._drive("Companies", responses, resume_state=ZeroResumeConfig(offset=200))
+    def test_resume_starts_from_the_saved_offset(self) -> None:
+        result = _drive("Companies", [_page([{"id": "c200"}], total=201)], resume_state=ZeroResumeConfig(offset=200))
 
-        company_requests = [request for request in result.requests if request.path == "/api/companies"]
-        assert [request.param("offset") for request in company_requests] == ["200"]
+        assert result.raised is None
+        assert result.params("offset") == ["200"]
+
+
+class TestZeroRequestShaping:
+    @pytest.mark.parametrize(
+        ("endpoint", "workspace_id", "inputs", "expected_where"),
+        [
+            pytest.param("Companies", WORKSPACE_ID, {}, {"workspaceId": WORKSPACE_ID}, id="full_refresh_scoped"),
+            pytest.param("Companies", None, {}, None, id="full_refresh_all_workspaces"),
+            pytest.param("Workspaces", WORKSPACE_ID, {}, {"id": WORKSPACE_ID}, id="workspace_row_scoped_by_id"),
+            pytest.param(
+                "Users",
+                WORKSPACE_ID,
+                {
+                    "should_use_incremental_field": True,
+                    "incremental_field": "updatedAt",
+                    "db_incremental_field_last_value": datetime(2026, 1, 1, 12, tzinfo=UTC),
+                },
+                {"updatedAt": {"$gt": "2026-01-01T12:00:00+00:00"}},
+                id="users_have_no_workspace_scope",
+            ),
+            pytest.param(
+                "MeetingTranscripts",
+                WORKSPACE_ID,
+                {
+                    "should_use_incremental_field": True,
+                    "incremental_field": "createdAt",
+                    "db_incremental_field_last_value": date(2026, 1, 1),
+                },
+                {"workspaceId": WORKSPACE_ID, "createdAt": {"$gt": "2026-01-01T00:00:00+00:00"}},
+                id="date_cursor_is_midnight_utc",
+            ),
+            pytest.param(
+                "Companies",
+                WORKSPACE_ID,
+                {
+                    "should_use_incremental_field": True,
+                    "incremental_field": "not_a_real_field",
+                    "db_incremental_field_last_value": "2026-01-01T00:00:00Z",
+                },
+                {"workspaceId": WORKSPACE_ID, "updatedAt": {"$gt": "2026-01-01T00:00:00Z"}},
+                id="unknown_cursor_falls_back_to_updated_at",
+            ),
+            pytest.param(
+                "Companies",
+                WORKSPACE_ID,
+                {
+                    "should_use_incremental_field": True,
+                    "incremental_field": "updatedAt",
+                    "db_incremental_field_last_value": None,
+                },
+                {"workspaceId": WORKSPACE_ID},
+                id="first_incremental_sync_reads_everything",
+            ),
+            pytest.param(
+                "Companies",
+                WORKSPACE_ID,
+                {
+                    "should_use_incremental_field": False,
+                    "incremental_field": None,
+                    "db_incremental_field_last_value": "2026-01-01T00:00:00Z",
+                },
+                {"workspaceId": WORKSPACE_ID},
+                id="full_refresh_ignores_a_stale_watermark",
+            ),
+        ],
+    )
+    def test_where_scopes_the_workspace_and_cursor_and_order_stays_on_created_at(
+        self, endpoint: str, workspace_id: str | None, inputs: dict[str, Any], expected_where: dict[str, Any] | None
+    ) -> None:
+        result = _drive(endpoint, [_page([], total=0)], workspace_id=workspace_id, **inputs)
+
+        assert result.raised is None
+        where = result.requests[0].param("where")
+        assert (json.loads(where) if where is not None else None) == expected_where
+        # An updatedAt order lets a row updated mid-sync shift the offset pages and skip a row.
+        assert json.loads(result.requests[0].param("orderBy") or "{}") == {"createdAt": "asc"}
+
+
+class TestZeroValidateCredentials:
+    @pytest.mark.parametrize(
+        ("status", "workspace_id", "expected_valid", "expected_fragment"),
+        [
+            pytest.param(200, None, True, None, id="valid_key"),
+            pytest.param(200, f" {WORKSPACE_ID} ", True, None, id="reachable_workspace"),
+            pytest.param(200, "33333333-3333-3333-3333-333333333333", False, "can't access that workspace", id="other"),
+            pytest.param(401, None, False, "rejected the API key", id="bad_key"),
+            pytest.param(500, None, False, "Could not reach", id="server_error"),
+        ],
+    )
+    def test_maps_the_workspace_probe_to_a_message(
+        self, status: int, workspace_id: str | None, expected_valid: bool, expected_fragment: str | None
+    ) -> None:
+        body = {"data": [{"id": WORKSPACE_ID}, {"id": OTHER_WORKSPACE_ID}], "total": 2}
+        config = ZeroSourceConfig(api_key="test-key", workspace_id=workspace_id)
+        with scripted_network(always(ScriptedResponse(status=status, json=body))) as network:
+            is_valid, message = ZeroSource().validate_credentials(config, team_id=1)
+
+        assert is_valid is expected_valid
+        assert (message is None) if expected_fragment is None else (expected_fragment in (message or ""))
+        assert {request.path for request in network.requests_log} == {"/api/workspaces"}

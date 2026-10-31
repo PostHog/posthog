@@ -54,4 +54,3 @@ products/warehouse_sources/backend/temporal/data_imports/sources/webflow/tests/t
 products/warehouse_sources/backend/temporal/data_imports/sources/woocommerce/tests/test_woocommerce_source.py
 products/warehouse_sources/backend/temporal/data_imports/sources/world_bank/tests/test_world_bank_source.py
 products/warehouse_sources/backend/temporal/data_imports/sources/zendesk/tests/test_zendesk.py
-products/warehouse_sources/backend/temporal/data_imports/sources/zero/tests/test_zero_source.py
