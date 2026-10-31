@@ -62,6 +62,7 @@ with workflow.unsafe.imports_passed_through():
     from products.autoresearch.backend.query import BATCH_QUERY, SCORING_QUERY
     from products.autoresearch.backend.training.runner import run_training
     from products.autoresearch.backend.training.schedule import research_schedule, schedule_runs_for
+    from products.autoresearch.backend.training.stale import fail_stale_training_runs
     from products.tasks.backend.facade.access import get_desktop_access_decision
     from products.tasks.backend.facade.usage import task_run_usage_limited
 
@@ -768,6 +769,7 @@ def activity_load_active_pipelines(inp: LoadActivePipelinesInput) -> LoadActiveP
     together. The next catch-up tick tries again.
     """
     fail_stale_inference_runs()
+    fail_stale_training_runs()
     if inp.catch_up_date is not None and cache.get(daily_sweep_key(inp.catch_up_date)) == DAILY_SWEEP_RUNNING:
         logger.info("autoresearch_catch_up_deferred", catch_up_date=inp.catch_up_date)
         return LoadActivePipelinesResult(pipelines=[])
@@ -878,6 +880,8 @@ def activity_kickoff_training(inp: KickoffTrainingInput) -> KickoffTrainingResul
 
         if pipeline.status != AutoresearchPipeline.Status.RUNNING:
             return KickoffTrainingResult(kicked_off=False, reason="not_eligible")
+
+        fail_stale_training_runs(team_id=inp.team_id, pipeline_id=inp.pipeline_id)
 
         if AutoresearchTrainingRun.objects.filter(
             pipeline=pipeline,

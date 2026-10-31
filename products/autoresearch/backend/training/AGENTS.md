@@ -31,6 +31,10 @@ The other half is `../inference/`, which consumes what this package produces and
 - `stub.py`
   `run_stub_training()` — a hand-authored champion recipe with universal engagement features (event counts, distinct event types, days since first seen) that apply to any team and any target.
   No agent, no LLM spend, deterministic. This is what `--stub` on `autoresearch_train` uses, and it is the right tool for testing anything downstream of training.
+- `stale.py`
+  `fail_stale_training_runs()` — the reaper for training runs stranded by a lost sandbox or a missed TaskRun completion signal.
+  Runs past a generous multiple of `MAX_SANDBOX_TTL_SECONDS` are finalized if their TaskRun is terminal, or marked failed and cancelled best-effort if still live or missing.
+  Called in coordinator discovery, at the start of `activity_kickoff_training`, and in `start_training` before the live-run check.
 - `ingestion.py`
   The safety net. `handle_task_run_completed()` is called from the `TaskRun` `post_save` signal registered in `../apps.py`, and runs synchronously in the Temporal worker thread.
   If the agent recorded iterations but never called complete, this finalizes through the same promotion path. If it recorded nothing, the run is marked failed — which is what produces `"Agent recorded no iterations before the run ended."`
