@@ -1,6 +1,6 @@
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
-from threading import Barrier
+from threading import Barrier, Event
 from uuid import UUID
 
 import pytest
@@ -14,14 +14,22 @@ from django.db.utils import IntegrityError
 from parameterized import parameterized
 
 from posthog.models import Team, User
+from posthog.models.utils import uuid7
+from posthog.storage.object_storage import PresignedPostPair
 
 from products.error_tracking.backend.hogql_queries.issue_state_overlay import latest_issue_state_watermark
+from products.error_tracking.backend.logic.symbol_sets import (
+    SymbolSetUpload,
+    SymbolSetUploadInProgress,
+    bulk_create_symbol_sets,
+)
 from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
     ErrorTrackingIssueAssignment,
     ErrorTrackingIssueFingerprintV2,
     ErrorTrackingIssueMergeResult,
     ErrorTrackingSpikeEvent,
+    ErrorTrackingStackFrame,
     ErrorTrackingSymbolSet,
 )
 
@@ -433,6 +441,112 @@ class TestErrorTracking(ErrorTrackingIssueTestMixin, BaseTest):
 
                 # Verify object storage delete was called with correct path
                 mock_delete.assert_called_once_with(file_name="test-storage-path")
+
+
+class TestErrorTrackingSymbolSetCreateConcurrency(NonAtomicBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def test_concurrent_uploads_do_not_share_the_persisted_storage_key(self) -> None:
+        chunk_id = str(uuid7())
+        barrier = Barrier(2)
+
+        def generate_file_key() -> str:
+            barrier.wait(timeout=10)
+            return f"symbol-sets/{uuid7()}"
+
+        def presign(file_key: str, **kwargs: object) -> PresignedPostPair:
+            return PresignedPostPair(primary={"url": "https://example.com", "fields": {"key": file_key}}, fallback=None)
+
+        def start_upload(content_hash: str) -> tuple[str, str]:
+            close_old_connections()
+            try:
+                id_map = bulk_create_symbol_sets(
+                    [SymbolSetUpload(chunk_id=chunk_id, release_id=None, content_hash=content_hash)], self.team
+                )
+                entry = id_map[chunk_id]
+                return str(entry["symbol_set_id"]), str(entry["presigned_url"]["fields"]["key"])
+            finally:
+                close_old_connections()
+
+        with (
+            patch(
+                "products.error_tracking.backend.logic.symbol_sets.generate_symbol_set_file_key",
+                side_effect=generate_file_key,
+            ),
+            patch("posthog.storage.object_storage.get_presigned_post_pair", side_effect=presign),
+            ThreadPoolExecutor(max_workers=2) as executor,
+        ):
+            futures = [executor.submit(start_upload, content_hash) for content_hash in ("first-hash", "second-hash")]
+            results: list[tuple[str, str] | None] = []
+            for future in futures:
+                try:
+                    results.append(future.result(timeout=20))
+                except SymbolSetUploadInProgress as exc:
+                    assert exc.status_code == 409
+                    assert exc.get_codes() == "upload_in_progress"
+                    results.append(None)
+
+        symbol_set = ErrorTrackingSymbolSet.objects.get(team=self.team, ref=chunk_id)
+        assert symbol_set.storage_ptr is not None
+        assert results.count((str(symbol_set.pk), symbol_set.storage_ptr)) == 1
+        assert results.count(None) == 1
+        assert ErrorTrackingSymbolSet.objects.filter(team=self.team, ref=chunk_id).count() == 1
+
+        original_storage_ptr = symbol_set.storage_ptr
+        with pytest.raises(SymbolSetUploadInProgress):
+            bulk_create_symbol_sets(
+                [SymbolSetUpload(chunk_id=chunk_id, release_id=None, content_hash="retry-hash")], self.team
+            )
+        symbol_set.refresh_from_db()
+        assert symbol_set.storage_ptr == original_storage_ptr
+
+    def test_bulk_start_does_not_block_stack_frame_insert(self) -> None:
+        symbol_set = ErrorTrackingSymbolSet.objects.create(
+            team=self.team, ref=str(uuid7()), storage_ptr="symbol-sets/old", content_hash="old-hash"
+        )
+        presigning = Event()
+        release_presigning = Event()
+
+        def presign(file_key: str, **kwargs: object) -> PresignedPostPair:
+            presigning.set()
+            assert release_presigning.wait(timeout=10)
+            return PresignedPostPair(primary={"url": "https://example.com", "fields": {"key": file_key}}, fallback=None)
+
+        def start_upload() -> None:
+            close_old_connections()
+            try:
+                bulk_create_symbol_sets(
+                    [SymbolSetUpload(chunk_id=symbol_set.ref, release_id=None, content_hash="new-hash")],
+                    self.team,
+                    force=True,
+                )
+            finally:
+                close_old_connections()
+
+        def create_stack_frame() -> None:
+            close_old_connections()
+            try:
+                with connection.cursor() as cursor:
+                    cursor.execute("SET lock_timeout = '2s'")
+                ErrorTrackingStackFrame.objects.create(
+                    team=self.team, symbol_set=symbol_set, raw_id=str(uuid7()), contents={}, resolved=False
+                )
+            finally:
+                close_old_connections()
+
+        with (
+            patch("posthog.storage.object_storage.get_presigned_post_pair", side_effect=presign),
+            ThreadPoolExecutor(max_workers=2) as executor,
+        ):
+            start = executor.submit(start_upload)
+            try:
+                assert presigning.wait(timeout=10)
+                executor.submit(create_stack_frame).result(timeout=5)
+            finally:
+                release_presigning.set()
+            start.result(timeout=10)
+
+        assert ErrorTrackingStackFrame.objects.filter(symbol_set=symbol_set).count() == 1
 
 
 class TestErrorTrackingMergeConcurrency(ErrorTrackingIssueTestMixin, NonAtomicBaseTest):

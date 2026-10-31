@@ -2033,6 +2033,9 @@ class TestErrorTracking(APIBaseTest):
 
         symbol_set = ErrorTrackingSymbolSet.objects.get(ref=chunk_id)
         initial_storage_ptr = symbol_set.storage_ptr
+        ErrorTrackingSymbolSet.objects.filter(pk=symbol_set.pk).update(
+            created_at=timezone.now() - timedelta(minutes=10)
+        )
 
         release = ErrorTrackingRelease.objects.create(
             team=self.team,
@@ -2124,8 +2127,21 @@ class TestErrorTracking(APIBaseTest):
             format="json",
         )
 
-        assert second_response.status_code == status.HTTP_201_CREATED
-        id_map = second_response.json()["id_map"]
+        assert second_response.status_code == status.HTTP_409_CONFLICT
+        symbol_set.refresh_from_db()
+        assert symbol_set.storage_ptr == initial_storage_ptr
+
+        ErrorTrackingSymbolSet.objects.filter(pk=symbol_set.pk).update(
+            created_at=timezone.now() - timedelta(minutes=10)
+        )
+        retry_response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/symbol_sets/bulk_start_upload",
+            data={"chunk_ids": [chunk_id]},
+            format="json",
+        )
+
+        assert retry_response.status_code == status.HTTP_201_CREATED
+        id_map = retry_response.json()["id_map"]
 
         symbol_set.refresh_from_db()
         assert symbol_set.storage_ptr != initial_storage_ptr
