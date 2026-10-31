@@ -9974,6 +9974,7 @@ export namespace Schemas {
      * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
      * * `new_flag_no_traffic` - New Flag No Traffic
      * * `early_significance` - Early Significance
+     * * `metrics_not_matured` - Metrics Not Matured
      */
     export type ExperimentHealthFindingCodeEnum =
         | "flag_off_while_running"
@@ -9998,7 +9999,8 @@ export namespace Schemas {
         | "bucketing_changed_mid_run"
         | "release_conditions_changed_mid_run"
         | "new_flag_no_traffic"
-        | "early_significance";
+        | "early_significance"
+        | "metrics_not_matured";
     /**
      * * `critical` - Critical severity
      * * `warning` - Warning severity
@@ -10054,6 +10056,7 @@ export namespace Schemas {
          * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
          * * `new_flag_no_traffic` - New Flag No Traffic
          * * `early_significance` - Early Significance
+         * * `metrics_not_matured` - Metrics Not Matured
          */
         code: ExperimentHealthFindingCodeEnum;
         /**
@@ -10109,6 +10112,7 @@ export namespace Schemas {
      * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
      * * `exposure_filters` - Exposure Filters
      * * `early_significance` - Early Significance
+     * * `metrics_not_matured` - Metrics Not Matured
      * * `zero_exposures` - Zero Exposures
      * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
      * * `srm` - Srm
@@ -10131,6 +10135,7 @@ export namespace Schemas {
         | "exposure_criteria_cannot_match"
         | "exposure_filters"
         | "early_significance"
+        | "metrics_not_matured"
         | "zero_exposures"
         | "test_account_filter_removes_exposures"
         | "srm"
@@ -10166,6 +10171,7 @@ export namespace Schemas {
          * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
          * * `exposure_filters` - Exposure Filters
          * * `early_significance` - Early Significance
+         * * `metrics_not_matured` - Metrics Not Matured
          * * `zero_exposures` - Zero Exposures
          * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
          * * `srm` - Srm
