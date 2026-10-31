@@ -38,8 +38,10 @@ function iconError(icon: string): string | undefined {
     if (!ICON_DATA_URI.test(icon)) {
         return 'Paste a PNG, GIF or WebP image as a data URI.'
     }
-    const base64Length = icon.length - icon.indexOf(',') - 1
-    return (base64Length * 3) / 4 > MAX_ICON_BYTES ? 'The icon must be 16 KB or smaller.' : undefined
+    const base64 = icon.slice(icon.indexOf(',') + 1)
+    const padding = base64.length - base64.replace(/=+$/, '').length
+    const decodedBytes = (base64.length * 3) / 4 - padding
+    return decodedBytes > MAX_ICON_BYTES ? 'The icon must be 16 KB or smaller.' : undefined
 }
 
 /** The id of the harness being edited, `'new'` while adding one, or null when no form is open. */

@@ -120,6 +120,20 @@ describe('mcpCustomHarnessesLogic', () => {
         expect(posted).toEqual([])
     })
 
+    it.each([
+        ['accepts an icon of exactly 16 KB', `${'A'.repeat(21_846)}==`, undefined],
+        ['rejects an icon one byte over 16 KB', `${'A'.repeat(21_847)}=`, 'The icon must be 16 KB or smaller.'],
+    ])('%s', async (_, base64, error) => {
+        const logic = await mounted()
+        logic.actions.startAddingHarness()
+        logic.actions.setCustomHarnessFormValues({
+            name: 'Acme',
+            match_pattern: 'acme',
+            icon: `data:image/png;base64,${base64}`,
+        })
+        expect(logic.values.customHarnessFormValidationErrors.icon).toEqual(error)
+    })
+
     it('saves a trimmed name, closes the form and shows the new harness', async () => {
         const logic = await mounted()
         logic.actions.startAddingHarness()
