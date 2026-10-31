@@ -162,6 +162,28 @@ class TestLogsKeysetPagination:
         assert len({b["logs"]["timestamp"]["before_"] for b in bodies}) == 1
         assert all(b["sort"] == "TIMESTAMP_ASC" and b["limit"] == PAGE_LIMIT for b in bodies)
 
+    def test_the_restart_does_not_emit_the_boundary_rows_twice(self) -> None:
+        first = [{"id": f"a{n}", "timestamp": "T1"} for n in range(PAGE_LIMIT - 2)]
+        boundary = [{"id": "b1", "timestamp": "T2"}, {"id": "b2", "timestamp": "T2"}]
+        reread = [*boundary, {"id": "b3", "timestamp": "T2"}, {"id": "c1", "timestamp": "T3"}]
+
+        with mock.patch.object(prefect_cloud, "LOGS_MAX_OFFSET", 0):
+            result = _driver().run("logs", [_page(first + boundary), _page(reread)])
+
+        assert [r.json()["logs"]["timestamp"].get("after_") for r in result.requests] == [None, "T2"]
+        assert [r["id"] for r in result.rows] == [*(r["id"] for r in first), "b1", "b2", "b3", "c1"]
+
+    def test_a_resumed_restart_skips_the_saved_boundary_ids(self) -> None:
+        result = _driver().run(
+            "logs",
+            [_page([{"id": "b1", "timestamp": "T2"}, {"id": "b2", "timestamp": "T2"}])],
+            resume_state=PrefectCloudResumeConfig(
+                after="T2", before="T8", offset=0, tail_timestamp="T2", tail_ids=["b1"]
+            ),
+        )
+
+        assert [r["id"] for r in result.rows] == ["b2"]
+
     def test_resume_keeps_the_saved_bounds_over_the_watermark(self) -> None:
         result = _driver().run(
             "logs",

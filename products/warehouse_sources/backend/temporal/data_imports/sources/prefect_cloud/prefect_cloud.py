@@ -46,7 +46,7 @@ PREFECT_CLOUD_API_BASE = f"https://{PREFECT_CLOUD_API_HOST}/api"
 _UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class PrefectCloudResumeConfig:
     # Row offset of the next page to fetch. 0 means "start from the first page".
     offset: int = 0
@@ -55,6 +55,9 @@ class PrefectCloudResumeConfig:
     before: Optional[str] = None
     # Next `/events/filter/next` link.
     next_url: Optional[str] = None
+    # Latest logs timestamp read, and the ids already emitted at it, so a restart skips them.
+    tail_timestamp: Optional[str] = None
+    tail_ids: Optional[list[str]] = None
     # The framework's per-parent state for the state-history fan-outs, stored unchanged.
     fanout: Optional[dict[str, Any]] = None
 
@@ -65,8 +68,9 @@ class TimestampKeysetPaginator(BasePaginator):
     `POST /logs/filter` caps `offset`, so a plain offset walk stops partway through a large
     workspace. Near the cap the walk restarts at offset 0 from the last timestamp read. The sort
     has no tie-breaker, so the restart reads the rows at that timestamp again rather than skipping
-    a count of them; merge dedupes the repeats on `id`. The fixed upper bound keeps a busy
-    workspace from extending the walk while it runs.
+    a count of them. The ids already emitted at the latest timestamp are tracked and dropped from
+    the reread pages, so full-refresh and append syncs don't write the boundary rows twice. The
+    fixed upper bound keeps a busy workspace from extending the walk while it runs.
     """
 
     def __init__(
@@ -87,6 +91,8 @@ class TimestampKeysetPaginator(BasePaginator):
         self.after: Optional[str] = None
         self.before = before
         self.offset = 0
+        self.tail_timestamp: Optional[str] = None
+        self.tail_ids: set[str] = set()
 
     def _apply(self, request: Request) -> None:
         if request.json is None:
@@ -103,15 +109,34 @@ class TimestampKeysetPaginator(BasePaginator):
     def update_request(self, request: Request) -> None:
         self._apply(request)
 
+    def _drop_emitted_rows(self, data: list[Any]) -> None:
+        fresh: list[Any] = []
+        for row in data:
+            timestamp, row_id = row.get(self.timestamp_field), row.get("id")
+            if timestamp is not None and timestamp == self.tail_timestamp and row_id in self.tail_ids:
+                continue
+            fresh.append(row)
+            if timestamp is None or row_id is None:
+                continue
+            if timestamp != self.tail_timestamp:
+                self.tail_timestamp = timestamp
+                self.tail_ids = set()
+            self.tail_ids.add(row_id)
+        # The client yields this same list after `update_state`, so filter it in place.
+        data[:] = fresh
+
     def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
         if not data or len(data) < self.limit:
+            if data:
+                self._drop_emitted_rows(data)
             self._has_next_page = False
             return
 
+        last = data[-1].get(self.timestamp_field)
+        self._drop_emitted_rows(data)
         if self.offset + self.limit <= self.max_offset:
             self.offset += self.limit
         else:
-            last = data[-1].get(self.timestamp_field)
             if last is None:
                 raise ValueError(f"Prefect Cloud returned a row without '{self.timestamp_field}'; can't page past it")
             if last == self.after:
@@ -125,13 +150,21 @@ class TimestampKeysetPaginator(BasePaginator):
     def get_resume_state(self) -> Optional[dict[str, Any]]:
         if not self._has_next_page:
             return None
-        return {"after": self.after, "before": self.before, "offset": self.offset}
+        return {
+            "after": self.after,
+            "before": self.before,
+            "offset": self.offset,
+            "tail_timestamp": self.tail_timestamp,
+            "tail_ids": sorted(self.tail_ids),
+        }
 
     def set_resume_state(self, state: dict[str, Any]) -> None:
         if state.get("before") is not None:
             self.after = state.get("after")
             self.before = state["before"]
             self.offset = int(state.get("offset") or 0)
+            self.tail_timestamp = state.get("tail_timestamp")
+            self.tail_ids = set(state.get("tail_ids") or [])
             self._has_next_page = True
 
 
@@ -345,6 +378,8 @@ def prefect_cloud_source(
                     "after": resume.after,
                     "before": resume.before,
                     "next_url": resume.next_url,
+                    "tail_timestamp": resume.tail_timestamp,
+                    "tail_ids": resume.tail_ids,
                 }
 
     def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
@@ -360,6 +395,8 @@ def prefect_cloud_source(
                     after=state.get("after"),
                     before=state.get("before"),
                     next_url=state.get("next_url"),
+                    tail_timestamp=state.get("tail_timestamp"),
+                    tail_ids=state.get("tail_ids"),
                 )
             )
 

@@ -37,7 +37,7 @@ class StateHistoryFanout:
     resolve_param: str
 
 
-@dataclass
+@dataclass(frozen=True)
 class PrefectCloudEndpointConfig:
     name: str
     path: str  # POST path under the workspace base URL, e.g. "/flow_runs/filter"
