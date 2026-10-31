@@ -24,6 +24,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import * as exporterViewLogic from '~/exporter/exporterViewLogic'
 import { useMocks } from '~/mocks/jest'
+import * as taxonomyLoader from '~/taxonomy/loadCoreFilterDefinitions'
 import { initKeaTests } from '~/test/init'
 import {
     AccessControlLevel,
@@ -59,6 +60,8 @@ const failingLogic = kea<testLogicType>([
         throw new Error('scene logic mount failed')
     }),
 ])
+
+type Deferred = { resolve: () => void; reject: (error: Error) => void }
 
 // Held so a test can reject a still-pending scene import after navigating somewhere else.
 let pendingImportRejection: ((error: Error) => void) | null = null
@@ -192,6 +195,32 @@ describe('sceneLogic', () => {
 
             expect(logic.values.activeSceneId).toEqual(Scene.Settings)
         })
+    })
+
+    it.each([
+        ['loads', (release: Deferred) => release.resolve()],
+        ['fails to load', (release: Deferred) => release.reject(new Error('taxonomy chunk failed'))],
+    ])('shows a logged-in scene only once the taxonomy %s', async (_outcome, settle) => {
+        let release: Deferred | undefined
+        const loadSpy = jest.spyOn(taxonomyLoader, 'loadCoreFilterDefinitions').mockImplementation(
+            () =>
+                new Promise<void>((resolve, reject) => {
+                    release = { resolve, reject }
+                })
+        )
+        const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
+        try {
+            router.actions.push(urls.settings('user'))
+            await expectLogic(logic).delay(1)
+            expect(logic.values.activeSceneId).toEqual(Scene.DataManagement)
+
+            settle(release!)
+            await expectLogic(logic).delay(1)
+            expect(logic.values.activeSceneId).toEqual(Scene.Settings)
+        } finally {
+            loadSpy.mockRestore()
+            consoleErrorSpy.mockRestore()
+        }
     })
 
     it('keeps teamLogic mounted after every other mount reference is released', () => {

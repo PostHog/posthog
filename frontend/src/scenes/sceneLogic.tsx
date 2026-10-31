@@ -56,6 +56,7 @@ import { urls } from 'scenes/urls'
 
 import { isSharedView } from '~/exporter/exporterViewLogic'
 import { FileSystemIconType, ProductKey } from '~/queries/schema/schema-general'
+import { loadCoreFilterDefinitions } from '~/taxonomy/loadCoreFilterDefinitions'
 import { AccessControlLevel, UserType } from '~/types'
 
 import { handleLoginRedirect } from './authentication/auth/loginLogic'
@@ -73,6 +74,18 @@ interface MountedSceneLogic {
     sceneId: string
     sceneKey?: string
     unmount: () => void
+}
+
+// A failed load must not block the scene: labels then fall back to the raw keys.
+async function loadCoreFilterDefinitionsFor(sceneId: string): Promise<void> {
+    if (sceneConfigurations[sceneId]?.onlyUnauthenticated) {
+        return
+    }
+    try {
+        await retryImport(loadCoreFilterDefinitions)
+    } catch (error) {
+        console.error('Failed to load the property taxonomy', error)
+    }
 }
 
 const generateTabId = (): string => crypto?.randomUUID?.()?.split('-')?.pop() || `${Date.now()}-${Math.random()}`
@@ -1088,7 +1101,10 @@ export const sceneLogic = kea<sceneLogicType>([
                     // Capture the importer in the narrowed scope; the early guard above ensures it's
                     // defined, but that narrowing wouldn't flow into the retryImport closure.
                     const importScene = props.scenes[sceneId]
-                    importedScene = await retryImport(() => importScene())
+                    ;[importedScene] = await Promise.all([
+                        retryImport(() => importScene()),
+                        loadCoreFilterDefinitionsFor(sceneId),
+                    ])
                 } catch (error: any) {
                     if (isChunkLoadError(error)) {
                         // Reloaded once in the last 20 seconds and now reloading again? Show network error
