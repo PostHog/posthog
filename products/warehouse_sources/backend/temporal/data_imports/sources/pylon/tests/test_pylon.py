@@ -268,12 +268,27 @@ def _scripted_page(items: list[dict[str, Any]], cursor: str | None = None) -> Sc
 class TestChildEndpoints:
     @parameterized.expand(
         [
-            ("incremental", True, "2026-01-02T03:04:05Z", "2026-01-02T03:04:05Z"),
-            ("full_refresh", False, None, None),
+            ("incremental", True, "2026-01-02T03:04:05Z", None, "2026-01-02T03:04:05Z", "2026-06-23T00:00:00Z"),
+            (
+                "resumed_incremental_keeps_cutoff",
+                True,
+                "2026-01-02T03:04:05Z",
+                "2026-06-01T00:00:00Z",
+                "2026-01-02T03:04:05Z",
+                "2026-06-01T00:00:00Z",
+            ),
+            ("full_refresh", False, None, None, None, None),
         ]
     )
+    @time_machine.travel("2026-06-23T00:00:00Z", tick=False)
     def test_survey_responses_walk_every_survey_to_its_last_page(
-        self, _name: str, should_use_incremental_field: bool, last_value: str | None, expected_filter: str | None
+        self,
+        _name: str,
+        should_use_incremental_field: bool,
+        last_value: str | None,
+        saved_cutoff: str | None,
+        expected_filter: str | None,
+        expected_cutoff: str | None,
     ) -> None:
         result = _driver().run(
             "survey_responses",
@@ -290,12 +305,14 @@ class TestChildEndpoints:
             incremental_field="submitted_at",
             should_use_incremental_field=should_use_incremental_field,
             db_incremental_field_last_value=last_value,
+            resume_state=PylonResumeConfig(upper_bound=saved_cutoff) if saved_cutoff else None,
         )
 
         assert result.raised is None
         assert result.paths == ["/surveys", "/surveys/s1/responses", "/surveys/s1/responses", "/surveys/s2/responses"]
         assert result.params("cursor") == [None, None, "c2", None]
         assert result.params("submitted_after")[1:] == [expected_filter] * 3
+        assert result.params("submitted_before")[1:] == [expected_cutoff] * 3
         assert [(row["survey_id"], row["id"]) for row in result.rows] == [("s1", "r1"), ("s1", "r2"), ("s2", "r3")]
         # One request series per survey, so rows are not ordered across the table.
         assert result.response is not None
@@ -331,6 +348,21 @@ class TestChildEndpoints:
         assert result.paths == expected_paths
         assert result.params("cursor")[1:] == expected_cursors
         assert all(row["knowledge_base_id"] in {"kb2", "kb3"} for row in result.rows)
+
+    def test_skips_a_parent_deleted_after_the_parent_list_was_read(self) -> None:
+        result = _driver().run(
+            "knowledge_base_articles",
+            route(
+                {
+                    "/knowledge-bases": [_scripted_page([{"id": "kb1"}, {"id": "kb2"}])],
+                    "/knowledge-bases/kb1/articles": [ScriptedResponse(status=404, json={"errors": ["not found"]})],
+                    "/knowledge-bases/kb2/articles": [_scripted_page([{"id": "a2"}])],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert [(row["knowledge_base_id"], row["id"]) for row in result.rows] == [("kb2", "a2")]
 
     @time_machine.travel("2026-06-23T00:00:00Z", tick=False)
     def test_issue_messages_fan_out_over_every_issues_window(self) -> None:

@@ -44,6 +44,8 @@ class PylonResumeConfig:
     parent_cursor: str | None = None
     parent_id: str | None = None
     parent_completed: bool = False
+    # RFC3339 cutoff that every child request of an incremental run is bounded by.
+    upper_bound: str | None = None
 
 
 def base_url_for_token(api_token: str) -> str:
@@ -342,6 +344,12 @@ def _get_child_rows(
         params["limit"] = config.limit
     if config.incremental_param and should_use_incremental_field and db_incremental_field_last_value:
         params[config.incremental_param] = _format_rfc3339(_to_datetime(db_incremental_field_last_value))
+    upper_bound: str | None = None
+    if config.incremental_upper_param and should_use_incremental_field:
+        # Every parent is read up to the same instant. Otherwise a row added to an already-read parent
+        # falls below the newer watermark a later parent sets, and the next run never reads it.
+        upper_bound = resume.upper_bound if resume and resume.upper_bound else _format_rfc3339(datetime.now(UTC))
+        params[config.incremental_upper_param] = upper_bound
 
     resume_parent_id = resume.parent_id if resume else None
     for parent_ids, position in _iter_parent_pages(session, headers, base_url, config, logger, resume):
@@ -360,15 +368,30 @@ def _get_child_rows(
         for parent_id in parent_ids:
             path = config.path.format(parent_id=quote(parent_id, safe=""))
             yielded = False
-            for items, next_cursor in _iter_pages(session, headers, base_url, path, params, logger, resume_cursor):
+            try:
+                for items, next_cursor in _iter_pages(session, headers, base_url, path, params, logger, resume_cursor):
+                    manager.save_state(
+                        dataclasses.replace(
+                            position,
+                            parent_id=parent_id,
+                            cursor=next_cursor,
+                            parent_completed=next_cursor is None,
+                            upper_bound=upper_bound,
+                        )
+                    )
+                    if items:
+                        yield [{**item, id_field: item.get(id_field) or parent_id} for item in items]
+                        yielded = True
+            except requests.HTTPError as e:
+                # The parent was deleted after the parent list was read.
+                if e.response is None or e.response.status_code != 404:
+                    raise
+                logger.warning(f"Pylon: parent {parent_id} of {config.name} no longer exists, skipping")
                 manager.save_state(
                     dataclasses.replace(
-                        position, parent_id=parent_id, cursor=next_cursor, parent_completed=next_cursor is None
+                        position, parent_id=parent_id, cursor=None, parent_completed=True, upper_bound=upper_bound
                     )
                 )
-                if items:
-                    yield [{**item, id_field: item.get(id_field) or parent_id} for item in items]
-                    yielded = True
             resume_cursor = None
             if not yielded:
                 manager.safe_point()

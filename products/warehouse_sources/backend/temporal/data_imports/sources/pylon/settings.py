@@ -4,7 +4,7 @@ from typing import Optional
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 
-@dataclass
+@dataclass(frozen=True)
 class PylonParentConfig:
     path: str
     # Column stamped onto each child row with the parent's id. Child ids are only documented as unique
@@ -49,6 +49,8 @@ class PylonEndpointConfig:
     parent: Optional[PylonParentConfig] = None
     # Server-side "newer than" filter on a child endpoint, sent with the incremental watermark.
     incremental_param: Optional[str] = None
+    # Server-side "older than" filter on a child endpoint, sent with one cutoff for the whole run.
+    incremental_upper_param: Optional[str] = None
     should_sync_default: bool = True
 
 
@@ -166,6 +168,7 @@ PYLON_ENDPOINTS: dict[str, PylonEndpointConfig] = {
         parent=PylonParentConfig(path="/surveys", id_field="survey_id"),
         supports_incremental=True,
         incremental_param="submitted_after",
+        incremental_upper_param="submitted_before",
         incremental_fields=[_datetime_field("submitted_at")],
     ),
     "issue_messages": PylonEndpointConfig(
