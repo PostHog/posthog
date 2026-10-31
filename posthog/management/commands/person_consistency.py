@@ -18,6 +18,9 @@ Usage:
     # Move distinct ids off a live person onto persons of their own (no scan needed):
     python manage.py person_consistency split --team-id 2 --person-uuid <uuid> --distinct-id <id> --apply
 
+    # Republish named persons, or the owners of named distinct ids, from Postgres (no scan needed):
+    python manage.py person_consistency republish --team-id 2 --distinct-id <id> --apply
+
 Scans are read-only. A scan that stops resumes with --resume. The report (report.jsonl) holds one row per
 key that is not ok, with the raw keys a repair needs; summary.json holds counts and hashed group names, and names no key.
 A repair writes nothing without --apply, and records one action per key in an actions file.
@@ -35,6 +38,7 @@ from django.core.management.base import BaseCommand, CommandError, CommandParser
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models.person.divergence.detach import SplitError, split_distinct_ids
+from posthog.models.person.divergence.repairs import republish_named
 from posthog.models.person.divergence.team_scan import (
     PLAN_FILE,
     SUMMARY_FILE,
@@ -164,6 +168,18 @@ class Command(BaseCommand):
         )
         split.add_argument("--apply", action="store_true", help="Split. Without it the command only checks.")
 
+        republish = actions.add_parser(
+            "republish",
+            help="DRY RUN unless --apply. Republish named persons, or the owners of named distinct ids, where "
+            "ClickHouse disagrees with Postgres.",
+        )
+        republish.add_argument("--team-id", type=int, required=True, help="Team of the persons.")
+        republish.add_argument("--person-uuid", action="append", default=[], help="Person to republish. Repeatable.")
+        republish.add_argument(
+            "--distinct-id", action="append", default=[], help="Republish the person that owns it. Repeatable."
+        )
+        republish.add_argument("--apply", action="store_true", help="Write. Without it the command only reports.")
+
         final = actions.add_parser("finalize", help="Join every run's rows into report.jsonl and summary.json.")
         self._add_dir(final)
         final.add_argument(
@@ -224,10 +240,33 @@ class Command(BaseCommand):
                         apply=options["apply"],
                         log=self._log,
                     )
+                elif options["action"] == "republish":
+                    self._republish(options)
                 else:
                     self._finalize(options["dir"], partial=options["partial"])
             except (ScanError, VerbError, SplitError) as exc:
                 raise CommandError(str(exc)) from exc
+
+    def _republish(self, options: dict[str, Any]) -> None:
+        if not options["person_uuid"] and not options["distinct_id"]:
+            raise CommandError("name at least one --person-uuid or --distinct-id")
+        apply = options["apply"]
+        summary = republish_named(
+            options["team_id"],
+            person_uuids=options["person_uuid"],
+            distinct_ids=options["distinct_id"],
+            apply=apply,
+            on_action=lambda action: None,
+            log=self._log,
+        )
+        self._log(
+            f"republish {'APPLY' if apply else 'DRY RUN'}: {summary.persons} persons, "
+            f"person outcomes {summary.person_outcomes}, mapping outcomes {summary.mapping_outcomes}"
+        )
+        if not apply:
+            self._log("Dry run: nothing was written. Pass --apply to write.")
+        if summary.undelivered:
+            raise CommandError(f"{summary.undelivered} ClickHouse messages were not delivered; rerun the same command")
 
     def _plan(self, options: dict[str, Any], *, chunks: int) -> None:
         if options["pg_page_size"] > 10_000:
