@@ -1,3 +1,4 @@
+import { isRecord } from '@/lib/records'
 import type { ReportPriority } from '@/model/types'
 import { type DismissReason, type ResolveReason, VERDICT_NOTE_MAX_LENGTH } from '@/model/verdictReasons'
 import type {
@@ -186,11 +187,19 @@ export interface InboxPageApi {
 
 export const INBOX_PAGE_SIZE = 20
 
-export function fetchInboxPage(offset: number, signal?: AbortSignal): Promise<InboxPageApi> {
-    return apiJson<InboxPageApi>(projectPath('signals/reports/'), {
+export async function fetchInboxPage(offset: number, signal?: AbortSignal): Promise<InboxPageApi> {
+    const page = await apiJson<InboxPageApi>(projectPath('signals/reports/'), {
         query: { view: 'for_you', sort: 'priority', limit: INBOX_PAGE_SIZE, offset } satisfies SignalsReportsListParams,
         signal,
     })
+    if (
+        !isRecord(page) ||
+        !Array.isArray(page.results) ||
+        page.results.some((report) => !isRecord(report) || typeof report.id !== 'string')
+    ) {
+        throw new Error("Couldn't load your inbox. Try again.")
+    }
+    return page
 }
 
 export function fetchReport(reportId: string, signal?: AbortSignal): Promise<SignalReportApi> {
