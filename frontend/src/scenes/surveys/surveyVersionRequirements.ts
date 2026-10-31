@@ -38,6 +38,16 @@ export type SurveyFeatureRequirement = {
 }
 
 /**
+ * The API stores `conditions` as free-form JSON, so a survey can carry a `values` that is not a
+ * list. Read such a condition as having no values, because `getSurveyWarnings` runs in a selector
+ * that the survey scenes depend on, and a throw there replaces the whole scene with an error page.
+ * A `values` that is a string also has a length, so a length check alone is not enough.
+ */
+function conditionValues<T>(condition: { values?: T[] } | null | undefined): T[] {
+    return Array.isArray(condition?.values) ? condition.values : []
+}
+
+/**
  * sorry this is kinda annoying but we are not doing a good job of feature
  * parity across SDKs, it's getting difficult to keep track of, and it's
  * frustrating to users.
@@ -215,8 +225,7 @@ export const SURVEY_SDK_REQUIREMENTS: SurveyFeatureRequirement[] = [
         },
         unsupportedSdks: [],
         check: (s) =>
-            (s.conditions?.events?.values?.length ?? 0) > 0 &&
-            !!s.conditions?.events?.values?.some((e) => Object.keys(e.propertyFilters ?? {}).length > 0),
+            conditionValues(s.conditions?.events).some((e) => Object.keys(e.propertyFilters ?? {}).length > 0),
     },
     {
         // No SDK survey matcher implements gte or lte, so a stored filter with either operator never matches.
@@ -230,7 +239,7 @@ export const SURVEY_SDK_REQUIREMENTS: SurveyFeatureRequirement[] = [
             { sdk: 'posthog_flutter', issue: false },
         ],
         check: (s) =>
-            [...(s.conditions?.events?.values ?? []), ...(s.conditions?.cancelEvents?.values ?? [])].some((e) =>
+            [...conditionValues(s.conditions?.events), ...conditionValues(s.conditions?.cancelEvents)].some((e) =>
                 Object.values(e.propertyFilters ?? {}).some((filter) =>
                     (['gte', 'lte'] as string[]).includes(filter.operator)
                 )
@@ -245,7 +254,7 @@ export const SURVEY_SDK_REQUIREMENTS: SurveyFeatureRequirement[] = [
             { sdk: 'posthog-android', issue: 'https://github.com/PostHog/posthog-android/issues/393' },
             { sdk: 'posthog_flutter', issue: 'https://github.com/PostHog/posthog-flutter/issues/264' },
         ],
-        check: (s) => (s.conditions?.cancelEvents?.values?.length ?? 0) > 0,
+        check: (s) => conditionValues(s.conditions?.cancelEvents).length > 0,
     },
     {
         feature: 'Targeting with actions',
@@ -256,7 +265,7 @@ export const SURVEY_SDK_REQUIREMENTS: SurveyFeatureRequirement[] = [
             { sdk: 'posthog-android', issue: 'https://github.com/PostHog/posthog-android/issues/394' },
             { sdk: 'posthog_flutter', issue: 'https://github.com/PostHog/posthog-flutter/issues/265' },
         ],
-        check: (s) => (s.conditions?.actions?.values?.length ?? 0) > 0,
+        check: (s) => conditionValues(s.conditions?.actions).length > 0,
     },
     {
         feature: 'Styling input appearance',

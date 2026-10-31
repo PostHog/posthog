@@ -1294,6 +1294,16 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         if not isinstance(value, dict):
             raise serializers.ValidationError("Conditions must be an object")
 
+        # Every reader of these conditions treats `values` as a list, both in the app and in each
+        # SDK. A stored object or scalar makes the survey match nothing, and it breaks the survey
+        # editor, so refuse the shape at write time instead of saving a survey that cannot show.
+        for field in ("events", "cancelEvents", "actions"):
+            condition = value.get(field)
+            if isinstance(condition, dict):
+                condition_values = condition.get("values")
+                if condition_values is not None and not isinstance(condition_values, list):
+                    raise serializers.ValidationError(f"conditions.{field}.values must be a list")
+
         self._require_viewer_access_to_added_actions(value)
         return value
 
