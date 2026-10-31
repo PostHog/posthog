@@ -2,6 +2,9 @@ import '@testing-library/jest-dom'
 
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import Fuse from 'fuse.js'
+
+import * as fuseSearch from 'lib/utils/fuseSearch'
 
 import { LemonInputSelect } from './LemonInputSelect'
 
@@ -18,6 +21,78 @@ describe('LemonInputSelect', () => {
         const dropdownButtons = await screen.findAllByRole('button')
         return dropdownButtons.find((button) => button.textContent?.includes(text))
     }
+
+    it('does not rebuild the search index for equivalent options or interaction renders', async () => {
+        const options = [
+            { key: 'apple', label: 'Apple' },
+            { key: 'banana', label: 'Banana' },
+        ]
+        const createFuse = jest.spyOn(fuseSearch, 'createFuse')
+        const setCollection = jest.spyOn(Fuse.prototype, 'setCollection')
+
+        try {
+            const { container, rerender } = render(
+                <LemonInputSelect mode="multiple" options={options} value={[]} onChange={jest.fn()} />
+            )
+
+            await openDropdown(container)
+            await userEvent.type(container.querySelector('input[type="text"]')!, 'app')
+            for (let index = 0; index < 3; index++) {
+                rerender(
+                    <LemonInputSelect
+                        mode="multiple"
+                        options={options.map((option) => ({ ...option }))}
+                        value={[]}
+                        onChange={jest.fn()}
+                    />
+                )
+            }
+
+            expect(createFuse).toHaveBeenCalledTimes(1)
+            expect(setCollection.mock.calls.filter(([items]) => items.length > 0)).toHaveLength(1)
+            expect(await findDropdownButtonByText('Apple')).toBeInTheDocument()
+
+            rerender(
+                <LemonInputSelect
+                    mode="multiple"
+                    options={[{ ...options[0], labelComponent: <span>Updated Apple</span> }, options[1]]}
+                    value={[]}
+                    onChange={jest.fn()}
+                />
+            )
+            expect(await findDropdownButtonByText('Updated Apple')).toBeInTheDocument()
+            expect(setCollection.mock.calls.filter(([items]) => items.length > 0)).toHaveLength(1)
+        } finally {
+            createFuse.mockRestore()
+            setCollection.mockRestore()
+        }
+    })
+
+    it('updates search results when options or custom values change', async () => {
+        const options = [{ key: 'apple', label: 'Apple' }]
+        const onChange = jest.fn()
+        const { container, rerender } = render(
+            <LemonInputSelect mode="multiple" options={options} value={['custom']} onChange={onChange} />
+        )
+        const input = await openDropdown(container)
+        await userEvent.type(input, 'custom')
+        expect(await findDropdownButtonByText('custom')).toBeInTheDocument()
+
+        rerender(<LemonInputSelect mode="multiple" options={options} value={[]} onChange={onChange} />)
+        expect(screen.queryAllByRole('button').some((button) => button.textContent?.includes('custom'))).toBe(false)
+
+        await userEvent.clear(input)
+        await userEvent.type(input, 'banana')
+        rerender(
+            <LemonInputSelect
+                mode="multiple"
+                options={[...options, { key: 'banana', label: 'Banana' }]}
+                value={[]}
+                onChange={onChange}
+            />
+        )
+        expect(await findDropdownButtonByText('Banana')).toBeInTheDocument()
+    })
 
     it('disables the input and explains why when disabledReason is set', async () => {
         render(
