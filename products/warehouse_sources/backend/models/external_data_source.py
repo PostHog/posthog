@@ -8,6 +8,7 @@ import structlog
 
 from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
+from posthog.models.file_system.file_system_shortcut import FileSystemShortcut
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
 from posthog.sync import database_sync_to_async
 
@@ -29,6 +30,10 @@ MANAGED_WAREHOUSE_PROJECT_READER_CREDENTIAL_KIND = "project_reader"
 MANAGED_WAREHOUSE_SERVICE_CREDENTIAL_KIND = "duckgres_service"
 MANAGED_WAREHOUSE_LEGACY_CREDENTIAL_KINDS = frozenset({"org_root", "stored_server_login"})
 SYSTEM_MANAGED_SOURCE_PREFIXES = frozenset({MANAGED_WAREHOUSE_SOURCE_PREFIX})
+# pinned: the shortcut type the managed sources table stars a source with (DATA_SOURCE_SHORTCUT_TYPE in
+# frontend/src/layout/panel-layout/ProjectTree/utils.tsx). Changing one side without the other leaves stars
+# behind on delete.
+DATA_SOURCE_SHORTCUT_TYPE = "data_source"
 
 
 class ExternalDataSourceManager(models.Manager):
@@ -333,6 +338,12 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         self.deleted = True
         self.deleted_at = timezone.now()
         self.save()
+
+        # Sources are not in the file system, so nothing else removes the stars that point at one,
+        # and every user who starred it would keep a sidebar link to a deleted source.
+        FileSystemShortcut.objects.filter(
+            team_id=self.team_id, type=DATA_SOURCE_SHORTCUT_TYPE, ref=str(self.id)
+        ).delete()
 
         # Lazy import to avoid circular: SourceRegistry → helpers.py → this module.
         from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
