@@ -568,6 +568,7 @@ tools:
             `_posthogUrl` opens the scanner where they do it. There is nothing to rate yet, so this is a closing
             sentence for them, not a step for you.
         exclude_params:
+            - entry_point
             - id
             - scanner_version
             - last_swept_at
@@ -1018,6 +1019,7 @@ tools:
             projected spend with `vision-scanners-estimate` and remaining budget with `vision-quota-get` first — the
             scanner resumes sweeping every 5 minutes at the new, broader scope.
         exclude_params:
+            - entry_point
             - id
             - scanner_version
             - last_swept_at
