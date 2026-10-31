@@ -1,10 +1,15 @@
 from functools import lru_cache
 from typing import Optional
 
+import structlog
+
 from posthog.hogql import ast
+from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.parser import parse_expr
 
 from posthog.exceptions_capture import capture_exception
+
+logger = structlog.get_logger(__name__)
 
 
 def _extract_join_key_field(expr: ast.Expr) -> Optional[ast.Field]:
@@ -24,7 +29,11 @@ def _extract_join_key_field(expr: ast.Expr) -> Optional[ast.Field]:
 @lru_cache(maxsize=4096)
 def _cached_join_field_chain(key: str) -> Optional[tuple[str | int, ...]]:
     """Parse each join key once and store only its immutable field chain."""
-    expr = parse_expr(key)
+    try:
+        expr = parse_expr(key)
+    except ExposedHogQLError as e:
+        logger.warning("warehouse_join_key_unparseable", error=str(e))
+        return None
     field = _extract_join_key_field(expr)
     if field is not None:
         return tuple(field.chain)

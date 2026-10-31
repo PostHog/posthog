@@ -1,4 +1,4 @@
-from typing import Optional, cast
+from typing import Any, Optional, cast
 
 from clickhouse_driver.errors import ServerException
 from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field
@@ -164,6 +164,22 @@ class ViewLinkSerializer(serializers.ModelSerializer, ViewLinkValidationMixin):
         view_link = DataWarehouseJoin.objects.create(**validated_data)
 
         return view_link
+
+    def update(self, instance: DataWarehouseJoin, validated_data: dict[str, Any]) -> DataWarehouseJoin:
+        team_id = self.context["team_id"]
+        if validated_data.keys() & {"source_table_name", "source_table_key"}:
+            self._validate_join_key(
+                validated_data.get("source_table_key", instance.source_table_key),
+                validated_data.get("source_table_name", instance.source_table_name),
+                team_id,
+            )
+        if validated_data.keys() & {"joining_table_name", "joining_table_key"}:
+            self._validate_join_key(
+                validated_data.get("joining_table_key", instance.joining_table_key),
+                validated_data.get("joining_table_name", instance.joining_table_name),
+                team_id,
+            )
+        return super().update(instance, validated_data)
 
 
 class ViewLinkValidationSerializer(serializers.Serializer, ViewLinkValidationMixin):
