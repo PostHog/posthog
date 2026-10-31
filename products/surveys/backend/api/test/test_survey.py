@@ -7891,7 +7891,7 @@ class TestSurveyFlagWritesUnderApprovalPolicies(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         self.survey = Survey.objects.get(id=response.json()["id"])
 
-    def _create_policy(self, action_key: str) -> None:
+    def _create_policy(self, action_key: str, bypass_org_membership_levels: list[int] | None = None) -> None:
         ApprovalPolicy.objects.create(
             organization=self.organization,
             team=self.team,
@@ -7899,6 +7899,7 @@ class TestSurveyFlagWritesUnderApprovalPolicies(APIBaseTest):
             conditions={},
             approver_config={"quorum": 1, "users": [self.user.id], "roles": []},
             allow_self_approve=True,
+            bypass_org_membership_levels=bypass_org_membership_levels or [],
             created_by=self.user,
         )
 
@@ -7925,14 +7926,18 @@ class TestSurveyFlagWritesUnderApprovalPolicies(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("scoped_by_owner", True, status.HTTP_201_CREATED),
-            ("flag_policies_cover_every_flag", False, status.HTTP_400_BAD_REQUEST),
+            ("scoped_by_owner", True, False, status.HTTP_201_CREATED),
+            ("flag_policies_cover_every_flag", False, False, status.HTTP_400_BAD_REQUEST),
+            ("flag_policies_cover_every_flag_but_the_user_bypasses", False, True, status.HTTP_201_CREATED),
         ]
     )
     def test_create_mints_its_flags_without_a_change_request(
-        self, _name: str, scoped_by_owner: bool, expected_status: int
+        self, _name: str, scoped_by_owner: bool, user_bypasses: bool, expected_status: int
     ) -> None:
-        self._create_policy("feature_flag.update")
+        self._create_policy(
+            "feature_flag.update",
+            bypass_org_membership_levels=[self.organization_membership.level] if user_bypasses else None,
+        )
         surveys_before = Survey.objects.filter(team=self.team).count()
 
         with patch("products.approvals.backend.ownership.scope_by_owner_enabled", return_value=scoped_by_owner):
@@ -7957,11 +7962,12 @@ class TestSurveyFlagWritesUnderApprovalPolicies(APIBaseTest):
             )
 
         assert response.status_code == expected_status, response.json()
-        if not scoped_by_owner:
+        created = expected_status == status.HTTP_201_CREATED
+        if not created:
             assert "approval policy" in response.json()["detail"]
-        assert Survey.objects.filter(team=self.team).count() == surveys_before + (1 if scoped_by_owner else 0)
+        assert Survey.objects.filter(team=self.team).count() == surveys_before + (1 if created else 0)
         assert not ChangeRequest.objects.filter(team=self.team).exists()
-        if scoped_by_owner:
+        if created:
             survey = Survey.objects.get(id=response.json()["id"])
             assert survey.targeting_flag is not None
             assert survey.internal_targeting_flag is not None
