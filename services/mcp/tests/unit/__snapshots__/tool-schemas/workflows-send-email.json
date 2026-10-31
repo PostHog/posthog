@@ -1,5 +1,6 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
     "properties": {
         "capture_engagement": {
             "description": "Whether the engagement events (sent, delivered, opened, clicked, bounced) of the email your code rendered are captured as analytics events of the recipient. Defaults to true. A project whose admin turned engagement capture off captures nothing, whatever the send says.",

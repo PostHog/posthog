@@ -12,22 +12,15 @@ describe('Generated email template tools', () => {
         body: { id: 'body', rows: [], values: {} },
     }
     const upload = { key: 'welcome', name: 'Welcome', subject: 'Hi', html: '<p>Hi</p>' }
+    const codeSend = { to: 'jane@example.com', template_key: 'welcome', subject: 'Hi', html: '<p>Hi</p>' }
     const createWithEmail = (email: Record<string, unknown>): Record<string, unknown> => ({
         name: 'Welcome',
         content: { templating: 'liquid', email: { subject: 'Hi', text: 'Hi', design, ...email } },
     })
 
     it.each([
-        [
-            'workflows-send-email',
-            'a misspelled template field',
-            { to: 'jane@example.com', template: { key: 'welcome', content_hash: hash } },
-        ],
-        [
-            'workflows-send-email',
-            'an unknown top-level field',
-            { to: 'jane@example.com', template: { key: 'welcome', hash }, tempalte_key: 'welcome' },
-        ],
+        ['workflows-send-email', 'a misspelled field', { ...codeSend, capture_engagment: false }],
+        ['workflows-send-email', 'a field of a send by template', { ...codeSend, template: { key: 'welcome', hash } }],
         ['workflows-upload-email-template', 'a misspelled top-level field', { ...upload, if_superseded: true }],
         [
             'workflows-make-email-template-transactional-prepare',
@@ -48,10 +41,8 @@ describe('Generated email template tools', () => {
         expect(toolSchema(tool).safeParse(input).success).toBe(false)
     })
 
-    it('accepts a send by template key and hash', () => {
-        const input = { to: 'jane@example.com', template: { key: 'welcome', hash }, message_data: { name: 'Jane' } }
-
-        expect(toolSchema('workflows-send-email').parse(input)).toEqual({ ...input, capture_engagement: true })
+    it('accepts a send of the email your code rendered', () => {
+        expect(toolSchema('workflows-send-email').parse(codeSend)).toEqual(codeSend)
     })
 
     it('keeps keys the design format adds at its top level and in its body', () => {
