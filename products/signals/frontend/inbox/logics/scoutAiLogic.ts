@@ -2,8 +2,7 @@ import { MakeLogicType, actions, beforeUnmount, connect, kea, listeners, path, r
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
-
+import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
 import { SCOUT_AI_PANEL } from '~/layout/ai/aiPanelIds'
 import type { AttachedContextItem } from '~/layout/ai/attachedContext'
 import { runnerPanelLogic } from '~/layout/ai/runnerPanelLogic'

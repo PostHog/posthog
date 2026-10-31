@@ -2,8 +2,8 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
-import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 
+import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
 import { SIDE_PANEL_PANEL_ID } from '~/layout/ai/aiPanelIds'
 import { aiShellLogic } from '~/layout/ai/aiShellLogic'
 import { useMocks } from '~/mocks/jest'
@@ -52,7 +52,7 @@ describe('maxGlobalLogic', () => {
         jest.restoreAllMocks()
     })
 
-    // GlobalModals mounts this logic on every page. Mounting it alone must not mount the task list,
+    // Every PostHog AI surface mounts this logic. Mounting it alone must not mount the task list,
     // or every boot fetches tasks, and a boot where the task list cannot build crashes the app.
     it('mounts without mounting the task list', () => {
         expect(logic.isMounted()).toBe(true)
