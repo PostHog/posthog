@@ -42,7 +42,12 @@ function RenderUiContent({
     openLink: (url: string) => void
 }): JSX.Element {
     const [data, setData] = useState<unknown>(null)
-    const [error, setError] = useState<{ reason: string; message: string } | null>(null)
+    const [error, setError] = useState<{
+        reason: string
+        message: string
+        errorName?: string
+        errorCode?: number
+    } | null>(null)
 
     // Key the fetch on serialized values, not `envelope` identity — a parent
     // re-render with a fresh-but-equal envelope object must not refetch.
@@ -73,7 +78,14 @@ function RenderUiContent({
             })
             .catch((e: unknown) => {
                 if (!cancelled) {
-                    setError({ reason: 'exception', message: e instanceof Error ? e.message : String(e) })
+                    // Analytics gets only the name and JSON-RPC code: the message can quote response content.
+                    const code = (e as { code?: unknown } | null)?.code
+                    setError({
+                        reason: 'exception',
+                        message: e instanceof Error ? e.message : String(e),
+                        errorName: e instanceof Error ? e.name : typeof e,
+                        errorCode: typeof code === 'number' ? code : undefined,
+                    })
                 }
             })
         return () => {
@@ -83,17 +95,19 @@ function RenderUiContent({
 
     const render = RENDER_DISPATCH[envelope.app_key]
     const failureReason = render ? error?.reason : 'no_visualization'
-    const errorMessage = render ? error?.message : undefined
+    const errorName = render ? error?.errorName : undefined
+    const errorCode = render ? error?.errorCode : undefined
     useEffect(() => {
         if (failureReason) {
             capture('mcp_ui_app_render_failed', {
                 rendered_tool_name: toolName,
                 app_key: envelope.app_key,
                 reason: failureReason,
-                error_message: errorMessage?.slice(0, 500),
+                error_name: errorName,
+                error_code: errorCode,
             })
         }
-    }, [failureReason, errorMessage, toolName, envelope.app_key])
+    }, [failureReason, errorName, errorCode, toolName, envelope.app_key])
 
     if (!render) {
         return <AppErrorState message={`No visualization is available for ${envelope.tool_name}.`} />
