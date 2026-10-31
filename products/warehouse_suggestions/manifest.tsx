@@ -3,10 +3,16 @@
  *
  * Defines scenes, routes, URLs, and navigation for this product.
  */
-import { ProductManifest } from '../../frontend/src/types'
+import { ActivityScope, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'WarehouseSuggestions',
+    activityDescribers: {
+        [ActivityScope.WAREHOUSE_SUGGESTION]: () =>
+            import('./frontend/warehouseSuggestionActivityDescriber').then(
+                (module) => module.warehouseSuggestionActivityDescriber
+            ),
+    },
     scenes: {
         // Define scenes here
     },
