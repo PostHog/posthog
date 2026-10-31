@@ -90,7 +90,7 @@ A stopped experiment has a fixed window: `_resolve_query_to` returns `end_date` 
 So every run of a stopped experiment uses the same `(experiment, metric_uuid, query_to)` row for a metric, and the rule above decides what a reload does:
 
 - **Same config, completed row:** the reload skips the query and keeps the row. It never recomputes the fixed window, so late events and data warehouse corrections for that window do not reach the stored result.
-- **Same config, failed row:** the reload recomputes the metric and updates the row in place.
+- **Same config, failed row:** the reload skips the query, because the same inputs fail the same way. The run keeps the failed row as its result and copies the earlier run's `metric_errors` entry, so the error keeps its `retriable` flag and its retry action. Only `manual_retry` recomputes the metric. If no earlier run recorded the error, the reload recomputes.
 - **Config or stats change:** the fingerprint changes, so no completed row matches and the reload recomputes. The unique key `(experiment, metric_uuid, query_to)` does not include the fingerprint, so the new result replaces the old row in place, fingerprint included.
 
 The snapshot for such an experiment is the one row at `end_date` for the current config, not a distinct frozen copy per `recalculation_id`.
