@@ -22705,6 +22705,7 @@ export namespace Endpoints {
                 active: "STALE" | "false" | "true";
                 archived: "false" | "true";
                 created_by_id: string;
+                deleted: "false" | "true";
                 eligible_for_experiment: "true";
                 evaluation_runtime: "all" | "client" | "server";
                 excluded_properties: string;

@@ -26,6 +26,7 @@ import {
 import { urls } from 'scenes/urls'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
+import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { FeatureFlagType } from '~/types'
@@ -34,6 +35,11 @@ jest.mock('scenes/approvals/ApprovalRequiredBanner', () => ({
     showApprovalRequiredToast: jest.fn(),
 }))
 jest.mock('posthog-js')
+jest.mock('~/layout/panel-layout/ProjectTree/projectTreeLogic', () => ({
+    ...jest.requireActual('~/layout/panel-layout/ProjectTree/projectTreeLogic'),
+    deleteFromTree: jest.fn(),
+    refreshTreeItem: jest.fn(),
+}))
 
 function capturesOf(event: string): any[][] {
     return (posthog.capture as jest.Mock).mock.calls.filter(([name]) => name === event)
@@ -196,6 +202,22 @@ describe('flagMatchesFilters', () => {
             ['shows live flags by default', liveFlag, {}, true],
             ['shows archived when archived=true', archivedFlag, { archived: 'true' }, true],
             ['hides live when archived=true', liveFlag, { archived: 'true' }, false],
+        ])('%s', (_label, flag, filters, expected) => {
+            expect(flagMatchesFilters(flag, filters as FeatureFlagsFilters)).toBe(expected)
+        })
+    })
+
+    describe('deleted filter', () => {
+        const liveFlag = { ...base, deleted: false } as FeatureFlagType
+        const deletedFlag = { ...base, deleted: true } as FeatureFlagType
+        const archivedDeletedFlag = { ...base, deleted: true, archived: true } as FeatureFlagType
+
+        it.each<[string, FeatureFlagType, Partial<FeatureFlagsFilters>, boolean]>([
+            ['hides deleted by default', deletedFlag, {}, false],
+            ['shows deleted when deleted=true', deletedFlag, { deleted: 'true' }, true],
+            ['hides live when deleted=true', liveFlag, { deleted: 'true' }, false],
+            ['shows a flag archived before its delete', archivedDeletedFlag, { deleted: 'true' }, true],
+            ['hides a deleted flag under archived=true', archivedDeletedFlag, { archived: 'true' }, false],
         ])('%s', (_label, flag, filters, expected) => {
             expect(flagMatchesFilters(flag, filters as FeatureFlagsFilters)).toBe(expected)
         })
@@ -590,6 +612,84 @@ describe('updateFeatureFlag 409 handling', () => {
         expect(showApprovalRequiredToast).not.toHaveBeenCalled()
         // A non-approval 409 stays visible to error tracking; only approval-shaped ones are suppressed
         expect(posthog.captureException).toHaveBeenCalledWith(error)
+    })
+})
+
+describe('restoreFeatureFlag', () => {
+    let logic: ReturnType<typeof featureFlagsLogic.build>
+    let restoreBodies: unknown[]
+
+    beforeEach(() => {
+        restoreBodies = []
+        useMocks({
+            get: {
+                // Answer like the API, so the deleted view only fills when it asks for deleted flags.
+                '/api/projects/:projectId/feature_flags/': ({ request }) =>
+                    new URL(request.url).searchParams.get('deleted') === 'true'
+                        ? [
+                              200,
+                              {
+                                  results: [{ id: 1, key: 'checkout-flag:deleted:1', deleted: true, active: true }],
+                                  count: 1,
+                              },
+                          ]
+                        : [200, { results: [], count: 0 }],
+            },
+            patch: {
+                '/api/projects/:projectId/feature_flags/:id': async ({ request }) => {
+                    restoreBodies.push(await request.json())
+                    return [200, { id: 1, key: 'checkout-flag', deleted: false, active: true }]
+                },
+            },
+        })
+        initKeaTests()
+        logic = featureFlagsLogic()
+        logic.mount()
+    })
+
+    afterEach(() => {
+        logic?.unmount()
+        jest.restoreAllMocks()
+    })
+
+    beforeEach(silenceKeaLoadersErrors)
+    afterEach(resumeKeaLoadersErrors)
+
+    it('restores the flag and drops it from the deleted view', async () => {
+        logic.actions.setFeatureFlagsFilters({ deleted: 'true' }, true)
+        await expectLogic(logic).toDispatchActions(['loadFeatureFlagsSuccess'])
+        expect(logic.values.displayedFlags.map((flag) => flag.id)).toEqual([1])
+
+        logic.actions.restoreFeatureFlag({ id: 1 })
+        expect(logic.values.featureFlagsUpdating[1]).toBe(true)
+        await expectLogic(logic).toDispatchActions(['restoreFeatureFlagSuccess'])
+
+        expect(restoreBodies).toEqual([{ deleted: false }])
+        expect(logic.values.displayedFlags).toEqual([])
+        expect(logic.values.count).toBe(0)
+        expect(logic.values.featureFlagsUpdating[1]).toBeUndefined()
+        expect(deleteFromTree).toHaveBeenCalledWith('feature_flag', '1')
+        expect(refreshTreeItem).toHaveBeenCalledWith('feature_flag', '1')
+    })
+
+    it.each([
+        // The global loader toast skips errors without a status, so the loader shows its own.
+        ['without an HTTP status', new TypeError('Failed to fetch'), true],
+        ['with an HTTP status', { status: 400, detail: 'This flag uses a deleted cohort.' }, false],
+    ])('handles a failed restore %s', async (_label, error, expectOwnToast) => {
+        const toastError = jest.spyOn(lemonToast, 'error').mockReturnValue('toast-id')
+        logic.actions.setFeatureFlagsFilters({ deleted: 'true' }, true)
+        await expectLogic(logic).toDispatchActions(['loadFeatureFlagsSuccess'])
+        jest.spyOn(api, 'update').mockRejectedValueOnce(error)
+
+        logic.actions.restoreFeatureFlag({ id: 1 })
+        await expectLogic(logic).toDispatchActions(['restoreFeatureFlagFailure'])
+
+        expect(
+            toastError.mock.calls.some(([message]) => message === "Couldn't restore this feature flag. Try again.")
+        ).toBe(expectOwnToast)
+        expect(logic.values.featureFlagsUpdating[1]).toBeUndefined()
+        expect(logic.values.displayedFlags.map((flag) => flag.id)).toEqual([1])
     })
 })
 
