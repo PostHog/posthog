@@ -12,6 +12,7 @@ import { HealthIssueCard } from '../components/HealthIssueCard'
 import { severityColor, severityToTagType } from '../healthUtils'
 import type { HealthIssueSeverity } from '../types'
 import type { CategoryDetailConfig } from './categoryDetailConfig'
+import type { HealthTableComponent } from './categoryDetailTypes'
 import type { HealthCategoryDetailLogicProps, KindGroup } from './healthCategoryDetailLogic'
 import { healthCategoryDetailLogic } from './healthCategoryDetailLogic'
 
@@ -182,6 +183,7 @@ function GenericCategoryContent({
                         <KindSection
                             key={group.kind}
                             group={group}
+                            TableComponent={detailConfig?.tableComponent}
                             onSnooze={onSnooze}
                             onDismiss={onDismiss}
                             onUndismiss={onUndismiss}
@@ -225,11 +227,13 @@ function StatusBanner({
 
 function KindSection({
     group,
+    TableComponent,
     onSnooze,
     onDismiss,
     onUndismiss,
 }: {
     group: KindGroup
+    TableComponent?: HealthTableComponent
     onSnooze: (id: string, duration: string) => void
     onDismiss: (id: string) => void
     onUndismiss: (id: string) => void
@@ -251,7 +255,16 @@ function KindSection({
                             </LemonTag>
                         </div>
                     ),
-                    content: (
+                    content: TableComponent ? (
+                        <div className="-m-4">
+                            <TableComponent
+                                issues={group.issues}
+                                onSnooze={onSnooze}
+                                onDismiss={onDismiss}
+                                onUndismiss={onUndismiss}
+                            />
+                        </div>
+                    ) : (
                         <div className="divide-y divide-border -m-4">
                             {group.issues.map((issue) => (
                                 <HealthIssueCard
