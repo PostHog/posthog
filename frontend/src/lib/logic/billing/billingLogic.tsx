@@ -16,7 +16,7 @@ import { dayjs } from 'lib/dayjs'
 import { LemonBannerAction } from 'lib/lemon-ui/LemonBanner/LemonBanner'
 import { lemonBannerLogic } from 'lib/lemon-ui/LemonBanner/lemonBannerLogic'
 import { LemonButtonPropsBase } from 'lib/lemon-ui/LemonButton'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { pluralize } from 'lib/utils/strings'
@@ -33,24 +33,27 @@ import {
     BillingProductV2Type,
     BillingProvider,
     BillingType,
+    OrganizationType,
+    PreflightStatus,
     StartupProgramLabel,
 } from '~/types'
 
-import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
-import type { OrganizationType, PreflightStatus } from '../../types'
 import {
-    buildUsageLimitApproachingMessage,
-    buildUsageLimitReachedMessage,
     canAccessBilling as canAccessBillingUtil,
     canViewUsageAndSpend as canViewUsageAndSpendUtil,
     getMinimumBillingAccessLevel,
     getMinimumUsageSpendReadAccessLevel,
-    isCompanionProduct,
+    isMemberUsageSpendReadAccessEnabled,
+} from './billingAccess'
+import { isCompanionProduct } from './companionProducts'
+import {
+    buildUsageLimitApproachingMessage,
+    buildUsageLimitReachedMessage,
     isUsageApproachingLimit,
     isUsageAtOrOverLimit,
-    isMemberUsageSpendReadAccessEnabled,
-} from './billing-utils'
-import { DEFAULT_ESTIMATED_MONTHLY_CREDIT_AMOUNT_USD } from './CreditCTAHero'
+} from './usageLimits'
+
+export const DEFAULT_ESTIMATED_MONTHLY_CREDIT_AMOUNT_USD = 500
 
 export const ALLOCATION_THRESHOLD_ALERT = 0.8 // Threshold to show warning of event usage near limit (aligned with the 80% billing warning email)
 export const ALLOCATION_THRESHOLD_BLOCK = 1.2 // Threshold to block usage
@@ -755,6 +758,7 @@ export type billingLogicType = MakeLogicType<
 >
 
 export const billingLogic = kea<billingLogicType>([
+    // pinned: the persisted isCreditCTAHeroDismissed reducer derives its localStorage key from this path
     path(['scenes', 'billing', 'billingLogic']),
     actions({
         setProductSpecificAlert: (productSpecificAlert: BillingAlertConfig | null) => ({ productSpecificAlert }),

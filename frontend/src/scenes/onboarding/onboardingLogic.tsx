@@ -7,12 +7,12 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { type SetupTaskId } from 'lib/components/ProductSetup'
 import { globalSetupLogic } from 'lib/components/ProductSetup/globalSetupLogic'
 import { OrganizationMembershipLevel } from 'lib/constants'
+import { billingLogic } from 'lib/logic/billing/billingLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { isKeyOf } from 'lib/utils/guards'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { getRelativeNextPath } from 'lib/utils/url'
-import { billingLogic } from 'scenes/billing/billingLogic'
 import {
     reportOnboardingCompleted,
     reportOnboardingStarted,

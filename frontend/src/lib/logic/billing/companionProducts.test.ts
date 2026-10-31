@@ -1,7 +1,7 @@
 import { billingJson } from '~/mocks/fixtures/_billing'
 import { BillingProductV2Type } from '~/types'
 
-import { getHeldCompanions, isCompanionHeld, isCompanionProduct } from './billing-utils'
+import { getHeldCompanions, isCompanionHeld, isCompanionProduct } from './companionProducts'
 
 describe('companion products', () => {
     const productAnalytics = billingJson.products.find((p) => p.type === 'product_analytics') as BillingProductV2Type
