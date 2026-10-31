@@ -1,53 +1,51 @@
-import { ComponentProps, ComponentType, Suspense } from 'react'
-
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { urls } from 'scenes/urls'
 
 import { registerIntegrationSetup } from './integrationSetupRegistry'
 
-// Each setup modal is loaded when it opens, so these feature modules stay out of the shell's static graph.
-function lazySetupModal<P extends object>(load: () => Promise<ComponentType<P>>): ComponentType<P> {
-    const LazyModal = lazyWithRetry(() => load().then((component) => ({ default: component })))
-    return function LazySetupModal(props: P): JSX.Element {
-        return (
-            <Suspense fallback={null}>
-                <LazyModal {...(props as ComponentProps<typeof LazyModal>)} />
-            </Suspense>
-        )
-    }
-}
-
-const AwsS3SetupModal = lazySetupModal(() =>
-    import('scenes/integrations/aws-s3/AwsS3SetupModal').then((module) => module.AwsS3SetupModal)
+const AwsS3SetupModal = lazyWithRetry(() =>
+    import('scenes/integrations/aws-s3/AwsS3SetupModal').then((module) => ({ default: module.AwsS3SetupModal }))
 )
-const AzureBlobSetupModal = lazySetupModal(() =>
-    import('scenes/integrations/azure-blob/AzureBlobSetupModal').then((module) => module.AzureBlobSetupModal)
+const AzureBlobSetupModal = lazyWithRetry(() =>
+    import('scenes/integrations/azure-blob/AzureBlobSetupModal').then((module) => ({
+        default: module.AzureBlobSetupModal,
+    }))
 )
-const DatabricksSetupModal = lazySetupModal(() =>
-    import('scenes/integrations/databricks/DatabricksSetupModal').then((module) => module.DatabricksSetupModal)
+const DatabricksSetupModal = lazyWithRetry(() =>
+    import('scenes/integrations/databricks/DatabricksSetupModal').then((module) => ({
+        default: module.DatabricksSetupModal,
+    }))
 )
-const GitLabSetupModal = lazySetupModal(() =>
-    import('scenes/integrations/gitlab/GitLabSetupModal').then((module) => module.GitLabSetupModal)
+const GitLabSetupModal = lazyWithRetry(() =>
+    import('scenes/integrations/gitlab/GitLabSetupModal').then((module) => ({ default: module.GitLabSetupModal }))
 )
-const GoogleCloudServiceAccountSetupModal = lazySetupModal(() =>
-    import('scenes/integrations/google-cloud-service-account/GoogleCloudServiceAccountSetupModal').then(
-        (module) => module.GoogleCloudServiceAccountSetupModal
-    )
+const GoogleCloudServiceAccountSetupModal = lazyWithRetry(() =>
+    import('scenes/integrations/google-cloud-service-account/GoogleCloudServiceAccountSetupModal').then((module) => ({
+        default: module.GoogleCloudServiceAccountSetupModal,
+    }))
 )
-const PostgreSQLSetupModal = lazySetupModal(() =>
-    import('scenes/integrations/postgresql/PostgreSQLSetupModal').then((module) => module.PostgreSQLSetupModal)
+const PostgreSQLSetupModal = lazyWithRetry(() =>
+    import('scenes/integrations/postgresql/PostgreSQLSetupModal').then((module) => ({
+        default: module.PostgreSQLSetupModal,
+    }))
 )
-const RedshiftSetupModal = lazySetupModal(() =>
-    import('scenes/integrations/redshift/RedshiftSetupModal').then((module) => module.RedshiftSetupModal)
+const RedshiftSetupModal = lazyWithRetry(() =>
+    import('scenes/integrations/redshift/RedshiftSetupModal').then((module) => ({ default: module.RedshiftSetupModal }))
 )
-const S3CompatibleSetupModal = lazySetupModal(() =>
-    import('scenes/integrations/s3-compatible/S3CompatibleSetupModal').then((module) => module.S3CompatibleSetupModal)
+const S3CompatibleSetupModal = lazyWithRetry(() =>
+    import('scenes/integrations/s3-compatible/S3CompatibleSetupModal').then((module) => ({
+        default: module.S3CompatibleSetupModal,
+    }))
 )
-const SnowflakeSetupModal = lazySetupModal(() =>
-    import('scenes/integrations/snowflake/SnowflakeSetupModal').then((module) => module.SnowflakeSetupModal)
+const SnowflakeSetupModal = lazyWithRetry(() =>
+    import('scenes/integrations/snowflake/SnowflakeSetupModal').then((module) => ({
+        default: module.SnowflakeSetupModal,
+    }))
 )
-const ChannelSetupModal = lazySetupModal(() =>
-    import('products/workflows/frontend/Channels/ChannelSetupModal').then((module) => module.ChannelSetupModal)
+const ChannelSetupModal = lazyWithRetry(() =>
+    import('products/workflows/frontend/Channels/ChannelSetupModal').then((module) => ({
+        default: module.ChannelSetupModal,
+    }))
 )
 
 registerIntegrationSetup({
