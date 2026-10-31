@@ -10,6 +10,7 @@ import { LemonButton, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 import { useAutoMarkRead } from 'lib/components/NotificationsMenu/useAutoMarkRead'
 import { TZLabel } from 'lib/components/TZLabel'
 import posthog from 'lib/posthog-typed'
+import { inStorybookTestRunner } from 'lib/utils/dom'
 import { colonDelimitedDuration } from 'lib/utils/durations'
 import { pluralize } from 'lib/utils/strings'
 import { teamLogic } from 'scenes/teamLogic'
@@ -412,7 +413,12 @@ export function HighlightFeedRow({
         CARD_SEEN_DWELL_MS,
         feedLoad?.feedLoadId
     )
-    const { ref: inViewRef, inView } = useInView({ triggerOnce: true, fallbackInView: true })
+    const { ref: inViewRef, inView } = useInView({
+        triggerOnce: true,
+        fallbackInView: true,
+        // Snapshots capture the full page without scrolling, so every card starts in place there.
+        initialInView: inStorybookTestRunner(),
+    })
     const setRowRef = useCallback(
         (node: HTMLElement | null): void => {
             rowRef(node)
