@@ -2,7 +2,7 @@ import { ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
 import { EventHeaders } from '~/types'
 
-const HISTORICAL_MIGRATION_MIN_AGE_MS = 48 * 60 * 60 * 1000 // 48 hours in milliseconds
+export const HISTORICAL_MIGRATION_MIN_AGE_MS = 48 * 60 * 60 * 1000 // 48 hours in milliseconds
 
 type ValidateHistoricalMigrationInput = { headers: EventHeaders }
 type ValidateHistoricalMigrationOutput = { headers: EventHeaders }
