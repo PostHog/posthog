@@ -55,6 +55,7 @@ test.describe('Two-factor authentication', () => {
         await test.step('password login lands on the 2FA challenge instead of the app', async () => {
             const loginPage = new LoginPage(page)
             await loginPage.enterUsername(workspace.user_email)
+            await loginPage.continueWithEmail()
             await loginPage.enterPassword(LOGIN_PASSWORD)
             await loginPage.clickLogin()
             await expect(page.locator('[data-attr=token]')).toBeVisible({ timeout: 15000 })

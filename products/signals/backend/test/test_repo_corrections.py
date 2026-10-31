@@ -116,9 +116,12 @@ class TestSelectRepositoryPassesCorrections(BaseTest):
             patch.object(select_repo, "select_repository", new=select),
             patch.object(select_repo, "resolve_agent_runtime", return_value=runtime),
         ):
-            result = async_to_sync(select_repo.select_repository_for_team)(self.team.id, self.user.id, "context")
+            result = async_to_sync(select_repo.select_repository_for_team)(
+                self.team.id, self.user.id, "context", source_repository="acme/website"
+            )
 
         assert result.repository == "acme/checkout"
         block.assert_called_once_with(self.team.id)
         assert select.await_args is not None
         assert select.await_args.kwargs["past_corrections"] == "- entry"
+        assert select.await_args.kwargs["source_repository"] == "acme/website"

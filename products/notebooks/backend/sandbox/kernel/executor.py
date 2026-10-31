@@ -4,8 +4,7 @@ Sandbox-only: this is the one module that imports `jupyter_client` and drives a 
 kernel, both of which exist only in the notebook sandbox image — so it is exercised there,
 not in backend CI (the KernelSession.run_node compute it drives is unit-tested in-process
 in test_kernel_bootstrap). Everything network/credential-bearing stays in this process; the
-kernel receives only local file paths and node code, never a token (division of labor in
-sql_v2_kernel_architecture.md).
+kernel receives only local file paths and node code, never a token.
 
 Flow for a kernel node (python or duckdb — the kernel branches on node.type):
   1. materialize each HogQL input — the server streams the full CH result to a local Arrow

@@ -10,6 +10,38 @@ import { getClient } from "@/lib/client";
 export const MAX_PHOTOS = 10;
 const MAX_PHOTO_BYTES = 30 * 1024 * 1024;
 
+// Photos sent from this device by task and artifact id, so the chat can show
+// the file already on disk rather than download it again. The account-change
+// reset clears it, so one account never shows another account's file.
+const sentPhotoUris = new Map<string, string>();
+
+function sentPhotoKey(taskId: string, artifactId: string): string {
+  return `${taskId}/${artifactId}`;
+}
+
+export function sentPhotoUri(
+  taskId: string,
+  artifactId: string,
+): string | null {
+  return sentPhotoUris.get(sentPhotoKey(taskId, artifactId)) ?? null;
+}
+
+export function resetSentPhotos(): void {
+  sentPhotoUris.clear();
+}
+
+function rememberSent(
+  taskId: string,
+  photos: Photo[],
+  artifactIds: string[],
+): string[] {
+  artifactIds.forEach((artifactId, index) => {
+    const photo = photos[index];
+    if (photo) sentPhotoUris.set(sentPhotoKey(taskId, artifactId), photo.uri);
+  });
+  return artifactIds;
+}
+
 export interface Photo {
   id: string;
   uri: string;
@@ -95,7 +127,11 @@ export async function uploadStagedPhotos(
     taskId,
     prepared,
   );
-  return finalized.map((artifact) => artifact.id);
+  return rememberSent(
+    taskId,
+    photos,
+    finalized.map((artifact) => artifact.id),
+  );
 }
 
 export async function uploadRunPhotos(
@@ -116,5 +152,9 @@ export async function uploadRunPhotos(
     runId,
     prepared,
   );
-  return finalized.map((artifact) => artifact.id);
+  return rememberSent(
+    taskId,
+    photos,
+    finalized.map((artifact) => artifact.id),
+  );
 }

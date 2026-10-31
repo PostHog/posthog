@@ -17,7 +17,11 @@ from posthog.models.team.team import Team
 
 from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty, CohortType
 from products.cohorts.backend.models.util import get_all_cohort_dependencies, sort_cohorts_topologically
-from products.cohorts.backend.realtime_teams import is_realtime_cohort_team, realtime_allowlist_matches_every_team
+from products.cohorts.backend.realtime_teams import (
+    backfill_triggers_suppressed,
+    is_processing_team,
+    realtime_allowlist_matches_every_team,
+)
 from products.feature_flags.backend.flags_cache import coalesced_cohort_flags_cache_rebuilds
 
 logger = structlog.get_logger(__name__)
@@ -147,7 +151,12 @@ class Command(BaseCommand):
         parser.add_argument(
             "--realtime-allowlist",
             action="store_true",
-            help="Process the teams matched by REALTIME_COHORT_TEAM_ALLOWLIST.",
+            help="Process the teams the realtime pipeline processes: REALTIME_COHORT_TEAM_ALLOWLIST plus granted teams.",
+        )
+        parser.add_argument(
+            "--no-backfill-triggers",
+            action="store_true",
+            help="Enqueue no backfill run for a resaved cohort, whatever the team's trigger settings say.",
         )
         parser.add_argument(
             "--batch-size",
@@ -166,6 +175,9 @@ class Command(BaseCommand):
         selection = self._resolve_teams(options)
         dry_run: bool = bool(options.get("dry_run"))
         batch_size: int = int(options.get("batch_size") or 500)
+        backfill_triggers: AbstractContextManager[None] = (
+            backfill_triggers_suppressed() if options.get("no_backfill_triggers") else nullcontext()
+        )
 
         # Log start of operation
         logger.info(
@@ -194,7 +206,7 @@ class Command(BaseCommand):
         total_teams = teams_qs.count()
 
         # Process each team separately
-        with termination_unwinds() as coalesce_rebuilds:
+        with termination_unwinds() as coalesce_rebuilds, backfill_triggers:
             for team in teams_qs:
                 teams_processed += 1
                 logger.info(
@@ -354,15 +366,15 @@ class Command(BaseCommand):
             allowed = tuple(
                 candidate
                 for candidate in Team.objects.order_by("id").values_list("id", flat=True)
-                if is_realtime_cohort_team(candidate)
+                if is_processing_team(candidate)
             )
             # An allowlist that matches nothing would resave nothing and still report success, which
             # during a rollout reads the same as "every cohort is classified".
             if not allowed:
-                raise CommandError("REALTIME_COHORT_TEAM_ALLOWLIST matches no teams")
+                raise CommandError("--realtime-allowlist matches no teams")
             return TeamSelection(
                 team_ids=allowed,
-                label=f"{len(allowed)} realtime-allowlisted teams",
+                label=f"{len(allowed)} realtime-processed teams",
                 explicit=True,
             )
 
@@ -374,14 +386,17 @@ class Command(BaseCommand):
         """Process all cohorts for a single team."""
         all_cohorts = self._load_team_cohorts(team, batch_size)
         seen_cohorts_cache: dict[int, CohortOrEmpty] = {c.id: c for c in all_cohorts}
-        cohort_dependencies = self._build_dependency_map(all_cohorts, seen_cohorts_cache)
+        cohort_dependencies, unreadable_ids = self._build_dependency_map(team, all_cohorts, seen_cohorts_cache)
 
-        # Sort cohorts topologically - dependencies first, then dependents
-        sorted_cohort_ids = sort_cohorts_topologically({c.id for c in all_cohorts}, seen_cohorts_cache)
+        # Sort cohorts topologically - dependencies first, then dependents. The sort parses the
+        # filters of every cohort it reaches, so the unreadable ones stay out of it.
+        sorted_cohort_ids = sort_cohorts_topologically(
+            {c.id for c in all_cohorts if c.id not in unreadable_ids}, seen_cohorts_cache
+        )
 
-        total = 0
+        total = len(unreadable_ids)
         changed = 0
-        errors = 0
+        errors = len(unreadable_ids)
         validation_errors = 0
         prospective_realtime = 0
 
@@ -448,17 +463,34 @@ class Command(BaseCommand):
             last_id = batch[-1].id
 
     def _build_dependency_map(
-        self, all_cohorts: list[Cohort], seen_cohorts_cache: dict[int, CohortOrEmpty]
-    ) -> dict[int, set[int]]:
+        self, team: Team, all_cohorts: list[Cohort], seen_cohorts_cache: dict[int, CohortOrEmpty]
+    ) -> tuple[dict[int, set[int]], set[int]]:
         """Map each cohort id to every cohort id it depends on, recursively: A->B->C makes A depend on
-        both B and C."""
+        both B and C.
+
+        Also return the ids of the cohorts whose dependencies cannot be read. Malformed filters make
+        the lookup raise for that cohort and for every cohort that references it. The run skips
+        these cohorts and counts them as errors, so one bad cohort does not stop the run.
+        """
         cohort_dependencies: dict[int, set[int]] = {}
+        unreadable_ids: set[int] = set()
         for cohort in all_cohorts:
             if not cohort.filters:
                 continue
-            dependencies = get_all_cohort_dependencies(cohort, seen_cohorts_cache=seen_cohorts_cache)
+            try:
+                dependencies = get_all_cohort_dependencies(cohort, seen_cohorts_cache=seen_cohorts_cache)
+            except Exception as err:
+                unreadable_ids.add(cohort.id)
+                logger.error(
+                    "cohort_resave_error",
+                    cohort_id=cohort.id,
+                    team_id=team.id,
+                    error=str(err),
+                    exc_info=True,
+                )
+                continue
             cohort_dependencies[cohort.id] = {dep.id for dep in dependencies}
-        return cohort_dependencies
+        return cohort_dependencies, unreadable_ids
 
     def _recompute_cohort(
         self,

@@ -36,4 +36,15 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "Node.js versions.",
         },
     },
+    "VersionDownloads": {
+        "description": "Download counts per published version over the last 7 days, per configured package, "
+        "from the npm downloads-counts API (api.npmjs.org/versions/{package}/last-week). Each sync replaces "
+        "the table with the current rolling 7-day window.",
+        "docs_url": _DOWNLOAD_COUNTS_DOCS,
+        "columns": {
+            "package": "Name of the npm package (injected by the connector).",
+            "version": "Version string of the release; joins to the Versions table on package and version.",
+            "downloads": "Number of downloads of this version over the last 7 available days.",
+        },
+    },
 }

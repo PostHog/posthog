@@ -3,8 +3,7 @@ import base64
 
 from parameterized import parameterized
 
-from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
-
+from products.cdp.backend.templates.helpers import BaseHogFunctionTemplateTest
 from products.warehouse_sources.backend.temporal.data_imports.sources.sparkpost.settings import WEBHOOK_BATCH_KEY
 from products.warehouse_sources.backend.temporal.data_imports.sources.sparkpost.webhook_template import template
 

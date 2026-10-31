@@ -15,11 +15,11 @@ FEATURE_FLAG_REQUEST_SCHEMA_EXCLUDED_RUNTIME_FIELDS: frozenset[str] = frozenset(
         "analytics_dashboards",  # relational link managed via dashboards, not the flag create/update surface
         "created_at",  # server-managed timestamp, not agent-facing
         "creation_context",  # write_only origin-product marker set by internal callers
-        "deleted",  # soft-delete handled via the DELETE endpoint, not the create/update body
+        "deleted",  # soft delete goes through delete-feature-flag, which injects it into the PATCH body
         "has_encrypted_payloads",  # server-managed, derived from payload encryption
         "has_enriched_analytics",  # internal analytics flag, not agent-facing
         "last_called_at",  # server-managed usage timestamp, not agent-facing
-        "version",  # server-managed optimistic-concurrency counter
+        "version",  # the server sets it on create; only the partial-update doc serializer documents it
     }
 )
 

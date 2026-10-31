@@ -14,7 +14,6 @@ import type {
     CoreMemoryListParams,
     DocsSearchRequestApi,
     DocsSearchResponseApi,
-    HandsFreeTokenApi,
     MCPToolRequestApi,
     MCPToolResponseApi,
     MaxCoreMemoryApi,
@@ -377,27 +376,6 @@ export const coreMemoryPartialUpdate = async (
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(patchedMaxCoreMemoryApi),
-    })
-}
-
-export const getMaxHandsFreeTokenCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/max_hands_free/token/`
-}
-
-/**
- * Mint a single-use ElevenLabs Scribe realtime token.
- *
- * The browser uses the token to open a WebSocket directly to ElevenLabs — audio never
- * transits PostHog infrastructure. Tokens are time-bound (15 min) and single-use; the
- * per-team rate limit on this endpoint caps how often a user can mint new ones.
- *
- * Never logs the upstream response body — provider error responses can echo PII back and
- * we don't want any of that landing in structured logs.
- */
-export const maxHandsFreeTokenCreate = async (projectId: string, options?: RequestInit): Promise<HandsFreeTokenApi> => {
-    return apiMutator<HandsFreeTokenApi>(getMaxHandsFreeTokenCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
     })
 }
 

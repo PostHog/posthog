@@ -6,7 +6,7 @@ from products.warehouse_sources.backend.types import IncrementalField
 # Notion search and query endpoints cap page_size at 100.
 NOTION_PAGE_SIZE = 100
 
-StreamType = Literal["search", "users", "blocks", "comments"]
+StreamType = Literal["search", "users", "blocks", "comments", "permission_groups"]
 
 
 @dataclass
@@ -48,6 +48,11 @@ NOTION_ENDPOINTS: dict[str, NotionEndpointConfig] = {
         name="comments",
         stream_type="comments",
         partition_key="created_time",
+    ),
+    # Admin API endpoint: needs an organization bot token, and the organization must be on the Enterprise plan.
+    "permission_groups": NotionEndpointConfig(
+        name="permission_groups",
+        stream_type="permission_groups",
     ),
 }
 

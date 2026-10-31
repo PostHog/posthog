@@ -1,5 +1,6 @@
 import pytest
-from posthog.test.base import BaseTest
+
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from pydantic import ValidationError
@@ -20,7 +21,7 @@ from posthog.schema import (
 )
 
 
-class TestDocumentBlocks(BaseTest):
+class TestDocumentBlocks(SimpleTestCase):
     @parameterized.expand(
         [
             ("simple_markdown", "# Hello World", "# Hello World"),
@@ -75,7 +76,7 @@ class TestDocumentBlocks(BaseTest):
         self.assertEqual(block.timestamp_ms, 0)
 
 
-class TestDocumentArtifactContent(BaseTest):
+class TestDocumentArtifactContent(SimpleTestCase):
     def test_empty_blocks(self):
         content = DocumentArtifactContent(blocks=[])
         self.assertEqual(content.blocks, [])
@@ -127,7 +128,7 @@ class TestDocumentArtifactContent(BaseTest):
         self.assertEqual(block2.session_id, "sess")
 
 
-class TestVisualizationArtifactContent(BaseTest):
+class TestVisualizationArtifactContent(SimpleTestCase):
     def test_trends_query(self):
         trends = AssistantTrendsQuery(series=[])
         content = VisualizationArtifactContent(query=trends, name="Test Trends", description="Shows trend data")

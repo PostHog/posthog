@@ -236,4 +236,20 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "end_time": "End of the billing cycle the usage covers.",
         },
     },
+    "ai_usage_metrics": {
+        "description": "Daily AI Runtime Control request, session and token usage per virtual key, provider and model.",
+        "docs_url": "https://www.fastly.com/documentation/reference/api/ai-runtime-control/usage-metrics/",
+        "columns": {
+            "date": "The date (or hour) the usage was measured.",
+            "start_time": "Start of the day the usage was measured, as a Unix timestamp.",
+            "usage_type": "The type of usage being measured, such as requests, sessions, input_tokens or output_tokens.",
+            "quantity": "The quantity of the usage type for this date.",
+            "virtual_key_id": "The ID of the virtual key this usage is attributed to.",
+            "virtual_key_name": "The display name of the virtual key this usage is attributed to.",
+            "provider": "The name of the provider connection that ultimately served the request.",
+            "provider_connection_id": "The ID of the provider connection that ultimately served the request.",
+            "primary_provider": "The ID of the provider connection originally requested, before any failover occurred.",
+            "model": "The AI model identifier used.",
+        },
+    },
 }

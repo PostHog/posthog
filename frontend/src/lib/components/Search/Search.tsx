@@ -16,11 +16,11 @@ import {
 } from 'react'
 
 import { IconDay, IconNight, IconSearch, IconSparkles, IconX } from '@posthog/icons'
-import { Link, Spinner } from '@posthog/lemon-ui'
+import { LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
-import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
 import { filterSearchItems } from 'lib/components/Search/utils'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { KeyboardShortcut } from 'lib/lemon-ui/KeyboardShortcut/KeyboardShortcut'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { themeLogic } from 'lib/logic/themeLogic'
 import posthog from 'lib/posthog-typed'
@@ -34,14 +34,14 @@ import { newInternalTab } from 'lib/utils/newInternalTab'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { ProductIconWrapper, iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { MenuItems } from '~/layout/panel-layout/ProjectTree/menus/MenuItems'
-import { fileSystemTypes } from '~/products'
-import { FileSystemIconType } from '~/queries/schema/schema-general'
 import type { UserTheme } from '~/types'
 
 import { ScrollableShadows } from '../ScrollableShadows/ScrollableShadows'
-import { RECENTS_LIMIT, STARRED_LIMIT, SearchItem, SearchLogicProps, searchLogic } from './searchLogic'
+import { getIconForItem, getItemTypeDisplayName } from './searchItemDisplay'
+import { SearchItem } from './searchItems'
+import { STARRED_LIMIT } from './searchListsLogic'
+import { RECENTS_LIMIT, SearchLogicProps, searchLogic } from './searchLogic'
 import { SETTINGS_THEME_ITEM_ID, canOpenInNewTab, formatRelativeTimeShort, getCategoryDisplayName } from './utils'
 
 // ============================================================================
@@ -112,89 +112,6 @@ const useRotatingPlaceholder = (isActive: boolean): { text: string; isVisible: b
 // ============================================================================
 // Helpers
 // ============================================================================
-
-const getItemTypeDisplayName = (type: string | null | undefined): string | null => {
-    if (!type) {
-        return null
-    }
-
-    // Check fileSystemTypes manifest first
-    if (type in fileSystemTypes) {
-        return (fileSystemTypes as Record<string, { name?: string }>)[type]?.name ?? null
-    }
-
-    // Handle insight subtypes (e.g., 'insight/funnels' -> 'Funnel')
-    if (type.startsWith('insight/')) {
-        const subtype = type.slice(8) // Remove 'insight/' prefix
-        const insightDisplayNames: Record<string, string> = {
-            funnels: 'Funnel',
-            trends: 'Trend',
-            retention: 'Retention',
-            paths: 'Paths',
-            lifecycle: 'Lifecycle',
-            stickiness: 'Stickiness',
-            hog: 'SQL insight',
-        }
-        return insightDisplayNames[subtype] ?? null
-    }
-
-    // Fallback for types not in the manifest
-    const fallbackDisplayNames: Record<string, string> = {
-        query: 'SQL query',
-        product_analytics: 'Product analytics',
-        web_analytics: 'Web analytics',
-        llm_analytics: 'AI observability',
-        revenue_analytics: 'Revenue analytics',
-        marketing_analytics: 'Marketing analytics',
-        session_replay: 'Session replay',
-        error_tracking: 'Error tracking',
-        data_warehouse: 'Data ops',
-        data_pipeline: 'Data pipeline',
-        annotation: 'Annotation',
-        event_definition: 'Event',
-        property_definition: 'Property',
-        person: 'Person',
-        persons: 'Person',
-        user: 'User',
-        group: 'Group',
-        account: 'Account',
-        heatmap: 'Heatmap',
-        sql_editor: 'SQL query',
-        logs: 'Logs',
-        alert: 'Alert',
-        folder: 'Folder',
-        hog_flow: 'Workflow',
-    }
-    return fallbackDisplayNames[type] ?? null
-}
-
-const getIconForItem = (item: SearchItem): ReactNode => {
-    if (item.icon) {
-        return item.icon
-    }
-    let itemType = item.itemType || item.record?.type
-    // Normalize types for icon lookup
-    if (itemType === 'person') {
-        itemType = 'persons'
-    } else if (itemType === 'hog_flow') {
-        itemType = 'workflows'
-    }
-    if (itemType) {
-        // Handle iconColor which may be a single-element array or tuple
-        const rawColor = item.record?.iconColor as string[] | undefined
-        const colorOverride: [string, string] | undefined = rawColor
-            ? rawColor.length === 1
-                ? [rawColor[0], rawColor[0]]
-                : [rawColor[0], rawColor[1]]
-            : undefined
-        return (
-            <ProductIconWrapper type={itemType as string} colorOverride={colorOverride}>
-                {iconForType(itemType as FileSystemIconType, colorOverride)}
-            </ProductIconWrapper>
-        )
-    }
-    return null
-}
 
 const commandItemToTreeDataItem = (item: SearchItem): TreeDataItem => {
     return {
@@ -424,8 +341,8 @@ function SearchRoot({
         for (const category of allCategories) {
             items.push(...category.items)
         }
-        return items
-    }, [allCategories])
+        return logicKey === 'command' ? items : items.filter((item) => item.category !== 'shortcuts')
+    }, [allCategories, logicKey])
 
     // Compute filteredItems synchronously to avoid render gap between loading and content
     const filteredItems = useMemo(() => {
@@ -438,8 +355,8 @@ function SearchRoot({
             const filteredClientItems = filterSearchItems(clientItems, searchValue)
             items = [...filteredClientItems, ...serverItems]
         } else {
-            // When not searching, show recents, starred, and tools
-            items = allItems.filter((item) => ['recents', 'starred', 'tools'].includes(item.category))
+            // When not searching, show recents, starred, tools, and shortcuts
+            items = allItems.filter((item) => ['recents', 'starred', 'tools', 'shortcuts'].includes(item.category))
         }
 
         // Add a direct shortcut to the theme setting when searching for dark/light/theme
@@ -513,6 +430,7 @@ function SearchRoot({
                 posthog.capture('command menu item selected', {
                     category: item.category,
                     item_type: item.itemType ?? null,
+                    matched_search_keyword: item.matchedSearchKeyword ?? null,
                     result_position: position >= 0 ? position : null,
                     opened_in_new_tab: openInNewTab,
                 })
@@ -974,6 +892,20 @@ function SearchResults({
                                                                             <span className="truncate">
                                                                                 {String(item.displayName || item.name)}
                                                                             </span>
+                                                                            {item.badges?.map((badge) => (
+                                                                                <Tooltip
+                                                                                    key={badge.label}
+                                                                                    title={badge.tooltip}
+                                                                                >
+                                                                                    <LemonTag
+                                                                                        type={badge.type}
+                                                                                        size="small"
+                                                                                        className="shrink-0"
+                                                                                    >
+                                                                                        {badge.label}
+                                                                                    </LemonTag>
+                                                                                </Tooltip>
+                                                                            ))}
                                                                             {(group.category === 'recents' ||
                                                                                 group.category === 'starred' ||
                                                                                 group.category === 'groups') &&
@@ -994,6 +926,11 @@ function SearchResults({
                                                                             {item.productCategory && (
                                                                                 <span className="text-xs text-tertiary shrink-0 mt-[2px]">
                                                                                     {item.productCategory}
+                                                                                </span>
+                                                                            )}
+                                                                            {item.keybinding && (
+                                                                                <span className="ml-auto shrink-0">
+                                                                                    {item.keybinding}
                                                                                 </span>
                                                                             )}
                                                                             {item.matchedSearchKeyword && (

@@ -11,6 +11,7 @@ from posthog.test.base import _create_event, flush_persons_and_events
 from unittest.mock import MagicMock, patch
 
 from django.db import connection
+from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
@@ -40,6 +41,7 @@ from posthog.temporal.weekly_digest.activities import (
     _redis_url,
     _teams_in_range,
     _usage_trend_metric,
+    _wait_for_workflows_post,
     generate_dashboard_lookup,
     generate_error_issue_lookup,
     generate_event_definition_lookup,
@@ -68,11 +70,12 @@ from posthog.temporal.weekly_digest.types import (
     TeamIdRange,
     UsageTrends,
 )
+from posthog.token_bucket import BucketDecision, BucketUnavailable
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.error_tracking.backend.facade.testing import create_issue
 from products.event_definitions.backend.models.event_definition import EventDefinition
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.facade.testing import create_experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.growth.backend.models import ProductPushCampaign
 from products.surveys.backend.models import Survey
@@ -183,11 +186,11 @@ def _make_event_definitions(team: Team, other_team: Team, digest: Digest) -> lis
     return ["new_event"]
 
 
-def _make_experiment(team: Team, name: str, **fields: Any) -> Experiment:
+def _make_experiment(team: Team, name: str, **fields: Any) -> int:
     flag = FeatureFlag.objects.create(
         team=team, key=f"flag-{uuid4().hex[:8]}", name=f"Feature Flag for Experiment {name}"
     )
-    return Experiment.objects.create(team=team, feature_flag=flag, name=name, **fields)
+    return create_experiment(team_id=team.id, feature_flag_id=flag.id, name=name, **fields)
 
 
 def _make_experiments_launched(team: Team, other_team: Team, digest: Digest) -> list[str]:
@@ -264,6 +267,14 @@ def _make_error_issues(team: Team, other_team: Team, digest: Digest) -> list[str
     return [f"issue {index}" for index in range(1, NEW_ERROR_ISSUES_PER_TEAM_LIMIT + 1)]
 
 
+def _error_issue_lookup_from_postgres(input: GenerateDigestDataBatchInput) -> None:
+    # A failed error tracking query keeps the issues the Postgres lookup found, which this test checks.
+    with patch(
+        "posthog.temporal.weekly_digest.activities._query_new_issues_for_team", side_effect=RuntimeError("down")
+    ):
+        run_sync(generate_error_issue_lookup, input)
+
+
 @pytest.mark.django_db
 @pytest.mark.parametrize(
     "activity_fn,key_kind,payload_field,make_rows",
@@ -280,7 +291,7 @@ def _make_error_issues(team: Team, other_team: Team, digest: Digest) -> list[str
         ),
         (generate_feature_flag_lookup, TeamDataKey.FEATURE_FLAGS, "name", _make_feature_flags),
         (generate_survey_lookup, TeamDataKey.SURVEYS_LAUNCHED, "name", _make_surveys),
-        (generate_error_issue_lookup, TeamDataKey.ERROR_ISSUES, "name", _make_error_issues),
+        (_error_issue_lookup_from_postgres, TeamDataKey.ERROR_ISSUES, "name", _make_error_issues),
     ],
 )
 def test_generic_lookup_stores_only_this_teams_rows_from_the_window(
@@ -308,10 +319,80 @@ def test_generic_lookup_stores_only_this_teams_rows_from_the_window(
     assert redis_servers.digest.keys(f"{digest.key}-{key_kind}-*") == [key]
 
 
+@pytest.mark.django_db
+def test_experiment_completed_lookup_stores_both_dates(team, redis_servers, common_input, digest):
+    start_date = (digest.period_start - timedelta(days=30)).replace(microsecond=0)
+    end_date = (digest.period_end - timedelta(days=1)).replace(microsecond=0)
+    experiment_id = _make_experiment(team, "Completed", start_date=start_date, end_date=end_date)
+
+    run_sync(generate_experiment_completed_lookup, batch_input(team, digest, common_input))
+
+    stored = json.loads(redis_servers.digest.get(team_data_key(digest.key, TeamDataKey.EXPERIMENTS_COMPLETED, team.id)))
+    assert stored == [
+        {
+            "name": "Completed",
+            "id": experiment_id,
+            "start_date": start_date.isoformat().replace("+00:00", "Z"),
+            "end_date": end_date.isoformat().replace("+00:00", "Z"),
+        }
+    ]
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "error_tracking_result,expected",
+    [
+        (
+            [
+                {
+                    "id": str(uuid4()),
+                    "name": "Error",
+                    "description": "busy",
+                    "occurrence_count": 12,
+                    "sparkline": [{"height_percent": 100}],
+                }
+            ],
+            [("busy", 12, [{"height_percent": 100}])],
+        ),
+        (RuntimeError("ClickHouse is down"), [("quiet", None, []), ("busy", None, [])]),
+        ([], None),
+    ],
+)
+def test_generate_error_issue_lookup_takes_new_issues_from_error_tracking(
+    error_tracking_result, expected, team, redis_servers, common_input, digest
+):
+    create_issue(
+        team_id=team.id, name="TypeError", description="quiet", created_at=digest.period_end - timedelta(hours=1)
+    )
+    create_issue(team_id=team.id, name="Error", description="busy", created_at=digest.period_start + timedelta(hours=1))
+    mock_kwargs = (
+        {"side_effect": error_tracking_result}
+        if isinstance(error_tracking_result, Exception)
+        else {"return_value": error_tracking_result}
+    )
+
+    with patch("posthog.temporal.weekly_digest.activities._query_new_issues_for_team", **mock_kwargs):
+        run_sync(generate_error_issue_lookup, batch_input(team, digest, common_input))
+
+    stored = redis_servers.digest.get(team_data_key(digest.key, TeamDataKey.ERROR_ISSUES, team.id))
+    if expected is None:
+        assert stored is None
+    else:
+        assert [
+            (issue["description"], issue["occurrence_count"], issue["sparkline"]) for issue in json.loads(stored)
+        ] == expected
+
+
 def _run_lookup(activity_fn: Callable[..., Any]) -> Callable[[TeamIdRange, Digest, CommonInput], None]:
     return lambda team_range, digest, common: run_sync(
         activity_fn, GenerateDigestDataBatchInput(team_id_range=team_range, digest=digest, common=common)
     )
+
+
+def _run_error_issue_lookup_without_occurrences(team_range: TeamIdRange, digest: Digest, common: CommonInput) -> None:
+    # Error tracking runs one HogQL query per team with new issues, like usage trends.
+    with patch("posthog.temporal.weekly_digest.activities._query_new_issues_for_team", return_value=[]):
+        _run_lookup(generate_error_issue_lookup)(team_range, digest, common)
 
 
 def _run_organization_digest_batch(team_range: TeamIdRange, digest: Digest, common: CommonInput) -> None:
@@ -326,7 +407,7 @@ def _run_organization_digest_batch(team_range: TeamIdRange, digest: Digest, comm
     "run_activity,make_row",
     [
         (_run_lookup(generate_dashboard_lookup), lambda team: Dashboard.objects.create(team=team, name="Dashboard")),
-        (_run_lookup(generate_error_issue_lookup), lambda team: create_issue(team_id=team.id, name="issue")),
+        (_run_error_issue_lookup_without_occurrences, lambda team: create_issue(team_id=team.id, name="issue")),
         (
             _run_lookup(generate_filter_lookup),
             lambda team: SessionRecordingPlaylist.objects.create(team=team, name="Filter", type="filters"),
@@ -572,7 +653,7 @@ def _org_digest_json(organization: Organization, team: Team) -> str:
                     "id": team.id,
                     "name": team.name,
                     "dashboards": [{"name": "Test Dashboard", "id": 1}],
-                    "event_definitions": [],
+                    "event_definitions": [{"name": f"event {index}", "id": str(uuid4())} for index in range(3)],
                     "experiments_launched": [
                         {"name": "Experiment A", "id": 1, "start_date": "2024-01-01T00:00:00Z"},
                         {"name": "Experiment B", "id": 2, "start_date": "2024-01-01T00:00:00Z"},
@@ -602,19 +683,41 @@ def _send_input(
     )
 
 
+WEBHOOK_SETTINGS = {
+    "WEEKLY_DIGEST_WORKFLOW_WEBHOOK_URL": "https://webhooks.example.com/public/webhooks/digest",
+    "WEEKLY_DIGEST_WORKFLOW_WEBHOOK_SECRET": "test-webhook-secret",
+}
+
+
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "dry_run,already_sent,expected_captures",
+    "dry_run,already_sent,flag_enabled,webhook_configured,has_distinct_id,expected_route",
     [
-        (False, False, 1),
-        (True, False, 0),
-        (False, True, 0),
+        (False, False, False, True, True, "customer_io"),
+        (False, False, True, True, True, "workflows"),
+        (False, False, True, True, False, "workflows"),
+        (False, False, True, False, True, "customer_io"),
+        (True, False, True, True, True, None),
+        (False, True, True, True, True, None),
     ],
 )
 def test_send_weekly_digest_batch_emails_subscribed_members_once(
-    dry_run, already_sent, expected_captures, organization, team, redis_servers, common_input, digest
+    dry_run,
+    already_sent,
+    flag_enabled,
+    webhook_configured,
+    has_distinct_id,
+    expected_route,
+    organization,
+    team,
+    redis_servers,
+    common_input,
+    digest,
 ):
     subscribed = create_user(organization, "subscribed@example.com")
+    if not has_distinct_id:
+        User.objects.filter(id=subscribed.id).update(distinct_id=None)
+        subscribed.refresh_from_db()
     create_user(organization, "unsubscribed@example.com")
     redis_servers.digest.set(org_digest_key(digest.key, organization.id), _org_digest_json(organization, team))
     redis_servers.digest.sadd(user_data_key(digest.key, UserDataKey.NOTIFY_TEAMS, subscribed.id), team.id)
@@ -627,31 +730,78 @@ def test_send_weekly_digest_batch_emails_subscribed_members_once(
         record.sent_at = timezone.now()
         record.save()
     ph_client = MagicMock()
+    session = MagicMock()
+    session.post.return_value.status_code = 201
 
-    with patch("posthog.temporal.weekly_digest.activities.get_ph_client", return_value=ph_client):
+    with (
+        override_settings(**(WEBHOOK_SETTINGS if webhook_configured else {})),
+        patch("posthog.temporal.weekly_digest.activities.get_ph_client", return_value=ph_client),
+        patch("posthog.temporal.weekly_digest.activities.posthoganalytics.feature_enabled", return_value=flag_enabled),
+        patch("posthog.temporal.weekly_digest.activities.requests.Session", return_value=session),
+        patch("posthog.temporal.weekly_digest.activities.WORKFLOWS_EVENT_DEFINITIONS_LIMIT", 2),
+    ):
         run_sync(send_weekly_digest_batch, _send_input(organization, digest, common_input, dry_run=dry_run))
 
-    assert ph_client.capture.call_count == expected_captures
+    # Customer.io's destination listens to the captured event and the digest workflow to the webhook, so nobody gets both.
+    assert ph_client.capture.call_count == (expected_route == "customer_io")
+    assert session.post.call_count == (expected_route == "workflows")
     assert ph_client.shutdown.called
     record = MessagingRecord.objects.get(campaign_key=digest.key)
     # A dry run must not stamp the record, or the real run that follows would skip the organization.
     assert (record.sent_at is not None) is (not dry_run)
-    if expected_captures == 0:
+    if expected_route is None:
         return
 
-    method_names = [name for name, _, _ in ph_client.method_calls]
-    assert method_names.index("capture") < method_names.index("flush")
-
-    capture = ph_client.capture.call_args.kwargs
-    assert capture["distinct_id"] == subscribed.distinct_id
-    assert capture["event"] == "transactional email"
-    assert capture["groups"]["organization"] == str(organization.id)
-    (team_payload,) = capture["properties"]["teams"]
+    if expected_route == "customer_io":
+        method_names = [name for name, _, _ in ph_client.method_calls]
+        assert method_names.index("capture") < method_names.index("flush")
+        capture = ph_client.capture.call_args.kwargs
+        assert capture["distinct_id"] == subscribed.distinct_id
+        assert capture["event"] == "transactional email"
+        assert capture["groups"]["organization"] == str(organization.id)
+        properties = capture["properties"]
+        assert "to" not in properties
+    else:
+        post = session.post.call_args
+        assert post.args == (WEBHOOK_SETTINGS["WEEKLY_DIGEST_WORKFLOW_WEBHOOK_URL"],)
+        assert post.kwargs["headers"] == {
+            "Authorization": "Bearer test-webhook-secret",
+            "Idempotency-Key": f"{digest.key}:{subscribed.id}",
+        }
+        assert post.kwargs["json"]["event"] == "weekly digest ready"
+        assert post.kwargs["json"]["distinct_id"] == (subscribed.distinct_id or subscribed.email)
+        properties = post.kwargs["json"]["properties"]
+        assert properties["to"] == subscribed.email
+    (team_payload,) = properties["teams"]
     assert team_payload["team_id"] == team.id
+    # The webhook refuses large bodies, so Workflows gets the first events and the exact count.
+    assert len(team_payload["report"]["new_event_definitions"]) == (2 if expected_route == "workflows" else 3)
+    assert team_payload["report"]["new_event_definitions_count"] == 3
     assert team_payload["report"]["new_product_suggestion"] == {
         "product_path": "Error tracking",
         "reason_text": DEFAULT_PRODUCT_SUGGESTION_TEXT,
     }
+
+
+@pytest.mark.parametrize(
+    "first_answer",
+    [
+        BucketUnavailable(error="connection refused"),
+        BucketDecision(allowed=False, remaining=0, limit=500, retry_after=1, reset=10),
+    ],
+)
+def test_wait_for_workflows_post_waits_until_the_bucket_grants_a_token(first_answer):
+    granted = BucketDecision(allowed=True, remaining=10, limit=500, retry_after=0, reset=1)
+
+    with (
+        patch("posthog.temporal.weekly_digest.activities.consume", side_effect=[first_answer, granted]) as consume,
+        patch("posthog.temporal.weekly_digest.activities.time.sleep") as sleep,
+    ):
+        _wait_for_workflows_post(MagicMock(), "digest-key")
+
+    # An unreadable bucket must not let unpaced posts through to the webhook.
+    assert consume.call_count == 2
+    assert sleep.call_count == 1
 
 
 @activity.defn(name="send-weekly-digest-batch-body", no_thread_cancel_exception=True)
@@ -692,6 +842,7 @@ def test_send_weekly_digest_batch_stops_sending_once_the_activity_is_cancelled(
         ("failed_upload", 1),
         ("queue_full", 1),
         ("oversized", 0),
+        ("failed_webhook", 0),
     ],
 )
 def test_send_weekly_digest_batch_leaves_organization_unsent_when_an_event_is_dropped(
@@ -715,12 +866,19 @@ def test_send_weekly_digest_batch_leaves_organization_unsent_when_an_event_is_dr
             ph_client.capture.return_value = None
         return ph_client
 
+    session = MagicMock()
+    session.post.return_value.status_code = 503
+
     with (
+        override_settings(**WEBHOOK_SETTINGS),
         patch("posthog.temporal.weekly_digest.activities.get_ph_client", side_effect=make_client),
         patch(
             "posthog.temporal.weekly_digest.activities.DIGEST_PAYLOAD_SIZE_LIMIT",
             100 if drop == "oversized" else DIGEST_PAYLOAD_SIZE_LIMIT,
         ),
+        patch("posthog.temporal.weekly_digest.activities._routes_to_workflows", return_value=drop == "failed_webhook"),
+        patch("posthog.temporal.weekly_digest.activities.requests.Session", return_value=session),
+        patch("posthog.temporal.weekly_digest.activities.time.sleep"),
     ):
         run_sync(send_weekly_digest_batch, _send_input(organization, digest, common_input, dry_run=False))
 
@@ -797,6 +955,8 @@ def test_query_team_usage_trends_windows_persons_and_test_accounts(team):
 
     # test_account_filters are phrased to KEEP real accounts, so "is_not localhost" drops the test event below.
     team.test_account_filters = [{"key": "$host", "type": "event", "value": "localhost", "operator": "is_not"}]
+    # A project timezone away from UTC would shift calendar-day buckets by one.
+    team.timezone = "America/Los_Angeles"
     team.save()
     # Test-account traffic in the current window must not inflate the numbers.
     _create_event(
@@ -815,6 +975,8 @@ def test_query_team_usage_trends_windows_persons_and_test_accounts(team):
     events, users = result.metrics
     assert (events.label, events.current, events.previous) == ("Events", 3, 1)
     assert (users.label, users.current, users.previous) == ("Active users", 2, 1)
+    assert events.daily == [0, 0, 1, 1, 1, 0, 0]
+    assert users.daily == [0, 0, 1, 1, 1, 0, 0]
 
 
 @pytest.mark.django_db
@@ -856,7 +1018,10 @@ def test_generate_usage_trends_lookup_waits_out_a_busy_clickhouse(team, redis_se
         ),
         patch(
             "posthog.temporal.weekly_digest.activities.execute_hogql_query",
-            side_effect=[ClickHouseAtCapacity(), HogQLQueryResponse(results=[[5, 4, 2, 2]])],
+            side_effect=[
+                ClickHouseAtCapacity(),
+                HogQLQueryResponse(results=[[5, 4, 2, 2, [5, 0, 0, 0, 0, 0, 0], [2, 0, 0, 0, 0, 0, 0]]]),
+            ],
         ),
         patch("posthog.temporal.common.utils.time.sleep"),
     ):

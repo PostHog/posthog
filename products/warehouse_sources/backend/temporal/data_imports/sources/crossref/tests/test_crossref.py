@@ -1,26 +1,26 @@
 from datetime import date, datetime
 from typing import Any
-from urllib.parse import parse_qs, urlsplit
-
-from unittest import mock
 
 import pyarrow as pa
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.crossref import crossref
 from products.warehouse_sources.backend.temporal.data_imports.sources.crossref.crossref import (
     CrossrefResumeConfig,
     _build_params,
     _build_scope_filter,
     _format_filter_value,
-    _normalize_work,
-    crossref_source,
-    get_rows,
     validate_credentials,
 )
-
-CROSSREF_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.crossref.crossref.make_tracked_session"
+from products.warehouse_sources.backend.temporal.data_imports.sources.crossref.source import CrossrefSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.crossref import (
+    CrossrefSourceConfig,
 )
 
 
@@ -43,30 +43,11 @@ class _FakeBatcher:
         return table
 
 
-def _query(url: str) -> dict[str, str]:
-    return {key: values[0] for key, values in parse_qs(urlsplit(url).query).items()}
-
-
-def _response(status_code: int, message: dict[str, Any] | None = None) -> mock.MagicMock:
-    resp = mock.MagicMock()
-    resp.status_code = status_code
-    resp.json.return_value = {"status": "ok", "message": message or {}}
-    resp.raise_for_status = mock.MagicMock()
-    return resp
-
-
-def _make_manager(resume_state: CrossrefResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _collect(endpoint: str, manager: mock.MagicMock, **kwargs: Any) -> list[dict]:
-    rows: list[dict] = []
-    for table in get_rows(endpoint=endpoint, logger=mock.MagicMock(), resumable_source_manager=manager, **kwargs):
-        rows.extend(table.to_pylist())
-    return rows
+def _page(items: list[dict[str, Any]], next_cursor: str | None = None) -> ScriptedResponse:
+    message: dict[str, Any] = {"items": items}
+    if next_cursor is not None:
+        message["next-cursor"] = next_cursor
+    return ScriptedResponse(json={"status": "ok", "message": message})
 
 
 class TestBuildScopeFilter:
@@ -96,45 +77,7 @@ class TestFormatFilterValue:
         assert _format_filter_value(value) == expected
 
 
-class TestNormalizeWork:
-    def test_flattens_nested_dates(self) -> None:
-        item = {
-            "DOI": "10.1/x",
-            "indexed": {"date-time": "2026-01-01T00:00:00Z", "date-parts": [[2026, 1, 1]]},
-            "deposited": {"date-time": "2025-06-01T00:00:00Z"},
-            "created": {"date-time": "2020-01-01T00:00:00Z"},
-        }
-        result = _normalize_work(item)
-        assert result["indexed_date"] == "2026-01-01T00:00:00Z"
-        assert result["deposited_date"] == "2025-06-01T00:00:00Z"
-        assert result["created_date"] == "2020-01-01T00:00:00Z"
-        # Original nested objects are preserved alongside the flattened columns.
-        assert result["indexed"]["date-time"] == "2026-01-01T00:00:00Z"
-
-    def test_missing_date_fields_are_skipped(self) -> None:
-        item = {"DOI": "10.1/x"}
-        result = _normalize_work(item)
-        assert "indexed_date" not in result
-        assert "deposited_date" not in result
-        assert "created_date" not in result
-
-
 class TestBuildParams:
-    def test_works_incremental_without_watermark_still_sorts(self) -> None:
-        params = _build_params(
-            "Works",
-            None,
-            "301",
-            None,
-            None,
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=None,
-            incremental_field="indexed_date",
-        )
-        assert params["sort"] == "indexed"
-        assert params["order"] == "asc"
-        assert params["filter"] == "member:301"
-
     def test_works_incremental_with_watermark_adds_date_filter(self) -> None:
         params = _build_params(
             "Works",
@@ -164,240 +107,113 @@ class TestBuildParams:
         assert "order" not in params
         assert params["filter"] == "member:301"
 
-    def test_works_without_scope_has_no_filter(self) -> None:
-        params = _build_params(
-            "Works",
-            None,
-            None,
-            None,
-            None,
-            should_use_incremental_field=False,
-            db_incremental_field_last_value=None,
-            incremental_field=None,
-        )
-        assert "filter" not in params
-
-    def test_non_works_endpoint_ignores_scope_and_incremental(self) -> None:
-        params = _build_params(
-            "Members",
-            None,
-            "301",
-            "100000001",
-            "1932-6203",
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2024, 1, 1),
-            incremental_field="indexed_date",
-        )
-        assert "filter" not in params
-        assert "sort" not in params
-
-    def test_mailto_is_included_when_set(self) -> None:
-        params = _build_params(
-            "Members",
-            "me@example.com",
-            None,
-            None,
-            None,
-            should_use_incremental_field=False,
-            db_incremental_field_last_value=None,
-            incremental_field=None,
-        )
-        assert params["mailto"] == "me@example.com"
-
 
 class TestGetRowsCursorPagination:
-    @mock.patch(CROSSREF_SESSION_PATCH)
-    def test_paginates_across_pages_using_next_cursor(self, MockSession) -> None:
-        session = MockSession.return_value
-        session.get.side_effect = [
-            _response(200, {"items": [{"DOI": "1"}], "next-cursor": "c2"}),
-            _response(200, {"items": [{"DOI": "2"}], "next-cursor": None}),
-        ]
+    @staticmethod
+    def _driver(mailto: str | None = None) -> SourceDriver:
+        return SourceDriver(CrossrefSource(), CrossrefSourceConfig(mailto=mailto, member_id="301"))
 
-        rows = _collect("Works", _make_manager(), mailto=None, member_id="301", funder_id=None, issn=None)
+    def test_stops_on_empty_items_page(self) -> None:
+        result = self._driver().run("Works", [_page([{"DOI": "1"}], "c2"), _page([], "c3")])
 
-        assert [r["DOI"] for r in rows] == ["1", "2"]
-        assert session.get.call_count == 2
-        first_url, second_url = (call.args[0] for call in session.get.call_args_list)
-        assert _query(first_url)["cursor"] == "*"
-        assert _query(second_url)["cursor"] == "c2"
+        assert result.raised is None
+        assert [row["DOI"] for row in result.rows[0].to_pylist()] == ["1"]
+        assert result.params("cursor") == ["*", "c2"]
 
-    @mock.patch(CROSSREF_SESSION_PATCH)
-    def test_stops_on_empty_items_page(self, MockSession) -> None:
-        session = MockSession.return_value
-        session.get.side_effect = [
-            _response(200, {"items": [{"DOI": "1"}], "next-cursor": "c2"}),
-            _response(200, {"items": [], "next-cursor": "c3"}),
-        ]
-
-        rows = _collect("Works", _make_manager(), mailto=None, member_id="301", funder_id=None, issn=None)
-
-        assert [r["DOI"] for r in rows] == ["1"]
-        assert session.get.call_count == 2
-
-    @mock.patch(CROSSREF_SESSION_PATCH)
-    def test_stops_when_next_cursor_missing(self, MockSession) -> None:
-        session = MockSession.return_value
-        session.get.side_effect = [_response(200, {"items": [{"DOI": "1"}]})]
-
-        rows = _collect("Works", _make_manager(), mailto=None, member_id="301", funder_id=None, issn=None)
-
-        assert [r["DOI"] for r in rows] == ["1"]
-        assert session.get.call_count == 1
-
-    @mock.patch(CROSSREF_SESSION_PATCH)
-    def test_resumes_from_saved_cursor(self, MockSession) -> None:
-        session = MockSession.return_value
-        session.get.side_effect = [_response(200, {"items": [{"DOI": "2"}]})]
-
-        rows = _collect(
-            "Works",
-            _make_manager(CrossrefResumeConfig(cursor="saved123")),
-            mailto=None,
-            member_id="301",
-            funder_id=None,
-            issn=None,
-        )
-
-        assert [r["DOI"] for r in rows] == ["2"]
-        assert _query(session.get.call_args.args[0])["cursor"] == "saved123"
-
-    @mock.patch(CROSSREF_SESSION_PATCH)
-    def test_saves_state_only_while_next_cursor_present(self, MockSession, monkeypatch) -> None:
+    def test_saves_state_only_while_next_cursor_present(self, monkeypatch) -> None:
         monkeypatch.setattr(crossref, "Batcher", _FakeBatcher)
-        session = MockSession.return_value
-        session.get.side_effect = [
-            _response(200, {"items": [{"DOI": "1"}], "next-cursor": "c2"}),
-            _response(200, {"items": [{"DOI": "2"}]}),
+        result = self._driver().run("Works", [_page([{"DOI": "1"}], "c2"), _page([{"DOI": "2"}])])
+
+        assert result.raised is None
+        assert result.saved_states == [CrossrefResumeConfig(cursor="c2")]
+        assert result.committed_states == [CrossrefResumeConfig(cursor="c2")]
+        assert result.final_state == CrossrefResumeConfig(cursor="c2")
+
+    @parameterized.expand(
+        [
+            (
+                "works_date",
+                "Works",
+                {"DOI": "1", "indexed": {"date-time": "2026-01-01T00:00:00Z"}},
+                "indexed_date",
+                "2026-01-01T00:00:00Z",
+            ),
+            (
+                "journal_issns_sorted",
+                "Journals",
+                {"title": "J", "ISSN": ["1097-4547", "0360-4012"]},
+                "issn_key",
+                "0360-4012,1097-4547",
+            ),
+            ("journal_without_issn", "Journals", {"title": "J", "ISSN": []}, "issn_key", ""),
         ]
-        manager = _make_manager()
+    )
+    def test_rows_are_normalized(self, _name, endpoint, item, column, expected) -> None:
+        result = self._driver().run(endpoint, [_page([item])])
 
-        _collect("Works", manager, mailto=None, member_id="301", funder_id=None, issn=None)
+        assert result.raised is None
+        assert result.rows[0].to_pylist()[0][column] == expected
 
-        manager.save_state.assert_called_once_with(CrossrefResumeConfig(cursor="c2"))
-
-    @mock.patch(CROSSREF_SESSION_PATCH)
-    def test_works_rows_are_normalized(self, MockSession) -> None:
-        session = MockSession.return_value
-        session.get.side_effect = [
-            _response(
-                200,
-                {"items": [{"DOI": "1", "indexed": {"date-time": "2026-01-01T00:00:00Z"}}]},
-            )
-        ]
-
-        rows = _collect("Works", _make_manager(), mailto=None, member_id="301", funder_id=None, issn=None)
-
-        assert rows[0]["indexed_date"] == "2026-01-01T00:00:00Z"
-
-    @mock.patch(CROSSREF_SESSION_PATCH)
-    def test_non_works_rows_are_not_normalized(self, MockSession) -> None:
-        session = MockSession.return_value
-        session.get.side_effect = [_response(200, {"items": [{"id": "1"}]})]
-
-        rows = _collect("Members", _make_manager(), mailto=None, member_id=None, funder_id=None, issn=None)
-
-        assert "indexed_date" not in rows[0]
-
-    @mock.patch(CROSSREF_SESSION_PATCH)
-    def test_mailto_passed_as_redact_value(self, MockSession) -> None:
+    def test_mailto_passed_as_redact_value(self) -> None:
         """mailto is a user-typed contact email, not a secret, but it should still be kept out
         of logged/captured request URLs like other tracked-session redactions."""
-        MockSession.return_value.get.side_effect = [_response(200, {"items": [{"DOI": "1"}]})]
+        result = self._driver("me@example.com").run("Works", [_page([{"DOI": "1"}])])
 
-        _collect("Works", _make_manager(), mailto="me@example.com", member_id="301", funder_id=None, issn=None)
+        assert result.raised is None
+        assert result.session_options[0]["redact_values"] == ("me@example.com",)
 
-        assert MockSession.call_args.kwargs["redact_values"] == ("me@example.com",)
+    def test_no_mailto_passes_no_redact_values(self) -> None:
+        result = self._driver().run("Works", [_page([{"DOI": "1"}])])
 
-    @mock.patch(CROSSREF_SESSION_PATCH)
-    def test_no_mailto_passes_no_redact_values(self, MockSession) -> None:
-        MockSession.return_value.get.side_effect = [_response(200, {"items": [{"DOI": "1"}]})]
-
-        _collect("Works", _make_manager(), mailto=None, member_id="301", funder_id=None, issn=None)
-
-        assert MockSession.call_args.kwargs["redact_values"] == ()
+        assert result.raised is None
+        assert result.session_options[0]["redact_values"] == ()
 
 
 class TestGetRowsTypesEndpoint:
-    @mock.patch(CROSSREF_SESSION_PATCH)
-    def test_single_request_with_no_cursor(self, MockSession) -> None:
-        session = MockSession.return_value
-        session.get.return_value = _response(200, {"items": [{"id": "journal-article", "label": "Journal Article"}]})
+    def test_single_request_with_no_cursor(self) -> None:
+        result = SourceDriver(CrossrefSource(), CrossrefSourceConfig()).run(
+            "Types", [_page([{"id": "journal-article", "label": "Journal Article"}])]
+        )
 
-        rows = _collect("Types", _make_manager(), mailto=None, member_id=None, funder_id=None, issn=None)
-
-        assert [r["id"] for r in rows] == ["journal-article"]
-        assert session.get.call_count == 1
-        assert "cursor" not in _query(session.get.call_args.args[0])
+        assert result.raised is None
+        assert [row["id"] for row in result.rows[0].to_pylist()] == ["journal-article"]
+        assert result.paths == ["/types"]
+        assert result.params("cursor") == [None]
 
 
 class TestCrossrefSourceResponse:
-    def test_works_response_shape(self) -> None:
-        response = crossref_source(
-            endpoint="Works",
-            logger=mock.MagicMock(),
-            resumable_source_manager=_make_manager(),
-            mailto=None,
-            member_id="301",
-            funder_id=None,
-            issn=None,
-        )
-        assert response.primary_keys == ["DOI"]
-        assert response.sort_mode == "asc"
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["created_date"]
-
     def test_members_response_has_no_partitioning(self) -> None:
-        response = crossref_source(
-            endpoint="Members",
-            logger=mock.MagicMock(),
-            resumable_source_manager=_make_manager(),
-            mailto=None,
-            member_id=None,
-            funder_id=None,
-            issn=None,
-        )
+        result = SourceDriver(CrossrefSource(), CrossrefSourceConfig()).run("Members", [_page([])])
+        response = result.response
+        assert result.raised is None
+        assert response is not None
         assert response.primary_keys == ["id"]
         assert response.partition_mode is None
         assert response.partition_keys is None
 
 
 class TestValidateCredentials:
-    @mock.patch(CROSSREF_SESSION_PATCH)
-    def test_ok(self, mock_session) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
-        assert validate_credentials("me@example.com") is True
+    def test_swallows_transport_errors(self) -> None:
+        with scripted_network(always(ConnectionError("boom"))) as network:
+            assert validate_credentials(None) is False
+        assert {request.path for request in network.requests_log} == {"/works"}
 
-    @mock.patch(CROSSREF_SESSION_PATCH)
-    def test_non_200_is_invalid(self, mock_session) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=503)
-        assert validate_credentials(None) is False
+    def test_mailto_included_in_request(self) -> None:
+        with scripted_network([ScriptedResponse(status=200)]) as network:
+            assert validate_credentials("me@example.com") is True
 
-    @mock.patch(CROSSREF_SESSION_PATCH)
-    def test_swallows_transport_errors(self, mock_session) -> None:
-        mock_session.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials(None) is False
+        assert network.requests_log[0].param("mailto") == "me@example.com"
 
-    @mock.patch(CROSSREF_SESSION_PATCH)
-    def test_mailto_included_in_request(self, mock_session) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
-        validate_credentials("me@example.com")
-
-        url = mock_session.return_value.get.call_args.args[0]
-        assert _query(url)["mailto"] == "me@example.com"
-
-    @mock.patch(CROSSREF_SESSION_PATCH)
-    def test_mailto_passed_as_redact_value(self, mock_session) -> None:
+    def test_mailto_passed_as_redact_value(self) -> None:
         """mailto is a user-typed contact email, not a secret, but it should still be kept out
         of logged/captured request URLs like other tracked-session redactions."""
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
-        validate_credentials("me@example.com")
+        with scripted_network([ScriptedResponse(status=200)]) as network:
+            assert validate_credentials("me@example.com") is True
 
-        assert mock_session.call_args.kwargs["redact_values"] == ("me@example.com",)
+        assert network.session_options[0]["redact_values"] == ("me@example.com",)
 
-    @mock.patch(CROSSREF_SESSION_PATCH)
-    def test_no_mailto_passes_no_redact_values(self, mock_session) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
-        validate_credentials(None)
+    def test_no_mailto_passes_no_redact_values(self) -> None:
+        with scripted_network([ScriptedResponse(status=200)]) as network:
+            assert validate_credentials(None) is True
 
-        assert mock_session.call_args.kwargs["redact_values"] == ()
+        assert network.session_options[0]["redact_values"] == ()

@@ -7,7 +7,7 @@ import hashlib
 import dataclasses
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal, InvalidOperation
-from typing import Any
+from typing import Any, cast
 from urllib import parse
 
 from django.conf import settings
@@ -30,15 +30,22 @@ from temporalio import common
 from temporalio.client import WorkflowExecutionStatus
 from temporalio.common import SearchAttributePair, TypedSearchAttributes
 
+from posthog.admin.inline_registry import extra_inlines_for
+from posthog.admin.inlines.events_retention_config_inline import TeamEventsRetentionConfigInline
 from posthog.admin.inlines.organization_member_for_related_inline import OrganizationMemberForRelatedInline
-from posthog.admin.inlines.team_experiments_config_inline import TeamExperimentsConfigInline
 from posthog.admin.inlines.team_marketing_analytics_config_inline import TeamMarketingAnalyticsConfigInline
 from posthog.helpers.impersonation import is_impersonated
 from posthog.llm.gateway_internal_client import AIGatewayInternalError, AIGatewayNotConfigured, add_credit, get_wallet
-from posthog.models import Team
+from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import ActivityContextBase, ActivityLog, Detail, log_activity
+from posthog.models.events_retention_config import (
+    OrganizationEventsRetentionConfig,
+    TeamEventsRetentionConfig,
+    describe_months_range,
+)
 from posthog.models.group_type_mapping import invalidate_group_types_cache
 from posthog.models.remote_config import RemoteConfig
+from posthog.models.team.event_retention import should_enforce_events_retention
 from posthog.models.team.team import DEPRECATED_ATTRS
 from posthog.personhog_client.client import get_personhog_client
 from posthog.personhog_client.converters import proto_group_type_mapping_to_dict
@@ -190,14 +197,20 @@ class TeamAdmin(admin.ModelAdmin):
         "email_sending_suspension_actions",
         "email_sending_tier_state",
         "email_sending_tier_actions",
+        "events_retention_display",
     ]
 
     exclude = DEPRECATED_ATTRS
     inlines = [
         OrganizationMemberForRelatedInline,
         TeamMarketingAnalyticsConfigInline,
-        TeamExperimentsConfigInline,
+        TeamEventsRetentionConfigInline,
     ]
+
+    def get_inlines(self, request, obj=None):
+        # Inlines other apps registered for Team, so a product can show a panel on
+        # this page without core importing it. See posthog.admin.inline_registry.
+        return [*super().get_inlines(request, obj), *extra_inlines_for(Team)]
 
     def changeform_view(self, request, object_id=None, form_url="", extra_context=None):
         self._current_request = request
@@ -297,6 +310,15 @@ class TeamAdmin(admin.ModelAdmin):
             },
         ),
         (
+            "Events retention",
+            {
+                "classes": ["collapse"],
+                "fields": [
+                    "events_retention_display",
+                ],
+            },
+        ),
+        (
             "Group type mappings",
             {
                 "classes": ["collapse"],
@@ -385,7 +407,7 @@ class TeamAdmin(admin.ModelAdmin):
             return "-"
         client = get_personhog_client()
         if client is None:
-            return format_html("<em>personhog client not configured</em>")
+            return mark_safe("<em>personhog client not configured</em>")
         try:
             resp = client.get_group_type_mappings_by_team_id(GetGroupTypeMappingsByTeamIdRequest(team_id=team.id))
             mappings_raw = sorted(
@@ -394,7 +416,7 @@ class TeamAdmin(admin.ModelAdmin):
             )
         except Exception as exc:
             logger.warning("admin_group_type_mappings_fetch_failed", team_id=team.id, error=str(exc))
-            return format_html(
+            return mark_safe(
                 '<p style="color: #856404; background: #fff3cd; border: 1px solid #ffc107; '
                 'padding: 8px 12px; border-radius: 4px; margin: 4px 0; font-size: 13px;">'
                 "Failed to fetch group type mappings from personhog</p>",
@@ -584,6 +606,37 @@ class TeamAdmin(admin.ModelAdmin):
             props.append("API_QUERIES_RATE_LIMIT_BYPASS")
         return format_html("<span>{}</span>", ", ".join(props) or "-")
 
+    @admin.display(description="Events retention")
+    def events_retention_display(self, team: Team):
+        if not team.pk:
+            return "-"
+        team_months = (
+            TeamEventsRetentionConfig.objects.filter(team_id=team.pk)
+            .values_list("events_retention_months", flat=True)
+            .first()
+        )
+        org_config = OrganizationEventsRetentionConfig.objects.filter(organization_id=team.organization_id).first()
+        org_default = org_config.default_events_retention_months if org_config else None
+        if team_months is not None:
+            deletion = f"Deleted after {team_months} months, from the team setting."
+        elif org_default is not None:
+            deletion = f"Deleted after {org_default} months, from the organization default."
+        else:
+            deletion = "Never deleted. Neither the team nor the organization has a setting."
+        if org_config and (org_config.min_events_retention_months or org_config.max_events_retention_months):
+            allowed = describe_months_range(
+                org_config.min_events_retention_months, org_config.max_events_retention_months
+            )
+            deletion += f" The organization allows {allowed}."
+
+        hidden = (
+            "Older events are hidden from queries."
+            if should_enforce_events_retention(team.pk)
+            else "Older events are not hidden yet, because enforcement is off for this team."
+        )
+        billing = f"{team.event_retention_months} months from the billing plan. {hidden}"
+        return format_html("<div>{}</div><div>{}</div>", deletion, billing)
+
     @admin.display(description="API token")
     def api_token_display(self, team: Team):
         if not team.pk:
@@ -611,7 +664,7 @@ class TeamAdmin(admin.ModelAdmin):
         if not team.pk:
             return "-"
         return format_html(
-            '<a class="button" href="/feature_flags/staff?team_id={}" target="_blank" rel="noopener noreferrer">Open flags staff tools</a>',
+            '<a class="button" href="/feature-flags/staff?team_id={}" target="_blank" rel="noopener noreferrer">Open flags staff tools</a>',
             team.pk,
         )
 
@@ -790,7 +843,9 @@ class TeamAdmin(admin.ModelAdmin):
 
         # The facade row-locks the config while checking + flipping, so concurrent submits can't
         # both dispatch the customer email + notification. Side effects stay outside that lock.
-        change = suspend_email_sending(team.pk, reason)
+        change = suspend_email_sending(
+            team.pk, reason, user_id=cast(User, request.user).pk, was_impersonated=is_impersonated(request)
+        )
         already_suspended_at = change.previously_suspended_at
         suspended_at = change.changed_at
 
@@ -887,7 +942,7 @@ class TeamAdmin(admin.ModelAdmin):
                 state.suspended_at.isoformat(),
                 state.suspension_reason or "no reason recorded",
             )
-        return format_html("<em>Sending enabled</em>")
+        return mark_safe("<em>Sending enabled</em>")
 
     @admin.display(description="Email sending actions")
     def email_sending_suspension_actions(self, team: Team):
@@ -987,7 +1042,13 @@ class TeamAdmin(admin.ModelAdmin):
             return redirect(team_url)
         pinned = request.POST.get("pinned") == "on"
 
-        previous_tier = set_email_sending_tier(team.pk, tier=tier, pinned=pinned)
+        previous_tier = set_email_sending_tier(
+            team.pk,
+            tier=tier,
+            pinned=pinned,
+            user_id=cast(User, request.user).pk,
+            was_impersonated=is_impersonated(request),
+        )
 
         logger.info(
             "admin_set_email_sending_tier",
@@ -1021,7 +1082,9 @@ class TeamAdmin(admin.ModelAdmin):
         # suspend and set-tier actions.
         ensure_workflows_config(team.pk)
         try:
-            decision = recompute_email_sending_tier(team.id)
+            decision = recompute_email_sending_tier(
+                team.id, user_id=cast(User, request.user).pk, was_impersonated=is_impersonated(request)
+            )
         except Exception:
             logger.exception("admin_recompute_email_sending_tier_failed", team_id=team.id)
             self.message_user(request, "Could not recompute the tier. Check the logs.", level=messages.ERROR)
@@ -1201,7 +1264,7 @@ class TeamAdmin(admin.ModelAdmin):
                 '<span style="color:green"><strong>Enrolled</strong></span> since {}',
                 team.llm_gateway_enabled_at.isoformat(),
             )
-        return format_html("<em>Not enrolled</em>")
+        return mark_safe("<em>Not enrolled</em>")
 
     @admin.display(description="Wallet (AI gateway credits)")
     def ai_gateway_wallet(self, team: Team):
@@ -1233,7 +1296,7 @@ class TeamAdmin(admin.ModelAdmin):
             .order_by("-created_at")[:20]
         )
         if not entries:
-            return format_html("<em>(no top-ups recorded)</em>")
+            return mark_safe("<em>(no top-ups recorded)</em>")
         rows = format_html_join(
             "",
             "<tr><td>{}</td><td>{}</td><td>${}</td><td>{}</td></tr>",
@@ -1284,9 +1347,9 @@ class TeamAdmin(admin.ModelAdmin):
         except Exception as exc:
             return format_html("<em>(cache read failed: {})</em>", str(exc))
         if source == "absent":
-            return format_html("<em>(no entry in Redis for this team; gateway denies until something writes one)</em>")
+            return mark_safe("<em>(no entry in Redis for this team; gateway denies until something writes one)</em>")
         if source == "redis_negative":
-            return format_html(
+            return mark_safe(
                 "<em>(negative-cache sentinel in Redis; gateway treats as default-deny "
                 "until the entry expires, default 24h)</em>"
             )

@@ -6,10 +6,10 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.models.activity_logging.activity_log import ActivityLog
 
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
+from products.cdp.backend.templates.hog_function_template import sync_template_to_db
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.hog_flow_revision import HogFlowRevision
 from products.workflows.backend.presentation.views.hog_flow import WRITABLE_DRAFT_CONTENT_FIELDS
@@ -150,6 +150,26 @@ class TestHogFlowDraftPublish(APIBaseTest):
         assert draft_urls == ["https://changed.example.com"]
         assert flow.name == "Renamed live"
         assert response.json()["draft"] is not None
+
+    def test_web_content_edit_with_stage_draft_applies_tags_live_and_advances_the_live_stamp(self):
+        flow_id = self._create_active_flow()
+        live_stamp_before = HogFlow.objects.get(pk=flow_id).updated_at
+
+        with time_machine.travel(live_stamp_before + timedelta(minutes=1)):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+                {
+                    "actions": [_trigger_action(), _webhook_action(url="https://changed.example.com")],
+                    "tags": ["growth"],
+                    "stage_draft": True,
+                },
+            )
+        assert response.status_code == 200, response.json()
+
+        flow = HogFlow.objects.get(pk=flow_id)
+        assert flow.draft is not None
+        assert response.json()["tags"] == ["growth"]
+        assert flow.updated_at > live_stamp_before
 
     def test_web_stage_draft_saves_incomplete_content_leniently(self):
         # The builder auto-saves mid-edit, so a staged draft must accept a step whose required

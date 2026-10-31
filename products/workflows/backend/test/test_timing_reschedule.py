@@ -43,20 +43,22 @@ def _condition(action_id: str = "cond_1", max_wait: str = "7d", condition: dict 
 class TestTimingRescheduleDiff(SimpleTestCase):
     @parameterized.expand(
         [
-            ("days", "7d", 7 * 86400.0),
-            ("fractional_hours", "1.5h", 5400.0),
-            ("minutes", "10m", 600.0),
-            ("seconds", "45s", 45.0),
-            ("clamped_days", "45d", 30 * 86400.0),
-            ("clamped_hours", "48h", 24 * 3600.0),
-            ("garbage", "banana", None),
-            ("missing_unit", "7", None),
-            ("not_a_string", 7, None),
-            ("none", None, None),
+            ("days", "7d", "delay_duration", 7 * 86400.0),
+            ("fractional_hours", "1.5h", "delay_duration", 5400.0),
+            ("minutes", "10m", "delay_duration", 600.0),
+            ("seconds", "45s", "delay_duration", 45.0),
+            ("delay_past_the_wait_cap", "45d", "delay_duration", 45 * 86400.0),
+            ("clamped_delay_days", "400d", "delay_duration", 365 * 86400.0),
+            ("clamped_wait_days", "45d", "max_wait_duration", 30 * 86400.0),
+            ("clamped_hours", "48h", "delay_duration", 24 * 3600.0),
+            ("garbage", "banana", "delay_duration", None),
+            ("missing_unit", "7", "delay_duration", None),
+            ("not_a_string", 7, "delay_duration", None),
+            ("none", None, "delay_duration", None),
         ]
     )
-    def test_parse_delay_duration_seconds(self, _name, value, expected):
-        assert parse_delay_duration_seconds(value) == expected
+    def test_parse_delay_duration_seconds(self, _name, value, field, expected):
+        assert parse_delay_duration_seconds(value, field) == expected
 
     @parameterized.expand(
         [
@@ -67,7 +69,8 @@ class TestTimingRescheduleDiff(SimpleTestCase):
             # 168h is clamped to the 24h unit max at runtime (mirroring the worker), so this
             # apparent no-op rewrite is really a shortening
             ("clamped_shortening", "7d", "168h", True),
-            ("clamp_equivalent", "45d", "35d", False),
+            ("shortened_past_the_wait_cap", "45d", "35d", True),
+            ("clamp_equivalent", "450d", "400d", False),
             ("unparseable_after", "7d", "banana", True),
             ("unparseable_before", "banana", "7d", True),
             ("unparseable_unchanged", "banana", "banana", False),
@@ -83,6 +86,7 @@ class TestTimingRescheduleDiff(SimpleTestCase):
             ("max_wait_lengthened", _condition(max_wait="1d"), _condition(max_wait="7d"), False),
             ("max_wait_unchanged", _condition(), _condition(), False),
             ("max_wait_clamped_shortening", _condition(max_wait="7d"), _condition(max_wait="168h"), True),
+            ("max_wait_clamp_equivalent", _condition(max_wait="45d"), _condition(max_wait="35d"), False),
             ("max_wait_unparseable_after", _condition(max_wait="7d"), _condition(max_wait="banana"), True),
             # An edited condition must re-evaluate against parked runs promptly (e.g. fixing a
             # filter that could never match) - the sweep wake replaces the poll re-check

@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -32,6 +33,16 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AivenSource(SimpleSource[AivenSourceConfig]):
+    codebase_detection = detect(
+        env=("^AIVEN_",),
+        pypi=("aiven-client",),
+        go=(
+            "github.com/aiven/aiven-go-client",
+            "github.com/aiven/go-client-codegen",
+            "github.com/aiven/aiven-operator",
+        ),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://api.aiven.io/doc/"
 
@@ -45,7 +56,7 @@ class AivenSource(SimpleSource[AivenSourceConfig]):
             name=ExternalDataSourceType.AIVEN,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Aiven",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter an Aiven API token to pull your Aiven projects, services and billing data into the PostHog Data warehouse.
 
 You can create a personal token from your [Aiven profile authentication page](https://console.aiven.io/profile/auth).

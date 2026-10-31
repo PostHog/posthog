@@ -1,8 +1,11 @@
 from dataclasses import dataclass, field
+from typing import Optional
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 APPLOVIN_API_BASE_URL = "https://r.applovin.com"
+# The Campaign Management API authenticates with its own key, separate from the Report Key.
+APPLOVIN_MANAGEMENT_API_BASE_URL = "https://api.ads.axon.ai/manage/v1"
 
 # Every reporting endpoint rejects dates outside a rolling 45-day window, so 45 days is the
 # deepest history the API can serve — older data is not retrievable through the API at all.
@@ -209,9 +212,73 @@ APPLOVIN_ENDPOINTS: dict[str, AppLovinEndpointConfig] = {
     ),
 }
 
-ENDPOINTS = tuple(APPLOVIN_ENDPOINTS.keys())
+USER_AD_REVENUE_ENDPOINT = "user_ad_revenue"
+USER_AD_REVENUE_PATH = "/max/userAdRevenueReport"
+# The report is per (app, day), so the apps with MAX revenue on a day are listed first.
+USER_AD_REVENUE_APPS = AppLovinEndpointConfig(
+    name="user_ad_revenue_apps",
+    path="/maxReport",
+    dimensions=["day", "package_name", "platform"],
+    metrics=["impressions"],
+    primary_keys=["day", "package_name", "platform"],
+)
+# A day's report is final once it is published, eight hours after the UTC day ends. Re-reading
+# the last synced day picks up a day whose report was not yet published on the previous run.
+USER_AD_REVENUE_LOOKBACK_DAYS = 1
+USER_AD_REVENUE_BATCH_SIZE = 5000
+# The aggregated report has one row per user and ad placement, and every string column of the CSV
+# is part of that grain. A column the CSV leaves out is filled with "" so the key is never null.
+USER_AD_REVENUE_PRIMARY_KEYS = [
+    "day",
+    "package_name",
+    "platform",
+    "ad_unit_id",
+    "placement",
+    "idfa",
+    "idfv",
+    "user_id",
+    "custom_data",
+]
 
-# Every endpoint is a date-partitioned report filtered server-side by `start`/`end` on `day`.
+
+@dataclass(frozen=True)
+class AppLovinManagementEndpointConfig:
+    name: str
+    # Path under `APPLOVIN_MANAGEMENT_API_BASE_URL`.
+    path: str
+    primary_keys: list[str]
+    partition_key: Optional[str] = None
+
+
+# `size` maximum on every Campaign Management list endpoint.
+MANAGEMENT_PAGE_SIZE = 100
+# `/operation_logs/campaign` rejects dates older than the latest 30 UTC days, today included.
+OPERATION_LOG_WINDOW_DAYS = 30
+
+MANAGEMENT_ENDPOINTS: dict[str, AppLovinManagementEndpointConfig] = {
+    "campaigns": AppLovinManagementEndpointConfig(
+        name="campaigns", path="/campaign/list", primary_keys=["id"], partition_key="created_at"
+    ),
+    "creative_sets": AppLovinManagementEndpointConfig(
+        name="creative_sets", path="/creative_set/list", primary_keys=["id"]
+    ),
+    "campaign_operation_logs": AppLovinManagementEndpointConfig(
+        name="campaign_operation_logs",
+        path="/operation_logs/campaign",
+        primary_keys=["operation_id"],
+        partition_key="operation_time",
+    ),
+}
+
+ENDPOINTS = (*APPLOVIN_ENDPOINTS.keys(), USER_AD_REVENUE_ENDPOINT, *MANAGEMENT_ENDPOINTS.keys())
+
+PRIMARY_KEYS: dict[str, list[str]] = {
+    **{name: config.primary_keys for name, config in APPLOVIN_ENDPOINTS.items()},
+    USER_AD_REVENUE_ENDPOINT: USER_AD_REVENUE_PRIMARY_KEYS,
+    **{name: config.primary_keys for name, config in MANAGEMENT_ENDPOINTS.items()},
+}
+
+# The report endpoints are filtered server-side by `start`/`end` (or `date`) on `day`.
 DAY_INCREMENTAL_FIELD: IncrementalField = {
     "label": "day",
     "type": IncrementalFieldType.DateTime,
@@ -219,4 +286,20 @@ DAY_INCREMENTAL_FIELD: IncrementalField = {
     "field_type": IncrementalFieldType.DateTime,
 }
 
-INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {name: [DAY_INCREMENTAL_FIELD] for name in ENDPOINTS}
+# Operation logs are filtered server-side by `start_date`/`end_date`. Campaigns and creative sets
+# have no server-side filter, so they sync as a full refresh.
+OPERATION_TIME_INCREMENTAL_FIELD: IncrementalField = {
+    "label": "operation_time",
+    "type": IncrementalFieldType.DateTime,
+    "field": "operation_time",
+    "field_type": IncrementalFieldType.DateTime,
+}
+
+INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
+    **{name: [DAY_INCREMENTAL_FIELD] for name in (*APPLOVIN_ENDPOINTS.keys(), USER_AD_REVENUE_ENDPOINT)},
+    "campaign_operation_logs": [OPERATION_TIME_INCREMENTAL_FIELD],
+}
+
+# Report rows restate as metrics settle, and operation log syncs re-read the watermark day, so
+# append would duplicate rows in both.
+MERGE_ONLY_ENDPOINTS = (*APPLOVIN_ENDPOINTS.keys(), USER_AD_REVENUE_ENDPOINT, "campaign_operation_logs")

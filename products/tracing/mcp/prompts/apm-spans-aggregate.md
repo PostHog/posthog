@@ -40,7 +40,7 @@ Use `query.filterGroup` to narrow results to spans matching specific attributes.
 
 Filter `type` values:
 
-- `span` — built-in span fields (trace_id, span_id, duration, name, kind, status_code, is_root_span)
+- `span` — built-in span fields (trace_id, span_id, duration, name, kind, status_code, is_root_span). A `duration` filter value is in milliseconds (1 second = `1000`).
 - `span_attribute` — span-level attributes (e.g. "http.method", "http.status_code")
 - `span_resource_attribute` — resource-level attributes (e.g. k8s labels, deployment info)
 
@@ -51,6 +51,8 @@ Supported operators:
 - String: `exact`, `is_not`, `icontains`, `not_icontains`, `regex`, `not_regex`
 - Numeric: `exact`, `gt`, `lt`
 - Existence (no value needed): `is_set`, `is_not_set`
+
+An attribute filter (`span_attribute` or `span_resource_attribute`) matches only spans that have the attribute, also for negated operators such as `is_not` and `not_icontains`. To find spans without the attribute, use `is_not_set`.
 
 ## Time period
 
@@ -87,6 +89,26 @@ Max rows to return, ordered by `total_duration_nano` DESC. Defaults to 100; hard
 ## query.offset
 
 Row offset for pagination. Combine with `limit` and the `next_offset` from a previous response to page through results beyond the first page.
+
+## query.groupByEndpoint
+
+Set to `true` to get per-endpoint health for HTTP servers. Rows then group by `METHOD route` (for example `GET /users/{id}`) from the `http.route` attribute, in place of the span name.
+
+- Only HTTP server spans (span kind server with an HTTP method) are counted. Queue consumers, workflow activities and client spans are left out.
+- A span without `http.route` keeps its span name as the row key.
+- Use it when span names are raw paths (`/users/1`, `/users/2`) or a bare method (`GET`), which split or merge routes.
+
+## query.includeHealth
+
+Set to `true` to get `health_status` and `health_reason` on every row. Each row is compared with the same row in the `compareFilter` window, or in the previous period of the same length when `compareFilter` is off.
+
+- `regressed`: the error rate or p95 jumped against the baseline.
+- `degraded`: the error rate is high, with no clear jump.
+- `new`: the row has no spans in the baseline.
+- `recovered` and `improved`: the error rate or p95 went down.
+- `ok`: none of the above.
+
+It runs a second window query for the routes on the current page. Without `compareFilter`, the response `compare` stays null. With `compareFilter`, `compare` holds the baseline rows for those same routes.
 
 # Examples
 
@@ -144,6 +166,21 @@ Returns `results` for the last hour and `compare` for the hour before. Diff `tot
 }
 ```
 
+## Endpoint health for one service
+
+```json
+{
+  "query": {
+    "serviceNames": ["api-gateway"],
+    "groupByEndpoint": true,
+    "includeHealth": true,
+    "dateRange": { "date_from": "-1d" }
+  }
+}
+```
+
+Each row is one route. Start with the rows whose `health_status` is `regressed` or `degraded`, and read `health_reason` for the cause.
+
 ## Aggregate within one service
 
 ```json
@@ -157,7 +194,7 @@ Returns `results` for the last hour and `compare` for the hour before. Diff `tot
 
 # Reminders
 
-- Duration values are in nanoseconds. Divide by 1,000,000 for ms, 1,000,000,000 for seconds.
+- Duration values in results are in nanoseconds. Divide by 1,000,000 for ms, 1,000,000,000 for seconds. A `duration` filter value is in milliseconds.
 - Results are ordered by `total_duration_nano` DESC and default to the top 100 rows. Check `has_more`/`next_offset` to page; raise `limit` (max 5000) only when you truly need the long tail.
 - Use `apm-attributes-list` and `apm-attribute-values-list` to discover attribute keys/values before filtering.
 - Use `apm-services-list` to discover services before filtering by service name.

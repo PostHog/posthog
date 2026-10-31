@@ -47,6 +47,7 @@ ENDPOINTS: dict[str, GivebutterEndpoint] = {
     "households": GivebutterEndpoint(
         path="households", data_selector=None, paginator=PageNumberPaginator(base_page=1), page_size=None
     ),
+    "messages": GivebutterEndpoint(path="messages"),
     "payouts": GivebutterEndpoint(path="payouts"),
     "plans": GivebutterEndpoint(path="plans"),
     "pledges": GivebutterEndpoint(path="pledges"),

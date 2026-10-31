@@ -1,3 +1,4 @@
+import functools
 import dataclasses
 from collections.abc import Callable, Iterator
 from typing import Any
@@ -10,6 +11,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.anvil.sett
     ANVIL_GRAPHQL_URL,
     PAGE_SIZE,
     AnvilEndpointConfig,
+    AnvilNestedList,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
     DEFAULT_RETRY,
@@ -212,9 +214,9 @@ def _list_organization_eids(execute: _Execute) -> list[str]:
     return [organization["eid"] for organization in organizations if organization.get("eid")]
 
 
-def _list_weld_eids(execute: _Execute, logger: FilteringBoundLogger) -> list[str]:
+def _list_weld_eids(execute: _Execute, organization_eids: list[str], logger: FilteringBoundLogger) -> list[str]:
     weld_eids: list[str] = []
-    for organization_eid in _list_organization_eids(execute):
+    for organization_eid in organization_eids:
         pages = _iter_pages(
             execute,
             _build_organization_page_query("welds", "eid"),
@@ -239,6 +241,7 @@ def _get_parent_paged_rows(
     resumable_source_manager: ResumableSourceManager[AnvilResumeConfig],
     logger: FilteringBoundLogger,
     context_label: str,
+    to_rows: Callable[[list[dict[str, Any]]], list[dict[str, Any]]] | None = None,
 ) -> Iterator[list[dict[str, Any]]]:
     """Walk one page walk per parent, tagging each row with the parent it came from.
 
@@ -264,9 +267,13 @@ def _get_parent_paged_rows(
             logger,
             f"{context_label} {parent_eid}",
         ):
-            rows = [{**item, variable_name: parent_eid} for item in items]
+            rows = [{**item, variable_name: parent_eid} for item in (to_rows(items) if to_rows else items)]
             if rows:
                 yield rows
+            else:
+                # Nested child lists are often empty for a whole page; the staged bookmark still
+                # points at this page, so handing off here loses no rows.
+                resumable_source_manager.safe_point()
             # Save AFTER yielding (and only when more pages remain) so a crash re-yields the
             # last page rather than skipping it; merge dedupes on the primary key.
             if next_offset:
@@ -276,6 +283,83 @@ def _get_parent_paged_rows(
         # Advance the bookmark so a crash between parents resumes at the next one.
         if index + 1 < len(remaining):
             resumable_source_manager.save_state(AnvilResumeConfig(next_offset=None, parent_eid=remaining[index + 1]))
+
+
+def _nest_selection(path: tuple[str, ...], item_fields: str) -> str:
+    selection = item_fields
+    for name in reversed(path):
+        selection = f"{name} {{\n{selection}\n}}"
+    return f"eid\n{selection}"
+
+
+def _nested_rows(items: list[dict[str, Any]], nested: AnvilNestedList) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for item in items:
+        children: Any = item
+        for name in nested.path:
+            children = children.get(name) if isinstance(children, dict) else None
+        for child in children or []:
+            rows.append({**child, nested.parent_key: item.get("eid")})
+    return rows
+
+
+def _get_nested_rows(
+    execute: _Execute,
+    config: AnvilEndpointConfig,
+    resumable_source_manager: ResumableSourceManager[AnvilResumeConfig],
+    logger: FilteringBoundLogger,
+) -> Iterator[list[dict[str, Any]]]:
+    organization_eids = _list_organization_eids(execute)
+    weld_eids = (
+        _list_weld_eids(execute, organization_eids, logger)
+        if any(nested.parent == "weld_datas" for nested in config.nested_lists)
+        else []
+    )
+
+    def walk(nested: AnvilNestedList) -> Iterator[list[dict[str, Any]]]:
+        item_fields = _nest_selection(nested.path, config.item_fields)
+        to_rows = functools.partial(_nested_rows, nested=nested)
+        if nested.parent == "weld_datas":
+            return _get_parent_paged_rows(
+                execute,
+                _build_weld_datas_query(item_fields),
+                weld_eids,
+                "weldEid",
+                lambda data: (data.get("weld") or {}).get("weldDatas"),
+                resumable_source_manager,
+                logger,
+                "weld",
+                to_rows,
+            )
+        return _get_parent_paged_rows(
+            execute,
+            _build_organization_page_query("etchPackets", item_fields),
+            organization_eids,
+            "organizationEid",
+            lambda data: (data.get("organization") or {}).get("etchPackets"),
+            resumable_source_manager,
+            logger,
+            "organization",
+            to_rows,
+        )
+
+    walks = [
+        (nested, weld_eids if nested.parent == "weld_datas" else organization_eids) for nested in config.nested_lists
+    ]
+
+    # Organization and weld eids never collide, so the bookmarked parent identifies which walk
+    # to resume; earlier walks already finished.
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    start = 0
+    if resume is not None and resume.parent_eid is not None:
+        start = next((index for index, (_, parents) in enumerate(walks) if resume.parent_eid in parents), 0)
+
+    for index in range(start, len(walks)):
+        nested, parent_eids = walks[index]
+        if index > start and parent_eids:
+            # Move the bookmark into this walk so a crash here doesn't repeat the previous one.
+            resumable_source_manager.save_state(AnvilResumeConfig(next_offset=None, parent_eid=parent_eids[0]))
+        yield from walk(nested)
 
 
 def get_rows(
@@ -290,11 +374,15 @@ def get_rows(
     def execute(query: str, variables: dict[str, Any]) -> dict[str, Any]:
         return _execute(session, query, variables, logger)
 
+    if config.nested_lists:
+        yield from _get_nested_rows(execute, config, resumable_source_manager, logger)
+        return
+
     if config.fan_out_weld_datas:
         yield from _get_parent_paged_rows(
             execute,
             _build_weld_datas_query(config.item_fields),
-            _list_weld_eids(execute, logger),
+            _list_weld_eids(execute, _list_organization_eids(execute), logger),
             "weldEid",
             lambda data: (data.get("weld") or {}).get("weldDatas"),
             resumable_source_manager,

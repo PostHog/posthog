@@ -1,6 +1,7 @@
 import re
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -37,6 +38,25 @@ _SUBDOMAIN_REGEX = re.compile(r"^[a-zA-Z0-9-]+$")
 
 @SourceRegistry.register
 class FreshdeskSource(ResumableSource[FreshdeskSourceConfig, FreshdeskResumeConfig]):
+    codebase_detection = detect(
+        env=("^FRESHDESK_",),
+        script_hosts=(
+            "widget.freshworks.com",
+            "euc-widget.freshworks.com",
+            "aus-widget.freshworks.com",
+            "ind-widget.freshworks.com",
+            "assets.freshdesk.com",
+        ),
+        npm=("@freshworks/freshdesk", "@freshworks/react-native-freshdesk-sdk", "freshdesk-api"),
+        pypi=("python-freshdesk",),
+        cocoapods=("FreshdeskSDK", "MobihelpSDK"),
+        composer=("mpclarkson/freshdesk-php-sdk", "mpclarkson/freshdesk-laravel"),
+        maven=("com.freshworks.sdk:freshdesk",),
+        pub=("freshdesk_flutter_sdk", "freshdesk_sdk"),
+        rubygems=("freshdesk",),
+        swiftpm=("github.com/freshworks/freshdesk-ios-sdk", "github.com/freshworks-oss/freshdesk-ios-sdk"),
+    )
+
     supported_versions = ("v2",)
     default_version = "v2"
     api_docs_url = "https://developers.freshdesk.com/api/"

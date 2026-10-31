@@ -23,7 +23,7 @@ from products.error_tracking.backend.hogql_queries.error_tracking_query_runner_u
     extract_aggregations,
     extract_event,
     innermost_frame_attribute,
-    order_direction,
+    order_by_exprs,
     search_tokenizer,
     select_sparkline_array,
 )
@@ -429,7 +429,7 @@ class ErrorTrackingQueryBuilder:
             ),
             where=ast.And(exprs=outer_where_exprs) if outer_where_exprs else None,
             group_by=[ast.Field(chain=["id"])],
-            order_by=[ast.OrderExpr(expr=ast.Field(chain=[self.query.orderBy]), order=order_direction(self.query))],
+            order_by=order_by_exprs(self.query),
         )
 
     def _build_inner_query(self) -> ast.SelectQuery:
@@ -741,7 +741,7 @@ class ErrorTrackingQueryBuilder:
             select_from=select_from,
             where=ast.And(exprs=self._where_exprs_legacy()),
             group_by=[ast.Field(chain=["id"])],
-            order_by=[ast.OrderExpr(expr=ast.Field(chain=[self.query.orderBy]), order=order_direction(self.query))],
+            order_by=order_by_exprs(self.query),
         )
 
     def _select_expressions_legacy(self) -> list[ast.Expr]:
@@ -1039,6 +1039,39 @@ class ErrorTrackingQueryBuilder:
 
         return property_to_expr(cast(Any, value), self.team, scope="event")
 
+    def _issue_first_seen_range(
+        self, field: ast.Expr, range_operator: ast.CompareOperationOp, bound: ast.Expr
+    ) -> ast.Expr:
+        # A merged issue has one first_seen per fingerprint. Compare the earliest, so a new fingerprint does not make an old issue look new.
+        issue_first_seen_in_range = ast.CompareOperation(
+            op=ast.CompareOperationOp.In,
+            left=self._legacy_issue_state_expr("issue_id"),
+            right=ast.SelectQuery(
+                select=[ast.Field(chain=["issue_id"])],
+                select_from=ast.JoinExpr(table=ast.Field(chain=["posthog", "error_tracking_fingerprint_issue_state"])),
+                group_by=[ast.Field(chain=["issue_id"])],
+                having=ast.CompareOperation(
+                    op=range_operator,
+                    left=ast.Call(name="min", args=[ast.Field(chain=["first_seen"])]),
+                    right=bound,
+                ),
+            ),
+        )
+        if not self.include_recent_issue_state:
+            return issue_first_seen_in_range
+        # A fingerprint not yet synced to ClickHouse has no state row, so compare the event's own value.
+        return ast.Or(
+            exprs=[
+                issue_first_seen_in_range,
+                ast.And(
+                    exprs=[
+                        ast.Call(name="isNull", args=[ast.Field(chain=["fp_state", "issue_id"])]),
+                        ast.CompareOperation(op=range_operator, left=field, right=bound),
+                    ]
+                ),
+            ]
+        )
+
     def _issue_property_to_ast(self, prop: ErrorTrackingIssueFilter) -> ast.Expr | None:
         filter_field = _ISSUE_FILTER_FIELDS.get(prop.key)
         if filter_field is None:
@@ -1056,6 +1089,8 @@ class ErrorTrackingQueryBuilder:
                 op=pattern_operator, left=field, right=ast.Constant(value=template.format(prop.value))
             )
         if (range_operator := _RANGE_OPERATORS.get(operator)) is not None:
+            if prop.key == "first_seen":
+                return self._issue_first_seen_range(field, range_operator, make_value(prop.value))
             return ast.CompareOperation(op=range_operator, left=field, right=make_value(prop.value))
         if (nullability_operator := _NULLABILITY_OPERATORS.get(operator)) is not None:
             return ast.CompareOperation(op=nullability_operator, left=field, right=ast.Constant(value=None))

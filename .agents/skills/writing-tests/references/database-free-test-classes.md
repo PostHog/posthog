@@ -53,7 +53,7 @@ That takes the pure cases off the database without weakening the rest, and it is
 Only to ratchet down, or after a rename or a move:
 
 ```sh
-python posthog/test/repo_invariants/test_database_free_test_classes.py
+PYTHONPATH=. python posthog/test/repo_invariants/test_database_free_test_classes.py
 ```
 
 The file records removals as well as additions, so a class you fixed has to leave the list in the same change.

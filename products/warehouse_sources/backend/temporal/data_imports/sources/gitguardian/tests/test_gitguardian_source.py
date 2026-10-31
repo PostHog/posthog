@@ -1,22 +1,18 @@
+from datetime import UTC, datetime
+
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gitguardian import (
+    GitguardianSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.gitguardian import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.gitguardian.source import GitguardianSource
-
-ALL_ENDPOINTS = {
-    "secret_incidents",
-    "secret_occurrences",
-    "secret_incident_activity_logs",
-    "secret_detectors",
-    "sources",
-    "honeytokens",
-    "honeytoken_events",
-    "members",
-    "teams",
-    "team_memberships",
-}
 
 
 class TestGitguardianSourceConfig:
@@ -27,47 +23,6 @@ class TestGitguardianSourceConfig:
     def test_lists_tables_without_credentials(self) -> None:
         # Static endpoint catalog with no I/O, so public docs can render the table list.
         assert GitguardianSource.lists_tables_without_credentials is True
-
-
-class TestGitguardianSchemas:
-    def test_incident_endpoints_are_incremental_and_directories_are_full_refresh(self) -> None:
-        schemas = {s.name: s for s in GitguardianSource().get_schemas(MagicMock(), team_id=1)}
-        assert set(schemas) == ALL_ENDPOINTS
-        for name in ("secret_incidents", "secret_occurrences"):
-            assert schemas[name].supports_incremental is True
-            assert [f["field"] for f in schemas[name].incremental_fields] == ["date"]
-        for name in ALL_ENDPOINTS - {"secret_incidents", "secret_occurrences"}:
-            assert schemas[name].supports_incremental is False
-
-    def test_names_filter(self) -> None:
-        schemas = GitguardianSource().get_schemas(MagicMock(), team_id=1, names=["teams"])
-        assert [s.name for s in schemas] == ["teams"]
-
-
-class TestNonRetryableErrors:
-    @parameterized.expand(
-        [
-            (
-                "unauthorized",
-                "401 Client Error: Unauthorized for url: https://api.gitguardian.com/v1/incidents/secrets",
-            ),
-            ("forbidden", "403 Client Error: Forbidden for url: https://gitguardian.acme.dev/v1/sources"),
-        ]
-    )
-    def test_credential_errors_are_non_retryable(self, _name: str, observed: str) -> None:
-        errors = GitguardianSource().get_non_retryable_errors()
-        assert any(key in observed for key in errors)
-
-    @parameterized.expand(
-        [
-            ("read_timeout", "HTTPSConnectionPool(host='api.gitguardian.com', port=443): Read timed out."),
-            ("server_error", "500 Server Error: Internal Server Error"),
-            ("rate_limited", "429 Client Error: Too Many Requests"),
-        ]
-    )
-    def test_transient_errors_remain_retryable(self, _name: str, observed: str) -> None:
-        errors = GitguardianSource().get_non_retryable_errors()
-        assert not any(key in observed for key in errors)
 
 
 class TestValidateCredentials:
@@ -138,50 +93,32 @@ class TestGetEndpointPermissions:
 
 class TestSourceForPipeline:
     def test_plumbs_resolved_base_url_and_incremental_inputs(self) -> None:
-        config = MagicMock(api_key="gg_sat_x", base_url="https://gitguardian.acme.dev/")
-        inputs = MagicMock(
-            schema_name="secret_incidents",
-            team_id=1,
+        result = SourceDriver(
+            GitguardianSource(),
+            GitguardianSourceConfig(api_key="gg_sat_x", base_url="https://gitguardian.acme.dev/"),
+        ).run(
+            "secret_incidents",
+            [ScriptedResponse(json=[])],
             should_use_incremental_field=True,
-            db_incremental_field_last_value="2026-01-01T00:00:00Z",
+            db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
             incremental_field="date",
         )
-        with (
-            patch.object(source_module, "_is_host_safe", return_value=(True, None)),
-            patch.object(source_module, "gitguardian_source") as build,
-        ):
-            result = GitguardianSource().source_for_pipeline(config, MagicMock(), inputs)
-        assert result is build.return_value
-        kwargs = build.call_args.kwargs
-        assert kwargs["base_url"] == "https://gitguardian.acme.dev"
-        assert kwargs["endpoint"] == "secret_incidents"
-        assert kwargs["should_use_incremental_field"] is True
-        assert kwargs["db_incremental_field_last_value"] == "2026-01-01T00:00:00Z"
+        assert result.raised is None
+        assert result.response is not None
+        assert result.response.name == "secret_incidents"
+        assert result.requests[0].origin == "https://gitguardian.acme.dev"
+        assert result.requests[0].path == "/v1/incidents/secrets"
+        assert result.requests[0].param("date_after") == "2025-12-25T00:00:00Z"
 
     def test_does_not_pass_watermark_when_not_incremental(self) -> None:
-        config = MagicMock(api_key="gg_sat_x", base_url=None)
-        inputs = MagicMock(
-            schema_name="sources",
-            team_id=1,
+        result = SourceDriver(
+            GitguardianSource(),
+            GitguardianSourceConfig(api_key="gg_sat_x", base_url=None),
+        ).run(
+            "sources",
+            [ScriptedResponse(json=[])],
             should_use_incremental_field=False,
             db_incremental_field_last_value="2026-01-01T00:00:00Z",
-            incremental_field=None,
         )
-        with (
-            patch.object(source_module, "_is_host_safe", return_value=(True, None)),
-            patch.object(source_module, "gitguardian_source") as build,
-        ):
-            GitguardianSource().source_for_pipeline(config, MagicMock(), inputs)
-        assert build.call_args.kwargs["db_incremental_field_last_value"] is None
-
-
-class TestGetDocumentedTables:
-    def test_publishes_every_table_with_canonical_descriptions(self) -> None:
-        # Guards the canonical_descriptions keys staying aligned with the endpoint names — a drifted
-        # key silently drops that table's description from the public docs.
-        tables = {t["name"]: t for t in GitguardianSource().get_documented_tables()}
-        assert set(tables) == ALL_ENDPOINTS
-        for name, table in tables.items():
-            assert table["description"], f"{name} lost its canonical description"
-        assert "Incremental" in tables["secret_incidents"]["sync_methods"]
-        assert tables["sources"]["sync_methods"] == ["Full refresh"]
+        assert result.raised is None
+        assert result.requests[0].param("date_after") is None

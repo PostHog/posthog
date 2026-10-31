@@ -2,8 +2,8 @@
 # name: TestUsageMetricsQueryRunner.test_complex_event_filter[new_events_schema]
   '''
   SELECT toStartOfDay(toTimeZone(toTimeZone(events.timestamp, 'UTC'), 'UTC')) AS day,
-         accurateCastOrNull(countIf(and(and(ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$browser`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$browser`)), if(isNull(nullIf(toString(events.properties.`$browser`), '')), NULL, if(and(in(ascii(toString(events.properties.`$browser`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$browser`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$browser`), '[]'), '{}'), toString(events.properties.`$browser`)))), 'Chrome'), 0), equals(events.event, 'metric_event')), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC'))))), 'Float64') AS m0_value,
-         accurateCastOrNull(countIf(and(and(ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$browser`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$browser`)), if(isNull(nullIf(toString(events.properties.`$browser`), '')), NULL, if(and(in(ascii(toString(events.properties.`$browser`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$browser`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$browser`), '[]'), '{}'), toString(events.properties.`$browser`)))), 'Chrome'), 0), equals(events.event, 'metric_event')), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))))), 'Float64') AS m0_previous
+         accurateCastOrNull(countIf(and(and(equals(events.properties.`$browser`, 'Chrome'), equals(events.event, 'metric_event')), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC'))))), 'Float64') AS m0_value,
+         accurateCastOrNull(countIf(and(and(equals(events.properties.`$browser`, 'Chrome'), equals(events.event, 'metric_event')), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))))), 'Float64') AS m0_previous
   FROM events_json AS events
   LEFT OUTER JOIN
     (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -27,7 +27,8 @@
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0,
-                     json_type_escape_dots_in_keys=1
+                     json_type_escape_dots_in_keys=1,
+                     output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestUsageMetricsQueryRunner.test_group_metric[new_events_schema.1]
@@ -51,7 +52,8 @@
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0,
-                     json_type_escape_dots_in_keys=1
+                     json_type_escape_dots_in_keys=1,
+                     output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestUsageMetricsQueryRunner.test_group_metric[new_events_schema]
@@ -75,7 +77,8 @@
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0,
-                     json_type_escape_dots_in_keys=1
+                     json_type_escape_dots_in_keys=1,
+                     output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestUsageMetricsQueryRunner.test_metric_interval[new_events_schema]
@@ -106,7 +109,8 @@
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0,
-                     json_type_escape_dots_in_keys=1
+                     json_type_escape_dots_in_keys=1,
+                     output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestUsageMetricsQueryRunner.test_person_metric[new_events_schema.1]
@@ -137,7 +141,8 @@
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0,
-                     json_type_escape_dots_in_keys=1
+                     json_type_escape_dots_in_keys=1,
+                     output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestUsageMetricsQueryRunner.test_person_metric[new_events_schema]
@@ -168,14 +173,15 @@
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0,
-                     json_type_escape_dots_in_keys=1
+                     json_type_escape_dots_in_keys=1,
+                     output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestUsageMetricsQueryRunner.test_person_property_filter_splits_a_group_metric_by_user_type[new_events_schema]
   '''
   SELECT toStartOfDay(toTimeZone(toTimeZone(events.timestamp, 'UTC'), 'UTC')) AS day,
-         accurateCastOrNull(countIf(and(and(ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^user_type)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^user_type)), if(isNull(nullIf(toString(events.person_properties.user_type), '')), NULL, if(and(in(ascii(toString(events.person_properties.user_type)), tuple(91, 123)), in(ascii(toJSONString(events.person_properties.user_type)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.person_properties.user_type), '[]'), '{}'), toString(events.person_properties.user_type)))), 'admin'), 0), equals(events.event, 'metric_event')), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2025-10-02 12:11:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC'))))), 'Float64') AS m0_value,
-         accurateCastOrNull(countIf(and(and(ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^user_type)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^user_type)), if(isNull(nullIf(toString(events.person_properties.user_type), '')), NULL, if(and(in(ascii(toString(events.person_properties.user_type)), tuple(91, 123)), in(ascii(toJSONString(events.person_properties.user_type)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.person_properties.user_type), '[]'), '{}'), toString(events.person_properties.user_type)))), 'admin'), 0), equals(events.event, 'metric_event')), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2025-09-25 12:11:00.000000', 6, 'UTC')), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2025-10-02 12:11:00.000000', 6, 'UTC'))))), 'Float64') AS m0_previous
+         accurateCastOrNull(countIf(and(and(ifNull(equals(CAST(events.person_properties.user_type, 'Nullable(String)'), 'admin'), 0), equals(events.event, 'metric_event')), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2025-10-02 12:11:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC'))))), 'Float64') AS m0_value,
+         accurateCastOrNull(countIf(and(and(ifNull(equals(CAST(events.person_properties.user_type, 'Nullable(String)'), 'admin'), 0), equals(events.event, 'metric_event')), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2025-09-25 12:11:00.000000', 6, 'UTC')), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2025-10-02 12:11:00.000000', 6, 'UTC'))))), 'Float64') AS m0_previous
   FROM events_json AS events
   WHERE and(equals(events.team_id, 99999), equals(events.properties.`$group_0`, 'test_group'), greaterOrEquals(events.timestamp, toDateTime64('2025-09-25 12:11:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('today', 6, 'UTC')))
   GROUP BY day
@@ -192,7 +198,8 @@
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0,
-                     json_type_escape_dots_in_keys=1
+                     json_type_escape_dots_in_keys=1,
+                     output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestUsageMetricsQueryRunner.test_sum_math_aggregation[new_events_schema]
@@ -223,6 +230,7 @@
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0,
-                     json_type_escape_dots_in_keys=1
+                     json_type_escape_dots_in_keys=1,
+                     output_format_json_escape_forward_slashes=0
   '''
 # ---

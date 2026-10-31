@@ -130,8 +130,9 @@ export const BoundedEmbed: Story = {
 
 /**
  * Streaming, static snapshot — the same mid-stream state as `StreamingDebug` (a few settled messages, a
- * partially streamed tail, `turnActive`) frozen at a fixed tick, so the visual-regression run captures the
- * bottom-pinned streaming posture without timers.
+ * partially streamed tail, `turnActive`) frozen at a fixed tick, without timers. The test runner scrolls every
+ * scroller to the top before its screenshot, and that scroll unpins the thread, so the snapshot shows the top
+ * of the thread rather than the bottom-pinned posture.
  */
 export const Streaming: Story = {
     render: () => {
@@ -322,8 +323,9 @@ export const AnchoredOpen: Story = {
 /**
  * Anchored open, mid-turn with a short tail — reopening a thread the agent is still working on, with less
  * than a viewport of response under the anchor. The top is unreachable, so this must open at the bottom,
- * pinned (no padding is reserved to force the anchor higher). Static (`turnActive` but no timers), so the
- * visual-regression run captures the clamped landing without flakes. The 400px wrapper keeps the bounded
+ * pinned (no padding is reserved to force the anchor higher). Static (`turnActive` but no timers). The test
+ * runner scrolls every scroller to the top before its screenshot, and that scroll unpins the thread, so the
+ * snapshot shows the top of the thread rather than the clamped landing. The 400px wrapper keeps the bounded
  * container visible in the snapshot.
  */
 export const AnchoredOpenMidTurn: Story = {

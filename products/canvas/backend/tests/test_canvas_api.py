@@ -1,5 +1,6 @@
 import re
 import json
+import base64
 from datetime import timedelta
 from types import SimpleNamespace
 from typing import Any, cast
@@ -33,12 +34,14 @@ from products.annotations.backend.models.annotation import Annotation
 from products.canvas.backend import build_service
 from products.canvas.backend.actions import CANVAS_ACTIONS, TaskCreatePayloadSerializer
 from products.canvas.backend.facade import access as canvas_facade
+from products.canvas.backend.mcp_tools import CANVAS_MCP_TOOL_ALLOWLIST
 from products.canvas.backend.models import Canvas, CanvasBuild, CanvasSourceVersion
 from products.canvas.backend.source import synthetic_source_project
 from products.tasks.backend.facade.access import DesktopAccessDecision
 from products.tasks.backend.facade.ai_run_defaults import update_team_ai_run_preferences, update_user_ai_run_preferences
 from products.tasks.backend.facade.contracts import ComputeQuotaDenialReason
 from products.tasks.backend.models import Channel, Task, TaskRun, TaskThreadMessage
+from products.webmcp.backend.facade.contracts import CallToolInput, McpServerError, McpServerTimeout, ToolCallResult
 from products.workflows.backend.facade.api import get_workflow_summary
 from products.workflows.backend.facade.testing import create_workflow_for_test
 
@@ -104,7 +107,9 @@ class CanvasAPIBaseTest(APIBaseTest):
         assert entry.detail is not None
         return entry.detail["changes"]
 
-    def _sandbox_client(self, task_id: UUID, *, user: User | None = None) -> APIClient:
+    def _sandbox_client(
+        self, task_id: UUID, *, user: User | None = None, scope: str = "canvas:read canvas:write task:read"
+    ) -> APIClient:
         actor = user or self.user
         application = OAuthApplication.objects.create(
             name="Canvas sandbox",
@@ -121,7 +126,7 @@ class CanvasAPIBaseTest(APIBaseTest):
             application=application,
             token=f"pha_canvas_{uuid4().hex}",
             expires=timezone.now() + timedelta(hours=1),
-            scope="canvas:read canvas:write task:read",
+            scope=scope,
             scoped_teams=[self.team.id],
             sandbox_task_id=task_id,
         )
@@ -161,6 +166,20 @@ class TestCanvasCrud(CanvasAPIBaseTest):
 
         response = self.client.get(f"/api/projects/{self.team.id}/canvases/")
         assert {row["id"] for row in response.json()["results"]} == {canvas_id, other_id}
+
+    @parameterized.expand([("mine", True, ["mine"]), ("invalid uuid", False, [])])
+    def test_list_filters_by_creator(self, _name: str, valid: bool, expected: list[str]) -> None:
+        self._create_canvas(name="mine")
+        other_id = self._create_canvas(name="theirs")
+        other_user = self._create_user("canvas-creator@example.com")
+        with team_scope(self.team.id):
+            Canvas.objects.filter(id=other_id).update(created_by=other_user)
+        created_by = self.user.uuid if valid else "not-a-uuid"
+
+        response = self.client.get(f"/api/projects/{self.team.id}/canvases/?created_by={created_by}")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [row["name"] for row in response.json()["results"]] == expected
 
     @parameterized.expand(
         [("default", "", ["newer", "older"]), ("updated", "?ordering=-updated_at", ["older", "newer"])]
@@ -280,6 +299,7 @@ class TestCanvasCrud(CanvasAPIBaseTest):
         for path in ("", "view/", "source/"):
             response = self.client.get(f"/api/projects/{self.team.id}/canvases/{hidden_canvas_id}/{path}")
             assert response.status_code == status.HTTP_403_FORBIDDEN, (path, response.json())
+            assert response.json()["detail"] == "You do not have viewer access to this resource.", path
         assert self.client.get(f"/api/projects/{self.team.id}/canvases/{visible_canvas_id}/").status_code == 200
 
     def test_personal_channel_canvases_are_invisible_to_other_users(self):
@@ -1341,6 +1361,7 @@ class TestCanvasActivityLog(CanvasAPIBaseTest):
                 "captureEvents": [],
                 "state": [],
                 "actions": [],
+                "tools": [],
                 "agentRequests": False,
             },
             "network": {"origins": []},
@@ -1353,6 +1374,7 @@ class TestCanvasActivityLog(CanvasAPIBaseTest):
                 "captureEvents": [],
                 "state": [],
                 "actions": [],
+                "tools": [],
                 "agentRequests": False,
             },
             "network": {"origins": []},
@@ -1834,6 +1856,40 @@ class TestCanvasState(CanvasAPIBaseTest):
         assert second["complete"] is True
         selected = self.client.get(url, {"key": "policy"}).json()
         assert [(entry["key"], entry["value"]) for entry in selected["entries"]] == [("policy", "a long policy")]
+
+    def test_state_cursor_pages_do_not_skip_entries_when_earlier_keys_change(self):
+        canvas_id = self._state_canvas()
+        for key in ("a", "b", "c"):
+            self._set_state(canvas_id, "shared", key, key)
+        url = f"/api/projects/{self.team.id}/canvases/{canvas_id}/state/"
+
+        first = self.client.get(url, {"keys_only": "true", "limit": "2"}).json()
+        assert [entry["key"] for entry in first["entries"]] == ["a", "b"]
+        assert first["next_cursor"] is not None
+        # With offsets, deleting an already-read key shifts "c" to offset 1 and the next page skips it.
+        assert self._set_state(canvas_id, "shared", "a", None).status_code == status.HTTP_204_NO_CONTENT
+        second = self.client.get(url, {"keys_only": "true", "limit": "2", "cursor": first["next_cursor"]}).json()
+        assert [entry["key"] for entry in second["entries"]] == ["c"]
+        assert second["complete"] is True
+        assert second["next_cursor"] is None
+
+        # The decoded cursor must be the [scope, key] pair, not any two-item JSON value.
+        valid_cursor = first["next_cursor"]
+        for bad_cursor in ("not-a-cursor", base64.urlsafe_b64encode(b'"ab"').decode(), f"{valid_cursor}!!!!"):
+            assert self.client.get(url, {"cursor": bad_cursor}).status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_state_cursor_for_a_long_non_ascii_key_is_accepted(self):
+        canvas_id = self._state_canvas()
+        long_key = "\U0001f600" * 200
+        for key in (long_key, "~"):
+            assert self._set_state(canvas_id, "shared", key, 1).status_code == status.HTTP_200_OK
+        url = f"/api/projects/{self.team.id}/canvases/{canvas_id}/state/"
+
+        first = self.client.get(url, {"keys_only": "true", "limit": "1"}).json()
+        second = self.client.get(url, {"keys_only": "true", "limit": "1", "cursor": first["next_cursor"]})
+
+        assert second.status_code == status.HTTP_200_OK, second.json()
+        assert [entry["key"] for entry in [*first["entries"], *second.json()["entries"]]] == ["~", long_key]
 
     def test_state_value_chunks_detect_changes(self):
         canvas_id = self._state_canvas()
@@ -2343,10 +2399,12 @@ class TestCanvasActions(CanvasAPIBaseTest):
             ("cloud_canvas_scope_only", "tasks.create_and_run", ["canvas:write"], status.HTTP_403_FORBIDDEN),
             ("workflow_canvas_scope_only", "workflows.pause", ["canvas:write"], status.HTTP_403_FORBIDDEN),
             ("workflow_scope_held", "workflows.pause", ["canvas:write", "hog_flow:write"], status.HTTP_200_OK),
+            # A padded verb must not slip past the scope check and run once trimmed.
+            ("padded_verb", " tasks.create ", ["canvas:write"], status.HTTP_400_BAD_REQUEST),
         ]
     )
     def test_scoped_keys_need_the_verbs_target_scope(self, _name, verb, scopes, expected_status):
-        canvas_id = self._actions_canvas(verbs=(verb,))
+        canvas_id = self._actions_canvas(verbs=(verb.strip(),))
         raw_key = generate_random_token_personal()
         PersonalAPIKey.objects.create(
             label="canvas-actions", user=self.user, secure_value=hash_key_value(raw_key), scopes=scopes
@@ -2404,6 +2462,44 @@ class TestCanvasActions(CanvasAPIBaseTest):
 
     @parameterized.expand(
         [
+            ("archived_editor", "archived", "editor", status.HTTP_409_CONFLICT),
+            # Archived wins over a missing editor grant, so the caller learns why nothing changed.
+            ("archived_viewer", "archived", "viewer", status.HTTP_409_CONFLICT),
+            ("active_viewer", "active", "viewer", status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_workflow_verbs_refuse_archived_then_check_object_access(
+        self, _name, workflow_status, access_level, expected_status
+    ):
+        canvas_id = self._actions_canvas(verbs=("workflows.pause",))
+        loop = create_workflow_for_test(
+            team_id=self.team.id,
+            name="Plan",
+            status=workflow_status,
+            trigger={"type": "schedule"},
+            actions=[{"id": "trigger", "type": "trigger", "name": "Scheduled", "config": {"type": "schedule"}}],
+            edges=[],
+        )
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save(update_fields=["available_product_features"])
+        AccessControl.objects.create(
+            team=self.team,
+            resource="hog_flow",
+            resource_id=str(loop.id),
+            organization_member=OrganizationMembership.objects.get(organization=self.organization, user=self.user),
+            access_level=access_level,
+        )
+        cache.clear()
+
+        response = self._invoke(canvas_id, "workflows.pause", {"workflow_ids": [str(loop.id)]})
+
+        assert response.status_code == expected_status, response.json()
+        assert get_workflow_summary(team_id=self.team.id, workflow_id=loop.id).status == workflow_status
+
+    @parameterized.expand(
+        [
             ([],),
             (
                 [
@@ -2441,6 +2537,9 @@ class TestCanvasActions(CanvasAPIBaseTest):
         assert set(rows) == set(CANVAS_ACTIONS)
         for row in rows.values():
             assert row["usage"].strip(), f"verb {row['verb']} shipped without usage docs"
+        # A renamed or removed MCP tool drops out of the catalogue, so a canvas
+        # that declares it would fail at runtime with no build-time warning.
+        assert {row["name"] for row in response.json()["tools"]} == CANVAS_MCP_TOOL_ALLOWLIST
 
     def test_tasks_create_files_a_task_in_the_canvas_channel_as_the_viewer(self):
         canvas_id = self._actions_canvas()
@@ -2655,6 +2754,171 @@ class TestCanvasActions(CanvasAPIBaseTest):
         )
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
+
+
+class TestCanvasTools(CanvasAPIBaseTest):
+    def setUp(self):
+        super().setUp()
+        enabled = patch(
+            "products.canvas.backend.presentation.views.canvas_api.canvas_mcp_tools_enabled", return_value=True
+        )
+        self.enabled = enabled.start()
+        self.addCleanup(enabled.stop)
+        call_tool = patch(
+            "products.canvas.backend.mcp_tools.webmcp_facade.call_tool",
+            return_value=ToolCallResult(structured_content={"id": 7, "active": True}, text="", is_error=False),
+        )
+        self.call_tool = call_tool.start()
+        self.addCleanup(call_tool.stop)
+
+    def _tools_canvas(self, tools: tuple[str, ...] = ("feature-flag-enable",)) -> str:
+        canvas_id = self._create_canvas()
+        capabilities = {
+            "posthog": {"insights": [], "inlineQueries": False, "captureEvents": [], "state": [], "tools": list(tools)},
+            "network": {"origins": []},
+        }
+        response = self._publish(canvas_id, project=self._project(capabilities=capabilities))
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        return canvas_id
+
+    def _invoke(self, canvas_id: str, tool: str, arguments: dict[str, Any], **extra: Any):
+        return self.client.post(
+            f"/api/projects/{self.team.id}/canvases/{canvas_id}/tools/invoke/",
+            {"tool": tool, "arguments": arguments},
+            format="json",
+            **extra,
+        )
+
+    def test_runs_a_declared_tool_as_the_viewer(self):
+        canvas_id = self._tools_canvas()
+
+        response = self._invoke(canvas_id, "feature-flag-enable", {"id": 7})
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json() == {"tool": "feature-flag-enable", "result": {"id": 7, "active": True}}
+        self.call_tool.assert_called_once_with(
+            CallToolInput(user_id=self.user.id, team_id=self.team.id, tool="feature-flag-enable", arguments={"id": 7})
+        )
+        [entry] = self._activity("tool_invoked")
+        assert entry.detail is not None
+        assert entry.detail["trigger"]["job_id"] == "feature-flag-enable"
+
+    @parameterized.expand(
+        [
+            ("undeclared", "feature-flag-disable", {}, status.HTTP_403_FORBIDDEN),
+            ("not_allowlisted", "feature-flags-bulk-delete-create", {}, status.HTTP_400_BAD_REQUEST),
+            ("rollout_flag_off", "feature-flag-enable", {"enabled": False}, status.HTTP_403_FORBIDDEN),
+            ("kill_switch", "feature-flag-enable", {"kill_switch": True}, status.HTTP_403_FORBIDDEN),
+            ("impersonated", "feature-flag-enable", {"impersonated": True}, status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_refuses_before_reaching_the_mcp_server(self, _name, tool, gates, expected_status):
+        canvas_id = self._tools_canvas()
+        self.enabled.return_value = gates.get("enabled", True)
+
+        with (
+            patch(
+                "products.canvas.backend.presentation.views.canvas_actions_disabled",
+                return_value=gates.get("kill_switch", False),
+            ),
+            patch(
+                "products.canvas.backend.presentation.views.is_impersonated",
+                return_value=gates.get("impersonated", False),
+            ),
+        ):
+            response = self._invoke(canvas_id, tool, {"id": 7})
+
+        assert response.status_code == expected_status, response.json()
+        self.call_tool.assert_not_called()
+
+    def test_refuses_a_sandbox_token_that_holds_the_tool_scopes(self):
+        canvas_id = self._tools_canvas()
+        bound_task = Task.objects.create(
+            team=self.team,
+            channel=self.channel,
+            created_by=self.user,
+            title="Bound",
+            description="d",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+        client = self._sandbox_client(bound_task.id, scope="canvas:read canvas:write feature_flag:write")
+
+        response = client.post(
+            f"/api/projects/{self.team.id}/canvases/{canvas_id}/tools/invoke/",
+            {"tool": "feature-flag-enable", "arguments": {"id": 7}},
+            format="json",
+            HTTP_X_POSTHOG_TASK_ID=str(bound_task.id),
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        assert response.json()["detail"] == "Canvas tools are run by viewers; sandbox tokens cannot use them."
+        self.call_tool.assert_not_called()
+
+    @parameterized.expand(
+        [
+            (
+                "tool_error",
+                ToolCallResult(structured_content=None, text="Error: version conflict", is_error=True),
+                status.HTTP_400_BAD_REQUEST,
+                "Error: version conflict",
+            ),
+            (
+                "server_unreachable",
+                McpServerError("Could not reach the MCP server: ConnectionError"),
+                status.HTTP_502_BAD_GATEWAY,
+                "The PostHog MCP server could not run this tool. Try again.",
+            ),
+            (
+                # The server can still apply the write, so the viewer must not retry blind.
+                "write_timed_out",
+                McpServerTimeout("The MCP server did not answer in time"),
+                status.HTTP_504_GATEWAY_TIMEOUT,
+                "The tool did not answer in time, and the change can still apply. "
+                "Load the current state before you try again.",
+            ),
+        ]
+    )
+    def test_reports_a_failed_tool_to_the_canvas(self, _name, outcome, expected_status, expected_detail):
+        canvas_id = self._tools_canvas()
+        if isinstance(outcome, Exception):
+            self.call_tool.side_effect = outcome
+        else:
+            self.call_tool.return_value = outcome
+
+        response = self._invoke(canvas_id, "feature-flag-enable", {"id": 7})
+
+        assert response.status_code == expected_status
+        assert response.json()["detail"] == expected_detail
+        assert self._activity("tool_invoked") == []
+
+    @parameterized.expand(
+        [
+            # canvas:write alone is not consent to change feature flags.
+            ("canvas_scope_only", "feature-flag-enable", ["canvas:write"], status.HTTP_403_FORBIDDEN),
+            ("target_scope_held", "feature-flag-enable", ["canvas:write", "feature_flag:write"], status.HTTP_200_OK),
+            # A padded name must not slip past the scope check and run once trimmed.
+            ("padded_tool_name", " feature-flag-enable ", ["canvas:write"], status.HTTP_400_BAD_REQUEST),
+            # A board viewer reads flags without write access to the canvas.
+            (
+                "read_tool_read_scopes",
+                "feature-flag-get-definition",
+                ["canvas:read", "feature_flag:read"],
+                status.HTTP_200_OK,
+            ),
+        ]
+    )
+    def test_scoped_keys_need_the_tools_scope(self, _name, tool, scopes, expected_status):
+        canvas_id = self._tools_canvas(("feature-flag-enable", "feature-flag-get-definition"))
+        raw_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="canvas-tools", user=self.user, secure_value=hash_key_value(raw_key), scopes=scopes
+        )
+        self.client.logout()
+
+        response = self._invoke(canvas_id, tool, {"id": 7}, HTTP_AUTHORIZATION=f"Bearer {raw_key}")
+
+        assert response.status_code == expected_status, response.json()
+        assert self.call_tool.called is (expected_status == status.HTTP_200_OK)
 
 
 class TestTaskCreatePayloadSerializer(SimpleTestCase):

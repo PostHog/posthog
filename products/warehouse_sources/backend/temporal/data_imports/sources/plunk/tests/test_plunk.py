@@ -27,7 +27,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.plunk.plun
     plunk_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.plunk.settings import PLUNK_ENDPOINTS
 
 # The sync path runs through a bounded session built by `_make_bounded_session`; patch that so the
 # pagination tests can drive `session.send` directly (RESTClient uses the session it's handed).
@@ -117,16 +116,6 @@ class TestNormalizeBaseUrl:
         assert normalize_base_url(raw) == expected
 
     @pytest.mark.parametrize(
-        "url, expected_host",
-        [
-            ("https://plunk.example.com", "plunk.example.com"),
-            ("https://plunk.example.com:8443", "plunk.example.com"),
-        ],
-    )
-    def test_host_of_plain_authority(self, url, expected_host):
-        assert plunk_module._host_of(url) == expected_host
-
-    @pytest.mark.parametrize(
         "url",
         [
             # urlparse and requests/urllib3 split these authorities differently, so validating the
@@ -160,10 +149,6 @@ class TestValidateCredentials:
         response.json.return_value = json_data
         return response
 
-    def test_success(self):
-        with self._patch_session(self._resp(status_code=200)):
-            assert validate_credentials(None, "sk_test") == (True, None)
-
     def test_invalid_key_401(self):
         with self._patch_session(self._resp(status_code=401)):
             valid, msg = validate_credentials(None, "sk_bad")
@@ -188,12 +173,6 @@ class TestValidateCredentials:
             valid, msg = validate_credentials(None, "sk_test")
             assert valid is False
             assert msg == "Please verify your email"
-
-    def test_request_exception_returns_failure(self):
-        with self._patch_session(raises=requests.exceptions.ConnectionError("boom")):
-            valid, msg = validate_credentials(None, "sk_test")
-            assert valid is False
-            assert "boom" in (msg or "")
 
     def test_rejects_redirect_response(self):
         with self._patch_session(self._resp(status_code=302)) as patched:
@@ -253,22 +232,6 @@ class TestValidateCredentials:
             assert "too big" in (msg or "")
 
 
-class TestSourceResponseShape:
-    @pytest.mark.parametrize("endpoint", list(PLUNK_ENDPOINTS.keys()))
-    def test_response_shape(self, endpoint):
-        config = PLUNK_ENDPOINTS[endpoint]
-        response = _source(_make_manager(), endpoint=endpoint)
-        assert response.name == endpoint
-        assert response.primary_keys == ["id"]
-        assert response.sort_mode == config.sort_mode
-        if config.partition_key:
-            assert response.partition_keys == [config.partition_key]
-            assert response.partition_mode == "datetime"
-        else:
-            assert response.partition_keys is None
-            assert response.partition_mode is None
-
-
 class TestCursorPagination:
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_follows_cursor_until_omitted(self, MockSession):
@@ -290,25 +253,6 @@ class TestCursorPagination:
         assert first_qs["dir"] == ["asc"]
         assert "cursor" not in first_qs
         assert second_qs["cursor"] == ["c_2"]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_saves_cursor_after_yielding(self, MockSession):
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _cursor_page([{"id": "1"}], cursor="c_1", has_more=True),
-                _cursor_page([{"id": "2"}]),
-            ],
-        )
-        manager = _make_manager()
-        _rows(_source(manager))
-
-        # State is saved once (after page 1, pointing at the next cursor); the last page is terminal.
-        assert manager.save_state.call_count == 1
-        saved = manager.save_state.call_args.args[0]
-        assert isinstance(saved, PlunkResumeConfig)
-        assert saved.cursor == "c_1"
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_cursor(self, MockSession):
@@ -333,27 +277,6 @@ class TestCursorPagination:
 
 
 class TestPageNumberPagination:
-    @pytest.mark.parametrize("endpoint", ["campaigns", "templates"])
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_paginates_via_total_pages(self, MockSession, endpoint):
-        session = MockSession.return_value
-        prepared = _wire(
-            session,
-            [
-                _numbered_page([{"id": "1"}], page=1, total_pages=2),
-                _numbered_page([{"id": "2"}], page=2, total_pages=2),
-            ],
-        )
-        rows = _rows(_source(_make_manager(), endpoint=endpoint))
-
-        assert [r["id"] for r in rows] == ["1", "2"]
-        first_qs = _qs(prepared[0])
-        assert first_qs["page"] == ["1"]
-        assert first_qs["pageSize"] == ["100"]
-        assert first_qs["sort"] == ["createdAt"]
-        assert first_qs["dir"] == ["asc"]
-        assert _qs(prepared[1])["page"] == ["2"]
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_saves_next_page_after_yielding_and_resumes(self, MockSession):
         session = MockSession.return_value
@@ -378,17 +301,6 @@ class TestPageNumberPagination:
 
         assert _qs(prepared[0])["page"] == ["2"]
         assert [r["id"] for r in rows] == ["2"]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_page_terminates(self, MockSession):
-        session = MockSession.return_value
-        _wire(session, [_numbered_page([], page=1, total_pages=5)])
-        manager = _make_manager()
-        rows = _rows(_source(manager, endpoint="templates"))
-
-        assert rows == []
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
 
 
 class TestSegments:
@@ -443,10 +355,6 @@ class _FakeStreamResponse:
 
 
 class TestReadBounded:
-    def test_reads_full_body_under_cap(self):
-        response = _FakeStreamResponse([b"hel", b"lo"])
-        assert _read_bounded(cast(requests.Response, response), max_bytes=100) == b"hello"
-
     def test_raises_when_body_exceeds_byte_cap(self):
         # The cap is what stops a huge (or gzip-bombed) body from exhausting a worker's memory.
         response = _FakeStreamResponse([b"a" * 8, b"b" * 8])

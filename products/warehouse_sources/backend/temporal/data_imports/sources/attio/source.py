@@ -1,5 +1,6 @@
 from typing import cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     SourceConfig,
@@ -26,6 +27,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AttioSource(ResumableSource[AttioSourceConfig, AttioResumeConfig]):
+    codebase_detection = detect(env=("^ATTIO_",), npm=("attio",))
+
     supported_versions = ("v2",)
     default_version = "v2"
     api_docs_url = "https://developers.attio.com"
@@ -42,15 +45,6 @@ class AttioSource(ResumableSource[AttioSourceConfig, AttioResumeConfig]):
         )
 
         return CANONICAL_DESCRIPTIONS
-
-    def resume_covers_run(
-        self,
-        *,
-        incremental_or_append: bool,
-        schema_name: str | None = None,
-    ) -> bool:
-        endpoint = ATTIO_ENDPOINTS.get(schema_name or "")
-        return endpoint is None or endpoint.method == "POST"
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {

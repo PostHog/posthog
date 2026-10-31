@@ -33,7 +33,8 @@ const UNAVAILABLE_COPY: Record<TileUnavailableReason, string> = {
 function asCardTile(tile: CrossProjectDashboardTileApi): DashboardTile {
     return {
         id: tile.id,
-        filters_overrides: tile.filters_overrides,
+        // The card's links carry any override as a URL parameter, an empty one included.
+        filters_overrides: Object.keys(tile.filters_overrides ?? {}).length > 0 ? tile.filters_overrides : null,
         show_description: null,
         color: tile.color,
         layouts: tile.layouts,
@@ -49,7 +50,6 @@ export interface CrossProjectTileProps extends React.HTMLAttributes<HTMLDivEleme
     showTimezone?: boolean
     missingPropertyKeys?: string[]
     dashboardFilters?: CrossProjectDashboardFilters
-    isResizing?: boolean
     canEnterEditModeFromEdge?: boolean
     onEnterEditModeFromEdge?: (event: React.MouseEvent<HTMLDivElement>, edge: EditModeEdge) => void
     onDragHandleMouseDown?: React.MouseEventHandler<HTMLDivElement>
@@ -66,7 +66,6 @@ function CrossProjectTileInternal(
         showTimezone,
         missingPropertyKeys,
         dashboardFilters,
-        isResizing,
         canEnterEditModeFromEdge,
         onEnterEditModeFromEdge,
         onDragHandleMouseDown,
@@ -143,13 +142,13 @@ function CrossProjectTileInternal(
                 insight={insight}
                 tile={asCardTile(tile)}
                 projectId={tile.project_id}
+                projectTimezone={projectTimezone}
                 contextHeading={projectHeading}
                 ribbonColor={tile.color as InsightColor | null}
                 updateColor={onSetColor ? (color) => onSetColor(color ?? null) : undefined}
                 setOverride={onSetOverride}
                 removeFromDashboard={onRemove}
                 showResizeHandles={showResizeHandles}
-                isResizing={isResizing}
                 canEnterEditModeFromEdge={canEnterEditModeFromEdge}
                 onEnterEditModeFromEdge={onEnterEditModeFromEdge}
                 onDragHandleMouseDown={onDragHandleMouseDown}

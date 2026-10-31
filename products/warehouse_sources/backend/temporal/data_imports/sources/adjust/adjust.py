@@ -8,7 +8,11 @@ from urllib.parse import urlencode, urlsplit
 import requests
 from structlog.types import FilteringBoundLogger
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.adjust.settings import ADJUST_REPORTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.adjust.settings import (
+    ADJUST_REPORTS,
+    DEFAULT_LOOKBACK_DAYS,
+    EVENTS_CATALOG,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -16,6 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 ADJUST_API_HOST = "automate.adjust.com"
 BASE_URL = f"https://{ADJUST_API_HOST}/reports-service"
 REPORT_URL = f"{BASE_URL}/report"
+EVENTS_URL = f"{BASE_URL}/events"
 
 # Reports are pulled one date window at a time so a long backfill streams instead of asking Adjust
 # for years of rows in a single response. The window is also the resume unit.
@@ -23,14 +28,14 @@ WINDOW_DAYS = 30
 # First sync backfill depth. Adjust does not retain report data indefinitely, so anything older
 # than this is unlikely to be available anyway.
 MAX_HISTORY_DAYS = 730
-# Adjust keeps revising recent days (late attributions, re-attributions), so an incremental run
-# re-reads a trailing window; merge dedupes on the dimension key.
-LOOKBACK_DAYS = 3
 REQUEST_TIMEOUT_SECONDS = 300
 # The Report Service API documents a `pagination` field but not its mechanism, so the page loop is
 # driven purely by a next link when one is present. The cap stops a malformed/looping link from
 # scanning forever.
 MAX_PAGES_PER_WINDOW = 200
+# Event reports request one metric per event slug; batching keeps the query string short for
+# accounts with large event catalogs.
+MAX_EVENT_METRICS_PER_REQUEST = 50
 # Adjust app tokens are short alphanumeric identifiers; reject anything else before it reaches a
 # query string.
 _APP_TOKEN_RE = re.compile(r"[A-Za-z0-9]+")
@@ -93,11 +98,12 @@ def build_report_params(
     start: date,
     end: date,
     app_tokens: list[str],
+    metrics: list[str] | None = None,
 ) -> dict[str, str]:
     config = ADJUST_REPORTS[report]
     params = {
         "dimensions": ",".join(config.dimensions),
-        "metrics": ",".join(config.metrics),
+        "metrics": ",".join(config.metrics if metrics is None else metrics),
         "date_period": f"{start.isoformat()}:{end.isoformat()}",
         # Ascending by day so the rows arrive in the order `sort_mode="asc"` promises and the
         # incremental watermark only ever moves forward.
@@ -125,7 +131,7 @@ def _error_message(response: requests.Response) -> str:
     return f" — {detail}" if isinstance(detail, str) and detail else ""
 
 
-def _request(session: requests.Session, url: str, logger: FilteringBoundLogger) -> dict[str, Any]:
+def _get_json(session: requests.Session, url: str, logger: FilteringBoundLogger) -> Any:
     response = session.get(url, timeout=REQUEST_TIMEOUT_SECONDS)
 
     if response.status_code == 429 or response.status_code >= 500:
@@ -140,10 +146,74 @@ def _request(session: requests.Session, url: str, logger: FilteringBoundLogger) 
             response=response,
         )
 
-    body = response.json()
+    if response.status_code == 204:
+        return None
+    return response.json()
+
+
+def _request(session: requests.Session, url: str, logger: FilteringBoundLogger) -> dict[str, Any]:
+    body = _get_json(session, url, logger)
+    if body is None:
+        return {}
     if not isinstance(body, dict):
         raise ValueError(f"Adjust returned an unexpected report payload of type {type(body).__name__}")
     return body
+
+
+def fetch_events(
+    session: requests.Session, app_tokens: list[str], logger: FilteringBoundLogger
+) -> list[dict[str, Any]]:
+    params = {"tokens_mapping": "true"}
+    if app_tokens:
+        params["app_token__in"] = ",".join(app_tokens)
+    body = _get_json(session, f"{EVENTS_URL}?{urlencode(params)}", logger)
+    if body is None:
+        return []
+    if not isinstance(body, list):
+        raise ValueError(f"Adjust returned an unexpected events payload of type {type(body).__name__}")
+    return [event for event in body if isinstance(event, dict)]
+
+
+def report_event_names(events: list[dict[str, Any]]) -> dict[str, str | None]:
+    """Map each event slug that can be requested as a `{slug}_events` metric to its readable name.
+
+    SKAdNetwork events are reported through the SKAN conversion metrics, not as event counts.
+    """
+    names: dict[str, str | None] = {}
+    for event in events:
+        slug = event.get("id")
+        if isinstance(slug, str) and slug and not event.get("is_skad_event"):
+            name = event.get("name")
+            names[slug] = name if isinstance(name, str) else None
+    return names
+
+
+def _is_zero(value: Any) -> bool:
+    try:
+        return float(value) == 0
+    except (TypeError, ValueError):
+        return False
+
+
+def unpivot_event_rows(
+    rows: list[dict[str, Any]],
+    dimensions: list[str],
+    event_names: dict[str, str | None],
+) -> list[dict[str, Any]]:
+    """Turn one column per event into one row per (dimensions, event).
+
+    Zero counts are dropped: Adjust returns a value for every requested event on every row, and
+    most events don't fire for most partners on most days.
+    """
+    unpivoted: list[dict[str, Any]] = []
+    for row in rows:
+        base = {dimension: row.get(dimension) for dimension in dimensions}
+        for slug, name in event_names.items():
+            value = row.get(f"{slug}_events")
+            if value is None or _is_zero(value):
+                continue
+            unpivoted.append({**base, "event_slug": slug, "event_name": name, "events": value})
+    return unpivoted
 
 
 def extract_rows(payload: dict[str, Any]) -> list[dict[str, Any]]:
@@ -203,12 +273,13 @@ def resolve_start_date(
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Any,
     today: date,
+    lookback_days: int = DEFAULT_LOOKBACK_DAYS,
 ) -> date:
     earliest = today - timedelta(days=MAX_HISTORY_DAYS)
     if should_use_incremental_field:
         watermark = _to_date(db_incremental_field_last_value)
         if watermark is not None:
-            return min(max(watermark - timedelta(days=LOOKBACK_DAYS), earliest), today)
+            return min(max(watermark - timedelta(days=lookback_days), earliest), today)
     return earliest
 
 
@@ -270,6 +341,41 @@ def validate_credentials(api_token: str, app_tokens: str | None = None) -> bool:
     )
 
 
+def _iter_report_pages(
+    session: requests.Session,
+    params: dict[str, str],
+    report: str,
+    logger: FilteringBoundLogger,
+) -> Iterator[list[dict[str, Any]]]:
+    url = f"{REPORT_URL}?{urlencode(params)}"
+    for page in range(MAX_PAGES_PER_WINDOW):
+        payload = _request(session, url, logger)
+        yield extract_rows(payload)
+
+        next_url = next_page_url(payload)
+        if next_url is None:
+            return
+        if page + 1 == MAX_PAGES_PER_WINDOW:
+            logger.warning(
+                "Adjust page cap reached; truncating window",
+                report=report,
+                date_period=params["date_period"],
+                pages=MAX_PAGES_PER_WINDOW,
+            )
+            return
+        url = next_url
+
+
+def get_event_catalog(
+    api_token: str,
+    app_tokens: str | None,
+    logger: FilteringBoundLogger,
+) -> Iterator[list[dict[str, Any]]]:
+    events = fetch_events(_get_session(api_token), parse_app_tokens(app_tokens), logger)
+    if events:
+        yield events
+
+
 def get_rows(
     api_token: str,
     app_tokens: str | None,
@@ -282,10 +388,27 @@ def get_rows(
     if report not in ADJUST_REPORTS:
         raise ValueError(f"Unknown Adjust report: {report}")
 
+    config = ADJUST_REPORTS[report]
     tokens = parse_app_tokens(app_tokens)
     session = _get_session(api_token)
+
+    event_names: dict[str, str | None] = {}
+    metric_batches = [config.metrics]
+    if config.event_metrics:
+        event_names = report_event_names(fetch_events(session, tokens, logger))
+        slugs = list(event_names)
+        metric_batches = [
+            [f"{slug}_events" for slug in slugs[i : i + MAX_EVENT_METRICS_PER_REQUEST]]
+            for i in range(0, len(slugs), MAX_EVENT_METRICS_PER_REQUEST)
+        ]
+        if not metric_batches:
+            logger.info("Adjust: no events in the events catalog, skipping event report", report=report)
+            return
+
     today = _today()
-    start = resolve_start_date(should_use_incremental_field, db_incremental_field_last_value, today)
+    start = resolve_start_date(
+        should_use_incremental_field, db_incremental_field_last_value, today, config.lookback_days
+    )
     windows = date_windows(start, today)
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
@@ -297,25 +420,22 @@ def get_rows(
     # deliberately no second retry layer here — anything that reaches us has already been retried,
     # and the Temporal activity retries the job.
     for index, (window_start, window_end) in enumerate(windows):
-        url = f"{REPORT_URL}?{urlencode(build_report_params(report, window_start, window_end, tokens))}"
-        for page in range(MAX_PAGES_PER_WINDOW):
-            payload = _request(session, url, logger)
-            rows = extract_rows(payload)
-            if rows:
-                yield rows
-
-            next_url = next_page_url(payload)
-            if next_url is None:
-                break
-            if page + 1 == MAX_PAGES_PER_WINDOW:
-                logger.warning(
-                    "Adjust page cap reached; truncating window",
-                    report=report,
-                    date_period=f"{window_start.isoformat()}:{window_end.isoformat()}",
-                    pages=MAX_PAGES_PER_WINDOW,
-                )
-                break
-            url = next_url
+        if config.event_metrics:
+            # Each metric batch walks the whole window by day, so the batches are merged and
+            # re-sorted to keep rows ascending across the window, as `sort_mode="asc"` promises.
+            window_rows: list[dict[str, Any]] = []
+            for metrics in metric_batches:
+                params = build_report_params(report, window_start, window_end, tokens, metrics)
+                for rows in _iter_report_pages(session, params, report, logger):
+                    window_rows.extend(unpivot_event_rows(rows, config.dimensions, event_names))
+            if window_rows:
+                window_rows.sort(key=lambda row: str(row.get("day") or ""))
+                yield window_rows
+        else:
+            params = build_report_params(report, window_start, window_end, tokens)
+            for rows in _iter_report_pages(session, params, report, logger):
+                if rows:
+                    yield rows
 
         # Save AFTER yielding the window so a crash re-yields it rather than skipping it (merge
         # dedupes on the dimension key).
@@ -332,6 +452,13 @@ def adjust_source(
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
 ) -> SourceResponse:
+    if report == EVENTS_CATALOG:
+        return SourceResponse(
+            name=report,
+            items=lambda: get_event_catalog(api_token=api_token, app_tokens=app_tokens, logger=logger),
+            primary_keys=["id"],
+        )
+
     config = ADJUST_REPORTS[report]
 
     return SourceResponse(

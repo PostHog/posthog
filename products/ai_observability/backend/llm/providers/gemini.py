@@ -32,6 +32,7 @@ from products.ai_observability.backend.llm.types import (
     AnalyticsContext,
     CompletionRequest,
     CompletionResponse,
+    OutputSchema,
     StreamChunk,
     Usage,
 )
@@ -215,6 +216,7 @@ class GeminiAdapter:
             temperature=request.temperature,
             max_tokens=request.max_tokens,
             tools=tools,
+            output_schema=request.output_schema,
         )
 
         analytics_kwargs: dict[str, Any] = {}
@@ -315,6 +317,7 @@ class GeminiAdapter:
         temperature: float | None = None,
         max_tokens: int | None = None,
         tools: list[dict] | None = None,
+        output_schema: OutputSchema | None = None,
     ) -> dict[str, Any]:
         """Prepare Gemini config kwargs."""
         effective_temperature = temperature if temperature is not None else GeminiConfig.TEMPERATURE
@@ -327,6 +330,9 @@ class GeminiAdapter:
             config_kwargs["max_output_tokens"] = max_tokens
         if tools is not None:
             config_kwargs["tools"] = tools
+        if output_schema is not None:
+            config_kwargs["response_mime_type"] = "application/json"
+            config_kwargs["response_json_schema"] = output_schema.schema
         return config_kwargs
 
     def _build_analytics_kwargs(self, analytics: AnalyticsContext, client) -> dict:

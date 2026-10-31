@@ -10,9 +10,11 @@ from products.workflows.backend.facade.contracts import (
     WorkflowRevision,
     WorkflowRevisionNotFound,
     WorkflowRevisionSummary,
+    WorkflowWriteResult,
 )
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.hog_flow_revision import HogFlowRevision
+from products.workflows.backend.services.hog_flow_writes import field_values
 from products.workflows.backend.services.workflow_proposals import unstage_proposals_for_flow
 
 
@@ -47,10 +49,11 @@ def get_revision(*, hog_flow_id: UUID, version: int) -> WorkflowRevision | None:
 
 def restore_revision(
     *, hog_flow_id: UUID, version: int, overwrite: bool, expected_draft_updated_at: datetime | None
-) -> None:
+) -> WorkflowWriteResult:
     with transaction.atomic():
         # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance, locked for update)
         locked = HogFlow.objects.select_for_update().get(pk=hog_flow_id)
+        previous = field_values(locked)
         try:
             revision = HogFlowRevision.objects.get(hog_flow_id=locked.pk, version=version)
         except HogFlowRevision.DoesNotExist:
@@ -74,3 +77,4 @@ def restore_revision(
         # Clear any stale draft secrets from a prior draft so they can't bleed into this one.
         locked.draft_encrypted_inputs = None
         locked.save(update_fields=["draft", "draft_updated_at", "draft_encrypted_inputs"])
+    return WorkflowWriteResult(previous=previous, current=field_values(locked))

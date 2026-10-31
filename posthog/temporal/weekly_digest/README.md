@@ -21,6 +21,19 @@ Generation has a 15-hour run timeout and a 15-hour execution timeout shared acro
 A healthy run can use the full generation budget without restarting and regenerating completed batches after six hours.
 Sending starts only after generation succeeds and has separate six-hour run and 15-hour execution timeouts.
 
+### Delivery
+
+The send activity checks the `transactional-emails-via-workflows` flag for each recipient, with `transactional_email_template` set to `weekly_digest_report` and the recipient's `email` and `region`.
+When the flag is off, it captures `transactional email` in the US project, and the Customer.io destination forwards it to the Customer.io digest campaign.
+When the flag is on, it posts the digest to the webhook of the digest workflow in the US project, with the recipient address in `to`.
+Both regions post to that webhook. `WEEKLY_DIGEST_WORKFLOW_WEBHOOK_URL` and `WEEKLY_DIGEST_WORKFLOW_WEBHOOK_SECRET` configure it, and without both every digest goes through Customer.io.
+The secret goes in the `Authorization` header, so only the digest send can start the workflow.
+Each post carries an `Idempotency-Key` made from the digest key and the user id, so a retried post starts no second run.
+An organization stays unsent when a post fails after its retries, so the next attempt resends it.
+All send batches share one token bucket in the digest Redis that keeps posts to about 3,000 a minute, and the send waits when that Redis can't answer.
+The webhook refuses a body above 512,000 bytes, and a project can create thousands of events in a week. The Workflows payload carries the first six new event definitions and their total in `new_event_definitions_count`, which is what the email shows.
+The workflow paces the emails themselves with its own sending rate limit.
+
 ## Redis Storage Structure
 
 Data is stored with keys prefixed by `{digest_key}` (e.g., `weekly-digest-2024-01`).
@@ -33,20 +46,21 @@ Generated via `team_data_key(digest_key, TeamDataKey.*, team_id)`.
 Each Postgres-backed generator reads a team id range with two queries, one for the eligible teams and one for the data, and writes its keys in one Redis pipeline.
 A team with no data of a kind gets no key for it; organization aggregation substitutes an empty default for a missing key.
 The two ClickHouse-backed generators work per range too: expiring recordings are counted for the whole range in one grouped query, and usage trends first find the teams with events in the window in one query, then run the per-team HogQL query for those teams only.
+New error issues come from one range-wide Postgres query, which finds the teams with new issues. For each of those teams, the error tracking digest query then ranks and counts the new issues. A team whose count query fails keeps its Postgres issues without counts.
 
-| `TeamDataKey` enum      | Key Pattern                                    | Contents                           |
-| ----------------------- | ---------------------------------------------- | ---------------------------------- |
-| `DASHBOARDS`            | `{digest_key}-dashboards-{team_id}`            | New dashboards created             |
-| `EVENT_DEFINITIONS`     | `{digest_key}-event-definitions-{team_id}`     | New event definitions              |
-| `EXPERIMENTS_LAUNCHED`  | `{digest_key}-experiments-launched-{team_id}`  | Experiments started                |
-| `EXPERIMENTS_COMPLETED` | `{digest_key}-experiments-completed-{team_id}` | Experiments finished               |
-| `EXTERNAL_DATA_SOURCES` | `{digest_key}-external-data-sources-{team_id}` | New data sources                   |
-| `FEATURE_FLAGS`         | `{digest_key}-feature-flags-{team_id}`         | New feature flags                  |
-| `SAVED_FILTERS`         | `{digest_key}-saved-filters-{team_id}`         | Interesting replay filters         |
-| `EXPIRING_RECORDINGS`   | `{digest_key}-expiring-recordings-{team_id}`   | Count of soon-to-expire recordings |
-| `SURVEYS_LAUNCHED`      | `{digest_key}-surveys-launched-{team_id}`      | Surveys launched                   |
-| `USAGE_TRENDS`          | `{digest_key}-usage-trends-{team_id}`          | Event volume + active users, WoW   |
-| `ERROR_ISSUES`          | `{digest_key}-error-issues-{team_id}`          | New error-tracking issues          |
+| `TeamDataKey` enum      | Key Pattern                                    | Contents                                       |
+| ----------------------- | ---------------------------------------------- | ---------------------------------------------- |
+| `DASHBOARDS`            | `{digest_key}-dashboards-{team_id}`            | New dashboards created                         |
+| `EVENT_DEFINITIONS`     | `{digest_key}-event-definitions-{team_id}`     | New event definitions                          |
+| `EXPERIMENTS_LAUNCHED`  | `{digest_key}-experiments-launched-{team_id}`  | Experiments started                            |
+| `EXPERIMENTS_COMPLETED` | `{digest_key}-experiments-completed-{team_id}` | Experiments finished                           |
+| `EXTERNAL_DATA_SOURCES` | `{digest_key}-external-data-sources-{team_id}` | New data sources                               |
+| `FEATURE_FLAGS`         | `{digest_key}-feature-flags-{team_id}`         | New feature flags                              |
+| `SAVED_FILTERS`         | `{digest_key}-saved-filters-{team_id}`         | Interesting replay filters                     |
+| `EXPIRING_RECORDINGS`   | `{digest_key}-expiring-recordings-{team_id}`   | Count of soon-to-expire recordings             |
+| `SURVEYS_LAUNCHED`      | `{digest_key}-surveys-launched-{team_id}`      | Surveys launched                               |
+| `USAGE_TRENDS`          | `{digest_key}-usage-trends-{team_id}`          | Event volume + active users, WoW, daily counts |
+| `ERROR_ISSUES`          | `{digest_key}-error-issues-{team_id}`          | New error-tracking issues, daily occurrences   |
 
 ### Organization-level data
 

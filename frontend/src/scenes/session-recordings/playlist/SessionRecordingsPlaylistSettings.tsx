@@ -1,23 +1,12 @@
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
-import {
-    IconCheck,
-    IconChevronRight,
-    IconEllipsis,
-    IconEye,
-    IconInfo,
-    IconPlus,
-    IconSort,
-    IconTrash,
-} from '@posthog/icons'
+import { IconCheck, IconChevronRight, IconEllipsis, IconEye, IconPlus, IconSort, IconTrash } from '@posthog/icons'
 import { LemonBadge, LemonButton, LemonCheckbox, LemonInput, LemonModal, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { SettingsBar, SettingsMenu } from 'lib/components/PanelSettings/PanelSettings'
 import { dayjs } from 'lib/dayjs'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconBlank } from 'lib/lemon-ui/icons'
 import { LemonMenu, LemonMenuItem, LemonMenuItems } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
@@ -31,7 +20,12 @@ import { bulkScanLogic } from 'products/replay_vision/frontend/logics/bulkScanLo
 import { visionQuotaLogic } from 'products/replay_vision/frontend/logics/visionQuotaLogic'
 import { quotaUx } from 'products/replay_vision/frontend/utils/quotaProjection'
 
-import { useAutoplayMenuItems, useHideRecordingsMenuItems, useTimestampFormatMenuItems } from './listViewMenuItems'
+import {
+    useAutoplayMenuItems,
+    useHideRecordingsMenuItems,
+    useLayoutMenuItems,
+    useTimestampFormatMenuItems,
+} from './listViewMenuItems'
 import {
     DELETE_CONFIRMATION_TEXT,
     MAX_SELECTED_RECORDINGS,
@@ -57,16 +51,6 @@ const SortingKeyToLabel = {
 const RELEVANCE_SORT_EXPLANATION =
     'Relevance predicts which sessions are worth watching, using signals like rage clicks, dead clicks, console errors, failed network requests, and in-session activity. The highest-scoring recordings appear first.'
 
-function getLabel(filters: RecordingUniversalFilters): string {
-    const order_field = filters.order || 'start_time'
-    if (order_field === 'start_time') {
-        return filters.order_direction === 'ASC' ? 'Oldest' : 'Latest'
-    }
-
-    return SortingKeyToLabel[order_field as keyof typeof SortingKeyToLabel]
-}
-
-/** The analytics payload for a sort change, or null when the sort is unchanged so we don't log no-op switches. */
 export function getSortChangedEvent(
     filters: RecordingUniversalFilters,
     sort: RecordingSort
@@ -198,42 +182,6 @@ function useSortMenuItems(
     ]
 }
 
-function SortedBy({
-    filters,
-    setFilters,
-    disabledReason,
-}: {
-    filters: RecordingUniversalFilters
-    setFilters: (filters: Partial<RecordingUniversalFilters>) => void
-    disabledReason?: string
-}): JSX.Element {
-    const { listSort } = useValues(sessionRecordingsPlaylistLogic)
-    const items = useSortMenuItems(filters, setFilters)
-    filters = { ...filters, ...listSort }
-
-    return (
-        <SettingsMenu
-            data-attr="list-sort-menu"
-            highlightWhenActive={false}
-            disabledReason={disabledReason}
-            items={items}
-            icon={<IconSort className="text-lg" />}
-            label={
-                filters.order === 'surfacing_score' ? (
-                    <span className="inline-flex items-center gap-1">
-                        {SortingKeyToLabel['surfacing_score']}
-                        <Tooltip title={RELEVANCE_SORT_EXPLANATION}>
-                            <IconInfo className="text-sm" />
-                        </Tooltip>
-                    </span>
-                ) : (
-                    getLabel(filters)
-                )
-            }
-        />
-    )
-}
-
 function useRecommendedOnlyToggle(
     filters: RecordingUniversalFilters,
     setFilters: (filters: Partial<RecordingUniversalFilters>) => void
@@ -277,11 +225,13 @@ function ListViewMenu({
     const recommendedItem = useRecommendedOnlyMenuItem(filters, setFilters)
     const hideItems = useHideRecordingsMenuItems()
     const timestampItems = useTimestampFormatMenuItems()
+    const layoutItems = useLayoutMenuItems()
 
     const items: LemonMenuItems = [
         { title: 'Sort by', items: sortItems },
         { title: 'Show', items: [recommendedItem, ...hideItems] },
         { title: 'Timestamps', items: timestampItems },
+        ...(layoutItems.length ? [{ title: 'Layout', items: layoutItems }] : []),
     ]
 
     return (
@@ -298,33 +248,7 @@ function ListViewMenu({
     )
 }
 
-function RecommendedOnlyFilter({
-    filters,
-    setFilters,
-}: {
-    filters: RecordingUniversalFilters
-    setFilters: (filters: Partial<RecordingUniversalFilters>) => void
-}): JSX.Element | null {
-    const { enabled, checked, toggle } = useRecommendedOnlyToggle(filters, setFilters)
-    if (!enabled) {
-        return null
-    }
-
-    return (
-        <Tooltip title="Show recordings with high relevance">
-            <span className="inline-flex items-center ml-3">
-                <LemonCheckbox
-                    label="High relevance"
-                    checked={checked}
-                    onChange={toggle}
-                    data-attr="session-recordings-recommended-only"
-                />
-            </span>
-        </Tooltip>
-    )
-}
-
-function ConfirmDeleteRecordings({ shortId }: { shortId?: string }): JSX.Element {
+export function ConfirmDeleteRecordings({ shortId }: { shortId?: string }): JSX.Element {
     const {
         selectedRecordingsIds,
         isDeleteSelectedRecordingsDialogOpen,
@@ -555,7 +479,7 @@ export function AddToCollectionModal({ shortId }: { shortId?: string }): JSX.Ele
 }
 
 /** Bulk "Scan these recordings" row whose scanner list opens on hover (a nested `items` menu is click-only). */
-function BulkScanMenuItem(): JSX.Element {
+export function BulkScanMenuItem(): JSX.Element {
     const { selectedRecordingsIds } = useValues(sessionRecordingsPlaylistLogic)
     const { scanners, scannersLoading, scanning } = useValues(bulkScanLogic)
     const { scanRecordings } = useActions(bulkScanLogic)
@@ -621,7 +545,6 @@ export function SessionRecordingsPlaylistTopSettings({
     shortId?: string
 }): JSX.Element {
     const autoplayItems = useAutoplayMenuItems()
-    const consolidatedControls = useFeatureFlag('REPLAY_CONSOLIDATED_CONTROLS')
     const {
         selectedRecordingsIds,
         otherRecordings,
@@ -637,7 +560,7 @@ export function SessionRecordingsPlaylistTopSettings({
     } = useActions(sessionRecordingsPlaylistLogic)
 
     const recordings = type === 'filters' ? otherRecordings : pinnedRecordings
-    const checked = recordings.length > 0 && selectedRecordingsIds.length === recordings.length
+    const checked = recordings.length > 0 && recordings.every((r) => selectedRecordingsIds.includes(r.id))
 
     const accessControlDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.SessionRecording,
@@ -705,7 +628,7 @@ export function SessionRecordingsPlaylistTopSettings({
         <SettingsBar border="none" className="justify-between">
             <div className="flex items-center">
                 <Tooltip title={selectAllDisabledReason ? undefined : 'Select all recordings'}>
-                    <span className={clsx('flex', consolidatedControls ? 'ml-[7px]' : 'ml-2')}>
+                    <span className="flex ml-[7px]">
                         <LemonCheckbox
                             disabledReason={selectAllDisabledReason}
                             checked={checked}
@@ -716,19 +639,6 @@ export function SessionRecordingsPlaylistTopSettings({
                         />
                     </span>
                 </Tooltip>
-                {filters && setFilters && !consolidatedControls ? (
-                    <>
-                        <span className="text-xs font-normal inline-flex items-center ml-2">
-                            Sort by:{' '}
-                            <SortedBy
-                                filters={filters}
-                                setFilters={setFilters}
-                                disabledReason={recordings.length === 0 ? 'No recordings' : undefined}
-                            />
-                        </span>
-                        <RecommendedOnlyFilter filters={filters} setFilters={setFilters} />
-                    </>
-                ) : null}
             </div>
             <div className="flex items-center">
                 {selectedRecordingsIds.length > 0 && (
@@ -738,7 +648,7 @@ export function SessionRecordingsPlaylistTopSettings({
                         data-attr="bulk-action-menu"
                     />
                 )}
-                {consolidatedControls && filters && setFilters && (
+                {filters && setFilters && (
                     <ListViewMenu
                         filters={filters}
                         setFilters={setFilters}
@@ -749,7 +659,7 @@ export function SessionRecordingsPlaylistTopSettings({
                     data-attr="list-autoplay-menu"
                     items={[{ label: 'Autoplay', items: autoplayItems }]}
                     icon={<IconEllipsis className="rotate-90" />}
-                    placement={consolidatedControls ? 'bottom-end' : undefined}
+                    placement="bottom-end"
                     disabledReason={recordings.length === 0 ? 'No recordings' : undefined}
                 />
             </div>

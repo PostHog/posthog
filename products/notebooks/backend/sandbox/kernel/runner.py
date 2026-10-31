@@ -1,15 +1,14 @@
 """Per-run execution: fetch the data, build the envelope, deliver the callback.
 
 For the current Journey 1/2 scope every node is a pure-HogQL display node, so a
-run is a capped fetch through the data plane — the ipykernel is not involved
-(see sql_v2_kernel_architecture.md, "division of labor").
+run is a capped fetch through the data plane — the ipykernel is not involved.
 
 A run fetches up to `cache_limit` rows in one ClickHouse query and keeps them in
 an in-memory per-run cache; `/page` requests within the cache are local slices
 (no ClickHouse work, no held backend workers). Only paging beyond the cache — or
 after a kernel restart emptied it — re-queries the data plane with LIMIT/OFFSET.
 This is the capped, memory-resident precursor of the file-backed result store in
-sql_v2_kernel_architecture.md.
+`result_store.py`.
 """
 
 import json
@@ -79,7 +78,7 @@ def inspect_code(payload: dict[str, Any]) -> dict[str, Any]:
 def execute_run(payload: dict[str, Any]) -> None:
     """Entry point for a /run request, invoked on a background thread.
 
-    Routing rule (sql_v2_kernel_architecture.md): a kernel node — python or duckdb —
+    Routing rule: a kernel node — python or duckdb —
     runs in the ipykernel (materialize inputs, run code); a pure-HogQL display node
     stays a capped data-plane fetch and never touches the kernel.
     """

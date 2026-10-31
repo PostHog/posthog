@@ -2,8 +2,9 @@ import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 import { useMemo, useRef } from 'react'
 
-import { IconDownload, IconPlusSmall, IconUpload } from '@posthog/icons'
+import { IconDownload, IconPlus, IconPlusSmall, IconUpload } from '@posthog/icons'
 import { LemonDivider, LemonModal, LemonSwitch, LemonTag, Link } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet/CodeSnippet'
@@ -11,10 +12,12 @@ import { MemberSelect } from 'lib/components/MemberSelect'
 import { openPublishToCommunityDialog } from 'lib/components/openPublishToCommunityDialog'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { ProfileBubbles } from 'lib/lemon-ui/ProfilePicture/ProfileBubbles'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -475,6 +478,7 @@ export function LLMSkillsScene(): JSX.Element {
     const { searchParams } = useValues(router)
     const skillUrl = (name: string): string => combineUrl(urls.skill(name), searchParams).url
     const fileInputRef = useRef<HTMLInputElement | null>(null)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const showScoutOrigin = activeCategory === 'scout'
     const communitySkillsEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_COMMUNITY_SKILLS]
@@ -622,46 +626,86 @@ export function LLMSkillsScene(): JSX.Element {
             activeTabKey={activeTabKey}
             description={activeTabDescription}
             actions={
-                <>
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        onClick={() => setConnectModalOpen(true)}
-                        data-attr="connect-coding-agent-button"
-                    >
-                        Load skills in your agent
-                    </LemonButton>
-                    <AccessControlAction
-                        resourceType={AccessControlResourceType.LlmSkill}
-                        minAccessLevel={AccessControlLevel.Editor}
-                    >
+                todayRailNav ? (
+                    <>
+                        <Button
+                            variant="outline"
+                            onClick={() => setConnectModalOpen(true)}
+                            data-attr="connect-coding-agent-button"
+                        >
+                            Load skills in your agent
+                        </Button>
+                        <AccessControlAction
+                            resourceType={AccessControlResourceType.LlmSkill}
+                            minAccessLevel={AccessControlLevel.Editor}
+                        >
+                            <Button
+                                variant="outline"
+                                onClick={() => fileInputRef.current?.click()}
+                                loading={importing}
+                                data-attr="import-skill-button"
+                                tooltip="Import a skill from a spec-compliant .zip"
+                            >
+                                <IconUpload />
+                                Import
+                            </Button>
+                        </AccessControlAction>
+                        <AccessControlAction
+                            resourceType={AccessControlResourceType.LlmSkill}
+                            minAccessLevel={AccessControlLevel.Editor}
+                        >
+                            <Button
+                                variant="primary"
+                                render={<LinkPrimitive to={skillUrl('new')} />}
+                                data-attr="new-skill-button"
+                            >
+                                <IconPlus />
+                                New skill
+                            </Button>
+                        </AccessControlAction>
+                    </>
+                ) : (
+                    <>
                         <LemonButton
                             type="secondary"
                             size="small"
-                            icon={<IconUpload />}
-                            onClick={() => fileInputRef.current?.click()}
-                            loading={importing}
-                            data-attr="import-skill-button"
-                            tooltip="Import a skill from a spec-compliant .zip"
+                            onClick={() => setConnectModalOpen(true)}
+                            data-attr="connect-coding-agent-button"
                         >
-                            Import
+                            Load skills in your agent
                         </LemonButton>
-                    </AccessControlAction>
-                    <AccessControlAction
-                        resourceType={AccessControlResourceType.LlmSkill}
-                        minAccessLevel={AccessControlLevel.Editor}
-                    >
-                        <LemonButton
-                            type="primary"
-                            size="small"
-                            to={skillUrl('new')}
-                            icon={<IconPlusSmall />}
-                            data-attr="new-skill-button"
+                        <AccessControlAction
+                            resourceType={AccessControlResourceType.LlmSkill}
+                            minAccessLevel={AccessControlLevel.Editor}
                         >
-                            New skill
-                        </LemonButton>
-                    </AccessControlAction>
-                </>
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                icon={<IconUpload />}
+                                onClick={() => fileInputRef.current?.click()}
+                                loading={importing}
+                                data-attr="import-skill-button"
+                                tooltip="Import a skill from a spec-compliant .zip"
+                            >
+                                Import
+                            </LemonButton>
+                        </AccessControlAction>
+                        <AccessControlAction
+                            resourceType={AccessControlResourceType.LlmSkill}
+                            minAccessLevel={AccessControlLevel.Editor}
+                        >
+                            <LemonButton
+                                type="primary"
+                                size="small"
+                                to={skillUrl('new')}
+                                icon={<IconPlusSmall />}
+                                data-attr="new-skill-button"
+                            >
+                                New skill
+                            </LemonButton>
+                        </AccessControlAction>
+                    </>
+                )
             }
             content={content}
         />

@@ -2,8 +2,10 @@ import type { TaskService } from "@posthog/core/task-detail/taskService";
 import type { RootLogger } from "@posthog/di/logger";
 import {
   type AgentConversationEvent,
+  agentConversationEventToAcpNotification,
   mcpToolKey,
   posthogToolMeta,
+  type StoredLogEntry,
 } from "@posthog/shared";
 import type { CloudTaskUpdatePayload } from "@posthog/shared/domain-types";
 import { describe, expect, it, vi } from "vitest";
@@ -102,6 +104,34 @@ const snapshotEvent: AgentConversationEvent = {
   content: { type: "text", text: "durable response" },
 };
 
+function acpEntry(event: AgentConversationEvent): StoredLogEntry {
+  return {
+    type: "notification",
+    timestamp: new Date(event.timestamp).toISOString(),
+    notification: agentConversationEventToAcpNotification(event) ?? undefined,
+  };
+}
+
+function piExtensionEntry(message: Record<string, unknown>): StoredLogEntry {
+  return {
+    type: "pi_extension_event",
+    notification: { method: "_posthog/pi_extension_event", params: message },
+  };
+}
+
+function acpExtensionEntry(message: Record<string, unknown>): StoredLogEntry {
+  return {
+    type: "notification",
+    notification: {
+      method:
+        message.type === "extension_ui_response"
+          ? "_posthog/permission_resolved"
+          : "_posthog/permission_request",
+      params: { requestId: message.id, _meta: { piExtension: message } },
+    },
+  };
+}
+
 describe("CloudPiSessionClient", () => {
   it("relays Pi extension UI requests and responses through a cloud run", async () => {
     const cloud = createCloudTaskClient();
@@ -173,70 +203,58 @@ describe("CloudPiSessionClient", () => {
     });
   });
 
-  it("restores only unresolved extension requests from a cloud snapshot", () => {
-    const cloud = createCloudTaskClient();
-    const session = new CloudPiSessionClient(
-      cloud.client,
-      context("in_progress"),
-    );
-    const onEvent = vi.fn();
-    session.onExtensionEvent(onEvent, vi.fn());
+  it.each([
+    { format: "Pi", entry: piExtensionEntry },
+    { format: "ACP", entry: acpExtensionEntry },
+  ])(
+    "restores only unresolved extension requests from a $format-format cloud snapshot",
+    ({ entry }) => {
+      const cloud = createCloudTaskClient();
+      const session = new CloudPiSessionClient(
+        cloud.client,
+        context("in_progress"),
+      );
+      const onEvent = vi.fn();
+      session.onExtensionEvent(onEvent, vi.fn());
 
-    const pendingRequest = {
-      type: "extension_ui_request",
-      id: "pending",
-      method: "confirm",
-      title: "Continue?",
-      message: "Proceed?",
-    };
-    const resolvedRequest = {
-      ...pendingRequest,
-      id: "resolved",
-    };
-    cloud.sendUpdate({
-      taskId: "task-1",
-      runId: "run-1",
-      kind: "snapshot",
-      status: "in_progress",
-      newEntries: [
-        {
-          type: "pi_extension_event",
-          notification: {
-            method: "_posthog/pi_extension_event",
-            params: pendingRequest,
-          },
-        },
-        {
-          type: "pi_extension_event",
-          notification: {
-            method: "_posthog/pi_extension_event",
-            params: resolvedRequest,
-          },
-        },
-        {
-          type: "pi_extension_event",
-          notification: {
-            method: "_posthog/pi_extension_event",
-            params: {
-              type: "extension_ui_response",
-              id: "resolved",
-              confirmed: true,
-            },
-          },
-        },
-      ],
-      totalEntryCount: 3,
-    });
+      const pendingRequest = {
+        type: "extension_ui_request",
+        id: "pending",
+        method: "confirm",
+        title: "Continue?",
+        message: "Proceed?",
+      };
+      const resolvedRequest = {
+        ...pendingRequest,
+        id: "resolved",
+      };
+      cloud.sendUpdate({
+        taskId: "task-1",
+        runId: "run-1",
+        kind: "snapshot",
+        status: "in_progress",
+        newEntries: [
+          entry(pendingRequest),
+          entry(resolvedRequest),
+          entry({
+            type: "extension_ui_response",
+            id: "resolved",
+            confirmed: true,
+          }),
+        ],
+        totalEntryCount: 3,
+      });
 
-    expect(onEvent).toHaveBeenCalledTimes(2);
-    expect(onEvent).toHaveBeenCalledWith(pendingRequest);
-    expect(onEvent).toHaveBeenCalledWith({
-      type: "extension_ui_response",
-      id: "resolved",
-      confirmed: true,
-    });
-    expect(onEvent).not.toHaveBeenCalledWith(resolvedRequest);
-  });
+      expect(onEvent).toHaveBeenCalledTimes(2);
+      expect(onEvent).toHaveBeenCalledWith(pendingRequest);
+      expect(onEvent).toHaveBeenCalledWith({
+        type: "extension_ui_response",
+        id: "resolved",
+        confirmed: true,
+      });
+      expect(onEvent).not.toHaveBeenCalledWith(resolvedRequest);
+    },
+  );
 
   it("relays MCP permission requests and responses through the cloud task", async () => {
     const cloud = createCloudTaskClient();
@@ -306,37 +324,49 @@ describe("CloudPiSessionClient", () => {
     );
   });
 
-  it("waits for the native Pi readiness event before startup RPC commands", async () => {
-    const cloud = createCloudTaskClient();
-    vi.mocked(cloud.client.sendCommand).mockResolvedValue({
-      success: true,
-      result: {
-        type: "response",
-        command: "get_state",
-        success: true,
-        data: { isStreaming: true },
+  it.each([
+    { format: "Pi", readiness: { type: "pi_run_started" } },
+    {
+      format: "ACP",
+      readiness: {
+        type: "notification",
+        notification: { method: "_posthog/run_started", params: {} },
       },
-    });
-    const session = new CloudPiSessionClient(
-      cloud.client,
-      context("in_progress"),
-    );
-    session.onConversationEvent(vi.fn(), vi.fn());
+    },
+  ])(
+    "waits for the $format-format readiness event before startup RPC commands",
+    async ({ readiness }) => {
+      const cloud = createCloudTaskClient();
+      vi.mocked(cloud.client.sendCommand).mockResolvedValue({
+        success: true,
+        result: {
+          type: "response",
+          command: "get_state",
+          success: true,
+          data: { isStreaming: true },
+        },
+      });
+      const session = new CloudPiSessionClient(
+        cloud.client,
+        context("in_progress"),
+      );
+      session.onConversationEvent(vi.fn(), vi.fn());
 
-    const state = session.client.getState();
-    expect(cloud.client.sendCommand).not.toHaveBeenCalled();
+      const state = session.client.getState();
+      expect(cloud.client.sendCommand).not.toHaveBeenCalled();
 
-    cloud.sendUpdate({
-      taskId: "task-1",
-      runId: "run-1",
-      kind: "logs",
-      newEntries: [{ type: "pi_run_started" }],
-      totalEntryCount: 1,
-    });
+      cloud.sendUpdate({
+        taskId: "task-1",
+        runId: "run-1",
+        kind: "logs",
+        newEntries: [readiness],
+        totalEntryCount: 1,
+      });
 
-    await expect(state).resolves.toMatchObject({ isStreaming: true });
-    expect(cloud.client.sendCommand).toHaveBeenCalledOnce();
-  });
+      await expect(state).resolves.toMatchObject({ isStreaming: true });
+      expect(cloud.client.sendCommand).toHaveBeenCalledOnce();
+    },
+  );
 
   it("uses the readiness snapshot when opening an already-running session", async () => {
     const cloud = createCloudTaskClient();
@@ -725,49 +755,55 @@ describe("CloudPiSessionClient", () => {
     });
   });
 
-  it("loads terminal history from the cloud snapshot without sandbox RPC", async () => {
-    const cloud = createCloudTaskClient();
-    const session = new CloudPiSessionClient(
-      cloud.client,
-      context("completed"),
-    );
-    const events: AgentConversationEvent[] = [];
-    const eventContexts: Array<{ isLive: boolean } | undefined> = [];
-    session.onConversationEvent((event, context) => {
-      events.push(event);
-      eventContexts.push(context);
-    }, vi.fn());
+  it.each([
+    { format: "Pi", entry: { type: "pi_event", event: snapshotEvent } },
+    { format: "ACP", entry: acpEntry(snapshotEvent) },
+  ])(
+    "loads $format-format terminal history from the cloud snapshot without sandbox RPC",
+    async ({ entry }) => {
+      const cloud = createCloudTaskClient();
+      const session = new CloudPiSessionClient(
+        cloud.client,
+        context("completed"),
+      );
+      const events: AgentConversationEvent[] = [];
+      const eventContexts: Array<{ isLive: boolean } | undefined> = [];
+      session.onConversationEvent((event, context) => {
+        events.push(event);
+        eventContexts.push(context);
+      }, vi.fn());
 
-    const conversation = session.getConversation();
-    cloud.sendUpdate({
-      taskId: "task-1",
-      runId: "run-1",
-      kind: "snapshot",
-      status: "completed",
-      newEntries: [{ type: "pi_event", event: snapshotEvent }],
-      totalEntryCount: 1,
-    });
+      const conversation = session.getConversation();
+      cloud.sendUpdate({
+        taskId: "task-1",
+        runId: "run-1",
+        kind: "snapshot",
+        status: "completed",
+        newEntries: [entry],
+        totalEntryCount: 1,
+      });
 
-    await expect(conversation).resolves.toEqual([
-      expect.objectContaining(snapshotEvent),
-    ]);
-    expect(session.resumeRequired).toBe(true);
-    await expect(session.health()).resolves.toEqual({ state: "cold" });
-    await expect(session.client.getState()).resolves.toMatchObject({
-      isStreaming: false,
-    });
-    await expect(session.client.getAvailableModels()).resolves.toEqual([]);
-    await expect(session.client.getCommands()).resolves.toEqual([]);
-    expect(events).toEqual([
-      expect.objectContaining(snapshotEvent),
-      expect.objectContaining({
-        type: "turn_completed",
-        stopReason: "end_turn",
-      }),
-    ]);
-    expect(eventContexts).toEqual([{ isLive: false }, { isLive: false }]);
-    expect(cloud.client.sendCommand).not.toHaveBeenCalled();
-  });
+      await expect(conversation).resolves.toEqual([
+        expect.objectContaining(snapshotEvent),
+      ]);
+      expect(session.resumeRequired).toBe(true);
+      await expect(session.health()).resolves.toEqual({ state: "cold" });
+      await expect(session.client.getState()).resolves.toMatchObject({
+        isStreaming: false,
+      });
+      await expect(session.client.getAvailableModels()).resolves.toEqual([]);
+      await expect(session.client.getCommands()).resolves.toEqual([]);
+      expect(events).toEqual([
+        expect.objectContaining(snapshotEvent),
+        expect.objectContaining({
+          type: "turn_completed",
+          stopReason: "end_turn",
+        }),
+      ]);
+      expect(eventContexts).toEqual([{ isLive: false }, { isLive: false }]);
+      expect(cloud.client.sendCommand).not.toHaveBeenCalled();
+    },
+  );
 
   it("does not install streaming state after a terminal snapshot arrives during controller load", async () => {
     const cloud = createCloudTaskClient();

@@ -1,5 +1,6 @@
 from typing import TYPE_CHECKING, Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -42,7 +43,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postmark.s
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 if TYPE_CHECKING:
-    from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
+    from products.cdp.backend.templates.hog_function_template import HogFunctionTemplateDC
 
 
 @SourceRegistry.register
@@ -50,6 +51,15 @@ class PostmarkSource(
     ResumableSource[PostmarkSourceConfig, PostmarkResumeConfig],
     WebhookSource[PostmarkSourceConfig],
 ):
+    codebase_detection = detect(
+        env=("^POSTMARK_",),
+        npm=("postmark",),
+        pypi=("postmarker", "postmark-python"),
+        composer=("wildbit/postmark-php", "wildbit/laravel-postmark-provider", "wildbit/swiftmailer-postmark"),
+        maven=("com.postmarkapp:postmark",),
+        rubygems=("postmark", "postmark-rails"),
+    )
+
     api_docs_url = "https://postmarkapp.com/developer"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
@@ -72,6 +82,7 @@ You can find your server token under **Servers → (your server) → API Tokens*
 The token grants read access to the following server-level resources:
 - Outbound messages
 - Inbound messages
+- Opens
 - Bounces
 - Templates
 - Message streams

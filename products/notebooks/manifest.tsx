@@ -17,7 +17,7 @@ export const manifest: ProductManifest = {
         '/notebooks/widgets/:widgetId': ['ReusableWidget', 'reusableWidget'],
     },
     urls: {
-        notebooks: (): string => '/notebooks',
+        notebooks: (tab?: 'widgets'): string => (tab ? `/notebooks?tab=${tab}` : '/notebooks'),
         notebook: (shortId: string): string => `/notebooks/${shortId}`,
         canvas: (): string => `/canvas`,
         reusableWidget: (widgetId: string): string => `/notebooks/widgets/${widgetId}`,

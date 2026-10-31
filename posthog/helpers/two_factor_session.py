@@ -247,6 +247,17 @@ def normalize_verification_code(value: str) -> str:
     return CODE_NOISE_RE.sub("", unicodedata.normalize("NFKC", value or ""))
 
 
+# Authenticator apps show 6 digits, while StaticToken.random_token() backup codes are 8 base32
+# characters, so the shape of a 2FA login token is enough to tell which device it is for.
+TOTP_TOKEN_RE = re.compile(r"[0-9]{6}")
+
+
+def is_backup_code_attempt(token: object) -> bool:
+    """Whether a 2FA login token is checked against the backup codes rather than the authenticator.
+    Each device then keeps its own throttle, so a locked authenticator does not lock the backup codes."""
+    return isinstance(token, str) and bool(token) and not TOTP_TOKEN_RE.fullmatch(token)
+
+
 # Failed-attempt budget for a pending login is tracked in Redis so the cap is enforced atomically
 # (INCR) rather than via a raceable session read-modify-write, which parallel guesses could sidestep.
 CODE_ATTEMPTS_REDIS_KEY_PREFIX = "code_based_verification_attempts"
@@ -302,6 +313,9 @@ class CodeBasedVerificationTokenGenerator(PasswordResetTokenGenerator):
 code_based_verification_token_generator = CodeBasedVerificationTokenGenerator()
 
 
+EMAIL_CODE_IGNORES_ESP_SUPPRESSION_FLAG = "email-code-ignore-esp-suppression"
+
+
 @dataclass
 class CodeBasedVerificationCheckResult:
     should_send: bool
@@ -311,6 +325,25 @@ class CodeBasedVerificationCheckResult:
 
 
 class CodeBasedVerifier:
+    def _ignores_esp_suppression(self, user: User) -> bool:
+        # The SDK fetches definitions over HTTP when none are loaded, even with only_evaluate_locally,
+        # so login must not evaluate the flag until they load. Missing definitions or an error keep
+        # the suppression check.
+        try:
+            if posthoganalytics.feature_flag_definitions() is None:
+                return False
+            return bool(
+                posthoganalytics.feature_enabled(
+                    EMAIL_CODE_IGNORES_ESP_SUPPRESSION_FLAG,
+                    str(user.distinct_id),
+                    only_evaluate_locally=True,
+                    send_feature_flag_events=False,
+                )
+            )
+        except Exception:
+            mfa_logger.warning("email_code_esp_suppression_flag_unreadable", user_id=user.pk, exc_info=True)
+            return False
+
     def _capture_suppression_bypass_event(self, user: User, reason: str, cached: bool) -> None:
         try:
             posthoganalytics.capture(
@@ -352,6 +385,10 @@ class CodeBasedVerifier:
         if is_email_code_exempt(user.email):
             mfa_logger.info("Code-based verification bypassed via access rule", user_id=user.pk)
             return CodeBasedVerificationCheckResult(should_send=False)
+
+        # Skips the lookup and does not only ignore its result, because a failed lookup also counts as suppressed.
+        if self._ignores_esp_suppression(user):
+            return CodeBasedVerificationCheckResult(should_send=True)
 
         suppression_result = check_esp_suppression(user.email)
         if suppression_result.is_suppressed:

@@ -2,7 +2,7 @@ name: Set up uv
 description: |
     Installs CI's exact uv version and optionally restores its cache.
 
-    The exact pin makes installs reproducible. setup-uv v7.6.0 resolves
+    The exact pin makes installs reproducible. setup-uv v10.3.2 resolves
     downloads through Astral's static manifest, not the GitHub releases API.
     Jobs that check out an older revision must install uv directly: this
     action does not exist in those trees.
@@ -34,9 +34,12 @@ runs:
     steps:
         - name: Install uv
           id: setup-uv
-          uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+          uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
           with:
-              version: '0.12.13'
+              version: '0.13.4'
               enable-cache: ${{ inputs.enable-cache }}
               cache-dependency-glob: ${{ inputs.cache-dependency-glob }}
               save-cache: ${{ inputs.save-cache }}
+              # Keeps only wheels built from source. The pre-built wheels of uv.lock total about
+              # 1 GB, and every job downloads them faster than it restores them from the cache.
+              prune-cache: true

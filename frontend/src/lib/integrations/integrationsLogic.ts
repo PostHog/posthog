@@ -8,6 +8,7 @@ import api, { ApiError, getCookie } from 'lib/api'
 import { globalSetupLogic } from 'lib/components/ProductSetup'
 import { buildGithubDisconnectDescription } from 'lib/integrations/githubDisconnectCopy'
 import { describeGithubSetupError, GITHUB_INSTALL_PENDING_MESSAGE } from 'lib/integrations/githubSetupErrors'
+import { describeScopeShortfall, getMissingScopes, requestedScopesForKind } from 'lib/integrations/integrationScopes'
 import {
     describeOAuthCallbackError,
     INTEGRATION_ERROR_PARAM,
@@ -66,6 +67,21 @@ function landsOnErrorAwarePage(pathname: string): boolean {
     return segments.length === 2 && segments[0] === 'data-warehouse' && segments[1] === 'new-source'
 }
 
+// The backend hex-encodes the state for a provider that does not return it verbatim (see
+// `opaque_state` on OauthConfig). A plain state always holds `next=`, so it never matches.
+function decodeOpaqueOAuthState(state: string | undefined): string | undefined {
+    if (!state || !/^(?:[0-9a-f]{2})+$/i.test(state)) {
+        return state
+    }
+    try {
+        return decodeURIComponent(state.replace(/../g, '%$&'))
+    } catch {
+        // A crafted hex state that is not valid UTF-8 carries no token, so the callback rejects it
+        // as an expired state instead of throwing before it can redirect.
+        return state
+    }
+}
+
 // Search param the OAuth callback appends with the id of the integration it just created, so the
 // page the user lands back on can select the connection they authorized rather than guessing.
 // pinned: URL search param — the callback redirect and the landing page both read it.
@@ -102,6 +118,7 @@ export interface integrationsLogicValues {
     getIntegrationsByKind: (
         kinds: (
             | 'apns'
+            | 'apple-ads'
             | 'aws-redshift'
             | 'aws-s3'
             | 'azure-blob'
@@ -186,6 +203,13 @@ export interface integrationsLogicActions {
         error: string
         kind: string
     } // eventUsageLogic
+    reportIntegrationScopeShortfallShown: (
+        kind: string,
+        missingScopes: string[]
+    ) => {
+        kind: string
+        missingScopes: string[]
+    } // eventUsageLogic
     markTaskAsCompleted: (taskIdOrIds: AvailableSetupTaskIdsEnumApi | AvailableSetupTaskIdsEnumApi[]) => {
         taskIdOrIds: AvailableSetupTaskIdsEnumApi | AvailableSetupTaskIdsEnumApi[]
     } // globalSetupLogic
@@ -214,6 +238,7 @@ export interface integrationsLogicActions {
     ) => {
         kind:
             | 'apns'
+            | 'apple-ads'
             | 'aws-redshift'
             | 'aws-s3'
             | 'azure-blob'
@@ -350,6 +375,7 @@ export interface integrationsLogicActions {
             installation_status?: InstallationStatusEnumApi | null | undefined
             kind:
                 | 'apns'
+                | 'apple-ads'
                 | 'aws-redshift'
                 | 'aws-s3'
                 | 'azure-blob'
@@ -414,6 +440,7 @@ export interface integrationsLogicActions {
             installation_status?: InstallationStatusEnumApi | null | undefined
             kind:
                 | 'apns'
+                | 'apple-ads'
                 | 'aws-redshift'
                 | 'aws-s3'
                 | 'azure-blob'
@@ -472,6 +499,7 @@ export interface integrationsLogicActions {
         id: string
         kind:
             | 'apns'
+            | 'apple-ads'
             | 'aws-redshift'
             | 'aws-s3'
             | 'azure-blob'
@@ -537,6 +565,7 @@ export interface integrationsLogicActions {
     requestIntegrationAccessSuccess: (
         accessRequest:
             | 'apns'
+            | 'apple-ads'
             | 'aws-redshift'
             | 'aws-s3'
             | 'azure-blob'
@@ -587,6 +616,7 @@ export interface integrationsLogicActions {
     ) => {
         accessRequest:
             | 'apns'
+            | 'apple-ads'
             | 'aws-redshift'
             | 'aws-s3'
             | 'azure-blob'
@@ -683,6 +713,7 @@ export interface integrationsLogicMeta {
         ) => (
             kinds: (
                 | 'apns'
+                | 'apple-ads'
                 | 'aws-redshift'
                 | 'aws-s3'
                 | 'azure-blob'
@@ -758,7 +789,7 @@ export const integrationsLogic = kea<integrationsLogicType>([
             globalSetupLogic,
             ['markTaskAsCompleted'],
             eventUsageLogic,
-            ['reportIntegrationConnectRejected'],
+            ['reportIntegrationConnectRejected', 'reportIntegrationScopeShortfallShown'],
             teamLogic,
             ['loadCurrentTeamSuccess'],
         ],
@@ -823,7 +854,6 @@ export const integrationsLogic = kea<integrationsLogicType>([
             null as GitHubAvailableInstallationsResponseApi | null,
             {
                 invalidateGithubSuggestions: () => null,
-                loadGithubAvailableInstallations: () => null,
                 setGithubDiscovery: (_, { response }) => response,
             },
         ],
@@ -1243,8 +1273,9 @@ export const integrationsLogic = kea<integrationsLogicType>([
                 return
             }
 
-            const { state, code, error, stripe_user_id, account_id, user_id } = searchParams
-            const { next, token, source, server_id, team_id } = fromParamsGivenUrl(state)
+            const { code, error, stripe_user_id, account_id, user_id } = searchParams
+            const state = decodeOpaqueOAuthState(searchParams.state)
+            const { next, token, source, server_id, team_id } = fromParamsGivenUrl(state ?? '')
             const resolvedKind = kind
             let replaceUrl: string = next || urls.settings('project-integrations')
 
@@ -1328,7 +1359,15 @@ export const integrationsLogic = kea<integrationsLogicType>([
                     replaceUrl = url.pathname + url.search + url.hash
 
                     actions.loadIntegrations()
-                    lemonToast.success(`Integration successful.`)
+                    const missingScopes = getMissingScopes(integration, requestedScopesForKind(integration.kind))
+                    if (missingScopes.length > 0) {
+                        actions.reportIntegrationScopeShortfallShown(integration.kind, missingScopes)
+                        lemonToast.warning(describeScopeShortfall(integration.kind, missingScopes), {
+                            autoClose: false,
+                        })
+                    } else {
+                        lemonToast.success(`Integration successful.`)
+                    }
                 }
             } catch (e) {
                 toastApiError(e)

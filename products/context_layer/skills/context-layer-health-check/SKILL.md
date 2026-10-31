@@ -1,6 +1,6 @@
 ---
 name: context-layer-health-check
-description: Semantic review of context wiki quality after deterministic consolidation
+description: Reviews context wiki quality after deterministic consolidation. Use when recent wiki-miss entries, contradictory or unsupported claims, stale priorities, near-duplicate subjects, or concepts without an owning page need semantic triage.
 ---
 
 # Context layer health check

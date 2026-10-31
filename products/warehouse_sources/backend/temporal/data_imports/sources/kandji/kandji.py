@@ -1,7 +1,9 @@
 import re
 from collections.abc import Iterable
 from typing import Any, Optional, cast
+from urllib.parse import parse_qsl, urlsplit
 
+from requests import Request, Response
 from requests.exceptions import RequestException
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
@@ -13,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     build_dependent_resource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    BasePaginator,
     OffsetPaginator,
     SinglePagePaginator,
 )
@@ -68,7 +71,38 @@ def _rest_api_client_config(base_url: str, api_token: str) -> ClientConfig:
     }
 
 
-def _list_paginator(config: KandjiEndpointConfig) -> OffsetPaginator:
+class KandjiNextLinkPaginator(BasePaginator):
+    """Pages by copying the query string of the body's `next` URL onto the original request.
+
+    The request is never sent to the `next` URL itself, whose host can differ from the validated
+    tenant API host (Kandji's docs show `next` links on the non-`api` subdomain), so the bearer
+    token only ever goes to the host built by `build_base_url`.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._next_params: dict[str, str] | None = None
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        body = response.json()
+        next_url = body.get("next") if isinstance(body, dict) else None
+        next_params = dict(parse_qsl(urlsplit(next_url).query)) if next_url else None
+        if not next_params or next_params == self._next_params:
+            self._has_next_page = False
+            return
+        self._next_params = next_params
+        self._has_next_page = True
+
+    def update_request(self, request: Request) -> None:
+        if self._next_params is not None:
+            request.params = {**(request.params or {}), **self._next_params}
+
+
+def _list_paginator(config: KandjiEndpointConfig) -> BasePaginator:
+    if config.pagination == "single":
+        return SinglePagePaginator()
+    if config.pagination == "next_link":
+        return KandjiNextLinkPaginator()
     return OffsetPaginator(
         limit=config.page_size,
         offset_param="offset",
@@ -116,9 +150,9 @@ def validate_credentials(
 def get_resource(config: KandjiEndpointConfig) -> EndpointResource:
     endpoint_config: Endpoint = {
         "path": config.path,
-        "params": {},
+        "params": dict(config.params),
         "data_selector": config.data_selector,
-        "paginator": _list_paginator(config) if config.paginated else SinglePagePaginator(),
+        "paginator": _list_paginator(config),
     }
     return {
         "name": config.name,
@@ -171,7 +205,7 @@ def kandji_source(
                     "data_selector": parent_config.data_selector,
                 },
                 child_endpoint_extra={
-                    "paginator": SinglePagePaginator(),
+                    "paginator": _list_paginator(config),
                     "data_selector": config.data_selector,
                 },
             ),

@@ -1,4 +1,4 @@
-import type { InactivityPeriod as BaseInactivityPeriod } from '@posthog/replay-headless/protocol'
+import type { InactivityPeriod as BaseInactivityPeriod, NavigationSample } from '@posthog/replay-headless/protocol'
 
 export interface RasterizeRecordingInput {
     session_id: string
@@ -28,25 +28,6 @@ export interface RasterizeRecordingInput {
     s3_key_prefix: string // e.g. "exports/mp4/team-123/task-456"
 }
 
-export interface ExtractThumbnailInput {
-    /** The rendered analysis MP4 to cut the frame from. */
-    source_s3_uri: string
-    /** Seconds into the analysis video, which is the time base the model's citations use. */
-    video_time_s: number
-    /** Pixels of burned-in metadata footer to crop off the bottom before scaling. */
-    footer_crop_px?: number
-    /** Output width; height follows the source aspect ratio. Defaults to 1280. */
-    width?: number
-    s3_bucket: string
-    s3_key_prefix: string
-    id: string
-}
-
-export interface ExtractThumbnailOutput {
-    s3_uri: string
-    file_size_bytes: number
-}
-
 export interface ExtractThumbnailsInput {
     /** The rendered analysis MP4 to cut the frames from. */
     source_s3_uri: string
@@ -57,13 +38,17 @@ export interface ExtractThumbnailsInput {
     footer_crop_px?: number
     /** Output width; height follows the source aspect ratio. Defaults to 1280. */
     width?: number
+    /** Width of a second, smaller copy of each frame, cut from the same decode. No copy is made when unset. */
+    small_width?: number
+    /** Image format of every output. Defaults to `png`, which is what a caller that predates the field expects. */
+    image_format?: 'png' | 'webp'
     s3_bucket: string
     s3_key_prefix: string
 }
 
 export interface ExtractThumbnailsOutput {
     /** One entry per frame the video has, in input order. */
-    frames: { id: string; s3_uri: string; file_size_bytes: number }[]
+    frames: { id: string; s3_uri: string; file_size_bytes: number; small_s3_uri?: string }[]
 }
 
 /**
@@ -74,6 +59,14 @@ export interface ExtractThumbnailsOutput {
 export interface InactivityPeriod extends BaseInactivityPeriod {
     recording_ts_from_s?: number
     recording_ts_to_s?: number
+}
+
+export interface NavigationChange {
+    video_s: number // position in the rendered file where the change first shows
+    session_s: number // recording time of that frame
+    window_id: string // the recording's own window id, as its analytics events carry it
+    window_number: number // the number the footer shows for the window
+    url: string // without query string, as the footer draws it
 }
 
 /**
@@ -103,6 +96,7 @@ export interface RasterizeRecordingOutput {
     footer_height_px: number
     truncated: boolean // true when max_virtual_time stopped the recording early
     inactivity_periods: InactivityPeriod[]
+    navigation: NavigationChange[]
     file_size_bytes: number
     timings: ActivityTimings
 }
@@ -129,6 +123,7 @@ export interface RecordingResult {
     truncated: boolean // true when max_virtual_time stopped the recording early
     inactivity_periods: InactivityPeriod[]
     frame_session_ms: number[] // session time at each captured frame, measured during capture
+    navigation_samples: NavigationSample[] // window or URL changes, each keyed to its frame_session_ms index
     pre_roll_frames: number // frames captured before playback started, which carry no sample
     output_fps: number // frames per second of the rendered file, so a frame index is a video position
     timings: Pick<ActivityTimings, 'setup_s' | 'capture_s'>

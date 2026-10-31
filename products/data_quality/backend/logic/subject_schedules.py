@@ -25,7 +25,7 @@ from posthog.temporal.common.schedule import a_create_schedule, a_describe_sched
 from posthog.temporal.common.search_attributes import POSTHOG_SCHEDULE_TYPE_KEY, POSTHOG_TEAM_ID_KEY
 
 from ..facade.contracts import CHECK_SUITE_WORKFLOW_NAME, RunCheckSuiteInputs
-from ..facade.enums import ScheduleInterval, SubjectType, SuiteRunTrigger
+from ..facade.enums import DataQualityScheduleInterval, SubjectType, SuiteRunTrigger
 
 SCHEDULE_TYPES: dict[SubjectType, str] = {
     SubjectType.METRIC: "data-quality-metric",
@@ -40,11 +40,11 @@ def runs_on_a_schedule(subject_type: SubjectType) -> bool:
 
 CATCHUP_WINDOW = timedelta(minutes=15)
 INTERVALS = {
-    ScheduleInterval.ONE_HOUR: timedelta(hours=1),
-    ScheduleInterval.SIX_HOURS: timedelta(hours=6),
-    ScheduleInterval.TWELVE_HOURS: timedelta(hours=12),
-    ScheduleInterval.DAILY: timedelta(days=1),
-    ScheduleInterval.WEEKLY: timedelta(days=7),
+    DataQualityScheduleInterval.ONE_HOUR: timedelta(hours=1),
+    DataQualityScheduleInterval.SIX_HOURS: timedelta(hours=6),
+    DataQualityScheduleInterval.TWELVE_HOURS: timedelta(hours=12),
+    DataQualityScheduleInterval.DAILY: timedelta(days=1),
+    DataQualityScheduleInterval.WEEKLY: timedelta(days=7),
 }
 
 
@@ -109,10 +109,10 @@ def selected_subject_ids(inputs: RunCheckSuiteInputs, subject_type: SubjectType)
 
 
 def interval_from_label(label: str) -> timedelta:
-    return INTERVALS[ScheduleInterval(label)]
+    return INTERVALS[DataQualityScheduleInterval(label)]
 
 
-def label_from_interval(interval: timedelta) -> ScheduleInterval:
+def label_from_interval(interval: timedelta) -> DataQualityScheduleInterval:
     for label, duration in INTERVALS.items():
         if interval == duration:
             return label
@@ -130,7 +130,7 @@ class SubjectSchedules:
         return ScheduleSpec(intervals=[ScheduleIntervalSpec(every=duration, offset=offset)])
 
     @classmethod
-    def build(cls, key: SubjectScheduleKey, interval: str = ScheduleInterval.DAILY) -> Schedule:
+    def build(cls, key: SubjectScheduleKey, interval: str = DataQualityScheduleInterval.DAILY) -> Schedule:
         return Schedule(
             action=ScheduleActionStartWorkflow(
                 CHECK_SUITE_WORKFLOW_NAME,

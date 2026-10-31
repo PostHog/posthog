@@ -23,6 +23,9 @@ inputs:
     filters:
         description: 'Path to the configuration file or YAML string with filters definition'
         required: true
+    shared-image-policy:
+        description: 'Canonical shared-image policy projected into legacy filters; channel destinations require publisher integration'
+        required: false
     list-files:
         description: |
             Enables listing of files matching the filter:

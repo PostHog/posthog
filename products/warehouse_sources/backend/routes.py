@@ -4,6 +4,7 @@ from products.warehouse_sources.backend.presentation.views import (
     column_statistics,
     external_data_destination,
     external_data_schema,
+    warehouse_alert_destinations,
 )
 from products.warehouse_sources.backend.presentation.views.external_data_source.viewset import ExternalDataSourceViewSet
 
@@ -25,6 +26,12 @@ def register_routes(routers: RouterRegistry) -> None:
         r"external_data_schemas",
         external_data_schema.ExternalDataSchemaViewset,
         "project_external_data_schemas",
+        ["team_id"],
+    )
+    routers.projects.register(
+        r"warehouse_alerts",
+        warehouse_alert_destinations.WarehouseAlertDestinationViewSet,
+        "project_warehouse_alerts",
         ["team_id"],
     )
     routers.projects.register(

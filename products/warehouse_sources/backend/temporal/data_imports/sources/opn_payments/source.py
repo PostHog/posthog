@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +36,24 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class OpnPaymentsSource(ResumableSource[OpnPaymentsSourceConfig, OpnPaymentsResumeConfig]):
+    codebase_detection = detect(
+        env=("^OMISE_PUBLIC_KEY$", "^OMISE_SECRET_KEY$"),
+        script_hosts=("cdn.omise.co",),
+        npm=("omise",),
+        pypi=("omise",),
+        cocoapods=("OmiseSDK",),
+        composer=("omise/omise-php", "omise/omise-magento"),
+        go=("github.com/omise/omise-go",),
+        maven=("co.omise:omise-java", "co.omise:omise-android", "co.omise:omise_flutter_module"),
+        pub=("omise_flutter", "omise_dart"),
+        rubygems=("omise",),
+        swiftpm=(
+            "github.com/omise/omise-ios",
+            "github.com/omise/omise-flutter-wrapper-ios",
+            "github.com/omise/omise-ios-3ds",
+        ),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("2019-05-29",)
     default_version = "2019-05-29"
@@ -104,7 +123,7 @@ class OpnPaymentsSource(ResumableSource[OpnPaymentsSourceConfig, OpnPaymentsResu
             name=ExternalDataSourceType.OPNPAYMENTS,
             category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
             label="Opn Payments (formerly Omise)",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="Enter your Opn Payments (Omise) secret key to sync charges, customers, transfers, "
             "and more into the PostHog Data warehouse. Find your secret key in the Opn Payments "
             "dashboard under **Keys**.",

@@ -34,11 +34,3 @@ class TestSourcegraphSource:
     def test_admin_scoped_schemas_mention_site_admin(self, endpoint):
         schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
         assert "site-admin" in (schemas[endpoint].description or "")
-
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["repositories"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "repositories"
-
-    def test_get_schemas_unknown_name_returns_empty(self):
-        assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []

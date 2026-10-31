@@ -120,6 +120,8 @@ Folders open in the Files tab when the simple side panel is enabled.
 Optional tools download on first use: nvim, node, pi, nyancat, and doom.
 In Doom, W/S move, A/D strafe, left/right arrows turn, Space fires, E opens doors,
 and Shift runs. Use Capture mouse to turn with the mouse; left-click fires.
+For a deathmatch, one player runs doom -server -deathmatch and shares the room code.
+Other players in this project run doom -connect <code>. The host presses Space to start.
 
 Saving a .sql insight updates its query and preserves its query options.
 Use run report.sql to execute SQL, or run --help for JSON, CSV, and TSV exports.

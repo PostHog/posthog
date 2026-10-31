@@ -95,6 +95,17 @@ export const OrganizationsProjectsAccessControlDefaultRulesUpdateBody = /* @__PU
     )
 
 /**
+ * Enable or disable the Terraform lock. Disabled: the UI manages this project's access rules. Enabled: only the account behind Terraform's API key can change them, and until Terraform writes for the first time, nobody can. A Terraform write enables the lock. Project admins and organization admins can call this.
+ */
+export const OrganizationsProjectsAccessControlManagementUpdateBody = /* @__PURE__ */ zod.object({
+    managed: zod
+        .boolean()
+        .describe(
+            "False: the UI manages this project's access rules. True: only the account behind Terraform's API key can change them. Before the first Terraform write, true locks everyone out."
+        ),
+})
+
+/**
  * Set or clear one member's rule for a scope. A member rule applies to that person only and takes precedence over their role rules and the default. The scope is the project (`resource: project` with the project id as `resource_id`), a whole resource type, one object, or one property definition. A null `access_level` removes the rule. Returns the stored rule, or 204 with no body when the rule is cleared.
  */
 export const OrganizationsProjectsAccessControlMemberRulesUpdateBody = /* @__PURE__ */ zod

@@ -56,6 +56,15 @@ describe('retryImport', () => {
         expect(isChunkLoadError(error)).toBe(true)
     })
 
+    it('marks a chunk parse SyntaxError without retrying', async () => {
+        const error = new SyntaxError('Invalid or unexpected token')
+        const factory = jest.fn().mockRejectedValue(error)
+
+        await expect(retryImport(factory)).rejects.toBe(error)
+        expect(factory).toHaveBeenCalledTimes(1)
+        expect(isChunkLoadError(error)).toBe(true)
+    })
+
     it('rethrows a non-chunk error immediately without retrying', async () => {
         const factory = jest.fn().mockRejectedValue(new TypeError('undefined is not a function'))
 

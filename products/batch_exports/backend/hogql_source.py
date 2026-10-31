@@ -15,20 +15,17 @@ from posthog.schema import HogQLQueryModifiers
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
-from posthog.hogql.errors import ExposedHogQLError, QueryError
-from posthog.hogql.escape_sql import escape_clickhouse_identifier
+from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import find_placeholders, replace_placeholders
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
-from posthog.hogql.visitor import CloningVisitor
 
-from posthog.clickhouse.events_json import UNPARSEABLE_PROPERTIES_KEY
+from products.batch_exports.backend.facade.contracts import UnsupportedHogQLQueryError
 
 if typing.TYPE_CHECKING:
     from posthog.models import Team, User
 
-    from products.batch_exports.backend.service import BatchExportField, BatchExportSchema
 
 DATA_INTERVAL_START_PLACEHOLDER = "data_interval_start"
 DATA_INTERVAL_END_PLACEHOLDER = "data_interval_end"
@@ -41,10 +38,6 @@ _VALIDATION_DATA_INTERVAL_END = dt.datetime(2000, 1, 2, tzinfo=dt.UTC)
 _SUPPORTED_PLACEHOLDERS = f"{{{DATA_INTERVAL_START_PLACEHOLDER}}} and {{{DATA_INTERVAL_END_PLACEHOLDER}}}"
 
 LOGGER = structlog.get_logger(__name__)
-
-
-class UnsupportedHogQLQueryError(Exception):
-    """Raised when a HogQL query cannot be used to power a batch export."""
 
 
 def parse_hogql_select_for_batch_export(hogql_query: str) -> ast.SelectQuery | ast.SelectSetQuery:
@@ -137,6 +130,22 @@ def validate_hogql_batch_export_user(team: "Team", user: "User | None") -> None:
         )
 
 
+def apply_hogql_batch_export_modifier_defaults(
+    team: "Team", modifiers: HogQLQueryModifiers | None
+) -> HogQLQueryModifiers:
+    """Return the export's modifiers with the defaults that apply to the `hogql` model only.
+
+    `convertToProjectTimezone` falls back to `False`, so timestamps come out in UTC unless the export
+    or the project sets the modifier. Other models keep the project default, so their output does
+    not change.
+    """
+    resolved = modifiers.model_copy() if modifiers is not None else HogQLQueryModifiers()
+    team_value = team.modifiers.get("convertToProjectTimezone") if isinstance(team.modifiers, dict) else None
+    if resolved.convertToProjectTimezone is None and team_value is None:
+        resolved.convertToProjectTimezone = False
+    return resolved
+
+
 def create_hogql_context_for_batch_export(
     team: "Team",
     values: dict[str, typing.Any] | None = None,
@@ -191,7 +200,7 @@ def _validate_select_columns_are_named(parsed: ast.SelectQuery | ast.SelectSetQu
 
 def validate_hogql_query_for_batch_export(
     hogql_query: str, team: "Team", *, user: "User", modifiers: HogQLQueryModifiers | None = None
-) -> None:
+) -> ast.SelectQuery | ast.SelectSetQuery:
     """Validate a HogQL query can power a batch export for the given team.
 
     Parses the query, checks output columns are named, and compiles it with the user's
@@ -204,6 +213,9 @@ def validate_hogql_query_for_batch_export(
     Raises:
         UnsupportedHogQLQueryError: If the query cannot power a batch export.
         InternalHogQLError: Left to propagate, as in `parse_hogql_select_for_batch_export`.
+
+    Returns:
+        The valid, parsed AST for a select query.
     """
     validate_hogql_batch_export_user(team, user)
     parsed = parse_hogql_select_for_batch_export(hogql_query)
@@ -211,7 +223,9 @@ def validate_hogql_query_for_batch_export(
 
     parsed = replace_interval_placeholders(parsed, _VALIDATION_DATA_INTERVAL_START, _VALIDATION_DATA_INTERVAL_END)
 
-    context = create_hogql_context_for_batch_export(team, user=user, modifiers=modifiers)
+    context = create_hogql_context_for_batch_export(
+        team, user=user, modifiers=apply_hogql_batch_export_modifier_defaults(team, modifiers)
+    )
     try:
         prepared = prepare_ast_for_printing(parsed, context=context, dialect="clickhouse", stack=[])
         assert prepared is not None
@@ -219,13 +233,21 @@ def validate_hogql_query_for_batch_export(
     except ExposedHogQLError as e:
         raise UnsupportedHogQLQueryError(f"Invalid HogQL query: {e}") from e
 
+    return prepared
+
+
+def drop_unknown_hogql_modifiers(stored: dict[str, typing.Any]) -> dict[str, typing.Any]:
+    """Return the stored HogQL modifiers without keys that `HogQLQueryModifiers` no longer has.
+
+    `HogQLQueryModifiers` forbids unknown keys, so a modifier removed from the schema after
+    an export stored it would fail validation. No code reads a removed modifier anymore, so
+    dropping it keeps the output the same.
+    """
+    return {key: value for key, value in stored.items() if key in HogQLQueryModifiers.model_fields}
+
 
 def load_hogql_modifiers(stored: dict[str, typing.Any] | None) -> HogQLQueryModifiers | None:
     """Load the HogQL modifiers a batch export stored, dropping keys that no longer exist.
-
-    `HogQLQueryModifiers` forbids unknown keys, so a modifier removed from the schema after
-    an export stored it would fail every run. No code reads a removed modifier anymore, so
-    dropping it keeps the output the same.
 
     Raises:
         UnsupportedHogQLQueryError: If a stored modifier has a value that is not valid.
@@ -233,7 +255,7 @@ def load_hogql_modifiers(stored: dict[str, typing.Any] | None) -> HogQLQueryModi
     if stored is None:
         return None
 
-    known = {key: value for key, value in stored.items() if key in HogQLQueryModifiers.model_fields}
+    known = drop_unknown_hogql_modifiers(stored)
     if unknown := sorted(stored.keys() - known.keys()):
         LOGGER.warning("Dropping unknown HogQL modifiers", modifiers=unknown)
 
@@ -241,96 +263,3 @@ def load_hogql_modifiers(stored: dict[str, typing.Any] | None) -> HogQLQueryModi
         return HogQLQueryModifiers.model_validate(known)
     except ValidationError as e:
         raise UnsupportedHogQLQueryError(f"Invalid HogQL modifiers: {e}") from e
-
-
-class SerializedExportProperties(CloningVisitor):
-    """Rebind event fields while preserving property access restrictions."""
-
-    def __init__(self, table_alias: str, context: HogQLContext) -> None:
-        super().__init__()
-        self.table_alias = table_alias
-
-        from products.access_control.backend.facade.api import (  # noqa: PLC0415 — keeps Django access-control imports off the batch worker import path
-            split_restricted_property_names,
-        )
-
-        restrictions = context.restricted_properties or set()
-        restricted_names = split_restricted_property_names(restrictions)
-        self.event_restrictions = set(restricted_names.event)
-        self.person_restrictions = set(restricted_names.person)
-        if restrictions and context.uses_new_events_schema():
-            self.event_restrictions.add(UNPARSEABLE_PROPERTIES_KEY)
-            self.person_restrictions.add(UNPARSEABLE_PROPERTIES_KEY)
-
-    def visit_field(self, node: ast.Field) -> ast.Expr:
-        node = super().visit_field(node)
-        if node.chain[0] == self.table_alias:
-            node.chain[0] = "events"
-        index = 1 if node.chain[0] == "events" else 0
-        if len(node.chain) <= index:
-            return node
-        if node.chain[index : index + 2] == ["person", "properties"]:
-            # `poe.properties` is the events table's own copy of the person properties.
-            node.chain[index : index + 2] = ["poe", "properties"]
-        if node.chain[index : index + 2] == ["poe", "properties"]:
-            restrictions, property_chain = self.person_restrictions, node.chain[index + 2 :]
-        elif str(node.chain[index]) == "properties":
-            restrictions, property_chain = self.event_restrictions, node.chain[index + 1 :]
-        else:
-            return node
-        if restrictions:
-            property_path = ".".join(str(part) for part in property_chain)
-            if not property_path:
-                raise QueryError("Batch export queries cannot select a restricted properties object")
-            if any(
-                property_path == key or property_path.startswith(key + ".") or key.startswith(property_path + ".")
-                for key in restrictions
-            ):
-                return ast.Constant(value=None)
-        return node
-
-
-def prepare_serialized_export_query(query: ast.SelectQuery, context: HogQLContext) -> ast.SelectQuery:
-    """Resolve a HogQL query the way the export SQL reads it."""
-    assert query.select_from is not None
-    query = SerializedExportProperties(query.select_from.alias or "events", context).visit(query)
-    assert query.select_from is not None
-    # The export SQL names its source `events`, so a user alias must not reach the printed fields.
-    query.select_from.alias = None
-    # Every export template hands the fields a String `properties`, the native source included, so
-    # the legacy shape is the one form valid on both. Resolving against the events table rather than
-    # a subquery is also what lets the swapper keep the cast a typed property needs.
-    context.use_new_events_schema = False
-    return typing.cast(ast.SelectQuery, prepare_ast_for_printing(query, context=context, dialect="clickhouse"))
-
-
-def serialize_batch_export_query(query: ast.SelectQuery, context: HogQLContext) -> "BatchExportSchema":
-    """Compile a HogQL query into stable ClickHouse expressions and aliases."""
-    if context.uses_new_events_schema():
-        hogql = print_prepared_ast(query, context=context, dialect="hogql")
-        query = prepare_serialized_export_query(typing.cast(ast.SelectQuery, parse_select(hogql)), context)
-        stack = [query]
-    else:
-        print_prepared_ast(query, context=context, dialect="clickhouse")
-        context = HogQLContext(
-            team_id=context.team_id,
-            enable_select_queries=True,
-            limit_top_select=False,
-            use_new_events_schema=False,
-        )
-        stack = []
-        hogql = print_prepared_ast(query, context=context, dialect="hogql")
-    fields: list[BatchExportField] = []
-    for field in query.select:
-        if isinstance(field, ast.Alias):
-            expression = print_prepared_ast(field.expr, context=context, dialect="clickhouse", stack=stack)
-            alias = escape_clickhouse_identifier(field.alias)
-        else:
-            expression = print_prepared_ast(field, context=context, dialect="clickhouse", stack=stack)
-            # String constants get parameterized by the ClickHouse printer (e.g., 'hello' becomes
-            # %(hogql_val_0)s), which escape_clickhouse_identifier rejects. Use the raw value instead.
-            alias = escape_clickhouse_identifier(
-                field.value if isinstance(field, ast.Constant) and isinstance(field.value, str) else expression
-            )
-        fields.append({"expression": expression, "alias": alias})
-    return {"fields": fields, "values": context.values, "hogql_query": hogql}

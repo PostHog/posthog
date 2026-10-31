@@ -2,7 +2,6 @@ import uuid
 import datetime as dt
 
 import pytest
-from unittest.mock import patch
 
 import temporalio.worker
 import temporalio.workflow
@@ -20,6 +19,7 @@ from posthog.temporal.tests.data_modeling.test_execute_dag_workflow import (
     _mock_workflow_should_block_on_quality,
     _mock_workflow_should_fail,
     _mock_workflow_should_self_audit,
+    stub_check_team_shadow_eligibility,
     stub_notify_dag_materialization_failures,
     stub_preempt_dag_run,
     stub_record_skipped_data_modeling_jobs,
@@ -92,6 +92,7 @@ class TestPostMaterializationChecks:
                 workflows=workflows,
                 activities=[
                     stub_preempt_dag_run,
+                    stub_check_team_shadow_eligibility,
                     stub_get_dag_structure,
                     stub_materialization_gate,
                     stub_record_skipped_data_modeling_jobs,
@@ -139,18 +140,6 @@ class TestPostMaterializationChecks:
 
         assert result.successful_nodes == 1
         assert result.failed_nodes == 0
-
-    async def test_a_history_without_the_patch_marker_still_sweeps_every_node(self, ateam) -> None:
-        # An old DAG worker records the gate activity and suite child against a new child's
-        # quality_audited result. Filtering on replay would omit commands that history already has.
-        audited = str(uuid.uuid4())
-        _mock_workflow_should_self_audit.add(audited)
-
-        with patch.object(temporalio.workflow, "patched", return_value=False):
-            await self._run_dag(ateam.pk, [audited])
-
-        assert len(_suite_runs_started) == 1
-        assert _suite_runs_started[0]["node_ids"] == [audited]
 
     async def test_a_node_that_audited_itself_is_not_swept_again(self, ateam) -> None:
         audited, unaudited = str(uuid.uuid4()), str(uuid.uuid4())

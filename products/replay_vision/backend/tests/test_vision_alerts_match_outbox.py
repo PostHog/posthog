@@ -10,6 +10,7 @@ from parameterized import parameterized
 
 from posthog.models.utils import uuid7
 
+from products.replay_vision.backend.alert_utils import observation_url
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
     ObservationTrigger,
@@ -173,6 +174,9 @@ class TestVisionAlertMatchOutbox(BaseTest):
         # Slack reads mrkdwn, webhook consumers read JSON, so only one copy is entity-escaped.
         assert props["summary"].count("verdict=yes: checkout broke &amp; stalled") == 3
         assert props["summary_text"].count("verdict=yes: checkout broke & stalled") == 3
+        for observation_id in props["observation_ids"]:
+            assert f"<{observation_url(self.team.id, observation_id)}|View>" in props["summary"]
+        assert "/replay-vision/observations/" not in props["summary_text"]
         assert produce.call_args.kwargs["uuid"] is not None
         assert not VisionAlertMatch.all_teams.filter(alert_id=alert.id, delivered_at__isnull=True).exists()
 
@@ -268,7 +272,9 @@ class TestVisionAlertMatchOutbox(BaseTest):
         _, produce = self._drain(delivered=True)
         summary = produce.call_args.kwargs["properties"]["summary"]
         assert "\n" not in summary
-        assert summary.endswith("Checkout stalled. forged row: the user retried twice")
+        assert summary.endswith(
+            f"Checkout stalled. forged row: the user retried twice <{observation_url(self.team.id, str(observation.id))}|View>"
+        )
 
     def test_summary_caps_lines_but_stamps_all_rows(self) -> None:
         alert = self._make_match_alert(selection={})

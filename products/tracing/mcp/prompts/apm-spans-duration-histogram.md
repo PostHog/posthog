@@ -44,7 +44,7 @@ Filter by OTel span status codes (list of integers: `0` Unset, `1` OK, `2` Error
 
 Property filters applied to the matched spans. Same filter shape and operators as `query-apm-spans`:
 
-- `span` — built-in span fields (trace_id, span_id, duration, name, kind, status_code, is_root_span)
+- `span` — built-in span fields (trace_id, span_id, duration, name, kind, status_code, is_root_span). A `duration` filter value is in milliseconds (1 second = `1000`).
 - `span_attribute` — span-level attributes
 - `span_resource_attribute` — resource-level attributes
 
@@ -77,4 +77,4 @@ Property filters applied to the matched spans. Same filter shape and operators a
 - `bucket_ns` is nanoseconds: 1ms = 1,000,000; 1s = 1,000,000,000.
 - Counts are **traces** (one per root span), so they line up with request counts — not with `apm-spans-count`, which counts every span.
 - Buckets follow the 1-2-5 series; a trace of 3.5ms lands in the 2ms bucket (bucket floor).
-- To fetch the actual slow traces after spotting a tail, use `query-apm-spans` with a `duration` filter (nanoseconds) and `orderBy: "duration"`.
+- To fetch the actual slow traces after spotting a tail, use `query-apm-spans` with a `duration` filter (milliseconds, not nanoseconds) and `orderBy: "duration"`.

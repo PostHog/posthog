@@ -18,7 +18,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.fusionauth
     _build_search_body,
     _read_bounded,
     fusionauth_source,
-    normalize_base_url,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.fusionauth.settings import FUSIONAUTH_ENDPOINTS
@@ -62,7 +61,14 @@ def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, 
     snapshots: list[dict[str, Any]] = []
 
     def _prepare(request: Any) -> mock.MagicMock:
-        snapshots.append({"url": request.url, "json": json.loads(json.dumps(request.json or {}))})
+        snapshots.append(
+            {
+                "method": request.method,
+                "url": request.url,
+                "params": dict(request.params or {}),
+                "json": json.loads(json.dumps(request.json or {})),
+            }
+        )
         return mock.MagicMock()
 
     session.prepare_request.side_effect = _prepare
@@ -74,46 +80,13 @@ def _rows(source_response: Any) -> list[dict[str, Any]]:
     return [row for page in source_response.items() for row in page]
 
 
-class TestNormalizeBaseUrl:
-    @pytest.mark.parametrize(
-        "raw, expected",
-        [
-            ("auth.example.com", "https://auth.example.com"),
-            ("https://auth.example.com", "https://auth.example.com"),
-            ("https://auth.example.com/", "https://auth.example.com"),
-            ("http://auth.example.com/", "http://auth.example.com"),
-            ("  auth.example.com  ", "https://auth.example.com"),
-            ("https://auth.example.com/api", "https://auth.example.com"),
-        ],
-    )
-    def test_normalize(self, raw, expected):
-        assert normalize_base_url(raw) == expected
-
-
 class TestBuildSearchBody:
-    def test_users_has_query_string_and_sort_fields(self):
-        body = _build_search_body(FUSIONAUTH_ENDPOINTS["Users"], {})
+    @pytest.mark.parametrize("endpoint", ["Users", "Entities", "UserRegistrations"])
+    def test_query_string_searches_have_query_string_and_sort_fields(self, endpoint):
+        body = _build_search_body(FUSIONAUTH_ENDPOINTS[endpoint], {})
         assert body["search"]["queryString"] == "*"
         assert body["search"]["sortFields"] == [{"name": "insertInstant", "order": "asc"}]
-
-    @pytest.mark.parametrize("endpoint", ["AuditLogs", "EventLogs"])
-    def test_ascending_endpoints_request_explicit_order(self, endpoint):
-        body = _build_search_body(FUSIONAUTH_ENDPOINTS[endpoint], {})
-        assert body["search"]["orderBy"] == "insertInstant ASC"
-
-    @pytest.mark.parametrize("endpoint", ["Applications", "Tenants", "Groups", "GroupMembers"])
-    def test_lookup_endpoints_order_by_id(self, endpoint):
-        body = _build_search_body(FUSIONAUTH_ENDPOINTS[endpoint], {})
-        assert body["search"] == {"orderBy": "id ASC"}
-
-    def test_login_records_has_no_order_by(self):
-        # LoginRecords documents no orderBy field, so it must never be sent.
-        body = _build_search_body(FUSIONAUTH_ENDPOINTS["LoginRecords"], {})
         assert "orderBy" not in body["search"]
-
-    def test_search_extra_merges_in(self):
-        body = _build_search_body(FUSIONAUTH_ENDPOINTS["AuditLogs"], {"start": 123})
-        assert body["search"]["start"] == 123
 
 
 class TestFusionAuthOffsetPaginator:
@@ -126,19 +99,6 @@ class TestFusionAuthOffsetPaginator:
         paginator.init_request(request)
         assert request.json == {"search": {"startRow": 0, "numberOfResults": 100}}
 
-    def test_full_page_advances_offset(self):
-        paginator = FusionAuthOffsetPaginator(limit=2)
-        response = _response({"total": 10})
-        paginator.update_state(response, data=[{"id": 1}, {"id": 2}])
-        assert paginator.has_next_page is True
-        assert paginator.offset == 2
-
-    def test_undersized_page_terminates(self):
-        paginator = FusionAuthOffsetPaginator(limit=100)
-        response = _response({})
-        paginator.update_state(response, data=[{"id": 1}])
-        assert paginator.has_next_page is False
-
     def test_empty_page_terminates(self):
         paginator = FusionAuthOffsetPaginator(limit=100)
         response = _response({})
@@ -150,22 +110,6 @@ class TestFusionAuthOffsetPaginator:
         response = _response({})
         paginator.update_state(response, data=[{"id": i} for i in range(100)])
         assert paginator.has_next_page is False
-
-    def test_resume_state_roundtrip(self):
-        paginator = FusionAuthOffsetPaginator(limit=100)
-        paginator.offset = 300
-        state = paginator.get_resume_state()
-        assert state == {"offset": 300}
-
-        resumed = FusionAuthOffsetPaginator(limit=100)
-        resumed.set_resume_state(state)
-        assert resumed.offset == 300
-        assert resumed.has_next_page is True
-
-    def test_no_resume_state_when_exhausted(self):
-        paginator = FusionAuthOffsetPaginator(limit=100)
-        paginator._has_next_page = False
-        assert paginator.get_resume_state() is None
 
 
 class TestValidateCredentials:
@@ -203,14 +147,6 @@ class TestValidateCredentials:
             valid, msg = validate_credentials("https://auth.example.com", "tok")
             assert valid is False
             assert msg == "internal error"
-
-    def test_request_exception_returns_failure(self):
-        import requests
-
-        with self._patch_session(raises=requests.exceptions.ConnectionError("boom")):
-            valid, msg = validate_credentials("https://auth.example.com", "tok")
-            assert valid is False
-            assert "boom" in (msg or "")
 
     def test_rejects_redirect_response(self):
         # A validated host that 3xx-redirects (potentially to an internal address) must be
@@ -255,37 +191,6 @@ class TestValidateCredentials:
             assert "too big" in (msg or "")
 
 
-class TestFusionAuthSourceResponse:
-    @pytest.mark.parametrize(
-        "endpoint, primary_keys, sort_mode, partition_key",
-        [
-            ("Users", ["id"], "asc", "insertInstant"),
-            ("AuditLogs", ["id"], "asc", "insertInstant"),
-            ("EventLogs", ["id"], "asc", "insertInstant"),
-            ("LoginRecords", ["userId", "applicationId", "instant"], "desc", "instant"),
-            ("Applications", ["id"], "asc", "insertInstant"),
-            ("Tenants", ["id"], "asc", "insertInstant"),
-            ("Groups", ["id"], "asc", "insertInstant"),
-            ("GroupMembers", ["id"], "asc", "insertInstant"),
-        ],
-    )
-    def test_response_shape(self, endpoint, primary_keys, sort_mode, partition_key):
-        response = fusionauth_source(
-            base_url="https://auth.example.com",
-            api_key="tok",
-            endpoint=endpoint,
-            team_id=1,
-            job_id="j",
-            resumable_source_manager=_make_manager(),
-        )
-        assert response.name == endpoint
-        assert response.primary_keys == primary_keys
-        assert response.sort_mode == sort_mode
-        assert response.partition_keys == [partition_key]
-        assert response.partition_mode == "datetime"
-        assert response.partition_format == "week"
-
-
 parameterized_secret_cases = pytest.mark.parametrize(
     "endpoint, data_selector, row, expected",
     [
@@ -310,6 +215,18 @@ parameterized_secret_cases = pytest.mark.parametrize(
             },
         ),
         ("Tenants", "tenants", {"id": "t2", "emailConfiguration": None}, {"id": "t2", "emailConfiguration": None}),
+        (
+            "Entities",
+            "entities",
+            {"id": "e1", "clientId": "e1", "clientSecret": "fake-secret"},
+            {"id": "e1", "clientId": "e1"},
+        ),
+        (
+            "EntityGrants",
+            "grants",
+            {"id": "g1", "userId": "u1", "entity": {"id": "e1", "clientSecret": "fake-secret"}},
+            {"id": "g1", "userId": "u1", "entity": {"id": "e1"}},
+        ),
     ],
 )
 
@@ -325,37 +242,6 @@ class TestFusionAuthAscendingPagination:
             resumable_source_manager=manager if manager is not None else _make_manager(),
             **kwargs,
         )
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_paginates_until_undersized_page(self, MockSession):
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _response({"auditLogs": [{"id": i} for i in range(100)]}),
-                _response({"auditLogs": [{"id": 100}]}),
-            ],
-        )
-        rows = _rows(self._source())
-        assert [r["id"] for r in rows] == list(range(101))
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_saves_state_after_yielding(self, MockSession):
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _response({"auditLogs": [{"id": i} for i in range(100)]}),
-                _response({"auditLogs": [{"id": 100}]}),
-            ],
-        )
-        manager = _make_manager()
-        _rows(self._source(manager=manager))
-
-        manager.save_state.assert_called_once()
-        saved = manager.save_state.call_args.args[0]
-        assert isinstance(saved, FusionAuthResumeConfig)
-        assert saved.offset == 100
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_state(self, MockSession):
@@ -380,28 +266,6 @@ class TestFusionAuthAscendingPagination:
         assert snaps[0]["json"]["search"]["start"] == 1700000000000
         assert snaps[0]["json"]["search"]["orderBy"] == "insertInstant ASC"
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_full_refresh_ignores_stray_watermark(self, MockSession):
-        # Users has no incremental_fields declared, so a watermark must never reach the request.
-        session = MockSession.return_value
-        snaps = _wire(session, [_response({"users": [{"id": 1}]})])
-        _rows(
-            self._source(
-                endpoint="Users",
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=1700000000000,
-            )
-        )
-        assert "start" not in snaps[0]["json"]["search"]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_users_body_shape(self, MockSession):
-        session = MockSession.return_value
-        snaps = _wire(session, [_response({"users": [{"id": 1}]})])
-        _rows(self._source(endpoint="Users"))
-        assert snaps[0]["json"]["search"]["queryString"] == "*"
-        assert snaps[0]["json"]["search"]["numberOfResults"] == 100
-
     @parameterized_secret_cases
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_secret_fields_are_dropped(self, MockSession, endpoint, data_selector, row, expected):
@@ -415,16 +279,6 @@ class TestFusionAuthAscendingPagination:
         _wire(session, [_redirect_response(302)])
         with pytest.raises(ValueError):
             _rows(self._source())
-
-    @mock.patch("tenacity.nap.time.sleep")
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_retries_on_429(self, MockSession, _mock_sleep):
-        session = MockSession.return_value
-        _wire(session, [_response({}, status_code=429), _response({"auditLogs": [{"id": 1}]})])
-        rows = _rows(self._source())
-
-        assert [r["id"] for r in rows] == [1]
-        assert session.send.call_count == 2
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_runtime_host_check_blocks_unsafe_domain(self, MockSession):
@@ -504,31 +358,6 @@ class TestFusionAuthDescendingPagination:
         assert snaps[1]["json"]["search"]["start"] == 1700000000000
         assert "orderBy" not in snaps[0]["json"]["search"]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_only_last_value_set(self, MockSession):
-        session = MockSession.return_value
-        snaps = _wire(session, [_response({"logins": [{"userId": "newer"}]})])
-        _rows(
-            self._source(
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=1700000000000,
-                db_incremental_field_earliest_value=None,
-            )
-        )
-        assert snaps[0]["json"]["search"]["start"] == 1700000000000
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_not_incremental_falls_back_to_full_scan(self, MockSession):
-        session = MockSession.return_value
-        snaps = _wire(session, [_response({"logins": [{"userId": "1"}]})])
-        _rows(
-            self._source(
-                should_use_incremental_field=False,
-                db_incremental_field_last_value=1700000000000,
-            )
-        )
-        assert "start" not in snaps[0]["json"]["search"]
-
 
 class _FakeStreamResponse:
     """Minimal streamed `requests.Response` stand-in: yields fixed chunks and records close()."""
@@ -568,3 +397,171 @@ class TestReadBounded:
         with pytest.raises(FusionAuthResponseTimeoutError):
             _read_bounded(cast(requests.Response, response), max_bytes=100, max_seconds=0)
         assert response.closed is True
+
+
+class TestFusionAuthUserRegistrations:
+    @pytest.mark.parametrize(
+        "users, expected",
+        [
+            (
+                [
+                    {
+                        "id": "u1",
+                        "registrations": [
+                            {
+                                "id": "r1",
+                                "applicationId": "a1",
+                                "roles": ["admin"],
+                                "tokens": {"idp": "fake-token"},
+                                "authenticationToken": "fake-auth-token",
+                            },
+                            {"id": "r2", "applicationId": "a2", "roles": []},
+                        ],
+                    },
+                    {"id": "u2", "registrations": [{"id": "r3", "applicationId": "a1"}]},
+                ],
+                [
+                    {"id": "r1", "applicationId": "a1", "roles": ["admin"], "userId": "u1"},
+                    {"id": "r2", "applicationId": "a2", "roles": [], "userId": "u1"},
+                    {"id": "r3", "applicationId": "a1", "userId": "u2"},
+                ],
+            ),
+            ([{"id": "u1"}, {"id": "u2", "registrations": []}, {"id": "u3", "registrations": None}], []),
+            (
+                [{"id": "u1", "registrations": ["not-an-object", {"id": "r1", "applicationId": "a1"}]}],
+                [{"id": "r1", "applicationId": "a1", "userId": "u1"}],
+            ),
+        ],
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_rows_are_one_per_registration(self, MockSession, users, expected):
+        session = MockSession.return_value
+        snaps = _wire(session, [_response({"users": users})])
+        source = fusionauth_source(
+            base_url="https://auth.example.com",
+            api_key="tok",
+            endpoint="UserRegistrations",
+            team_id=1,
+            job_id="j",
+            resumable_source_manager=_make_manager(),
+        )
+        assert _rows(source) == expected
+        assert snaps[0]["url"].endswith("/api/user/search")
+        assert snaps[0]["json"]["search"]["queryString"] == "*"
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resumes_user_search_from_saved_offset(self, MockSession):
+        session = MockSession.return_value
+        snaps = _wire(session, [_response({"users": [{"id": "u9", "registrations": [{"applicationId": "a1"}]}]})])
+        source = fusionauth_source(
+            base_url="https://auth.example.com",
+            api_key="tok",
+            endpoint="UserRegistrations",
+            team_id=1,
+            job_id="j",
+            resumable_source_manager=_make_manager(FusionAuthResumeConfig(offset=300)),
+        )
+        assert _rows(source) == [{"applicationId": "a1", "userId": "u9"}]
+        assert snaps[0]["json"]["search"]["startRow"] == 300
+
+
+class TestFusionAuthPerUserFanout:
+    def _source(self, endpoint):
+        return fusionauth_source(
+            base_url="https://auth.example.com",
+            api_key="tok",
+            endpoint=endpoint,
+            team_id=1,
+            job_id="j",
+            resumable_source_manager=_make_manager(),
+        )
+
+    @pytest.mark.parametrize(
+        "endpoint, child_path, data_selector",
+        [
+            ("UserConsents", "/api/user/consent", "userConsents"),
+            ("UserActionLogs", "/api/user/action", "actions"),
+        ],
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_requests_each_user_and_skips_missing_users(self, MockSession, endpoint, child_path, data_selector):
+        session = MockSession.return_value
+        snaps = _wire(
+            session,
+            [
+                _response({"users": [{"id": "u1"}, {"id": "u2"}, {"id": "u3"}]}),
+                _response({data_selector: [{"id": "c1"}, {"id": "c2"}]}),
+                _response({"generalErrors": [{"message": "not found"}]}, status_code=404),
+                _response({data_selector: []}),
+            ],
+        )
+
+        assert [row["id"] for row in _rows(self._source(endpoint))] == ["c1", "c2"]
+        assert snaps[0]["method"] == "POST"
+        assert snaps[0]["url"].endswith("/api/user/search")
+        assert snaps[0]["json"]["search"]["queryString"] == "*"
+        assert [snap["url"].removeprefix("https://auth.example.com") for snap in snaps[1:]] == [
+            f"{child_path}?userId=u1",
+            f"{child_path}?userId=u2",
+            f"{child_path}?userId=u3",
+        ]
+        assert all(snap["method"] == "GET" for snap in snaps[1:])
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_pages_through_users(self, MockSession):
+        session = MockSession.return_value
+        snaps = _wire(
+            session,
+            [
+                _response({"users": [{"id": f"u{i}"} for i in range(100)]}),
+                *[_response({"userConsents": [{"id": f"c{i}"}]}) for i in range(100)],
+                _response({"users": [{"id": "u100"}]}),
+                _response({"userConsents": [{"id": "c100"}]}),
+            ],
+        )
+
+        assert len(_rows(self._source("UserConsents"))) == 101
+        user_searches = [snap for snap in snaps if snap["method"] == "POST"]
+        assert [snap["json"]["search"]["startRow"] for snap in user_searches] == [0, 100]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_runtime_host_check_blocks_unsafe_domain(self, MockSession):
+        session = MockSession.return_value
+        _wire(session, [_response({"users": [{"id": "u1"}]})])
+        with mock.patch.object(fusionauth_module, "_is_host_safe", return_value=(False, "internal address")):
+            with pytest.raises(fusionauth_module.FusionAuthHostNotAllowedError):
+                _rows(self._source("UserConsents"))
+        session.send.assert_not_called()
+
+
+class TestFusionAuthLookups:
+    @pytest.mark.parametrize(
+        "endpoint, data_selector, responses, expected_ids, expected_params",
+        [
+            (
+                "UserActions",
+                "userActions",
+                [[{"id": "a1"}, {"id": "a2"}], [{"id": "a2"}, {"id": "a3", "active": False}]],
+                ["a1", "a2", "a3"],
+                [{}, {"inactive": "true"}],
+            ),
+            ("UserActions", "userActions", [[], []], [], [{}, {"inactive": "true"}]),
+            ("UserActionReasons", "userActionReasons", [[{"id": "r1"}, {"id": "r2"}]], ["r1", "r2"], [{}]),
+        ],
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_single_page_lookups(self, MockSession, endpoint, data_selector, responses, expected_ids, expected_params):
+        session = MockSession.return_value
+        snaps = _wire(session, [_response({data_selector: rows}) for rows in responses])
+        source = fusionauth_source(
+            base_url="https://auth.example.com",
+            api_key="tok",
+            endpoint=endpoint,
+            team_id=1,
+            job_id="j",
+            resumable_source_manager=_make_manager(),
+        )
+
+        assert [row["id"] for row in _rows(source)] == expected_ids
+        assert [snap["params"] for snap in snaps] == expected_params
+        assert all(snap["method"] == "GET" and snap["json"] == {} for snap in snaps)

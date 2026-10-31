@@ -5,8 +5,14 @@ import pytest
 import time_machine
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.db import OperationalError
+
 from temporalio.client import WorkflowExecutionStatus
 
+from posthog.models import Organization, Team
+
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.acquire_v3_lock import (
     AcquireV3LockActivityInputs,
     CheckPipelineVersionActivityInputs,
@@ -32,115 +38,15 @@ def _uuid7_token(age_seconds: float) -> str:
 
 
 class TestCheckPipelineVersionActivity:
-    @pytest.mark.parametrize(
-        "ff_enabled, expected_is_v3",
-        [
-            (False, False),
-            (True, True),
-        ],
-        ids=["v2", "v3"],
-    )
-    @patch(f"{MODULE}.is_pipeline_v3_enabled")
-    @patch(f"{MODULE}.ExternalDataSource")
-    @patch(f"{MODULE}.close_old_connections")
-    @patch(f"{MODULE}.bind_contextvars")
-    def test_returns_ff_result(
-        self,
-        _bind: MagicMock,
-        _close: MagicMock,
-        mock_source_model: MagicMock,
-        mock_v3_check: MagicMock,
-        ff_enabled: bool,
-        expected_is_v3: bool,
-    ) -> None:
-        mock_source = MagicMock()
-        mock_source.source_type = "Stripe"
-        mock_source_model.objects.get.return_value = mock_source
-        mock_v3_check.return_value = ff_enabled
-
+    # Pre-patch workflow histories still schedule this activity. It must answer V3 without a
+    # database read, so a replayed run never asks for the removed V2 pipeline.
+    @pytest.mark.parametrize("schema_id", [None, SCHEMA_ID], ids=["legacy_payload", "with_schema"])
+    def test_always_returns_v3(self, schema_id: uuid.UUID | None) -> None:
         result = check_pipeline_version_activity(
-            CheckPipelineVersionActivityInputs(team_id=TEAM_ID, source_id=SOURCE_ID)
-        )
-
-        assert result.is_v3 is expected_is_v3
-        mock_v3_check.assert_called_once_with(TEAM_ID, "Stripe")
-
-    @pytest.mark.parametrize(
-        "cdc_mode, expected_is_v3",
-        [
-            ("streaming", True),
-            ("snapshot", False),
-        ],
-        ids=["consumer_forces_v3", "snapshot_follows_flag"],
-    )
-    @patch(f"{MODULE}.is_pipeline_v3_enabled", return_value=False)
-    @patch(f"{MODULE}.ExternalDataSchema")
-    @patch(f"{MODULE}.ExternalDataSource")
-    @patch(f"{MODULE}.close_old_connections")
-    @patch(f"{MODULE}.bind_contextvars")
-    def test_buffered_cdc_consumption_overrides_the_flag(
-        self,
-        _bind: MagicMock,
-        _close: MagicMock,
-        mock_source_model: MagicMock,
-        mock_schema_model: MagicMock,
-        _mock_v3_check: MagicMock,
-        cdc_mode: str,
-        expected_is_v3: bool,
-    ) -> None:
-        schema = MagicMock()
-        schema.is_cdc = True
-        schema.cdc_mode = cdc_mode
-        schema.cdc_table_mode = "consolidated"
-        schema.initial_sync_complete = True
-        mock_schema_model.objects.filter.return_value.select_related.return_value.first.return_value = schema
-        mock_source_model.objects.get.return_value = MagicMock(source_type="Postgres")
-
-        result = check_pipeline_version_activity(
-            CheckPipelineVersionActivityInputs(team_id=TEAM_ID, source_id=SOURCE_ID, schema_id=SCHEMA_ID)
-        )
-
-        assert result.is_v3 is expected_is_v3
-
-    @patch(f"{MODULE}.is_pipeline_v3_enabled", return_value=True)
-    @patch(f"{MODULE}.ExternalDataSchema")
-    @patch(f"{MODULE}.ExternalDataSource")
-    @patch(f"{MODULE}.close_old_connections")
-    @patch(f"{MODULE}.bind_contextvars")
-    def test_a_missing_schema_row_falls_back_to_the_flag(
-        self,
-        _bind: MagicMock,
-        _close: MagicMock,
-        mock_source_model: MagicMock,
-        mock_schema_model: MagicMock,
-        _mock_v3_check: MagicMock,
-    ) -> None:
-        mock_schema_model.objects.filter.return_value.select_related.return_value.first.return_value = None
-        mock_source_model.objects.get.return_value = MagicMock(source_type="Postgres")
-
-        result = check_pipeline_version_activity(
-            CheckPipelineVersionActivityInputs(team_id=TEAM_ID, source_id=SOURCE_ID, schema_id=SCHEMA_ID)
+            CheckPipelineVersionActivityInputs(team_id=TEAM_ID, source_id=SOURCE_ID, schema_id=schema_id)
         )
 
         assert result.is_v3 is True
-
-    @patch(f"{MODULE}.ExternalDataSource")
-    @patch(f"{MODULE}.close_old_connections")
-    @patch(f"{MODULE}.bind_contextvars")
-    def test_source_not_found_returns_not_v3(
-        self,
-        _bind: MagicMock,
-        _close: MagicMock,
-        mock_source_model: MagicMock,
-    ) -> None:
-        mock_source_model.DoesNotExist = type("DoesNotExist", (Exception,), {})
-        mock_source_model.objects.get.side_effect = mock_source_model.DoesNotExist
-
-        result = check_pipeline_version_activity(
-            CheckPipelineVersionActivityInputs(team_id=TEAM_ID, source_id=SOURCE_ID)
-        )
-
-        assert result.is_v3 is False
 
 
 class TestAcquireV3PipelineLockActivity:
@@ -215,6 +121,86 @@ class TestAcquireV3PipelineLockActivity:
 
         assert result.acquired is False
         assert result.token == ""
+
+
+def _schema_with_config(sync_type_config: dict) -> ExternalDataSchema:
+    org = Organization.objects.create(name="org")
+    team = Team.objects.create(organization=org, name="t")
+    source = ExternalDataSource.objects.create(source_id="src", connection_id="conn", team=team, source_type="Stripe")
+    return ExternalDataSchema.objects.create(name="Charge", team=team, source=source, sync_type_config=sync_type_config)
+
+
+def _streak(runs: int, failed_ago: timedelta) -> dict:
+    return {"runs": runs, "last_failed_at": (datetime.now(UTC) - failed_ago).isoformat()}
+
+
+@pytest.mark.django_db
+class TestAcquireV3PipelineLockActivityDeferral:
+    @pytest.mark.parametrize(
+        "_name,config_extra,runs,failed_ago,expect_deferred",
+        [
+            ("streak_at_threshold_inside_gap", {}, 5, timedelta(minutes=2), True),
+            ("long_streak_inside_capped_gap", {}, 30, timedelta(minutes=40), True),
+            ("streak_at_threshold_past_gap", {}, 5, timedelta(minutes=11), False),
+            ("long_streak_past_capped_gap", {}, 30, timedelta(minutes=61), False),
+            ("streak_below_threshold", {}, 4, timedelta(seconds=1), False),
+            ("reset_pipeline_runs_anyway", {"reset_pipeline": True}, 8, timedelta(minutes=1), False),
+        ],
+    )
+    @patch(f"{MODULE}.write_v3_pipeline_lock_meta")
+    @patch(f"{MODULE}.acquire_v3_pipeline_lock", return_value=True)
+    @patch(f"{MODULE}.activity")
+    @patch(f"{MODULE}.bind_contextvars")
+    def test_deferral(
+        self,
+        _bind: MagicMock,
+        mock_activity: MagicMock,
+        mock_acquire: MagicMock,
+        _mock_write_meta: MagicMock,
+        _name: str,
+        config_extra: dict,
+        runs: int,
+        failed_ago: timedelta,
+        expect_deferred: bool,
+    ) -> None:
+        mock_activity.info.return_value.workflow_run_id = WORKFLOW_RUN_ID
+        mock_activity.info.return_value.workflow_id = "wf-abc-123"
+        schema = _schema_with_config({**config_extra, "failure_streak": _streak(runs, failed_ago)})
+
+        result = acquire_v3_pipeline_lock_activity(
+            AcquireV3LockActivityInputs(team_id=schema.team_id, schema_id=schema.id)
+        )
+
+        assert result.deferred is expect_deferred
+        assert result.acquired is not expect_deferred
+        assert result.token == WORKFLOW_RUN_ID
+        if expect_deferred:
+            mock_acquire.assert_not_called()
+        else:
+            mock_acquire.assert_called_once()
+
+    @patch(f"{MODULE}.write_v3_pipeline_lock_meta")
+    @patch(f"{MODULE}.acquire_v3_pipeline_lock", return_value=True)
+    @patch(f"{MODULE}.ExternalDataSchema.objects")
+    @patch(f"{MODULE}.activity")
+    @patch(f"{MODULE}.bind_contextvars")
+    def test_a_failing_schema_read_does_not_stop_the_sync(
+        self,
+        _bind: MagicMock,
+        mock_activity: MagicMock,
+        mock_objects: MagicMock,
+        mock_acquire: MagicMock,
+        _mock_write_meta: MagicMock,
+    ) -> None:
+        mock_activity.info.return_value.workflow_run_id = WORKFLOW_RUN_ID
+        mock_activity.info.return_value.workflow_id = "wf-abc-123"
+        mock_objects.filter.side_effect = OperationalError("db unavailable")
+
+        result = acquire_v3_pipeline_lock_activity(AcquireV3LockActivityInputs(team_id=TEAM_ID, schema_id=SCHEMA_ID))
+
+        assert result.deferred is False
+        assert result.acquired is True
+        mock_acquire.assert_called_once()
 
 
 class TestTakeOverStaleLock:
@@ -439,34 +425,41 @@ class TestTakeOverStaleRunningJob:
         assert self._run() is True
         mock_update.assert_called_once()
 
+    # A live loader keeps the lock past the max hold: a takeover lets the new run's batch 0
+    # overwrite the table while the old loader is still merging and then publishing it.
+    @pytest.mark.parametrize(
+        "is_stale,hold_hours,expect_takeover",
+        [
+            pytest.param(False, 1, False, id="live_holder_within_max_hold"),
+            pytest.param(False, 25, False, id="live_holder_past_max_hold"),
+            pytest.param(True, 1, True, id="stale_holder_within_max_hold"),
+            pytest.param(True, 25, True, id="stale_holder_past_max_hold"),
+        ],
+    )
+    @time_machine.travel("2026-01-15 12:00:00+00:00", tick=False)
     @patch(f"{MODULE}._release_and_acquire", return_value=True)
     @patch(f"{MODULE}.update_external_job_status")
     @patch(f"{MODULE}.BatchQueue")
     @patch(f"{MODULE}.psycopg.Connection")
-    def test_takes_over_when_stale_batches(
+    def test_takes_over_only_a_stale_holder_with_pending_batches(
         self,
         mock_conn_cls: MagicMock,
         mock_queue: MagicMock,
         mock_update: MagicMock,
         mock_release: MagicMock,
+        is_stale: bool,
+        hold_hours: int,
+        expect_takeover: bool,
     ) -> None:
         mock_queue.get_run_activity_summary.return_value = RunActivitySummary(
-            has_batches=True, has_non_terminal=True, is_stale=True
+            has_batches=True, has_non_terminal=True, is_stale=is_stale
         )
-        assert self._run() is True
-        mock_update.assert_called_once()
 
-    @patch(f"{MODULE}.BatchQueue")
-    @patch(f"{MODULE}.psycopg.Connection")
-    def test_fails_closed_when_active_consumer(
-        self,
-        mock_conn_cls: MagicMock,
-        mock_queue: MagicMock,
-    ) -> None:
-        mock_queue.get_run_activity_summary.return_value = RunActivitySummary(
-            has_batches=True, has_non_terminal=True, is_stale=False
-        )
-        assert self._run() is False
+        assert self._run(holder_created_at=datetime.now(UTC) - timedelta(hours=hold_hours)) is expect_takeover
+
+        assert mock_queue.fail_batches_for_job_sync.called is expect_takeover
+        assert mock_update.called is expect_takeover
+        assert mock_release.called is expect_takeover
 
     @patch(f"{MODULE}.capture_exception")
     @patch(f"{MODULE}.psycopg.Connection")
@@ -477,26 +470,6 @@ class TestTakeOverStaleRunningJob:
     ) -> None:
         mock_conn_cls.connect.side_effect = RuntimeError("connection refused")
         assert self._run() is False
-
-    @time_machine.travel("2026-01-01T12:00:00Z", tick=False)
-    @patch(f"{MODULE}._release_and_acquire", return_value=True)
-    @patch(f"{MODULE}.update_external_job_status")
-    @patch(f"{MODULE}.BatchQueue")
-    @patch(f"{MODULE}.psycopg.Connection")
-    def test_max_hold_exceeded_takes_over_despite_active_consumer(
-        self,
-        mock_conn_cls: MagicMock,
-        mock_queue: MagicMock,
-        mock_update: MagicMock,
-        mock_release: MagicMock,
-    ) -> None:
-        # Without the max-hold backstop, a fooled staleness heuristic can block
-        # takeover forever.
-        mock_queue.get_run_activity_summary.return_value = RunActivitySummary(
-            has_batches=True, has_non_terminal=True, is_stale=False
-        )
-        assert self._run(holder_created_at=datetime.now(UTC) - timedelta(hours=25)) is True
-        mock_update.assert_called_once()
 
     @patch(f"{MODULE}._release_and_acquire", return_value=True)
     @patch(f"{MODULE}.update_external_job_status")

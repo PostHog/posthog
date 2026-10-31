@@ -6,9 +6,12 @@ from typing import Any, Optional
 import requests
 import structlog
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.new_relic.settings import (
@@ -160,7 +163,7 @@ def _get_session(api_key: str) -> requests.Session:
     return make_tracked_session(headers={"API-Key": api_key}, redact_values=(api_key,))
 
 
-@retry(
+@retry_with_deadline(
     retry=retry_if_exception_type(
         (
             NewRelicRetryableError,
@@ -183,8 +186,9 @@ def _execute_graphql(
     response = session.post(url, json={"query": query, "variables": variables}, timeout=REQUEST_TIMEOUT_SECONDS)
 
     # 25 concurrent NerdGraph requests per user / 3,000 NRQL queries per account per
-    # minute surface as 429s; both clear on their own, so back off and retry.
-    if response.status_code == 429 or response.status_code >= 500:
+    # minute surface as 429s; both clear on their own, so back off and retry. 408 is
+    # NerdGraph's own gateway timing out before the query completed, same story.
+    if response.status_code in (408, 429) or response.status_code >= 500:
         raise NewRelicRetryableError(f"New Relic API error (retryable): status={response.status_code}, url={url}")
 
     if not response.ok:

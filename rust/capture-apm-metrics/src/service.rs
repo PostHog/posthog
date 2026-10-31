@@ -11,13 +11,13 @@ use axum::{
     extract::Query,
     extract::State,
     http::{HeaderMap, StatusCode},
-    response::Json,
+    response::{Json, Response},
 };
 use bytes::Bytes;
 use capture_logs::authorizer::{Authorizer, Signal};
 use capture_logs::kafka::KafkaSink;
 use capture_logs::metric_record::{flatten_metric, KafkaMetricRow};
-use capture_logs::service::parse_otel_metrics_message;
+use capture_logs::service::{export_success_response, parse_otel_metrics_message};
 use common_compression::{decompress_gzip_capped, has_gzip_magic_header, CompressionError};
 use opentelemetry_proto::tonic::collector::metrics::v1::ExportMetricsServiceRequest;
 use prost::Message;
@@ -32,6 +32,7 @@ pub struct MetricsService {
     pub(crate) sink: KafkaSink,
     pub(crate) authorizer: Authorizer,
     pub(crate) max_request_body_size_bytes: usize,
+    pub(crate) remote_write_max_expanded_bytes: u64,
     pub(crate) series_label_gate: Arc<SeriesLabelGate>,
 }
 
@@ -45,12 +46,14 @@ impl MetricsService {
         kafka_sink: KafkaSink,
         authorizer: Authorizer,
         max_request_body_size_bytes: usize,
+        remote_write_max_expanded_bytes: u64,
         series_label_gate: Arc<SeriesLabelGate>,
     ) -> Self {
         Self {
             sink: kafka_sink,
             authorizer,
             max_request_body_size_bytes,
+            remote_write_max_expanded_bytes,
             series_label_gate,
         }
     }
@@ -102,7 +105,7 @@ pub async fn export_metrics_http(
     Query(query_params): Query<QueryParams>,
     headers: HeaderMap,
     body: Bytes,
-) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+) -> Result<Response, (StatusCode, Json<serde_json::Value>)> {
     let token =
         service
             .authorizer
@@ -185,5 +188,5 @@ pub async fn export_metrics_http(
         );
     }
 
-    Ok(Json(json!({})))
+    Ok(export_success_response(&headers))
 }

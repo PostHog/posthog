@@ -106,12 +106,15 @@ def _set_workflows_enabled(team_id: int, user_id: int, payload: dict[str, Any], 
     from rest_framework.response import Response  # noqa: PLC0415
 
     from products.workflows.backend.facade import api as workflows_facade  # noqa: PLC0415 — load on execute
+    from products.workflows.backend.presentation.views.hog_flow import (  # noqa: PLC0415 — load on execute
+        set_workflow_enabled,
+    )
 
     with transaction.atomic():
         changed = []
         for workflow_id in payload["workflow_ids"]:
             try:
-                new_status = workflows_facade.set_workflow_enabled(
+                new_status = set_workflow_enabled(
                     team_id=team_id, user_id=user_id, workflow_id=workflow_id, enabled=enabled
                 )
             except workflows_facade.WorkflowNotFound:

@@ -1,33 +1,40 @@
 import uuid
 from uuid import UUID
 
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
 
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
 
 from posthog.models.scoping import team_scope
+from posthog.models.team import Team
 
 from products.business_knowledge.backend import logic
 from products.business_knowledge.backend.constants import BK_DRILLDOWN_MAX_RADIUS, BK_RRF_SCORE_FLOOR
+from products.business_knowledge.backend.libraries import create_library
+from products.business_knowledge.backend.llm_telemetry import RetrievalTrace
 from products.business_knowledge.backend.logic import (
     _rrf_fuse,
+    _semantic_chunk_candidates,
     _SemanticCandidate,
     get_document_window,
     search_knowledge,
+    search_knowledge_for_team,
 )
 from products.business_knowledge.backend.models import (
     KnowledgeChunk,
     KnowledgeDocument,
+    KnowledgeLibrarySource,
     KnowledgeSource,
     SafetyVerdict,
     SourceStatus,
 )
 
 
-class TestRRFFusion(BaseTest):
+class TestRRFFusion(SimpleTestCase):
     def test_fts_only_produces_ranked_output(self) -> None:
         ids = [uuid.uuid4() for _ in range(3)]
         fused = _rrf_fuse(ids, [])
@@ -176,6 +183,109 @@ class TestHybridSearch(BaseTest):
         )
         # FTS also finds nothing for "quantum physics experiments" so result is empty
         assert results == []
+
+    def _file_source(self, library_id: UUID, source_id: UUID) -> None:
+        with team_scope(self.team.id, canonical=True):
+            KnowledgeLibrarySource.objects.create(team_id=self.team.id, library_id=library_id, source_id=source_id)
+
+    def test_a_source_in_two_libraries_is_returned_once_for_either(self) -> None:
+        source = self._ready_source_with_chunks(["The refund policy states thirty day returns."], name="refund")
+        other = self._ready_source_with_chunks(["Warranty covers manufacturing defects only."], name="warranty")
+        docs = create_library(self.team.id, "Docs")
+        support = create_library(self.team.id, "Support")
+        self._file_source(docs.id, source.id)
+        self._file_source(support.id, source.id)
+
+        for library_id in (docs.id, support.id):
+            results = search_knowledge(self.team.id, "refund policy", use_semantic=False, library_id=library_id)
+            names = [result.source_name for result in results]
+            assert names.count("refund") == 1
+            assert "warranty" not in names
+        assert other.name == "warranty"
+
+    def test_an_unfiled_source_is_absent_from_library_search(self) -> None:
+        self._ready_source_with_chunks(["The refund policy states thirty day returns."], name="unfiled")
+        filed = self._ready_source_with_chunks(["Warranty covers manufacturing defects only."], name="filed")
+        library = create_library(self.team.id, "Docs")
+        self._file_source(library.id, filed.id)
+
+        scoped = search_knowledge(self.team.id, "refund warranty", use_semantic=False, library_id=library.id)
+        unscoped = search_knowledge(self.team.id, "refund warranty", use_semantic=False)
+        assert {result.source_name for result in scoped} == {"filed"}
+        assert {result.source_name for result in unscoped} == {"unfiled", "filed"}
+
+    @patch("products.business_knowledge.backend.logic.generate_embedding", side_effect=RuntimeError("no gateway"))
+    def test_a_child_environment_searches_the_parent_library(self, _embed: MagicMock) -> None:
+        child = Team.objects.create(
+            organization=self.organization,
+            parent_team=self.team,
+            project=self.team.project,
+            name="Child environment",
+        )
+        self._ready_source_with_chunks(["The refund policy states thirty day returns."], name="unfiled")
+        filed = self._ready_source_with_chunks(["Warranty covers manufacturing defects only."], name="filed")
+        library = create_library(self.team.id, "Docs")
+        self._file_source(library.id, filed.id)
+
+        results = search_knowledge_for_team(
+            child, "refund warranty", trace=RetrievalTrace(surface="api"), library_id=library.id
+        )
+
+        assert {result.source_name for result in results} == {"filed"}
+
+    @patch("products.business_knowledge.backend.logic._semantic_chunk_candidates")
+    def test_library_scoped_semantic_search_drops_other_sources(self, mock_semantic: MagicMock) -> None:
+        filed = self._ready_source_with_chunks(["The refund policy states thirty day returns."], name="refund")
+        outsider = self._ready_source_with_chunks(["Warranty covers manufacturing defects only."], name="warranty")
+        library = create_library(self.team.id, "Docs")
+        self._file_source(library.id, filed.id)
+        mock_semantic.return_value = [_SemanticCandidate(chunk_id=self._get_chunk_ids(outsider)[0], distance=0.1)]
+
+        results = search_knowledge(
+            self.team.id,
+            "refund policy",
+            use_semantic=True,
+            query_embedding=[0.1] * 10,
+            library_id=library.id,
+        )
+
+        assert {result.source_name for result in results} == {"refund"}
+
+    @patch("products.business_knowledge.backend.logic.BK_LIBRARY_SEMANTIC_DOCUMENT_CAP", 0)
+    @patch("products.business_knowledge.backend.logic._semantic_chunk_candidates")
+    def test_an_oversized_library_keeps_a_member_ranked_behind_other_sources(self, mock_semantic: MagicMock) -> None:
+        member = self._ready_source_with_chunks(["The refund policy states thirty day returns."], name="refund")
+        library = create_library(self.team.id, "Docs")
+        self._file_source(library.id, member.id)
+        others = [_SemanticCandidate(chunk_id=uuid.uuid4(), distance=0.1) for _ in range(8)]
+        member_candidate = _SemanticCandidate(chunk_id=self._get_chunk_ids(member)[0], distance=0.2)
+        mock_semantic.return_value = [*others, member_candidate]
+
+        results = search_knowledge(
+            self.team.id,
+            "how long can customers send items back",
+            use_semantic=True,
+            query_embedding=[0.1] * 10,
+            library_id=library.id,
+        )
+
+        assert {result.source_name for result in results} == {"refund"}
+
+    @patch("products.business_knowledge.backend.logic._semantic_chunk_candidates")
+    def test_an_empty_library_returns_nothing_and_skips_clickhouse(self, mock_semantic: MagicMock) -> None:
+        self._ready_source_with_chunks(["The refund policy states thirty day returns."])
+        library = create_library(self.team.id, "Empty")
+
+        results = search_knowledge(
+            self.team.id,
+            "refund policy",
+            use_semantic=True,
+            query_embedding=[0.1] * 10,
+            library_id=library.id,
+        )
+
+        assert results == []
+        mock_semantic.assert_not_called()
 
     @parameterized.expand(
         [
@@ -371,3 +481,76 @@ class TestDocumentWindow(BaseTest):
         assert r.document_id == doc.id
         assert r.source_name == "my_source"
         assert "Content of chunk 0" in r.content
+
+
+class TestLibrarySemanticDocumentPredicate(ClickhouseTestMixin, BaseTest):
+    """The embedding row's document_id column is the chunk id. The knowledge document id is only in metadata."""
+
+    def test_library_filter_uses_metadata_document_id(self) -> None:
+        from datetime import UTC, datetime
+
+        from posthog.clickhouse.client import sync_execute
+
+        from products.business_knowledge.backend.constants import (
+            BK_EMBEDDING_DOCUMENT_TYPE,
+            BK_EMBEDDING_PRODUCT,
+            BK_EMBEDDING_RENDERING,
+        )
+
+        chunk_id = uuid.uuid4()
+        document_id = uuid.uuid4()
+        decoy_document_id = uuid.uuid4()
+        embedding = [0.0] * 1536
+        embedding[0] = 1.0
+        now = datetime.now(tz=UTC)
+        sync_execute(
+            """
+            INSERT INTO distributed_posthog_document_embeddings_text_embedding_3_small_1536 (
+                team_id, product, document_type, rendering, document_id, timestamp, inserted_at,
+                content, metadata, embedding, _timestamp, _offset, _partition
+            ) VALUES
+            """,
+            [
+                (
+                    self.team.id,
+                    BK_EMBEDDING_PRODUCT,
+                    BK_EMBEDDING_DOCUMENT_TYPE,
+                    BK_EMBEDDING_RENDERING,
+                    str(chunk_id),
+                    now,
+                    now,
+                    "",
+                    f'{{"document_id": "{document_id}"}}',
+                    embedding,
+                    now,
+                    0,
+                    0,
+                ),
+                (
+                    self.team.id,
+                    BK_EMBEDDING_PRODUCT,
+                    BK_EMBEDDING_DOCUMENT_TYPE,
+                    BK_EMBEDDING_RENDERING,
+                    str(document_id),
+                    now,
+                    now,
+                    "",
+                    f'{{"document_id": "{decoy_document_id}"}}',
+                    embedding,
+                    now,
+                    1,
+                    0,
+                ),
+            ],
+            flush=True,
+            team_id=self.team.pk,
+        )
+
+        candidates = _semantic_chunk_candidates(
+            self.team.id,
+            embedding,
+            limit=10,
+            document_ids=[str(document_id)],
+        )
+
+        assert [candidate.chunk_id for candidate in candidates] == [chunk_id]

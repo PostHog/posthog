@@ -40,6 +40,7 @@ export const manifest: ProductManifest = {
             category: ProductItemCategory.PRODUCT_ENGINEERING,
             type: 'product_tour',
             href: urls.productTours(),
+            searchKeywords: ['walkthrough', 'onboarding flows', 'tooltips'],
             iconType: 'product_tour',
             iconColor: [
                 'var(--color-product-product-tours-light)',

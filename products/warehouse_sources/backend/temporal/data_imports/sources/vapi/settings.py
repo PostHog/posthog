@@ -125,6 +125,13 @@ VAPI_ENDPOINTS: dict[str, VapiEndpointConfig] = {
         pagination="page",
         incremental_fields=[_datetime_incremental_field("createdAt")],
     ),
+    # Run status and itemCounts change until the run ends, and the API can't sort by updatedAt, so
+    # a createdAt watermark would freeze in-flight runs; the table is small, so full refresh only.
+    "simulation_runs": VapiEndpointConfig(
+        name="simulation_runs",
+        path="/eval/simulation/run",
+        pagination="page",
+    ),
     # Campaigns mutate heavily (status plus per-call counters), so createdAt-incremental would go
     # stale immediately; the table is small, so full refresh only.
     "campaigns": VapiEndpointConfig(

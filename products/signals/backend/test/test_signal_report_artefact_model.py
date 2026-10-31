@@ -301,6 +301,32 @@ class TestSignalReportArtefactHelpers(BaseTest):
         # Current status is the latest row.
         assert json.loads(rows[1].content)["priority"] == "P0"
 
+    def test_latest_content_breaks_a_created_at_tie_by_id(self):
+        report = self._report()
+        first = self._append_priority(report, "P2")
+        second = self._append_priority(report, "P0")
+        SignalReportArtefact.objects.filter(id__in=[first.id, second.id]).update(created_at=first.created_at)
+
+        latest = SignalReportArtefact.latest_content(
+            team_id=self.team.id, report_id=str(report.id), model=PriorityAssessment
+        )
+
+        expected = Priority.P0 if second.id > first.id else Priority.P2
+        assert latest is not None and latest.priority == expected
+
+    def test_latest_content_is_none_when_the_newest_row_does_not_parse(self):
+        report = self._report()
+        self._append_priority(report, "P2")
+        newest = self._append_priority(report, "P0")
+        SignalReportArtefact.objects.filter(id=newest.id).update(content=json.dumps({"explanation": "no priority"}))
+
+        assert (
+            SignalReportArtefact.latest_content(
+                team_id=self.team.id, report_id=str(report.id), model=PriorityAssessment
+            )
+            is None
+        )
+
     def _append_actionability(
         self, report: SignalReport, choice: str, *, already_addressed: bool = False
     ) -> SignalReportArtefact:

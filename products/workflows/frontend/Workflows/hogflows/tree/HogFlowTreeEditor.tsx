@@ -9,6 +9,7 @@ import { setHogFlowDragImage } from '../dragPreview'
 import { useHogFlowBranchSelection } from '../HogFlowBranchSelection'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import type { HogFlowEdge } from '../types'
+import { HogFlowTreeCollapseAllButton } from './HogFlowTreeCollapseAllButton'
 import { HogFlowTreeDropzone } from './HogFlowTreeDropzone'
 import { HogFlowTreeFeaturePreview } from './HogFlowTreeFeaturePreview'
 import { HogFlowTreeFocusHeader } from './HogFlowTreeFocusHeader'
@@ -16,6 +17,7 @@ import { HogFlowTreeNode } from './HogFlowTreeNode'
 import { buildWorkflowTree } from './workflowTree'
 import {
     findWorkflowTreePath,
+    getWorkflowTreeBranchGroups,
     getWorkflowTreeContinuationPath,
     getWorkflowTreeOccurrenceKey,
     getWorkflowTreeStepId,
@@ -24,8 +26,8 @@ import {
 } from './workflowTreePresentation'
 
 export function HogFlowTreeEditor(): JSX.Element {
-    const { nodeToBeAdded, workflow } = useValues(hogFlowEditorLogic)
-    const { setSelectedNodeId } = useActions(hogFlowEditorLogic)
+    const { nodeToBeAdded, workflow, treePathsCollapsedByDefault } = useValues(hogFlowEditorLogic)
+    const { setSelectedNodeId, setTreePathsCollapsedByDefault } = useActions(hogFlowEditorLogic)
     const { setSelectedBranch } = useHogFlowBranchSelection()
     const [focusedEdges, setFocusedEdges] = useState<HogFlowEdge[]>([])
     const [focusTarget, setFocusTarget] = useState<string | null>(null)
@@ -39,11 +41,37 @@ export function HogFlowTreeEditor(): JSX.Element {
     const tree = useMemo(() => buildWorkflowTree(workflow), [workflow])
     const focusedPath = useMemo(() => findWorkflowTreePath(tree, focusedEdges), [tree, focusedEdges])
     const focused = focusedPath.at(-1)
+    const focusedContinuation = focused ? (focused.branch.sequence.continueTo ?? focused.node.joinAction) : null
     const activeDropzones = !!nodeToBeAdded
 
     const updateViewState = (key: string, state: WorkflowTreeNodeViewState): void => {
         setViewStates((current) => ({ ...current, [key]: { ...current[key], ...state } }))
     }
+
+    // The remembered choice applies once per workflow, so editing a step does not re-collapse
+    // paths the person opened since.
+    const defaultAppliedToRef = useRef<string | null>(null)
+    useEffect(() => {
+        if (!treePathsCollapsedByDefault || defaultAppliedToRef.current === workflow.id) {
+            return
+        }
+        const groups = getWorkflowTreeBranchGroups(tree)
+        if (!groups.length) {
+            return
+        }
+        defaultAppliedToRef.current = workflow.id
+        setViewStates((current) => {
+            const next = { ...current }
+            for (const group of groups) {
+                next[group.occurrenceKey] = {
+                    ...next[group.occurrenceKey],
+                    branchesOpen: true,
+                    collapsedBranches: new Set(group.branchKeys),
+                }
+            }
+            return next
+        })
+    }, [tree, workflow.id, treePathsCollapsedByDefault])
 
     const focusBranch = (edges: HogFlowEdge[]): void => {
         setSelectedBranch(null)
@@ -76,10 +104,10 @@ export function HogFlowTreeEditor(): JSX.Element {
         }
     }
 
-    const selectContinuation = (actionId: string, path: HogFlowEdge[]): void => {
+    const selectContinuation = (actionId: string): void => {
         setSelectedBranch(null)
         setSelectedNodeId(actionId)
-        const destinationPath = getWorkflowTreeContinuationPath(tree, path, actionId)
+        const destinationPath = getWorkflowTreeContinuationPath(tree, actionId)
         revealPath(destinationPath)
         // A path inside the focused view can join at a step that the focused view also shows, so leave
         // focus only for a join that the user cannot already see.
@@ -231,8 +259,15 @@ export function HogFlowTreeEditor(): JSX.Element {
                     onDragOver={onTreeDragOver}
                     onDropCapture={onTreeDropCapture}
                 >
-                    {focused && (
+                    {focused ? (
                         <HogFlowTreeFocusHeader focusedPath={focusedPath} onReturnToWorkflow={returnToWorkflow} />
+                    ) : (
+                        <HogFlowTreeCollapseAllButton
+                            tree={tree}
+                            viewStates={viewStates}
+                            onViewStateChange={updateViewState}
+                            onCollapsedChange={setTreePathsCollapsedByDefault}
+                        />
                     )}
                     {(focused?.branch.sequence ?? tree).nodes.map((node) => (
                         <HogFlowTreeNode
@@ -261,15 +296,15 @@ export function HogFlowTreeEditor(): JSX.Element {
                             insertionLabel={`Add step to ${focused.branch.label}`}
                         />
                     )}
-                    {focused?.node.joinAction && (
+                    {focusedContinuation && (
                         <LemonButton
                             type="secondary"
                             size="small"
                             className="self-start max-w-full mt-3"
-                            onClick={() => selectContinuation(focused.node.joinAction!.id, focusedEdges.slice(0, -1))}
+                            onClick={() => selectContinuation(focusedContinuation.id)}
                             data-attr="workflow-tree-focus-continuation"
                         >
-                            <span className="break-words whitespace-normal">{`Continue to: ${focused.node.joinAction.name}`}</span>
+                            <span className="break-words whitespace-normal">{`Continue to: ${focusedContinuation.name}`}</span>
                         </LemonButton>
                     )}
                 </div>

@@ -542,6 +542,8 @@ export const alertFormLogic = kea<alertFormLogicType>([
                             // and read direction so the preview matches what the alert will score.
                             config: formConfig,
                             evaluation_delay_intervals: values.alertForm.evaluation_delay_intervals ?? 0,
+                            // A saved alert's earlier AI checks are part of what the AI detector reads.
+                            alert: values.alertForm.id ?? null,
                         })) as AlertSimulationResult
                     } catch (error) {
                         if (values.simulationRequestId === requestId) {

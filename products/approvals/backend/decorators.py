@@ -101,6 +101,21 @@ def _check_policy_for_action(action_class, team, organization) -> Optional[Any]:
     return None
 
 
+def _policy_conditions_match(action_class, policy, request, view_or_serializer, args: tuple, kwargs: dict) -> bool:
+    """Whether the policy's conditions match this change, so the action needs approval at all.
+
+    A change that more than one policy-backed action detects is rejected as a policy conflict. An
+    action whose policy conditions do not match needs no approval, so it must not count toward that
+    conflict. For example, enabling a flag and editing a property under a rollout-only update policy
+    needs the enable approval only. A policy found through a fallback action key is evaluated with
+    its conditions ignored, so it always matches.
+    """
+    if not policy.conditions or policy.action_key != action_class.key:
+        return True
+    intent = action_class.extract_intent(request, view_or_serializer, *args, **kwargs)
+    return PolicyEngine().conditions_match(policy.conditions, intent)
+
+
 def _check_for_duplicate(
     action_class, team, resource_id: Optional[str], intent_data: dict[str, Any]
 ) -> Optional[ChangeRequest]:
@@ -171,6 +186,7 @@ def _create_change_request(
         intent=_json_safe(intent_data),
         intent_display=_json_safe(display_data),
         policy_snapshot=_json_safe(policy_snapshot),
+        owner_kind=action_class.derive_owner_kind(team, resource_id, intent_data),
         created_by=user,
         state=ChangeRequestState.PENDING,
         expires_at=expires_at,
@@ -322,6 +338,10 @@ def _evaluate_gate(
     if decision.result == "DENY":
         logger.warning("Policy denied request", extra={"action": action_class.key, "reason": decision.reason})
         return GateResult(action="deny", error_message=decision.reason)
+
+    refusal = action_class.refuse_change_request(request, intent_data)
+    if refusal is not None:
+        raise refusal
 
     # Step 5: REQUIRE_APPROVAL - check for duplicates and create change request
     resource_id = _extract_resource_id(request, args, kwargs)
@@ -552,8 +572,8 @@ def approval_gate(action_refs: Union[type, str, list]):
             if not _is_approvals_enabled(organization):
                 return method(self, *args, **kwargs)
 
-            # Collect every action that matches this change AND has an enabled policy — not just
-            # the first. The approved change is applied by replaying the full validated payload
+            # Collect every action that matches this change AND has an enabled policy whose conditions
+            # match it — not just the first. The approved change is applied by replaying the full validated payload
             # (see actions.feature_flags._apply_create / apply), so a change that trips more than one
             # policy-backed action (e.g. a create that both enables the flag and sets its rollout)
             # would satisfy a single policy while the other policies' gated fields sail through
@@ -564,7 +584,7 @@ def approval_gate(action_refs: Union[type, str, list]):
                 try:
                     if action_class.detect(request, self, *args, **kwargs):
                         policy = _check_policy_for_action(action_class, team, organization)
-                        if policy:
+                        if policy and _policy_conditions_match(action_class, policy, request, self, args, kwargs):
                             matches.append((action_class, policy))
                 except Exception as e:
                     logger.error(

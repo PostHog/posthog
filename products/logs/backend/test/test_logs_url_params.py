@@ -2,14 +2,14 @@ import json
 from datetime import UTC, datetime
 from urllib.parse import parse_qs
 
-from posthog.test.base import BaseTest
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
 from products.logs.backend.logs_url_params import build_logs_url_params
 
 
-class TestBuildLogsUrlParams(BaseTest):
+class TestBuildLogsUrlParams(SimpleTestCase):
     @parameterized.expand(
         [
             ("empty_filters", {}, None, None, ""),

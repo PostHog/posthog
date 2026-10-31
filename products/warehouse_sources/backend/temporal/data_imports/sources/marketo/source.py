@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class MarketoSource(ResumableSource[MarketoSourceConfig, MarketoResumeConfig]):
+    codebase_detection = detect(env=("^MARKETO_",), script_hosts=("munchkin.marketo.net",), pypi=("marketorestpython",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     # Marketo has shipped one REST version since launch and exposes no version selector, so the
     # `/rest/v1` path segment is not a pinnable version.
@@ -52,8 +55,15 @@ class MarketoSource(ResumableSource[MarketoSourceConfig, MarketoResumeConfig]):
         return CANONICAL_DESCRIPTIONS
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
+        auth_message = (
+            "PostHog could not authenticate with Marketo. Check the client ID and secret on your Marketo custom service, "
+            "and make sure the service is still active."
+        )
         return {
-            "Marketo authentication failed": "PostHog could not authenticate with Marketo. Check the client ID and secret on your Marketo custom service, and make sure the service is still active.",
+            "Marketo authentication failed: status=400": auth_message,
+            "Marketo authentication failed: status=401": auth_message,
+            "Marketo authentication failed: status=403": auth_message,
+            "Marketo authentication failed: no access token": auth_message,
             "Marketo API error 601": "Your Marketo access token is invalid. Reconnect the source with a fresh client ID and secret.",
             "Marketo API error 603": "Your Marketo custom service does not have permission for this data. Add the missing API role permissions in Marketo and try again.",
             "Marketo API error 607": "Your Marketo instance hit its daily API quota. The sync will run again once the quota resets.",
@@ -70,10 +80,10 @@ class MarketoSource(ResumableSource[MarketoSourceConfig, MarketoResumeConfig]):
 
 In Marketo, open **Admin → Web Services** for your Munchkin account ID, then **Admin → LaunchPoint** to create a custom service and copy its client ID and secret. The service's API role needs read access to leads, activities, campaigns, and assets.
 
-Leads and activities come through Marketo's Bulk Extract API, so the first sync backfills from the start date you set below.""",
+Leads, activities, and program members backfill from the start date you set below on the first sync.""",
             iconPath="/static/services/marketo.png",
             docsUrl="https://posthog.com/docs/cdp/sources/marketo",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["adobe marketo", "marketo engage"],
             fields=cast(
                 list[FieldType],
@@ -104,6 +114,7 @@ Leads and activities come through Marketo's Bulk Extract API, so the first sync 
                     ),
                     SourceFieldInputConfig(
                         name="start_date",
+                        sync_setting=True,
                         label="Start date",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,

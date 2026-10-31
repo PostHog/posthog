@@ -12,7 +12,7 @@ from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 
-from products.access_control.backend.models.access_control import AccessControl
+from products.access_control.backend.facade.testing import create_access_control
 from products.error_tracking.backend.logic.rules import MAX_SEVERITY_RULE_BYTECODE_OPS, MAX_SEVERITY_RULES_PER_TEAM
 from products.error_tracking.backend.models import ErrorTrackingSeverityRule
 
@@ -219,17 +219,17 @@ class TestSeverityRuleAPI(APIBaseTest):
         self.organization.save()
         restricted_user = User.objects.create_and_join(self.organization, "restricted@posthog.com", "testtest")
         membership = OrganizationMembership.objects.get(user=restricted_user, organization=self.organization)
-        AccessControl.objects.create(
-            team=self.team,
+        create_access_control(
+            team_id=self.team.id,
             resource="error_tracking",
             access_level="none",
         )
-        AccessControl.objects.create(
-            team=self.team,
+        create_access_control(
+            team_id=self.team.id,
             resource="error_tracking",
             resource_id="00000000-0000-0000-0000-000000000001",
             access_level="editor",
-            organization_member=membership,
+            organization_member_id=membership.id,
         )
         rule = ErrorTrackingSeverityRule.objects.unscoped().create(
             team=self.team,

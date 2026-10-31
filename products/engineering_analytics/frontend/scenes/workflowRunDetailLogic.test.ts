@@ -1,8 +1,6 @@
-import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { ApiConfig } from 'lib/api'
-import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
 
@@ -87,54 +85,5 @@ describe('workflowRunDetailLogic', () => {
         for (const read of [mockRun, mockJobs, mockLogs]) {
             expect(read).toHaveBeenCalledWith('1', expect.objectContaining({ run_id: 42, ci_engine: 'depot_ci' }))
         }
-    })
-
-    it('links the loaded workflow breadcrumb back with the current scope', async () => {
-        router.actions.push(urls.engineeringAnalyticsWorkflowRun('PostHog', 'posthog', 42), {
-            source: 'source-1',
-            repo: 'PostHog/posthog',
-            date_from: '2026-06-01',
-            date_to: '2026-06-30',
-            run_scope: 'merge_queue',
-        })
-        logic = workflowRunDetailLogic({
-            repoOwner: 'PostHog',
-            repoName: 'posthog',
-            runId: 42,
-            sourceId: 'source-1',
-        })
-        logic.mount()
-
-        await expectLogic(logic).toDispatchActionsInAnyOrder(['loadRunSuccess', 'loadJobsSuccess'])
-
-        expect(logic.values.breadcrumbs.map(({ name }) => name)).toEqual([
-            'Engineering analytics',
-            'Workflows',
-            'PostHog/posthog · CI',
-            'run #42',
-        ])
-        const workflowDestination = new URL(logic.values.breadcrumbs[2].path!, 'https://example.com')
-        expect(workflowDestination.pathname).toBe(
-            new URL(urls.engineeringAnalyticsWorkflowRuns('PostHog', 'posthog', 'CI'), 'https://example.com').pathname
-        )
-        expect(Object.fromEntries(workflowDestination.searchParams)).toEqual({
-            date_from: '2026-06-01',
-            date_to: '2026-06-30',
-            run_scope: 'merge_queue',
-            source: 'source-1',
-            repo: 'PostHog/posthog',
-        })
-
-        router.actions.replace(urls.engineeringAnalyticsWorkflowRun('PostHog', 'posthog', 42), {
-            source: 'source-1',
-            repo: 'PostHog/posthog',
-            date_from: '-30d',
-        })
-        const hubDestination = new URL(logic.values.breadcrumbs[0].path!, 'https://example.com')
-        expect(Object.fromEntries(hubDestination.searchParams)).toEqual({
-            date_from: '-30d',
-            source: 'source-1',
-            repo: 'PostHog/posthog',
-        })
     })
 })

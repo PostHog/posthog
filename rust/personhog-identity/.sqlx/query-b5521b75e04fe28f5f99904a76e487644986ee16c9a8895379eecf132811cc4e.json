@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "/* service='personhog-identity', operation='publish_merged_sources' */ \n        SELECT person_id, person_uuid FROM lifecycle_op_person_tmp\n        WHERE op_id = $1 AND role = 'source' AND status = 'deleted'\n        ORDER BY person_id\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "person_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "person_uuid",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "b5521b75e04fe28f5f99904a76e487644986ee16c9a8895379eecf132811cc4e"
+}

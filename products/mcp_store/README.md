@@ -3,6 +3,10 @@
 A curated marketplace of third-party MCP servers (Linear, Notion, Sentry, ...) that users browse and connect from Settings → MCP servers (behind the `mcp-gateway` feature flag).
 Connected servers are consumed by agent surfaces via the `backend/facade/` package.
 
+Store connections to PostHog MCP use individual tools so each call receives its own policy check. They cannot invoke the `exec` wrapper or expand nested connections. Direct PostHog MCP clients retain CLI mode and access to their own connected tools.
+
+Tool names missing from the cached registry are re-listed before use and refused if the server still does not advertise them. OAuth responses are limited to 1 MiB. Buffered MCP handshakes and calls allow 8 MiB for full tool schemas and results. Both paths enforce a total response deadline. Upstream servers must honor `Accept-Encoding: identity`.
+
 This is unrelated to `products/*/mcp/tools.yaml`, which exposes PostHog's own endpoints as MCP tools.
 
 ## Keep the desktop UI in sync

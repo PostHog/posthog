@@ -2,7 +2,7 @@
 
 The envelope is the small JSON the sandbox POSTs to the backend callback:
 `{status, columns, row_count, first_page, result_id, error?}`. It carries a
-bounded preview only — never the full result (see sql_v2_result_delivery.md).
+bounded preview only — never the full result.
 """
 
 import math

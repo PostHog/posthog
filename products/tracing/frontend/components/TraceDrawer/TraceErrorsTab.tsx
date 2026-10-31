@@ -1,16 +1,12 @@
 import { BindLogic, useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonSegmentedButton, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonSegmentedButton, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
-import { pluralize } from 'lib/utils/strings'
-
-import { MaxErrorTrackingIssuePreview } from '~/queries/schema/schema-assistant-error-tracking'
-
-import { ErrorTrackingIssueCard } from 'products/error_tracking/frontend/ErrorTrackingIssueCard'
 
 import { SESSION_ERRORS_WINDOW_HOURS } from '../../errorCorrelation'
 import { TRACING_DOCS_URL } from '../../traceLinks'
+import { ErrorIssuesList } from './ErrorIssuesList'
 import { TraceErrorsLogicProps, TraceErrorsScope, traceErrorsLogic } from './traceErrorsLogic'
 
 // Every string a scope needs, so adding one is a single entry and the Record keeps it exhaustive.
@@ -107,60 +103,16 @@ function TraceErrorsTabContent(): JSX.Element {
                     />
                 </div>
             )}
-            <TraceErrorsList
+            <ErrorIssuesList
                 issues={issues}
                 loading={issuesLoading}
                 failed={issuesFailed}
-                scope={effectiveScope}
                 onRetry={loadIssues}
+                failedMessage="Could not load the errors for this trace."
+                emptyTitle={SCOPES[effectiveScope].emptyTitle}
+                emptyDescription={SCOPES[effectiveScope].emptyBody}
+                where={SCOPES[effectiveScope].where}
             />
-        </div>
-    )
-}
-
-function TraceErrorsList({
-    issues,
-    loading,
-    failed,
-    scope,
-    onRetry,
-}: {
-    issues: MaxErrorTrackingIssuePreview[]
-    loading: boolean
-    failed: boolean
-    scope: TraceErrorsScope
-    onRetry: () => void
-}): JSX.Element {
-    if (loading) {
-        return <LoadingState />
-    }
-
-    if (failed) {
-        return (
-            <LemonBanner type="error" action={{ children: 'Retry', onClick: onRetry }}>
-                Could not load the errors for this trace.
-            </LemonBanner>
-        )
-    }
-
-    if (issues.length === 0) {
-        return (
-            <div className="flex justify-center w-full py-8">
-                <EmptyMessage title={SCOPES[scope].emptyTitle} description={SCOPES[scope].emptyBody} size="small" />
-            </div>
-        )
-    }
-
-    const totalOccurrences = issues.reduce((sum, issue) => sum + issue.occurrences, 0)
-    return (
-        <div className="flex flex-col">
-            <p className="text-muted text-sm mb-2">
-                {pluralize(issues.length, 'issue')} with {pluralize(totalOccurrences, 'occurrence')}{' '}
-                {SCOPES[scope].where}
-            </p>
-            {issues.map((issue) => (
-                <ErrorTrackingIssueCard key={issue.id} issue={issue} showUserCount={false} />
-            ))}
         </div>
     )
 }

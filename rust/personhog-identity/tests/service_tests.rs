@@ -7,7 +7,8 @@ use async_trait::async_trait;
 use common::TestContext;
 use tonic::{Code, Request, Status};
 
-use personhog_identity::leader::PropertyWriter;
+use personhog_identity::leader::{PersonStateReader, PropertyWriter};
+use personhog_identity::lifecycle::detach::DetachedDrives;
 use personhog_identity::lifecycle::merge::{MergeDriver, MergeOpExecutor};
 use personhog_identity::service::merge::MergeEntrance;
 use personhog_identity::service::validation::RequestLimits;
@@ -36,6 +37,14 @@ impl MockPropertyWriter {
 
     fn calls(&self) -> Vec<UpdatePersonPropertiesRequest> {
         self.calls.lock().unwrap().clone()
+    }
+}
+
+/// These tests seed the identity row directly, so the leader agrees with it.
+#[async_trait]
+impl PersonStateReader for MockPropertyWriter {
+    async fn is_identified(&self, _team_id: i64, _person_id: i64) -> Result<Option<bool>, Status> {
+        Ok(Some(false))
     }
 }
 
@@ -82,13 +91,16 @@ impl ServiceTestContext {
         let merge = MergeEntrance::new(
             ctx.storage.clone(),
             writer.clone(),
+            writer.clone(),
             MergeOpExecutor::new(
                 engine,
                 MergeDriver::new(
                     Arc::new(common::UnusedLeader),
                     ctx.tables.clone(),
                     common::FAN_OUT_CONCURRENCY,
+                    personhog_identity::config::OutboxWrites::Disabled,
                 ),
+                DetachedDrives::new(common::FAN_OUT_CONCURRENCY),
             ),
         );
         let service = PersonHogIdentityService::new(
@@ -337,6 +349,7 @@ async fn resolve_returns_existing_persons_and_absence_without_creating() {
                     distinct_id: "never-seen".to_string(),
                 },
             ],
+            ids_only: false,
         }))
         .await
         .expect("resolve must succeed")
@@ -361,11 +374,40 @@ async fn resolve_returns_existing_persons_and_absence_without_creating() {
                 team_id: t.ctx.team_id,
                 distinct_id: "never-seen".to_string(),
             }],
+            ids_only: false,
         }))
         .await
         .expect("resolve must succeed")
         .into_inner();
     assert!(again.results[0].person.is_none());
+
+    let ids_only = t
+        .service
+        .get_persons_by_distinct_ids(Request::new(GetPersonsByDistinctIdsRequest {
+            keys: vec![
+                PersonKey {
+                    team_id: t.ctx.team_id,
+                    distinct_id: "known-id".to_string(),
+                },
+                PersonKey {
+                    team_id: t.ctx.team_id,
+                    distinct_id: "never-seen".to_string(),
+                },
+            ],
+            ids_only: true,
+        }))
+        .await
+        .expect("ids-only resolve must succeed")
+        .into_inner();
+    let known_ids_only = ids_only.results[0]
+        .person
+        .as_ref()
+        .expect("known id resolves");
+    assert_eq!(
+        (known_ids_only.id, known_ids_only.team_id),
+        (person.id, person.team_id)
+    );
+    assert!(ids_only.results[1].person.is_none());
 }
 
 /// The identity-side expansion mirrors the replica RPC's contract:
@@ -418,6 +460,7 @@ async fn duplicate_resolve_keys_each_resolve() {
         .service
         .get_persons_by_distinct_ids(Request::new(GetPersonsByDistinctIdsRequest {
             keys: vec![key(), key(), key()],
+            ids_only: false,
         }))
         .await
         .expect("resolve must succeed")
@@ -442,6 +485,7 @@ async fn new_rpcs_reject_wrapping_team_ids() {
                 team_id: bad_team,
                 distinct_id: "x".to_string(),
             }],
+            ids_only: false,
         }))
         .await;
     assert_eq!(resolve.unwrap_err().code(), Code::InvalidArgument);

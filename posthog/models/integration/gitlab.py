@@ -6,6 +6,7 @@ from urllib.parse import urlencode, urlparse
 
 import requests
 
+from posthog.integrations.contracts import IntegrationRecord
 from posthog.security.url_validation import is_url_allowed
 
 from . import common, model
@@ -77,10 +78,10 @@ class GitLabIntegration:
 
         return integration
 
-    def __init__(self, integration: model.Integration) -> None:
+    def __init__(self, integration: IntegrationRecord) -> None:
         if integration.kind != "gitlab":
             raise Exception("GitLabIntegration init called with Integration with wrong 'kind'")
-        self.integration = integration
+        self.integration = model.integration_model(integration)
 
     @property
     def project_path(self) -> str:

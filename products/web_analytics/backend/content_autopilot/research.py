@@ -4,6 +4,8 @@ from html.parser import HTMLParser
 from typing import Any, Literal
 from urllib.parse import urlparse
 
+import requests
+
 from posthog.dataclasses import frozen
 from posthog.egress.firecrawl.client import (
     MAX_SEARCH_QUERY_CHARS,
@@ -18,7 +20,12 @@ from posthog.egress.limiter.policies import Priority
 from posthog.security.llm_prompt_sanitization import strip_llm_framing_markers
 from posthog.security.url_validation import strip_userinfo
 
-from products.web_analytics.backend.content_autopilot.site_discovery import has_same_public_site, site_host
+from products.web_analytics.backend.content_autopilot.edits import first_h1
+from products.web_analytics.backend.content_autopilot.site_discovery import (
+    has_same_public_site,
+    is_site_link,
+    site_host,
+)
 from products.web_analytics.backend.public_url_fetch import PublicUrlFetchError, fetch_public_url
 
 MAX_DOCUMENT_CHARS = 40_000
@@ -29,6 +36,7 @@ MAX_LINK_CANDIDATES = 60
 FETCH_SECONDS = 20.0
 FIRECRAWL_SOURCE = "content_autopilot"
 MAX_SITE_SEARCH_RESULTS = 10
+MAX_STUB_TWIN_WORDS = 80
 
 DocumentOrigin = Literal["site", "competitor"]
 
@@ -97,8 +105,24 @@ class _FetchedBody:
     body: str
 
 
+_WHITESPACE_RE = re.compile(r"\s+")
+_REPEATED_SPACES_RE = re.compile(r" {2,}")
+_CODE_LANGUAGE_RE = re.compile(r"(?:^|\s)lang(?:uage)?-([\w+#.-]+)")
+_CODE_BLOCK_TOKEN_RE = re.compile(r"\x00code-block-(\d+)\x00")
+_BACKTICK_RUN_RE = re.compile(r"`+")
+_TWIN_METADATA_RE = re.compile(r"^canonical url:", re.IGNORECASE)
+_MARKDOWN_COPY_LINK_RE = re.compile(r"(\]\()([^()\[\]\s?#]+?)\.md(?=[#?)\s])")
+
+
+def _code_language(attrs: list[tuple[str, str | None]]) -> str:
+    match = _CODE_LANGUAGE_RE.search(dict(attrs).get("class") or "")
+    return match.group(1) if match else ""
+
+
 class _TextExtractor(HTMLParser):
-    _SKIPPED_TAGS = frozenset({"script", "style", "noscript", "nav", "header", "footer", "aside", "svg", "form"})
+    _SKIPPED_TAGS = frozenset(
+        {"script", "style", "noscript", "nav", "header", "footer", "aside", "svg", "form", "button"}
+    )
     _BLOCK_TAGS = frozenset({"p", "div", "section", "article", "li", "tr", "br", "h1", "h2", "h3", "h4", "h5", "h6"})
     _MAIN_TAGS = frozenset({"main", "article"})
 
@@ -107,8 +131,12 @@ class _TextExtractor(HTMLParser):
         self.title = ""
         self._parts: list[str] = []
         self._main_parts: list[str] = []
+        self._code_blocks: list[str] = []
         self._skip_depth = 0
         self._main_depth = 0
+        self._pre_depth = 0
+        self._pre_text: list[str] = []
+        self._pre_language = ""
         self._inside_title = False
 
     def _append(self, text: str) -> None:
@@ -116,9 +144,31 @@ class _TextExtractor(HTMLParser):
         if self._main_depth:
             self._main_parts.append(text)
 
+    def _close_code_block(self) -> None:
+        code = "".join(self._pre_text).strip("\n")
+        if code.strip():
+            fence = "`" * max([3, *(len(run) + 1 for run in _BACKTICK_RUN_RE.findall(code))])
+            self._code_blocks.append(f"{fence}{self._pre_language}\n{code}\n{fence}")
+            self._append(f"\n\x00code-block-{len(self._code_blocks) - 1}\x00\n")
+
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         if tag in self._SKIPPED_TAGS:
             self._skip_depth += 1
+        elif self._skip_depth:
+            return
+        elif tag == "pre":
+            self._pre_depth += 1
+            if self._pre_depth == 1:
+                self._pre_text = []
+                self._pre_language = _code_language(attrs)
+        elif tag == "code":
+            if self._pre_depth:
+                self._pre_language = self._pre_language or _code_language(attrs)
+            else:
+                self._append("`")
+        elif self._pre_depth:
+            if tag == "br":
+                self._pre_text.append("\n")
         elif tag == "title":
             self._inside_title = True
         elif tag in self._BLOCK_TAGS or tag in self._MAIN_TAGS:
@@ -131,22 +181,36 @@ class _TextExtractor(HTMLParser):
     def handle_endtag(self, tag: str) -> None:
         if tag in self._SKIPPED_TAGS and self._skip_depth:
             self._skip_depth -= 1
+        elif self._skip_depth:
+            return
+        elif tag == "pre" and self._pre_depth:
+            self._pre_depth -= 1
+            if not self._pre_depth:
+                self._close_code_block()
+        elif tag == "code" and not self._pre_depth:
+            self._append("`")
         elif tag == "title":
             self._inside_title = False
         elif tag in self._MAIN_TAGS and self._main_depth:
             self._main_depth -= 1
 
     def handle_data(self, data: str) -> None:
+        data = data.replace("\x00", "")
         if self._inside_title:
             self.title += data
-        elif not self._skip_depth and data.strip():
-            self._append(data.strip() + " ")
+        elif self._skip_depth:
+            return
+        elif self._pre_depth:
+            self._pre_text.append(data)
+        else:
+            self._append(_WHITESPACE_RE.sub(" ", data))
 
     @property
     def text(self) -> str:
         parts = self._main_parts if any(part.strip() for part in self._main_parts) else self._parts
-        lines = (line.strip() for line in "".join(parts).splitlines())
-        return "\n".join(line for line in lines if line)
+        lines = (_REPEATED_SPACES_RE.sub(" ", line).strip() for line in "".join(parts).splitlines())
+        text = "\n".join(line for line in lines if line)
+        return _CODE_BLOCK_TOKEN_RE.sub(lambda match: self._code_blocks[int(match.group(1))], text)
 
 
 def html_to_text(html: str) -> _PageText:
@@ -199,12 +263,42 @@ def _links_to_page(markdown: str, url: str) -> bool:
     return re.search(f"(?:{'|'.join(targets)})/?(?![\\w/.-])", markdown) is not None
 
 
-def _without_preamble(markdown: str) -> str:
+def _without_twin_metadata(markdown: str) -> str:
     lines = markdown.splitlines()
-    h1 = next((index for index, line in enumerate(lines) if line.startswith("# ")), None)
-    if h1 is None or not all(not line.strip() or line.startswith(">") for line in lines[:h1]):
+    heading = first_h1(lines)
+    if heading is None:
         return markdown
-    return "\n".join(lines[h1:])
+    start = end = heading[0] + 1
+    while end < len(lines) and (
+        not lines[end].strip() or lines[end].startswith(">") or _TWIN_METADATA_RE.match(lines[end])
+    ):
+        end += 1
+    if not any(_TWIN_METADATA_RE.match(line) for line in lines[start:end]):
+        return markdown
+    return "\n".join([*lines[:start], "", *lines[end:]])
+
+
+def _with_page_links(markdown: str, url: str) -> str:
+    host = site_host(url)
+
+    def page_link(match: re.Match[str]) -> str:
+        return f"{match.group(1)}{match.group(2)}" if is_site_link(match.group(2), host) else match.group(0)
+
+    return _MARKDOWN_COPY_LINK_RE.sub(page_link, markdown)
+
+
+def _from_first_h1(markdown: str) -> str:
+    lines = markdown.splitlines()
+    heading = first_h1(lines)
+    return "\n".join(lines[heading[0] :]) if heading else markdown
+
+
+def _is_stub_twin(markdown: str, url: str) -> bool:
+    lines = markdown.splitlines()
+    heading = first_h1(lines)
+    if not any(line.strip() for line in lines[heading[0] + 1 if heading else 0 :]):
+        return True
+    return _links_to_page(markdown, url) and len(markdown.split()) <= MAX_STUB_TWIN_WORDS
 
 
 def _fetch_html_document(url: str, origin: DocumentOrigin) -> SourceDocument | None:
@@ -214,34 +308,40 @@ def _fetch_html_document(url: str, origin: DocumentOrigin) -> SourceDocument | N
     extracted = html_to_text(page.body)
     if not extracted.text:
         return None
-    return SourceDocument(url=url, title=extracted.title, text=_clean(extracted.text), origin=origin)
+    return SourceDocument(url=url, title=extracted.title, text=_clean(_from_first_h1(extracted.text)), origin=origin)
+
+
+def _fetch_rendered_document(url: str, origin: DocumentOrigin) -> SourceDocument | None:
+    try:
+        scraped = scrape(url, source=FIRECRAWL_SOURCE, formats=("markdown",), priority=Priority.BATCH)
+        if origin == "site" and not (scraped.final_url and has_same_public_site(scraped.final_url, url)):
+            return _fetch_html_document(url, origin)
+        if scraped.markdown:
+            return SourceDocument(
+                url=url, title=scraped.title or "", text=_clean(_from_first_h1(scraped.markdown)), origin=origin
+            )
+    except (FirecrawlNotConfigured, FirecrawlScrapeFailed, FirecrawlEgressBudgetExhausted, requests.RequestException):
+        pass
+    return _fetch_html_document(url, origin)
 
 
 def fetch_site_page(url: str) -> SourceDocument | None:
     twin_document: SourceDocument | None = None
     twin = _fetch(_markdown_twin(url), "text/markdown,text/plain;q=0.9")
     if twin is not None and "html" not in twin.content_type.lower() and twin.body.strip():
-        body = _without_preamble(twin.body)
-        first_heading = next((line[2:] for line in body.splitlines() if line.startswith("# ")), "")
-        twin_document = SourceDocument(url=url, title=first_heading.strip(), text=_clean(body), origin="site")
-        if not _links_to_page(twin.body, url):
+        body = _with_page_links(_without_twin_metadata(_from_first_h1(_clean(twin.body))), url)
+        heading = first_h1(body.splitlines())
+        twin_document = SourceDocument(url=url, title=heading[1] if heading else "", text=_clean(body), origin="site")
+        if not _is_stub_twin(body, url):
             return twin_document
-    page_document = _fetch_html_document(url, "site")
+    page_document = _fetch_rendered_document(url, "site")
     if page_document is None or (twin_document is not None and len(twin_document.text) >= len(page_document.text)):
         return twin_document
     return page_document
 
 
 def fetch_competitor_page(url: str) -> SourceDocument | None:
-    try:
-        scraped = scrape(url, source=FIRECRAWL_SOURCE, formats=("markdown",), priority=Priority.BATCH)
-        if scraped.markdown:
-            return SourceDocument(
-                url=url, title=scraped.title or "", text=_clean(scraped.markdown), origin="competitor"
-            )
-    except (FirecrawlNotConfigured, FirecrawlScrapeFailed, FirecrawlEgressBudgetExhausted):
-        pass
-    return _fetch_html_document(url, "competitor")
+    return _fetch_rendered_document(url, "competitor")
 
 
 def search_site_pages(prompt: str, *, site_origin: str, site_urls: list[str]) -> list[str]:

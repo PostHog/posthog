@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime
 from types import SimpleNamespace
 
 import time_machine
@@ -187,6 +187,7 @@ class TestLifecycleQueryRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTe
                         "18-Jan-2020",
                         "19-Jan-2020",
                     ],
+                    "order": 0,
                     "status": "new",
                     "action": {
                         "id": "$pageview",
@@ -238,6 +239,7 @@ class TestLifecycleQueryRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTe
                         "18-Jan-2020",
                         "19-Jan-2020",
                     ],
+                    "order": 0,
                     "status": "returning",
                     "action": {
                         "id": "$pageview",
@@ -289,6 +291,7 @@ class TestLifecycleQueryRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTe
                         "18-Jan-2020",
                         "19-Jan-2020",
                     ],
+                    "order": 0,
                     "status": "resurrecting",
                     "action": {
                         "id": "$pageview",
@@ -340,6 +343,7 @@ class TestLifecycleQueryRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTe
                         "18-Jan-2020",
                         "19-Jan-2020",
                     ],
+                    "order": 0,
                     "status": "dormant",
                     "action": {
                         "id": "$pageview",
@@ -461,6 +465,7 @@ class TestLifecycleQueryRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTe
                         "18-Jan-2020",
                         "19-Jan-2020",
                     ],
+                    "order": 0,
                     "status": "new",
                     "action": {
                         "id": "$pageview",
@@ -512,6 +517,7 @@ class TestLifecycleQueryRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTe
                         "18-Jan-2020",
                         "19-Jan-2020",
                     ],
+                    "order": 0,
                     "status": "returning",
                     "action": {
                         "id": "$pageview",
@@ -563,6 +569,7 @@ class TestLifecycleQueryRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTe
                         "18-Jan-2020",
                         "19-Jan-2020",
                     ],
+                    "order": 0,
                     "status": "resurrecting",
                     "action": {
                         "id": "$pageview",
@@ -614,6 +621,7 @@ class TestLifecycleQueryRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTe
                         "18-Jan-2020",
                         "19-Jan-2020",
                     ],
+                    "order": 0,
                     "status": "dormant",
                     "action": {
                         "id": "$pageview",
@@ -961,6 +969,7 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         "18-Jan-2020",
                         "19-Jan-2020",
                     ],
+                    "order": 0,
                     "status": "new",
                     "action": {
                         "id": "$pageview",
@@ -1012,6 +1021,7 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         "18-Jan-2020",
                         "19-Jan-2020",
                     ],
+                    "order": 0,
                     "status": "returning",
                     "action": {
                         "id": "$pageview",
@@ -1063,6 +1073,7 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         "18-Jan-2020",
                         "19-Jan-2020",
                     ],
+                    "order": 0,
                     "status": "resurrecting",
                     "action": {
                         "id": "$pageview",
@@ -1114,6 +1125,7 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         "18-Jan-2020",
                         "19-Jan-2020",
                     ],
+                    "order": 0,
                     "status": "dormant",
                     "action": {
                         "id": "$pageview",
@@ -1750,21 +1762,17 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         pageview_action = create_action(team=self.team, name="$pageview", event_name="$pageview")
 
-        result = (
-            LifecycleQueryRunner(
-                team=self.team,
-                query=LifecycleQuery(
-                    dateRange=DateRange(date_from="2020-01-12T00:00:00Z", date_to="2020-01-19T00:00:00Z"),
-                    interval=IntervalType.DAY,
-                    series=[ActionsNode(id=pageview_action.pk)],
-                ),
-            )
-            .calculate()
-            .results
-        )
+        response = LifecycleQueryRunner(
+            team=self.team,
+            query=LifecycleQuery(
+                dateRange=DateRange(date_from="2020-01-12T00:00:00Z", date_to="2020-01-19T00:00:00Z"),
+                interval=IntervalType.DAY,
+                series=[ActionsNode(id=pageview_action.pk)],
+            ),
+        ).calculate()
 
         assertLifecycleResults(
-            result,
+            response.results,
             [
                 {"status": "dormant", "data": [0, -2, -1, 0, -2, 0, -1, 0]},
                 {"status": "new", "data": [1, 0, 0, 1, 0, 0, 0, 0]},
@@ -1772,6 +1780,7 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 {"status": "returning", "data": [1, 1, 0, 0, 0, 0, 0, 0]},
             ],
         )
+        assert response.action_names == {str(pageview_action.pk): "$pageview"}
 
     def test_lifecycle_trend_all_time(self):
         self._create_events(
@@ -2318,20 +2327,25 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 IntervalType.WEEK,
                 "2020-01-14",
                 "2020-01-19",
+                datetime(2020, 1, 5, tzinfo=UTC),
             ),
             (
                 "month_interval_mid_month",
                 IntervalType.MONTH,
                 "2020-01-14",
                 "2020-01-19",
+                datetime(2019, 12, 1, tzinfo=UTC),
             ),
         ]
     )
     @time_machine.travel("2020-01-20T00:00:00Z", tick=False)
-    def test_lifecycle_interval_boundary_filtering(self, _name, interval, date_from, date_to):
+    def test_lifecycle_interval_boundary_filtering(self, _name, interval, date_from, date_to, expected_read_from):
         self._create_test_events()
 
         response = self._run_lifecycle_query(date_from, date_to, interval)
+
+        assert response.resolved_date_range is not None
+        assert response.resolved_date_range.read_from == expected_read_from
 
         statuses = [r["status"] for r in response.results]
         assert statuses == ["new", "returning", "resurrecting", "dormant"]

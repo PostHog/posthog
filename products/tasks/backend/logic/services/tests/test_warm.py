@@ -6,6 +6,7 @@ from rest_framework.exceptions import PermissionDenied, Throttled
 
 from posthog.exceptions import QuotaLimitExceeded
 
+from products.tasks.backend.constants import DEFAULT_SANDBOX_WORKING_DIR
 from products.tasks.backend.logic.services.warm import SandboxWarmer, WarmSourceChanged
 from products.tasks.backend.models import Task, TaskRun
 
@@ -78,7 +79,13 @@ class TestSandboxWarmerWarm(APIBaseTest):
 
     def test_rewarms_with_resume_after_terminal_run(self):
         task = self._task()
-        terminal = task.create_run(mode="interactive", extra_state={"snapshot_external_id": "snap-1"})
+        terminal = task.create_run(
+            mode="interactive",
+            extra_state={
+                "snapshot_external_id": "snap-1",
+                "snapshot_mount_path": DEFAULT_SANDBOX_WORKING_DIR,
+            },
+        )
         terminal.status = TaskRun.Status.COMPLETED
         terminal.save(update_fields=["status"])
 

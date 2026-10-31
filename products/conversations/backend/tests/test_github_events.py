@@ -87,12 +87,12 @@ class TestConversationsGitHubDeliveries(BaseTest):
         self.team.save()
 
     @patch(f"{GITHUB_EVENTS_MODULE}.process_github_event")
-    @patch(f"{GITHUB_EVENTS_MODULE}.Integration.objects.filter")
-    def test_a_lookup_that_hits_its_timeout_fails_the_dispatch_rather_than_receipting_it(self, mock_filter, mock_task):
+    @patch.object(Integration.objects, "using")
+    def test_a_lookup_that_hits_its_timeout_fails_the_dispatch_rather_than_receipting_it(self, mock_using, mock_task):
         # Swallowing it would return quietly, the dispatcher would mark the delivery done for 24
         # hours, and GitHub does not redeliver a receipted event, so the issue event is lost here.
         mock_task.delay = MagicMock()
-        mock_filter.side_effect = OperationalError("canceling statement due to statement timeout")
+        mock_using.side_effect = OperationalError("canceling statement due to statement timeout")
 
         with self.assertRaises(OperationalError):
             conversations_facade.accept_github_event(_delivery(_issue_event()))
@@ -110,6 +110,17 @@ class TestConversationsGitHubDeliveries(BaseTest):
         assert call_kwargs["team_id"] == self.team.id
         assert call_kwargs["repo"] == "org/repo"
         assert call_kwargs["delivery_id"] == "delivery-abc"
+
+    @patch(f"{GITHUB_EVENTS_MODULE}.process_github_event")
+    def test_routing_reads_stay_on_the_writer_when_the_router_points_elsewhere(self, mock_task):
+        # The test database has no "replica" alias, so a read that goes through the router fails
+        # instead of reaching settings older than the integration rows.
+        mock_task.delay = MagicMock()
+
+        with patch("django.db.router.db_for_read", return_value="replica"):
+            conversations_facade.accept_github_event(_delivery(_issue_event()))
+
+        assert mock_task.delay.call_args[1]["team_id"] == self.team.id
 
     @patch(f"{GITHUB_EVENTS_MODULE}.process_github_event")
     def test_falls_back_to_sha256_when_delivery_header_missing(self, mock_task):

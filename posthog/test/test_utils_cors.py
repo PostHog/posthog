@@ -1,11 +1,11 @@
 from django.http import HttpResponse
-from django.test import TestCase
+from django.test import SimpleTestCase
 from django.test.client import RequestFactory
 
 from posthog.utils_cors import cors_response
 
 
-class TestCorsResponse(TestCase):
+class TestCorsResponse(SimpleTestCase):
     def test_origin(self) -> None:
         valid_origin_test_cases = [
             ("https://my-amazing.site", "https://my-amazing.site"),

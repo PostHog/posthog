@@ -729,7 +729,10 @@ function ColumnsAndRowFiltersSection({
     const rowFiltersSummary =
         filterCount === 0 ? 'Syncing all rows' : `${filterCount} ${filterCount === 1 ? 'filter' : 'filters'} active`
 
-    const rowFilterErrors = validateRowFilters(draftRowFilters ?? [], { availableColumns: available })
+    // A source that filters on a fixed set of columns lists them; other sources filter on any synced column.
+    const rowFilterColumns = schema.row_filter_columns ?? available
+    const rowFilterSchema = schema.row_filter_columns ? { ...schema, available_columns: rowFilterColumns } : schema
+    const rowFilterErrors = validateRowFilters(draftRowFilters ?? [], { availableColumns: rowFilterColumns })
     const hasRowFilterErrors = Object.keys(rowFilterErrors).length > 0
 
     const isDirty =
@@ -828,31 +831,38 @@ function ColumnsAndRowFiltersSection({
                 </div>
             </div>
 
-            {supportsRowFilters && source?.access_method !== 'direct' && schema.sync_type !== 'cdc' && (
-                <div>
-                    <SectionHeader
-                        title="Row filters"
-                        description="Sync only rows that match these conditions. Filters are ANDed together and applied on the next sync — they don't remove rows already synced."
-                    />
-                    <div className="border rounded p-4 bg-surface-primary flex flex-col gap-3">
-                        {!hasAvailableColumns || columnSelectionNeedsRefresh ? (
-                            <div className="text-sm text-muted-alt py-2 text-center">
-                                No columns discovered yet — pull schemas from the Columns section above to add row
-                                filters.
-                            </div>
-                        ) : (
-                            <>
-                                <span className="text-sm text-secondary">{rowFiltersSummary}</span>
-                                <fieldset disabled={!!editorDisabledReason}>
-                                    <RowFilterEditor hideActions schema={schema} onChange={setDraftRowFilters} />
-                                </fieldset>
-                            </>
-                        )}
+            {supportsRowFilters &&
+                source?.access_method !== 'direct' &&
+                schema.sync_type !== 'cdc' &&
+                schema.row_filter_columns?.length !== 0 && (
+                    <div>
+                        <SectionHeader
+                            title="Row filters"
+                            description="Sync only rows that match these conditions. Filters are ANDed together and applied on the next sync — they don't remove rows already synced."
+                        />
+                        <div className="border rounded p-4 bg-surface-primary flex flex-col gap-3">
+                            {!schema.row_filter_columns && (!hasAvailableColumns || columnSelectionNeedsRefresh) ? (
+                                <div className="text-sm text-muted-alt py-2 text-center">
+                                    No columns discovered yet — pull schemas from the Columns section above to add row
+                                    filters.
+                                </div>
+                            ) : (
+                                <>
+                                    <span className="text-sm text-secondary">{rowFiltersSummary}</span>
+                                    <fieldset disabled={!!editorDisabledReason}>
+                                        <RowFilterEditor
+                                            hideActions
+                                            schema={rowFilterSchema}
+                                            onChange={setDraftRowFilters}
+                                        />
+                                    </fieldset>
+                                </>
+                            )}
+                        </div>
                     </div>
-                </div>
-            )}
+                )}
 
-            {hasAvailableColumns && (
+            {(hasAvailableColumns || !!schema.row_filter_columns?.length) && (
                 <div className="flex justify-end">
                     <LemonButton
                         type="primary"
@@ -1313,8 +1323,6 @@ function DangerZoneSection({
                                         type="secondary"
                                         status="danger"
                                         onClick={() => {
-                                            const hasCdcTable =
-                                                schema.cdc_table_mode === 'cdc_only' || schema.cdc_table_mode === 'both'
                                             LemonDialog.open({
                                                 title: 'Full resync — all existing data will be replaced',
                                                 content: (
@@ -1325,15 +1333,12 @@ function DangerZoneSection({
                                                             <strong>{schema.table?.name ?? schema.name}</strong> table
                                                             will be replaced with the new snapshot.
                                                         </p>
-                                                        {hasCdcTable && (
+                                                        {schema.history_table_name && (
                                                             <p>
-                                                                The{' '}
-                                                                <strong>
-                                                                    {(schema.table?.name ?? schema.name) + '_cdc'}
-                                                                </strong>{' '}
-                                                                history table will also be reset — all change history
-                                                                will be lost and replaced with the new snapshot as the
-                                                                starting point.
+                                                                The <strong>{schema.history_table_name}</strong> history
+                                                                table will also be reset — all change history will be
+                                                                lost and replaced with the new snapshot as the starting
+                                                                point.
                                                             </p>
                                                         )}
                                                     </div>
@@ -1380,9 +1385,11 @@ function DangerZoneSection({
                                         onClick={() => {
                                             LemonDialog.open({
                                                 title: `Delete ${schema.table?.name ?? schema.name} from PostHog?`,
-                                                description: source?.source_type
-                                                    ? `The data in ${source.source_type} will not be touched.`
-                                                    : undefined,
+                                                description: `This also turns off syncing for the table.${
+                                                    source?.source_type
+                                                        ? ` The data in ${source.source_type} will not be touched.`
+                                                        : ''
+                                                }`,
                                                 primaryButton: {
                                                     children: 'Delete',
                                                     status: 'danger',

@@ -40,7 +40,10 @@ export function Tools(): JSX.Element {
                 description="Working pages for querying, building and running your product."
                 resourceType={{ type: 'tools', forceIcon: <IconWrench /> }}
             />
-            <div data-quill className="@container/tools flex flex-col gap-4">
+            <div
+                data-quill
+                className="@container/tools flex flex-col gap-4 group/colorful-product-icons colorful-product-icons-true"
+            >
                 <InputGroup className="max-w-120">
                     <InputGroupAddon>
                         <IconSearch />

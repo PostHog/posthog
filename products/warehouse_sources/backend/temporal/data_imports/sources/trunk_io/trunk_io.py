@@ -7,8 +7,14 @@ from dateutil import parser as date_parser
 from requests import Request, RequestException, Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import APIKeyAuth
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import (
+    APIKeyAuth,
+    BearerTokenAuth,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    BasePaginator,
+    JSONResponseCursorPaginator,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.trunk_io.settings import (
@@ -17,11 +23,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.trunk_io.s
     FAILING_TESTS_WINDOW_DAYS,
     MERGE_QUEUE_PAGE_SIZE,
     PAGE_SIZE,
+    TEST_METRICS_PARAMS,
     UNHEALTHY_STATUSES,
+    V2_BASE_URL,
+    V2_PAGE_SIZE,
 )
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class TrunkIoResumeConfig:
     """Unified resume shape for every Trunk endpoint. Each `source_for_pipeline` call gets its
     own resumable-source-manager key (namespaced by job id), so only the fields relevant to the
@@ -154,6 +163,18 @@ def _client(api_token: str) -> RESTClient:
         auth=APIKeyAuth(api_key=api_token, name="x-api-token", location="header"),
         allowed_hosts=[],
         allow_redirects=False,
+    )
+
+
+def _v2_client(api_token: str) -> RESTClient:
+    # v2 takes the same token as an `Authorization: Bearer` organization API key. Redirects stay
+    # off for the same reason as `_client`.
+    return RESTClient(
+        base_url=V2_BASE_URL,
+        auth=BearerTokenAuth(token=api_token),
+        allowed_hosts=[],
+        allow_redirects=False,
+        request_timeout=(10.0, 60.0),
     )
 
 
@@ -345,6 +366,109 @@ def merge_queue_pull_requests(
     resumable_source_manager.clear_state()
 
 
+def _v2_list(
+    api_token: str,
+    path: str,
+    resumable_source_manager: ResumableSourceManager[TrunkIoResumeConfig],
+    params: Optional[dict[str, Any]] = None,
+    synced_through: Optional[str] = None,
+    repository_id: Optional[str] = None,
+) -> Iterator[list[dict[str, Any]]]:
+    client = _v2_client(api_token)
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+
+    def checkpoint(state: Optional[dict[str, Any]]) -> None:
+        if state and state.get("cursor"):
+            resumable_source_manager.save_state(
+                TrunkIoResumeConfig(cursor=str(state["cursor"]), synced_through=synced_through)
+            )
+            # The hook runs once the page is consumed. A run of pages filtered down to nothing yields no
+            # item, so the pipeline sees a shutdown or commits the cursor only here.
+            resumable_source_manager.safe_point()
+
+    for page in client.paginate(
+        path=path,
+        method="get",
+        params={"limit": V2_PAGE_SIZE, **(params or {})},
+        paginator=JSONResponseCursorPaginator(cursor_path="nextCursor", cursor_param="cursor"),
+        data_selector="data",
+        resume_hook=checkpoint,
+        initial_paginator_state={"cursor": resume.cursor} if resume and resume.cursor else None,
+    ):
+        # `GET /v2/tests` has no repository filter, so rows from the org's other repositories drop here.
+        if repository_id:
+            page = [row for row in page if row.get("repositoryId") == repository_id]
+        if page:
+            if synced_through:
+                for row in page:
+                    row["synced_through"] = synced_through
+            yield page
+
+    resumable_source_manager.clear_state()
+
+
+def list_test_collections(
+    api_token: str,
+    resumable_source_manager: ResumableSourceManager[TrunkIoResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    return _v2_list(api_token, "/v2/test-collections", resumable_source_manager)
+
+
+def list_tests(
+    api_token: str,
+    resumable_source_manager: ResumableSourceManager[TrunkIoResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    # No `testCollectionId` filter, so this lists tests across every collection in the org.
+    return _v2_list(api_token, "/v2/tests", resumable_source_manager)
+
+
+def list_unhealthy_tests(
+    api_token: str,
+    resumable_source_manager: ResumableSourceManager[TrunkIoResumeConfig],
+    repository_id: Optional[str] = None,
+) -> Iterator[list[dict[str, Any]]]:
+    return _v2_list(
+        api_token,
+        "/v2/tests",
+        resumable_source_manager,
+        params={"status": "flaky,broken", **TEST_METRICS_PARAMS},
+        repository_id=repository_id,
+    )
+
+
+def list_quarantined_tests(
+    api_token: str,
+    resumable_source_manager: ResumableSourceManager[TrunkIoResumeConfig],
+    repository_id: Optional[str] = None,
+) -> Iterator[list[dict[str, Any]]]:
+    return _v2_list(
+        api_token,
+        "/v2/tests",
+        resumable_source_manager,
+        params={"quarantineState": "quarantined", **TEST_METRICS_PARAMS},
+        repository_id=repository_id,
+    )
+
+
+def list_failing_tests(
+    api_token: str,
+    resumable_source_manager: ResumableSourceManager[TrunkIoResumeConfig],
+    repository_id: Optional[str] = None,
+) -> Iterator[list[dict[str, Any]]]:
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    synced_through = (resume.synced_through if resume else None) or _format_rfc3339(datetime.now(UTC))
+    # A `lastFailureAt` sort drops tests with no failure in `period`, which is what makes this
+    # the failing set rather than every test.
+    return _v2_list(
+        api_token,
+        "/v2/tests",
+        resumable_source_manager,
+        params={"sort": "lastFailureAt", **TEST_METRICS_PARAMS},
+        synced_through=synced_through,
+        repository_id=repository_id,
+    )
+
+
 def validate_credentials(api_token: str, org_url_slug: str, repo: TrunkRepo) -> tuple[bool, str | None]:
     session = make_tracked_session(redact_values=(api_token,), allow_redirects=False)
     try:
@@ -368,4 +492,23 @@ def validate_credentials(api_token: str, org_url_slug: str, repo: TrunkRepo) -> 
             False,
             "Trunk.io authentication failed. Check your API token, organization slug, and repository details.",
         )
+    return False, f"Trunk.io API returned HTTP {response.status_code}."
+
+
+def validate_v2_credentials(api_token: str) -> tuple[bool, str | None]:
+    session = make_tracked_session(redact_values=(api_token,), allow_redirects=False)
+    try:
+        response = session.get(
+            f"{V2_BASE_URL}/v2/tests",
+            headers={"Authorization": f"Bearer {api_token}"},
+            params={"limit": 1},
+            timeout=15,
+        )
+    except RequestException as e:
+        return False, f"Could not reach the Trunk.io API: {e}"
+
+    if response.status_code == 200:
+        return True, None
+    if response.status_code == 401:
+        return False, "Trunk.io authentication failed. Check your API token."
     return False, f"Trunk.io API returned HTTP {response.status_code}."

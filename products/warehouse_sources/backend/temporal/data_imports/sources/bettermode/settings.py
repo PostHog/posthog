@@ -209,6 +209,21 @@ createdAt
 updatedAt
 """
 
+_MEMBER_INVITATION_NODE_FIELDS = """
+id
+networkId
+inviteeEmail
+inviteeName
+inviteeId
+inviterId
+roleId
+status
+invitationMessage
+createdAt
+expiresAt
+joinedAt
+"""
+
 
 @dataclass(frozen=True)
 class BettermodeEndpointConfig:
@@ -329,6 +344,11 @@ BETTERMODE_ENDPOINTS: dict[str, BettermodeEndpointConfig] = {
         node_fields=_ROLE_NODE_FIELDS,
         partition_key=None,
         is_list=True,
+    ),
+    "member_invitations": BettermodeEndpointConfig(
+        query_field="memberInvitations",
+        node_fields=_MEMBER_INVITATION_NODE_FIELDS,
+        page_size=100,
     ),
 }
 

@@ -1,13 +1,15 @@
 import { useActions, useValues } from 'kea'
 import { useCallback, useMemo } from 'react'
 
+import { customFacetsLogic } from 'lib/components/FacetRail/customFacetsLogic'
+import { Facet, FacetOption } from 'lib/components/FacetRail/Facet'
+import { mergeSelectedIntoOptions } from 'lib/components/FacetRail/facetGroups'
+
 import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
 
-import { customFacetsLogic } from './customFacetsLogic'
-import { Facet, FacetOption } from './Facet'
 import { facetFilterTarget, facetSelection } from './facetFilters'
 import { facetRailLogic } from './facetRailLogic'
-import { FacetConfig, customFacetIdentity, mergeSelectedIntoOptions } from './facets'
+import { FacetConfig, customFacetIdentity } from './facets'
 import { facetValuesLogic } from './facetValuesLogic'
 
 export interface RailFacetProps {
@@ -27,11 +29,11 @@ export function RailFacet({ id, facet, hidden }: RailFacetProps): JSX.Element | 
     const { facetValues, facetValuesLoading, facetSearch, collapsed, fetchFailed } = useValues(
         facetValuesLogic(logicProps)
     )
-    const { setFacetSearch } = useActions(facetValuesLogic(logicProps))
+    const { setFacetSearch, retryFacetValues } = useActions(facetValuesLogic(logicProps))
     const { filterGroup } = useValues(logsViewerFiltersLogic({ id }))
     const { toggleFacetValue, toggleFacetCollapsed } = useActions(facetRailLogic({ id }))
-    const { removeCustomFacet } = useActions(customFacetsLogic)
-    const { entriesLoading } = useValues(customFacetsLogic)
+    const { removeCustomFacet } = useActions(customFacetsLogic({ product: 'logs' }))
+    const { entriesLoading } = useValues(customFacetsLogic({ product: 'logs' }))
     const removeDisabledReason = entriesLoading ? 'Custom facets are updating' : undefined
 
     const { source } = facet
@@ -87,11 +89,14 @@ export function RailFacet({ id, facet, hidden }: RailFacetProps): JSX.Element | 
                 selected={selected}
                 excluded={excluded}
                 onToggle={onToggle}
+                dataAttrPrefix="logs-facet"
+                zeroCountReason="No matching logs for the current filters"
                 loading={facetValuesLoading}
                 collapsed={collapsed}
                 onToggleCollapsed={onToggleCollapsed}
                 dimZeroCounts
                 error={fetchFailed}
+                onRetry={retryFacetValues}
                 onRemove={onRemove}
                 removeDisabledReason={removeDisabledReason}
             />
@@ -105,6 +110,8 @@ export function RailFacet({ id, facet, hidden }: RailFacetProps): JSX.Element | 
             selected={selected}
             excluded={excluded}
             onToggle={onToggle}
+            dataAttrPrefix="logs-facet"
+            zeroCountReason="No matching logs for the current filters"
             loading={facetValuesLoading}
             emptyLabel={facet.emptyLabel}
             searchValue={facet.searchable ? facetSearch : undefined}
@@ -114,6 +121,7 @@ export function RailFacet({ id, facet, hidden }: RailFacetProps): JSX.Element | 
             onToggleCollapsed={onToggleCollapsed}
             maxHeight={facet.maxHeight}
             error={fetchFailed}
+            onRetry={retryFacetValues}
             onRemove={onRemove}
             removeDisabledReason={removeDisabledReason}
         />

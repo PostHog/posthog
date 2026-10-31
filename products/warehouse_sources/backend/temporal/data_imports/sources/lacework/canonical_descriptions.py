@@ -26,6 +26,31 @@ def _compliance_entry(provider: str) -> CanonicalEndpoint:
     }
 
 
+_INVENTORY_COLUMNS = {
+    "startTime": "When the hourly aggregation period of the collection run started.",
+    "endTime": "When the hourly aggregation period of the collection run ended.",
+    "urn": "The URN of the resource.",
+    "service": "The cloud service the resource belongs to.",
+    "status": "The status of the resource.",
+    "cloudDetails": "Details of the cloud account or project that owns the resource.",
+    "resourceType": "The resource type.",
+    "resourceId": "The identifier of the resource.",
+    "resourceRegion": "The region the resource belongs to.",
+    "resourceConfig": "The configuration of the resource.",
+    "resourceTags": "The tags on the resource.",
+    "csp": "The cloud provider.",
+    "apiKey": "The cloud API call used to collect the resource.",
+}
+
+
+def _inventory_entry(provider: str) -> CanonicalEndpoint:
+    return {
+        "description": f"{provider} cloud resource inventory: one row per resource per collection run. Compliance evaluations are scored against these resources.",
+        "docs_url": "https://api.lacework.net/api/v2/docs#tag/Inventory",
+        "columns": _INVENTORY_COLUMNS,
+    }
+
+
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     "alerts": {
         "description": "Alerts raised by Lacework FortiCNAPP for potential threats, anomalies, and policy violations across your cloud environments.",
@@ -132,6 +157,78 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "machineTags": "Cloud provider and custom tags of the machine.",
             "primaryIpAddr": "The primary IP address of the machine.",
             "entityType": "The entity type (Machine).",
+        },
+    },
+    "entities_containers": {
+        "description": "Containers active in your environment: one row per container per hourly aggregation window.",
+        "docs_url": "https://api.lacework.net/api/v2/docs#tag/Entities",
+        "columns": {
+            "startTime": "When the hourly aggregation window started.",
+            "endTime": "When the hourly aggregation window ended.",
+            "mid": "The identifier of the machine the container runs on.",
+            "containerName": "The name of the container.",
+            "podName": "The name of the Kubernetes pod the container belongs to.",
+            "imageId": "The identifier of the container image. Joins to vulnerabilities_containers and entities_images.",
+            "propsContainer": "Properties of the container, such as image repository and tag.",
+            "tags": "Tags of the container.",
+        },
+    },
+    "entities_images": {
+        "description": "Container images in your environment: one row per image per machine.",
+        "docs_url": "https://api.lacework.net/api/v2/docs#tag/Entities",
+        "columns": {
+            "createdTime": "When the container was created.",
+            "mid": "The identifier of the machine the image is on.",
+            "imageId": "The identifier of the container image.",
+            "repo": "The repository of the image.",
+            "tag": "The tag of the image.",
+            "size": "The size of the image in bytes.",
+            "containerType": "The container runtime type.",
+        },
+    },
+    "inventory_aws": _inventory_entry("AWS"),
+    "inventory_azure": _inventory_entry("Azure"),
+    "inventory_gcp": _inventory_entry("GCP"),
+    "cloud_accounts": {
+        "description": "Cloud account integrations configured in Lacework FortiCNAPP. Credentials are removed from the data column.",
+        "docs_url": "https://api.lacework.net/api/v2/docs#tag/CloudAccounts",
+        "columns": {
+            "intgGuid": "Unique identifier for the integration.",
+            "name": "The name of the integration.",
+            "type": "The integration type, such as AwsCfg or AzureCfg.",
+            "enabled": "1 if the integration is enabled, 0 if it is disabled.",
+            "state": "The current state of the integration, such as whether the last check succeeded.",
+            "cloudId": "The cloud account identifier.",
+            "cloudIdType": "The type of cloud account identifier, such as AWS_ACCOUNT_ID or GCP_PROJECT_ID.",
+            "data": "The integration's configuration, without credentials.",
+            "isOrg": "1 if the integration belongs to an organization-level account, else 0.",
+            "props": "The integration's properties.",
+            "createdOrUpdatedBy": "The user who created or last updated the integration.",
+            "createdOrUpdatedTime": "When the integration was created or last updated.",
+        },
+    },
+    "policies": {
+        "description": "Policies registered in Lacework FortiCNAPP. Alerts reference a policy by policyId.",
+        "docs_url": "https://api.lacework.net/api/v2/docs#tag/Policies",
+        "columns": {
+            "policyId": "Unique identifier for the policy.",
+            "policyType": "The policy type, such as Violation.",
+            "queryId": "The identifier of the query the policy runs.",
+            "title": "The title of the policy.",
+            "enabled": "Whether the policy is enabled.",
+            "description": "The description of the policy.",
+            "remediation": "How to remediate events the policy triggers.",
+            "severity": "The severity of events the policy triggers.",
+            "limit": "The maximum number of records each policy run returns.",
+            "evalFrequency": "How often the policy runs (deprecated).",
+            "alertEnabled": "Whether the policy sends alerts when it triggers.",
+            "alertProfile": "The alert profile used when the policy triggers.",
+            "tags": "The tags of the policy.",
+            "evaluatorId": "The evaluator identifier of the policy.",
+            "owner": "The user who created the policy.",
+            "lastUpdateTime": "When the policy was last updated.",
+            "lastUpdateUser": "The user who last updated the policy.",
+            "exceptionConfiguration": "The configuration of policy exceptions, where applicable.",
         },
     },
 }

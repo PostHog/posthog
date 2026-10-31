@@ -35,6 +35,7 @@ def fleet_scope(url: str, token: str) -> str:
 
 class BrowserlessClient(EgressClient):
     observability = browserless_egress
+    egress_domain = "browserless"
 
     def _standard_headers(self) -> dict[str, str]:
         return {"Content-Type": "application/json"}

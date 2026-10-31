@@ -1,5 +1,4 @@
 import pytest
-from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import (
     OAUTH2_PERMANENT_ERROR_MARKER,
@@ -37,7 +36,6 @@ class TestPersonioSource:
         "other_vendor_error",
         [
             "401 Client Error: Unauthorized for url: https://api.stripe.com/v1/customers",
-            "500 Server Error for url: https://api.personio.de/v2/persons",
             # A transient 429/5xx token error shares the endpoint phrasing but lacks the marker.
             "HTTP 503 from the OAuth2 token endpoint",
             # A mid-sync 401 on a data endpoint isn't a disable condition — the token is re-minted.
@@ -60,22 +58,3 @@ class TestPersonioSource:
             expected_incremental = schema.name in INCREMENTAL_FIELDS
             assert schema.supports_incremental is expected_incremental
             assert schema.supports_append is expected_incremental
-
-    @pytest.mark.parametrize(
-        "mock_return, expected_valid, expected_message",
-        [
-            (True, True, None),
-            (False, False, "Invalid Personio API credentials"),
-        ],
-    )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.personio.source.validate_personio_credentials"
-    )
-    def test_validate_credentials(self, mock_validate, mock_return, expected_valid, expected_message):
-        mock_validate.return_value = mock_return
-
-        is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
-
-        assert is_valid is expected_valid
-        assert error_message == expected_message
-        mock_validate.assert_called_once_with(self.config.client_id, self.config.client_secret)

@@ -5,11 +5,14 @@ from typing import TYPE_CHECKING, Optional, cast
 from django.conf import settings
 
 from psycopg.conninfo import conninfo_to_dict
+from pydantic import model_validator
 
+from posthog.hogql import ast
 from posthog.hogql.base import Expr
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.models import FunctionCallTable
+from posthog.hogql.database.models import DatabaseField, ExpressionField, FunctionCallTable
 from posthog.hogql.escape_sql import escape_hogql_identifier
+from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.person_db_router import PERSONS_DB_MODELS
 from posthog.persons_db import persons_db_url
@@ -17,6 +20,8 @@ from posthog.scopes import APIScopeObject
 
 if TYPE_CHECKING:
     from posthog.models.team.team import Team
+
+    from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 
 @cache
@@ -87,6 +92,15 @@ def build_function_call(postgres_table_name: str, context: Optional[HogQLContext
     return f"postgresql({address}, {db}, {table}, {user}, {password})"
 
 
+class _FieldNameCollector(TraversingVisitor):
+    def __init__(self) -> None:
+        super().__init__()
+        self.names: set[str] = set()
+
+    def visit_field(self, node: ast.Field) -> None:
+        self.names.add(str(node.chain[0]))
+
+
 class PostgresTable(FunctionCallTable):
     requires_args: bool = False
     postgres_table_name: str
@@ -118,6 +132,21 @@ class PostgresTable(FunctionCallTable):
     retention_field: Optional[str] = None
     postgres_pushdown_values: dict[str, str | int | bool] = {}
     predicates: list[Expr] = []
+
+    @model_validator(mode="after")
+    def _isolate_hidden_backed_expression_fields(self) -> "PostgresTable":
+        # A query can't qualify a hidden column, so an expression over one must resolve against
+        # this table. Otherwise a join with another table that has the same hidden column is ambiguous.
+        hidden_names = {
+            name for name, field in self.fields.items() if isinstance(field, DatabaseField) and field.hidden
+        }
+        for field in self.fields.values():
+            if isinstance(field, ExpressionField) and field.isolate_scope is None:
+                collector = _FieldNameCollector()
+                collector.visit(field.expr)
+                if collector.names & hidden_names:
+                    field.isolate_scope = True
+        return self
 
     def get_predicates(self, context: Optional[HogQLContext] = None) -> list[Expr]:
         return self.predicates
@@ -151,6 +180,27 @@ class PostgresTable(FunctionCallTable):
         if self.access_control_id_field is not None or self.resource_level_access_only:
             return None
         return self.access_control_creator_id_field
+
+    def blocked_object_ids(self, user_access_control: "UserAccessControl", team_id: Optional[int]) -> frozenset[str]:
+        """Ids in the `access_control_id` column that the user is denied.
+
+        The default reads the rules on the objects of `access_scope`. A table overrides it when a
+        rule on another object also denies its rows, because those rules do not name the rows.
+        """
+        if self.access_scope is None:
+            return frozenset()
+        return user_access_control.blocked_resource_ids_by_scope.get(self.access_scope, frozenset())
+
+    def creator_owned_object_ids(
+        self, user_access_control: "UserAccessControl", team_id: Optional[int], candidate_ids: Optional[frozenset[str]]
+    ) -> frozenset[str]:
+        """Ids in the `access_control_id` column of objects the user created, among `candidate_ids`
+        (or among all ids when it is None).
+
+        The guard keeps these rows, so a child table can follow its parent's creator exemption. The
+        default is empty: a child row carries no creator of the parent to compare against.
+        """
+        return frozenset()
 
     def to_printed_hogql(self):
         return escape_hogql_identifier(self.name)

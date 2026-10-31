@@ -27,6 +27,8 @@ experiment matching the user's reference:
   free, so this is also the existence check to run before `experiment-create`. `ambiguous` means
   several experiments share the flag and none is the single live one: show the `candidates` and
   pick one with `experiment-get` rather than creating another.
+- **By partial flag key**: call `experiment-list` with `search` set to the fragment. `search` matches
+  substrings of the experiment name and the flag key, ignoring case.
 
 ## After finding matches
 

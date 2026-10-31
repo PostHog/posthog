@@ -1,27 +1,40 @@
-import { IconBook, IconChat, IconEllipsis, IconGridMasonry, IconHome, IconWrench } from '@posthog/icons'
+import { IconApps, IconChat, IconGear, IconHome, IconSidebarClose, IconSidebarOpen } from '@posthog/icons'
 
-import { TODAY_MORE_PANES, TodayRailPane } from './todayShellLogic'
+import { IconAnalyticsBars } from 'lib/lemon-ui/icons'
+import { isMac } from 'lib/utils/dom'
 
-export interface TodayRailItem {
-    pane: TodayRailPane
+import { TodayNewAnalyticsButton } from './TodayNewAnalyticsButton'
+import { TodayNewChatButton } from './TodayNewChatButton'
+import type { TodayRailPane } from './todayShellLogic'
+
+export interface TodayPane {
     label: string
+    /** The title on top of the pane. The scene header shows it too while the sidebar is hidden. */
+    title: string
     icon: JSX.Element
+    action?: () => JSX.Element
 }
 
-export const TODAY_RAIL_ITEMS: TodayRailItem[] = [
-    { pane: 'home', label: 'Home', icon: <IconHome /> },
-    { pane: 'spaces', label: 'Spaces', icon: <IconChat /> },
-    { pane: 'views', label: 'Views', icon: <IconGridMasonry /> },
-    { pane: 'library', label: 'Library', icon: <IconBook /> },
-    { pane: 'tools', label: 'Tools', icon: <IconWrench /> },
-]
+export const TODAY_PANES: Record<TodayRailPane, TodayPane> = {
+    home: { label: 'Home', title: 'Today', icon: <IconHome /> },
+    spaces: {
+        label: 'Chats',
+        title: 'Chats',
+        icon: <IconChat />,
+        action: TodayNewChatButton,
+    },
+    analytics: { label: 'Analytics', title: 'Analytics', icon: <IconAnalyticsBars />, action: TodayNewAnalyticsButton },
+    products: { label: 'Products', title: 'Products', icon: <IconApps /> },
+    settings: { label: 'Settings', title: 'Settings', icon: <IconGear /> },
+}
 
-export const TODAY_TAB_BAR_ITEMS: TodayRailItem[] = [
-    ...TODAY_RAIL_ITEMS.filter(({ pane }) => !TODAY_MORE_PANES.includes(pane)),
-    { pane: 'more', label: 'More', icon: <IconEllipsis /> },
-]
+export const TODAY_RAIL_PANES: TodayRailPane[] = ['home', 'spaces', 'analytics', 'products']
+export const TODAY_RAIL_FOOTER_PANES: TodayRailPane[] = ['settings']
 
-export const TODAY_MORE_ITEMS: (TodayRailItem & { description: string })[] = [
-    { pane: 'library', label: 'Library', icon: <IconBook />, description: 'Saved insights, flags, cohorts and more' },
-    { pane: 'tools', label: 'Tools', icon: <IconWrench />, description: 'The SQL editor and product tools' },
-]
+export function todaySidebarShortcutLabel(): string {
+    return isMac() ? '⌘B' : 'Ctrl+B'
+}
+
+// The icon names describe the panel, not the click: IconSidebarOpen's arrow points in, so it reads as hide.
+export const IconHideSidebar = IconSidebarOpen
+export const IconShowSidebar = IconSidebarClose

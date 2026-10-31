@@ -1,3 +1,4 @@
+from functools import cached_property
 from typing import Any, cast
 
 from posthog.schema import (
@@ -20,7 +21,6 @@ from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.data_warehouse_mixin import DataWarehouseInsightQueryMixin
 from posthog.hogql_queries.utils.breakdowns import BREAKDOWN_NULL_STRING_LABEL, BREAKDOWN_OTHER_STRING_LABEL
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.team.team import Team
 from posthog.ph_client import feature_enabled_or_false
 
@@ -836,7 +836,9 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             and len(self.team.test_account_filters) > 0
         ):
             for property in self.team.test_account_filters:
-                filters.append(property_to_expr(property, self.team))
+                filters.append(
+                    property_to_expr(property, self.team, cohort_via_distinct_id=isinstance(series, DataWarehouseNode))
+                )
 
         # Properties
         if self.query.properties is not None and self.query.properties != []:
@@ -876,6 +878,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             modifiers=self.modifiers,
             date_range=self.query_date_range,
             timings=self.timings,
+            cohort_via_distinct_id=isinstance(self.series, DataWarehouseNode),
         )
 
     def _event_or_action_where_expr(self) -> ast.Expr | None:

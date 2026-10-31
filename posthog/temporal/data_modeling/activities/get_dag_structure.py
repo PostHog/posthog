@@ -6,6 +6,7 @@ from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.logger import get_logger
 
 from products.data_modeling.backend.facade.models import (
+    NON_SCHEDULING_EDGES,
     SAVED_QUERY_NODE_TYPES,
     DataModelingJobEngine,
     Edge,
@@ -58,6 +59,7 @@ def _get_dag_structure_async(team_id: int, dag_id: str) -> DAG:
         Edge.objects.prefetch_related("source", "target")
         .filter(team_id=team_id, dag_id=dag_id)
         .exclude(source__type=NodeType.TABLE)
+        .exclude(NON_SCHEDULING_EDGES)
     )
     suspended_nodes = {
         engine.value: [str(n.id) for n in executable_nodes if is_node_suspended(n, engine)]

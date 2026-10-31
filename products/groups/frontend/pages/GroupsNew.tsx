@@ -4,7 +4,9 @@ import { router } from 'kea-router'
 
 import { IconPlus, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonInput, LemonSegmentedButton } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -25,6 +27,7 @@ export const scene: SceneExport<GroupsNewLogicProps> = {
 export function GroupsNew(): JSX.Element {
     const { logicProps, group, groupTypeName, groupTypeNamePlural } = useValues(groupsNewLogic)
     const { addFormProperty, removeFormProperty, setGroupValue } = useActions(groupsNewLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     return (
         <Form id="group" logic={groupsNewLogic} props={logicProps} formKey="group" enableFormOnSubmit>
@@ -33,27 +36,44 @@ export function GroupsNew(): JSX.Element {
                     name={`New ${groupTypeName} group`}
                     resourceType={{ type: 'group' }}
                     actions={
-                        <>
-                            <LemonButton
-                                data-attr="cancel-group"
-                                type="secondary"
-                                size="small"
-                                onClick={() => {
-                                    router.actions.push(urls.groups(logicProps.groupTypeIndex))
-                                }}
-                            >
-                                Cancel
-                            </LemonButton>
-                            <LemonButton
-                                size="small"
-                                type="primary"
-                                data-attr="save-group"
-                                htmlType="submit"
-                                form="group"
-                            >
-                                Save
-                            </LemonButton>
-                        </>
+                        todayRailNav ? (
+                            <>
+                                <Button
+                                    data-attr="cancel-group"
+                                    variant="outline"
+                                    onClick={() => {
+                                        router.actions.push(urls.groups(logicProps.groupTypeIndex))
+                                    }}
+                                >
+                                    Cancel
+                                </Button>
+                                <Button variant="primary" data-attr="save-group" type="submit" form="group">
+                                    Save
+                                </Button>
+                            </>
+                        ) : (
+                            <>
+                                <LemonButton
+                                    data-attr="cancel-group"
+                                    type="secondary"
+                                    size="small"
+                                    onClick={() => {
+                                        router.actions.push(urls.groups(logicProps.groupTypeIndex))
+                                    }}
+                                >
+                                    Cancel
+                                </LemonButton>
+                                <LemonButton
+                                    size="small"
+                                    type="primary"
+                                    data-attr="save-group"
+                                    htmlType="submit"
+                                    form="group"
+                                >
+                                    Save
+                                </LemonButton>
+                            </>
+                        )
                     }
                     forceBackTo={{
                         name: `People / Groups / ${capitalizeFirstLetter(groupTypeNamePlural)}`,

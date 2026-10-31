@@ -1,8 +1,8 @@
-"""The `get_network_around` tool: failed and slow network requests near a moment in the video, on demand.
+"""Failed and slow network requests near a moment in the video, keyed on video seconds.
 
 The video shows a spinner; it cannot show whether the request behind it returned a 500, was blocked, or
-merely took four seconds. This tool lets the model settle that at the one moment it matters, without the
-requests being dumped into the prompt.
+merely took four seconds. The scan's lookup round reads these on the model's request, so the model can
+settle that at the moment it matters without the requests being dumped into the prompt.
 """
 
 from __future__ import annotations
@@ -12,15 +12,9 @@ import datetime as dt
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from google.genai import types
-
 from products.replay_vision.backend.temporal.network_capture import NetworkRequest, SessionNetworkPayload
-from products.replay_vision.backend.temporal.tool_args import parse_seconds
 from products.replay_vision.backend.temporal.video_clock import VideoClock
 
-GET_NETWORK_TOOL_NAME = "get_network_around"
-
-_DEFAULT_WINDOW_S = 10
 _MAX_WINDOW_S = 60
 _MAX_REQUESTS_RETURNED = 20
 
@@ -30,8 +24,8 @@ class NetworkIndex:
     """Captured requests resolved once to video-second offsets, so each lookup is a bisect.
 
     `offsets` is ascending and parallel to `requests`. This object is the single source of truth for
-    whether a scan offers the network tool: the same instance decides the tool list and the preamble
-    wording, so the prompt can never promise a tool the conversation does not carry.
+    whether a scan offers network lookups: the same instance decides the preamble wording and what a
+    lookup returns, so the prompt can never promise data the scan does not carry.
     """
 
     offsets: list[int]
@@ -39,15 +33,16 @@ class NetworkIndex:
     captured: bool = False
     truncated: bool = False
     partial: bool = False
+    unknown_outcomes: bool = False
 
     def has_requests(self) -> bool:
-        """Whether this recording has anything a lookup could return, which decides if the tool is offered."""
+        """Whether this recording has anything a lookup could return, which decides if network lookups are offered."""
         return bool(self.offsets)
 
     def state(self) -> Literal["available", "clean", "none"]:
         """How the preamble describes network data for this scan.
 
-        `clean` and `none` both withhold the tool but are not the same evidence. `clean` says the SDK
+        `clean` and `none` both withhold network lookups but are not the same evidence. `clean` says the SDK
         captured requests and none failed, which lets a scanner rule a network cause out. `none` says
         nothing was captured, so silence means nothing either way.
         """
@@ -55,7 +50,7 @@ class NetworkIndex:
             return "available"
         # A truncated or partial read cannot show that nothing failed: the requests it did not reach are
         # unknown, so the honest answer is no evidence rather than evidence of absence.
-        if self.captured and not self.truncated and not self.partial:
+        if self.captured and not self.truncated and not self.partial and not self.unknown_outcomes:
             return "clean"
         return "none"
 
@@ -66,7 +61,7 @@ def build_network_index(
     """Resolve each captured request to `vid_t` (seconds from the start of the video).
 
     A request carries an absolute timestamp, so it is first made session-relative and then projected
-    through `clock`, which lands it on the same scale the events tool and the model's citations use. A
+    through `clock`, which lands it on the same scale the events lookup and the model's citations use. A
     request inside a stretch the rasterizer cut collapses onto that cut's position, the only place in the
     video it could be shown.
     """
@@ -90,6 +85,7 @@ def build_network_index(
         captured=payload.captured,
         truncated=payload.truncated,
         partial=payload.partial,
+        unknown_outcomes=payload.unknown_outcomes,
     )
 
 
@@ -107,7 +103,7 @@ def _as_tool_dict(request: NetworkRequest, offset_s: int) -> dict[str, Any]:
     return entry
 
 
-def get_network_around(index: NetworkIndex, vid_t: int, window_s: int = _DEFAULT_WINDOW_S) -> dict[str, Any]:
+def get_network_around(index: NetworkIndex, vid_t: int, window_s: int) -> dict[str, Any]:
     """Return the captured requests within ±`window_s` seconds of `vid_t`, chronological and capped."""
     vid_t = max(0, vid_t)
     window_s = max(1, min(window_s, _MAX_WINDOW_S))
@@ -123,50 +119,4 @@ def get_network_around(index: NetworkIndex, vid_t: int, window_s: int = _DEFAULT
     result: dict[str, Any] = {"requests": window}
     if index.truncated or index.partial:
         result["note"] = "Some of this session's requests could not be read, so this window may be incomplete."
-    elif not window:
-        result["note"] = "No failed or slow requests in this window. Requests that succeeded quickly are not recorded."
     return result
-
-
-def network_tool() -> types.Tool:
-    """The Gemini function declaration for on-demand network lookups."""
-    return types.Tool(
-        function_declarations=[
-            types.FunctionDeclaration(
-                name=GET_NETWORK_TOOL_NAME,
-                description=(
-                    "Look up the failed and slow network requests around a moment in the recording. Pass "
-                    "`vid_t` — whole seconds from the start of the video, the same scale you cite moments in. "
-                    "Only requests that failed or took a long time are recorded, so use it to tell a broken "
-                    "request from a slow one when the screen shows an error, a spinner, or a page that never loads."
-                ),
-                parameters=types.Schema(
-                    type=types.Type.OBJECT,
-                    properties={
-                        "vid_t": types.Schema(
-                            type=types.Type.INTEGER, description="Video seconds from the start of the video."
-                        ),
-                        "window_s": types.Schema(
-                            type=types.Type.INTEGER,
-                            description=f"Half-window in seconds (default {_DEFAULT_WINDOW_S}).",
-                        ),
-                    },
-                    required=["vid_t"],
-                ),
-            )
-        ]
-    )
-
-
-def dispatch_network_tool(function_call: Any, index: NetworkIndex) -> dict[str, Any]:
-    """Execute a model `get_network_around` call against the prebuilt index."""
-    if getattr(function_call, "name", None) != GET_NETWORK_TOOL_NAME:
-        return {"error": f"unknown tool: {getattr(function_call, 'name', None)}"}
-    args = dict(getattr(function_call, "args", None) or {})
-    vid_t = parse_seconds(args.get("vid_t"))
-    if vid_t is None:
-        return {"error": "vid_t must be a number of seconds from the start of the video"}
-    window_s = parse_seconds(args.get("window_s", _DEFAULT_WINDOW_S))
-    if window_s is None:
-        window_s = _DEFAULT_WINDOW_S
-    return get_network_around(index, vid_t, window_s)

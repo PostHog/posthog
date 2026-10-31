@@ -1,74 +1,28 @@
-import json
+import dataclasses
 from typing import Any
 
 from unittest import mock
 
-import requests
 from parameterized import parameterized
-from requests import Response
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mixmax import MixMaxSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.mixmax.mixmax import (
     MixmaxResumeConfig,
     _build_url,
-    mixmax_source,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mixmax.settings import MIXMAX_ENDPOINTS
-
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+from products.warehouse_sources.backend.temporal.data_imports.sources.mixmax.source import MixMaxSource
 
 
-def _resp(body: Any, *, status: int = 200, url: str = "https://api.mixmax.com/v1/sequences") -> Response:
-    resp = Response()
-    resp.status_code = status
-    resp.url = url
-    resp._content = json.dumps(body).encode()
-    return resp
-
-
-def _make_manager(resume_state: MixmaxResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _wire(session: mock.MagicMock, responses: list[Any]) -> list[dict[str, Any]]:
-    """Wire the mock session; return a list capturing each request's (url, params) AT SEND TIME.
-
-    The paginator carries the next-page cursor inside a self-contained URL and clears ``params``, so
-    both are snapshotted per prepared request (the single ``Request`` object is mutated in place).
-    """
-    session.headers = {}
-    snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        snapshots.append({"url": request.url, "params": dict(request.params or {})})
-        return mock.MagicMock()
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return snapshots
-
-
-def _rows(source_response: Any) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
-
-
-def _run(session: mock.MagicMock, endpoint: str, manager: mock.MagicMock) -> list[dict[str, Any]]:
-    return _rows(
-        mixmax_source(api_key="tok", endpoint=endpoint, team_id=1, job_id="j", resumable_source_manager=manager)
-    )
+def _driver() -> SourceDriver:
+    return SourceDriver(MixMaxSource(), MixMaxSourceConfig(api_key="tok"))
 
 
 class TestBuildUrl:
-    def test_collection_url_has_page_limit(self) -> None:
-        assert _build_url("/sequences", single_object=False) == "https://api.mixmax.com/v1/sequences?limit=100"
-
-    def test_collection_url_carries_next_cursor(self) -> None:
-        url = _build_url("/sequences", single_object=False, next_cursor="abc123")
-        assert url == "https://api.mixmax.com/v1/sequences?limit=100&next=abc123"
-
     def test_single_object_url_has_no_pagination_params(self) -> None:
         assert _build_url("/users/me", single_object=True) == "https://api.mixmax.com/v1/users/me"
 
@@ -98,102 +52,190 @@ class TestExtractionShapes:
             ("bare_list", "appointment_links", [{"_id": "1"}, {"_id": "2"}], [{"_id": "1"}, {"_id": "2"}]),
         ]
     )
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_shape(
-        self, _name: str, endpoint: str, body: Any, expected: list[dict[str, Any]], MockSession: mock.MagicMock
-    ) -> None:
-        session = MockSession.return_value
-        _wire(session, [_resp(body)])
-        manager = _make_manager()
+    def test_shape(self, _name: str, endpoint: str, body: Any, expected: list[dict[str, Any]]) -> None:
+        result = _driver().run(endpoint, [ScriptedResponse(json=body)])
 
-        assert _run(session, endpoint, manager) == expected
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
+        assert result.raised is None
+        assert result.rows == expected
+        assert len(result.requests) == 1
+        assert result.saved_states == []
 
 
 class TestPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_walks_cursor_pages_and_checkpoints_after_each_yield(self, MockSession: mock.MagicMock) -> None:
+    def test_walks_cursor_pages_and_checkpoints_after_each_yield(self) -> None:
         next_url = "https://api.mixmax.com/v1/sequences?limit=100&next=cur2"
-        session = MockSession.return_value
-        snaps = _wire(
-            session,
+        result = _driver().run(
+            "sequences",
             [
-                _resp({"results": [{"_id": "1"}], "next": "cur2", "hasNext": True}),
-                _resp({"results": [{"_id": "2"}], "hasNext": False}),
+                ScriptedResponse(json={"results": [{"_id": "1"}], "next": "cur2", "hasNext": True}),
+                ScriptedResponse(json={"results": [{"_id": "2"}], "hasNext": False}),
             ],
         )
-        manager = _make_manager()
 
-        rows = _run(session, "sequences", manager)
-
-        assert rows == [{"_id": "1"}, {"_id": "2"}]
-        # First request hits the base collection path with the page limit; the second targets the
-        # self-contained next-page URL with params cleared.
-        assert snaps[0] == {"url": "https://api.mixmax.com/v1/sequences", "params": {"limit": 100}}
-        assert snaps[1] == {"url": next_url, "params": {}}
+        assert result.raised is None
+        assert result.rows == [{"_id": "1"}, {"_id": "2"}]
+        # The first request starts at the collection. The second carries the next-page cursor.
+        assert result.paths == ["/v1/sequences", "/v1/sequences"]
+        assert result.params("limit") == ["100", "100"]
+        assert result.params("next") == [None, "cur2"]
+        assert result.urls[1] == next_url
         # Checkpoint saved only when another page follows, pointing at that next page — so a crash
         # re-yields the last page rather than skipping it.
-        manager.save_state.assert_called_once()
-        assert manager.save_state.call_args.args[0] == MixmaxResumeConfig(next_url=next_url)
+        assert result.saved_states == [MixmaxResumeConfig(next_url=next_url)]
+        assert result.committed_states == [MixmaxResumeConfig(next_url=next_url)]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_cursor(self, MockSession: mock.MagicMock) -> None:
+    def test_resumes_from_saved_cursor(self) -> None:
         resume_url = "https://api.mixmax.com/v1/sequences?limit=100&next=cur2"
-        session = MockSession.return_value
-        snaps = _wire(session, [_resp({"results": [{"_id": "2"}], "hasNext": False})])
-        manager = _make_manager(MixmaxResumeConfig(next_url=resume_url))
-
-        rows = _run(session, "sequences", manager)
+        result = _driver().run(
+            "sequences",
+            [ScriptedResponse(json={"results": [{"_id": "2"}], "hasNext": False})],
+            resume_state=MixmaxResumeConfig(next_url=resume_url),
+        )
 
         # The first page is skipped entirely — only the saved cursor's page is fetched.
-        assert rows == [{"_id": "2"}]
-        assert snaps[0] == {"url": resume_url, "params": {}}
-        manager.save_state.assert_not_called()
+        assert result.raised is None
+        assert result.rows == [{"_id": "2"}]
+        assert result.urls == [resume_url]
+        assert result.saved_states == []
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_single_object_endpoint_targets_bare_path_without_limit(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        snaps = _wire(session, [_resp({"_id": "u1"})])
-        manager = _make_manager()
 
-        _run(session, "users", manager)
+class TestFanout:
+    @parameterized.expand(
+        [
+            (
+                "live_feed_events",
+                [
+                    ScriptedResponse(json={"results": [{"_id": "m1"}], "next": "cur2", "hasNext": True}),
+                    ScriptedResponse(
+                        json={"results": [{"_id": "e1", "type": "opened"}, {"_id": "e2", "type": "replied"}]}
+                    ),
+                    ScriptedResponse(json={"results": [{"_id": "m2&limit=1"}], "hasNext": False}),
+                    ScriptedResponse(status=404, json={}),
+                ],
+                [
+                    {"_id": "e1", "type": "opened", "message_id": "m1"},
+                    {"_id": "e2", "type": "replied", "message_id": "m1"},
+                ],
+                ["/v1/livefeed", "/v1/livefeed/events", "/v1/livefeed", "/v1/livefeed/events"],
+                [
+                    {"limit": ("100",)},
+                    {"messageId": ("m1",), "wasSentViaMixmax": ("true",)},
+                    {"limit": ("100",), "next": ("cur2",)},
+                    {"messageId": ("m2&limit=1",), "wasSentViaMixmax": ("true",)},
+                ],
+            ),
+            (
+                "team_members",
+                [
+                    ScriptedResponse(json={"results": [{"_id": "t1"}, {"_id": "t/2"}], "hasNext": False}),
+                    ScriptedResponse(
+                        json={
+                            "results": [
+                                {"memberId": "mb1", "userId": "u1", "role": "admin", "name": "Jane Roe"},
+                                {"memberId": "mb2", "email": "invitee@example.com", "role": "member"},
+                            ]
+                        }
+                    ),
+                    ScriptedResponse(status=404, json={}),
+                ],
+                [
+                    {"memberId": "mb1", "userId": "u1", "role": "admin", "name": "Jane Roe", "team_id": "t1"},
+                    {"memberId": "mb2", "email": "invitee@example.com", "role": "member", "team_id": "t1"},
+                ],
+                ["/v1/teams", "/v1/teams/t1/members", "/v1/teams/t%2F2/members"],
+                [
+                    {"limit": ("100",)},
+                    {"expand": ("members.userId",)},
+                    {"expand": ("members.userId",)},
+                ],
+            ),
+        ]
+    )
+    def test_fetches_children_per_parent_and_skips_missing_parents(
+        self,
+        endpoint: str,
+        responses: list[ScriptedResponse],
+        expected_rows: list[dict[str, Any]],
+        expected_paths: list[str],
+        expected_queries: list[dict[str, tuple[str, ...]]],
+    ) -> None:
+        result = _driver().run(endpoint, responses)
 
-        assert snaps[0] == {"url": "https://api.mixmax.com/v1/users/me", "params": {}}
+        assert result.raised is None
+        assert result.rows == expected_rows
+        assert result.paths == expected_paths
+        assert [dict(request.query) for request in result.requests] == expected_queries
+
+
+def _recipients(prefix: str, count: int) -> list[dict[str, Any]]:
+    return [{"_id": f"{prefix}{i}", "state": "active"} for i in range(count)]
+
+
+class TestSequenceRecipients:
+    @parameterized.expand(
+        [
+            # A short page ends the first sequence before the offset ceiling.
+            ("short_last_page", [2, 1], ["0", "2"]),
+            # Two full pages reach `offset + limit == 4`; asking for more would return 400.
+            ("stops_at_offset_ceiling", [2, 2], ["0", "2"]),
+            ("empty_sequence", [0], ["0"]),
+        ]
+    )
+    def test_pages_each_sequence_by_offset(
+        self, _name: str, first_sequence_pages: list[int], expected_first_offsets: list[str]
+    ) -> None:
+        config = dataclasses.replace(MIXMAX_ENDPOINTS["sequence_recipients"], child_page_size=2, child_max_offset=4)
+        first_sequence = [_recipients(f"p{page}r", size) for page, size in enumerate(first_sequence_pages)]
+        responses = [
+            ScriptedResponse(json={"results": [{"_id": "s1"}, {"_id": "s2"}], "hasNext": False}),
+            *(ScriptedResponse(json=page) for page in first_sequence),
+            ScriptedResponse(json=[{"_id": "only", "state": "completed"}]),
+        ]
+
+        with mock.patch.dict(MIXMAX_ENDPOINTS, {"sequence_recipients": config}):
+            result = _driver().run("sequence_recipients", responses)
+
+        assert result.raised is None
+        assert result.rows == [
+            *({**row, "sequence_id": "s1"} for page in first_sequence for row in page),
+            {"_id": "only", "state": "completed", "sequence_id": "s2"},
+        ]
+        assert result.paths == [
+            "/v1/sequences",
+            *["/v1/sequences/s1/recipients/"] * len(first_sequence_pages),
+            "/v1/sequences/s2/recipients/",
+        ]
+        # The offset starts again at 0 for the next sequence.
+        assert result.params("offset") == [None, *expected_first_offsets, "0"]
+        assert set(result.params("limit")[1:]) == {"2"}
+        assert set(result.params("sortBy")[1:]) == {"email"}
+        assert set(result.params("sortDesc")[1:]) == {"false"}
+
+    def test_skips_sequence_deleted_after_listing(self) -> None:
+        result = _driver().run(
+            "sequence_recipients",
+            [
+                ScriptedResponse(json={"results": [{"_id": "gone"}], "hasNext": False}),
+                ScriptedResponse(status=404, json={"message": "Sequence not found"}),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.rows == []
+        assert result.paths == ["/v1/sequences", "/v1/sequences/gone/recipients/"]
 
 
 class TestRetryClassification:
     @parameterized.expand([("rate_limited", 429), ("server_error", 500), ("bad_gateway", 503)])
-    @mock.patch("tenacity.nap.time.sleep")
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_retryable_status_is_retried_then_succeeds(
-        self, _name: str, status: int, MockSession: mock.MagicMock, _sleep: mock.MagicMock
-    ) -> None:
-        session = MockSession.return_value
-        _wire(session, [_resp({}, status=status), _resp({"results": [], "hasNext": False})])
-        manager = _make_manager()
+    def test_retryable_status_is_retried_then_succeeds(self, _name: str, status: int) -> None:
+        result = _driver().run(
+            "sequences",
+            [ScriptedResponse(status=status, json={}), ScriptedResponse(json={"results": [], "hasNext": False})],
+        )
 
-        rows = _run(session, "sequences", manager)
-
-        assert rows == []
-        assert session.send.call_count == 2
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_client_error_raises_immediately(self, MockSession: mock.MagicMock) -> None:
-        # A 401 is not retryable — it must surface as an HTTPError so the sync fails fast.
-        session = MockSession.return_value
-        _wire(session, [_resp({"error": "unauthorized"}, status=401)])
-        manager = _make_manager()
-
-        with mock.patch("tenacity.nap.time.sleep"):
-            try:
-                _run(session, "sequences", manager)
-            except requests.HTTPError:
-                pass
-            else:
-                raise AssertionError("expected an HTTPError")
-
-        assert session.send.call_count == 1
+        assert result.raised is None
+        assert result.rows == []
+        assert result.paths == ["/v1/sequences", "/v1/sequences"]
 
 
 class TestSourceResponse:
@@ -206,13 +248,11 @@ class TestSourceResponse:
         ]
     )
     def test_source_response_carries_endpoint_primary_keys(self, endpoint: str, expected_pks: list[str]) -> None:
-        response = mixmax_source(
-            api_key="tok",
-            endpoint=endpoint,
-            team_id=1,
-            job_id="j",
-            resumable_source_manager=_make_manager(),
-        )
+        result = _driver().run(endpoint, [ScriptedResponse(json={"results": [], "hasNext": False})])
+        response = result.response
+
+        assert result.raised is None
+        assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == expected_pks
         # Collections arrive newest-first; declared honestly so full-refresh ordering isn't misread.

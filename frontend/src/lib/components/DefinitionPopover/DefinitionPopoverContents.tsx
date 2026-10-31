@@ -9,6 +9,9 @@ import { ActionPopoverInfo } from 'lib/components/DefinitionPopover/ActionPopove
 import { CohortPopoverInfo } from 'lib/components/DefinitionPopover/CohortPopoverInfo'
 import { DefinitionPopover } from 'lib/components/DefinitionPopover/DefinitionPopover'
 import { DefinitionPopoverState, definitionPopoverLogic } from 'lib/components/DefinitionPopover/definitionPopoverLogic'
+import { LazyFeatureFlagPopoverInfo } from 'lib/components/DefinitionPopover/LazyFeatureFlagPopoverInfo'
+import { featureFlagKeyFromProperty } from 'lib/components/DefinitionPopover/utils'
+import { FlagCalledMoveNotice } from 'lib/components/FlagCalledMoveNotice/FlagCalledMoveNotice'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import {
@@ -115,7 +118,14 @@ export function PropertyStatusControl({
     )
 }
 
-function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element {
+export function DefinitionView({
+    group,
+    description: descriptionOverride,
+}: {
+    group: TaxonomicFilterGroup
+    /** Wins over both the definition's own description and the core one. */
+    description?: string
+}): JSX.Element {
     const {
         definition,
         localDefinition,
@@ -166,6 +176,7 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
     }
 
     const description =
+        descriptionOverride ||
         (definition && 'description' in definition && definition?.description) ||
         (definition?.name ? getCoreFilterDefinition(definition.name, group.type)?.description : undefined)
 
@@ -176,6 +187,7 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
             ) : (
                 <DefinitionPopover.DescriptionEmpty />
             )}
+            <FlagCalledMoveNotice name={definition.name} groupType={group.type} className="mb-2" />
             <DefinitionPopover.Example value={group?.getValue?.(definition)?.toString()} />
             {definition && 'tags' in definition && !!definition.tags?.length && (
                 <ObjectTags
@@ -238,6 +250,8 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
 
     if (isProperty) {
         const _definition = definition as PropertyDefinition
+        const flagKey =
+            type === TaxonomicFilterGroupType.EventFeatureFlags ? featureFlagKeyFromProperty(_definition.name) : null
 
         return (
             <>
@@ -251,9 +265,13 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                         </Tooltip>
                     </div>
                 )}
-                <DefinitionPopover.Grid cols={2}>
-                    <DefinitionPopover.Card title="Property Type" value={_definition.property_type ?? '-'} />
-                </DefinitionPopover.Grid>
+                {flagKey ? (
+                    <LazyFeatureFlagPopoverInfo flagKey={flagKey} />
+                ) : (
+                    <DefinitionPopover.Grid cols={2}>
+                        <DefinitionPopover.Card title="Property Type" value={_definition.property_type ?? '-'} />
+                    </DefinitionPopover.Grid>
+                )}
                 {hasSentAs ? (
                     <>
                         <DefinitionPopover.HorizontalLine />
@@ -718,10 +736,12 @@ export function ControlledDefinitionPopover({
     highlightedItemElement,
     definitionPopoverRenderer,
 }: ControlledDefinitionPopoverContentsProps): JSX.Element | null {
-    const { state, singularType, definition } = useValues(definitionPopoverLogic)
+    const { state, singularType } = useValues(definitionPopoverLogic)
     const { setDefinition } = useActions(definitionPopoverLogic)
 
-    const icon = group.getIcon?.(definition || item)
+    // Not definition: the effect below syncs it after render, so for one render it can hold another group's
+    // row, and a getIcon that reads its own row shape ("On this page" reads option.icon) then crashes.
+    const icon = group.getIcon?.(item)
 
     // Supports all types specified in selectedItemHasPopover
     // Pinned items store minimal data ({ name }) so the source group's getValue may not
@@ -739,11 +759,10 @@ export function ControlledDefinitionPopover({
         return null
     }
 
-    const isDataWarehouseFunnelWidePopover =
-        group.type === TaxonomicFilterGroupType.DataWarehouse && !!definitionPopoverRenderer
-
     const defaultView = <DefinitionView group={group} />
     const customView = definitionPopoverRenderer?.({ item, group, defaultView }) ?? defaultView
+    const isDataWarehouseFunnelWidePopover =
+        group.type === TaxonomicFilterGroupType.DataWarehouse && customView !== defaultView
 
     return (
         <Popover

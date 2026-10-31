@@ -1,5 +1,5 @@
 import { Meta, StoryObj } from '@storybook/react'
-import { waitFor } from '@testing-library/dom'
+import { fireEvent, waitFor, within } from '@testing-library/dom'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
@@ -10,6 +10,7 @@ import { mswDecorator } from '~/mocks/browser'
 import { notebookTestTemplate } from './__mocks__/notebook-template-for-snapshot'
 import { buildMarkdownNotebookContent, serializeMarkdownNotebookComponent } from './markdownNotebookV2'
 import { notebookJupyterLogic } from './notebookJupyterLogic'
+import { notebookSettingsLogic } from './notebookSettingsLogic'
 
 const SHORT_ID = 'jupyter-mode'
 
@@ -88,6 +89,18 @@ const notebook = {
 const meta: Meta = {
     component: App,
     title: 'Scenes-App/Notebooks/Jupyter mode',
+    beforeEach: () => {
+        const key = 'scenes.notebooks.notebooks.notebookSettingsLogic.isJupyterMode'
+        const previous = localStorage.getItem(key)
+        localStorage.setItem(key, JSON.stringify(true))
+        return () => {
+            if (previous === null) {
+                localStorage.removeItem(key)
+            } else {
+                localStorage.setItem(key, previous)
+            }
+        }
+    },
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
@@ -125,10 +138,26 @@ type Story = StoryObj<{}>
 
 export const JupyterModeOff: Story = {
     parameters: { featureFlags: [FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS] },
+    play: async ({ canvasElement }) => {
+        await waitFor(
+            () => {
+                if (!canvasElement.querySelector('.MarkdownNotebook__jupyter-cell')) {
+                    throw new Error('Jupyter cells have not rendered yet')
+                }
+            },
+            { timeout: 30000 }
+        )
+        notebookSettingsLogic.actions.setIsJupyterMode(false)
+        await waitFor(() => {
+            if (canvasElement.querySelector('.MarkdownNotebook__jupyter-cell')) {
+                throw new Error('Jupyter cells remain after disabling the user preference')
+            }
+        })
+    },
 }
 
 export const JupyterMode: Story = {
-    parameters: { featureFlags: [FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS, FEATURE_FLAGS.NOTEBOOK_JUPYTER_MODE] },
+    parameters: { featureFlags: [FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS] },
     play: async ({ canvasElement }) => {
         await waitFor(
             () => {
@@ -142,5 +171,28 @@ export const JupyterMode: Story = {
         ;[CELLS.load, CELLS.count, CELLS.frame, CELLS.error, CELLS.sql].forEach((nodeId, index) =>
             logic?.actions.assignExecutionCount(nodeId, index + 1)
         )
+
+        const canvas = within(canvasElement)
+        await waitFor(() => {
+            if (!canvasElement.querySelector('.DataVisualization')) {
+                throw new Error('SQL chart has not rendered by default')
+            }
+            canvas.getByText('Pageview')
+            canvas.getByText('Autocapture')
+        })
+        fireEvent.click(canvas.getByRole('button', { name: 'Show table' }))
+        await waitFor(() => {
+            canvas.getByRole('button', { name: 'Show chart' })
+            canvas.getByRole('cell', { name: '$pageview' })
+            if (canvasElement.querySelector('.DataVisualization')) {
+                throw new Error('SQL chart is still visible after switching to the table')
+            }
+        })
+        fireEvent.click(canvas.getByRole('button', { name: 'Show chart' }))
+        await waitFor(() => {
+            canvas.getByRole('button', { name: 'Show table' })
+            canvas.getByText('Pageview')
+            canvas.getByText('Autocapture')
+        })
     },
 }

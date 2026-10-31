@@ -15,13 +15,14 @@ import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { cohortsModel } from '~/models/cohortsModel'
+import { dashboardsModel } from '~/models/dashboardsModel'
 import { examples } from '~/queries/examples'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
 import { DashboardFilter, HogQLVariable, InsightVizNode, NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import { setLatestVersionsOnQuery } from '~/queries/utils'
 import { initKeaTests } from '~/test/init'
-import { ActivityScope, CohortType, InsightShortId, InsightType, ItemMode } from '~/types'
+import { ActivityScope, CohortType, DashboardType, InsightShortId, InsightType, ItemMode } from '~/types'
 
 const Insight12 = '12' as InsightShortId
 const Insight42 = '42' as InsightShortId
@@ -87,6 +88,32 @@ describe('insightSceneLogic', () => {
             })
     })
 
+    it.each([false, true])(
+        'releases scene-owned insight logics on navigation (shared owner: %s)',
+        async (sharedOwner) => {
+            router.actions.push(urls.insightNew())
+            logic = insightSceneLogic()
+            const unmountScene = logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            const insight = logic.values.insightLogicRef!.logic
+            const data = logic.values.insightDataLogicRef!.logic
+            const releaseSharedInsight = sharedOwner ? insight.mount() : undefined
+            const releaseSharedData = sharedOwner ? data.mount() : undefined
+
+            unmountScene()
+
+            expect(logic.isMounted()).toBe(false)
+            expect(insight.isMounted()).toBe(sharedOwner)
+            expect(data.isMounted()).toBe(sharedOwner)
+
+            releaseSharedInsight?.()
+            releaseSharedData?.()
+            expect(insight.isMounted()).toBe(false)
+            expect(data.isMounted()).toBe(false)
+        }
+    )
+
     it('updates the generated breadcrumb when cohort names arrive after the query', async () => {
         router.actions.push(urls.insightNew())
         logic = insightSceneLogic()
@@ -107,6 +134,17 @@ describe('insightSceneLogic', () => {
 
         expect(logic.values.breadcrumbs.at(-1)?.name).toContain('Returning users')
         expect(logic.values.breadcrumbs.at(-1)?.name).not.toContain('ID 987')
+    })
+
+    it('names the breadcrumb after the dashboard the insight opens from', async () => {
+        dashboardsModel.mount()
+        dashboardsModel.actions.addDashboardSuccess({ id: 7, name: 'Weekly review' } as DashboardType)
+        router.actions.push(urls.insightNew(), { dashboard: 7 })
+        logic = insightSceneLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.dashboardName).toEqual('Weekly review')
     })
 
     it('reports a view only for the scene insight when another unsaved insight mounts', async () => {

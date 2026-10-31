@@ -25,6 +25,7 @@ from products.ai_observability.backend.llm.types import (
 logger = logging.getLogger(__name__)
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+OPENROUTER_DECISIONS_BASE_URL = "https://openrouter.ai/api/alpha"
 
 # For App Attribution
 OPENROUTER_HEADERS = {
@@ -34,44 +35,70 @@ OPENROUTER_HEADERS = {
 
 # The default model list only has text-output models, so ask for every output modality.
 OPENROUTER_ALL_MODELS_URL = f"{OPENROUTER_BASE_URL}/models?output_modalities=all"
-NON_CHAT_MODELS_CACHE_KEY = "ai_observability:openrouter:non_chat_models"
-NON_CHAT_MODELS_CACHE_TTL_SECONDS = 60 * 60
-NON_CHAT_MODELS_FETCH_TIMEOUT_SECONDS = 5.0
+# Older workers expect a non-chat-only snapshot, so use a separate cache namespace.
+MODEL_MODALITIES_CACHE_KEY = "ai_observability:openrouter:model_output_modalities:v1"
+MODEL_MODALITIES_LAST_GOOD_CACHE_KEY = f"{MODEL_MODALITIES_CACHE_KEY}:last_good"
+MODEL_MODALITIES_CACHE_TTL_SECONDS = 60 * 60
+MODEL_MODALITIES_FETCH_TIMEOUT_SECONDS = 5.0
 # Short, so a catalogue outage adds the fetch timeout at most once a minute.
-NON_CHAT_MODELS_UNAVAILABLE_TTL_SECONDS = 60
+MODEL_MODALITIES_UNAVAILABLE_TTL_SECONDS = 60
 _CATALOGUE_UNAVAILABLE = "unavailable"
 
 
-def _non_chat_model_ids() -> frozenset[str] | None:
-    """IDs of OpenRouter models that cannot produce text, such as decision models.
+def _model_output_modalities(*, refresh: bool = True) -> dict[str, list[str]] | None:
+    """Output modalities of OpenRouter models.
 
-    Returns None when the catalogue is unavailable, so callers fail open.
+    Returns the last successful catalogue during outages, or None before the first success.
     """
-    cached = cache.get(NON_CHAT_MODELS_CACHE_KEY)
+    cached = cache.get(MODEL_MODALITIES_CACHE_KEY)
     if cached == _CATALOGUE_UNAVAILABLE:
-        return None
+        return cache.get(MODEL_MODALITIES_LAST_GOOD_CACHE_KEY)
     if cached is not None:
-        return frozenset(cached)
+        return cached
+    if not refresh:
+        return cache.get(MODEL_MODALITIES_LAST_GOOD_CACHE_KEY)
     try:
-        response = httpx.get(OPENROUTER_ALL_MODELS_URL, timeout=NON_CHAT_MODELS_FETCH_TIMEOUT_SECONDS)
+        response = httpx.get(OPENROUTER_ALL_MODELS_URL, timeout=MODEL_MODALITIES_FETCH_TIMEOUT_SECONDS)
         response.raise_for_status()
         models = response.json()["data"]
-        ids = sorted(
-            model["id"]
-            for model in models
-            if "text" not in (model.get("architecture") or {}).get("output_modalities", ["text"])
-        )
+        modalities = {
+            model["id"]: (model.get("architecture") or {}).get("output_modalities") or ["text"] for model in models
+        }
     except Exception:
         logger.warning("Could not fetch the OpenRouter model catalogue", exc_info=True)
-        cache.set(NON_CHAT_MODELS_CACHE_KEY, _CATALOGUE_UNAVAILABLE, NON_CHAT_MODELS_UNAVAILABLE_TTL_SECONDS)
-        return None
-    cache.set(NON_CHAT_MODELS_CACHE_KEY, ids, NON_CHAT_MODELS_CACHE_TTL_SECONDS)
-    return frozenset(ids)
+        cache.set(MODEL_MODALITIES_CACHE_KEY, _CATALOGUE_UNAVAILABLE, MODEL_MODALITIES_UNAVAILABLE_TTL_SECONDS)
+        return cache.get(MODEL_MODALITIES_LAST_GOOD_CACHE_KEY)
+    # An outage must not discard the last successful catalogue.
+    cache.set(MODEL_MODALITIES_LAST_GOOD_CACHE_KEY, modalities, timeout=None)
+    cache.set(MODEL_MODALITIES_CACHE_KEY, modalities, MODEL_MODALITIES_CACHE_TTL_SECONDS)
+    return modalities
+
+
+def non_chat_model_ids() -> frozenset[str] | None:
+    models = _model_output_modalities()
+    return (
+        frozenset(model for model, modalities in models.items() if "text" not in modalities)
+        if models is not None
+        else None
+    )
+
+
+def decision_model_ids(*, refresh: bool = True, decision_only: bool = False) -> frozenset[str] | None:
+    models = _model_output_modalities(refresh=refresh)
+    return (
+        frozenset(
+            model
+            for model, modalities in models.items()
+            if "decisions" in modalities and (not decision_only or "text" not in modalities)
+        )
+        if models is not None
+        else None
+    )
 
 
 def is_non_chat_model(model: str) -> bool:
     """True only when OpenRouter lists the model and says it cannot produce text."""
-    ids = _non_chat_model_ids()
+    ids = non_chat_model_ids()
     return ids is not None and model in ids
 
 

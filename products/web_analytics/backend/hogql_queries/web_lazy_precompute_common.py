@@ -25,7 +25,7 @@ import structlog
 import posthoganalytics
 from prometheus_client import Counter
 
-from posthog.schema import SessionsV2JoinMode, WebAnalyticsPreComputeStrategy
+from posthog.schema import HogQLQueryModifiers, SessionsV2JoinMode, WebAnalyticsPreComputeStrategy
 
 from posthog.hogql import ast
 from posthog.hogql.modifiers import create_default_modifiers_for_team
@@ -36,6 +36,7 @@ from posthog import redis
 from posthog.clickhouse.query_tagging import clear_tag, get_query_tag_value, tag_queries
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team
+from posthog.models.event.new_events_schema import use_new_events_schema
 
 from products.access_control.backend.facade.api import team_has_property_access_rules
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
@@ -273,14 +274,17 @@ BACKGROUND_WARMING_TRIGGERS = frozenset(
     }
 )
 
+
 # Stale-while-revalidate window for *user-facing* requests: windows that expired within
 # this grace are served from their existing (complete-but-stale) rows instantly instead
 # of recomputing inline, and a background revalidation is enqueued. Refresh normally
 # arrives within minutes via the revalidation task (plus the hourly eager warmer for
 # warmed shapes) — the grace is the ceiling for revalidation failures and warmer
-# outages. Must stay well under the framework's 48h ClickHouse expiry buffer (rows must
-# still exist).
-STALE_WHILE_REVALIDATE_SECONDS = 6 * 60 * 60
+# outages. Env-tunable via WEB_ANALYTICS_PRECOMPUTE_STALE_GRACE_SECONDS (see
+# posthog/settings/web.py for the default and the freshness/hit-rate trade-off).
+def stale_while_revalidate_seconds() -> int:
+    return settings.WEB_ANALYTICS_PRECOMPUTE_STALE_GRACE_SECONDS
+
 
 WEB_ANALYTICS_LAZY_PRECOMPUTE_CHECK_MISS = Counter(
     "web_analytics_lazy_precompute_check_miss_total",
@@ -525,12 +529,17 @@ def enqueue_stale_revalidation(*, team: Team, query: Any, family: str, debounce_
         revalidate_web_analytics_precompute,
     )
 
+    modifiers = (query.modifiers or HogQLQueryModifiers()).model_copy()
+    modifiers.useNewEventsSchema = use_new_events_schema(team.pk, modifiers)
+    query = query.model_copy(update={"modifiers": modifiers})
     try:
         client = redis.get_client()
         shape_part = compute_filters_eligibility_hash(query, team.timezone)[:16]
         if debounce_extra:
             shape_part = hashlib.sha256(f"{shape_part}:{debounce_extra}".encode()).hexdigest()[:16]
         debounce_key = f"web_swr_reval:{team.id}:{family}:{shape_part}"
+        if modifiers.useNewEventsSchema:
+            debounce_key += ":events_json"
         if not client.set(debounce_key, "1", ex=REVALIDATION_DEBOUNCE_SECONDS, nx=True):
             return
         budget_key = f"web_swr_reval_budget:{team.id}"
@@ -598,6 +607,16 @@ def handle_stale_served(*, runner: Any, family: str) -> None:
     enqueue_stale_revalidation(team=runner.team, query=runner.query, family=family, debounce_extra=debounce_extra)
 
 
+# "InCohort" also matches NotInCohort. A cohort's criteria are expanded after this check and can
+# classify traffic, so any cohort filter counts, such as a cohort in the test-account filters.
+_TRAFFIC_CLASSIFICATION_NAMES = ("$virt_", "isLikelyBot", "getBot", "getTraffic", "__preview_", "InCohort")
+
+
+def _classifies_traffic(insert_query: Any, placeholders: Optional[dict[str, Any]]) -> bool:
+    text = repr(insert_query) + repr(placeholders)
+    return any(name in text for name in _TRAFFIC_CLASSIFICATION_NAMES)
+
+
 def web_ensure_precomputed(
     *, team: Team, shape_key_extra: Optional[str] = None, **kwargs: Any
 ) -> LazyComputationResult:
@@ -621,10 +640,17 @@ def web_ensure_precomputed(
         # Use the runner's value, which can carry a per-query override, so the INSERT and the job hash match the read.
         modifiers.cookielessTrafficIsRegular = runner.modifiers.cookielessTrafficIsRegular
     kwargs["modifiers"] = modifiers
+    # The job hash covers the HogQL text, not what `$virt_*` expands to, so a classification change
+    # needs a new marker. Only queries that classify traffic get it, so other jobs keep their hash.
+    markers = []
     if modifiers.cookielessTrafficIsRegular:
+        markers.append("cookieless-missing-ua-v1")
+    if _classifies_traffic(kwargs.get("insert_query"), kwargs.get("placeholders")):
+        markers.append("sdk-missing-ua-v1")
+    if markers:
         kwargs["cache_key_context"] = {
             **(kwargs.get("cache_key_context") or {}),
-            "traffic_classification": "cookieless-missing-ua-v1",
+            "traffic_classification": "+".join(markers),
         }
     background = is_background_warming_request()
     forced = is_forced_refresh_request()
@@ -641,7 +667,7 @@ def web_ensure_precomputed(
             kwargs["stale_while_revalidate_seconds"] = None
         else:
             kwargs["stale_while_revalidate_seconds"] = resolve_stale_while_revalidate_seconds(
-                STALE_WHILE_REVALIDATE_SECONDS, BACKGROUND_WARMING_TRIGGERS
+                stale_while_revalidate_seconds(), BACKGROUND_WARMING_TRIGGERS
             )
     # User-facing requests never compute inline: they are served from covering
     # READY jobs (fresh or within the stale grace) or told "miss" immediately so
@@ -710,6 +736,8 @@ def web_ensure_precomputed(
             schedule = replace(schedule, rules=[(forced_cutoff, 1), *schedule.rules])
         kwargs["ttl_seconds"] = schedule
     result = ensure_precomputed(team=team, **kwargs)
+    if result.ready and result.computed_at is not None and runner is not None:
+        runner.record_lazy_precompute_computed_at(result.computed_at)
     if not result.ready and not background and runner is not None and family is not None:
         # Check-only miss: warm in the background (debounced per team/family/shape)
         # so the next visit is served from precompute while this one goes live.
@@ -1005,7 +1033,7 @@ def check_common_eligibility(
     # cache key, bounded by the per-team shape ceiling in `web_ensure_precomputed`.
     # Session and cohort filters are refused: the precompute INSERT applies the whole
     # list userlessly, but the live runners handle those types differently per family
-    # (web vitals drops them entirely), so precomputing them would serve a different
+    # (web vitals drops session filters), so precomputing them would serve a different
     # population than the live fallback. Those queries fall through to the live path,
     # which applies them correctly.
     for prop in properties:

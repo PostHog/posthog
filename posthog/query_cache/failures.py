@@ -11,8 +11,6 @@ from posthog.caching.redis_cluster_connection_factory import QUERY_CACHE_ALIAS
 
 logger = structlog.get_logger(__name__)
 
-QUERY_FAILURE_CACHING_FLAG = "query-failure-caching"
-
 QUERY_FAILURE_CACHE_COUNTER = Counter(
     "posthog_query_failure_cache_total",
     "Circuit-breaker activity for queries that keep failing deterministically",

@@ -46,15 +46,22 @@ def scanners_for_reading_observations(team_id: int) -> "QuerySet[ReplayScanner]"
     return ReplayScanner.all_origins.filter(team_id=team_id)
 
 
-def _accessible_experiment_ids(
+def accessible_experiment_ids(
     access: UserAccessControl | None, team_id: int, experiment_ids: set[int] | None
 ) -> set[int]:
     """The experiments the caller may view, through the experiments facade. Empty input, empty result."""
     # Deferred: the experiments replay facade pulls in the recordings query modules, which circle
     # back into this package's importers.
-    from products.experiments.backend.facade.replay import accessible_experiment_ids  # noqa: PLC0415
+    from products.experiments.backend.facade.replay import (  # noqa: PLC0415
+        accessible_experiment_ids as facade_accessible_experiment_ids,
+    )
 
-    return accessible_experiment_ids(access, team_id, experiment_ids=experiment_ids)
+    return facade_accessible_experiment_ids(access, team_id, experiment_ids=experiment_ids)
+
+
+def readable_experiment_ids(access: UserAccessControl, team_id: int) -> set[int]:
+    """Every experiment the caller may view in the team, the set `accessible_observations` gates rows on."""
+    return accessible_experiment_ids(access, team_id, None)
 
 
 def is_experiment_accessible(access: UserAccessControl | None, team_id: int, experiment_id: int) -> bool:
@@ -65,7 +72,7 @@ def is_experiment_accessible(access: UserAccessControl | None, team_id: int, exp
     than disclosing the experiment through a scanner surface. `access` is None only outside request
     context (internal serialization), where there is no viewer to gate on, so it passes.
     """
-    return experiment_id in _accessible_experiment_ids(access, team_id, {experiment_id})
+    return experiment_id in accessible_experiment_ids(access, team_id, {experiment_id})
 
 
 def scanner_experiment_scope_q(*, unrestricted: bool = False, experiment_ids: Iterable[int] = ()) -> Q:
@@ -127,10 +134,22 @@ def accessible_observations(
     The accessible set comes from the team's experiments, which are few and indexed. The snapshot
     path has no index, so reading the ids off the observations instead scans the whole scanner or team.
     """
-    accessible = _accessible_experiment_ids(access, team_id, None)
+    accessible = accessible_experiment_ids(access, team_id, None)
     # Keep rows whose snapshot names no experiment (untargeted, unrestricted) OR an accessible one,
     # whichever snapshot store names it.
     return observations.filter(snapshot_experiment_scope_q(unrestricted=True, experiment_ids=accessible))
+
+
+def can_read_observation(access: UserAccessControl, team_id: int, observation: "ReplayObservation") -> bool:
+    """`accessible_observations` for one loaded row, read off its snapshot: no query for an untargeted scan,
+    and one targeted lookup otherwise, instead of every accessible experiment in the project."""
+    snapshot = observation.scanner_snapshot or {}
+    experiment_ids = {
+        experiment_id
+        for store in ("experiment_targeting", "scanner_config")
+        if (experiment_id := (snapshot.get(store) or {}).get("experiment_id")) is not None
+    }
+    return not experiment_ids or bool(accessible_experiment_ids(access, team_id, experiment_ids) & experiment_ids)
 
 
 def readable_observation_scanner_ids(access: UserAccessControl, team_id: int) -> list[uuid.UUID]:
@@ -148,7 +167,7 @@ def readable_observation_scanner_ids(access: UserAccessControl, team_id: int) ->
         )
     )
     targeted = {eid for s in scanners if (eid := (s.experiment_scope() or {}).get("experiment_id")) is not None}
-    accessible = _accessible_experiment_ids(access, team_id, targeted)
+    accessible = accessible_experiment_ids(access, team_id, targeted)
     return [
         s.id
         for s in scanners

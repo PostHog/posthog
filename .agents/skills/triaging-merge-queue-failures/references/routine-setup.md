@@ -12,8 +12,8 @@ The prompt stays minimal; the checked-in `SKILL.md` in this directory is the rea
 **Do not derive that login from the token's own API identity.**
 The routine sandbox reports a user account on `GET /user` while routing PR comments through the `claude` GitHub App, so its comments land as `claude[bot]`.
 Reading `/user` and acting on it gets this exactly backwards.
-The autoresolver sweep, running in this same environment, posted [a comment on PR 82484](https://github.com/PostHog/posthog/pull/82484) whose `performed_via_github_app` is `claude` and whose author is `claude[bot]`, while `/user` in that sandbox reports the account that owns the routine.
-No workflow in this repo uses `anthropics/claude-code-action`, and the conflict workflows authenticate as a PostHog-owned app, so that comment came from the routine.
+A routine sweep running in this same environment posted [a comment on PR 82484](https://github.com/PostHog/posthog/pull/82484) whose `performed_via_github_app` is `claude` and whose author is `claude[bot]`, while `/user` in that sandbox reports the account that owns the routine.
+No workflow in this repo uses `anthropics/claude-code-action`, so that comment came from the routine.
 
 So `MQ_TRIAGE_BOT_LOGIN=claude[bot]` is the right value for a routine whose comments go through that app.
 

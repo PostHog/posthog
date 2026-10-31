@@ -42,6 +42,9 @@ export enum PluginServerMode {
     recordings_blob_ingestion_v2_ml_image_scrub_dlq_replay = 'recordings-blob-ingestion-v2-ml-image-scrub-dlq-replay',
     recordings_blob_ingestion_v2_ml_image_fetch = 'recordings-blob-ingestion-v2-ml-image-fetch',
     recordings_blob_ingestion_v2_ml_image_fetch_retry = 'recordings-blob-ingestion-v2-ml-image-fetch-retry',
+    ai_research_v4_image_fetch = 'ai-research-v4-image-fetch',
+    ai_research_v4_image_fetch_retry = 'ai-research-v4-image-fetch-retry',
+    ai_research_v4_parquet_sink = 'ai-research-v4-parquet-sink',
     cdp_processed_events = 'cdp-processed-events',
     cdp_person_updates = 'cdp-person-updates',
     cdp_data_warehouse_events = 'cdp-data-warehouse-events',
@@ -52,6 +55,7 @@ export enum PluginServerMode {
     cdp_precalculated_filters = 'cdp-precalculated-filters',
     cdp_hogflow_subscription_matcher = 'cdp-hogflow-subscription-matcher',
     cdp_cohort_membership = 'cdp-cohort-membership',
+    cdp_cohort_membership_triggers = 'cdp-cohort-membership-triggers',
     cdp_cyclotron_worker_hogflow = 'cdp-cyclotron-worker-hogflow',
     cdp_cyclotron_worker_email = 'cdp-cyclotron-worker-email',
     cdp_api = 'cdp-api',
@@ -63,6 +67,7 @@ export enum PluginServerMode {
     cdp_cyclotron_worker_batch_resolve = 'cdp-cyclotron-worker-batch-resolve',
     cdp_cyclotron_v2_janitor = 'cdp-cyclotron-v2-janitor',
     cdp_rerun_worker = 'cdp-rerun-worker',
+    cdp_dlq_replay = 'cdp-dlq-replay',
     recording_api = 'recording-api',
     ingestion_v2_combined = 'ingestion-v2-combined',
     ingestion_traces = 'ingestion-traces',
@@ -130,6 +135,8 @@ export type CommonConfig = BaseServerConfig & {
     PERSONHOG_PERSONS_ROLLOUT_TEAM_IDS: string
     PERSONHOG_TLS: boolean
     PERSONHOG_TIMEOUT_MS: number
+    /** Per-call deadline on the identity connection; it outlasts identity's own leader attempts. */
+    PERSONHOG_IDENTITY_TIMEOUT_MS: number
     /** Deadline for the identity merge saga call; must exceed the engine's lifecycle_execute_timeout_secs. */
     PERSONHOG_MERGE_TIMEOUT_MS: number
     PERSONHOG_READ_MAX_BYTES: number
@@ -349,6 +356,7 @@ export function getDefaultCommonConfig(): CommonConfig {
         PERSONHOG_PERSONS_ROLLOUT_TEAM_IDS: '',
         PERSONHOG_TLS: false,
         PERSONHOG_TIMEOUT_MS: 3000,
+        PERSONHOG_IDENTITY_TIMEOUT_MS: 3000,
         PERSONHOG_MERGE_TIMEOUT_MS: 35_000,
         PERSONHOG_READ_MAX_BYTES: 128 * 1024 * 1024,
         PERSONHOG_WRITE_MAX_BYTES: 4 * 1024 * 1024,
@@ -449,11 +457,15 @@ export function getDefaultCommonConfig(): CommonConfig {
         // Shared between ingestion and CDP
         CDP_HOG_RUST_VM_EXECUTION_ENABLED: false,
         CDP_HOG_RUST_VM_BATCH_EXECUTION_ENABLED: false,
-        CDP_HOG_FLOW_BATCH_AUDIENCE_FETCH_TIMEOUT_MS: 30_000,
+        // Above Django's WORKFLOWS_BATCH_AUDIENCE_QUERY_TIMEOUT_SECONDS (180s), so ClickHouse ends a slow
+        // audience query before this client gives up and a retry never overlaps a query that still runs.
+        CDP_HOG_FLOW_BATCH_AUDIENCE_FETCH_TIMEOUT_MS: 185_000,
         TRANSFORMATIONS_HOG_TIMEOUT_MS: 300,
 
         // Event loop yield helper
         EVENT_LOOP_YIELD_THRESHOLD_MS: 200,
+
+        HTTP_SERVER_DRAIN_TIMEOUT_MS: 0,
 
         // Pod termination
         POD_TERMINATION_ENABLED: false,

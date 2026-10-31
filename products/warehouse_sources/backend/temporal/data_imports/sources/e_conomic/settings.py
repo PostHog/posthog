@@ -1,14 +1,20 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    DependentEndpointConfig,
+)
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+
+# Max page size the API allows for classic offset pagination.
+PAGE_SIZE = 1000
 
 
 def _incremental_field(name: str, field_type: IncrementalFieldType) -> IncrementalField:
     return {"label": name, "type": field_type, "field": name, "field_type": field_type}
 
 
-@dataclass
+@dataclass(frozen=True)
 class EConomicEndpointConfig:
     name: str
     # Path on https://restapi.e-conomic.com. Uses hyphens (e.g. /customer-groups) while the schema/table
@@ -22,12 +28,17 @@ class EConomicEndpointConfig:
     # Field passed as `sort=` on every request. For incremental endpoints it equals the incremental
     # field so rows arrive ascending and the watermark advances correctly. For full-refresh endpoints
     # it's a stable identifier so pagination can't skip/duplicate rows across pages. `None` => no sort
-    # (only for tiny single-page endpoints whose number field the API refuses to sort by).
+    # (only for tiny single-page endpoints whose number field the API refuses to sort by). Fan-out
+    # children sort through `fanout.child_params` instead: rows are only ordered within one parent.
     sort: Optional[str] = None
     # Stable, immutable date field for storage partitioning. Never a field that mutates (e.g.
     # lastUpdated) — partitions would rewrite on every sync.
     partition_key: Optional[str] = None
     should_sync_default: bool = True
+    # Set for per-parent sub-collections (e.g. entries per accounting year).
+    fanout: Optional[DependentEndpointConfig] = None
+    page_size: int = PAGE_SIZE
+    default_incremental_field: Optional[str] = None
 
 
 # Endpoint catalog. Incremental support is set ONLY where the live API honors a server-side timestamp /
@@ -128,6 +139,23 @@ E_CONOMIC_ENDPOINTS: dict[str, EConomicEndpointConfig] = {
         primary_keys=["vatZoneNumber"],
         sort="vatZoneNumber",
     ),
+    # The API accepts `sort` on these three lookups but ignores it, so no sort is sent. Each is a tiny
+    # single-page table.
+    "vat_types": EConomicEndpointConfig(
+        name="vat_types",
+        path="/vat-types",
+        primary_keys=["vatTypeNumber"],
+    ),
+    "vat_accounts": EConomicEndpointConfig(
+        name="vat_accounts",
+        path="/vat-accounts",
+        primary_keys=["vatCode"],
+    ),
+    "payment_types": EConomicEndpointConfig(
+        name="payment_types",
+        path="/payment-types",
+        primary_keys=["paymentTypeNumber"],
+    ),
     "employees": EConomicEndpointConfig(
         name="employees",
         path="/employees",
@@ -152,6 +180,120 @@ E_CONOMIC_ENDPOINTS: dict[str, EConomicEndpointConfig] = {
         # Drafts carry `lastUpdated` and the API filters on it, but it refuses sort=lastUpdated, so rows
         # can't be guaranteed ascending for a watermark — full refresh only.
         sort="draftInvoiceNumber",
+    ),
+    # Orders move draft -> sent -> archived, so a row leaves the drafts and sent tables when its state
+    # changes. Full refresh keeps each table an exact snapshot of its state slice.
+    "orders_drafts": EConomicEndpointConfig(
+        name="orders_drafts",
+        path="/orders/drafts",
+        primary_keys=["orderNumber"],
+        sort="orderNumber",
+    ),
+    "orders_sent": EConomicEndpointConfig(
+        name="orders_sent",
+        path="/orders/sent",
+        primary_keys=["orderNumber"],
+        sort="orderNumber",
+    ),
+    "orders_archived": EConomicEndpointConfig(
+        name="orders_archived",
+        path="/orders/archived",
+        primary_keys=["orderNumber"],
+        sort="orderNumber",
+        # Archived orders carry no `lastUpdated` to filter on, so full refresh only.
+        partition_key="date",
+    ),
+    "accounting_year_entries": EConomicEndpointConfig(
+        name="accounting_year_entries",
+        path="{entries_path}",
+        # The entry number restarts with each accounting year, so the year is part of the key.
+        primary_keys=["accountingYear", "entryNumber"],
+        partition_key="date",
+        fanout=DependentEndpointConfig(
+            parent_name="accounting_years",
+            # Years spanning two calendar years ("2022/2023") use a different form in URLs, so the
+            # path comes from the parent's own `entries` link rather than from `year`.
+            resolve_param="entries_path",
+            resolve_field="entries_path",
+            include_from_parent=["year"],
+            parent_field_renames={"year": "accountingYear"},
+            parent_params={"sort": "year"},
+            child_params={"sort": "entryNumber"},
+        ),
+    ),
+    # Entries still in a journal, not yet booked. Booking moves them to accounting_year_entries, so
+    # full refresh only.
+    "journal_entries": EConomicEndpointConfig(
+        name="journal_entries",
+        path="/journals/{journalNumber}/entries",
+        primary_keys=["journalNumber", "journalEntryNumber"],
+        fanout=DependentEndpointConfig(
+            parent_name="journals",
+            resolve_param="journalNumber",
+            resolve_field="journalNumber",
+            include_from_parent=["journalNumber"],
+            parent_field_renames={"journalNumber": "journalNumber"},
+            parent_params={"sort": "journalNumber"},
+            child_params={"sort": "journalEntryNumber"},
+        ),
+    ),
+    # Unbooked vouchers, so full refresh like journal_entries. The API rejects every `sort` field here.
+    "journal_vouchers": EConomicEndpointConfig(
+        name="journal_vouchers",
+        path="/journals/{journalNumber}/vouchers",
+        # A voucher number is unique per journal and accounting year.
+        primary_keys=["journalNumber", "accountingYear", "voucherNumber"],
+        fanout=DependentEndpointConfig(
+            parent_name="journals",
+            resolve_param="journalNumber",
+            resolve_field="journalNumber",
+            include_from_parent=["journalNumber"],
+            parent_field_renames={"journalNumber": "journalNumber"},
+            parent_params={"sort": "journalNumber"},
+        ),
+    ),
+    # Balances change while a year is open, so totals are full refresh. The API ignores `sort` here.
+    "accounting_year_totals": EConomicEndpointConfig(
+        name="accounting_year_totals",
+        path="{totals_path}",
+        primary_keys=["accountingYear", "accountNumber"],
+        fanout=DependentEndpointConfig(
+            parent_name="accounting_years",
+            resolve_param="totals_path",
+            resolve_field="totals_path",
+            include_from_parent=["year"],
+            parent_field_renames={"year": "accountingYear"},
+            parent_params={"sort": "year"},
+        ),
+    ),
+    "accounting_period_totals": EConomicEndpointConfig(
+        name="accounting_period_totals",
+        path="{totals_path}",
+        primary_keys=["accountingYear", "periodNumber", "accountNumber"],
+        fanout=DependentEndpointConfig(
+            parent_name="accounting_year_periods",
+            resolve_param="totals_path",
+            resolve_field="totals_path",
+            include_from_parent=["periodNumber", "year"],
+            parent_field_renames={"periodNumber": "periodNumber", "year": "accountingYear"},
+        ),
+    ),
+}
+
+# Fan-out parents that are not tables themselves. `accounting_period_totals` reaches its totals through
+# two hops: accounting_years -> accounting_year_periods -> totals.
+E_CONOMIC_FANOUT_PARENTS: dict[str, EConomicEndpointConfig] = {
+    "accounting_year_periods": EConomicEndpointConfig(
+        name="accounting_year_periods",
+        path="{periods_path}",
+        primary_keys=["periodNumber"],
+        fanout=DependentEndpointConfig(
+            parent_name="accounting_years",
+            resolve_param="periods_path",
+            resolve_field="periods_path",
+            include_from_parent=[],
+            parent_params={"sort": "year"},
+        ),
     ),
 }
 

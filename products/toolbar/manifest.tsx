@@ -23,6 +23,7 @@ export const manifest: ProductManifest = {
             path: 'Toolbar',
             intents: [ProductKey.TOOLBAR],
             href: urls.toolbarLaunch(),
+            searchKeywords: ['authorized urls', 'inspect element'],
             type: 'toolbar',
             category: ProductItemCategory.TOOLS,
             iconType: 'toolbar',

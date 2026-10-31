@@ -18,9 +18,13 @@ Any valid skill name works: lowercase letters, numbers, and hyphens.
 The `SignalScoutConfig` row is what makes a skill a scout.
 Name it in lowercase kebab-case after the surface or question the scout watches: `error-tracking`, `checkout-funnel`, `mcp-feedback`.
 The canonical fleet keeps the `signals-scout-` prefix, and a per-team scout can use it too.
-The prefix only controls whether the coordinator auto-registers a config for a skill that has none, so a scout named anything else comes in through `scout-create`, which writes the skill and its config in one call.
+The prefix only controls whether the coordinator auto-registers a config for a skill that has none, so a report-producing scout named anything else comes in through `scout-create`, which writes the skill and its config in one call.
+A scout with a product-specific output comes in through `skill-create` and `scout-config-create`, because `scout-create` always grants the report tools; see [Scouts with a product-specific output](report-contract.md#scouts-with-a-product-specific-output).
 
 ## Frontmatter
+
+This template is for a report-producing scout.
+A scout with a product-specific output omits both report tools and avoids the `signals-scout-` prefix; see [Scouts with a product-specific output](report-contract.md#scouts-with-a-product-specific-output) for how to create it.
 
 ```yaml
 ---
@@ -50,8 +54,10 @@ metadata:
 ```
 
 `name` and `description` are required and validated at build time.
-`allowed_tools` with `emit_report` / `edit_report` is what puts the scout on the report channel — **every scout needs it** (without it the scout falls back to a deprecated legacy signal-emitting channel and can't write reports).
+`allowed_tools` with `emit_report` / `edit_report` is what puts the scout on the report channel — **every report-producing scout needs it** (without it the scout falls back to a deprecated legacy signal-emitting channel and can't write reports).
+A scout with a product-specific output omits both tools; see [Scouts with a product-specific output](report-contract.md#scouts-with-a-product-specific-output).
 `compatibility` and `metadata` are optional but conventional — `compatibility` documents the scopes/tools the scout assumes; `metadata.scope` gives downstream tooling a short label.
+A canonical scout can also declare `scout-precheck-query`, the default scheduled-run gate. The harness reads it only from the shipped canonical file, so a custom scout sets `precheck_query` on its config instead. See [`scheduled-precheck.md`](scheduled-precheck.md).
 
 The `description` does double duty: beyond skill discovery, it is surfaced verbatim as the scout's `description` on the config API (`scout-config-list` / `-create` / `-update` responses) — it's how the fleet roster reads to agents and the UI without opening each scout's body.
 Write it to stand alone in that listing, and keep it short: it's also loaded alongside every other scout's into a caller's AI plugin, where a wordy description wastes token budget and gets truncated.
@@ -68,8 +74,9 @@ The fleet's specialists all share this shape:
    Examples: `count` vs `distinct_users` ratio (error tracking); reach over raw count (CSP); negative+mixed share vs baseline (MCP feedback).
    Without this, the scout wastes every run re-deciding what "normal" means.
 
-2. **Quick close-out.** A cheap early-exit so a quiet run costs almost nothing: if the watched event is absent from the profile's `top_events` or sitting at baseline (no fresh 24h activity), write one scratchpad entry and stop.
+2. **Quick close-out.** A cheap early-exit so a quiet run costs almost nothing: if the surface is not in use, or the watched event sits at baseline (no fresh 24h activity), write one scratchpad entry and stop.
    This keeps idle scouts cheap.
+   Decide "not in use" from the profile's `surfaces` entry for the scout, never from absence in `top_events`: `top_events` keeps only the top events by volume, so a quiet surface that is in use falls off it. A canonical scout gets a `surfaces` entry when it ships a `scout-precheck-query`. A scout with no entry, or an entry that reads `in_use: null`, checks with one bounded `execute-sql` count.
    `top_events` counts are windowed (each row carries `window_days`), not lifetime — a project whose ingestion recently went dark reads identically to one that never had traffic. Before closing out a busy-looking project as empty on `top_events` thinness alone, rule out a capture gap with a direct `execute-sql` over a longer window (e.g. 30d); only close out when the low volume holds there.
 
    ```text
@@ -151,8 +158,8 @@ signal-vs-noise discriminator. Internalize that shape.
 
 ## Quick close-out: is <surface> even loud?
 
-If <event> is absent from `top_events` or at baseline (no fresh 24h activity), <surface>
-isn't where the signal is today. Cheap scratchpad entry + close out empty.
+If `surfaces["<skill-name>"]` reads `in_use: false`, or <event> is at baseline (no fresh 24h activity), <surface>
+isn't where the signal is today. Absence from `top_events` alone proves nothing. Cheap scratchpad entry + close out empty.
 
 ## How a run works
 

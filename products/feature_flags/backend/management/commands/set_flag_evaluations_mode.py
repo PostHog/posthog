@@ -18,6 +18,7 @@ from django.db import transaction
 
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.flag_evaluations_mode import (
+    FLAG_EVALUATIONS_MODES_HELP,
     UnknownIdsError,
     get_organizations,
     select_organizations,
@@ -43,11 +44,7 @@ class Command(BaseCommand):
             required=True,
             choices=FlagEvaluationsMode.values,
             help=(
-                "0 reads events. 1 reads flag_evaluations for the flag Usage tab charts, and the table is "
-                "available in SQL. 2 also reads it for the per-project counts on a flag's Projects tab and for "
-                "events lists filtered to only $feature_flag_called, such as the Activity page and the Usage tab "
-                "log. On 2, ingestion stops writing $feature_flag_called to events for teams in the ingestion "
-                "allowlist. "
+                f"{FLAG_EVALUATIONS_MODES_HELP} "
                 "flag_evaluations holds rows only from the day ingestion started writing them "
                 "(2026-09-09 for PostHog Cloud), so on mode 1 or 2 the Usage tab shows no data for earlier days."
             ),

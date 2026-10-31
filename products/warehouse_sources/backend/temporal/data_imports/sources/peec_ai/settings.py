@@ -1,4 +1,4 @@
-from typing import TypedDict
+from typing import Literal, NotRequired, TypedDict
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
 from products.warehouse_sources.backend.types import IncrementalFieldType
@@ -11,6 +11,9 @@ class PeecAIEndpoint(TypedDict):
     path: str
     params: dict[str, str]
     total_path: str | None
+    method: NotRequired[Literal["GET", "POST"]]
+    paginated: NotRequired[bool]
+    primary_keys: NotRequired[list[str]]
 
 
 ENDPOINTS: dict[str, PeecAIEndpoint] = {
@@ -25,6 +28,20 @@ ENDPOINTS: dict[str, PeecAIEndpoint] = {
     "topics": {"path": "topics", "params": {}, "total_path": "total_count"},
     "tags": {"path": "tags", "params": {}, "total_path": "total_count"},
     "model_channels": {"path": "model-channels", "params": {}, "total_path": None},
+    "tag_groups": {
+        "path": "tag-groups",
+        "params": {},
+        "total_path": None,
+        "paginated": False,
+        "primary_keys": ["group"],
+    },
+    # The default impact order shifts as statuses change, so offset pages need a stable order.
+    "actions": {
+        "path": "actions/list",
+        "params": {"order_by": "created_at", "direction": "asc"},
+        "total_path": "total_count",
+        "method": "POST",
+    },
 }
 
 INCREMENTAL_FIELDS = {"chats": [incremental_field("date", IncrementalFieldType.Date)]}

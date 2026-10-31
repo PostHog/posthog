@@ -7,8 +7,10 @@ import { register } from 'prom-client'
 import { getExternalRequestConfig } from '~/common/config'
 
 import { parseJSON } from './json-parse'
+import { logger } from './logger'
 import {
     FetchOptions,
+    ResponseTooLargeError,
     SecureRequestError,
     fetch,
     internalFetch,
@@ -37,6 +39,9 @@ beforeAll(async () => {
         } else if (url.pathname === '/status/404') {
             res.writeHead(404)
             res.end()
+        } else if (url.pathname === '/bom') {
+            res.writeHead(200, { 'content-type': 'application/json' })
+            res.end('\ufeff{"ok":true}')
         } else if (url.pathname === '/stream/50') {
             res.writeHead(200, { 'content-type': 'application/json' })
             for (let i = 0; i < 50; i++) {
@@ -151,6 +156,56 @@ describe('fetch', () => {
         ])('should raise against unsafe URLs: %s', async (url, error) => {
             await expect(raiseIfUserProvidedUrlUnsafe(url)).rejects.toThrow(error)
         })
+    })
+
+    describe('out-of-band domain detection', () => {
+        const originalCloudDeployment = process.env.CLOUD_DEPLOYMENT
+        let info: jest.SpyInstance
+
+        beforeEach(() => {
+            process.env.CLOUD_DEPLOYMENT = 'US'
+            info = jest.spyOn(logger, 'info').mockImplementation(() => undefined)
+            // A real lookup of a listed name is the interaction this detection reports, so answer
+            // it here instead of letting the suite query the collaborator.
+            jest.mocked(dns.lookup).mockResolvedValue([{ address: '93.184.216.34', family: 4 }] as any)
+        })
+
+        afterEach(() => {
+            info.mockRestore()
+            if (originalCloudDeployment === undefined) {
+                delete process.env.CLOUD_DEPLOYMENT
+            } else {
+                process.env.CLOUD_DEPLOYMENT = originalCloudDeployment
+            }
+        })
+
+        // Both modes run the check, because it sits above the `allowUnsafe` early return. Every
+        // caller passes `!isProdEnv()`, so a check below that return never runs in a test.
+        it.each(['production', 'test'])(
+            'logs a listed host in NODE_ENV=%s and still allows the request',
+            async (nodeEnv) => {
+                const originalNodeEnv = process.env.NODE_ENV
+                process.env.NODE_ENV = nodeEnv
+                try {
+                    // A host per case: noteOobDomain logs one line per host, team and guard per
+                    // window, so a shared host would suppress the second case.
+                    await expect(
+                        raiseIfUserProvidedUrlUnsafe(`https://${nodeEnv}.abc.oast.me/path`)
+                    ).resolves.not.toThrow()
+                } finally {
+                    process.env.NODE_ENV = originalNodeEnv
+                }
+
+                expect(info).toHaveBeenCalledWith(
+                    'security.oob_domain_seen',
+                    expect.objectContaining({
+                        host: `${nodeEnv}.abc.oast.me`,
+                        domain: 'oast.me',
+                        guard: 'node_request',
+                    })
+                )
+            }
+        )
     })
 
     describe('fetch call', () => {
@@ -411,6 +466,89 @@ describe('fetch', () => {
     })
 })
 
+type IsolatedRequest = {
+    request: typeof import('./request')
+    lookup: jest.Mock
+    readNegativeCacheCounter: (result: string) => Promise<number>
+}
+
+// The DNS negative cache and the hosts file names are module state, so each case loads a fresh copy of request.ts.
+async function withIsolatedRequest(run: (isolated: IsolatedRequest) => Promise<void>, hostsFile = '') {
+    await jest.isolateModulesAsync(async () => {
+        const actualFs = jest.requireActual('node:fs')
+        jest.doMock('node:fs', () => ({
+            ...actualFs,
+            readFileSync: (path: string, ...args: unknown[]) =>
+                path === '/etc/hosts' ? hostsFile : actualFs.readFileSync(path, ...args),
+        }))
+        const request: typeof import('./request') = require('./request')
+        const lookup = jest.mocked(require('dns/promises').lookup)
+        const registry: typeof register = require('prom-client').register
+        const readNegativeCacheCounter = async (result: string): Promise<number> =>
+            (await registry.getSingleMetric('node_dns_negative_cache_total')!.get()).values.find(
+                (value) => value.labels.result === result
+            )?.value ?? 0
+        try {
+            await run({ request, lookup, readNegativeCacheCounter })
+        } finally {
+            await request.closeSharedAgents(100)
+        }
+    })
+}
+
+const dnsError = (code: string): Error => Object.assign(new Error(`getaddrinfo ${code} example.com`), { code })
+
+describe('DNS lookups', () => {
+    it('resolves dotted hostnames as absolute names and leaves other names as given', async () => {
+        await withIsolatedRequest(async ({ request, lookup }) => {
+            lookup.mockResolvedValue([{ address: '1.1.1.1', family: 4 }])
+
+            await request.raiseIfUserProvidedUrlUnsafe('https://example.com/path')
+            await request.raiseIfUserProvidedUrlUnsafe('https://already-absolute.com./path')
+            await request.raiseIfUserProvidedUrlUnsafe('https://1.1.1.1/path')
+            await request.raiseIfUserProvidedUrlUnsafe('http://maildev:1080/path')
+            await request.raiseIfUserProvidedUrlUnsafe('http://My.Alias.test:1080/path')
+
+            expect(lookup.mock.calls.map(([hostname]) => hostname)).toEqual([
+                'example.com.',
+                'already-absolute.com.',
+                '1.1.1.1',
+                'maildev',
+                'my.alias.test',
+            ])
+        }, '127.0.0.1 localhost\n# 10.0.0.9 commented.test\n10.1.2.3\tmy.alias.test other.alias.test\n')
+    })
+
+    it('skips the lookup for a hostname that recently returned ENOTFOUND', async () => {
+        await withIsolatedRequest(async ({ request, lookup, readNegativeCacheCounter }) => {
+            lookup.mockRejectedValue(dnsError('ENOTFOUND'))
+
+            await expect(request.raiseIfUserProvidedUrlUnsafe('https://example.com')).rejects.toThrow(
+                'Invalid hostname'
+            )
+            await expect(request.raiseIfUserProvidedUrlUnsafe('https://example.com')).rejects.toThrow(
+                'Invalid hostname'
+            )
+
+            expect(lookup).toHaveBeenCalledTimes(1)
+            expect(await readNegativeCacheCounter('hit')).toEqual(1)
+        })
+    })
+
+    // A timeout can come from an overloaded resolver rather than from the hostname. Caching it would fail healthy
+    // destinations for as long as the resolver stays slow.
+    it.each(['EAI_AGAIN', 'ETIMEOUT'])('does not cache a %s failure', async (code) => {
+        await withIsolatedRequest(async ({ request, lookup }) => {
+            lookup.mockRejectedValue(dnsError(code))
+
+            await expect(request.raiseIfUserProvidedUrlUnsafe('https://example.com')).rejects.toThrow()
+            await expect(request.raiseIfUserProvidedUrlUnsafe('https://example.com')).rejects.toThrow()
+
+            expect(lookup).toHaveBeenCalledTimes(2)
+        })
+    })
+})
+
 describe('legacyFetch', () => {
     beforeEach(() => {
         jest.setTimeout(1000)
@@ -551,6 +689,29 @@ describe('_fetch response body handling', () => {
     it('should parse headers', async () => {
         const response = await internalFetch(baseUrl)
         expect(response.headers['content-type']).toBeDefined()
+    })
+
+    const streamedBodyBytes = range(50).reduce((total, i) => total + JSON.stringify({ id: i }).length + 1, 0)
+
+    it.each([
+        ['under the limit', streamedBodyBytes + 1, false],
+        ['exactly at the limit', streamedBodyBytes, false],
+        ['over the limit', streamedBodyBytes - 1, true],
+    ])('caps a streamed body %s', async (_name, maxResponseBytes, rejects) => {
+        const response = await internalFetch(`${baseUrl}/stream/50`, { maxResponseBytes })
+        if (rejects) {
+            await expect(response.text()).rejects.toBeInstanceOf(ResponseTooLargeError)
+        } else {
+            expect(await response.text()).toHaveLength(streamedBodyBytes)
+        }
+    })
+
+    it.each([
+        ['uncapped', undefined],
+        ['capped', 1024],
+    ])('strips a leading BOM from a %s body', async (_name, maxResponseBytes) => {
+        const response = await internalFetch(`${baseUrl}/bom`, { maxResponseBytes })
+        expect(await response.json()).toEqual({ ok: true })
     })
 
     it('should fully read streamed/chunked response bodies', async () => {

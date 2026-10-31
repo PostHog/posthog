@@ -16,7 +16,7 @@ from rest_framework.settings import api_settings
 from posthog.api.shared import UserBasicSerializer
 
 from ..facade import api
-from ..facade.enums import CheckSeverity, CheckType, CreatedSource, ScheduleInterval, SubjectType
+from ..facade.enums import CheckSeverity, CheckType, CreatedSource, DataQualityScheduleInterval, SubjectType
 from ..facade.models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun
 
 
@@ -67,6 +67,40 @@ class DataQualitySubjectSerializer(serializers.Serializer):
     editable = serializers.BooleanField(
         help_text="Whether the caller may author a check on this subject. A subject that is only readable "
         "can still be the target of a relationships check."
+    )
+
+
+class DataQualitySubjectsQuerySerializer(serializers.Serializer):
+    """Filters and paging for the subject catalog. Without any of them it returns every subject."""
+
+    subject_type = serializers.ChoiceField(
+        choices=SubjectType.choices,
+        required=False,
+        help_text="Return only subjects of this kind: 'table', 'view', 'metric', or 'posthog_table'.",
+    )
+    search = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Return only subjects whose name or display name contains this text, ignoring case.",
+    )
+    include_columns = serializers.BooleanField(
+        required=False,
+        default=True,
+        help_text="Set to false to return an empty columns map for every subject. "
+        "Use it to find a subject id without reading every column schema.",
+    )
+    limit = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=1000,
+        help_text="Maximum number of subjects to return. Omit to return every match.",
+    )
+    offset = serializers.IntegerField(
+        required=False,
+        min_value=0,
+        default=0,
+        help_text="Number of matching subjects to skip. Subjects are sorted by subject_type, then name. "
+        "When a response has limit rows, call again with offset increased by limit to read the next page.",
     )
 
 
@@ -324,7 +358,9 @@ class DataQualityCheckScheduleUpdateSerializer(DataQualitySubjectRefSerializer):
     SCHEDULE_FIELDS = ("interval", "enabled")
 
     interval = serializers.ChoiceField(
-        choices=list(ScheduleInterval), required=False, help_text="How often all enabled checks on the subject run."
+        choices=DataQualityScheduleInterval.choices,
+        required=False,
+        help_text="How often all enabled checks on the subject run.",
     )
     enabled = serializers.BooleanField(required=False, help_text="Whether checks run automatically on this schedule.")
 
@@ -336,7 +372,7 @@ class DataQualityCheckScheduleUpdateSerializer(DataQualitySubjectRefSerializer):
 class DataQualityCheckScheduleSerializer(serializers.Serializer):
     id = serializers.UUIDField(read_only=True, help_text="Schedule identifier.")
     interval = serializers.ChoiceField(
-        choices=list(ScheduleInterval), read_only=True, help_text="How often the checks run."
+        choices=DataQualityScheduleInterval.choices, read_only=True, help_text="How often the checks run."
     )
     enabled = serializers.BooleanField(read_only=True, help_text="Whether the schedule runs automatically.")
     next_run_at = serializers.DateTimeField(

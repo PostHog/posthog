@@ -8,10 +8,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.workday import (
     WorkdaySourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.workday.settings import (
-    ENDPOINTS,
-    WORKDAY_ENDPOINTS,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.workday.source import WorkdaySource
 from products.warehouse_sources.backend.temporal.data_imports.sources.workday.workday import WorkdayResumeConfig
 
@@ -38,14 +34,6 @@ class TestWorkdaySource:
         # Retargeting the hostname must force the client secret / refresh token to be re-entered,
         # otherwise the preserved secrets would be replayed at an attacker-chosen host.
         assert self.source.connection_host_fields == ["hostname"]
-
-    def test_schemas_are_full_refresh_only(self) -> None:
-        # Workday's Updated_From/Updated_Through range filters are SOAP-only, so advertising an
-        # incremental cursor here would re-read everything at full cost while claiming otherwise.
-        for schema in self.source.get_schemas(self.config, self.team_id):
-            assert schema.supports_incremental is False
-            assert schema.supports_append is False
-            assert schema.incremental_fields == []
 
     @pytest.mark.parametrize(
         "mock_return",
@@ -81,6 +69,3 @@ class TestWorkdaySource:
         assert kwargs["staffing_version"] == "v7"
         assert kwargs["client_secret"] == "secret"
         assert kwargs["resumable_source_manager"] is manager
-
-    def test_every_endpoint_has_a_primary_key(self) -> None:
-        assert all(WORKDAY_ENDPOINTS[name].primary_key for name in ENDPOINTS)

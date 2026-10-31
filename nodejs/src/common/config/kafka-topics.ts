@@ -55,6 +55,13 @@ export const KAFKA_SESSION_REPLAY_IMAGE_FETCH = `${prefix}session_replay_image_f
 export const KAFKA_SESSION_REPLAY_IMAGE_FETCH_RETRY_1M = `${prefix}ai_research_session_replay_image_fetch_retry_1m${suffix}`
 export const KAFKA_SESSION_REPLAY_IMAGE_FETCH_RETRY_10M = `${prefix}ai_research_session_replay_image_fetch_retry_10m${suffix}`
 export const KAFKA_SESSION_REPLAY_IMAGE_FETCH_RETRY_1H = `${prefix}ai_research_session_replay_image_fetch_retry_1h${suffix}`
+// The v4 image fetch lane: remote image URLs from the v4 recorder, and their delay tiers.
+export const KAFKA_AI_RESEARCH_V4_IMAGE_FETCH = `${prefix}ai_research_v4_image_fetch${suffix}`
+export const KAFKA_AI_RESEARCH_V4_IMAGE_FETCH_RETRY_1M = `${prefix}ai_research_v4_image_fetch_retry_1m${suffix}`
+export const KAFKA_AI_RESEARCH_V4_IMAGE_FETCH_RETRY_10M = `${prefix}ai_research_v4_image_fetch_retry_10m${suffix}`
+export const KAFKA_AI_RESEARCH_V4_IMAGE_FETCH_RETRY_1H = `${prefix}ai_research_v4_image_fetch_retry_1h${suffix}`
+// v4 index rows: v4 recorder -> v4 Parquet sink, one message per Parquet row.
+export const KAFKA_AI_RESEARCH_V4_INDEX = `${prefix}ai_research_v4_index${suffix}`
 
 // images the scrub sidecar cannot process, parked so they stop holding the head of their partition.
 // The original bytes are kept: unscrubbed content must never reach the ML bucket, but it must not be
@@ -69,12 +76,16 @@ export const KAFKA_CLICKHOUSE_HEATMAP_EVENTS = `${prefix}clickhouse_heatmap_even
 export const KAFKA_CLICKHOUSE_AI_EVENTS_JSON = `${prefix}clickhouse_ai_events_json${suffix}`
 // write flag evaluations ($feature_flag_called telemetry) to ClickHouse
 export const KAFKA_CLICKHOUSE_FLAG_EVALUATIONS = `${prefix}clickhouse_flag_evaluations${suffix}`
+export const KAFKA_REALTIME_ONLY_EVENTS_JSON = `${prefix}realtime_only_events_json${suffix}`
 
 // log entries for ingestion into ClickHouse
 export const KAFKA_LOG_ENTRIES = `${prefix}log_entries${suffix}`
 
 // per-invocation result rows for hog functions and hog flows
 export const KAFKA_HOG_INVOCATION_RESULTS = `${prefix}clickhouse_hog_invocation_results${suffix}`
+
+// one row per status change of a transactional email, for the email_status ClickHouse table
+export const KAFKA_EMAIL_STATUS = `${prefix}clickhouse_email_status${suffix}`
 
 // metadata rows for sent message assets (rendered emails stored in object storage)
 export const KAFKA_MESSAGE_ASSETS = `${prefix}clickhouse_message_assets${suffix}`
@@ -119,7 +130,6 @@ export const KAFKA_TRACES_CLICKHOUSE = `${prefix}clickhouse_traces${suffix}`
 // Metrics ingestion topics
 export const KAFKA_METRICS_INGESTION = `${prefix}metrics_ingestion${suffix}`
 export const KAFKA_METRICS_INGESTION_DLQ = `${prefix}metrics_ingestion_dlq${suffix}`
-export const KAFKA_METRICS_INGESTION_OVERFLOW = `${prefix}metrics_ingestion_overflow${suffix}`
 export const KAFKA_METRICS_CLICKHOUSE = `${prefix}clickhouse_metrics${suffix}`
 
 // TopHog metrics

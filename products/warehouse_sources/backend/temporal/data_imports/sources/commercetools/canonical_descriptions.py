@@ -114,6 +114,17 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             published="Whether the product is currently published.",
         ),
     },
+    "variants": {
+        "description": "A Product Variant managed as a standalone resource, with its current (published) and staged (draft) data. Only available for projects using the Modular catalog model, where product projections carry no variants.",
+        "docs_url": "https://docs.commercetools.com/api/projects/variants",
+        "columns": _columns(
+            variantId="Sequential identifier of the variant within its product.",
+            product="Reference to the product the variant belongs to.",
+            published="Whether the variant is currently published.",
+            current="Current (published) data of the variant, including SKU, attributes and images.",
+            staged="Staged (draft) data of the variant, including unpublished changes.",
+        ),
+    },
     "product_types": {
         "description": "A product type defining the common custom attributes shared by many products. Products and product projections reference the product type they were created from.",
         "docs_url": "https://docs.commercetools.com/api/projects/productTypes",

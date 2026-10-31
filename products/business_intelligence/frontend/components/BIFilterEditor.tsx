@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
-import { IconPencil } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonLabel, LemonSelect } from '@posthog/lemon-ui'
+import { IconPencil, IconX } from '@posthog/icons'
+import { LemonButton, LemonCheckbox, LemonInput, LemonLabel, LemonSelect } from '@posthog/lemon-ui'
 
 import { HogQLDropdown } from 'lib/components/HogQLDropdown/HogQLDropdown'
 
@@ -10,7 +10,15 @@ import { DATE_BUCKET_OPTIONS, FILTER_OPERATOR_OPTIONS } from 'products/business_
 import { isDateTimeBIField, isNumericBIField } from 'products/business_intelligence/frontend/biEditorTypes'
 import { BIFilterValueInput } from 'products/business_intelligence/frontend/BIFilterValueInput'
 
-export function BIFilterEditor({ index, onDone }: { index: number; onDone: () => void }): JSX.Element | null {
+import { getBIFilterLabel } from '../biFilterSummary'
+
+export function BIFilterEditor({
+    index,
+    onDone,
+}: {
+    index: number
+    onDone: (removed?: boolean) => void
+}): JSX.Element | null {
     const { config } = useValues(biEditorLogic)
     const {
         removeFieldFromShelf,
@@ -30,6 +38,33 @@ export function BIFilterEditor({ index, onDone }: { index: number; onDone: () =>
 
     return (
         <div className="flex w-80 flex-col gap-3 p-1">
+            <div className="flex items-center justify-between">
+                <span className="font-semibold">Edit filter</span>
+                <LemonButton
+                    icon={<IconX />}
+                    type="tertiary"
+                    size="xsmall"
+                    aria-label="Close filter editor"
+                    onClick={() => onDone()}
+                />
+            </div>
+            <div className="flex flex-col gap-1">
+                <LemonLabel>Filter name</LemonLabel>
+                <LemonInput
+                    value={filter.label ?? ''}
+                    placeholder={getBIFilterLabel({ ...filter, label: undefined })}
+                    onChange={(label) => updateFilter(index, { label })}
+                    aria-label="Filter display name"
+                    data-attr="bi-filter-name"
+                />
+                <LemonButton
+                    size="xsmall"
+                    onClick={() => updateFilter(index, { label: undefined })}
+                    disabledReason={!filter.label ? 'Using the default name' : undefined}
+                >
+                    Reset name
+                </LemonButton>
+            </div>
             <div className="flex flex-col gap-1">
                 <LemonLabel>Field</LemonLabel>
                 <HogQLDropdown
@@ -69,7 +104,7 @@ export function BIFilterEditor({ index, onDone }: { index: number; onDone: () =>
                     )}
                     onChange={(operator) => setFilterOperator(index, operator)}
                     size="small"
-                    aria-label={`${field.name} filter condition`}
+                    aria-label={`${getBIFilterLabel(filter)} filter condition`}
                     data-attr="bi-filter-condition"
                 />
             </div>
@@ -112,12 +147,12 @@ export function BIFilterEditor({ index, onDone }: { index: number; onDone: () =>
                     size="small"
                     onClick={() => {
                         removeFieldFromShelf('filters', index)
-                        onDone()
+                        onDone(true)
                     }}
                 >
                     Remove filter
                 </LemonButton>
-                <LemonButton type="primary" size="small" onClick={onDone} data-attr="bi-editor-filter-done">
+                <LemonButton type="primary" size="small" onClick={() => onDone()} data-attr="bi-editor-filter-done">
                     Done
                 </LemonButton>
             </div>

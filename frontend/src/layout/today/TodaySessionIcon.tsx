@@ -12,7 +12,7 @@ export function TodaySessionIcon({
     item,
     unread = false,
 }: {
-    item: Pick<TodayWorkItem, 'kind' | 'status' | 'runEnvironment'>
+    item: Pick<TodayWorkItem, 'kind' | 'status' | 'runEnvironment' | 'runMode'>
     unread?: boolean
 }): JSX.Element {
     if (item.kind === 'chat') {

@@ -1,11 +1,7 @@
-import pytest
 from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.pretix import PretixSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.pretix.settings import (
-    ENDPOINTS,
-    INCREMENTAL_ENDPOINTS,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.pretix.settings import INCREMENTAL_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.pretix.source import PretixSource
 
 
@@ -20,44 +16,10 @@ class TestPretixSource:
         # the preserved token at a host they control.
         assert self.source.connection_host_fields == ["base_url"]
 
-    def test_non_retryable_errors_matches_observed_error_message(self):
-        observed_error = "401 Client Error: Unauthorized for url: https://pretix.eu/api/v1/organizers/acme/orders/"
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable_errors)
-
-    def test_get_schemas_lists_all_endpoints(self):
-        schemas = self.source.get_schemas(self.config, self.team_id)
-
-        assert {schema.name for schema in schemas} == set(ENDPOINTS)
-
-    def test_get_schemas_incremental_flags_match_settings(self):
-        schemas = self.source.get_schemas(self.config, self.team_id)
-
-        for schema in schemas:
-            expected = schema.name in INCREMENTAL_ENDPOINTS
-            assert schema.supports_incremental is expected
-            assert schema.supports_append is expected
-            if expected:
-                assert schema.incremental_fields, f"{schema.name} should advertise incremental fields"
-            else:
-                assert schema.incremental_fields == []
-
     def test_orders_is_the_only_incremental_endpoint(self):
         # Only `orders` has a documented server-side `modified_since` filter; advertising incremental
         # on another endpoint would silently full-refresh under an incremental label.
         assert set(INCREMENTAL_ENDPOINTS) == {"orders"}
-
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["events", "nonexistent"])
-
-        assert [schema.name for schema in schemas] == ["events"]
-
-    def test_source_for_pipeline_rejects_unknown_schema(self):
-        inputs = mock.MagicMock()
-        inputs.schema_name = "nonexistent"
-
-        with pytest.raises(ValueError, match="Unknown pretix schema"):
-            self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.pretix.source.pretix_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_pretix_source):

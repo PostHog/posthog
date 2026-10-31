@@ -41,7 +41,19 @@ class PersonaFanout:
     parent_key_prefix: str
 
 
-@dataclass
+@dataclass(frozen=True, kw_only=True)
+class PersonaChildList:
+    """A list endpoint Persona only serves for one parent at a time, via a required parent filter.
+
+    Each parent from the list walk gets its own paginated `GET {path}?filter[{parent_filter}]=<id>`.
+    """
+
+    path: str
+    parent_filter: str
+    parent_key: str
+
+
+@dataclass(frozen=True, kw_only=True)
 class PersonaEndpointConfig:
     name: str
     # For a fan-out endpoint this is the parent's list path, not the child's.
@@ -58,6 +70,7 @@ class PersonaEndpointConfig:
     should_sync_default: bool = True
     # Set when the rows come from hydrating each parent rather than from the list response itself.
     fanout: Optional[PersonaFanout] = None
+    child_list: Optional[PersonaChildList] = None
 
 
 PERSONA_ENDPOINTS: dict[str, PersonaEndpointConfig] = {
@@ -109,6 +122,42 @@ PERSONA_ENDPOINTS: dict[str, PersonaEndpointConfig] = {
         path="/inquiry-templates",
         supports_incremental=False,
         partition_key=None,
+    ),
+    # Persona has no cross-template list of versions, so this walks the templates and lists each
+    # one's versions. The endpoint takes no created-at window, so it is full refresh only. It is off
+    # by default because Persona does not serve template versions to sandbox API keys.
+    "inquiry_template_versions": PersonaEndpointConfig(
+        name="inquiry_template_versions",
+        path="/inquiry-templates",
+        child_list=PersonaChildList(
+            path="/inquiry-template-versions",
+            parent_filter="inquiry-template-id",
+            parent_key="inquiry-template-id",
+        ),
+        supports_incremental=False,
+        partition_key=None,
+        should_sync_default=False,
+    ),
+    # The reports, workflow runs, and inquiry sessions lists take no created-at window (only
+    # reference/account/status/inquiry filters), so they are full refresh only. `created-at` is
+    # immutable, so it still works as a partition key.
+    "reports": PersonaEndpointConfig(
+        name="reports",
+        path="/reports",
+        supports_incremental=False,
+    ),
+    "workflow_runs": PersonaEndpointConfig(
+        name="workflow_runs",
+        path="/workflow-runs",
+        supports_incremental=False,
+    ),
+    # Roughly one row per attempt at every inquiry, re-read in full on each sync, so it is off by
+    # default to keep the cheap inquiry-level sync the default.
+    "inquiry_sessions": PersonaEndpointConfig(
+        name="inquiry_sessions",
+        path="/inquiry-sessions",
+        supports_incremental=False,
+        should_sync_default=False,
     ),
 }
 

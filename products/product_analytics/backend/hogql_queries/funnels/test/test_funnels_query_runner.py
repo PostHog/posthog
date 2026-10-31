@@ -4,15 +4,28 @@ from posthog.test.base import BaseTest
 
 from parameterized import parameterized
 
-from posthog.schema import CachedFunnelsQueryResponse, DashboardFilter, EventsNode, FunnelsQuery, IntervalType
+from posthog.schema import (
+    CachedFunnelsQueryResponse,
+    CompareFilter,
+    DashboardFilter,
+    DateRange,
+    EventsNode,
+    FunnelsQuery,
+    IntervalType,
+)
 
 from products.product_analytics.backend.hogql_queries.funnels.funnels_query_runner import FunnelsQueryRunner
 
 
 class TestFunnelsDashboardFilters(BaseTest):
-    def _runner(self) -> FunnelsQueryRunner:
+    def _runner(self, date_from: str | None = None, compare_filter: CompareFilter | None = None) -> FunnelsQueryRunner:
         return FunnelsQueryRunner(
-            query=FunnelsQuery(series=[EventsNode(event="$pageview")], interval=IntervalType.DAY),
+            query=FunnelsQuery(
+                series=[EventsNode(event="$pageview")],
+                interval=IntervalType.DAY,
+                dateRange=DateRange(date_from=date_from) if date_from else None,
+                compareFilter=compare_filter,
+            ),
             team=self.team,
         )
 
@@ -48,6 +61,50 @@ class TestFunnelsDashboardFilters(BaseTest):
         runner.apply_dashboard_filters(DashboardFilter(filterTestAccounts=dashboard_filter))
 
         assert runner.query.filterTestAccounts is expected
+
+    def test_dashboard_compare_filter_override(self) -> None:
+        runner = self._runner()
+
+        runner.apply_dashboard_filters(DashboardFilter(compareFilter=CompareFilter(compare=True, compare_to="-4w")))
+
+        assert runner.query.compareFilter == CompareFilter(compare=True, compare_to="-4w")
+
+    @parameterized.expand(
+        [
+            ("compare_set_on_construction", "all", CompareFilter(compare=True), None),
+            ("compare_arrives_via_override", "all", None, CompareFilter(compare=True)),
+            ("compare_set_on_construction_via_date_override", "-14d", CompareFilter(compare=True), None),
+        ]
+    )
+    def test_dashboard_compare_filter_is_stripped_for_all_time_range(
+        self,
+        _name: str,
+        query_date_from: str,
+        construction_compare_filter: CompareFilter | None,
+        override_compare_filter: CompareFilter | None,
+    ) -> None:
+        runner = self._runner(date_from=query_date_from, compare_filter=construction_compare_filter)
+        dashboard_date_from = "all" if query_date_from != "all" else None
+
+        runner.apply_dashboard_filters(
+            DashboardFilter(date_from=dashboard_date_from, compareFilter=override_compare_filter)
+        )
+
+        assert runner.query.dateRange is not None
+        assert runner.query.dateRange.date_from == "all"
+        assert runner.query.compareFilter == CompareFilter(compare=False)
+
+    def test_all_time_strip_does_not_leak_into_finite_range_tile_sharing_the_filter(self) -> None:
+        shared_filter = DashboardFilter(compareFilter=CompareFilter(compare=True, compare_to="-4w"))
+        all_time_runner = self._runner(date_from="all")
+        finite_runner = self._runner(date_from="-14d")
+
+        all_time_runner.apply_dashboard_filters(shared_filter)
+        finite_runner.apply_dashboard_filters(shared_filter)
+
+        assert all_time_runner.query.compareFilter == CompareFilter(compare=False, compare_to="-4w")
+        assert finite_runner.query.compareFilter == CompareFilter(compare=True, compare_to="-4w")
+        assert shared_filter.compareFilter == CompareFilter(compare=True, compare_to="-4w")
 
 
 class TestFunnelsSeriesCustomNames(BaseTest):

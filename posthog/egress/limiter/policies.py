@@ -55,11 +55,16 @@ class RatePolicy:
     priority absent from the map reserves nothing (0.0), so ``reserve={}`` admits every lane to the
     full budget. Pass it only for a domain with no higher-priority traffic to protect. Fractions are
     validated to ``[0, 1)`` (1.0 would reserve the whole window and deny the priority forever).
+
+    ``scope_in_metrics`` records the key's id segment as the ``scope`` label on the decision counter.
+    Turn it on only for a domain whose scopes are few and stable, such as GitHub installations: a key
+    scoped per PostHog team would add a metric series per team.
     """
 
     limits: tuple[RateLimit, ...]
     in_memory_divider: int = 1
     reserve: Mapping[Priority, float] = DEFAULT_RESERVE
+    scope_in_metrics: bool = False
 
     def __post_init__(self) -> None:
         # A policy with no limits would let every call through, defeating the point. Reject it at

@@ -23,6 +23,20 @@ def _columns(**overrides: str) -> dict[str, str]:
 
 
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
+    "CreditUnits": {
+        "description": "A credit unit for credit-based billing: a consumption unit, such as AI credits or API calls, that customers prepay and then spend as they use features.",
+        "docs_url": "https://apidocs.chargebee.com/docs/api/credit_units",
+        "columns": _columns(
+            name="Internal display name for the credit unit, unique across the site.",
+            external_name="Customer-facing display name for the credit unit, unique across the site.",
+            status="Lifecycle status of the credit unit: active or archived.",
+            is_unlimited="Whether the credit unit allows unlimited overdraft consumption after the allocated grants run out.",
+            overdraft_amount="Amount of overdraft consumption allowed after the allocated grants run out, as a decimal string. Applies only when is_unlimited is false.",
+            created_by="Source or user that created the credit unit.",
+            updated_by="Source or user that last updated the credit unit.",
+            resource_version="Version number that increments whenever the credit unit is modified, as a Unix timestamp in milliseconds.",
+        ),
+    },
     "Customers": {
         "description": "A Chargebee customer, who owns subscriptions, invoices, and payment methods.",
         "docs_url": "https://apidocs.chargebee.com/docs/api/customers",
@@ -38,6 +52,40 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             taxability="Whether the customer is taxable or exempt.",
             excess_payments="Total unused payments (excess credits) available for the customer, in the smallest currency unit.",
             deleted="Whether the customer record has been deleted.",
+        ),
+    },
+    "Disputes": {
+        "description": "A dispute a customer raised with their bank or card issuer against a transaction, such as a chargeback or an inquiry.",
+        "docs_url": "https://apidocs.chargebee.com/docs/api/disputes",
+        "columns": _columns(
+            customer_id="Identifier of the customer who raised the dispute.",
+            transaction_id="Identifier of the disputed transaction.",
+            gateway_account_id="Identifier of the gateway account that processed the disputed transaction.",
+            id_at_gateway="Identifier of the dispute at the payment gateway.",
+            currency_code="Three-letter ISO currency code of the disputed amount.",
+            amount="Disputed amount, in the smallest currency unit.",
+            reason="Reason given for the dispute.",
+            status="Status of the dispute: initiated, funds_withdrawn, in_review, cancelled, lost, or won.",
+            type="Type of the dispute: chargeback or inquiry.",
+            is_partial_dispute="Whether the dispute covers only part of the transaction amount.",
+            resource_version="Version number that increments whenever the dispute is modified, as a Unix timestamp in milliseconds.",
+        ),
+    },
+    "Einvoices": {
+        "description": "An e-invoice record for an invoice or credit note, with its processing status at the connected e-invoicing provider.",
+        "docs_url": "https://apidocs.chargebee.com/docs/api/einvoices",
+        "columns": _columns(
+            entity_type="Type of the parent document: invoice or credit_note.",
+            entity_id="Identifier of the parent invoice or credit note.",
+            reference_id="Identifier that the e-invoicing provider returned for this submission.",
+            reference_number="Reference number that the Invoice Registration Portal (IRP) network assigned to the invoice.",
+            status="Processing status of the e-invoice, such as scheduled, in_progress, success, failed, accepted, or rejected.",
+            message="Details about the status. When the status is skipped or failed, this holds the reason or error.",
+            resource_version="Version number that increments whenever the e-invoice is modified, as a Unix timestamp in milliseconds.",
+            deleted="Whether the e-invoice has been deleted.",
+            provider_references="Key-value pairs from the e-invoicing provider, such as a receipt message ID.",
+            business_entity_id="Identifier of the business entity of the e-invoice. Same as the business entity of the parent document.",
+            artifacts="E-invoice artifacts, such as application responses from the provider.",
         ),
     },
     "Events": {
@@ -130,6 +178,20 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             deleted="Whether the item has been deleted.",
         ),
     },
+    "Meters": {
+        "description": "A meter that defines how usage of a metered feature is measured from usage events, for usage-based billing.",
+        "docs_url": "https://apidocs.chargebee.com/docs/api/meters",
+        "columns": _columns(
+            id="Unique identifier for the meter. This is the same as the identifier of its feature.",
+            name="Case-sensitive name of the meter, such as 'API Calls'.",
+            description="Brief description of the meter.",
+            type="How usage is measured: simple (a SQL query over usage event properties) or compound (a formula that combines other meters).",
+            status="Status of the meter: active, archived, or deleted.",
+            query="SQL query that measures usage from usage event properties.",
+            column_definitions="Definitions of the usage event columns or properties that the meter's query references.",
+            features="The feature associated with the meter. This list always has one element.",
+        ),
+    },
     "Orders": {
         "description": "An order created from an invoice to fulfill physical or digital goods.",
         "docs_url": "https://apidocs.chargebee.com/docs/api/orders",
@@ -143,6 +205,20 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             tracking_id="Shipment tracking identifier for the order.",
             total="Total amount of the order, in the smallest currency unit.",
             currency_code="Three-letter ISO currency code of the order.",
+        ),
+    },
+    "PaymentSchedules": {
+        "description": "A payment schedule that splits the amount due on an invoice into installments, each collected on its own date.",
+        "docs_url": "https://apidocs.chargebee.com/docs/api/payment_schedules",
+        "columns": _columns(
+            scheme_id="Identifier of the payment schedule scheme used to create the schedule.",
+            entity_type="Type of the entity the schedule is based on. Always invoice.",
+            entity_id="Identifier of the invoice the schedule is based on.",
+            amount="Part of the invoice amount due that the schedule distributes, in the smallest currency unit.",
+            resource_version="Version number that increments whenever the schedule is modified, as a Unix timestamp in milliseconds.",
+            currency_code="Three-letter ISO currency code of the schedule amount.",
+            schedule_entries="Installments of the schedule, each with its date, amount, and status.",
+            reference_transactions="Transactions referenced against the schedule entries, most recent first.",
         ),
     },
     "Subscriptions": {

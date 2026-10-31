@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import hashlib
 from datetime import datetime
+from functools import cached_property
 from typing import Literal, TypeVar, cast
 from uuid import UUID
 
@@ -15,6 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field, JsonValue
 from posthog.llm.gateway_client import GatewayNotConfiguredError, ensure_scout_trial_capture_ready
 from posthog.models import Team, User
 from posthog.storage import object_storage
+from posthog.temporal.oauth import SCOUT_DEFAULT_WRITE_SCOPES, scout_scope_posture
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.signals.backend.agent_runtime import STEP_SCOUT, AgentRuntime, resolve_agent_runtime
@@ -37,8 +39,8 @@ from products.tasks.backend.facade.run_config import (
     get_runtime_adapter_for_model,
 )
 
-MAX_TRIAL_CONTEXT_BYTES = 16 * 1024 * 1024
-SCOUT_TRIAL_TASK_STATE_KEY = "scout_trial"
+MAX_TRIAL_LAUNCH_BYTES = 16 * 1024 * 1024
+MAX_EVIDENCE_BYTES = 128 * 1024 * 1024
 
 
 class ScoutTrialLaunchError(ValueError):
@@ -96,6 +98,10 @@ class TrialContext(BaseModel):
     notes: list[dict[str, JsonValue]] = Field(default_factory=list)
     recent_runs: list[dict[str, JsonValue]] = Field(default_factory=list)
 
+    @cached_property
+    def evidence_bytes(self) -> int:
+        return len(self.note.encode()) + len(trial_context_evidence(self).encode())
+
 
 class TrialLaunch(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -135,8 +141,9 @@ def _read_document(key: str, document_type: type[_Document]) -> _Document | None
 
 def _write_document_once(key: str, document: _Document) -> _Document:
     content = document.model_dump_json()
-    if len(content.encode()) > MAX_TRIAL_CONTEXT_BYTES:
-        raise ScoutTrialLaunchError("The saved scout context is too large for a live trial.")
+    # Shared project history stays in object storage; launches carry only its context ID.
+    if isinstance(document, TrialLaunch) and len(content.encode()) > MAX_TRIAL_LAUNCH_BYTES:
+        raise ScoutTrialLaunchError("The trial settings are too large to save.")
     existing = _read_document(key, type(document))
     if existing is not None:
         return existing
@@ -168,6 +175,12 @@ def assert_trial_environment_ready() -> None:
         raise ScoutTrialLaunchError(str(error)) from None
     if not settings.AI_GATEWAY_API_KEY:
         raise ScoutTrialLaunchError("Scout trials require AI_GATEWAY_API_KEY for private report checks.")
+
+
+def trial_context_evidence(context: TrialContext) -> str:
+    return json.dumps(
+        {"memory": context.memory, "notes": context.notes, "recent_runs": context.recent_runs}, ensure_ascii=False
+    )
 
 
 def load_trial_context(team_id: int, context_id: UUID | str) -> TrialContext:
@@ -238,7 +251,14 @@ def assert_trial_model_access(launch: TrialLaunch) -> None:
 def assert_trial_capabilities_supported(config: SignalScoutConfig, skill: LoadedSkill) -> None:
     if not skill_uses_report_channel(skill.allowed_tools):
         raise ScoutTrialLaunchError("Live trials support scouts that create or edit reports.")
-    if config.structured_output_schema or config.write_scopes or config.mcp_gateway_server_ids:
+    # Trials run without any grant, which costs a scout that holds only the default grant nothing it
+    # needs to be compared: its notebook is a write-up of a report, and the report is what is judged.
+    granted_writes = scout_scope_posture("signals_scout", config.write_scopes)["extra_write_scopes"]
+    if (
+        config.structured_output_schema
+        or set(granted_writes) - SCOUT_DEFAULT_WRITE_SCOPES
+        or config.mcp_gateway_server_ids
+    ):
         raise ScoutTrialLaunchError("This scout requires writes or external tools that live trials do not support yet.")
 
 
@@ -274,9 +294,34 @@ def _snapshot_context(
     memories = (
         SignalScratchpad.objects.for_team(team.id)
         .select_related("created_by_run", "created_by_run__task_run")
+        .only(
+            "team_id",
+            "key",
+            "content",
+            "created_at",
+            "updated_at",
+            "expires_at",
+            "created_by_identity",
+            "created_by_run__skill_name",
+            "created_by_run__task_run__task_id",
+        )
         .order_by("-updated_at", "-id")
     )
-    notes = SignalScoutNote.objects.for_team(team.id).select_related("created_by").order_by("-created_at", "-id")
+    notes = (
+        SignalScoutNote.objects.for_team(team.id)
+        .select_related("created_by")
+        .only(
+            "skill_name",
+            "content",
+            "created_at",
+            "expires_at",
+            "origin",
+            "created_by__first_name",
+            "created_by__last_name",
+            "created_by__is_active",
+        )
+        .order_by("-created_at", "-id")
+    )
     return TrialContext(
         id=identifier,
         team_id=team.id,
@@ -294,8 +339,8 @@ def _snapshot_context(
         reasoning_effort=runtime.reasoning_effort,
         service_tier=runtime.service_tier,
         note=note,
-        memory=[cast(dict[str, JsonValue], _to_entry(row).as_dict()) for row in memories],
-        notes=[cast(dict[str, JsonValue], _to_note(row).as_dict()) for row in notes],
+        memory=[cast(dict[str, JsonValue], _to_entry(row).as_dict()) for row in memories.iterator()],
+        notes=[cast(dict[str, JsonValue], _to_note(row).as_dict()) for row in notes.iterator()],
         recent_runs=[
             cast(dict[str, JsonValue], run.as_dict())
             for run in search_recent_runs(team_id=team.id, skill_name=skill.name, limit=100)
@@ -331,6 +376,7 @@ def create_trial_launch(
     user: User,
     launch_id: UUID,
     context_id: UUID | None = None,
+    saved_context: TrialContext | None = None,
     skill_body: str | None = None,
     model: str | None = None,
     reasoning_effort: str | None = None,
@@ -339,6 +385,8 @@ def create_trial_launch(
 ) -> TrialLaunch:
     assert_trial_environment_ready()
     assert_trial_work_enabled(config.team)
+    if saved_context is not None:
+        context_id = saved_context.id
     request_body = {
         "config_id": str(config.id),
         "user_id": user.id,
@@ -357,8 +405,8 @@ def create_trial_launch(
             raise ScoutTrialLaunchError("This launch ID was already used with different settings.")
         return load_trial_launch(config.team_id, launch_id)
     if context_id is not None:
-        context = load_trial_context(config.team_id, context_id)
-        if context.config_id != config.id or context.user_id != user.id:
+        context = saved_context if saved_context is not None else load_trial_context(config.team_id, context_id)
+        if context.team_id != config.team_id or context.config_id != config.id or context.user_id != user.id:
             raise ScoutTrialLaunchError("The saved context belongs to another scout or operator.")
         if note and note != context.note:
             raise ScoutTrialLaunchError("All variants must use the saved comparison note.")
@@ -386,6 +434,13 @@ def create_trial_launch(
     effort_error = get_reasoning_effort_error(adapter, selected_model, selected_effort)
     if model_error or effort_error:
         raise ScoutTrialLaunchError(model_error or effort_error or "The model settings are invalid.")
+    selected_skill_body = skill_body if skill_body is not None else context.skill_body
+    # Judging attaches these inputs to every completed run, so reject them before the paid runs start.
+    if len(selected_skill_body.encode()) + context.evidence_bytes > MAX_EVIDENCE_BYTES:
+        raise ScoutTrialLaunchError(
+            "The saved scout history and instructions exceed the 128 MiB judge attachment limit. "
+            "Shorten the instructions or remove old scout memory."
+        )
     launch = TrialLaunch(
         id=launch_id,
         team_id=config.team_id,
@@ -395,7 +450,7 @@ def create_trial_launch(
         created_at=timezone.now(),
         skill_name=context.skill_name,
         skill_version=context.skill_version,
-        skill_body=skill_body if skill_body is not None else context.skill_body,
+        skill_body=selected_skill_body,
         runtime_adapter=cast(Literal["claude", "codex"], adapter.value),
         model=selected_model,
         reasoning_effort=selected_effort,
@@ -413,9 +468,22 @@ def create_trial_launch(
 def bound_trial_run(team_id: int, task_id: UUID | str | None) -> SignalScoutRun | None:
     if task_id is None:
         return None
-    return (
+    run = (
         SignalScoutRun.objects.for_team(team_id)
-        .filter(task_run__task_id=task_id, metadata__scout_trial__version=1)
-        .select_related("task_run")
+        .filter(
+            task_run__task_id=task_id,
+            task_run__team_id=team_id,
+            task_run__task__team_id=team_id,
+            task_run__task__deleted=False,
+            task_run__task__origin_product="signals_scout",
+            metadata__scout_trial__version=1,
+        )
+        .select_related("task_run__task")
         .first()
     )
+    if run is None or run.metadata is None:
+        return None
+    launch_id = run.metadata["scout_trial"].get("launch_id")
+    if not isinstance(launch_id, str) or run.task_run.task.origin_key != f"scout-trial:{launch_id}":
+        return None
+    return run

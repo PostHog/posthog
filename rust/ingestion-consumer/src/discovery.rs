@@ -9,7 +9,7 @@
 //!   membership watch ([`k8s_awareness::watch_service_members`]) and keeps the
 //!   registry in sync as worker pods join/leave (the separately-deployed pool).
 //!
-//! Routing stays client-side in the dispatcher; discovery only supplies the
+//! Routing stays client-side in the batcher; discovery only supplies the
 //! member list. A departed worker is marked *draining* (it keeps finishing
 //! in-flight work) rather than removed outright; the reaper in `main` removes it
 //! from the registry and transport once it has drained or timed out.

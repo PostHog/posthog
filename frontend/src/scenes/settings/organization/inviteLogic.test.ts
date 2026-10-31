@@ -2,8 +2,7 @@ import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
-import { membersLogic } from 'scenes/organization/membersLogic'
-
+import { membersLogic } from '~/models/membersLogic'
 import { initKeaTests } from '~/test/init'
 
 import { inviteLogic } from './inviteLogic'
@@ -34,5 +33,21 @@ describe('inviteLogic', () => {
             existingMemberInviteRows: [isExistingMember],
             canSubmit: !isExistingMember,
         })
+    })
+
+    it('shows a message validation error under the field until the message changes', async () => {
+        logic.actions.inviteTeamMembersFailure('', {
+            status: 400,
+            attr: 'message',
+            code: 'invalid_url',
+            detail: 'URLs are not allowed in this field.',
+        })
+        await expectLogic(logic).toMatchValues({ messageError: 'URLs are not allowed in this field.' })
+
+        logic.actions.updateInviteAtIndex({ first_name: 'Jo' }, 0)
+        await expectLogic(logic).toMatchValues({ messageError: 'URLs are not allowed in this field.' })
+
+        logic.actions.updateMessage('no link this time')
+        await expectLogic(logic).toMatchValues({ messageError: null })
     })
 })

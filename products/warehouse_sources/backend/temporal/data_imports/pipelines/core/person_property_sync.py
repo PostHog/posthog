@@ -34,6 +34,7 @@ from django.conf import settings
 
 import structlog
 import pyarrow.parquet as pq
+from temporalio.exceptions import ActivityError, ApplicationError, CancelledError
 
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
@@ -166,20 +167,15 @@ def select_changed(
 ) -> tuple[list[tuple[str, dict]], dict[str, str]]:
     """Keep only bundles whose hash differs from the snapshot. Returns (changed, hashes-for-changed).
     Last write wins when a distinct_id appears twice in one run."""
-    changed: list[tuple[str, dict]] = []
+    changed: dict[str, dict] = {}
     new_hashes: dict[str, str] = {}
-    seen: set[str] = set()
     for distinct_id, bundle in bundles:
         current = bundle_hash(bundle)
         if prior_hashes.get(distinct_id) == current and distinct_id not in new_hashes:
             continue
-        if distinct_id in seen:
-            # replace the earlier bundle for this run with the later one
-            changed = [(d, b) for d, b in changed if d != distinct_id]
-        changed.append((distinct_id, bundle))
+        changed[distinct_id] = bundle
         new_hashes[distinct_id] = current
-        seen.add(distinct_id)
-    return changed, new_hashes
+    return list(changed.items()), new_hashes
 
 
 # --- S3 / Kafka / personhog boundaries (mocked in tests) ---------------------------------
@@ -459,7 +455,9 @@ async def _process_source_bundles(
     await database_sync_to_async(_reconcile_property_definitions, thread_sensitive=False)(
         team_id, project_id, binding, source, list((source.column_property_map or {}).values())
     )
-    changed, new_hashes = select_changed(bundles, prior)
+    # Hashing every bundle is CPU work. Run it in a thread so that the event loop, and the
+    # heartbeater on it, keep running for a large table.
+    changed, new_hashes = await asyncio.to_thread(select_changed, bundles, prior)
     ps.changed = len(changed)
     if not changed:
         return ps
@@ -554,7 +552,7 @@ async def run_person_property_sync(*, team_id: int, binding: WarehouseBinding, j
     )
 
     for source in sources:
-        bundles = build_bundles(rows, source.key_column, source.column_property_map or {})
+        bundles = await asyncio.to_thread(build_bundles, rows, source.key_column, source.column_property_map or {})
         ps = await _process_source_bundles(
             team_id=team_id,
             project_id=team.project_id,
@@ -759,6 +757,7 @@ def _record(
     finished_at: str,
     ps: PerSourceResult,
     error: str | None,
+    count_failure: bool = True,
 ) -> None:
     record_person_property_sync_run(
         PersonPropertySyncRunRecord(
@@ -777,6 +776,7 @@ def _record(
             produced=ps.produced,
             skipped_missing_person=ps.skipped_missing_person,
             error=error,
+            count_failure=count_failure,
         )
     )
 
@@ -861,6 +861,7 @@ async def record_failed_runs(
     started_at: str,
     finished_at: str,
     error: str,
+    count_failure: bool = True,
 ) -> None:
     """Persist a failed run row per source the binding feeds, so a failure is visible in the UI (not
     only in error tracking). Never raises — this runs on the already-failing path, so any error here
@@ -881,6 +882,7 @@ async def record_failed_runs(
                 finished_at=finished_at,
                 ps=PerSourceResult(source_id=str(source.source_id)),
                 error=error,
+                count_failure=count_failure,
             )
     except Exception as e:
         logger.exception(
@@ -891,3 +893,24 @@ async def record_failed_runs(
             trigger=trigger,
         )
         capture_exception(e, {"team_id": team_id, **_log_fields(binding), "trigger": trigger})
+
+
+# Failure types Temporal sets when it stops an activity from outside. The activity's own exception
+# handler does not run for these, so there is no message from the activity to show.
+_INTERRUPTION_FAILURE_TYPES = frozenset({"WorkerShutdown", "ActivityPause", "ActivityReset"})
+
+
+def is_worker_interruption(error: ActivityError) -> bool:
+    cause = error.cause
+    return isinstance(cause, CancelledError) or (
+        isinstance(cause, ApplicationError) and cause.type in _INTERRUPTION_FAILURE_TYPES
+    )
+
+
+def failed_run_error(error: ActivityError, next_step: str) -> str:
+    """The error to show on a run whose activity gave up. An exception the activity raised keeps its
+    own message. A timeout, cancellation or worker shutdown says that the run was interrupted."""
+    cause = error.cause
+    if isinstance(cause, ApplicationError) and cause.type and cause.type not in _INTERRUPTION_FAILURE_TYPES:
+        return cause.message
+    return f"This run was interrupted before it finished. {next_step}"

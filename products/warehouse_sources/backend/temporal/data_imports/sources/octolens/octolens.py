@@ -1,4 +1,5 @@
 import dataclasses
+from collections.abc import Iterable
 from typing import Any, Optional
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
@@ -6,12 +7,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     RESTAPIConfig,
     rest_api_resource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    build_dependent_resource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     BasePaginator,
     JSONResponseCursorPaginator,
     SinglePagePaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    ClientConfig,
     Endpoint,
     EndpointResource,
 )
@@ -19,21 +24,22 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.octolens.settings import (
     OCTOLENS_ENDPOINTS,
+    PAGE_SIZE,
     OctolensEndpointConfig,
 )
 
 OCTOLENS_BASE_URL = "https://app.octolens.com"
-# Documented maximum page size on the mentions feed (1-100, default 20).
-PAGE_SIZE = 100
 # Cheap credential introspection endpoint: returns the workspace the key is bound to plus its
 # effective scopes. Every read-capable key can call it, so it validates the key without needing
 # access to any particular table.
 AUTH_PROBE_PATH = "/auth"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class OctolensResumeConfig:
-    cursor: str
+    cursor: str = ""
+    # Fan-out progress (completed parents, current parent, child page) for the search_results table.
+    fanout_state: Optional[dict[str, Any]] = None
 
 
 def _api_path(api_version: str, path: str) -> str:
@@ -55,9 +61,11 @@ def _mentions_body() -> dict[str, Any]:
 def _paginator(config: OctolensEndpointConfig) -> BasePaginator:
     if not config.paginated:
         return SinglePagePaginator()
-    # The cursor rides in the POST body alongside the filters, not the query string.
+    # On the POST mentions feed the cursor rides in the body alongside the filters, not the query string.
     return JSONResponseCursorPaginator(
-        cursor_path="pagination.nextCursor", cursor_param="cursor", param_location="json"
+        cursor_path="pagination.nextCursor",
+        cursor_param="cursor",
+        param_location="json" if config.method == "post" else "query",
     )
 
 
@@ -70,6 +78,8 @@ def _resource(config: OctolensEndpointConfig, api_version: str) -> EndpointResou
     }
     if config.method == "post":
         endpoint["json"] = _mentions_body()
+    elif config.paginated:
+        endpoint["params"] = {"limit": PAGE_SIZE}
 
     return {
         "name": config.name,
@@ -79,6 +89,74 @@ def _resource(config: OctolensEndpointConfig, api_version: str) -> EndpointResou
         "write_disposition": "replace",
         "endpoint": endpoint,
     }
+
+
+def _client_config(api_key: str) -> ClientConfig:
+    return {
+        "base_url": OCTOLENS_BASE_URL,
+        "headers": {"Content-Type": "application/json", "Accept": "application/json"},
+        "auth": {"type": "bearer", "token": api_key},
+    }
+
+
+def _dependent_resource(
+    config: OctolensEndpointConfig,
+    api_key: str,
+    api_version: str,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[OctolensResumeConfig],
+) -> Iterable[Any]:
+    assert config.fanout is not None
+    parent_config = OCTOLENS_ENDPOINTS[config.fanout.parent_name]
+    versioned_endpoints = {
+        name: dataclasses.replace(endpoint, path=_api_path(api_version, endpoint.path))
+        for name, endpoint in OCTOLENS_ENDPOINTS.items()
+    }
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None:
+            initial_paginator_state = resume.fanout_state
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        if state:
+            resumable_source_manager.save_state(OctolensResumeConfig(fanout_state=dict(state)))
+
+    return build_dependent_resource(
+        endpoint_configs=versioned_endpoints,
+        child_endpoint=config.name,
+        fanout=config.fanout,
+        client_config=_client_config(api_key),
+        path_format_values={},
+        team_id=team_id,
+        job_id=job_id,
+        db_incremental_field_last_value=None,
+        # Only the searches parent takes a page size, so it rides in its `parent_params`.
+        page_size_param=None,
+        parent_endpoint_extra={
+            "paginator": _paginator(parent_config),
+            "data_selector": parent_config.data_selector,
+        },
+        child_endpoint_extra={
+            "paginator": SinglePagePaginator(),
+            "data_selector": config.data_selector,
+        },
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
+
+
+def _source_response(endpoint: str, config: OctolensEndpointConfig, resource: Iterable[Any]) -> SourceResponse:
+    return SourceResponse(
+        name=endpoint,
+        items=lambda: resource,
+        primary_keys=config.primary_key,
+        partition_mode="datetime" if config.partition_key else None,
+        partition_format="month" if config.partition_key else None,
+        partition_keys=[config.partition_key] if config.partition_key else None,
+    )
 
 
 def octolens_source(
@@ -91,12 +169,12 @@ def octolens_source(
 ) -> SourceResponse:
     config = OCTOLENS_ENDPOINTS[endpoint]
 
+    if config.fanout is not None:
+        resource = _dependent_resource(config, api_key, api_version, team_id, job_id, resumable_source_manager)
+        return _source_response(endpoint, config, resource)
+
     rest_config: RESTAPIConfig = {
-        "client": {
-            "base_url": OCTOLENS_BASE_URL,
-            "headers": {"Content-Type": "application/json", "Accept": "application/json"},
-            "auth": {"type": "bearer", "token": api_key},
-        },
+        "client": _client_config(api_key),
         "resource_defaults": {},
         "resources": [_resource(config, api_version)],
     }
@@ -104,7 +182,7 @@ def octolens_source(
     initial_paginator_state: Optional[dict[str, Any]] = None
     if config.paginated and resumable_source_manager.can_resume():
         resume = resumable_source_manager.load_state()
-        if resume is not None:
+        if resume is not None and resume.cursor:
             initial_paginator_state = {"cursor": resume.cursor}
 
     def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
@@ -122,14 +200,7 @@ def octolens_source(
         initial_paginator_state=initial_paginator_state,
     )
 
-    return SourceResponse(
-        name=endpoint,
-        items=lambda: resource,
-        primary_keys=config.primary_key,
-        partition_mode="datetime" if config.partition_key else None,
-        partition_format="month" if config.partition_key else None,
-        partition_keys=[config.partition_key] if config.partition_key else None,
-    )
+    return _source_response(endpoint, config, resource)
 
 
 def check_access(api_key: str, api_version: str) -> tuple[int, Optional[str]]:

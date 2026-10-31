@@ -5,6 +5,7 @@ import { LemonButton, LemonInput, LemonModal, lemonToast } from '@posthog/lemon-
 
 import { SupportForm } from 'lib/components/Support/SupportForm'
 import { supportLogic } from 'lib/components/Support/supportLogic'
+import { billingLogic } from 'scenes/billing/billingLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { maxThreadLogic } from './maxThreadLogic'
@@ -31,7 +32,8 @@ export function TicketPrompt({ conversationId, traceId, summary, initialText }: 
     const [hasSubmitted, setHasSubmitted] = useState(false)
     const [isSupportModalOpen, setIsSupportModalOpen] = useState(false)
 
-    const { sendSupportRequest, supportResponseTime } = useValues(supportLogic)
+    const { sendSupportRequest } = useValues(supportLogic)
+    const { supportResponseTime } = useValues(billingLogic)
     const { resetSendSupportRequest, closeSupportForm } = useActions(supportLogic)
     const { appendMessageToConversation } = useActions(maxThreadLogic)
     const { user } = useValues(userLogic)

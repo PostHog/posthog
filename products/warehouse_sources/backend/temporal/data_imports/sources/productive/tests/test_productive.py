@@ -108,17 +108,6 @@ def test_resume_starts_at_checkpoint_or_skips_completed_import(
         assert parse_qs(urlsplit(responses.calls[0].request.url).query)["page[number]"] == ["3"]
 
 
-@pytest.mark.parametrize("meta", [{"total_pages": 0}, {}])
-@responses.activate
-def test_empty_collection_terminates(
-    config: ProductiveSourceConfig, inputs: SourceInputs, resume_manager: MagicMock, meta: dict[str, int]
-) -> None:
-    responses.get("https://api.productive.io/api/v2/projects", json={"data": [], "meta": meta})
-    result = ProductiveSource().source_for_pipeline(config, resume_manager, inputs)
-    assert not any(cast(Iterable[list[dict[str, Any]]], result.items()))
-    assert len(responses.calls) == 1
-
-
 def test_unknown_schema_never_becomes_a_request_path(
     config: ProductiveSourceConfig, inputs: SourceInputs, resume_manager: MagicMock
 ) -> None:

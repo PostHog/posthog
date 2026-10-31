@@ -1,10 +1,14 @@
+from collections.abc import Callable
 from typing import Any
 
 import pytest
 from unittest import mock
 
-import requests
-
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.shopify import (
     ShopifyAuthMethodConfig,
     ShopifySourceConfig,
@@ -17,37 +21,37 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.sh
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.source import ShopifySource
 
-_TOKEN_PATH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.shopify.shopify._get_shopify_access_token"
-)
 _SHOPIFY_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.shopify.shopify"
-_SESSION_PATH = f"{_SHOPIFY_MODULE}.make_tracked_session"
+TOKEN_PATH = "/admin/oauth/access_token"
+TOKEN_RESPONSE = ScriptedResponse(json={"access_token": "tok"})
+
+Script = Callable[[RecordedRequest], ScriptedResponse]
 
 
 def _access_denied(message: str) -> dict[str, Any]:
     return {"errors": [{"message": message, "extensions": {"code": "ACCESS_DENIED"}}]}
 
 
-def _post_returning(deny_if_query_contains: dict[str, dict[str, Any]]):
-    """A fake `sess.post` that returns Shopify-shaped JSON keyed on the GraphQL query text.
+def _post_returning(deny_if_query_contains: dict[str, dict[str, Any]]) -> Script:
+    """A fake Shopify that returns JSON keyed on the GraphQL query text, and mints a token.
 
     Each key is a substring of a probe query; when a request's query contains it, the mapped
     payload is returned (e.g. an access-denied or throttled body). Anything else — including the
     `{ shop { id } }` token check and the `id` probes — comes back clean.
     """
 
-    def post(_url: str, json: dict[str, Any] | None = None, **_kwargs: Any) -> mock.MagicMock:
-        query = (json or {}).get("query", "")
+    def respond(request: RecordedRequest) -> ScriptedResponse:
+        if request.path == TOKEN_PATH:
+            return TOKEN_RESPONSE
+        query = request.json().get("query", "")
         payload: dict[str, Any] = {"data": {}}
         for needle, denied_payload in deny_if_query_contains.items():
             if needle in query:
                 payload = denied_payload
                 break
-        response = mock.MagicMock()
-        response.json.return_value = payload
-        return response
+        return ScriptedResponse(json=payload)
 
-    return post
+    return respond
 
 
 def _config() -> ShopifySourceConfig:
@@ -59,22 +63,13 @@ def _config() -> ShopifySourceConfig:
     )
 
 
-def _patches(post):
-    return (
-        mock.patch(_TOKEN_PATH, return_value="tok"),
-        mock.patch(_SESSION_PATH, return_value=mock.MagicMock(post=mock.MagicMock(side_effect=post))),
-    )
-
-
-def _validate(post, schema_name: str | None = None) -> tuple[bool, str | None]:
-    token_patch, session_patch = _patches(post)
-    with token_patch, session_patch:
+def _validate(script: Script, schema_name: str | None = None) -> tuple[bool, str | None]:
+    with scripted_network(script):
         return ShopifySource().validate_credentials(_config(), team_id=1, schema_name=schema_name)
 
 
-def _endpoint_permissions(post, endpoints: list[str]) -> dict[str, str | None]:
-    token_patch, session_patch = _patches(post)
-    with token_patch, session_patch:
+def _endpoint_permissions(script: Script, endpoints: list[str]) -> dict[str, str | None]:
+    with scripted_network(script):
         return ShopifySource().get_endpoint_permissions(_config(), team_id=1, endpoints=endpoints)
 
 
@@ -155,14 +150,13 @@ def test_a_configured_access_token_authenticates_without_minting_one():
         shopify_store_id="my-store",
         auth_method=ShopifyAuthMethodConfig(selection="access_token", shopify_access_token="shpat_supplied"),
     )
-    session = mock.MagicMock(post=mock.MagicMock(side_effect=_post_returning({})))
 
-    with mock.patch(_TOKEN_PATH) as mint, mock.patch(_SESSION_PATH, return_value=session) as session_factory:
+    with scripted_network(_post_returning({})) as network:
         valid, error = ShopifySource().validate_credentials(config, team_id=1)
 
     assert (valid, error) == (True, None)
-    mint.assert_not_called()
-    assert session_factory.call_args.kwargs["headers"]["X-Shopify-Access-Token"] == "shpat_supplied"
+    assert all(request.path != TOKEN_PATH for request in network.requests_log)
+    assert network.requests_log[0].headers["x-shopify-access-token"] == "shpat_supplied"
 
 
 def _token_config() -> ShopifySourceConfig:
@@ -172,37 +166,25 @@ def _token_config() -> ShopifySourceConfig:
     )
 
 
-def _http_error_response(status_code: int, reason: str) -> requests.Response:
-    response = requests.Response()
-    response.status_code = status_code
-    response.reason = reason
-    response.url = "https://my-store.myshopify.com/admin/api/2026-07/graphql.json"
-    return response
-
-
 @pytest.mark.parametrize(
     "config,response,expected_error",
     [
-        (_token_config(), _http_error_response(401, "Unauthorized"), SHOPIFY_ACCESS_TOKEN_REJECTED_ERROR),
-        (_config(), _http_error_response(401, "Unauthorized"), SHOPIFY_CREDENTIALS_CHECK_ERROR),
-        (_token_config(), _http_error_response(402, "Payment Required"), SHOPIFY_STORE_FROZEN_ERROR),
-        (_token_config(), _http_error_response(404, "Not Found"), SHOPIFY_STORE_NOT_FOUND_ERROR),
-        (_token_config(), _http_error_response(500, "Internal Server Error"), SHOPIFY_CREDENTIALS_CHECK_ERROR),
-        (
-            _token_config(),
-            mock.MagicMock(status_code=200, json=mock.MagicMock(return_value={"errors": "boom"})),
-            SHOPIFY_CREDENTIALS_CHECK_ERROR,
-        ),
+        (_token_config(), ScriptedResponse(status=401), SHOPIFY_ACCESS_TOKEN_REJECTED_ERROR),
+        (_config(), ScriptedResponse(status=401), SHOPIFY_CREDENTIALS_CHECK_ERROR),
+        (_token_config(), ScriptedResponse(status=402), SHOPIFY_STORE_FROZEN_ERROR),
+        (_token_config(), ScriptedResponse(status=404), SHOPIFY_STORE_NOT_FOUND_ERROR),
+        (_token_config(), ScriptedResponse(status=500), SHOPIFY_CREDENTIALS_CHECK_ERROR),
+        (_token_config(), ScriptedResponse(json={"errors": "boom"}), SHOPIFY_CREDENTIALS_CHECK_ERROR),
     ],
 )
 def test_a_failed_token_check_shows_guidance_instead_of_the_raw_error(
-    config: ShopifySourceConfig, response: Any, expected_error: str
+    config: ShopifySourceConfig, response: ScriptedResponse, expected_error: str
 ):
-    session = mock.MagicMock(post=mock.MagicMock(return_value=response))
+    def script(request: RecordedRequest) -> ScriptedResponse:
+        return TOKEN_RESPONSE if request.path == TOKEN_PATH else response
 
     with (
-        mock.patch(_TOKEN_PATH, return_value="tok"),
-        mock.patch(_SESSION_PATH, return_value=session),
+        scripted_network(script),
         mock.patch(f"{_SHOPIFY_MODULE}.capture_exception"),
     ):
         valid, error = ShopifySource().validate_credentials(config, team_id=1)

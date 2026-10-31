@@ -289,7 +289,7 @@ export function ObservationSearch({ className }: { className?: string }): JSX.El
                                     icon={<IconPlusSmall />}
                                     to={
                                         combineUrl(
-                                            urls.replayVisionTemplates(),
+                                            urls.replayVisionNewScanner(),
                                             searchedQuery && !sourceObservationId ? { goal: searchedQuery } : {}
                                         ).url
                                     }

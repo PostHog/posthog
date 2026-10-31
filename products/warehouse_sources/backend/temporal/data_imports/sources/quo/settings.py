@@ -7,17 +7,25 @@ from products.warehouse_sources.backend.types import IncrementalField
 
 QUO_BASE_URL = "https://api.quo.com"
 
+# v1 carries its version in the URL path. Dated versions drop the path prefix and require the
+# version in a header on every request; Quo has no default version, so a missing header is a 400.
+QUO_API_VERSION_V1 = "v1"
+QUO_API_VERSION_2026_03_30 = "2026-03-30"
+QUO_API_VERSION_HEADER = "Quo-Api-Version"
+
 # Quo caps `maxResults` at 100 on calls, messages and conversations, and at 50 on contacts.
 # The users endpoint declares no maximum in the OpenAPI spec, so it stays on the lower cap.
 MAX_PAGE_SIZE = 100
 SMALL_PAGE_SIZE = 50
+# Dated versions cap `limit` at 50 on every list endpoint.
+DATED_PAGE_SIZE = 50
 
 
 @frozen
 class QuoEndpointConfig:
     name: str
     path: str
-    primary_key: str = "id"
+    primary_keys: tuple[str, ...] = ("id",)
     # None means the endpoint returns the full collection in one unpaginated response.
     page_size: int | None = None
     incremental_fields: list[IncrementalField] = field(default_factory=list)
@@ -32,6 +40,9 @@ class QuoEndpointConfig:
     # /v1/calls serves one-to-one conversations only (`participants` caps at one number);
     # /v1/messages accepts the full participants array of a group conversation.
     supports_group_conversations: bool = True
+    # Contact notes exist only under 2026-03-30 and list one contact at a time, so the endpoint
+    # fans out over the dated contacts list under every pinned version.
+    fan_out_over_contacts: bool = False
 
 
 QUO_ENDPOINTS: dict[str, QuoEndpointConfig] = {
@@ -55,7 +66,7 @@ QUO_ENDPOINTS: dict[str, QuoEndpointConfig] = {
     "contact_custom_fields": QuoEndpointConfig(
         name="contact_custom_fields",
         path="/v1/contact-custom-fields",
-        primary_key="key",
+        primary_keys=("key",),
     ),
     "conversations": QuoEndpointConfig(
         name="conversations",
@@ -84,6 +95,49 @@ QUO_ENDPOINTS: dict[str, QuoEndpointConfig] = {
         partition_key="createdAt",
         fan_out_over_conversations=True,
     ),
+    "contact_notes": QuoEndpointConfig(
+        name="contact_notes",
+        path="/contacts/{contactId}/notes",
+        page_size=DATED_PAGE_SIZE,
+        # Notes carry no contact reference, and Quo documents no global uniqueness for note IDs.
+        primary_keys=("contactId", "id"),
+        partition_key="createdAt",
+        fan_out_over_contacts=True,
+    ),
+}
+
+
+@frozen
+class QuoDatedEndpointConfig:
+    path: str
+    page_size: int = DATED_PAGE_SIZE
+    # Incremental field name -> the bracketed range filter that bounds it.
+    incremental_params: dict[str, str] = field(default_factory=dict)
+    # Optional payload sections that the dated list omits unless asked for.
+    include: str | None = None
+
+
+# Tables missing here have no dated equivalent and stay on their v1 path under every version.
+# 2026-03-30 lists calls and messages workspace-wide, so neither fans out over conversations.
+QUO_2026_03_30_ENDPOINTS: dict[str, QuoDatedEndpointConfig] = {
+    "phone_numbers": QuoDatedEndpointConfig(path="/phone-numbers", include="restrictions"),
+    "users": QuoDatedEndpointConfig(path="/users"),
+    "contacts": QuoDatedEndpointConfig(path="/contacts"),
+    "conversations": QuoDatedEndpointConfig(
+        path="/conversations",
+        incremental_params={"createdAt": "createdAt[gte]", "updatedAt": "updatedAt[gte]"},
+    ),
+    "calls": QuoDatedEndpointConfig(
+        path="/calls",
+        incremental_params={"createdAt": "createdAt[gte]"},
+        include="summary",
+    ),
+    # /messages accepts only the exclusive `gt`/`lt` pair on createdAt.
+    "messages": QuoDatedEndpointConfig(path="/messages", incremental_params={"createdAt": "createdAt[gt]"}),
+}
+
+DATED_ENDPOINTS_BY_VERSION: dict[str, dict[str, QuoDatedEndpointConfig]] = {
+    QUO_API_VERSION_2026_03_30: QUO_2026_03_30_ENDPOINTS,
 }
 
 ENDPOINTS = tuple(QUO_ENDPOINTS.keys())

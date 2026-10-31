@@ -9,16 +9,18 @@ import { LemonBanner, LemonDialog } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import {
     APIScope,
-    API_SCOPE_GROUPS,
     API_SCOPES,
-    OTHER_SCOPE_GROUP_LABEL,
     SCOPES_IMPLYING_FEATURE_FLAG_WRITE,
+    type ScopePickerGroup,
     type ScopeAccessLevel,
-    getScopeGroupLabel,
+    type ScopePickerRow,
+    clampScopeLevel,
+    groupScopeRows,
     scopeMatchesSearch,
     scopesArrayToObject,
     scopesObjectToArray,
@@ -38,60 +40,36 @@ export type EditingKeyFormValues = Pick<
 > & {
     preset?: string
     access_type?: 'all' | 'organizations' | 'teams'
+    expiration?: KeyExpirationOption
 }
 
-export type PersonalAPIKeyScopeRow = {
-    scope: APIScope
-    value: ScopeAccessLevel
-    /** True when the row is dimmed because the key's access type rules it out. */
-    muted: boolean
-    readDisabledReason?: string
-    writeDisabledReason?: string
+/** `keep` leaves an edited key's expiry as it is. The day counts start when the form is saved. */
+export type KeyExpirationOption = 'keep' | 'never' | '1' | '7' | '30' | '90' | '365'
+
+export function isExpired(expiresAt: string | null | undefined, now: dayjs.Dayjs = dayjs()): boolean {
+    return !!expiresAt && !dayjs(expiresAt).isAfter(now)
 }
 
-export type PersonalAPIKeyScopeGroup = {
-    label: string
-    rows: PersonalAPIKeyScopeRow[]
-}
-
-// The highest level at or below `level` that the row can take.
-export const clampScopeLevel = (row: PersonalAPIKeyScopeRow, level: ScopeAccessLevel): ScopeAccessLevel => {
-    if (level === 'write' && !row.writeDisabledReason) {
-        return 'write'
+/** The `expires_at` to send for the chosen option, or undefined to leave it unchanged. */
+export function expiresAtForOption(
+    expiration: KeyExpirationOption | undefined,
+    now: dayjs.Dayjs = dayjs()
+): string | null | undefined {
+    switch (expiration) {
+        case undefined:
+        case 'keep':
+            return undefined
+        case 'never':
+            return null
+        default:
+            return now.add(Number(expiration), 'day').toISOString()
     }
-    if (level !== 'none' && !row.readDisabledReason) {
-        return 'read'
-    }
-    return 'none'
 }
 
-// The group control shows a level as selected when each row is at that level after the clamp. A
-// level no row can take is never selected, which removes the tie between write and read in a group
-// with no writable row.
-export const scopeGroupAccessLevel = (rows: PersonalAPIKeyScopeRow[]): ScopeAccessLevel | undefined => {
-    const levels: ScopeAccessLevel[] = ['write', 'read', 'none']
-    return levels.find(
-        (level) =>
-            rows.some((row) => clampScopeLevel(row, level) === level) &&
-            rows.every((row) => row.value === clampScopeLevel(row, level))
-    )
-}
+/** A picker row for a personal API key, with the scope it stands for so the search can match it. */
+export type PersonalAPIKeyScopeRow = ScopePickerRow & { scope: APIScope }
 
-// Tooltip for the selected group level when some rows sit below it after the clamp. The clamp only
-// ever lowers a row, so a row that is not at the selected level is below it.
-export const scopeGroupLevelTooltip = (
-    rows: PersonalAPIKeyScopeRow[],
-    level: ScopeAccessLevel | undefined
-): string | undefined => {
-    if (!level) {
-        return undefined
-    }
-    const lower = rows.filter((row) => row.value !== level).length
-    if (lower === 0) {
-        return undefined
-    }
-    return `${lower} of these permissions ${lower === 1 ? 'stays' : 'stay'} lower, because ${level} access does not apply to ${lower === 1 ? 'it' : 'them'}.`
-}
+export type PersonalAPIKeyScopeGroup = ScopePickerGroup<PersonalAPIKeyScopeRow>
 
 // The scopes array with each key set to its level. A write on a survey or early access feature also
 // writes a feature flag (targeting / linked flag), so it implies feature_flag:write (see
@@ -229,7 +207,11 @@ export interface personalAPIKeysLogicActions {
     resetScopes: () => {
         value: true
     }
-    rollKey: (id: PersonalAPIKeyType['id']) => {
+    rollKey: (
+        id: PersonalAPIKeyType['id'],
+        expiresAt?: string | null
+    ) => {
+        expiresAt: string | null | undefined
         id: string
     }
     rollKeyFailure: (
@@ -242,11 +224,13 @@ export interface personalAPIKeysLogicActions {
     rollKeySuccess: (
         keys: PersonalAPIKeyType[],
         payload?: {
+            expiresAt: string | null | undefined
             id: string
         }
     ) => {
         keys: PersonalAPIKeyType[]
         payload?: {
+            expiresAt: string | null | undefined
             id: string
         }
     }
@@ -378,7 +362,8 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
         }),
         updateKey: (data: Partial<Pick<PersonalAPIKeyType, 'label' | 'scopes'>>) => data,
         deleteKey: (id: PersonalAPIKeyType['id']) => ({ id }),
-        rollKey: (id: PersonalAPIKeyType['id']) => ({ id }),
+        // `expiresAt` undefined keeps the key's current expiry; null removes it.
+        rollKey: (id: PersonalAPIKeyType['id'], expiresAt?: string | null) => ({ id, expiresAt }),
         setScopeRadioValue: (key: string, action: string) => ({ key, action }),
         setScopeGroupAccess: (keys: string[], level: ScopeAccessLevel) => ({ keys, level }),
         resetScopes: true,
@@ -419,13 +404,16 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                     await api.personalApiKeys.delete(id)
                     return values.keys.filter((filteredKey) => filteredKey.id != id)
                 },
-                rollKey: async ({ id }) => {
+                rollKey: async ({ id, expiresAt }) => {
                     const origKey = values.keys.find((filteredKey) => filteredKey.id == id)
                     if (!origKey) {
                         return values.keys
                     }
 
-                    const rolledKey = await api.personalApiKeys.roll(id)
+                    const rolledKey = await api.personalApiKeys.roll(
+                        id,
+                        expiresAt !== undefined ? { expires_at: expiresAt } : {}
+                    )
                     actions.showRollKeySuccessDialog(rolledKey, origKey.mask_value)
 
                     // avoid persisting the raw value in state
@@ -454,6 +442,7 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                 scoped_organizations: [],
                 scoped_teams: [],
                 access_type: undefined,
+                expiration: 'never',
             } as EditingKeyFormValues,
             errors: ({ label, access_type, scopes, scoped_organizations, scoped_teams }) => ({
                 label: !label ? 'Your personal API key needs a label' : undefined,
@@ -486,7 +475,13 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                         const [object] = scope.split(':')
                         return !!object && allowed.has(object)
                     }) ?? []
-                const sanitizedPayload = { ...payload, scopes: sanitizedScopes }
+                const { expiration, ...rest } = payload
+                const expiresAt = expiresAtForOption(expiration)
+                const sanitizedPayload = {
+                    ...rest,
+                    scopes: sanitizedScopes,
+                    ...(expiresAt !== undefined ? { expires_at: expiresAt } : {}),
+                }
 
                 const key =
                     values.editingKeyId === 'new'
@@ -550,32 +545,23 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                             : projectScoped
                               ? 'Not available for project scoped keys'
                               : undefined
+                    const value = (formScopeRadioValues[scope.key] ?? 'none') as ScopeAccessLevel
                     return {
                         scope,
-                        value: (formScopeRadioValues[scope.key] ?? 'none') as ScopeAccessLevel,
+                        key: scope.key,
+                        label: scope.objectName,
+                        info: scope.info,
+                        value,
+                        warning: value === 'none' ? undefined : scope.warnings?.[value],
                         muted: Boolean(projectScoped),
-                        readDisabledReason: disabledReason('read'),
-                        writeDisabledReason: disabledReason('write'),
+                        disabledReasons: { read: disabledReason('read'), write: disabledReason('write') },
                     }
                 }),
         ],
-        // The rows that match the search, grouped by product area in API_SCOPE_GROUPS order. An object
-        // that is in no group goes in the "Other" group at the end, so it still shows.
         filteredScopeGroups: [
             (s) => [s.searchTerm, s.scopeRows],
-            (searchTerm: string, scopeRows: PersonalAPIKeyScopeRow[]): PersonalAPIKeyScopeGroup[] => {
-                const rowsByLabel = new Map<string, PersonalAPIKeyScopeRow[]>()
-                for (const row of scopeRows) {
-                    if (!scopeMatchesSearch(row.scope, searchTerm)) {
-                        continue
-                    }
-                    const label = getScopeGroupLabel(row.scope.key)
-                    rowsByLabel.set(label, [...(rowsByLabel.get(label) ?? []), row])
-                }
-                return [...API_SCOPE_GROUPS.map(({ label }) => label), OTHER_SCOPE_GROUP_LABEL]
-                    .filter((label) => rowsByLabel.has(label))
-                    .map((label) => ({ label, rows: rowsByLabel.get(label) ?? [] }))
-            },
+            (searchTerm: string, scopeRows: PersonalAPIKeyScopeRow[]): PersonalAPIKeyScopeGroup[] =>
+                groupScopeRows(scopeRows.filter((row) => scopeMatchesSearch(row.scope, searchTerm))),
         ],
         formScopeRadioValues: [
             (s) => [s.editingKey],
@@ -814,6 +800,7 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                           : id !== 'new'
                             ? 'all'
                             : undefined,
+                    expiration: key?.expires_at ? 'keep' : 'never',
                 }
 
                 actions.resetEditingKey(formValues)
@@ -840,9 +827,7 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
         // A group action clamps each row to the levels it can take, so a group set to write holds a
         // read-only row at read and a project-scoped row at none.
         setScopeGroupAccess: ({ keys, level }) => {
-            const rowsByKey = new Map<string, PersonalAPIKeyScopeRow>(
-                values.scopeRows.map((row) => [row.scope.key, row])
-            )
+            const rowsByKey = new Map<string, PersonalAPIKeyScopeRow>(values.scopeRows.map((row) => [row.key, row]))
             const levels = keys.flatMap((key): [string, ScopeAccessLevel][] => {
                 const row = rowsByKey.get(key)
                 return row ? [[key, clampScopeLevel(row, level)]] : []

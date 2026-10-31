@@ -3,10 +3,16 @@ import type { PRLifecycleEventApi, WorkflowRunDetailApi } from '../generated/api
 export interface WorkflowRun {
     ciEngine?: WorkflowRunDetailApi['ci_engine']
     workflow: string
+    /** GitHub's id of the workflow, which survives a rename. Null for Depot CI and for rows synced without it. */
+    workflowId?: number | null
+    /** What started the run: 'push', 'pull_request', 'schedule'. Null when unknown. */
+    event?: string | null
     /** Null while the run hasn't reported a finish — queued or in progress. */
     conclusion: string | null
     startedAt: string | null
     finishedAt: string | null
+    /** The sync's last update of the run. Absent where the source doesn't carry it. */
+    updatedAt?: string | null
     durationSeconds: number | null
     /** GitHub Actions run id — links straight to the run page when present. */
     runId: number | null

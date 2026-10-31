@@ -207,4 +207,22 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "updatedAt": "Timestamp when the item was last updated.",
         },
     },
+    "member_invitations": {
+        "description": "Invitations sent to join the community, with their delivery and acceptance status.",
+        "docs_url": "https://developers.bettermode.com/docs/graphql/objects/member-invitation/",
+        "columns": {
+            "id": "Unique identifier of the invitation.",
+            "networkId": "ID of the community (network) the invitation is for.",
+            "inviteeEmail": "Email address the invitation was sent to.",
+            "inviteeName": "Name given for the invited person, if any.",
+            "inviteeId": "ID of the member created from the invitation, once it is accepted.",
+            "inviterId": "ID of the member who sent the invitation.",
+            "roleId": "ID of the network role the invitee gets on joining.",
+            "status": "Invitation status, e.g. sent, delivered, accepted, Expired, or Revoked.",
+            "invitationMessage": "Custom message included with the invitation.",
+            "createdAt": "Timestamp when the invitation was created.",
+            "expiresAt": "Timestamp when the invitation expires.",
+            "joinedAt": "Timestamp when the invitee joined the community, if they did.",
+        },
+    },
 }

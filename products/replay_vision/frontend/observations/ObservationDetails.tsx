@@ -42,14 +42,20 @@ export function ObservationDetails({ observation }: { observation: ReplayObserva
             {expanded && (
                 <FactList>
                     <Fact label="Observation ID">
-                        <CopyToClipboardInline
-                            data-attr="vision-observation-copy"
-                            explicitValue={observation.id}
-                            iconSize="xsmall"
-                            className="min-w-0"
-                        >
-                            <span className="font-mono text-xs truncate">{observation.id}</span>
-                        </CopyToClipboardInline>
+                        {/* CopyToClipboardInline children cannot shrink, so the ID sits outside it to truncate. */}
+                        <div className="flex items-center min-w-0">
+                            <span className="font-mono text-xs truncate min-w-0" title={observation.id}>
+                                {observation.id}
+                            </span>
+                            <span className="shrink-0">
+                                <CopyToClipboardInline
+                                    data-attr="vision-observation-copy"
+                                    explicitValue={observation.id}
+                                    description="observation ID"
+                                    iconSize="xsmall"
+                                />
+                            </span>
+                        </div>
                     </Fact>
                     <Fact label="Session">
                         <Link

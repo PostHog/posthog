@@ -26,6 +26,8 @@ import {
 import type { BIConnection } from 'products/business_intelligence/frontend/biConnectionTree'
 import { biEditorLogic } from 'products/business_intelligence/frontend/biEditorLogic'
 
+import { captureBIWorksheetAction } from './biEditorAnalytics'
+
 export interface BIConnectionsLogicProps {
     tabId: string
 }
@@ -158,6 +160,9 @@ export const biConnectionsLogic: LogicWrapper<biConnectionsLogicType> = kea<biCo
             }
         },
         toggleConnection: ({ id, tableName }) => {
+            if (values.expandedIds.includes(id)) {
+                captureBIWorksheetAction('related_table_expanded', values.config)
+            }
             if (tableName && values.expandedIds.includes(id)) {
                 actions.hydrateTableFields([tableName])
             }

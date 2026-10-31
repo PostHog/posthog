@@ -1,11 +1,13 @@
 import time
+import datetime as dt
 
 import pytest
+import time_machine
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.conf import settings
 
-from temporalio.worker import ExecuteActivityInput, ExecuteWorkflowInput
+from temporalio.worker import ExecuteActivityInput, ExecuteWorkflowInput, StartActivityInput, WorkflowInboundInterceptor
 
 from posthog.temporal.common.interceptor import is_task_queue_supported
 from posthog.temporal.common.liveness_tracker import (
@@ -14,6 +16,7 @@ from posthog.temporal.common.liveness_tracker import (
     RunningActivity,
     _LivenessActivityInboundInterceptor,
     _LivenessWorkflowInterceptor,
+    _LivenessWorkflowOutboundInterceptor,
     get_liveness_tracker,
 )
 
@@ -262,6 +265,36 @@ class TestLivenessActivityInboundInterceptor:
         )
         assert tracker.get_running_activities() == []
 
+    async def test_records_each_heartbeat_of_the_running_activity(self):
+        tracker = LivenessTracker()
+        heartbeats_seen: list[tuple[float | None, float]] = []
+        outbound = MagicMock()
+        next_interceptor = AsyncMock()
+        next_interceptor.init = MagicMock(side_effect=lambda wrapped: setattr(next_interceptor, "outbound", wrapped))
+
+        async def execute(_input):
+            with time_machine.travel(dt.datetime(2026, 1, 1, 0, 5, tzinfo=dt.UTC), tick=False):
+                next_interceptor.outbound.heartbeat("details")
+                [running] = tracker.get_running_activities()
+                heartbeats_seen.append((running.last_heartbeat_at, running.max_heartbeat_gap))
+
+        next_interceptor.execute_activity.side_effect = execute
+        interceptor = _LivenessActivityInboundInterceptor(next_interceptor)
+        interceptor._tracker = tracker
+        interceptor.init(outbound)
+
+        info = MagicMock(activity_type="cdc_extract_activity", workflow_type="cdc-extraction", is_local=False)
+        info.heartbeat_timeout = dt.timedelta(minutes=10)
+        with (
+            time_machine.travel(dt.datetime(2026, 1, 1, tzinfo=dt.UTC), tick=False),
+            patch("posthog.temporal.common.liveness_tracker.activity.in_activity", return_value=True),
+            patch("posthog.temporal.common.liveness_tracker.activity.info", return_value=info),
+        ):
+            await interceptor.execute_activity(MagicMock(spec=ExecuteActivityInput))
+
+        outbound.heartbeat.assert_called_once_with("details")
+        assert heartbeats_seen == [(dt.datetime(2026, 1, 1, 0, 5, tzinfo=dt.UTC).timestamp(), 300.0)]
+
 
 @pytest.mark.asyncio
 class TestLivenessWorkflowInterceptor:
@@ -314,4 +347,22 @@ class TestLivenessWorkflowInterceptor:
             await interceptor.execute_workflow(mock_input)
 
         # Should still have recorded execution
+        assert tracker.get_idle_time() < 1.0
+
+    async def test_records_progress_when_a_running_workflow_schedules_an_activity(self):
+        tracker = LivenessTracker()
+        tracker._last_activity_time = time.time() - 10.0
+        tracker._last_workflow_time = time.time() - 10.0
+        handle = MagicMock()
+        next_outbound = MagicMock()
+        next_outbound.start_activity.return_value = handle
+
+        interceptor = _LivenessWorkflowInterceptor(AsyncMock())
+        interceptor._tracker = tracker
+        with patch.object(WorkflowInboundInterceptor, "init") as inbound_init:
+            interceptor.init(next_outbound)
+        outbound = inbound_init.call_args.args[0]
+
+        assert isinstance(outbound, _LivenessWorkflowOutboundInterceptor)
+        assert outbound.start_activity(MagicMock(spec=StartActivityInput)) is handle
         assert tracker.get_idle_time() < 1.0

@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,6 +34,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class FinancialModellingSource(ResumableSource[FinancialModellingSourceConfig, FinancialModellingResumeConfig]):
+    codebase_detection = detect(env=("^(FINANCIAL_MODELLING|FINANCIALMODELLING)_", "^FMP_API_KEY$"))
+
     supported_versions = ("stable",)
     default_version = "stable"
     api_docs_url = "https://site.financialmodelingprep.com/developer/docs/stable"
@@ -49,7 +52,7 @@ class FinancialModellingSource(ResumableSource[FinancialModellingSourceConfig, F
             name=ExternalDataSourceType.FINANCIALMODELLING,
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="Financial Modeling Prep",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Financial Modeling Prep API key to pull market and company financial data into the PostHog Data warehouse.
 
 You can find your API key in your [Financial Modeling Prep dashboard](https://site.financialmodelingprep.com/developer/docs/dashboard).
@@ -70,6 +73,7 @@ The symbol-keyed tables (company profiles, financial statements, historical pric
                     ),
                     SourceFieldInputConfig(
                         name="symbols",
+                        sync_setting=True,
                         label="Symbols",
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,

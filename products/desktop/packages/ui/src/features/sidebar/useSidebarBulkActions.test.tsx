@@ -11,7 +11,6 @@ const hoisted = vi.hoisted(() => ({
   placeTasksInCommandCenter: vi.fn(),
   fileTask: vi.fn(),
   useChannels: vi.fn(),
-  useFeatureFlag: vi.fn(),
   useTasks: vi.fn(),
   pinnedTaskIds: new Set<string>(),
   toast: {
@@ -37,10 +36,6 @@ vi.mock("@posthog/ui/features/canvas/hooks/useChannelTasks", () => ({
 
 vi.mock("@posthog/ui/features/command-center/placeTaskInCommandCenter", () => ({
   placeTasksInCommandCenter: hoisted.placeTasksInCommandCenter,
-}));
-
-vi.mock("@posthog/ui/features/feature-flags/useFeatureFlag", () => ({
-  useFeatureFlag: hoisted.useFeatureFlag,
 }));
 
 vi.mock("./usePinnedTasks", () => ({
@@ -93,7 +88,6 @@ describe("useSidebarBulkActions", () => {
       channels: [{ id: "c1", name: "support" }],
       isLoading: false,
     });
-    hoisted.useFeatureFlag.mockReturnValue(true);
     hoisted.useTasks.mockReturnValue({ data: [{ id: "t1" }, { id: "t2" }] });
     hoisted.setPinnedMany.mockResolvedValue({
       succeeded: ["t1", "t2"],
@@ -388,22 +382,6 @@ describe("useSidebarBulkActions", () => {
       expect(useTaskSelectionStore.getState().selectedTaskIds).toEqual(["t2"]),
     );
     expect(hoisted.toast.error).toHaveBeenCalledWith("1 filed, 1 failed");
-  });
-
-  // `enabled: false` stops the fetch but still hands back whatever an ungated
-  // surface already put in the shared cache, so the flag has to gate the list.
-  it("offers no channels when the bluebird flag is off", () => {
-    hoisted.useFeatureFlag.mockReturnValue(false);
-    hoisted.useChannels.mockReturnValue({
-      channels: [{ id: "c1", name: "support" }],
-      isLoading: false,
-    });
-
-    const { result } = render();
-
-    expect(result.current.channels).toEqual([]);
-    expect(result.current.fileDisabledReason).not.toBeNull();
-    expect(hoisted.useChannels).toHaveBeenCalledWith({ enabled: false });
   });
 
   it.each([

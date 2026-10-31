@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +36,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AmazonAdsSource(ResumableSource[AmazonAdsSourceConfig, AmazonAdsResumeConfig]):
+    codebase_detection = detect(env=("^AMAZON_ADS_",), pypi=("python-amazon-ad-api",))
+    setup_requires_ui = True
+
     api_docs_url = "https://advertising.amazon.com/API/docs"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
@@ -61,7 +65,7 @@ class AmazonAdsSource(ResumableSource[AmazonAdsSourceConfig, AmazonAdsResumeConf
 You need a Login with Amazon (LWA) application with Advertising API access: enter its client ID and secret plus a refresh token authorized for your advertiser account. Pick the region that matches your advertising profiles (North America, Europe, or Far East). Your portfolios, your Sponsored Products, Sponsored Brands and Sponsored Display entities, and daily Sponsored Products campaign performance are synced from every profile the token can access.""",
             iconPath="/static/services/amazon_ads.png",
             docsUrl="https://posthog.com/docs/cdp/sources/amazon-ads",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [
@@ -147,10 +151,9 @@ You need a Login with Amazon (LWA) application with Advertising API access: ente
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        if validate_amazon_ads_credentials(config.region, config.client_id, config.client_secret, config.refresh_token):
-            return True, None
-
-        return False, "Invalid Amazon Ads credentials"
+        return validate_amazon_ads_credentials(
+            config.region, config.client_id, config.client_secret, config.refresh_token
+        )
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[AmazonAdsResumeConfig]:
         return ResumableSourceManager[AmazonAdsResumeConfig](inputs, AmazonAdsResumeConfig)

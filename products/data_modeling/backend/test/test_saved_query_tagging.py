@@ -12,6 +12,7 @@ from posthog.schema import HogQLQuery, HogQLQueryModifiers
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.query import HogQLQueryExecutor
+from posthog.hogql.query_stats import query_stats_scope
 
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tags_context
 
@@ -25,6 +26,7 @@ ID_COLUMNS = {
     "id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "schema_valid": True},
     "distinct_id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
 }
+POSTHOG_TABLE_NAMES = {"events"}
 
 
 class _Captured(Exception):
@@ -91,7 +93,7 @@ class TestSavedQueryTagging(APIBaseTest):
         )
 
     def ids(self, *names: str) -> list[str] | None:
-        return sorted(str(getattr(self, name).pk) for name in names) or None
+        return sorted(name if name in POSTHOG_TABLE_NAMES else str(getattr(self, name).pk) for name in names) or None
 
     @contextmanager
     def captured_tags(self) -> Iterator[list[ReadTags]]:
@@ -139,7 +141,21 @@ class TestSavedQueryTagging(APIBaseTest):
                 ["customers_raw"],
                 ["customer_events"],
             ),
-            ("top_level_lazy_join", "SELECT events.customer.id FROM events", [], ["customers_raw"], ["customers_raw"]),
+            (
+                "top_level_lazy_join",
+                "SELECT events.customer.id FROM events",
+                [],
+                ["customers_raw"],
+                ["customers_raw", "events"],
+            ),
+            (
+                "view_filters_events",
+                "SELECT event FROM events WHERE distinct_id IN (SELECT distinct_id FROM demand_view)",
+                ["view"],
+                [],
+                ["view", "events"],
+            ),
+            ("events_only", "SELECT event FROM events", [], [], []),
             ("union_view", "SELECT id FROM all_ids", ["all_ids"], ["orders_raw", "customers_raw"], ["all_ids"]),
             ("no_saved_query", "SELECT 1", [], [], []),
         ]
@@ -147,10 +163,16 @@ class TestSavedQueryTagging(APIBaseTest):
     def test_execution_tags_the_views_and_tables_the_resolver_bound(
         self, _name: str, query: str, views: list[str], tables: list[str], direct: list[str]
     ) -> None:
-        with tags_context(product=Product.WAREHOUSE, feature=Feature.QUERY), self.captured_tags() as captured:
+        with (
+            tags_context(product=Product.WAREHOUSE, feature=Feature.QUERY),
+            self.captured_tags() as captured,
+            query_stats_scope() as stats,
+        ):
             with suppress(_Captured):
                 self.executor(query).execute()
         self.assertEqual(captured, [(self.ids(*views), self.ids(*tables), self.ids(*direct))])
+        self.assertEqual(sorted(stats.warehouse_table_ids), self.ids(*tables) or [])
+        self.assertEqual(sorted(stats.saved_query_ids), self.ids(*views) or [])
 
     def test_context_reuse_and_cte_shadowing_do_not_tag(self) -> None:
         context = HogQLContext(team=self.team, database=Database.create_for(team=self.team))

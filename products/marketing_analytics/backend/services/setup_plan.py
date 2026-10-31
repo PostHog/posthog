@@ -9,7 +9,7 @@ Composition: this wraps `get_marketing_diagnostic` rather than re-deriving from 
 leaf services. The diagnostic is the only service that does cross-domain reasoning
 and it owns the `IntegrationStatus` ladder that the connect/reconnect/fix-sync/
 map-schema suggestions map onto; re-deriving would fork that truth. The extra leaves
-it doesn't expose — candidate events, the UTM catalogue, campaign rows — are fetched
+it doesn't expose — the UTM catalogue and campaign rows — are fetched
 alongside it in one `gather`.
 
 Every leaf is allowed to fail independently: the diagnostic is required (without it
@@ -19,6 +19,7 @@ there's nothing to say), everything else degrades to a missing section recorded 
 
 import asyncio
 from typing import Any, cast
+from urllib.parse import urlencode
 
 from django.utils import timezone
 
@@ -47,11 +48,6 @@ from products.marketing_analytics.backend.services.campaign_mapping_suggester im
 from products.marketing_analytics.backend.services.conversion_goals_inspector import (
     ConversionGoalsListResponse,
     ConversionGoalSummary,
-)
-from products.marketing_analytics.backend.services.event_suggestions import (
-    CandidateEvent,
-    EventSuggestionsResponse,
-    suggest_conversion_goals,
 )
 from products.marketing_analytics.backend.services.mapping_suggester import (
     SourceMappingSuggestion,
@@ -85,7 +81,6 @@ from products.marketing_analytics.backend.services.setup_types import (
     Severity,
     Suggestion,
     SuggestionKind,
-    UpdateConversionGoal,
     sort_suggestions,
 )
 from products.marketing_analytics.backend.services.types import TeamMappings
@@ -113,6 +108,7 @@ async def get_setup_plan(
     *,
     date_from: str = "-30d",
     user: User | None = None,
+    refresh_source_scan: bool = False,
 ) -> SetupPlan:
     """Build the ranked setup plan for a team."""
     date_range = QueryDateRange(
@@ -123,9 +119,16 @@ async def get_setup_plan(
     )
 
     results = await asyncio.gather(
-        get_marketing_diagnostic(team, include_conversion_goals=True, user=user),
-        get_attribution_health(team, lookback_days=ATTRIBUTION_LOOKBACK_DAYS),
-        suggest_conversion_goals(team),
+        get_marketing_diagnostic(
+            team,
+            include_conversion_goals=True,
+            user=user,
+            cache_source_scan=True,
+            refresh_source_scan=refresh_source_scan,
+        ),
+        get_attribution_health(
+            team, lookback_days=ATTRIBUTION_LOOKBACK_DAYS, cache_scan=True, refresh_scan=refresh_source_scan
+        ),
         get_campaigns_with_spend_async(team, date_range, user=user),
         get_utm_campaign_catalogue_async(team, date_range, user=user),
         _load_mappings(team),
@@ -135,7 +138,6 @@ async def get_setup_plan(
     (
         diagnostic_result,
         attribution_result,
-        candidates_result,
         campaigns_result,
         utm_events_result,
         mappings_result,
@@ -151,14 +153,13 @@ async def get_setup_plan(
 
     degraded: list[str] = []
     attribution = _or_degraded(attribution_result, "attribution_health", degraded, team)
-    candidates = _or_degraded(candidates_result, "event_suggestions", degraded, team)
     campaigns = _or_degraded(campaigns_result, "campaigns", degraded, team) or []
     utm_events = _or_degraded(utm_events_result, "utm_catalogue", degraded, team) or {}
     mappings = _or_degraded(mappings_result, "team_mappings", degraded, team)
     goal_flags = _or_degraded(goal_flags_result, "goal_flags", degraded, team) or {}
 
     suggestions: list[Suggestion] = []
-    suggestions.extend(_integration_suggestions(diagnostic))
+    suggestions.extend(_integration_suggestions(diagnostic, team_id=team.pk))
 
     # Ahead of the mapping suggester so its proposals can be injected there.
     campaign_mappings: CampaignMappingSuggestions | None = None
@@ -184,7 +185,7 @@ async def get_setup_plan(
         if utm_mappings is not None:
             suggestions.extend(_source_mapping_suggestions(utm_mappings))
 
-    suggestions.extend(_conversion_goal_suggestions(diagnostic.conversion_goals, candidates, goal_flags))
+    suggestions.extend(_conversion_goal_suggestions(diagnostic.conversion_goals))
 
     ranked = sort_suggestions(suggestions)
     readiness = _build_readiness(
@@ -258,10 +259,10 @@ def _load_goal_flags(team: Team) -> dict[str, dict[str, Any]]:
 # --- Suggestion builders ---------------------------------------------------
 
 
-def _integration_suggestions(diagnostic: MarketingDiagnosticResponse) -> list[Suggestion]:
+def _integration_suggestions(diagnostic: MarketingDiagnosticResponse, *, team_id: int) -> list[Suggestion]:
     suggestions: list[Suggestion] = []
     for integration in diagnostic.integrations:
-        suggestion = _integration_suggestion(integration)
+        suggestion = _integration_suggestion(integration, team_id=team_id)
         if suggestion is not None:
             suggestions.append(suggestion)
     return suggestions
@@ -274,7 +275,7 @@ def _looks_like_auth_failure(last_error: str | None) -> bool:
     return any(token in lowered for token in ("token", "unauthor", "auth", "credential", "expired", "401", "403"))
 
 
-def _integration_suggestion(integration: IntegrationDiagnostic) -> Suggestion | None:
+def _integration_suggestion(integration: IntegrationDiagnostic, *, team_id: int) -> Suggestion | None:
     key: NativeIntegration = integration.integration_key
     native = KEY_TO_NATIVE.get(key)
     display = integration.display_name
@@ -303,6 +304,15 @@ def _integration_suggestion(integration: IntegrationDiagnostic) -> Suggestion | 
             unlocks=[Capability.COST, Capability.ROAS, Capability.CAC],
             apply=OpenSourceWizard(kind=source_type),
             integration=source_type,
+            deep_link=f"/project/{team_id}/data-warehouse/new-source?"
+            + urlencode(
+                {
+                    "kind": source_type,
+                    "returnUrl": f"/project/{team_id}/marketing",
+                    "returnLabel": "Marketing analytics",
+                    "entry_point": "marketing_analytics_mcp",
+                }
+            ),
             event_volume=paid_volume,
         )
 
@@ -489,69 +499,10 @@ def _campaign_mapping_suggestion(proposal: CampaignMappingProposal) -> Suggestio
     )
 
 
-def _conversion_goal_suggestions(
-    goals: ConversionGoalsListResponse | None,
-    candidates: EventSuggestionsResponse | None,
-    goal_flags: dict[str, dict[str, Any]],
-) -> list[Suggestion]:
-    # `_missing_flag_suggestion` returns None when no goal is worth it; the comprehension drops those.
-    suggestions: list[Suggestion | None] = []
-
-    if goals is None or not goals.goals:
-        suggestions.extend(_create_goal_suggestions(candidates))
-        return [s for s in suggestions if s is not None]
-
-    for goal in goals.goals:
-        if goal.is_misconfigured:
-            suggestions.append(_fix_goal_suggestion(goal))
-
-    if not any(goal_flags.get(g.conversion_goal_id, {}).get("counts_as_revenue") for g in goals.goals):
-        suggestions.append(_missing_flag_suggestion(goals.goals, goal_flags, revenue=True))
-    if not any(goal_flags.get(g.conversion_goal_id, {}).get("counts_as_customer") for g in goals.goals):
-        suggestions.append(_missing_flag_suggestion(goals.goals, goal_flags, revenue=False))
-
-    return [s for s in suggestions if s is not None]
-
-
-def _create_goal_suggestions(candidates: EventSuggestionsResponse | None) -> list[Suggestion]:
-    if candidates is None or not candidates.candidates:
-        return [
-            Suggestion(
-                id="create_conversion_goal:none",
-                kind=SuggestionKind.CREATE_CONVERSION_GOAL,
-                severity=Severity.WARNING,
-                confidence=0.9,
-                title="Add a conversion goal",
-                evidence=(
-                    "No conversion goals are configured, so the dashboard can only show spend — "
-                    "no conversions, ROAS or cost per customer."
-                ),
-                unlocks=[Capability.ROAS, Capability.CAC],
-                apply=OpenSettings(anchor=MARKETING_SETTINGS_ANCHOR),
-            )
-        ]
-
-    # Name the best candidate and link out. Picking the revenue property is a semantic call the
-    # AI layer makes, not a volume ranking.
-    top: CandidateEvent = candidates.candidates[0]
-    return [
-        Suggestion(
-            id="create_conversion_goal:top_candidate",
-            kind=SuggestionKind.CREATE_CONVERSION_GOAL,
-            severity=Severity.WARNING,
-            confidence=0.75,
-            title=f"Make '{top.event_name}' a conversion goal",
-            evidence=(
-                f"No conversion goals are configured. '{top.event_name}' fired {top.last_30d_count:,} times "
-                f"in the last 30 days across {top.distinct_users_30d:,} users, and "
-                f"{top.pct_with_utm_source:.0%} of those carry a utm_source — the best-attributable "
-                "candidate in your data."
-            ),
-            unlocks=[Capability.ROAS, Capability.CAC],
-            apply=OpenSettings(anchor=MARKETING_SETTINGS_ANCHOR),
-            event_volume=top.last_30d_count,
-        )
-    ]
+def _conversion_goal_suggestions(goals: ConversionGoalsListResponse | None) -> list[Suggestion]:
+    if goals is None:
+        return []
+    return [_fix_goal_suggestion(goal) for goal in goals.goals if goal.is_misconfigured]
 
 
 def _fix_goal_suggestion(goal: ConversionGoalSummary) -> Suggestion:
@@ -564,46 +515,6 @@ def _fix_goal_suggestion(goal: ConversionGoalSummary) -> Suggestion:
         evidence=goal.misconfig_reason or "This goal references something that no longer exists.",
         unlocks=[Capability.ROAS, Capability.CAC],
         apply=OpenSettings(anchor=MARKETING_SETTINGS_ANCHOR),
-    )
-
-
-def _missing_flag_suggestion(
-    goals: list[ConversionGoalSummary],
-    goal_flags: dict[str, dict[str, Any]],
-    *,
-    revenue: bool,
-) -> Suggestion | None:
-    """Nudge to flag one goal as revenue- or customer-bearing.
-
-    Without `counts_as_revenue` there is no ROAS column, and without
-    `counts_as_customer` there is no cost-per-customer — the goals exist but the
-    two headline metrics stay empty, with nothing on the dashboard explaining why.
-    Which goal deserves the flag is a business call, so this links out rather than
-    picking one.
-    """
-    candidate = max(goals, key=lambda g: g.last_30d_count, default=None)
-    if candidate is None:
-        return None
-
-    kind = SuggestionKind.MARK_GOAL_AS_REVENUE if revenue else SuggestionKind.MARK_GOAL_AS_CUSTOMER
-    metric = "ROAS" if revenue else "cost per customer"
-    flag = "counts_as_revenue" if revenue else "counts_as_customer"
-    return Suggestion(
-        id=f"{kind.value}:any",
-        kind=kind,
-        severity=Severity.WARNING,
-        confidence=0.7,
-        title=f"Mark a conversion goal as {'revenue-bearing' if revenue else 'customer-defining'}",
-        evidence=(
-            f"{len(goals)} conversion goal(s) are configured but none has `{flag}` set, so the "
-            f"{metric} column stays empty. '{candidate.name}' is the highest-volume candidate "
-            f"({candidate.last_30d_count:,} in 30 days)."
-        ),
-        unlocks=[Capability.ROAS if revenue else Capability.CAC],
-        # Which goal counts as revenue is a business decision, not a config fix.
-        apply=UpdateConversionGoal(conversion_goal_id=candidate.conversion_goal_id, patch={flag: True}),
-        safe_to_batch=False,
-        event_volume=candidate.last_30d_count,
     )
 
 
@@ -719,6 +630,8 @@ def _metric_readiness(
 
 def _summary(suggestions: list[Suggestion], readiness: list[CapabilityReadiness], degraded: list[str]) -> str:
     if not suggestions:
+        if any(capability.status != ReadinessStatus.UNLOCKED for capability in readiness):
+            return "Some metrics are not ready yet. Review their setup requirements."
         return "Nothing to fix — every check passed."
     errors = sum(1 for s in suggestions if s.severity == Severity.ERROR)
     unlocked = sum(1 for r in readiness if r.status == ReadinessStatus.UNLOCKED)

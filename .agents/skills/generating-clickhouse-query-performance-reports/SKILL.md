@@ -8,15 +8,16 @@ description: >
   `query_log_archive` source (typed `lc_*` columns, multi-day retention), how to
   categorize and attribute slow queries, root-cause patterns (unmaterialized
   JSONExtract, high-cardinality breakdowns, heavy joins), and the report structure.
-  Runs queries via the `querying-production-databases-via-metabase` skill.
+  Runs queries via the `querying-production-databases` skill.
 ---
 
 # Generating ClickHouse query performance reports
 
 This skill is the _methodology_ for investigating slow ClickHouse queries and writing up a
-performance report. It pairs with [`querying-production-databases-via-metabase`](../querying-production-databases-via-metabase/SKILL.md),
-which is the _mechanism_ (SSO-gated auth and `hogli metabase:query`). Run every query in this skill
-through that one.
+performance report. It pairs with [`querying-production-databases`](../querying-production-databases/SKILL.md),
+which is the _mechanism_ (the PostHog MCP's direct-query connections, with `sendRawQuery`). Run every
+query in this skill through that one. Use [`querying-production-databases-via-metabase`](../querying-production-databases-via-metabase/SKILL.md)
+only for the shareable Metabase links in a report.
 
 Reports themselves are not public. When it exists, the private `PostHog/query-performance-analysis` repo
 holds the historical reports and example query IDs; this repo holds only the tooling and methodology.

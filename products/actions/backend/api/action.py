@@ -1,11 +1,13 @@
 import json
-from collections import Counter
+from collections import Counter, defaultdict
 from datetime import UTC, datetime
+from functools import lru_cache
 from typing import Any, cast
 
 from django.db import connection
 from django.db.models import Count
 
+import structlog
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, PolymorphicProxySerializer, extend_schema, extend_schema_field
 from rest_framework import request, serializers, viewsets
@@ -15,6 +17,9 @@ from rest_framework.response import Response
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
 
+from posthog.hogql.errors import QueryError
+from posthog.hogql.property import validate_regex
+
 from posthog.api.documentation import (
     ArrayPropertyFilterSerializer,
     DatePropertyFilterSerializer,
@@ -23,25 +28,36 @@ from posthog.api.documentation import (
     StringPropertyFilterSerializer,
 )
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
+from posthog.api.property_filter_access_gate import table_blocking_property_filters
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.constants import TREND_FILTER_TYPE_EVENTS
+from posthog.dataclasses import frozen
 from posthog.event_usage import report_user_action
 from posthog.models import Team
 from posthog.models.event.event import Selector
 from posthog.models.property.util import build_selector_regex
 from posthog.resource_limits import LimitKey, check_count_limit
+from posthog.taxonomy.hidden_events import HIDDEN_EVENT_REASON, added_hidden_event
 
 from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
 )
+from products.actions.backend.facade.enums import ACTION_REFERENCE_JSONPATH, ACTIONS_ARRAY_JSONPATH
 from products.actions.backend.models.action import ACTION_STEP_MATCHING_OPTIONS, Action
+from products.actions.backend.models.selector_match_change import ActionSelectorMatchChange
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cohorts.backend.models.cohort import Cohort
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.facade.actions import (
+    count_experiments_referencing_actions,
+    experiments_referencing_action,
+)
+from products.feature_flags.backend.facade.flags import hides_flag_calls_from_query_builders
 from products.product_analytics.backend.facade.models import Insight
+
+logger = structlog.get_logger(__name__)
 
 _PropertyFilterUnion = PolymorphicProxySerializer(
     component_name="ActionStepPropertyFilter",
@@ -67,6 +83,51 @@ class _ActionStepPropertiesField(serializers.ListField):
     pass
 
 
+# An entry holds the selector plus its compiled regex, which is larger, for the life of
+# the process. Nobody hand-writes a CSS selector this long, so cap what gets retained.
+_MAX_CACHED_SELECTOR_LENGTH = 1_000
+
+
+@frozen
+class _CompiledSelector:
+    regex: str | None
+    warning: str | None
+
+
+def _compile_selector_uncached(selector_str: str) -> _CompiledSelector:
+    try:
+        selector = Selector(selector_str, escape_slashes=False)
+        warning = None
+        if selector.has_unsupported_syntax():
+            warning = "This selector uses CSS we cannot match on. Try matching on the element tag, id, or class."
+        return _CompiledSelector(regex=build_selector_regex(selector), warning=warning)
+    except Exception:
+        logger.exception("Failed to compile action selector")
+        return _CompiledSelector(
+            regex=None,
+            warning="This selector could not be read, so it will not match any events. Check that it is valid CSS.",
+        )
+
+
+@lru_cache(maxsize=2048)
+def _compile_selector_cached(selector_str: str) -> _CompiledSelector:
+    return _compile_selector_uncached(selector_str)
+
+
+def _compile_selector(selector_str: str) -> _CompiledSelector:
+    # Cached because the selector_regex and selector_warning fields both need it for
+    # every serialized action step. An outsized or non-string selector skips the cache:
+    # lru_cache hashes its argument before the body runs, so an unhashable one would
+    # raise from the lookup itself.
+    if not isinstance(selector_str, str) or len(selector_str) > _MAX_CACHED_SELECTOR_LENGTH:
+        return _compile_selector_uncached(selector_str)
+    return _compile_selector_cached(selector_str)
+
+
+def _selector_str(obj) -> str | None:
+    return obj.get("selector") if isinstance(obj, dict) else getattr(obj, "selector", None)
+
+
 class ActionStepJSONSerializer(serializers.Serializer):
     event = serializers.CharField(
         required=False,
@@ -85,7 +146,12 @@ class ActionStepJSONSerializer(serializers.Serializer):
         allow_null=True,
         help_text="CSS selector to match the target element (e.g. 'div > button.cta').",
     )
-    selector_regex = serializers.SerializerMethodField()
+    selector_regex = serializers.SerializerMethodField(
+        help_text="Compiled regex the selector matches against the event elements chain. Null when no selector is set."
+    )
+    selector_warning = serializers.SerializerMethodField(
+        help_text="Set when the selector compiles to a matcher that cannot match any event. Null when the selector is valid or absent."
+    )
     tag_name = serializers.CharField(
         required=False,
         allow_null=True,
@@ -129,14 +195,12 @@ class ActionStepJSONSerializer(serializers.Serializer):
     )
 
     def get_selector_regex(self, obj) -> str | None:
-        selector_str = obj.get("selector") if isinstance(obj, dict) else getattr(obj, "selector", None)
-        if not selector_str:
-            return None
-        try:
-            selector = Selector(selector_str, escape_slashes=False)
-            return build_selector_regex(selector)
-        except Exception:
-            return None
+        selector_str = _selector_str(obj)
+        return _compile_selector(selector_str).regex if selector_str else None
+
+    def get_selector_warning(self, obj) -> str | None:
+        selector_str = _selector_str(obj)
+        return _compile_selector(selector_str).warning if selector_str else None
 
 
 class ActionSerializer(
@@ -201,6 +265,26 @@ class ActionSerializer(
     def get_creation_context(self, obj) -> None:
         return None
 
+    def validate_steps(self, steps: list[dict[str, Any]] | None) -> list[dict[str, Any]] | None:
+        # ClickHouse compiles these with RE2 at query time, so one pattern RE2 rejects fails
+        # every insight that uses the action. steps_to_expr runs this same check on stored steps.
+        # The check runs here and not on the step serializer because the error renderer turns an
+        # error nested inside one list item into a Python repr instead of a readable message.
+        for step in steps or []:
+            for value_field, matching_field in (
+                ("url", "url_matching"),
+                ("href", "href_matching"),
+                ("text", "text_matching"),
+            ):
+                value = step.get(value_field)
+                if step.get(matching_field) != "regex" or not isinstance(value, str):
+                    continue
+                try:
+                    validate_regex(value)
+                except QueryError as err:
+                    raise serializers.ValidationError(str(err)) from err
+        return steps
+
     def validate(self, attrs):
         instance = cast(Action, self.instance)
         exclude_args = {}
@@ -231,6 +315,26 @@ class ActionSerializer(
                 raise serializers.ValidationError(
                     {"name": f"This project already has an action with this name, ID {colliding_action_ids[0]}"},
                     code="unique",
+                )
+
+        if "steps" in attrs:
+            step_filters = [prop for step in attrs["steps"] for prop in (step.get("properties") or [])]
+            denied_table = table_blocking_property_filters(
+                self.context["request"].user, self.context["get_team"](), step_filters
+            )
+            if denied_table:
+                raise serializers.ValidationError(
+                    {"steps": f"This filter uses the table '{denied_table}', which you don't have access to."},
+                    code="permission_denied",
+                )
+            hidden_event = added_hidden_event(
+                (step.get("event") for step in attrs["steps"]),
+                instance.get_step_events() if instance else [],
+            )
+            if hidden_event and hides_flag_calls_from_query_builders(self.context["get_team"]().organization_id):
+                raise serializers.ValidationError(
+                    {"steps": f"You can't add a new step on {hidden_event}. {HIDDEN_EVENT_REASON}"},
+                    code="hidden_event",
                 )
 
         return attrs
@@ -291,23 +395,25 @@ class ActionReferenceSerializer(serializers.Serializer):
     created_by = UserBasicSerializer(help_text="User who created the resource", allow_null=True)
 
 
-_ACTION_JSONPATH = (
-    '$.** ? ((@.kind == "ActionsNode" && (@.id == $id || @.id == $id_str))'
-    " || (@.actionId == $id || @.actionId == $id_str)"
-    ' || (@.type == "actions" && (@.id == $id || @.id == $id_str)))'
-)
-_ACTIONS_ARRAY_JSONPATH = "$.actions[*] ? (@.id == $id || @.id == $id_str)"
+class ActionSelectorMatchChangesQuerySerializer(serializers.Serializer):
+    action_ids = serializers.ListField(
+        child=serializers.IntegerField(min_value=1),
+        allow_empty=False,
+        max_length=100,
+        help_text="Action IDs used by the insight whose selector changes should be returned.",
+    )
 
-_EXPERIMENT_JSON_FIELDS = (
-    "metrics",
-    "metrics_secondary",
-    "filters",
-    "parameters",
-    "exposure_criteria",
-    "stats_config",
-    "scheduling_config",
-    "variants",
-)
+
+class ActionSelectorMatchChangeSerializer(serializers.Serializer):
+    action_id = serializers.IntegerField(help_text="ID of an affected action.")
+    action_name = serializers.CharField(
+        allow_null=True,
+        help_text="Name of the affected action, or null when it has no name.",
+    )
+    selectors = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="CSS selectors whose matching behavior changed, in action step order.",
+    )
 
 
 def find_action_references(action_id: int, team: Team) -> list[dict[str, Any]]:
@@ -323,9 +429,9 @@ def find_action_references(action_id: int, team: Team) -> list[dict[str, Any]]:
         .extra(
             where=[
                 f"""
-                jsonb_path_exists(query, '{_ACTION_JSONPATH}', %s::jsonb)
-                OR jsonb_path_exists(filters, '{_ACTION_JSONPATH}', %s::jsonb)
-                OR jsonb_path_exists(filters, '{_ACTIONS_ARRAY_JSONPATH}', %s::jsonb)
+                jsonb_path_exists(query, '{ACTION_REFERENCE_JSONPATH}', %s::jsonb)
+                OR jsonb_path_exists(filters, '{ACTION_REFERENCE_JSONPATH}', %s::jsonb)
+                OR jsonb_path_exists(filters, '{ACTIONS_ARRAY_JSONPATH}', %s::jsonb)
                 """
             ],
             params=[vars_json] * 3,
@@ -347,19 +453,7 @@ def find_action_references(action_id: int, team: Team) -> list[dict[str, Any]]:
     if remaining <= 0:
         return refs
 
-    exp_conditions = []
-    for field in _EXPERIMENT_JSON_FIELDS:
-        exp_conditions.append(f"jsonb_path_exists({field}, '{_ACTION_JSONPATH}', %s::jsonb)")
-        exp_conditions.append(f"jsonb_path_exists({field}, '{_ACTIONS_ARRAY_JSONPATH}', %s::jsonb)")
-
-    # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
-    experiments = (
-        Experiment.objects.filter(team_id=team.pk)
-        .exclude(deleted=True)
-        .select_related("created_by")
-        .extra(where=[" OR ".join(exp_conditions)], params=[vars_json] * len(exp_conditions))
-    )
-    for exp in experiments[:remaining]:
+    for exp in experiments_referencing_action(team.pk, action_id, limit=remaining):
         refs.append(
             {
                 "type": "experiment",
@@ -410,7 +504,7 @@ def find_action_references(action_id: int, team: Team) -> list[dict[str, Any]]:
         HogFunction.objects.filter(team_id=team.pk, deleted=False)
         .select_related("created_by")
         .extra(
-            where=[f"jsonb_path_exists(filters, '{_ACTIONS_ARRAY_JSONPATH}', %s::jsonb)"],
+            where=[f"jsonb_path_exists(filters, '{ACTIONS_ARRAY_JSONPATH}', %s::jsonb)"],
             params=[vars_json],
         )
     )
@@ -451,9 +545,9 @@ def count_action_references_bulk(action_ids: list[int], team: Team) -> dict[int,
                 SELECT 1 FROM {insight_table}
                 WHERE team_id = %s AND NOT deleted
                 AND (
-                    jsonb_path_exists(query, '{_ACTION_JSONPATH}', jsonb_build_object('id', aid, 'id_str', aid::text))
-                    OR jsonb_path_exists(filters, '{_ACTION_JSONPATH}', jsonb_build_object('id', aid, 'id_str', aid::text))
-                    OR jsonb_path_exists(filters, '{_ACTIONS_ARRAY_JSONPATH}', jsonb_build_object('id', aid, 'id_str', aid::text))
+                    jsonb_path_exists(query, '{ACTION_REFERENCE_JSONPATH}', jsonb_build_object('id', aid, 'id_str', aid::text))
+                    OR jsonb_path_exists(filters, '{ACTION_REFERENCE_JSONPATH}', jsonb_build_object('id', aid, 'id_str', aid::text))
+                    OR jsonb_path_exists(filters, '{ACTIONS_ARRAY_JSONPATH}', jsonb_build_object('id', aid, 'id_str', aid::text))
                 )
             ) AS matched
             GROUP BY aid
@@ -463,33 +557,7 @@ def count_action_references_bulk(action_ids: list[int], team: Team) -> dict[int,
         for aid, cnt in cursor.fetchall():
             counts[aid] += cnt
 
-    exp_conditions = []
-    for field in _EXPERIMENT_JSON_FIELDS:
-        exp_conditions.append(
-            f"jsonb_path_exists({field}, '{_ACTION_JSONPATH}', jsonb_build_object('id', aid, 'id_str', aid::text))"
-        )
-        exp_conditions.append(
-            f"jsonb_path_exists({field}, '{_ACTIONS_ARRAY_JSONPATH}', jsonb_build_object('id', aid, 'id_str', aid::text))"
-        )
-    exp_table = Experiment._meta.db_table
-    exp_where = " OR ".join(exp_conditions)
-
-    # nosemgrep: python.django.security.audit.raw-query.avoid-raw-sql (parameterized via %s)
-    with connection.cursor() as cursor:
-        cursor.execute(
-            f"""
-            SELECT aid, count(*) FROM unnest(%s::int[]) AS aid
-            CROSS JOIN LATERAL (
-                SELECT 1 FROM {exp_table}
-                WHERE team_id = %s AND NOT COALESCE(deleted, false)
-                AND ({exp_where})
-            ) AS matched
-            GROUP BY aid
-            """,
-            [ids_array, team.pk],
-        )
-        for aid, cnt in cursor.fetchall():
-            counts[aid] += cnt
+    counts.update(count_experiments_referencing_actions(team.pk, ids_array))
 
     # nosemgrep: python.django.security.audit.raw-query.avoid-raw-sql (parameterized via %s)
     with connection.cursor() as cursor:
@@ -519,7 +587,7 @@ def count_action_references_bulk(action_ids: list[int], team: Team) -> dict[int,
             CROSS JOIN LATERAL (
                 SELECT 1 FROM {hf_table}
                 WHERE team_id = %s AND NOT deleted
-                AND jsonb_path_exists(filters, '{_ACTIONS_ARRAY_JSONPATH}', jsonb_build_object('id', aid, 'id_str', aid::text))
+                AND jsonb_path_exists(filters, '{ACTIONS_ARRAY_JSONPATH}', jsonb_build_object('id', aid, 'id_str', aid::text))
             ) AS matched
             GROUP BY aid
             """,
@@ -553,6 +621,56 @@ class ActionViewSet(
 
         queryset = queryset.annotate(count=Count(TREND_FILTER_TYPE_EVENTS))
         return queryset.filter(team_id=self.team_id).order_by(*self.ordering)
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "action_ids",
+                OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                many=True,
+                description="Action IDs used by the insight. Accepts repeated or comma-separated values.",
+            )
+        ],
+        responses={200: ActionSelectorMatchChangeSerializer(many=True)},
+    )
+    @drf_action(methods=["GET"], detail=False, required_scopes=["action:read"], pagination_class=None)
+    def selector_match_changes(self, request: request.Request, **kwargs: Any) -> Response:
+        raw_action_ids = [
+            part.strip()
+            for value in request.query_params.getlist("action_ids")
+            for part in value.split(",")
+            if part.strip()
+        ]
+        query = ActionSelectorMatchChangesQuerySerializer(data={"action_ids": raw_action_ids})
+        query.is_valid(raise_exception=True)
+        action_ids = list(dict.fromkeys(query.validated_data["action_ids"]))
+
+        visible_actions = self.user_access_control.filter_queryset_by_access_level(
+            Action.objects.filter(team_id=self.team_id, id__in=action_ids, deleted=False),
+            resource="action",
+        )
+        actions_by_id = {action.id: action for action in visible_actions}
+        selectors_by_action: dict[int, list[str]] = defaultdict(list)
+        stored_changes = (
+            ActionSelectorMatchChange.objects.for_team(self.team_id)
+            .filter(action_id__in=actions_by_id)
+            .order_by("action_id", "step_index")
+        )
+        for change in stored_changes:
+            if change.describes(actions_by_id[change.action_id]):
+                selectors_by_action[change.action_id].append(change.selector)
+
+        changes = [
+            {
+                "action_id": action_id,
+                "action_name": actions_by_id[action_id].name,
+                "selectors": selectors,
+            }
+            for action_id, selectors in sorted(selectors_by_action.items())
+        ]
+        return Response(ActionSelectorMatchChangeSerializer(changes, many=True).data)
 
     @extend_schema(responses={200: ActionReferenceSerializer(many=True)})
     @drf_action(methods=["GET"], detail=True, required_scopes=["action:read"], pagination_class=None)

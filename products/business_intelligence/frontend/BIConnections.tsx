@@ -11,7 +11,7 @@ export function BIConnections(): JSX.Element {
     return (
         <BindLogic logic={biConnectionsLogic} props={logicProps}>
             {filteredConnections.length ? (
-                <div className="px-2 pb-1 pt-2 text-xs font-semibold text-secondary">Connections</div>
+                <div className="px-2 pb-1 pt-2 text-xs font-semibold text-secondary">Related tables</div>
             ) : null}
             <BIConnectionGroup connections={filteredConnections} />
         </BindLogic>

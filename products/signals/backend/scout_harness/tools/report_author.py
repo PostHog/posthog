@@ -1,9 +1,9 @@
 """Who authors a report through the report channel.
 
-`emit_report` reads every author-specific value through `ReportAuthor`: the idempotency scope, the
-telemetry identity, the preflight gates, and the artefact attribution. A scout run is the only author
-that exists. Another author, such as a user who calls the channel over the MCP, implements the same
-protocol, so the emit path does not fork on who wrote the report.
+`emit_report` and `edit_report` read every author-specific value through `ReportAuthor`: the
+idempotency scope, the telemetry identity, the preflight gates, and the artefact attribution. A scout
+run is the only author that exists. Another author, such as a user who calls the channel over the MCP,
+implements the same protocol, so neither path forks on who wrote the report.
 """
 
 from __future__ import annotations
@@ -24,9 +24,10 @@ from products.signals.backend.scout_harness.tools.emit import (
 class ReportAuthor(Protocol):
     @property
     def scout_run(self) -> SignalScoutRun | None:
-        """The run behind the report. It feeds the run's report tally, the provenance note, the
-        `task_run` artefact, and the scout's configured Slack destination. None when no scout run
-        authors the report, which skips all four."""
+        """The run behind the report. It feeds the run's report and edit tallies, the provenance note,
+        the `task_run` artefact, the scout's configured Slack destination, private trial capture, and
+        the in-progress check that an edit runs under the run's lock. None when no scout run authors
+        the report, which skips all of them."""
         ...
 
     @property
@@ -87,7 +88,20 @@ class ScoutRunReportAuthor:
         """Shared dimensions for the report-channel lifecycle events, mirroring the `signals_scout_run_*`
         events so the two join on `run_id` / `task_run_id` — a report event sits under the run that authored
         it. All fields are plain columns on the bridge row (no FK query)."""
+        metadata = self.run.metadata or {}
         return {
+            **{
+                key: metadata[key]
+                for key in (
+                    "experiment_key",
+                    "experiment_variant",
+                    "$feature/self-driving-banger-scout",
+                    "runtime",
+                    "model",
+                    "service_tier",
+                )
+                if key in metadata
+            },
             "skill_name": self.run.skill_name,
             "skill_version": self.run.skill_version,
             "scout_config_id": str(self.run.scout_config_id) if self.run.scout_config_id else None,

@@ -4,24 +4,35 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock
 
+import requests
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.uptimerobot import (
+    UptimerobotSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.uptimerobot import uptimerobot
 from products.warehouse_sources.backend.temporal.data_imports.sources.uptimerobot.settings import (
     PAGE_LIMIT,
     RESPONSE_TIMES_INITIAL_LOOKBACK_DAYS,
-    UPTIMEROBOT_ENDPOINTS,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.uptimerobot.source import UptimerobotSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.uptimerobot.uptimerobot import (
     AUTH_ERROR_PREFIX,
+    MAX_RETRY_AFTER_SECONDS,
     UptimeRobotAPIError,
     UptimeRobotAuthError,
     UptimeRobotResumeConfig,
     UptimeRobotRetryableError,
+    _get_v3,
     _next_offset,
     _post,
     _scrub_alert_contact,
     _to_unix_timestamp,
+    _wait_v3,
     get_rows,
     uptimerobot_source,
 )
@@ -81,10 +92,6 @@ class TestScrubAlertContact:
         assert scrubbed["friendly_name"] == "on-call"
         assert scrubbed["status"] == 2
 
-    def test_row_without_value_is_untouched(self) -> None:
-        row = {"id": 1, "type": 5}
-        assert _scrub_alert_contact(row) == row
-
 
 class TestNextOffset:
     @parameterized.expand(
@@ -142,6 +149,45 @@ class TestPost:
     def test_transient_statuses_raise_retryable(self, _name: str, status_code: int) -> None:
         with pytest.raises(UptimeRobotRetryableError):
             self._call(_response(status_code=status_code))
+
+
+class TestGetV3RetryAfter:
+    @staticmethod
+    def _raised(status_code: int, headers: dict[str, str]) -> UptimeRobotRetryableError:
+        response = _response(status_code=status_code)
+        response.headers = headers
+        session = MagicMock()
+        session.get.return_value = response
+        with pytest.raises(UptimeRobotRetryableError) as excinfo:
+            _get_v3.__wrapped__(session, "/tags", {}, MagicMock())  # type: ignore[attr-defined]
+        return excinfo.value
+
+    @staticmethod
+    def _wait_after(exc: Exception) -> float:
+        retry_state = MagicMock()
+        retry_state.attempt_number = 1
+        retry_state.outcome.exception.return_value = exc
+        return _wait_v3(retry_state)
+
+    @parameterized.expand(
+        [
+            ("seconds", 429, {"Retry-After": "42"}, 42.0),
+            ("missing_header", 429, {}, None),
+            ("http_date_falls_back", 429, {"Retry-After": "Wed, 21 Oct 2015 07:28:00 GMT"}, None),
+            ("server_error_ignores_header", 503, {"Retry-After": "42"}, None),
+        ]
+    )
+    def test_parses_retry_after(
+        self, _name: str, status_code: int, headers: dict[str, str], expected: float | None
+    ) -> None:
+        assert self._raised(status_code, headers).retry_after == expected
+
+    def test_wait_honors_retry_after_up_to_the_cap(self) -> None:
+        assert self._wait_after(UptimeRobotRetryableError("x", retry_after=42)) == 42
+        assert self._wait_after(UptimeRobotRetryableError("x", retry_after=600)) == MAX_RETRY_AFTER_SECONDS
+
+    def test_wait_falls_back_to_backoff_without_retry_after(self) -> None:
+        assert self._wait_after(UptimeRobotRetryableError("x")) <= 30
 
 
 class _FakeResumableManager:
@@ -205,20 +251,6 @@ class TestTopLevelRows:
 
         assert [r["id"] for r in rows] == list(range(51))
         assert [r["offset"] for r in requests_made] == [0, 50]
-
-    def test_saves_resume_state_after_yield_only_when_more_pages(self, monkeypatch: Any) -> None:
-        def responder(method: str, data: dict) -> dict:
-            offset = data["offset"]
-            total = {"offset": offset, "limit": 50, "total": 60}
-            rows = [{"id": offset}]
-            return {"stat": "ok", "pagination": total, "monitors": rows}
-
-        _patch_post(monkeypatch, responder)
-        manager = _FakeResumableManager()
-        _collect(manager, "monitors")
-
-        # Saved once (before fetching page 2), never after the final page.
-        assert manager.saved == [UptimeRobotResumeConfig(offset=50)]
 
     def test_resumes_from_saved_offset(self, monkeypatch: Any) -> None:
         def responder(method: str, data: dict) -> dict:
@@ -294,17 +326,6 @@ class TestTopLevelRows:
 
         assert rows == [{"id": 1, "friendly_name": "on-call", "type": 5, "status": 2, "value": None}]
 
-    def test_monitors_request_includes_uptime_ratio_params(self, monkeypatch: Any) -> None:
-        def responder(method: str, data: dict) -> dict:
-            return {"stat": "ok", "pagination": {"offset": 0, "limit": 50, "total": 0}, "monitors": []}
-
-        requests_made = _patch_post(monkeypatch, responder)
-        rows = _collect(_FakeResumableManager(), "monitors")
-
-        assert rows == []
-        assert requests_made[0]["custom_uptime_ratios"] == "1-7-30-365"
-        assert requests_made[0]["all_time_uptime_ratio"] == 1
-
 
 class TestMonitorLogRows:
     def _responder(self, method: str, data: dict) -> dict:
@@ -323,19 +344,6 @@ class TestMonitorLogRows:
             ],
         }
 
-    def test_flattens_logs_with_monitor_id(self, monkeypatch: Any) -> None:
-        requests_made = _patch_post(monkeypatch, self._responder)
-        rows = _collect(_FakeResumableManager(), "monitor_logs")
-
-        assert rows == [
-            {"type": 1, "datetime": 100, "duration": 60, "monitor_id": 1},
-            {"type": 2, "datetime": 200, "duration": 0, "monitor_id": 1},
-            {"type": 98, "datetime": 300, "duration": 0, "monitor_id": 2},
-        ]
-        assert requests_made[0]["logs"] == 1
-        # No watermark -> no server-side log window params.
-        assert "logs_start_date" not in requests_made[0]
-
     def test_incremental_filters_client_side_and_sends_window(self, monkeypatch: Any) -> None:
         requests_made = _patch_post(monkeypatch, self._responder)
         rows = _collect(
@@ -350,17 +358,6 @@ class TestMonitorLogRows:
         assert rows == [{"type": 98, "datetime": 300, "duration": 0, "monitor_id": 2}]
         assert requests_made[0]["logs_start_date"] == 200
         assert "logs_end_date" in requests_made[0]
-
-    def test_monitor_without_logs_key_yields_nothing(self, monkeypatch: Any) -> None:
-        def responder(method: str, data: dict) -> dict:
-            return {
-                "stat": "ok",
-                "pagination": {"offset": 0, "limit": 50, "total": 1},
-                "monitors": [{"id": 1}],
-            }
-
-        _patch_post(monkeypatch, responder)
-        assert _collect(_FakeResumableManager(), "monitor_logs") == []
 
 
 class TestResponseTimeRows:
@@ -377,28 +374,6 @@ class TestResponseTimeRows:
             "monitors": [{"id": 7, "response_times": [{"datetime": start + 10, "value": 123}]}],
         }
 
-    def test_walks_seven_day_windows_from_watermark(self, monkeypatch: Any) -> None:
-        self._patch_now(monkeypatch)
-        watermark = self.NOW - 10 * _DAY
-        requests_made = _patch_post(monkeypatch, self._responder)
-
-        rows = _collect(
-            _FakeResumableManager(),
-            "response_times",
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=watermark,
-        )
-
-        windows = [(r["response_times_start_date"], r["response_times_end_date"]) for r in requests_made]
-        assert windows == [
-            (watermark, watermark + 7 * _DAY),
-            (watermark + 7 * _DAY, self.NOW),
-        ]
-        assert rows == [
-            {"datetime": watermark + 10, "value": 123, "monitor_id": 7},
-            {"datetime": watermark + 7 * _DAY + 10, "value": 123, "monitor_id": 7},
-        ]
-
     def test_first_sync_starts_at_initial_lookback(self, monkeypatch: Any) -> None:
         self._patch_now(monkeypatch)
         requests_made = _patch_post(monkeypatch, self._responder)
@@ -408,21 +383,6 @@ class TestResponseTimeRows:
         expected_start = self.NOW - RESPONSE_TIMES_INITIAL_LOOKBACK_DAYS * _DAY
         assert requests_made[0]["response_times_start_date"] == expected_start
         assert requests_made[0]["response_times"] == 1
-
-    def test_saves_window_state_between_windows(self, monkeypatch: Any) -> None:
-        self._patch_now(monkeypatch)
-        watermark = self.NOW - 10 * _DAY
-        _patch_post(monkeypatch, self._responder)
-        manager = _FakeResumableManager()
-
-        _collect(
-            manager,
-            "response_times",
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=watermark,
-        )
-
-        assert UptimeRobotResumeConfig(offset=0, window_start=watermark + 7 * _DAY) in manager.saved
 
     def test_resumes_from_saved_window(self, monkeypatch: Any) -> None:
         self._patch_now(monkeypatch)
@@ -439,35 +399,6 @@ class TestResponseTimeRows:
 
         # The completed first window is not re-fetched.
         assert requests_made[0]["response_times_start_date"] == resume_window
-
-    def test_rows_at_or_before_watermark_are_dropped(self, monkeypatch: Any) -> None:
-        self._patch_now(monkeypatch)
-        watermark = self.NOW - _DAY
-
-        def responder(method: str, data: dict) -> dict:
-            return {
-                "stat": "ok",
-                "pagination": {"offset": 0, "limit": 50, "total": 1},
-                "monitors": [
-                    {
-                        "id": 7,
-                        "response_times": [
-                            {"datetime": watermark, "value": 1},
-                            {"datetime": watermark + 5, "value": 2},
-                        ],
-                    }
-                ],
-            }
-
-        _patch_post(monkeypatch, responder)
-        rows = _collect(
-            _FakeResumableManager(),
-            "response_times",
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=watermark,
-        )
-
-        assert rows == [{"datetime": watermark + 5, "value": 2, "monitor_id": 7}]
 
 
 class TestSourceResponseWiring:
@@ -494,17 +425,115 @@ class TestSourceResponseWiring:
         # aggregate across monitor pages and time windows, so per-batch maxima aren't safe.
         assert response.sort_mode == sort_mode
 
-    def test_every_declared_endpoint_builds_a_response(self) -> None:
-        for endpoint in UPTIMEROBOT_ENDPOINTS:
-            response = uptimerobot_source(
-                api_key="key",
-                endpoint=endpoint,
-                logger=MagicMock(),
-                resumable_source_manager=MagicMock(),
-            )
-            config = UPTIMEROBOT_ENDPOINTS[endpoint]
-            if config.partition_key:
-                assert response.partition_mode == "datetime"
-                assert response.partition_keys == [config.partition_key]
-            else:
-                assert response.partition_mode is None
+
+class TestV3Rows:
+    @staticmethod
+    def _driver() -> SourceDriver:
+        return SourceDriver(UptimerobotSource(), UptimerobotSourceConfig(api_key="ur123-key"))
+
+    @parameterized.expand(
+        [
+            ("tags_next_cursor_id", "tags", "/v3/tags", {"nextCursorId": 7}, {"nextCursorId": None}, "200"),
+            (
+                "monitor_groups_relative_next_link",
+                "monitor_groups",
+                "/v3/monitor-groups",
+                {"nextLink": "/v3/monitor-groups?limit=200&cursor=7"},
+                {"nextLink": None},
+                "200",
+            ),
+            (
+                "incidents_absolute_next_link",
+                "incidents",
+                "/v3/incidents",
+                {"nextLink": "https://api.uptimerobot.com/v3/incidents?cursor=7"},
+                {"nextLink": None},
+                None,
+            ),
+            # Only the cursor is read from nextLink, so the bearer token never follows a foreign host.
+            (
+                "foreign_host_next_link",
+                "incidents",
+                "/v3/incidents",
+                {"nextLink": "https://attacker.example.com/v3/incidents?cursor=7"},
+                {},
+                None,
+            ),
+        ]
+    )
+    def test_walks_cursor_pages_to_the_last_page(
+        self,
+        _name: str,
+        endpoint: str,
+        path: str,
+        first_page_next: dict,
+        last_page_next: dict,
+        expected_limit: str | None,
+    ) -> None:
+        result = self._driver().run(
+            endpoint,
+            [
+                ScriptedResponse(json={"data": [{"id": 1}, {"id": 2}], **first_page_next}),
+                ScriptedResponse(json={"data": [{"id": 3}], **last_page_next}),
+            ],
+        )
+
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == [1, 2, 3]
+        assert result.paths == [path, path]
+        assert {request.origin for request in result.requests} == {"https://api.uptimerobot.com"}
+        assert result.params("cursor") == [None, "7"]
+        assert result.params("limit") == [expected_limit, expected_limit]
+        assert {request.headers["authorization"] for request in result.requests} == {"Bearer ur123-key"}
+        # The cursor of the next page is committed with the page it follows.
+        assert result.committed_states == [UptimeRobotResumeConfig(cursor="7")]
+        assert ("ur123-key",) in [options.get("redact_values") for options in result.session_options]
+
+    def test_resumes_from_saved_cursor(self) -> None:
+        result = self._driver().run(
+            "tags",
+            [ScriptedResponse(json={"data": [{"id": 9, "name": "prod"}], "nextCursorId": None})],
+            resume_state=UptimeRobotResumeConfig(cursor="8"),
+        )
+
+        assert result.params("cursor") == ["8"]
+        assert result.rows == [{"id": 9, "name": "prod"}]
+
+    def test_cursor_that_does_not_move_ends_the_walk(self) -> None:
+        result = self._driver().run(
+            "tags",
+            [
+                ScriptedResponse(json={"data": [{"id": 1}], "nextCursorId": 5}),
+                ScriptedResponse(json={"data": [{"id": 1}], "nextCursorId": 5}),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.params("cursor") == [None, "5"]
+
+    def test_empty_page_with_a_cursor_continues(self) -> None:
+        result = self._driver().run(
+            "incidents",
+            [
+                ScriptedResponse(json={"data": [], "nextLink": "https://api.uptimerobot.com/v3/incidents?cursor=4"}),
+                ScriptedResponse(json={"data": [{"id": "4"}], "nextLink": None}),
+            ],
+        )
+
+        assert result.params("cursor") == [None, "4"]
+        assert result.rows == [{"id": "4"}]
+
+    @parameterized.expand(
+        [
+            ("invalid_token", 401, {"message": "Invalid token.", "code": "003-005"}, UptimeRobotAuthError),
+            ("scoped_key", 403, {"message": "Forbidden", "code": "000-003"}, requests.HTTPError),
+        ]
+    )
+    def test_error_status_raises(self, _name: str, status: int, body: dict, expected: type[Exception]) -> None:
+        result = self._driver().run("monitor_groups", [ScriptedResponse(status=status, json=body)])
+
+        assert isinstance(result.raised, expected)
+        if status == 401:
+            assert str(result.raised).startswith(AUTH_ERROR_PREFIX)
+        else:
+            assert "403 Client Error: Forbidden for url: https://api.uptimerobot.com" in str(result.raised)

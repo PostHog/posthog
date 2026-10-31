@@ -367,7 +367,11 @@ export function createPiMessageTranslator(): PiMessageTranslator {
         return translateAssistant(message);
       }
 
-      return translateToolResult(message, isInterrupted);
+      if (message.role === "toolResult") {
+        return translateToolResult(message, isInterrupted);
+      }
+
+      return [];
     },
 
     translateToolExecutionStart(toolCallId, toolName, args, timestamp) {

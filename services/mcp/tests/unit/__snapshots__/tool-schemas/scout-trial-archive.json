@@ -1,0 +1,19 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "archived": {
+            "description": "Hide a finished trial from history, or restore it without rerunning it.",
+            "type": "boolean"
+        },
+        "comparison_id": {
+            "description": "Saved comparison identity.",
+            "type": "string"
+        },
+        "id": {
+            "description": "A UUID string identifying this Signal scout config.",
+            "type": "string"
+        }
+    },
+    "required": ["id", "comparison_id", "archived"],
+    "type": "object"
+}

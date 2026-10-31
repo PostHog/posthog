@@ -7,10 +7,16 @@ the user configures, not a vendor-defined catalog.
 
 import re
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import UNVERSIONED_API_VERSION
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 CDC_BASE_URL = "https://data.cdc.gov"
+
+# The legacy label reads the SODA 2.x `/resource/{id}.json` endpoint; "v3" reads SODA 3.0's
+# `/api/v3/views/{id}/query.json`, which takes a POSTed SoQL query and requires an app token.
+SODA2_API_VERSION = UNVERSIONED_API_VERSION
+SODA3_API_VERSION = "v3"
 
 # Socrata assigns every dataset a "4x4" identifier: two 4-character alphanumeric groups joined
 # by a hyphen (e.g. "9bhg-hcku"), visible in the dataset's data.cdc.gov URL.

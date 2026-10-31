@@ -1,11 +1,20 @@
-from posthog.test.base import BaseTest
+from typing import Any
+
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
 from posthog.models.property import BehavioralPropertyType, Property
 
+SEQUENCE_FIELDS: dict[str, Any] = {
+    "seq_event_type": "events",
+    "seq_event": "$pageleave",
+    "seq_time_value": 1,
+    "seq_time_interval": "day",
+}
 
-class TestBehavioralPropertyDateRangeValidation(BaseTest):
+
+class TestBehavioralPropertyDateRangeValidation(SimpleTestCase):
     """Validation of the explicit_datetime / explicit_datetime_to combo on behavioral cohort filters."""
 
     def _build(self, **overrides) -> Property:
@@ -79,8 +88,28 @@ class TestBehavioralPropertyDateRangeValidation(BaseTest):
                 explicit_datetime_to="-7d",
             )
 
+    @parameterized.expand(
+        [
+            ("explicit_datetime", {"explicit_datetime": "-30d"}),
+            ("explicit_datetime_range", {"explicit_datetime": "-30d", "explicit_datetime_to": "-7d"}),
+            ("time_value_interval", {"time_value": 30, "time_interval": "day"}),
+        ]
+    )
+    def test_performed_event_sequence_accepts_time_bound(self, _name: str, time_bound: dict[str, Any]) -> None:
+        self._build(value=BehavioralPropertyType.PERFORMED_EVENT_SEQUENCE, **SEQUENCE_FIELDS, **time_bound)
 
-class TestBehavioralPropertyValueAlias(BaseTest):
+    @parameterized.expand(
+        [
+            ("no_time_fields", {}),
+            ("only_upper_bound", {"explicit_datetime_to": "-7d"}),
+        ]
+    )
+    def test_performed_event_sequence_rejects_missing_time_bound(self, _name: str, time_bound: dict[str, Any]) -> None:
+        with self.assertRaises(ValueError):
+            self._build(value=BehavioralPropertyType.PERFORMED_EVENT_SEQUENCE, **SEQUENCE_FIELDS, **time_bound)
+
+
+class TestBehavioralPropertyValueAlias(SimpleTestCase):
     """Some cohort filter generators store "performed_event_multiple_times" instead of
     BehavioralPropertyType.PERFORMED_EVENT_MULTIPLE's canonical "performed_event_multiple".
     The alias must resolve to that type's validation rules, not just skip validation."""
@@ -106,7 +135,7 @@ class TestBehavioralPropertyValueAlias(BaseTest):
             self._build(time_value=3650, time_interval="day")
 
 
-class TestBehavioralPropertyBytecodeCondition(BaseTest):
+class TestBehavioralPropertyBytecodeCondition(SimpleTestCase):
     """The realtime-cohort builder can express an unbounded "did this person ever do X"
     condition purely via compiled bytecode/conditionHash, with no time_value/time_interval/
     explicit_datetime set. That's a deliberately unbounded condition, not a malformed one."""

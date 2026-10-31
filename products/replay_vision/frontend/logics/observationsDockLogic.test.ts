@@ -1,9 +1,11 @@
 import { expectLogic } from 'kea-test-utils'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { playerSidebarLogic } from 'scenes/session-recordings/player/sidebar/playerSidebarLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import { SessionRecordingSidebarTab } from '~/types'
 
 import type { ReplayObservationApi, ReplayScannerApi } from '../generated/api.schemas'
 import { OBSERVE_POLL_GRACE_MS } from './observationPolling'
@@ -38,6 +40,7 @@ describe('observationsDockLogic', () => {
     let releaseInlineScan: () => void
     let releaseScanners: () => void
     let inlineScanOutcome: string
+    let inlineScanBody: unknown
     let observationResults: ReplayObservationApi[]
     let observationsFail: boolean
     let scannerResults: ReplayScannerApi[]
@@ -70,8 +73,9 @@ describe('observationsDockLogic', () => {
                     })
                     return [202, { workflow_id: 'wf-1' }]
                 },
-                '/api/projects/:team/vision/scanners/inline_scan/': async () => {
+                '/api/projects/:team/vision/scanners/inline_scan/': async ({ request }) => {
                     inlineScanCalls += 1
+                    inlineScanBody = await request.json()
                     await new Promise<void>((resolve) => {
                         releaseInlineScan = resolve
                     })
@@ -87,10 +91,9 @@ describe('observationsDockLogic', () => {
             },
         })
         initKeaTests()
-        // Persisted, so a collapse in one test would otherwise decide the next test's starting state.
+        // Persisted, so a summarizer picked in one test would otherwise decide the next test's starting state.
         preferences = visionDockPreferenceLogic()
         preferences.mount()
-        preferences.actions.setSummaryDockAutoExpand(true)
         preferences.actions.setPreferredSummarizerId(null)
         logic = observationsDockLogic({ sessionId: 'sess-1' })
         logic.mount()
@@ -139,6 +142,8 @@ describe('observationsDockLogic', () => {
         await new Promise((resolve) => setTimeout(resolve, 0))
 
         expect(inlineScanCalls).toBe(1)
+        // By name, not by prompt, so the button always lands on the shared built-in scanner.
+        expect(inlineScanBody).toEqual({ built_in: 'summarize_recording', session_ids: ['sess-1'] })
         // The second click is dropped, but it now says so rather than leaving the user in front of a
         // button that looked live and did nothing.
         expect(lemonToast.info).toHaveBeenCalled()
@@ -146,7 +151,7 @@ describe('observationsDockLogic', () => {
 
     it('warns rather than promising a result when an already-summarized row is unreadable', async () => {
         // The slot check runs unscoped, so `already_scanned` can come back for a row RBAC hides from the
-        // dock, or the reload can fail. The old copy claimed a result over an empty dock; guard that the
+        // tab, or the reload can fail. The old copy claimed a result over an empty tab; guard that the
         // reload happens first and the message admits nothing is shown.
         inlineScanOutcome = 'already_scanned'
         // Consume the mount-time load so its response can't overwrite the reload below.
@@ -157,14 +162,14 @@ describe('observationsDockLogic', () => {
         await new Promise((resolve) => setTimeout(resolve, 0))
         releaseInlineScan()
 
-        await expectLogic(logic).toDispatchActions(['summarizeFailure', 'loadObservationsSuccess'])
-        await expectLogic(logic).toMatchValues({ dockOpen: true, observations: [] })
+        await expectLogic(logic).toDispatchActions(['showObservations', 'summarizeFailure', 'loadObservationsSuccess'])
+        await expectLogic(logic).toMatchValues({ observations: [] })
         expect(lemonToast.warning).toHaveBeenCalled()
         expect(lemonToast.info).not.toHaveBeenCalled()
     })
 
     it('confirms the result when the already-summarized row is readable', async () => {
-        // The reload surfaces the inline scanner's row (matched by scan_id), so the dock can point at it.
+        // The reload surfaces the inline scanner's row (matched by scan_id), so the toast can point at it.
         inlineScanOutcome = 'already_scanned'
         await expectLogic(logic).toDispatchActions(['loadObservationsSuccess'])
         observationResults = [
@@ -175,35 +180,31 @@ describe('observationsDockLogic', () => {
         await new Promise((resolve) => setTimeout(resolve, 0))
         releaseInlineScan()
 
-        await expectLogic(logic).toDispatchActions(['summarizeFailure', 'loadObservationsSuccess'])
-        await expectLogic(logic).toMatchValues({ dockOpen: true, observations: observationResults })
+        await expectLogic(logic).toDispatchActions(['showObservations', 'summarizeFailure', 'loadObservationsSuccess'])
+        await expectLogic(logic).toMatchValues({ observations: observationResults })
         expect(lemonToast.info).toHaveBeenCalled()
         expect(lemonToast.warning).not.toHaveBeenCalled()
     })
 
-    it('opens the dock for a recording that already has a summary', async () => {
-        observationResults = [summaryObservation()]
-
-        logic.actions.loadObservations()
-
+    it('lands the sidebar on Observations only when a recording opens with a summary', async () => {
+        const sidebar = playerSidebarLogic()
+        sidebar.mount()
         await expectLogic(logic).toDispatchActions(['loadObservationsSuccess'])
-        await expectLogic(logic).toMatchValues({ dockOpen: true })
-    })
 
-    it('leaves the dock closed on the next recording once the user collapses it', async () => {
-        // The preference has to outlive the dock logic, which is keyed by session. Held per key, a
-        // collapse would be forgotten the moment the user clicks the next recording in the playlist.
         observationResults = [summaryObservation()]
         logic.actions.loadObservations()
         await expectLogic(logic).toDispatchActions(['loadObservationsSuccess'])
+        await expectLogic(sidebar).toMatchValues({ activeTab: SessionRecordingSidebarTab.INSPECTOR })
 
-        logic.actions.setDockOpen(false)
+        logic.unmount()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadObservationsSuccess'])
+        await expectLogic(sidebar).toMatchValues({ activeTab: SessionRecordingSidebarTab.OBSERVATIONS })
 
-        const nextRecording = observationsDockLogic({ sessionId: 'sess-2' })
-        nextRecording.mount()
-        await expectLogic(nextRecording).toDispatchActions(['loadObservationsSuccess'])
-        await expectLogic(nextRecording).toMatchValues({ dockOpen: false })
-        nextRecording.unmount()
+        logic.unmount()
+        await expectLogic(sidebar).toMatchValues({ activeTab: SessionRecordingSidebarTab.INSPECTOR })
+        logic.mount()
+        sidebar.unmount()
     })
 
     const loadScanners = async (scanners: ReplayScannerApi[]): Promise<void> => {

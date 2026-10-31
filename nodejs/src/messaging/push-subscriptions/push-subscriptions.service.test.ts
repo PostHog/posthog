@@ -1,5 +1,6 @@
 import { gzipSync } from 'zlib'
 
+import { CaptureBillingLimitError } from './push-capture'
 import { PushSubscriptionsService } from './push-subscriptions.service'
 
 describe('PushSubscriptionsService', () => {
@@ -65,15 +66,48 @@ describe('PushSubscriptionsService', () => {
         })
     })
 
-    it('reports a rejected capture rather than telling the SDK the token was stored', async () => {
+    it.each([
+        ['a mirrored copy goes to the mirrored capture', true, 'mirrored'],
+        ['a direct request is stored even when mirrored copies are not', false, 'direct'],
+    ])('%s', async (_name, mirrored, expected) => {
+        const direct = { capture: jest.fn(() => Promise.resolve()) }
+        const mirror = { capture: jest.fn(() => Promise.resolve()) }
+        service = new PushSubscriptionsService(
+            teamManager,
+            postgres,
+            { encrypt: (value: string) => `enc:${value}` } as any,
+            direct,
+            'secret',
+            mirror
+        )
+
+        const result = await service.handle(request(valid, 'POST', { mirrored }))
+
+        expect(result).toMatchObject({ status: 200, body: { distinct_id: 'user-1' } })
+        expect({ direct: direct.capture.mock.calls.length, mirrored: mirror.capture.mock.calls.length }).toEqual({
+            direct: expected === 'direct' ? 1 : 0,
+            mirrored: expected === 'mirrored' ? 1 : 0,
+        })
+    })
+
+    it.each([
+        ['a failed capture', new Error('capture returned 503'), 500, 'capture_failed', undefined],
+        [
+            'a project over its billing limit',
+            new CaptureBillingLimitError(),
+            429,
+            'capture_billing_limited',
+            { 'Retry-After': '3600' },
+        ],
+    ])('reports %s rather than telling the SDK the token was stored', async (_name, error, status, code, headers) => {
         // The SDK marks a registration delivered on a 2xx and stops re-sending it, so a capture that
         // did not happen has to surface as an error or the device is never registered.
-        capture.capture.mockRejectedValue(new Error('capture returned 503'))
+        capture.capture.mockRejectedValue(error)
 
         const result = await service.handle(request(valid))
 
-        expect(result.status).toEqual(500)
-        expect(result.body).toMatchObject({ code: 'capture_failed' })
+        expect(result).toMatchObject({ status, body: { code } })
+        expect(result.headers).toEqual(headers)
     })
 
     it('reports a capture that threw', async () => {

@@ -37,7 +37,21 @@ const LOGS_QUERY_URL_FRAGMENTS = [
     '/logs/count-ranges/',
     '/logs/services/',
     '/logs/sparkline/',
+    '/logs/group-by/',
+    '/logs/context/',
+    '/logs/environments/',
 ]
+
+const TRACING_QUERY_RECOVERY_HINT = [
+    'This tracing query failed server-side. The most common cause is a query that scans too much data and times out — not a bug in your filters.',
+    '',
+    'Narrow the query and retry:',
+    '1. Shorten `dateRange` (e.g. `-1h` instead of `-1d`).',
+    '2. Add `serviceNames` — discover them with `apm-services-list` — or add a filter to `filterGroup`.',
+    '3. Start from `apm-service-health` for per-service rates and latency, then drill into one service with `apm-spans-aggregate` before you pull spans with `query-apm-spans`.',
+].join('\n')
+
+const TRACING_QUERY_URL_FRAGMENT = '/tracing/spans/'
 
 /**
  * The survey create/update endpoint returns a 5xx when a structured parameter
@@ -69,6 +83,7 @@ interface RecoveryHintInput {
     url?: string | undefined
     /** The HTTP status code, if known. */
     status?: number | undefined
+    retryAfterSeconds?: number | null
 }
 
 /**
@@ -79,13 +94,20 @@ interface RecoveryHintInput {
  * 4xx responses already carry an actionable validation detail and must not be
  * buried under a generic hint.
  */
-export function getToolRecoveryHint({ url, status }: RecoveryHintInput): string | undefined {
+export function getToolRecoveryHint({ url, status, retryAfterSeconds }: RecoveryHintInput): string | undefined {
+    if (status === 503 && retryAfterSeconds != null) {
+        return `The PostHog API is temporarily unavailable. Wait at least ${retryAfterSeconds} seconds before retrying this request.`
+    }
+
     // 4xx is recoverable agent input, already surfaced verbatim upstream.
     if (status !== undefined && status < 500) {
         return undefined
     }
     if (url && LOGS_QUERY_URL_FRAGMENTS.some((fragment) => url.includes(fragment))) {
         return LOGS_QUERY_RECOVERY_HINT
+    }
+    if (url && url.includes(TRACING_QUERY_URL_FRAGMENT)) {
+        return TRACING_QUERY_RECOVERY_HINT
     }
     if (url && SURVEY_WRITE_URL_RE.test(url)) {
         return SURVEY_WRITE_RECOVERY_HINT

@@ -27,6 +27,15 @@ class LLMJudgeConfig(BaseModel):
     """Configuration for LLM judge evaluations"""
 
     prompt: str = Field(..., min_length=1, description="Evaluation criteria prompt")
+    judge_method: Literal["llm", "decision"] | None = Field(
+        default=None, description="Judge method. Omit to keep the saved method; null restores automatic routing."
+    )
+    include_media: bool | None = Field(default=None, description="Set to false to judge text only.")
+    # Matches llm.types.ReasoningLevel; importing the llm package here would load provider SDKs at startup.
+    reasoning_level: Literal["minimal", "low", "medium", "high"] | None = Field(
+        default=None,
+        description="How much the judge model reasons before it answers. Null uses the model's default.",
+    )
 
     @field_validator("prompt")
     @classmethod
@@ -60,6 +69,7 @@ class BooleanOutputConfig(BaseModel):
     # must be reported as a fail. Defaulting to False keeps stored configs written before this field
     # reading exactly as they did, with no backfill and no default to re-supply at each read site.
     true_is_failure: bool = False
+    decision_threshold: float | None = Field(default=None, ge=0, le=1, strict=True, allow_inf_nan=False)
 
 
 class NumericPassingRule(BaseModel):

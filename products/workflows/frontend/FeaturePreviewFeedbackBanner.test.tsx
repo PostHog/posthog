@@ -24,7 +24,7 @@ const renderBanner = (dismissKey = 'test-banner'): void => {
             surface="broadcasts"
             dismissKey={dismissKey}
             prompt="Is this doing what you need?"
-            modalTitle="Help shape it"
+            feedbackTitle="Help shape it"
             feedbackPlaceholder="What would you change?"
             data-attr="test-banner"
         />
@@ -44,7 +44,7 @@ describe('FeaturePreviewFeedbackBanner', () => {
     })
 
     it('records the rating against the survey as soon as a thumb is clicked', () => {
-        // Someone who rates and never opens the modal still has to count, so the rating cannot wait
+        // Someone who rates and never writes a note still has to count, so the rating cannot wait
         // for the written feedback.
         renderBanner()
         fireEvent.click(screen.getByTestId('test-banner-thumbs-up'))

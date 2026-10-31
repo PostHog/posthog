@@ -198,6 +198,13 @@ def _payment_rows(row: dict[str, Any]) -> list[dict[str, Any]]:
     return rows
 
 
+def _fanout_chain(name: str) -> list[str]:
+    chain = [name]
+    while (fanout := PARENT_ENDPOINTS[chain[0]].fanout) is not None:
+        chain.insert(0, fanout.parent_name)
+    return chain
+
+
 def _fanout_resource(
     name: str,
     client: ClientConfig,
@@ -206,36 +213,48 @@ def _fanout_resource(
     checkpoint: Callable[[dict[str, Any] | None], None],
     initial_state: dict[str, Any] | None,
 ) -> Resource:
-    config = ENDPOINTS[name]
-    fanout = config.fanout
+    resources: list[str | EndpointResource] = []
+    for level in _fanout_chain(name):
+        config = PARENT_ENDPOINTS[level]
+        fanout = config.fanout
+        if fanout is None:
+            parent = _resource(level, _endpoint(config))
+            if level == "jobs":
+                # Job date windows must also apply to the parent walk, or child tables hit the same offset cap.
+                parent["data_iterator"] = lambda: _job_pages(client, inputs)
+            resources.append(parent)
+            continue
+        endpoint = _endpoint(
+            config,
+            {
+                **(params if level == name else {}),
+                **fanout.child_params,
+                fanout.resolve_param: {
+                    "type": "resolve",
+                    "resource": fanout.parent_name,
+                    "field": fanout.resolve_field,
+                },
+            },
+        )
+        # A job can have no financial record, and a listed parent can be deleted before its child is fetched.
+        endpoint["response_actions"] = [
+            *(endpoint.get("response_actions") or []),
+            {"status_code": 404, "action": "ignore"},
+        ]
+        child = _resource(level, endpoint)
+        child["include_from_parent"] = fanout.include_from_parent
+        resources.append(child)
+    fanout = ENDPOINTS[name].fanout
     assert fanout is not None
-    parent = _resource(fanout.parent_name, _endpoint(PARENT_ENDPOINTS[fanout.parent_name]))
-    if fanout.parent_name == "jobs":
-        # Job date windows must also apply to the parent walk, or child tables hit the same offset cap.
-        parent["data_iterator"] = lambda: _job_pages(client, inputs)
-    child_endpoint = _endpoint(
-        config,
-        {
-            **params,
-            fanout.resolve_param: {"type": "resolve", "resource": fanout.parent_name, "field": fanout.resolve_field},
-        },
-    )
-    # A job can have no financial record, and a listed parent can be deleted before its child is fetched.
-    child_endpoint["response_actions"] = [
-        *(child_endpoint.get("response_actions") or []),
-        {"status_code": 404, "action": "ignore"},
-    ]
-    child = _resource(name, child_endpoint)
-    child["include_from_parent"] = fanout.include_from_parent
-    resources = rest_api_resources(
-        {"client": client, "resources": [parent, child]},
+    built = rest_api_resources(
+        {"client": client, "resources": resources},
         inputs.team_id,
         inputs.job_id,
         None,
         resume_hook=checkpoint,
         initial_paginator_state=initial_state,
     )
-    resource = next(r for r in resources if r.name == name)
+    resource = next(r for r in built if r.name == name)
     resource.add_map(rename_parent_fields(fanout.parent_name, fanout.parent_field_renames))
     return resource.add_map(_payment_rows) if name == "payments" else resource
 
@@ -310,6 +329,12 @@ def acculynx_source(
     )
 
 
+def _bind_path(path: str, bindings: dict[str, str]) -> str:
+    for param, value in bindings.items():
+        path = path.replace("{" + param + "}", value)
+    return path
+
+
 def validate_credentials(
     api_key: str,
     api_version: str,
@@ -330,20 +355,27 @@ def validate_credentials(
         path = config.path
         params: dict[str, Any] = {**config.params, "pageSize": 1}
         if config.fanout:
-            parent = PARENT_ENDPOINTS[config.fanout.parent_name]
-            parents = next(
-                client.paginate(
-                    path=parent.path,
-                    params={"pageSize": 1},
-                    paginator=SinglePagePaginator(),
-                    data_selector="items",
-                    data_selector_required=True,
-                ),
-                [],
-            )
-            if not parents:
-                return True, None
-            path = path.replace("{" + config.fanout.resolve_param + "}", parents[0][config.fanout.resolve_field])
+            # Bind each level's path parameters from the first row of the level above it.
+            bindings: dict[str, str] = {}
+            chain = _fanout_chain(schema_name or "jobs")
+            for parent_name, child_name in zip(chain, chain[1:]):
+                parent = PARENT_ENDPOINTS[parent_name]
+                child_fanout = PARENT_ENDPOINTS[child_name].fanout
+                assert child_fanout is not None
+                parents = next(
+                    client.paginate(
+                        path=_bind_path(parent.path, bindings),
+                        params={"pageSize": 1},
+                        paginator=SinglePagePaginator(),
+                        data_selector=parent.data_selector,
+                        data_selector_required=True,
+                    ),
+                    [],
+                )
+                if not parents:
+                    return True, None
+                bindings[child_fanout.resolve_param] = parents[0][child_fanout.resolve_field]
+            path = _bind_path(path, bindings)
         if schema_name == "calendar_appointments":
             params.update(
                 startDate=appointments.start.isoformat(),

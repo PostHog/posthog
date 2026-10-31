@@ -1,4 +1,5 @@
 import uuid
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -8,7 +9,12 @@ from temporalio.exceptions import CancelledError
 from posthog.models import Organization, Team
 
 from products.data_warehouse.backend.logic.external_data_source.jobs import update_external_job_status
-from products.warehouse_sources.backend.facade.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
+from products.warehouse_sources.backend.facade.models import (
+    WORKER_RESTART_ERROR_MESSAGE,
+    ExternalDataJob,
+    ExternalDataSchema,
+    ExternalDataSource,
+)
 from products.warehouse_sources.backend.facade.pipelines import LOCK_TAKEOVER_LATEST_ERROR
 from products.warehouse_sources.backend.facade.types import (
     ExternalDataJobPipelineVersion,
@@ -424,17 +430,114 @@ class TestUpdateExternalJobStatus:
         assert schema.status == ExternalDataSchemaStatus.COMPLETED
         assert schema.latest_error is None
 
+    @staticmethod
+    def _finalize(team, job, status, **kwargs):
+        with patch("products.data_warehouse.backend.logic.external_data_source.jobs.emit_data_import_app_metrics"):
+            return update_external_job_status(
+                job_id=str(job.id),
+                team_id=team.pk,
+                status=status,
+                logger=MagicMock(),
+                latest_error="boom" if status == ExternalDataJobStatus.FAILED else None,
+                **kwargs,
+            )
+
+    def test_first_failed_write_starts_the_failure_streak(self):
+        team, _source, schema, job = _create_org_team_source_schema_job()
+        assert schema.failed_runs_in_a_row == 0
+
+        before = datetime.now(UTC)
+        self._finalize(team, job, ExternalDataJobStatus.FAILED)
+
+        schema = ExternalDataSchema.objects.get(id=schema.id)
+        assert schema.failed_runs_in_a_row == 1
+        last_failed_at = schema.failure_streak_last_failed_at
+        assert last_failed_at is not None
+        assert last_failed_at.tzinfo is not None
+        assert before - timedelta(seconds=1) <= last_failed_at <= datetime.now(UTC) + timedelta(seconds=1)
+
+    @pytest.mark.parametrize(
+        "halting_marker",
+        [
+            {"cdc_broken": {"reason": "slot_missing", "at": "2026-06-29T10:40:00+00:00"}},
+            {"cdc_extraction_paused": {"reason": "auth_failed", "at": "2026-06-29T10:40:00+00:00"}},
+        ],
+    )
+    def test_a_failed_run_of_a_cdc_halted_schema_still_moves_the_streak(self, halting_marker):
+        team, _source, schema, job = _create_org_team_source_schema_job()
+        schema.sync_type_config = {
+            **halting_marker,
+            "failure_streak": {"runs": 4, "last_failed_at": datetime.now(UTC).isoformat()},
+        }
+        schema.status = ExternalDataSchemaStatus.FAILED
+        schema.latest_error = "The replication slot no longer exists on the source database."
+        schema.save()
+
+        self._finalize(team, job, ExternalDataJobStatus.FAILED)
+
+        schema = ExternalDataSchema.objects.get(id=schema.id)
+        assert schema.failed_runs_in_a_row == 5
+        assert schema.cdc_halted
+        assert schema.status == ExternalDataSchemaStatus.FAILED
+        assert schema.latest_error == "The replication slot no longer exists on the source database."
+
+    def test_a_repeated_failed_write_for_the_same_job_does_not_count_again(self):
+        team, _source, schema, job = _create_org_team_source_schema_job()
+        schema.sync_type_config = {"failure_streak": {"runs": 2, "last_failed_at": datetime.now(UTC).isoformat()}}
+        schema.save()
+
+        self._finalize(team, job, ExternalDataJobStatus.FAILED)
+        self._finalize(team, job, ExternalDataJobStatus.FAILED)
+        self._finalize(team, job, ExternalDataJobStatus.FAILED)
+
+        assert ExternalDataSchema.objects.get(id=schema.id).failed_runs_in_a_row == 3
+
+    def test_a_completed_write_clears_the_failure_streak(self):
+        team, _source, schema, job = _create_org_team_source_schema_job()
+        schema.sync_type_config = {
+            "other": "kept",
+            "failure_streak": {"runs": 7, "last_failed_at": datetime.now(UTC).isoformat()},
+        }
+        schema.save()
+
+        self._finalize(team, job, ExternalDataJobStatus.COMPLETED)
+
+        schema = ExternalDataSchema.objects.get(id=schema.id)
+        assert schema.failed_runs_in_a_row == 0
+        assert schema.failure_streak_last_failed_at is None
+        assert schema.sync_type_config == {"other": "kept"}
+
+    @pytest.mark.parametrize(
+        "status,counts_as_source_failure",
+        [
+            (ExternalDataJobStatus.FAILED, False),
+            (ExternalDataJobStatus.BILLING_LIMIT_REACHED, True),
+            (ExternalDataJobStatus.BILLING_LIMIT_TOO_LOW, True),
+        ],
+    )
+    def test_runs_that_say_nothing_about_the_source_leave_the_streak_alone(self, status, counts_as_source_failure):
+        team, _source, schema, job = _create_org_team_source_schema_job()
+        last_failed_at = (datetime.now(UTC) - timedelta(hours=2)).isoformat()
+        schema.sync_type_config = {"failure_streak": {"runs": 7, "last_failed_at": last_failed_at}}
+        schema.save()
+
+        self._finalize(team, job, status, counts_as_source_failure=counts_as_source_failure)
+
+        schema = ExternalDataSchema.objects.get(id=schema.id)
+        assert schema.sync_type_config == {"failure_streak": {"runs": 7, "last_failed_at": last_failed_at}}
+
 
 class TestFinalizeQueueSweep:
     @pytest.mark.parametrize(
-        "status",
+        "status,latest_error",
         [
-            ExternalDataJobStatus.FAILED,
-            ExternalDataJobStatus.BILLING_LIMIT_REACHED,
-            ExternalDataJobStatus.BILLING_LIMIT_TOO_LOW,
+            (ExternalDataJobStatus.FAILED, "boom"),
+            (ExternalDataJobStatus.FAILED, "Sync cancelled by user"),
+            (ExternalDataJobStatus.BILLING_LIMIT_REACHED, "boom"),
+            (ExternalDataJobStatus.BILLING_LIMIT_TOO_LOW, "boom"),
         ],
     )
-    def test_v3_risky_terminal_sweeps_queue_batches(self, status, django_capture_on_commit_callbacks):
+    def test_v3_risky_terminal_sweeps_queue_batches(self, status, latest_error, django_capture_on_commit_callbacks):
         # Any non-Completed terminal can leave enqueued batches behind; the sweep must fire
         # after commit or the batches stay claimable until the retention prune.
         team, _source, _schema, job = _create_org_team_source_schema_job(
@@ -456,26 +559,29 @@ class TestFinalizeQueueSweep:
                 team_id=team.pk,
                 status=status,
                 logger=MagicMock(),
-                latest_error="boom",
+                latest_error=latest_error,
             )
 
         mock_sweep.assert_called_once()
         assert mock_sweep.call_args.kwargs["job_id"] == str(job.id)
 
     @pytest.mark.parametrize(
-        "pipeline_version,status",
+        "pipeline_version,status,latest_error",
         [
             # A normally-completed v3 run has drained its queue by construction; the fleet's
             # hottest status write must not gain a cross-DB call.
-            (ExternalDataJobPipelineVersion.V3, ExternalDataJobStatus.COMPLETED),
+            (ExternalDataJobPipelineVersion.V3, ExternalDataJobStatus.COMPLETED, None),
+            # The next job continues the cursor of a run that worker restarts stopped, so the loader
+            # has to drain what that run queued.
+            (ExternalDataJobPipelineVersion.V3, ExternalDataJobStatus.FAILED, WORKER_RESTART_ERROR_MESSAGE),
             # v1/v2 have no batch queue at all.
-            (ExternalDataJobPipelineVersion.V2, ExternalDataJobStatus.FAILED),
-            (ExternalDataJobPipelineVersion.V1, ExternalDataJobStatus.FAILED),
-            (None, ExternalDataJobStatus.FAILED),
+            (ExternalDataJobPipelineVersion.V2, ExternalDataJobStatus.FAILED, "boom"),
+            (ExternalDataJobPipelineVersion.V1, ExternalDataJobStatus.FAILED, "boom"),
+            (None, ExternalDataJobStatus.FAILED, "boom"),
         ],
     )
     def test_no_queue_sweep_for_normal_completion_or_non_v3(
-        self, pipeline_version, status, django_capture_on_commit_callbacks
+        self, pipeline_version, status, latest_error, django_capture_on_commit_callbacks
     ):
         team, _source, _schema, job = _create_org_team_source_schema_job(pipeline_version=pipeline_version)
 
@@ -494,7 +600,7 @@ class TestFinalizeQueueSweep:
                 team_id=team.pk,
                 status=status,
                 logger=MagicMock(),
-                latest_error="boom" if status == ExternalDataJobStatus.FAILED else None,
+                latest_error=latest_error,
             )
 
         mock_sweep.assert_not_called()

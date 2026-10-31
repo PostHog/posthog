@@ -19,6 +19,8 @@ class YnabEndpoint:
     default_incremental_field: str | None = None
     page_size: int = 0
     fanout: DependentEndpointConfig | None = None
+    # Emits one row per category in each month of the plan export's `months`.
+    categories_by_month: bool = False
 
 
 PLAN_FANOUT = DependentEndpointConfig(
@@ -61,6 +63,30 @@ ENDPOINTS: dict[str, YnabEndpoint] = {
         data_selector="data.months",
         primary_keys=("plan_id", "month"),
         partition_key="month",
+        fanout=PLAN_FANOUT,
+    ),
+    "month_categories": YnabEndpoint(
+        name="month_categories",
+        # The plan export carries every month's categories in one request. A request per month
+        # spends YNAB's hourly per-token limit on a plan with a few years of history.
+        path="plans/{plan_id}",
+        data_selector="data.plan.months",
+        primary_keys=("plan_id", "month", "id"),
+        partition_key="month",
+        categories_by_month=True,
+        fanout=PLAN_FANOUT,
+    ),
+    "money_movements": YnabEndpoint(
+        name="money_movements",
+        path="plans/{plan_id}/money_movements",
+        data_selector="data.money_movements",
+        fanout=PLAN_FANOUT,
+    ),
+    "money_movement_groups": YnabEndpoint(
+        name="money_movement_groups",
+        path="plans/{plan_id}/money_movement_groups",
+        data_selector="data.money_movement_groups",
+        partition_key="group_created_at",
         fanout=PLAN_FANOUT,
     ),
     "transactions": YnabEndpoint(

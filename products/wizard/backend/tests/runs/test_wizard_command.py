@@ -12,7 +12,7 @@ from products.wizard.backend.logic.workers.commands import build_wizard_command
 
 
 class CommandSnapshotExtension(SingleFileSnapshotExtension):
-    _file_extension = "txt"
+    file_extension = "txt"
     _write_mode = WriteMode.TEXT
 
 

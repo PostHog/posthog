@@ -132,16 +132,16 @@ It stores the set of person condition hashes that currently match, plus:
 
 - a **properties fingerprint**, a digest of the raw `person_properties` string last evaluated,
 - a **catalog fingerprint**, a digest of the team's distinct person condition hashes when last evaluated,
-- a **stamp**, the event time and firehose offset of the newest event applied.
+- a **stamp**, the event time and source offset of the newest event applied.
 
 For each event with person properties, the worker makes one of four decisions.
 
-| Decision        | When                                                                                          | What happens                                                                                                                                        |
-| --------------- | --------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Replay          | The record's replay mark for the event's firehose partition is at or above the event's offset | Nothing                                                                                                                                             |
-| Stale           | The event is not newer than the stamp, comparing event time and then firehose offset          | Record the event as seen. Membership does not change                                                                                                |
-| Skip evaluation | Both fingerprints match the record                                                            | Adopt the new stamp. No HogVM runs                                                                                                                  |
-| Evaluate        | Either fingerprint changed, or there is no record                                             | Parse the properties, run every person condition of the team, diff against the stored set, and emit a transition for each hash that entered or left |
+| Decision        | When                                                                                        | What happens                                                                                                                                        |
+| --------------- | ------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Replay          | The record's replay mark for the event's source partition is at or above the event's offset | Nothing                                                                                                                                             |
+| Stale           | The event is not newer than the stamp, comparing event time and then source offset          | Record the event as seen. Membership does not change                                                                                                |
+| Skip evaluation | Both fingerprints match the record                                                          | Adopt the new stamp. No HogVM runs                                                                                                                  |
+| Evaluate        | Either fingerprint changed, or there is no record                                           | Parse the properties, run every person condition of the team, diff against the stored set, and emit a transition for each hash that entered or left |
 
 Most events run no person condition, because they are either stale or have unchanged fingerprints.
 When something does change, the worker evaluates the team's whole set of person conditions, not only the ones touching the changed key.
@@ -161,15 +161,17 @@ Reconcile and backfill clean up membership for cohorts whose definitions changed
 
 Events arrive at least once.
 A crash, a rebalance or a shuffler retry can deliver the same event twice.
-Counting it twice would corrupt a daily counter, so every behavioral row and every person record keeps **replay marks**: for each partition of the ingestion topic the shuffler reads, called the firehose in [event routing](event-routing.md), the highest offset folded into this row.
-An event whose offset is at or below the mark for its firehose partition is a replay and changes nothing.
+Counting it twice would corrupt a daily counter, so every behavioral row and every person record keeps **replay marks**: for each source partition, the highest offset folded into this row.
+A source partition is one partition of a topic a shuffler reads, named by the envelope's `source_partition`.
+Each topic writes its partitions into its own range of numbers ([event routing](event-routing.md#running-a-shuffler-on-another-topic)), so a mark from one topic never decides a replay on another.
+An event whose offset is at or below the mark for its source partition is a replay and changes nothing.
 
 The marks are per row, not global.
 Two leaves of the same person each know independently which events they already counted.
 Rows that absorbed a merged person also keep that person's marks under the merged-away person's id, so a late event for the merged-away person is still recognized.
 
-This check relies on one ordering property: events from one firehose partition for one person reach the processor in offset order.
-If that breaks, an event that arrives after a higher offset from its firehose partition is dropped as a replay.
+This check relies on one ordering property: events from one source partition for one person reach the processor in offset order.
+If that breaks, an event that arrives after a higher offset from its source partition is dropped as a replay.
 The marks also live inside their row, so when the sweep deletes a row, a redelivered old event is folded again.
 
 ## Stage 2: composing cohorts

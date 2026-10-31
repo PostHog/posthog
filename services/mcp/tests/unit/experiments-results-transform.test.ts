@@ -11,7 +11,7 @@
  *  - inline and shared metrics are merged into one ordered result stream,
  *    with `source` tagged so callers can tell them apart
  *  - row order follows `*_metrics_ordered_uuids` (the canonical UI ordering)
- *  - UI-only bulk fields (`clickhouse_sql`, `hogql`, `insight`, and
+ *  - UI-only bulk fields (`clickhouse_sql`, `hogql`, and
  *    `step_sessions` — including the copies inside each `breakdown_results`
  *    entry) are stripped from each row's `data`, while statistical fields
  *    (including per-breakdown stats) are preserved
@@ -90,6 +90,7 @@ describe('transformExperimentResults', () => {
 
     it('reads variants from the linked flag', () => {
         const experiment = makeExperiment({
+            parameters: { variant_screenshot_media_ids: { control: 'legacy-media' } },
             feature_flag: {
                 id: 9,
                 key: 'k',
@@ -112,6 +113,7 @@ describe('transformExperimentResults', () => {
     })
 
     it('treats inline and shared metrics as one ordered surface and tags the source on each', () => {
+        const sharedQuery = { uuid: 'shared-1', name: 'Shared query', metric_type: 'funnel', goal: 'increase' }
         const experiment = makeExperiment({
             metrics: [],
             metrics_secondary: [{ uuid: 'inline-1', name: 'Inline secondary', metric_type: 'mean' }],
@@ -120,7 +122,8 @@ describe('transformExperimentResults', () => {
                     saved_metric: 42,
                     name: 'Shared secondary',
                     metadata: { type: 'secondary' },
-                    query: { uuid: 'shared-1', name: 'Shared query', metric_type: 'funnel', goal: 'increase' },
+                    query: sharedQuery,
+                    effective_query: sharedQuery,
                 },
             ],
             secondary_metrics_ordered_uuids: ['inline-1', 'shared-1'],
@@ -154,6 +157,10 @@ describe('transformExperimentResults', () => {
                 saved_metric_name: 'Shared secondary',
             })
         )
+        // The link keeps its query and metadata, without the effective_query that repeats them.
+        expect(result.experiment.saved_metrics).toEqual([
+            { saved_metric: 42, name: 'Shared secondary', metadata: { type: 'secondary' }, query: sharedQuery },
+        ])
     })
 
     it("uses the saved metric's UI label as `name` on shared rows (not the inner query.name)", () => {
@@ -176,50 +183,55 @@ describe('transformExperimentResults', () => {
         expect(entry?.summary.saved_metric_name).toBe('Activation funnel (revenue impact)')
     })
 
+    const savedFunnel = {
+        uuid: 'shared-funnel',
+        metric_type: 'funnel',
+        breakdownAttributionType: 'step',
+        breakdownAttributionValue: 2,
+        breakdownFilter: { breakdown_limit: 5, breakdowns: [{ property: '$os', type: 'event' }] },
+    }
+    const linkWithBreakdowns = {
+        type: 'primary',
+        breakdowns: [{ property: '$browser', type: 'event' }],
+        breakdown_limit: 20,
+        breakdownAttributionType: 'last_touch',
+    }
+    const effectiveFunnel = {
+        uuid: 'shared-funnel',
+        metric_type: 'funnel',
+        breakdownAttributionType: 'last_touch',
+        breakdownFilter: { breakdown_limit: 20, breakdowns: [{ property: '$browser', type: 'event' }] },
+    }
+
     it.each([
         [
-            'applies the link breakdowns, limit and attribution',
-            {
-                type: 'primary',
-                breakdowns: [{ property: '$browser', type: 'event' }],
-                breakdown_limit: 20,
-                breakdownAttributionType: 'last_touch',
-            },
-            { breakdownAttributionType: 'last_touch' },
-            { breakdown_limit: 20, breakdowns: [{ property: '$browser', type: 'event' }] },
+            'the effective query the API resolved',
+            { metadata: linkWithBreakdowns, effective_query: { ...effectiveFunnel, fingerprint: 'served' } },
+            { ...effectiveFunnel, fingerprint: 'served' },
         ],
         [
-            'ignores the limit and attribution of a link without breakdowns',
-            { type: 'primary', breakdown_limit: 20, breakdownAttributionType: 'last_touch' },
-            { breakdownAttributionType: 'step', breakdownAttributionValue: 2 },
-            { breakdown_limit: 5, breakdowns: [] },
+            'the saved query of a legacy shared metric',
+            { metadata: linkWithBreakdowns, effective_query: null },
+            savedFunnel,
         ],
-    ])('queries a shared metric as the experiment page does: %s', (_name, metadata, attribution, breakdownFilter) => {
+        [
+            'the link breakdowns, limit and attribution when the API predates effective_query',
+            { metadata: linkWithBreakdowns },
+            effectiveFunnel,
+        ],
+        [
+            'no link limit or attribution without link breakdowns when the API predates effective_query',
+            { metadata: { type: 'primary', breakdown_limit: 20, breakdownAttributionType: 'last_touch' } },
+            { ...savedFunnel, breakdownFilter: { breakdown_limit: 5, breakdowns: [] } },
+        ],
+    ])('queries a shared metric with %s', (_name, link, expectedMetric) => {
         const experiment = makeExperiment({
-            saved_metrics: [
-                {
-                    saved_metric: 1,
-                    name: 'Shared funnel',
-                    metadata,
-                    query: {
-                        uuid: 'shared-funnel',
-                        metric_type: 'funnel',
-                        breakdownAttributionType: 'step',
-                        breakdownAttributionValue: 2,
-                        breakdownFilter: { breakdown_limit: 5, breakdowns: [{ property: '$os', type: 'event' }] },
-                    },
-                },
-            ],
+            saved_metrics: [{ saved_metric: 1, name: 'Shared funnel', query: savedFunnel, ...link }],
         })
 
         const [entry] = buildMetricEntries(experiment, 'primary')
 
-        expect(entry?.metric).toEqual({
-            uuid: 'shared-funnel',
-            metric_type: 'funnel',
-            ...attribution,
-            breakdownFilter,
-        })
+        expect(entry?.metric).toEqual(expectedMetric)
     })
 
     it('orders result rows by *_metrics_ordered_uuids (the canonical UI ordering)', () => {
@@ -383,33 +395,6 @@ describe('transformExperimentResults', () => {
         const variants = data.variant_results as Array<Record<string, unknown>>
         expect(variants[0]?.step_sessions).toBeUndefined()
         expect(variants[0]?.sum).toBe(95)
-    })
-
-    it('strips the legacy `insight` visualization payload from each row', () => {
-        // `insight` is a rendered visualization payload (list[dict[str, Any]]) used by
-        // legacy trends/funnels charts
-        const experiment = makeExperiment({
-            metrics: [{ uuid: 'p-1', name: 'Primary', metric_type: 'mean' }],
-            primary_metrics_ordered_uuids: ['p-1'],
-        })
-
-        const result = transformExperimentResults({
-            experiment,
-            exposures: baseExposures,
-            primaryMetricEntries: buildMetricEntries(experiment, 'primary'),
-            secondaryMetricEntries: [],
-            primaryMetricsResults: [
-                {
-                    baseline: { key: 'control', sum: 100, sum_squares: 100 },
-                    insight: [{ breakdown_value: 'control', data: [1, 2, 3] }],
-                },
-            ],
-            secondaryMetricsResults: [],
-        })
-
-        const data = result.metrics.primary.results[0]?.data as Record<string, unknown>
-        expect(data.insight).toBeUndefined()
-        expect((data.baseline as Record<string, unknown>).sum).toBe(100)
     })
 
     it('strips step_sessions from inside breakdown_results entries while preserving per-breakdown stats', () => {

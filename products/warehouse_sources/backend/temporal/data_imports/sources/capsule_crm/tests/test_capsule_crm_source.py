@@ -2,8 +2,11 @@ from typing import Any
 
 from unittest import mock
 
-from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.capsule_crm.source import CapsuleCRMSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.capsulecrm import (
     CapsuleCRMSourceConfig,
 )
@@ -14,23 +17,6 @@ class TestCapsuleCRMSource:
         self.source = CapsuleCRMSource()
         self.config = CapsuleCRMSourceConfig(access_token="tok")
         self.team_id = 123
-
-    def test_source_config_basics(self) -> None:
-        config = self.source.get_source_config
-        assert config.label == "Capsule CRM"
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/capsule-crm"
-        field_names = [f.name for f in config.fields]
-        assert field_names == ["access_token"]
-        field = config.fields[0]
-        assert isinstance(field, SourceFieldInputConfig)
-        # The token is a secret so it must render as a password input.
-        assert field.type == "password"
-        assert field.required is True
-
-    def test_lists_tables_without_credentials(self) -> None:
-        # get_schemas is a static catalog with no I/O, so the public docs catalog can render.
-        assert self.source.lists_tables_without_credentials is True
-        assert len(self.source.get_documented_tables()) == len(self.source.get_schemas(self.config, self.team_id))
 
     def test_validate_credentials_success(self) -> None:
         with mock.patch(
@@ -70,18 +56,13 @@ class TestCapsuleCRMSource:
         assert captured["db_incremental_field_last_value"] == "2026-01-01T00:00:00Z"
 
     def test_source_for_pipeline_drops_watermark_when_not_incremental(self) -> None:
-        inputs = mock.MagicMock()
-        inputs.schema_name = "tasks"
-        inputs.should_use_incremental_field = False
-        inputs.db_incremental_field_last_value = "2026-01-01T00:00:00Z"
-
-        captured: dict[str, Any] = {}
-
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.capsule_crm.source.capsule_crm_source",
-            side_effect=lambda **kwargs: captured.update(kwargs),
-        ):
-            self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
+        result = SourceDriver(self.source, self.config).run(
+            "parties",
+            [ScriptedResponse(json={"parties": []})],
+            should_use_incremental_field=False,
+            db_incremental_field_last_value="2026-01-01T00:00:00Z",
+        )
 
         # A non-incremental run must not pass a stale watermark through as a `since` filter.
-        assert captured["db_incremental_field_last_value"] is None
+        assert result.raised is None
+        assert result.requests[0].param("since") is None

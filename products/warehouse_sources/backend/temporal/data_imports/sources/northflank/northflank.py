@@ -4,12 +4,23 @@ from urllib.parse import urlencode
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import RetryCallState, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 from urllib3.util.retry import Retry
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from posthog.dataclasses import frozen
+
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.safe_point import reach_safe_point
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.northflank.settings import NORTHFLANK_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.northflank.settings import (
+    FAN_OUT_PARENTS,
+    NORTHFLANK_ENDPOINTS,
+    NorthflankEndpointConfig,
+)
 
 NORTHFLANK_BASE_URL = "https://api.northflank.com"
 REQUEST_TIMEOUT_SECONDS = 60
@@ -22,6 +33,17 @@ MAX_PROJECT_PAGES = 500
 MAX_CHILD_PAGES_PER_PROJECT = 500
 # The API asks us to wait via rate-limit headers on a 429; clamp anything absurd.
 MAX_RATE_LIMIT_SLEEP_SECONDS = 120
+
+
+@frozen
+class NorthflankResumeConfig:
+    # Next page of the list in progress. None means that list is done.
+    cursor: str | None = None
+    # Fan-out position. `parent_id` is set only for endpoints that fan out over a second level, and
+    # `stage` only for endpoints queried once per pipeline stage.
+    project_id: str | None = None
+    parent_id: str | None = None
+    stage: str | None = None
 
 
 class NorthflankRetryableError(Exception):
@@ -128,7 +150,7 @@ def _make_fetch_page(api_token: str, logger: FilteringBoundLogger) -> FetchPageF
     # bypassing this connector's capped rate-limit backoff.
     session = make_tracked_session(retry=Retry(total=0), redact_values=(api_token,))
 
-    @retry(
+    @retry_with_deadline(
         retry=retry_if_exception_type((NorthflankRetryableError, requests.ReadTimeout, requests.ConnectionError)),
         stop=stop_after_attempt(MAX_RETRIES),
         wait=_retry_wait,
@@ -150,7 +172,8 @@ def _make_fetch_page(api_token: str, logger: FilteringBoundLogger) -> FetchPageF
             )
 
         if not response.ok:
-            logger.error(f"Northflank API error: status={response.status_code}, body={response.text}, url={url}")
+            if response.status_code != 404:
+                logger.error(f"Northflank API error: status={response.status_code}, body={response.text}, url={url}")
             response.raise_for_status()
 
         return response.json()
@@ -165,56 +188,116 @@ def _iter_pages(
     max_pages: int,
     resource: str,
     data_key: str,
+    params: dict[str, Any] | None = None,
+    page_size_param: str = "per_page",
+    paginated: bool = True,
+    start_cursor: str | None = None,
+    checkpoint: Callable[[str | None], None] | None = None,
+    not_found_is_empty: bool = False,
 ) -> Iterator[list[dict[str, Any]]]:
-    """Yield each page's rows for a cursor-paginated list endpoint."""
-    cursor: str | None = None
+    """Yield each page's rows for a cursor-paginated list endpoint.
+
+    `checkpoint` receives the cursor of the next page (None after the last page) before the page's
+    rows are yielded.
+    """
+    cursor = start_cursor
     pages_fetched = 0
 
     while True:
-        params = {"per_page": PAGE_SIZE, "cursor": cursor}
-        body = fetch_page(_build_url(path, params))
+        page_params = dict(params or {})
+        if paginated:
+            page_params.update({page_size_param: PAGE_SIZE, "cursor": cursor})
+        try:
+            body = fetch_page(_build_url(path, page_params))
+        except requests.HTTPError as e:
+            if not (not_found_is_empty and e.response is not None and e.response.status_code == 404):
+                raise
+            body = {}
         pages_fetched += 1
 
         rows = _extract_rows(body, data_key)
-        if rows:
-            yield rows
-
-        cursor = _next_cursor(body)
-        if not cursor:
-            return
-
-        if pages_fetched >= max_pages:
+        next_cursor = _next_cursor(body) if paginated else None
+        if next_cursor and pages_fetched >= max_pages:
             logger.warning(
                 f"Northflank: page cap reached for {resource}, stopping pagination. max_pages={max_pages}, path={path}"
             )
+            next_cursor = None
+
+        if checkpoint:
+            checkpoint(next_cursor)
+        if rows:
+            yield rows
+        else:
+            # Fan-out over parents with no children can otherwise make long runs of empty requests.
+            reach_safe_point()
+
+        if not next_cursor:
             return
+        cursor = next_cursor
 
 
-def _iter_project_ids(fetch_page: FetchPageFn, logger: FilteringBoundLogger) -> Iterator[str]:
-    for projects in _iter_pages(
-        fetch_page, "/v1/projects", logger, max_pages=MAX_PROJECT_PAGES, resource="projects", data_key="projects"
-    ):
-        for project in projects:
-            project_id = project.get("id")
-            if not project_id:
-                # A project without an id would silently drop all of its nested resources
-                # (services, jobs, addons, volumes), leaving a partial import. Fail loudly instead.
-                raise ValueError(f"Northflank: project is missing a required 'id' field: {project!r}")
-            yield project_id
+def _iter_ids(pages: Iterator[list[dict[str, Any]]], resource: str) -> Iterator[tuple[str, dict[str, Any]]]:
+    for page in pages:
+        for row in page:
+            row_id = row.get("id")
+            if not row_id:
+                # A parent without an id would silently drop all of its nested resources, leaving a
+                # partial import. Fail loudly instead.
+                raise ValueError(f"Northflank: {resource} is missing a required 'id' field: {row!r}")
+            yield row_id, row
+
+
+def _skip_to(
+    ids: Iterator[tuple[str, dict[str, Any]]], target: str | None, logger: FilteringBoundLogger, resource: str
+) -> Iterator[tuple[str, dict[str, Any]]]:
+    """Drop ids before `target`, the position a resumed run continues from."""
+    if target is None:
+        yield from ids
+        return
+    found = False
+    for row_id, row in ids:
+        if not found and row_id != target:
+            continue
+        found = True
+        yield row_id, row
+    if not found:
+        logger.warning(f"Northflank: resume position {resource} {target} no longer exists, nothing left to sync")
 
 
 def get_rows(
     api_token: str,
     endpoint: str,
     logger: FilteringBoundLogger,
+    incremental_start: Optional[int] = None,
+    resumable_source_manager: Optional[ResumableSourceManager[NorthflankResumeConfig]] = None,
 ) -> Iterator[list[dict[str, Any]]]:
     if endpoint not in NORTHFLANK_ENDPOINTS:
         raise ValueError(f"Unknown Northflank endpoint: {endpoint}")
 
     config = NORTHFLANK_ENDPOINTS[endpoint]
     fetch_page = _make_fetch_page(api_token, logger)
+    manager = resumable_source_manager
+    resume = manager.load_state() if manager is not None and manager.can_resume() else None
+
+    def checkpoint_at(
+        project_id: str | None = None, parent_id: str | None = None, stage: str | None = None
+    ) -> Callable[[str | None], None]:
+        def checkpoint(next_cursor: str | None) -> None:
+            if manager is not None:
+                manager.save_state(
+                    NorthflankResumeConfig(cursor=next_cursor, project_id=project_id, parent_id=parent_id, stage=stage)
+                )
+
+        return checkpoint
 
     if not config.fan_out_over_projects:
+        if resume is not None and resume.cursor is None:
+            return
+        params = dict(config.params)
+        if config.incremental_param:
+            # Without a start time the API does not document how far back hourly entries go, so a
+            # full refresh asks for everything since the epoch.
+            params[config.incremental_param] = incremental_start if incremental_start is not None else 0
         yield from _iter_pages(
             fetch_page,
             config.path,
@@ -222,35 +305,119 @@ def get_rows(
             max_pages=MAX_PROJECT_PAGES,
             resource=endpoint,
             data_key=config.data_key,
+            params=params,
+            page_size_param=config.page_size_param,
+            paginated=config.paginated,
+            start_cursor=resume.cursor if resume else None,
+            checkpoint=checkpoint_at(),
         )
         return
 
-    for project_id in _iter_project_ids(fetch_page, logger):
-        path = config.path.format(project_id=project_id)
-        for rows in _iter_pages(
+    projects = _iter_ids(
+        _iter_pages(
+            fetch_page, "/v1/projects", logger, max_pages=MAX_PROJECT_PAGES, resource="projects", data_key="projects"
+        ),
+        "project",
+    )
+    for project_id, _ in _skip_to(projects, resume.project_id if resume else None, logger, "project"):
+        resuming_project = resume is not None and resume.project_id == project_id
+
+        if not config.parent:
+            if resuming_project and resume is not None and resume.cursor is None:
+                continue
+            for rows in _iter_pages(
+                fetch_page,
+                config.path.format(project_id=project_id),
+                logger,
+                max_pages=MAX_CHILD_PAGES_PER_PROJECT,
+                resource=f"{endpoint} of project {project_id}",
+                data_key=config.data_key,
+                start_cursor=resume.cursor if resuming_project and resume is not None else None,
+                checkpoint=checkpoint_at(project_id),
+            ):
+                # Inject the parent project id so the composite primary key is present even on child
+                # objects that don't carry it natively (addons, volumes).
+                yield [{**row, "projectId": project_id} for row in rows]
+            continue
+
+        yield from _iter_parent_children(
+            fetch_page, config, project_id, logger, resume if resuming_project else None, checkpoint_at
+        )
+
+
+def _iter_parent_children(
+    fetch_page: FetchPageFn,
+    config: NorthflankEndpointConfig,
+    project_id: str,
+    logger: FilteringBoundLogger,
+    resume: NorthflankResumeConfig | None,
+    checkpoint_at: Callable[[str | None, str | None, str | None], Callable[[str | None], None]],
+) -> Iterator[list[dict[str, Any]]]:
+    if not config.parent or not config.parent_id_key:
+        raise ValueError(f"Northflank endpoint {config.name} has no parent to fan out over")
+    parent_config = FAN_OUT_PARENTS[config.parent]
+    parent_id_key = config.parent_id_key
+
+    parents = _iter_ids(
+        _iter_pages(
             fetch_page,
-            path,
+            parent_config.path.format(project_id=project_id),
             logger,
             max_pages=MAX_CHILD_PAGES_PER_PROJECT,
-            resource=f"{endpoint} of project {project_id}",
-            data_key=config.data_key,
-        ):
-            # Inject the parent project id so the composite primary key is present even on child
-            # objects that don't carry it natively (addons, volumes).
-            yield [{**row, "projectId": project_id} for row in rows]
+            resource=f"{config.parent} of project {project_id}",
+            data_key=parent_config.data_key,
+        ),
+        config.parent,
+    )
+    resume_parent_id = resume.parent_id if resume else None
+    all_stages: tuple[str | None, ...] = config.stages or (None,)
+    for parent_id, parent in _skip_to(parents, resume_parent_id, logger, config.parent):
+        if config.include_parent and not config.include_parent(parent):
+            continue
+        resume_in_parent = resume if resume is not None and parent_id == resume_parent_id else None
+        stages = all_stages
+        if resume_in_parent is not None and resume_in_parent.stage in all_stages:
+            stages = all_stages[all_stages.index(resume_in_parent.stage) :]
+        for stage in stages:
+            start_cursor: str | None = None
+            if resume_in_parent is not None and stage == resume_in_parent.stage:
+                if resume_in_parent.cursor is None:
+                    continue
+                start_cursor = resume_in_parent.cursor
+            stage_column = {"stage": stage} if stage is not None else {}
+            for rows in _iter_pages(
+                fetch_page,
+                config.path.format(project_id=project_id, parent_id=parent_id, stage=stage),
+                logger,
+                max_pages=MAX_CHILD_PAGES_PER_PROJECT,
+                resource=f"{config.name} of {config.parent} {parent_id} in project {project_id}",
+                data_key=config.data_key,
+                start_cursor=start_cursor,
+                checkpoint=checkpoint_at(project_id, parent_id, stage),
+                not_found_is_empty=config.not_found_is_empty,
+            ):
+                yield [{**row, "projectId": project_id, parent_id_key: parent_id, **stage_column} for row in rows]
 
 
 def northflank_source(
     api_token: str,
     endpoint: str,
     logger: FilteringBoundLogger,
+    incremental_start: Optional[int] = None,
+    resumable_source_manager: Optional[ResumableSourceManager[NorthflankResumeConfig]] = None,
 ) -> SourceResponse:
     config = NORTHFLANK_ENDPOINTS[endpoint]
     partition_key: Optional[str] = config.partition_key
 
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(api_token=api_token, endpoint=endpoint, logger=logger),
+        items=lambda: get_rows(
+            api_token=api_token,
+            endpoint=endpoint,
+            logger=logger,
+            incremental_start=incremental_start,
+            resumable_source_manager=resumable_source_manager,
+        ),
         primary_keys=config.primary_keys,
         partition_count=1,
         partition_size=1,

@@ -1,13 +1,26 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    DependentEndpointConfig,
+)
 
 
-@dataclass
+@dataclass(frozen=True)
 class WorkOSEndpointConfig:
     name: str
     path: str
     # `created_at` is set once and never changes, so it's a stable partition key.
     partition_key: str = "created_at"
     page_size: int = 100  # WorkOS max page size
+    fanout: DependentEndpointConfig | None = None
+    # Read by the shared fan-out builder. WorkOS has no server-side timestamp filter, so these stay empty.
+    incremental_fields: list[str] = field(default_factory=list)
+    default_incremental_field: str | None = None
+
+
+# Parent of the `waitlist_entries` fan-out, not a table of its own. WorkOS returns every
+# waitlist in one response and documents no `limit` param for it.
+WAITLISTS_PARENT = WorkOSEndpointConfig(name="waitlists", path="/user_management/waitlists")
 
 
 # WorkOS list endpoints share one cursor-paginated envelope
@@ -22,6 +35,18 @@ WORKOS_ENDPOINTS: dict[str, WorkOSEndpointConfig] = {
     "directories": WorkOSEndpointConfig(name="directories", path="/directories"),
     "directory_users": WorkOSEndpointConfig(name="directory_users", path="/directory_users"),
     "directory_groups": WorkOSEndpointConfig(name="directory_groups", path="/directory_groups"),
+    "waitlist_entries": WorkOSEndpointConfig(
+        name="waitlist_entries",
+        path="/user_management/waitlists/{waitlist_id}/entries",
+        fanout=DependentEndpointConfig(
+            parent_name=WAITLISTS_PARENT.name,
+            resolve_param="waitlist_id",
+            resolve_field="id",
+            # Entries already carry their own `waitlist_id`.
+            include_from_parent=[],
+            child_params={"limit": 100, "order": "desc"},
+        ),
+    ),
 }
 
 ENDPOINTS = tuple(WORKOS_ENDPOINTS.keys())

@@ -22,6 +22,7 @@ from django.utils.safestring import mark_safe
 from posthog.admin.ai_training_opt_in_history import get_ai_training_opt_in_history
 from posthog.admin.authorization import can_trigger_admin_deletion
 from posthog.admin.inline_registry import extra_inlines_for
+from posthog.admin.inlines.events_retention_config_inline import OrganizationEventsRetentionConfigInline
 from posthog.admin.inlines.organization_domain_inline import OrganizationDomainInline
 from posthog.admin.inlines.organization_invite_inline import OrganizationInviteInline
 from posthog.admin.inlines.organization_member_inline import OrganizationMemberInline
@@ -267,6 +268,7 @@ class OrganizationAdmin(admin.ModelAdmin):
         OrganizationInviteInline,
         OrganizationDomainInline,
         ProxyRecordInline,
+        OrganizationEventsRetentionConfigInline,
     ]
     readonly_fields = [
         "id",
@@ -282,7 +284,7 @@ class OrganizationAdmin(admin.ModelAdmin):
         "ai_training_opt_in_history_display",
         "trigger_deletion_display",
     ]
-    search_fields = ("name", "members__email", "team__api_token")
+    search_fields = ("id", "name", "members__email", "team__api_token")
     list_display = (
         "id",
         "name",
@@ -322,7 +324,7 @@ class OrganizationAdmin(admin.ModelAdmin):
 
     def billing_link(self, organization: Organization) -> str:
         url = f"{settings.BILLING_SERVICE_URL}/admin/billing/customer/?q={organization.pk}"
-        return format_html(f'<a href="{url}">Billing →</a>')
+        return format_html('<a href="{}">Billing →</a>', url)
 
     def usage_posthog(self, organization: Organization):
         return format_html(

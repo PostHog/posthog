@@ -57,6 +57,10 @@ class NotebookMarkdownContentInvalid(Exception):
     pass
 
 
+class NotebookContentEditNotAllowed(Exception):
+    pass
+
+
 @dataclass(frozen=True)
 class NotebookMarkdownComponent:
     tag_name: str

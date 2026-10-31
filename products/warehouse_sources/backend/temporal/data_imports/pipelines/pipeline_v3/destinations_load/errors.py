@@ -6,6 +6,8 @@ so the load consumer can match on the marker without importing any writer.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
+
 # The load consumer matches this substring to fail a run on its first attempt. Changing it
 # silently turns every configuration error back into a retried, reported failure.
 DESTINATION_CONFIGURATION_ERROR_MARKER = "Destination configuration error"
@@ -48,3 +50,12 @@ def is_configuration_failure_of(reason: str, destination_name: str) -> bool:
     """
     prefix = f"{destination_name}: {DESTINATION_CONFIGURATION_ERROR_MARKER}"
     return reason.startswith(prefix) or f": {prefix}" in reason
+
+
+def destination_named_in_failure(reason: str, destination_names: Iterable[str]) -> str | None:
+    """Return the longest destination name that matches a failure prefix."""
+    return max(
+        (name for name in destination_names if name and (reason.startswith(f"{name}: ") or f": {name}: " in reason)),
+        key=len,
+        default=None,
+    )

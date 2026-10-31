@@ -18,9 +18,9 @@ The event reached the endpoint and parsed, but isn't a valid AI event.
 
 Two causes, told apart by the details:
 
-**An unsupported event name** (`eventName` is present). The endpoint accepts only `$ai_generation`, `$ai_trace`, `$ai_span`, `$ai_embedding`, `$ai_metric`, and `$ai_feedback`. Anything else is rejected.
+**An unsupported event name** (`eventName` is present). The endpoint accepts any name that starts with `$ai_`. Anything else is rejected.
 
-If `eventName` is something like `$pageview` or a custom event, ordinary analytics is being pointed at the AI endpoint. That is usually a misconfigured host or proxy rule rather than deliberate. Send those to `/i/v0/e` or `/batch` instead. If it looks like an AI event with the wrong name (`ai_generation` without the `$`, or `$ai_completion`), fix the name at the callsite.
+If `eventName` is something like `$pageview` or a custom event, ordinary analytics is being pointed at the AI endpoint. That is usually a misconfigured host or proxy rule rather than deliberate. Send those to `/i/v0/e` or `/batch` instead. If it looks like an AI event with the wrong name (`ai_generation` without the `$`, or `$AI_generation`), fix the name at the callsite.
 
 **No usable `$ai_model`** (no `eventName` in the details). Every AI event must carry `$ai_model` as a non-empty string. A model set to `null`, a number, or an empty string is rejected the same as a missing one. This usually means the value is unset at the callsite: the variable holding the model name is empty when the provider call fails early, or the SDK wrapper wasn't given a model.
 

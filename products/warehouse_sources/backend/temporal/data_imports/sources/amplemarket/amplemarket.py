@@ -57,7 +57,7 @@ def _source_response(config: AmplemarketEndpointConfig, items: Iterable[Any]) ->
     return SourceResponse(
         name=config.name,
         items=lambda: items,
-        primary_keys=[config.primary_key],
+        primary_keys=config.primary_keys,
         sort_mode=config.sort_mode,
         partition_count=1,
         partition_size=1,
@@ -68,11 +68,11 @@ def _source_response(config: AmplemarketEndpointConfig, items: Iterable[Any]) ->
 
 
 def _fanout_source(api_key: str, endpoint: str, team_id: int, job_id: str) -> SourceResponse:
-    """Fan a per-user endpoint (tasks) out over the users list.
+    """Fan a per-parent endpoint (tasks, contacts, lead list entries) out over its parent list.
 
-    The parent users list is small and re-fetched each sync, so the fan-out is not resumable;
-    each user's task pages follow their own `_links.next.href` chain, which carries the
-    `user_id` filter forward.
+    The parent list is re-fetched each sync, so the fan-out is not resumable; each parent's
+    child pages follow their own `_links.next.href` chain, which carries the parent filter
+    forward.
     """
     config = AMPLEMARKET_ENDPOINTS[endpoint]
     assert config.fanout is not None

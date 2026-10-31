@@ -1,0 +1,22 @@
+import { useValues } from 'kea'
+
+import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
+import { NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
+
+import { NewInsightDialog } from './NewInsightDialog'
+
+/**
+ * The create dialogs an Analytics page hosts, so "New dashboard" and "New insight" open in place.
+ * `newAnalyticsLogic` falls back to the products' own pages when no host is mounted.
+ */
+export function AnalyticsCreateModals(): JSX.Element {
+    const { setAsHomeTabDashboardAfterCreation } = useValues(newDashboardLogic)
+
+    return (
+        <>
+            {/* A dashboard made for product analytics Home shows on Home, so the user stays on that page. */}
+            <NewDashboardModal redirectAfterCreation={!setAsHomeTabDashboardAfterCreation} />
+            <NewInsightDialog />
+        </>
+    )
+}

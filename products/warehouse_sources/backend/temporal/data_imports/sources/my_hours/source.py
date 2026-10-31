@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -28,12 +29,19 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.my_hours.s
     ENDPOINTS,
     INCREMENTAL_FIELDS,
     MY_HOURS_ENDPOINTS,
+    TEAM_ENDPOINTS,
+    TEAMS_PROBE_PATH,
+    TEAMS_UNAVAILABLE_ERROR,
+    TIME_LOGS_ENDPOINT,
+    TIME_LOGS_LOOKBACK_SECONDS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
 class MyHoursSource(SimpleSource[MyHoursSourceConfig]):
+    codebase_detection = detect(env=("^(MY_HOURS|MYHOURS)_",))
+
     api_docs_url = "https://documenter.getpostman.com/view/8879268/TVmV4YYU"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
@@ -48,10 +56,10 @@ class MyHoursSource(SimpleSource[MyHoursSourceConfig]):
             name=ExternalDataSourceType.MYHOURS,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="My Hours",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your My Hours API key to pull your time-tracking data into the PostHog Data warehouse.
 
-API keys are available on paid plans. Create one under **Settings → Integrations → API keys** in your [My Hours account](https://app.myhours.com/). The key is tied to the user who created it, so it stops working if that user is archived or removed. The key grants read access to your clients, projects, tags, and users.
+API keys are available on paid plans. Create one under **Settings → Integrations → API keys** in your [My Hours account](https://app.myhours.com/). The key is tied to the user who created it, so it stops working if that user is archived or removed. The key grants read access to your clients, projects, project tasks and members, tags, users, teams, and time logs. Teams are available on the Pro plan.
 """,
             iconPath="/static/services/my_hours.png",
             docsUrl="https://posthog.com/docs/cdp/sources/my-hours",
@@ -92,9 +100,26 @@ API keys are available on paid plans. Create one under **Settings → Integratio
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # Every endpoint is full refresh only — My Hours list endpoints expose no server-side
-        # timestamp filter, so there is no incremental cursor to advance (INCREMENTAL_FIELDS is empty).
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        # Only `time_logs` is incremental — the other My Hours list endpoints expose no server-side
+        # timestamp filter, so there is no incremental cursor to advance.
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            default_incremental_lookback_seconds={TIME_LOGS_ENDPOINT: TIME_LOGS_LOOKBACK_SECONDS},
+        )
+
+    def get_endpoint_permissions(
+        self, config: MyHoursSourceConfig, team_id: int, endpoints: list[str], api_version: str | None = None
+    ) -> dict[str, str | None]:
+        # Report the Pro-only team tables as unavailable, rather than letting them fail every sync.
+        if not TEAM_ENDPOINTS.intersection(endpoints):
+            return dict.fromkeys(endpoints)
+
+        status, _ = check_access(config.api_key, TEAMS_PROBE_PATH)
+        # Only a definite refusal hides the tables; an unreachable probe leaves them selectable.
+        reason = TEAMS_UNAVAILABLE_ERROR if status in (401, 403) else None
+        return {name: reason if name in TEAM_ENDPOINTS else None for name in endpoints}
 
     def validate_credentials(
         self,
@@ -120,4 +145,6 @@ API keys are available on paid plans. Create one under **Settings → Integratio
             endpoint=inputs.schema_name,
             team_id=inputs.team_id,
             job_id=inputs.job_id,
+            should_use_incremental_field=inputs.should_use_incremental_field,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value,
         )

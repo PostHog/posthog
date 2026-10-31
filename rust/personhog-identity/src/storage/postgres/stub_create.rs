@@ -1,4 +1,4 @@
-//! The stub-creation transaction: one transaction, four steps, each a
+//! The stub-creation transaction: one transaction, five steps, each a
 //! function below, called in order by [`create_person_stubs`]:
 //!
 //! 1. [`insert_or_revive_persons`] — multi-row person insert; a conflict
@@ -10,6 +10,9 @@
 //!    tombstoned mappings revive, live conflicts keep the existing row.
 //! 4. [`resolve_stub_outcomes`] — decide Committed/LostRace per stub and
 //!    undo the rows of stubs that lost their primary mapping.
+//! 5. [`enqueue_mapping_rows`] — with outbox writes on, one publish outbox
+//!    row per mapping the transaction leaves live, at the version the row
+//!    carries.
 //!
 //! Cross-cutting invariants:
 //! - Every multi-row statement binds arrays sorted by its conflict key —
@@ -19,7 +22,7 @@
 //!   second time" on same-command duplicates (the cardinality check fires
 //!   before the WHERE qual).
 //! - Rows created in this transaction are invisible outside it until commit,
-//!   so step 5 can delete them without anything referencing them.
+//!   so step 4 can delete them without anything referencing them.
 //! - Revived tombstones predate the transaction and must survive an undo:
 //!   they are re-tombstoned with another version bump, never deleted.
 
@@ -31,7 +34,7 @@ use uuid::Uuid;
 
 use personhog_common::persons::person_uuid;
 
-use crate::config::IdentityTables;
+use crate::config::{IdentityTables, OutboxWrites};
 use crate::pools::{IdentityPools, Lane};
 use crate::storage::error::StorageResult;
 use crate::storage::postgres::{person_columns, person_from_row};
@@ -56,12 +59,20 @@ struct ResolvedPerson {
 /// Persons keyed by their (team_id, uuid) conflict key.
 type PersonsByKey = HashMap<(i64, Uuid), ResolvedPerson>;
 
+/// A mapping row as this transaction left it: its owner and the version
+/// the row now carries, which the publish outbox has to repeat exactly.
+#[derive(Clone, Copy)]
+struct WrittenMapping {
+    person_id: i64,
+    version: i64,
+}
+
 /// What the multi-row distinct id insert actually wrote.
 struct MappingOutcome {
-    /// (team_id, distinct_id) → person_id for each mapping this transaction
-    /// inserted or revived. Keys that conflicted with a live mapping are
-    /// absent — the existing mapping stands.
-    written: HashMap<(i64, String), i64>,
+    /// (team_id, distinct_id) → the mapping this transaction inserted or
+    /// revived. Keys that conflicted with a live mapping are absent — the
+    /// existing mapping stands.
+    written: HashMap<(i64, String), WrittenMapping>,
     /// The subset of `written` that revived a tombstoned mapping; an undo
     /// must re-tombstone these instead of deleting them.
     revived: HashSet<(i64, String)>,
@@ -71,6 +82,7 @@ pub(super) async fn create_person_stubs(
     pools: &IdentityPools,
     tables: &IdentityTables,
     stubs: &[PersonStub],
+    outbox_writes: OutboxWrites,
 ) -> StorageResult<Vec<StubOutcome>> {
     if stubs.is_empty() {
         return Ok(Vec::new());
@@ -99,8 +111,11 @@ pub(super) async fn create_person_stubs(
     let mapping =
         insert_distinct_id_mappings(&mut tx, &tables.person_distinct_id, stubs, &uuids, &persons)
             .await?;
-    let outcomes =
+    let (outcomes, undone) =
         resolve_stub_outcomes(&mut tx, tables, stubs, &uuids, &persons, &mapping).await?;
+    if outbox_writes == OutboxWrites::Enabled {
+        enqueue_mapping_rows(&mut tx, tables, &persons, &mapping, &undone).await?;
+    }
 
     tx.commit().await?;
     Ok(outcomes)
@@ -304,7 +319,7 @@ async fn insert_distinct_id_mappings(
             version = COALESCE({pdi_table}.version, 0) + 1,
             is_deleted = false
             WHERE {pdi_table}.is_deleted = true
-        RETURNING team_id::bigint AS team_id, distinct_id, person_id,
+        RETURNING team_id::bigint AS team_id, distinct_id, person_id, version,
                   (xmax = 0) AS inserted
         "#
     );
@@ -319,11 +334,15 @@ async fn insert_distinct_id_mappings(
         let team_id: i64 = row.try_get("team_id")?;
         let distinct_id: String = row.try_get("distinct_id")?;
         let person_id: i64 = row.try_get("person_id")?;
+        let version: i64 = row.try_get("version")?;
         let inserted: bool = row.try_get("inserted")?;
         if !inserted {
             mapping.revived.insert((team_id, distinct_id.clone()));
         }
-        mapping.written.insert((team_id, distinct_id), person_id);
+        mapping.written.insert(
+            (team_id, distinct_id),
+            WrittenMapping { person_id, version },
+        );
     }
     Ok(mapping)
 }
@@ -332,7 +351,8 @@ async fn insert_distinct_id_mappings(
 /// id maps to its person; a stub whose primary mapping went elsewhere is a
 /// lost race, and if this transaction created its person, the rows are
 /// undone (created this transaction, so nothing can reference them) so the
-/// stub doesn't linger orphaned.
+/// stub doesn't linger orphaned. Returns the outcomes and the ids of the
+/// persons it undid, whose mappings step 5 must not publish.
 async fn resolve_stub_outcomes(
     tx: &mut Tx<'_>,
     tables: &IdentityTables,
@@ -340,15 +360,16 @@ async fn resolve_stub_outcomes(
     uuids: &[Uuid],
     persons: &PersonsByKey,
     mapping: &MappingOutcome,
-) -> StorageResult<Vec<StubOutcome>> {
+) -> StorageResult<(Vec<StubOutcome>, HashSet<i64>)> {
     let mut outcomes = Vec::with_capacity(stubs.len());
+    let mut undone: HashSet<i64> = HashSet::new();
     for (i, stub) in stubs.iter().enumerate() {
         let Some(resolved) = persons.get(&(stub.team_id, uuids[i])) else {
             outcomes.push(StubOutcome::LostRace);
             continue;
         };
         let primary_key = (stub.team_id, stub.distinct_id.clone());
-        if mapping.written.get(&primary_key) == Some(&resolved.person.id) {
+        if mapping.written.get(&primary_key).map(|w| w.person_id) == Some(resolved.person.id) {
             outcomes.push(StubOutcome::Committed {
                 person: resolved.person.clone(),
                 created: resolved.created_by_us,
@@ -357,6 +378,7 @@ async fn resolve_stub_outcomes(
         }
         if resolved.created_by_us {
             undo_created_person(tx, tables, stub.team_id, resolved, mapping).await?;
+            undone.insert(resolved.person.id);
             outcomes.push(StubOutcome::LostRace);
             continue;
         }
@@ -381,7 +403,7 @@ async fn resolve_stub_outcomes(
             outcomes.push(StubOutcome::LostRace);
         }
     }
-    Ok(outcomes)
+    Ok((outcomes, undone))
 }
 
 /// Undo one lost-race stub's rows: its distinct id mappings, then its person
@@ -401,9 +423,9 @@ async fn undo_created_person(
     let revived_dids: Vec<String> = mapping
         .written
         .iter()
-        .filter(|((t, d), pid)| {
+        .filter(|((t, d), w)| {
             *t == team_id
-                && **pid == resolved.person.id
+                && w.person_id == resolved.person.id
                 && mapping.revived.contains(&(*t, d.clone()))
         })
         .map(|((_, d), _)| d.clone())
@@ -458,5 +480,60 @@ async fn undo_created_person(
             .execute(&mut **tx)
             .await?;
     }
+    Ok(())
+}
+
+/// Step 5: one publish outbox row per mapping this transaction leaves live,
+/// at the version the row carries. Mappings of a person step 4 undid are
+/// deleted or re-tombstoned, as they were before the transaction, so they
+/// emit nothing. Sorted like every other multi-row statement; the outbox
+/// has no unique key besides its identity, so the insert takes no row lock
+/// another transaction waits on.
+async fn enqueue_mapping_rows(
+    tx: &mut Tx<'_>,
+    tables: &IdentityTables,
+    persons: &PersonsByKey,
+    mapping: &MappingOutcome,
+    undone: &HashSet<i64>,
+) -> StorageResult<()> {
+    let uuids: HashMap<i64, Uuid> = persons
+        .values()
+        .map(|r| (r.person.id, r.person.uuid))
+        .collect();
+    let mut rows: Vec<(i32, Uuid, &str, i64)> = mapping
+        .written
+        .iter()
+        .filter(|(_, w)| !undone.contains(&w.person_id))
+        .map(|((team_id, distinct_id), w)| {
+            let uuid = *uuids
+                .get(&w.person_id)
+                .expect("written mappings point at resolved persons");
+            (*team_id as i32, uuid, distinct_id.as_str(), w.version)
+        })
+        .collect();
+    if rows.is_empty() {
+        return Ok(());
+    }
+    rows.sort_by(|a, b| (a.0, a.2).cmp(&(b.0, b.2)));
+    let team_ids: Vec<i32> = rows.iter().map(|r| r.0).collect();
+    let person_uuids: Vec<Uuid> = rows.iter().map(|r| r.1).collect();
+    let distinct_ids: Vec<&str> = rows.iter().map(|r| r.2).collect();
+    let versions: Vec<i64> = rows.iter().map(|r| r.3).collect();
+
+    let sql = format!(
+        r#"
+        INSERT INTO {outbox} (team_id, kind, person_uuid, distinct_id, version)
+        SELECT t, 'create', u, d, v
+        FROM unnest($1::int[], $2::uuid[], $3::text[], $4::bigint[]) AS r(t, u, d, v)
+        "#,
+        outbox = tables.person_publish_outbox,
+    );
+    sqlx::query(&query_tag!("stub_create_enqueue_outbox", sql))
+        .bind(&team_ids)
+        .bind(&person_uuids)
+        .bind(&distinct_ids)
+        .bind(&versions)
+        .execute(&mut **tx)
+        .await?;
     Ok(())
 }

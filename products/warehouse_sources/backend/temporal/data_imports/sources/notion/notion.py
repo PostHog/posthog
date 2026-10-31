@@ -2,16 +2,20 @@ import time
 import dataclasses
 from collections.abc import Callable, Iterator
 from typing import Any, Literal, Optional
+from urllib.parse import urlencode
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import RetryCallState, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 from urllib3.util.retry import Retry
 
 from posthog.exceptions_capture import capture_exception
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.notion.settings import (
@@ -33,6 +37,11 @@ NOTION_BASE_URL = "https://api.notion.com"
 #   auto-inferred schema absorbs the renamed response fields.
 NOTION_VERSION_2025_09_03 = "2025-09-03"
 NOTION_VERSION_2026_03_11 = "2026-03-11"
+
+# The Admin API takes a different token (an organization bot token) and has its own version line, so
+# the source's version pin does not apply to it. Its header enum accepts only this one value.
+NOTION_ADMIN_BASE_PATH = "/admin"
+NOTION_ADMIN_API_VERSION = "2026-06-01"
 
 CHUNK_SIZE = 2000
 CHUNK_SIZE_BYTES = 100 * 1024 * 1024
@@ -85,6 +94,10 @@ class NotionBadRequestError(Exception):
     expanded via the API (e.g. blocks backed by synced/external content), so Notion rejects the
     children request. Like a 404, this is recoverable in the fan-out streams (blocks/comments): skip
     the offending block/page and keep syncing rather than crashing the whole sync."""
+
+
+class NotionAdminTokenMissingError(Exception):
+    pass
 
 
 @dataclasses.dataclass
@@ -155,7 +168,7 @@ def _wait_strategy(retry_state: RetryCallState) -> float:
     return _wait_exponential(retry_state)
 
 
-@retry(
+@retry_with_deadline(
     # ChunkedEncodingError is a sibling of ConnectionError (both RequestException, not subclasses of
     # each other): Notion can break the connection mid-response, surfacing as a malformed chunk
     # ("Connection broken: InvalidChunkLength"). It is a transient connection failure like the others,
@@ -257,6 +270,50 @@ def validate_credentials(token: str, api_version: str) -> tuple[bool, str | None
     return False, TOKEN_CHECK_FAILED_ERROR
 
 
+ADMIN_TOKEN_MISSING_ERROR = (
+    "Add an organization bot token with the permission-group:read scope to sync permission groups. "
+    "Organization owners create these tokens in the Notion organization console."
+)
+ADMIN_TOKEN_INVALID_ERROR = (
+    "Your Notion organization bot token is invalid or revoked. Create a new one in the Notion organization console, "
+    "then update this source."
+)
+ADMIN_TOKEN_FORBIDDEN_ERROR = (
+    "Your Notion organization bot token cannot read permission groups. Give it the permission-group:read scope. "
+    "This scope is only available to eligible Notion Enterprise organizations."
+)
+
+
+def check_permission_groups_access(token: str, admin_token: str | None, api_version: str) -> str | None:
+    if not admin_token:
+        return ADMIN_TOKEN_MISSING_ERROR
+    try:
+        public_session = make_tracked_session(headers=_get_headers(token, api_version), redact_values=(token,))
+        me_response = public_session.get(f"{NOTION_BASE_URL}/v1/users/me", timeout=10)
+        # A bad integration token is reported by validate_credentials, not as a per-table problem.
+        if not me_response.ok:
+            return None
+        workspace_id = (me_response.json().get("bot") or {}).get("workspace_id")
+        if not workspace_id:
+            return None
+        admin_session = make_tracked_session(
+            headers=_get_headers(admin_token, NOTION_ADMIN_API_VERSION), redact_values=(admin_token,)
+        )
+        query = urlencode({"page_size": 1})
+        response = admin_session.get(
+            f"{NOTION_BASE_URL}{NOTION_ADMIN_BASE_PATH}/v1/spaces/{workspace_id}/groups?{query}", timeout=10
+        )
+    except Exception as e:
+        capture_exception(e)
+        return None
+
+    if response.status_code == 401:
+        return ADMIN_TOKEN_INVALID_ERROR
+    if response.status_code == 403:
+        return ADMIN_TOKEN_FORBIDDEN_ERROR
+    return None
+
+
 def _search_body(object_filter: str, cursor: str | None) -> dict[str, Any]:
     body: dict[str, Any] = {
         "filter": {"property": "object", "value": object_filter},
@@ -319,8 +376,10 @@ def _search_stream(
         yield batcher.get_table()
 
 
-def _users_stream(
+def _cursor_list_stream(
     session: requests.Session,
+    path: str,
+    stream_name: str,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[NotionResumeConfig],
     throttle: Optional["_RateLimiter"] = None,
@@ -336,33 +395,71 @@ def _users_stream(
             params["start_cursor"] = cursor
 
         try:
-            data = _request(session, "GET", "/v1/users", logger, params=params, throttle=throttle)
+            data = _request(session, "GET", path, logger, params=params, throttle=throttle)
         except NotionBadRequestError as e:
             if cursor is None or not _is_invalid_start_cursor(e):
                 raise
             # A resumed cursor can expire before the retry runs; Notion then rejects it as invalid.
             # Restart from the beginning rather than failing the sync — rows dedup on the primary key
             # at merge, so replaying loses nothing.
-            logger.warning("Notion: resumed users cursor rejected as invalid; restarting stream from the start")
+            logger.warning(
+                f"Notion: resumed {stream_name} cursor rejected as invalid; restarting stream from the start"
+            )
             cursor = None
             continue
         results = data.get("results", [])
-        has_more = data.get("has_more", False)
+        if results:
+            batcher.batch(results)
+
         next_cursor = data.get("next_cursor")
-
-        for item in results:
-            batcher.batch(item)
-            if batcher.should_yield():
-                yield batcher.get_table()
-                if has_more and next_cursor:
-                    resumable_source_manager.save_state(NotionResumeConfig(next_cursor=next_cursor))
-
-        if not has_more or not next_cursor:
+        if not data.get("has_more") or not next_cursor:
             break
+        # Yield only at a page boundary, so the staged cursor covers every row in the yielded table.
+        if batcher.should_yield():
+            resumable_source_manager.save_state(NotionResumeConfig(next_cursor=next_cursor))
+            yield batcher.get_table()
         cursor = next_cursor
 
     if batcher.should_yield(include_incomplete_chunk=True):
         yield batcher.get_table()
+
+
+def _users_stream(
+    session: requests.Session,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[NotionResumeConfig],
+    throttle: Optional["_RateLimiter"] = None,
+) -> Iterator[Any]:
+    yield from _cursor_list_stream(session, "/v1/users", "users", logger, resumable_source_manager, throttle)
+
+
+def _get_workspace_id(
+    session: requests.Session, logger: FilteringBoundLogger, throttle: Optional["_RateLimiter"] = None
+) -> str:
+    # Admin API paths take the workspace id, which the integration token's bot user reports.
+    data = _request(session, "GET", "/v1/users/me", logger, throttle=throttle)
+    workspace_id = (data.get("bot") or {}).get("workspace_id")
+    if not workspace_id:
+        raise ValueError("Notion did not return a workspace_id for the integration token's bot user")
+    return workspace_id
+
+
+def _permission_groups_stream(
+    session: requests.Session,
+    admin_session: requests.Session,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[NotionResumeConfig],
+    throttle: Optional["_RateLimiter"] = None,
+) -> Iterator[Any]:
+    workspace_id = _get_workspace_id(session, logger, throttle)
+    yield from _cursor_list_stream(
+        admin_session,
+        f"{NOTION_ADMIN_BASE_PATH}/v1/spaces/{workspace_id}/groups",
+        "permission_groups",
+        logger,
+        resumable_source_manager,
+        throttle,
+    )
 
 
 def _iter_page_ids(
@@ -587,12 +684,20 @@ def get_rows(
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[NotionResumeConfig],
     api_version: str,
+    admin_token: str | None = None,
 ) -> Iterator[Any]:
     config = NOTION_ENDPOINTS[endpoint]
     session = _build_session(token, api_version)
     throttle = _RateLimiter(NOTION_MIN_REQUEST_INTERVAL_SECONDS)
 
-    if config.stream_type == "search":
+    if config.stream_type == "permission_groups":
+        if not admin_token:
+            raise NotionAdminTokenMissingError(
+                "Notion permission_groups table requires an organization bot token, but none is configured"
+            )
+        admin_session = _build_session(admin_token, NOTION_ADMIN_API_VERSION)
+        yield from _permission_groups_stream(session, admin_session, logger, resumable_source_manager, throttle)
+    elif config.stream_type == "search":
         yield from _search_stream(session, config, logger, resumable_source_manager, throttle)
     elif config.stream_type == "users":
         yield from _users_stream(session, logger, resumable_source_manager, throttle)
@@ -610,6 +715,7 @@ def notion_source(
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[NotionResumeConfig],
     api_version: str,
+    admin_token: str | None = None,
 ) -> SourceResponse:
     config = NOTION_ENDPOINTS[endpoint]
 
@@ -621,6 +727,7 @@ def notion_source(
             logger=logger,
             resumable_source_manager=resumable_source_manager,
             api_version=api_version,
+            admin_token=admin_token,
         ),
         primary_keys=["id"],
         partition_count=1,

@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -36,6 +37,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class GrafanaIRMSource(ResumableSource[GrafanaIRMSourceConfig, GrafanaIRMResumeConfig]):
+    codebase_detection = detect(env=("^GRAFANA_ONCALL_",), go=("github.com/grafana/amixr-api-go-client",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://grafana.com/docs/grafana-cloud/alerting-and-irm/irm/reference/"
 
@@ -56,7 +59,7 @@ class GrafanaIRMSource(ResumableSource[GrafanaIRMSourceConfig, GrafanaIRMResumeC
             label="Grafana IRM",
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             keywords=["oncall", "grafana oncall", "grafana incident", "incident response"],
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Sync your Grafana IRM alert groups, incidents, schedules and escalation setup into the PostHog Data warehouse.
 
 Create a service account token under **Administration > Users and access > Service accounts** in your Grafana Cloud stack. Give the service account the **Viewer** role, or the IRM reader permissions for the tables you want to sync.

@@ -3,6 +3,8 @@ import type { InsightModel } from '~/types'
 import { insightsRetrieve } from 'products/product_analytics/frontend/generated/api'
 import type { InsightsRetrieveParams } from 'products/product_analytics/frontend/generated/api.schemas'
 
+import { crossProjectDashboardTracking } from './crossProjectDashboardTracking'
+
 export type TileUnavailableReason = 'no-access' | 'not-found' | 'failed'
 
 export interface TileFetchResult {
@@ -50,13 +52,10 @@ export async function fetchCrossProjectTile(
         // InsightCard needs an InsightModel. The endpoint returns one, but its schema leaves out `saved`.
         return { insight: insight as unknown as InsightModel, unavailable: null }
     } catch (error: any) {
-        if (error?.status === 403) {
-            return { insight: null, unavailable: 'no-access' }
-        }
-        if (error?.status === 404) {
-            return { insight: null, unavailable: 'not-found' }
-        }
-        return { insight: null, unavailable: 'failed' }
+        const unavailable: TileUnavailableReason =
+            error?.status === 403 ? 'no-access' : error?.status === 404 ? 'not-found' : 'failed'
+        crossProjectDashboardTracking.tileUnavailable(unavailable)
+        return { insight: null, unavailable }
     } finally {
         releaseSlot()
     }

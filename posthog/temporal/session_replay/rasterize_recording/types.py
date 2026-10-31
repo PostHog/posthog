@@ -1,8 +1,9 @@
 import hashlib
+import contextlib
 from datetime import timedelta
-from typing import Literal
+from typing import Any, Literal
 
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, ValidationError, model_validator
 
 # Retry envelope for the Node rasterize activity (scheduled in workflow._run). Shared so the relayed
 # recording-api token's TTL (rasterize.py) is derived from the same numbers and can't silently drift.
@@ -63,9 +64,6 @@ class RasterizeRecordingInputs(BaseModel, frozen=True):
     # benchmark). The workflow then skips the asset steps: preparing, finalizing and recording failures.
     render_input: RasterizationActivityInput | None = None
     product: Literal["session_replay", "replay_vision", "replay_vision_benchmark"] = "session_replay"
-    # Routes the render activity. None keeps the shared rasterization queue, so histories
-    # recorded before this field existed replay unchanged.
-    task_queue: str | None = None
 
     @model_validator(mode="after")
     def _one_render_target(self) -> "RasterizeRecordingInputs":
@@ -80,6 +78,25 @@ class InactivityPeriod(BaseModel, frozen=True):
     active: bool = True
     recording_ts_from_s: float | None = None
     recording_ts_to_s: float | None = None
+
+
+class NavigationChange(BaseModel, frozen=True):
+    video_s: float
+    session_s: float
+    # The recording's own window id, the same `$window_id` its analytics events carry.
+    window_id: str
+    # The number the footer shows for the window, `WINDOW: <n> of ...`.
+    window_number: int
+    url: str
+
+
+def navigation_from_export_context(export_context: dict[str, Any] | None) -> list[NavigationChange]:
+    changes: list[NavigationChange] = []
+    for raw in (export_context or {}).get("navigation") or []:
+        # The timeline is optional context, so a malformed entry is dropped rather than failing the read.
+        with contextlib.suppress(ValidationError):
+            changes.append(NavigationChange.model_validate(raw))
+    return changes
 
 
 class ActivityTimings(BaseModel, frozen=True):
@@ -103,6 +120,8 @@ class RasterizationActivityOutput(BaseModel, frozen=True):
     footer_height_px: int = 0
     truncated: bool = False
     inactivity_periods: list[InactivityPeriod] = []
+    # Empty for renders from before the renderer recorded it.
+    navigation: list[NavigationChange] = []
     file_size_bytes: int = 0
     timings: ActivityTimings = ActivityTimings()
 

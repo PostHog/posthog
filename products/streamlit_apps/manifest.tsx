@@ -42,6 +42,7 @@ export const manifest: ProductManifest = {
             path: 'Apps',
             intents: [ProductKey.STREAMLIT_APPS],
             href: urls.streamlitApps(),
+            searchKeywords: ['python apps', 'data apps', 'internal tools'],
             type: 'streamlit_app',
             category: ProductItemCategory.UNRELEASED,
             flag: FEATURE_FLAGS.STREAMLIT_APPS,

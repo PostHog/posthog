@@ -16,6 +16,7 @@ from posthog.temporal.session_replay.rasterize_recording.activities import (
 from posthog.temporal.session_replay.rasterize_recording.types import (
     FinalizeRasterizationInput,
     InactivityPeriod,
+    NavigationChange,
     RasterizationActivityInput,
     RasterizationActivityOutput,
     compute_params_fingerprint,
@@ -52,6 +53,7 @@ def _make_asset(
     asset.export_format = export_format
     asset.content_location = content_location
     asset.source_authentication = None
+    asset.is_system = False
     asset.save = MagicMock()
     return asset
 
@@ -401,7 +403,18 @@ class TestBuildRasterizationCache:
         # Second call: asset has matching fingerprint + content_location + S3 HEAD = 200.
         cached_asset = _make_asset(
             pk=50,
-            export_context=self._ctx_with_render(fp),
+            export_context=self._ctx_with_render(
+                fp,
+                navigation=[
+                    {
+                        "video_s": 3.0,
+                        "session_s": 95.5,
+                        "window_id": "w-a",
+                        "window_number": 1,
+                        "url": "https://ex.com/b",
+                    }
+                ],
+            ),
             content_location="exports/mp4/team-1/task-50/video.mp4",
         )
         patches, head_mock = _patches(cached_asset, head_object_return={"ContentLength": 99000})
@@ -416,6 +429,9 @@ class TestBuildRasterizationCache:
         assert result.cached_output.file_size_bytes == 99000
         assert result.cached_output.truncated is False
         assert result.cached_output.inactivity_periods == []
+        assert result.cached_output.navigation == [
+            NavigationChange(video_s=3.0, session_s=95.5, window_id="w-a", window_number=1, url="https://ex.com/b")
+        ]
 
     def test_cache_hit_reports_started_and_success(self, reported_events):
         """A cache hit returns to the workflow without reaching finalize, so if it doesn't report
@@ -585,9 +601,16 @@ class TestFinalizeRasterization:
         defaults.update(overrides)
         return RasterizationActivityOutput(**defaults)
 
-    def test_happy_path(self):
+    @parameterized.expand([("system render", True), ("user export", False)])
+    def test_happy_path(self, _name: str, is_system: bool):
         asset = _make_asset(pk=42, export_context={"session_recording_id": "s1"})
-        result = self._make_result(file_size_bytes=12345, truncated=True)
+        asset.is_system = is_system
+        navigation = [
+            NavigationChange(
+                video_s=3.0, session_s=95.5, window_id="w-a", window_number=1, url="https://ex.com/billing"
+            )
+        ]
+        result = self._make_result(file_size_bytes=12345, truncated=True, navigation=navigation)
 
         patches, _ = _patches(asset)
         with patches[0], patches[1], patches[2], patches[3], patches[4]:
@@ -602,6 +625,8 @@ class TestFinalizeRasterization:
         assert asset.export_context["file_size_bytes"] == 12345
         assert asset.export_context["session_recording_id"] == "s1"
         assert asset.export_context["render_fingerprint"] == "abc1234567890def"
+        # Visited URLs would reach the exports API through a user's own video export.
+        assert asset.export_context.get("navigation") == ([n.model_dump() for n in navigation] if is_system else None)
         asset.save.assert_called_once_with(
             update_fields=["content_location", "export_context", "exception", "exception_type", "failure_type"]
         )

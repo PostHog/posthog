@@ -53,10 +53,14 @@ class AccountRelationshipDefinition:
     is_controlled: bool = False
 
 
+PinnedAccountPropertyKind = Literal["custom_property", "relationship", "account_field"]
+
+
 @dataclass(frozen=True)
 class PinnedAccountProperty:
-    kind: Literal["custom_property", "relationship"]
-    id: UUID
+    kind: PinnedAccountPropertyKind
+    # A definition UUID for custom properties and relationships, or a field name for account fields.
+    id: str
 
 
 class InvalidPinnedAccountProperties(ValueError):
@@ -265,6 +269,7 @@ class AccountTableField(str, Enum):
 
 @dataclass(frozen=True, kw_only=True)
 class AccountTableColumnSelection:
+    use_default_columns: bool = False
     account_fields: frozenset[AccountTableField] = frozenset()
     include_tags: bool = False
     include_note_count: bool = False
@@ -528,7 +533,22 @@ class AccountTableRow:
 
 
 @dataclass(frozen=True, kw_only=True)
+class AccountTableCustomPropertyDefinition:
+    id: UUID
+    name: str
+    description: str | None
+    display_type: str
+    is_big_number: bool
+    is_canonical: bool
+    has_workflow_reference: bool
+    source_id: UUID | None
+    options: list[dict[str, str]] | None
+
+
+@dataclass(frozen=True, kw_only=True)
 class AccountTablePage:
+    relationship_definitions: list[AccountRelationshipDefinition] = field(default_factory=list)
+    custom_property_definitions: list[AccountTableCustomPropertyDefinition] = field(default_factory=list)
     rows: list[AccountTableRow]
     has_more: bool
     limit: int
@@ -1236,6 +1256,7 @@ class CreateAccountInput:
     tags: list[str] | None = None
     slack_summary_cadence: str | None = None
     churned_at: datetime | None = None
+    ignored_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -1253,11 +1274,13 @@ class UpdateAccountInput:
     tags: list[str] | None = None
     slack_summary_cadence: str | None = None
     churned_at: datetime | None = None
+    ignored_at: datetime | None = None
     # Distinguishes omitted fields from fields explicitly set to null.
     external_id_provided: bool = False
     properties_provided: bool = False
     slack_summary_cadence_provided: bool = False
     churned_at_provided: bool = False
+    ignored_at_provided: bool = False
 
 
 @dataclass(frozen=True)
@@ -1394,6 +1417,10 @@ class CustomerTaskAssigneeCannotViewAccount(Exception):
     pass
 
 
+class CustomerTaskRoleNotFound(Exception):
+    pass
+
+
 class CustomerTaskInvalidTransition(Exception):
     def __init__(self, current: str, requested: str) -> None:
         self.current = current
@@ -1406,6 +1433,10 @@ class CustomerTaskArchived(Exception):
 
 
 class CustomerTaskAccessDenied(Exception):
+    pass
+
+
+class CustomerTaskBulkUpdateConflict(Exception):
     pass
 
 
@@ -1463,6 +1494,7 @@ class CustomerTaskListFilters:
     search: str | None = None
     account_id: UUID | None = None
     assigned_to: str | None = None
+    assigned_role_id: UUID | None = None
     statuses: tuple[str, ...] = ()
     archive_state: str = "active"
     due_after: datetime | None = None
@@ -1495,3 +1527,14 @@ class UpdateCustomerTaskInput:
     assigned_to_id_provided: bool = False
     due_at_provided: bool = False
     status_provided: bool = False
+
+
+@dataclass(frozen=True)
+class KeyMetric:
+    key: str
+    name: str
+    people: bool
+    daily: list[tuple[date, float]]
+    this_week: float
+    last_week: float
+    node: dict[str, Any]

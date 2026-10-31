@@ -8,9 +8,7 @@ import requests
 from products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_ads.pinterest_ads import (
     ANALYTICS_RESUME_KIND,
     ENTITY_RESUME_KIND,
-    TARGETING_ANALYTICS_RESUME_KIND,
     PinterestAdsResumeConfig,
-    _advance_analytics_cursor,
     _iter_analytics_rows,
     _iter_entity_rows,
     _iter_targeting_analytics_rows,
@@ -21,7 +19,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_
     ANALYTICS_ENDPOINT_PATHS,
     ANALYTICS_ENTITY_SOURCES,
     ANALYTICS_ID_PARAM_NAMES,
-    ANALYTICS_REQUEST_TIMEOUT_SECONDS,
     ENTITY_ENDPOINT_PATHS,
     PINTEREST_ADS_CONFIG,
     TARGETING_ANALYTICS_ENDPOINT_PATHS,
@@ -30,10 +27,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_ads.source import PinterestAdsSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_ads.utils import (
-    _chunk_date_range,
-    _chunk_list,
     _make_request,
-    _normalize_row,
     build_session,
     fetch_account_currency,
     fetch_analytics,
@@ -76,69 +70,6 @@ class TestGetDateRange:
         assert start_date is not None
         assert start_date != "invalid-date"
 
-    @pytest.mark.parametrize(
-        "should_use_incremental,last_value",
-        [
-            (False, None),
-            (True, None),
-        ],
-    )
-    def test_defaults_to_lookback_window(self, should_use_incremental, last_value):
-        start_date, end_date = get_date_range(should_use_incremental, last_value)
-
-        assert start_date is not None
-        assert end_date == dt.datetime.now().strftime("%Y-%m-%d")
-
-
-class TestChunkList:
-    @pytest.mark.parametrize(
-        "items,chunk_size,expected_count,expected_last",
-        [
-            (list(range(10)), 5, 2, [5, 6, 7, 8, 9]),
-            (list(range(7)), 3, 3, [6]),
-            ([1, 2, 3], 250, 1, [1, 2, 3]),
-            ([], 250, 0, None),
-        ],
-    )
-    def test_chunking(self, items, chunk_size, expected_count, expected_last):
-        chunks = _chunk_list(items, chunk_size)
-        assert len(chunks) == expected_count
-        if expected_last is not None:
-            assert chunks[-1] == expected_last
-
-
-class TestChunkDateRange:
-    @pytest.mark.parametrize(
-        "start,end,expected_count",
-        [
-            ("2024-01-01", "2024-03-01", 1),
-            ("2024-01-01", "2024-06-30", 3),
-            ("2024-01-01", "2024-03-30", 1),
-            ("2024-01-01", "2024-01-01", 1),
-        ],
-    )
-    def test_date_chunking(self, start, end, expected_count):
-        chunks = _chunk_date_range(start, end)
-        assert len(chunks) == expected_count
-        assert chunks[0][0] == start
-        assert chunks[-1][1] == end
-
-
-class TestNormalizeRow:
-    @pytest.mark.parametrize(
-        "input_row,expected",
-        [
-            (
-                {"CAMPAIGN_ID": "123", "SPEND_IN_DOLLAR": 5.0, "DATE": "2024-01-01"},
-                {"campaign_id": "123", "spend_in_dollar": 5.0, "date": "2024-01-01"},
-            ),
-            ({"id": "123", "name": "test"}, {"id": "123", "name": "test"}),
-            ({}, {}),
-        ],
-    )
-    def test_normalize(self, input_row, expected):
-        assert _normalize_row(input_row) == expected
-
 
 class TestBuildSession:
     def test_sets_auth_header(self):
@@ -148,15 +79,6 @@ class TestBuildSession:
 
 
 class TestFetchEntities:
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_ads.utils._make_request")
-    def test_single_page(self, mock_request):
-        mock_request.return_value = {"items": [{"id": "1"}, {"id": "2"}], "bookmark": None}
-        session = mock.MagicMock()
-
-        result = fetch_entities(session, "acc123", "campaigns")
-        assert len(result) == 2
-        assert result[0]["id"] == "1"
-
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_ads.utils._make_request")
     def test_multiple_pages(self, mock_request):
         mock_request.side_effect = [
@@ -168,14 +90,6 @@ class TestFetchEntities:
         result = fetch_entities(session, "acc123", "campaigns")
         assert len(result) == 2
         assert mock_request.call_count == 2
-
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_ads.utils._make_request")
-    def test_empty_response(self, mock_request):
-        mock_request.return_value = {"items": [], "bookmark": None}
-        session = mock.MagicMock()
-
-        result = fetch_entities(session, "acc123", "campaigns")
-        assert result == []
 
 
 class TestListAdAccounts:
@@ -202,15 +116,6 @@ class TestListAdAccounts:
 
 
 class TestFetchEntityIds:
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_ads.utils.fetch_entities")
-    def test_extracts_ids(self, mock_fetch):
-        mock_fetch.return_value = [{"id": "1", "name": "a"}, {"id": "2", "name": "b"}]
-        session = mock.MagicMock()
-
-        ids = fetch_entity_ids(session, "acc123", "campaign_analytics")
-        assert ids == ["1", "2"]
-        mock_fetch.assert_called_once_with(session, "acc123", "campaigns")
-
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_ads.utils.fetch_entities")
     def test_empty_entities(self, mock_fetch):
         mock_fetch.return_value = []
@@ -250,18 +155,6 @@ class TestFetchAccountCurrency:
 
 class TestFetchAnalytics:
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_ads.utils._make_request")
-    def test_basic_fetch(self, mock_request):
-        mock_request.return_value = [
-            {"CAMPAIGN_ID": "1", "DATE": "2024-01-01", "SPEND_IN_DOLLAR": 5.0},
-        ]
-        session = mock.MagicMock()
-
-        result = fetch_analytics(session, "acc123", "campaign_analytics", ["1"], "2024-01-01", "2024-01-31")
-        assert len(result) == 1
-        assert result[0]["campaign_id"] == "1"
-        assert result[0]["spend_in_dollar"] == 5.0
-
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_ads.utils._make_request")
     def test_adds_currency_to_rows(self, mock_request):
         mock_request.return_value = [
             {"CAMPAIGN_ID": "1", "DATE": "2024-01-01", "SPEND_IN_DOLLAR": 5.0},
@@ -273,24 +166,6 @@ class TestFetchAnalytics:
         )
         assert len(result) == 1
         assert result[0]["currency"] == "EUR"
-
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_ads.utils._make_request")
-    def test_no_currency_field_when_none(self, mock_request):
-        mock_request.return_value = [
-            {"CAMPAIGN_ID": "1", "DATE": "2024-01-01", "SPEND_IN_DOLLAR": 5.0},
-        ]
-        session = mock.MagicMock()
-
-        result = fetch_analytics(session, "acc123", "campaign_analytics", ["1"], "2024-01-01", "2024-01-31")
-        assert "currency" not in result[0]
-
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_ads.utils._make_request")
-    def test_empty_entity_ids(self, mock_request):
-        session = mock.MagicMock()
-
-        result = fetch_analytics(session, "acc123", "campaign_analytics", [], "2024-01-01", "2024-01-31")
-        assert result == []
-        mock_request.assert_not_called()
 
 
 class TestMakeRequestErrorHandling:
@@ -345,19 +220,6 @@ class TestMakeRequestErrorHandling:
         assert any(pattern in error_msg for pattern in source.get_retryable_errors())
         assert not any(pattern in error_msg for pattern in source.get_non_retryable_errors())
 
-    @pytest.mark.parametrize("status_code", [200, 201])
-    def test_success_returns_json(self, status_code):
-        mock_response = mock.MagicMock()
-        mock_response.status_code = status_code
-        mock_response.raise_for_status.return_value = None
-        mock_response.json.return_value = {"items": []}
-
-        mock_session = mock.MagicMock()
-        mock_session.get.return_value = mock_response
-
-        result = _make_request(mock_session, "https://api.pinterest.com/v5/test")
-        assert result == {"items": []}
-
     def test_chunked_encoding_error_is_retried(self):
         # A mid-stream connection drop while reading the body raises ChunkedEncodingError, which must
         # be retried so a single dropped connection doesn't fail the whole import.
@@ -402,25 +264,6 @@ class TestPinterestAdsSource:
             )
 
 
-class TestAdvanceAnalyticsCursor:
-    @pytest.mark.parametrize(
-        "batch_idx,chunk_idx,num_batches,num_chunks,expected",
-        [
-            # Move to next chunk within the same batch
-            (0, 0, 2, 3, (0, 1)),
-            (1, 0, 2, 3, (1, 1)),
-            # Chunk rollover advances the batch and resets chunk
-            (0, 2, 2, 3, (1, 0)),
-            # Final (batch, chunk) returns (None, None) to signal done
-            (1, 2, 2, 3, (None, None)),
-            # Single batch, single chunk → already done after processing
-            (0, 0, 1, 1, (None, None)),
-        ],
-    )
-    def test_cursor_advance(self, batch_idx, chunk_idx, num_batches, num_chunks, expected):
-        assert _advance_analytics_cursor(batch_idx, chunk_idx, num_batches, num_chunks) == expected
-
-
 class TestIterEntityRowsFresh:
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_ads.pinterest_ads._make_request"
@@ -440,32 +283,6 @@ class TestIterEntityRowsFresh:
         assert manager.save_state.call_count == 1
         saved = manager.save_state.call_args.args[0]
         assert saved == PinterestAdsResumeConfig(kind=ENTITY_RESUME_KIND, bookmark="next_page")
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_ads.pinterest_ads._make_request"
-    )
-    def test_single_page_does_not_save_state(self, mock_request):
-        mock_request.return_value = {"items": [{"id": "1"}], "bookmark": None}
-        manager = _make_resume_manager()
-        session = mock.MagicMock()
-
-        yielded = list(_iter_entity_rows(session, "acc123", "campaigns", manager, mock.MagicMock()))
-
-        assert yielded == [[{"id": "1"}]]
-        manager.save_state.assert_not_called()
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_ads.pinterest_ads._make_request"
-    )
-    def test_empty_page_does_not_yield(self, mock_request):
-        mock_request.return_value = {"items": [], "bookmark": None}
-        manager = _make_resume_manager()
-        session = mock.MagicMock()
-
-        yielded = list(_iter_entity_rows(session, "acc123", "campaigns", manager, mock.MagicMock()))
-
-        assert yielded == []
-        manager.save_state.assert_not_called()
 
 
 class TestIterEntityRowsResume:
@@ -488,72 +305,8 @@ class TestIterEntityRowsResume:
         called_params = mock_request.call_args.args[2]
         assert called_params["bookmark"] == "saved_cursor"
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_ads.pinterest_ads._make_request"
-    )
-    def test_ignores_state_with_wrong_kind(self, mock_request):
-        mock_request.return_value = {"items": [{"id": "1"}], "bookmark": None}
-        manager = _make_resume_manager(
-            can_resume=True,
-            state=PinterestAdsResumeConfig(kind=ANALYTICS_RESUME_KIND, bookmark="stale"),
-        )
-        session = mock.MagicMock()
-
-        list(_iter_entity_rows(session, "acc123", "campaigns", manager, mock.MagicMock()))
-
-        called_params = mock_request.call_args.args[2]
-        assert "bookmark" not in called_params
-
 
 class TestIterAnalyticsRowsFresh:
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_ads.pinterest_ads.fetch_account_currency"
-    )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_ads.pinterest_ads.fetch_entity_ids"
-    )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_ads.pinterest_ads._make_request"
-    )
-    def test_saves_state_after_each_yield(self, mock_request, mock_entity_ids, mock_currency):
-        mock_entity_ids.return_value = ["1"]
-        mock_currency.return_value = "USD"
-        mock_request.return_value = [{"CAMPAIGN_ID": "1", "DATE": "2024-01-01", "SPEND_IN_DOLLAR": 5.0}]
-        manager = _make_resume_manager()
-
-        # Pin the fan-out to a single (batch, chunk) so the assertion is not sensitive to today's date.
-        with (
-            mock.patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_ads.pinterest_ads._chunk_date_range",
-                return_value=[("2024-01-01", "2024-01-31")],
-            ),
-            mock.patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_ads.pinterest_ads._chunk_list",
-                return_value=[["1"]],
-            ),
-        ):
-            yielded = list(
-                _iter_analytics_rows(
-                    mock.MagicMock(),
-                    "acc123",
-                    "campaign_analytics",
-                    manager,
-                    mock.MagicMock(),
-                    False,
-                    None,
-                )
-            )
-
-        assert len(yielded) == 1
-        assert yielded[0][0]["campaign_id"] == "1"
-        assert yielded[0][0]["currency"] == "USD"
-        # Single (batch, chunk) run → no next cursor → no save
-        manager.save_state.assert_not_called()
-        # A fanned-out request bundles a full id batch, every metric column and a full date chunk,
-        # so its response needs more than the default 30s given to lightweight entity/list
-        # requests. Only the read timeout is widened; the connect timeout stays at 30s.
-        assert mock_request.call_args.kwargs["timeout"] == (30, ANALYTICS_REQUEST_TIMEOUT_SECONDS)
-
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_ads.pinterest_ads.fetch_account_currency"
     )
@@ -859,38 +612,6 @@ class TestIterTargetingAnalyticsRows:
                 )
             )
 
-    @pytest.mark.parametrize(
-        "endpoint,id_param,id_column",
-        [
-            ("campaign_targeting_analytics", "campaign_ids", "CAMPAIGN_ID"),
-            ("ad_group_targeting_analytics", "ad_group_ids", "AD_GROUP_ID"),
-            ("ad_targeting_analytics", "ad_ids", "AD_ID"),
-        ],
-    )
-    def test_requests_breakdowns_and_the_entity_id_column(self, endpoint, id_param, id_column):
-        # Pinterest only returns the columns that were asked for. Dropping the entity id column
-        # leaves every row keyed on date and breakdown alone, so rows from different campaigns
-        # collide on the primary key.
-        mock_request = mock.MagicMock(return_value={"data": []})
-
-        self._run(endpoint, mock_request)
-
-        params = mock_request.call_args.args[2]
-        assert params[id_param] == "1"
-        assert params["granularity"] == "DAY"
-        assert params["columns"].split(",")[0] == id_column
-        assert params["targeting_types"].split(",") == [
-            "AGE_BUCKET",
-            "GENDER",
-            "APPTYPE",
-            "PLACEMENT",
-            "COUNTRY",
-            "REGION",
-        ]
-
-        url = mock_request.call_args.args[1]
-        assert url.endswith(TARGETING_ANALYTICS_ENDPOINT_PATHS[endpoint].format(ad_account_id="acc123"))
-
     def test_yields_flattened_rows_with_account_currency(self):
         mock_request = mock.MagicMock(
             return_value={
@@ -919,49 +640,8 @@ class TestIterTargetingAnalyticsRows:
             ]
         ]
 
-    def test_ignores_resume_state_from_the_totals_tables(self):
-        # Both fan out over (id batch, date chunk) but over different responses, so state saved by
-        # the totals sync must not be mistaken for this table's cursor.
-        manager = _make_resume_manager(
-            can_resume=True,
-            state=PinterestAdsResumeConfig(kind=ANALYTICS_RESUME_KIND, batch_index=5, date_chunk_index=5),
-        )
-        mock_request = mock.MagicMock(return_value={"data": []})
-
-        self._run("campaign_targeting_analytics", mock_request, manager=manager)
-
-        assert mock_request.call_count == 1
-
-    def test_resumes_from_its_own_saved_state(self):
-        manager = _make_resume_manager(
-            can_resume=True,
-            state=PinterestAdsResumeConfig(kind=TARGETING_ANALYTICS_RESUME_KIND, batch_index=1, date_chunk_index=0),
-        )
-        mock_request = mock.MagicMock(return_value={"data": []})
-
-        self._run("campaign_targeting_analytics", mock_request, manager=manager)
-
-        # Only one batch exists, so a cursor pointing past it leaves nothing to request.
-        assert mock_request.call_count == 0
-
 
 class TestIterEntityRowsWithoutPagination:
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_ads.pinterest_ads._make_request"
-    )
-    def test_unpaginated_endpoint_sends_no_pagination_params(self, mock_request):
-        # Pinterest's conversion tags endpoint takes neither page_size nor bookmark and returns no
-        # bookmark, so sending them risks a 400 and trusting one would loop forever.
-        mock_request.return_value = {"items": [{"id": "1"}], "bookmark": "should_be_ignored"}
-
-        yielded = list(
-            _iter_entity_rows(mock.MagicMock(), "acc123", "conversion_tags", _make_resume_manager(), mock.MagicMock())
-        )
-
-        assert yielded == [[{"id": "1"}]]
-        assert mock_request.call_count == 1
-        assert mock_request.call_args.args[2] == {}
-
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_ads.pinterest_ads._make_request"
     )

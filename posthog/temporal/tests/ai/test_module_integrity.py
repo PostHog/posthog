@@ -91,6 +91,7 @@ class TestSignalsProductModuleIntegrity:
     def test_workflows_remain_unchanged(self):
         """Ensure all expected signals product workflows are present."""
         expected_workflows = [
+            "UpdateSignalSpendWorkflow",
             "GenerateScoutRubricsWorkflow",
             "BackfillErrorTrackingWorkflow",
             "TeamSignalGroupingWorkflow",
@@ -104,6 +105,7 @@ class TestSignalsProductModuleIntegrity:
             "EmitEvalSignalWorkflow",
             "RunSignalsScoutWorkflow",
             "RunScoutTrialEvaluationWorkflow",
+            "RunScoutTrialJudgeWorkflow",
             "RunScoutTrialComparisonWorkflow",
             "SignalsScoutCoordinatorWorkflow",
             "RunScoutSuggestionsWorkflow",
@@ -124,6 +126,10 @@ class TestSignalsProductModuleIntegrity:
     def test_activities_remain_unchanged(self):
         """Ensure all expected signals product activities are present."""
         expected_activities = [
+            "update_signal_spend_activity",
+            "confirm_signal_spend_activity",
+            "publish_report_spend_activity",
+            "report_spend_owner_activity",
             "generate_scout_rubrics_activity",
             "fail_scout_rubrics_activity",
             "dispatch_inbox_slack_notifications_activity",
@@ -133,6 +139,7 @@ class TestSignalsProductModuleIntegrity:
             "emit_backfill_signal_activity",
             "fetch_error_tracking_issues_activity",
             "assign_and_emit_signal_activity",
+            "complete_signal_grouping_activity",
             "capture_signal_dropped_activity",
             "check_signals_quota_limited_activity",
             "delete_report_activity",
@@ -147,8 +154,10 @@ class TestSignalsProductModuleIntegrity:
             "get_embedding_activity",
             "match_signal_to_report_activity",
             "mark_report_failed_activity",
+            "notify_research_startup_failure_activity",
             "read_signals_from_s3_activity",
             "check_report_quota_gate_activity",
+            "check_report_task_settlement_activity",
             "mark_report_in_progress_activity",
             "mark_report_pending_input_activity",
             "mark_report_ready_activity",
@@ -170,19 +179,25 @@ class TestSignalsProductModuleIntegrity:
             "report_safety_judge_activity",
             "safety_filter_activity",
             "select_repository_activity",
+            "github_optional_pilot_activity",
             "soft_delete_report_signals_activity",
             "verify_match_specificity_activity",
             "wait_for_signal_in_clickhouse_activity",
             "fetch_enabled_signals_scout_runs_activity",
             "stamp_dispatched_signals_scout_runs_activity",
             "run_due_signal_report_checks_activity",
+            "evaluate_signals_scout_precheck_activity",
+            "check_signals_scout_config_runnable_activity",
             "run_signals_scout_activity",
+            "finalize_monitoring_scout_run_activity",
+            "cancel_failed_scout_trial_activity",
             "load_scout_trial_evaluation_activity",
             "dispatch_scout_trial_comparison_activity",
             "fail_scout_trial_comparison_activity",
             "prepare_scout_trial_comparison_evaluation_activity",
             "finish_scout_trial_comparison_activity",
             "judge_scout_trial_run_activity",
+            "poll_scout_trial_judge_activity",
             "finish_scout_trial_evaluation_activity",
             "resume_signals_scout_workflow_step",
             "plan_scout_suggestion_runs_activity",
@@ -202,11 +217,11 @@ class TestSignalsProductModuleIntegrity:
 
     def test_every_scout_coordinator_activity_is_registered(self):
         """A name list cannot catch an activity nobody added, and the worker rejects an unknown one."""
-        from products.signals.backend.temporal.agentic import scout_coordinator, scout_trial_evaluation
+        from products.signals.backend.temporal.agentic import scout_coordinator, scout_scheduler, scout_trial_evaluation
 
         defined = {
             name
-            for module in (scout_coordinator, scout_trial_evaluation)
+            for module in (scout_coordinator, scout_scheduler, scout_trial_evaluation)
             for name, value in vars(module).items()
             if callable(value) and getattr(value, "__temporal_activity_definition", None) is not None
         }

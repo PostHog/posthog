@@ -47,6 +47,10 @@ fn pruned(key: &PersonCacheKey, version: i64) -> Vec<(PersonCacheKey, DirtyMark)
             version,
             offset: 9,
             partition: PARTITION,
+            stream: personhog_leader::cache::Stream {
+                topic: std::sync::Arc::from("personhog_updates"),
+                partition: PARTITION,
+            },
             is_deleted: true,
         },
     )]

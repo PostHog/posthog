@@ -26,6 +26,9 @@ class CommercetoolsEndpointConfig:
     partition_key: str = "createdAt"
 
 
+# Endpoints that only exist on some projects (variants: Modular catalog model only).
+_OPT_IN_ENDPOINTS = frozenset({"variants"})
+
 COMMERCETOOLS_ENDPOINTS: dict[str, CommercetoolsEndpointConfig] = {
     "orders": CommercetoolsEndpointConfig(
         name="orders",
@@ -61,6 +64,13 @@ COMMERCETOOLS_ENDPOINTS: dict[str, CommercetoolsEndpointConfig] = {
         name="product_types",
         path="/product-types",
         scope="view_product_types",
+    ),
+    # Only available on projects using the Modular catalog model; Classic projects
+    # keep variants embedded in product_projections, so it stays off by default.
+    "variants": CommercetoolsEndpointConfig(
+        name="variants",
+        path="/variants",
+        scope="view_products",
     ),
     "categories": CommercetoolsEndpointConfig(
         name="categories",
@@ -118,3 +128,6 @@ ENDPOINTS = tuple(COMMERCETOOLS_ENDPOINTS.keys())
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     name: config.incremental_fields for name, config in COMMERCETOOLS_ENDPOINTS.items() if config.incremental_fields
 }
+
+# Tables that only exist on some projects stay off until the user opts in.
+SHOULD_SYNC_DEFAULT: dict[str, bool] = {name: name not in _OPT_IN_ENDPOINTS for name in COMMERCETOOLS_ENDPOINTS}

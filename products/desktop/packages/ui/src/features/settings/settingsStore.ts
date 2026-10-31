@@ -131,8 +131,7 @@ export function countRetiredHints(hints: Record<string, HintState>): number {
 export interface TaskDefaultsSyncState {
   // The "always create pull requests" value Desktop and the server last agreed on.
   autoPublishCloudRuns: boolean;
-  // The local "Start in" choice was offered to the server once.
-  planModeOffered: boolean;
+  startInPlanMode?: boolean;
 }
 
 export interface SyncedCustomInstructions {
@@ -336,8 +335,6 @@ export interface SettingsStore {
   setTerminalFont: (font: TerminalFont) => void;
   setTerminalCustomFontFamily: (value: string) => void;
   setTerminalGpuRendering: (enabled: boolean) => void;
-
-  // Conversation thread (new-thread)
 
   // Sidebar
   // Shows a per-repo "Worktrees" dropdown of task-less worktrees a click can
@@ -650,8 +647,6 @@ export const useSettingsStore = create<SettingsStore>()(
       setTerminalGpuRendering: (enabled) =>
         set({ terminalGpuRendering: enabled }),
 
-      // Conversation thread (new-thread)
-
       // Sidebar
       showSidebarWorktrees: false,
       setShowSidebarWorktrees: (enabled) =>
@@ -802,8 +797,6 @@ export const useSettingsStore = create<SettingsStore>()(
         terminalFont: state.terminalFont,
         terminalCustomFontFamily: state.terminalCustomFontFamily,
         terminalGpuRendering: state.terminalGpuRendering,
-
-        // Conversation thread (new-thread)
 
         // Sidebar
         showSidebarWorktrees: state.showSidebarWorktrees,

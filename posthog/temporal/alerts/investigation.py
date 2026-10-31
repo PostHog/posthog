@@ -77,17 +77,22 @@ def decide_investigation(alert: AlertConfiguration, alert_check: AlertCheck) -> 
     Cooldown is enforced by `claim_investigation_slot`, which does the read-then-write
     inside the caller's transaction.
     """
-    if not alert.investigation_agent_enabled:
+    if not investigates(alert, firing=alert_check.state == AlertState.FIRING):
         return InvestigationDecision()
-    if not alert.detector_config:
-        return InvestigationDecision()
-    if alert_check.state != AlertState.FIRING:
-        return InvestigationDecision()
-
     episode = episode_investigations(alert, alert_check)
-    if episode.started >= MAX_INVESTIGATIONS_PER_EPISODE:
-        return InvestigationDecision(previous_verdict=episode.previous_verdict)
-    return InvestigationDecision(should_investigate=True, previous_verdict=episode.previous_verdict)
+    return decide_within_budget(started=episode.started, previous_verdict=episode.previous_verdict)
+
+
+def investigates(alert: AlertConfiguration, *, firing: bool) -> bool:
+    """Whether a check of `alert` is one the agent investigates at all, before its budget."""
+    return bool(alert.investigation_agent_enabled and alert.detector_config and firing)
+
+
+def decide_within_budget(*, started: int, previous_verdict: str | None) -> InvestigationDecision:
+    """The decision for an eligible check, given what its episode already started."""
+    return InvestigationDecision(
+        should_investigate=started < MAX_INVESTIGATIONS_PER_EPISODE, previous_verdict=previous_verdict
+    )
 
 
 def carried_verdict_suppresses(alert: AlertConfiguration, decision: InvestigationDecision) -> bool:
@@ -111,22 +116,28 @@ def claim_investigation_slot(alert: AlertConfiguration, alert_check: AlertCheck)
 
     Caller must run this inside a transaction so the read-then-write is atomic.
     """
-    now = datetime.now(UTC)
-    in_flight = Q(
-        investigation_status__in=[InvestigationStatus.PENDING, InvestigationStatus.RUNNING],
-        created_at__gte=now - IN_FLIGHT_INVESTIGATION_HORIZON,
-    )
-    within_cooldown = Q(
-        investigation_status=InvestigationStatus.DONE,
-        created_at__gte=now - investigation_cooldown(alert),
-    )
     recent = (
         AlertCheck.objects.filter(alert_configuration=alert)
         .exclude(id=alert_check.id)
-        .filter(in_flight | within_cooldown)
+        .filter(refusing_investigations(alert, datetime.now(UTC), status_field="investigation_status"))
     )
     if recent.exists():
         AlertCheck.objects.filter(id=alert_check.id).update(investigation_status=InvestigationStatus.SKIPPED)
         return False
     AlertCheck.objects.filter(id=alert_check.id).update(investigation_status=InvestigationStatus.PENDING)
     return True
+
+
+def refusing_investigations(alert: AlertConfiguration, now: datetime, *, status_field: str) -> Q:
+    """Earlier investigations of `alert` that refuse a new one: in flight, or done inside the cooldown.
+
+    `status_field` names the status column, because each stack keeps its investigations in its own table.
+    """
+    cooldown = investigation_cooldown(alert)
+    in_flight = Q(
+        **{f"{status_field}__in": [InvestigationStatus.PENDING, InvestigationStatus.RUNNING]},
+        created_at__gte=now - IN_FLIGHT_INVESTIGATION_HORIZON,
+    )
+    within_cooldown = Q(**{status_field: InvestigationStatus.DONE}, created_at__gte=now - cooldown)
+    # The outer bound on its own lets the read scan one short range of the creation-time index.
+    return Q(created_at__gte=now - max(IN_FLIGHT_INVESTIGATION_HORIZON, cooldown)) & (in_flight | within_cooldown)

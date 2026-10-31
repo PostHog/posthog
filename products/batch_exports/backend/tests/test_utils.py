@@ -101,7 +101,7 @@ async def test_make_retryable_with_exponential_backoff_raises_if_not_retryable()
 @pytest.mark.parametrize(
     "input,expected",
     [
-        ([b'{"asdf": "\udee5\ud83e\udee5\\ud83e"}'], [{"asdf": "????"}]),
+        ([b'{"asdf": "\\udee5\\ud83e\\udee5\\ud83e"}'], [{"asdf": "????"}]),
         ([b'{"asdf": "\\"Hello\\" \\udfa2"}'], [{"asdf": '"Hello" ?'}]),
         ([b'{"asdf": "\n"}'], [{"asdf": "\n"}]),
         ([b'{"asdf": "\\n"}'], [{"asdf": "\n"}]),

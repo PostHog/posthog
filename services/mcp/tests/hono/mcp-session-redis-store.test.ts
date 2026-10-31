@@ -33,6 +33,8 @@ const liveContext: MCPClientContext = {
     mcpClientName: 'claude-code',
     mcpClientVersion: '1.2.3',
     mcpProtocolVersion: '2025-11-25',
+    mcpElicitationUrlSupported: true,
+    mcpUiSupported: true,
     mcpConsumer: 'posthog-code',
     mcpVendorClient: 'ClaudeCode',
 }
@@ -56,12 +58,16 @@ describe('McpSessionRedisStore', () => {
         expect(JSON.parse(redis.store.get(compactKeyIn(redis))!)).toEqual(liveContext)
     })
 
-    it('serves stored context back to a later request that carries none', async () => {
-        const store = new McpSessionRedisStore(redis, 'session-1')
-        await store.resolve(liveContext)
+    it.each([true, false])(
+        'preserves capability support %s on a later request that carries none',
+        async (supported) => {
+            const store = new McpSessionRedisStore(redis, 'session-1')
+            const context = { ...liveContext, mcpElicitationUrlSupported: supported, mcpUiSupported: supported }
+            await store.resolve(context)
 
-        expect(await store.resolve({})).toEqual(liveContext)
-    })
+            expect(await new McpSessionRedisStore(redis, 'session-1').resolve({})).toEqual(context)
+        }
+    )
 
     it('serves live context instead of throwing when the compact read fails', async () => {
         vi.mocked(redis.get).mockRejectedValue(new Error('Valkey read failed'))

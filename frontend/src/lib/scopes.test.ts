@@ -5,7 +5,11 @@ import {
     API_SCOPE_GROUPS,
     API_SCOPES,
     API_SCOPES_OMITTED_FROM_MODAL,
+    type ScopePickerRow,
+    clampScopeLevel,
     getScopeDescription,
+    scopeGroupLevel,
+    scopeGroupTooltip,
     scopeMatchesSearch,
 } from 'lib/scopes'
 
@@ -88,6 +92,45 @@ describe('API_SCOPE_GROUPS', () => {
     it('uses each group label once', () => {
         const labels = API_SCOPE_GROUPS.map(({ label }) => label)
         expect(labels).toEqual([...new Set(labels)])
+    })
+})
+
+describe('scope access groups', () => {
+    const row = (key: string, value: ScopePickerRow['value'], disabledReasons = {}): ScopePickerRow => ({
+        key,
+        label: key,
+        value,
+        disabledReasons,
+    })
+
+    // The clamp has to go down for a level the row refuses and up for a level the app requires,
+    // because the key modal only has the first case and the consent screen has both.
+    it.each([
+        ['stays on an allowed level', row('a', 'none'), 'write', 'write'],
+        ['drops to read when write is refused', row('a', 'none', { write: 'Not requested' }), 'write', 'read'],
+        [
+            'drops to none when read and write are refused',
+            row('a', 'none', { read: 'No', write: 'No' }),
+            'write',
+            'none',
+        ],
+        ['rises to read when none is refused', row('a', 'write', { none: 'Required' }), 'none', 'read'],
+    ])('%s', (_name, model, level, expected) => {
+        expect(clampScopeLevel(model, level as ScopePickerRow['value'])).toBe(expected)
+    })
+
+    it('never selects a level no row can take, and names each row reason in the tooltip', () => {
+        const rows = [
+            row('a', 'read', { write: 'Not requested by App' }),
+            row('b', 'read', { write: 'Not available for project scoped keys' }),
+            row('c', 'write'),
+        ]
+        expect(scopeGroupLevel(rows)).toBe('write')
+        expect(scopeGroupTooltip(rows, 'write')).toBe(
+            '1 of these permissions stays at read: Not requested by App. 1 of these permissions stays at read: Not available for project scoped keys.'
+        )
+        expect(scopeGroupLevel(rows.slice(0, 2))).toBe('read')
+        expect(scopeGroupLevel([row('a', 'read'), row('b', 'none')])).toBeUndefined()
     })
 })
 

@@ -50,6 +50,24 @@ def handle_signal_scout_config_change(
         return
 
     changes = changes_between(scope, previous=before_update, current=after_update)
+    if (
+        before_update is not None
+        and after_update is not None
+        and before_update.allowed_mcp_tools != after_update.allowed_mcp_tools
+        and not any(
+            change.field == field_name_overrides["SignalScoutConfig"]["allowed_mcp_tools"] for change in changes
+        )
+    ):
+        # The generic diff treats null and [] as empty, but these select different permissions.
+        changes.append(
+            Change(
+                type=scope,
+                field=field_name_overrides["SignalScoutConfig"]["allowed_mcp_tools"],
+                action="changed",
+                before=before_update.allowed_mcp_tools,
+                after=after_update.allowed_mcp_tools,
+            )
+        )
     if before_update is None and after_update is not None and after_update.write_scopes:
         # `changes_between` records no fields for a creation, so a scout created with a grant
         # would leave the log unable to say what it held before the first edit. Write access
@@ -62,6 +80,17 @@ def handle_signal_scout_config_change(
                 after=after_update.write_scopes,
             )
         )
+
+    if before_update is None and after_update is not None and after_update.allowed_mcp_tools is not None:
+        for field in ("allowed_mcp_tools", "tool_preset"):
+            changes.append(
+                Change(
+                    type=scope,
+                    field=field_name_overrides["SignalScoutConfig"][field],
+                    action="created",
+                    after=getattr(after_update, field),
+                )
+            )
 
     log_activity(
         organization_id=None,

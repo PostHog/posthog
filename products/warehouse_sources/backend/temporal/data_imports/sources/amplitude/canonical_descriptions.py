@@ -2,7 +2,7 @@
 
 Sourced from the official Amplitude HTTP API reference (https://amplitude.com/docs/apis), covering the
 Export API (events), the Dashboard REST APIs (cohorts, annotations), and the Taxonomy API (event types,
-event properties, user properties, event categories). Keyed by the endpoint names in
+event properties, user properties, event categories, group properties). Keyed by the endpoint names in
 `settings.py` `AMPLITUDE_ENDPOINTS`, which match the `ExternalDataSchema.name` of a synced Amplitude
 table. Columns absent here fall back to LLM enrichment.
 """
@@ -118,6 +118,21 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "columns": {
             "id": "Unique identifier for the category.",
             "name": "Name of the category — matches the category name carried on event types.",
+        },
+    },
+    "group_properties": {
+        "description": "A shared group property definition from the tracking plan, describing one property carried on groups (accounts).",
+        "docs_url": "https://amplitude.com/docs/apis/analytics/taxonomy",
+        "columns": {
+            "group_property": "Name of the group property. Custom group properties carry a `grp:` prefix.",
+            "group_type": "Name of the group type the property belongs to, when Amplitude returns one.",
+            "description": "Description of what the property means, from the tracking plan.",
+            "type": "Declared value type of the property (for example string, number, boolean, enum).",
+            "regex": "Regular expression the property value must match, if one is set.",
+            "enum_values": "Allowed values when the property is declared as an enum.",
+            "is_array_type": "Whether the property holds an array of values.",
+            "is_hidden": "Whether the property is hidden from pickers in the Amplitude UI.",
+            "classifications": "Data classification labels applied to the property.",
         },
     },
 }

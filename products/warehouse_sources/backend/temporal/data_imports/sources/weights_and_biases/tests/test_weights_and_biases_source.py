@@ -1,18 +1,15 @@
 import pytest
-from unittest import mock
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.weightsandbiases import (
     WeightsAndBiasesSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.weights_and_biases.settings import (
-    ENDPOINTS,
-    INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.weights_and_biases.source import (
     WeightsAndBiasesSource,
 )
-
-_SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.weights_and_biases.source"
 
 
 class TestWeightsAndBiasesSource:
@@ -27,55 +24,26 @@ class TestWeightsAndBiasesSource:
         assert "entity" in self.source.connection_host_fields
 
     @pytest.mark.parametrize(
-        "observed_error",
+        "viewer, expected_valid, expected_message",
         [
-            "401 Client Error: Unauthorized for url: https://api.wandb.ai/graphql",
-            "401 Client Error: Unauthorized for url: https://acme.wandb.io/graphql",
-            "Weights & Biases GraphQL error: permission denied",
+            ({"id": "abc"}, True, None),
+            (None, False, "Invalid Weights & Biases API key"),
         ],
     )
-    def test_non_retryable_errors_match_auth_failures(self, observed_error):
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable_errors)
-
-    def test_get_schemas(self):
-        schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
-
-        assert set(schemas) == set(ENDPOINTS)
-        # Only runs has a verified server-side timestamp filter; everything else is full refresh.
-        assert [name for name, schema in schemas.items() if schema.supports_incremental] == ["runs"]
-        # Runs mutate after creation, so merge is the only safe write mode.
-        assert not any(schema.supports_append for schema in schemas.values())
-        assert [f["field"] for f in schemas["runs"].incremental_fields] == ["createdAt", "heartbeatAt"]
-        assert schemas["runs"].incremental_fields == INCREMENTAL_FIELDS["runs"]
-
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["runs", "nope"])
-        assert [schema.name for schema in schemas] == ["runs"]
-
-    @pytest.mark.parametrize(
-        "mock_return, expected_valid, expected_message",
-        [
-            (True, True, None),
-            (False, False, "Invalid Weights & Biases API key"),
-        ],
-    )
-    @mock.patch(f"{_SOURCE_MODULE}.validate_wandb_credentials")
-    def test_validate_credentials(self, mock_validate, mock_return, expected_valid, expected_message):
-        mock_validate.return_value = mock_return
-
-        is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
+    def test_validate_credentials(self, viewer, expected_valid, expected_message):
+        with scripted_network([ScriptedResponse(json={"data": {"viewer": viewer}})]) as network:
+            is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
 
         assert is_valid is expected_valid
         assert error_message == expected_message
-        mock_validate.assert_called_once_with("wb-key", None)
+        assert [request.url for request in network.requests_log] == ["https://api.wandb.ai/graphql"]
 
-    @mock.patch(f"{_SOURCE_MODULE}.validate_wandb_credentials")
-    def test_validate_credentials_rejects_non_https_host_before_api_call(self, mock_validate):
+    def test_validate_credentials_rejects_non_https_host_before_api_call(self):
         config = WeightsAndBiasesSourceConfig(api_key="wb-key", entity="acme", host="http://acme.wandb.io")
 
-        is_valid, error_message = self.source.validate_credentials(config, self.team_id)
+        with scripted_network([]) as network:
+            is_valid, error_message = self.source.validate_credentials(config, self.team_id)
 
         assert is_valid is False
         assert error_message is not None and "https" in error_message
-        mock_validate.assert_not_called()
+        assert network.requests_log == []

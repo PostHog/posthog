@@ -18,6 +18,8 @@ export interface AnalyticsMetadata {
     distinctId: string
     /** The name of the tool that generated this result */
     toolName?: string
+    /** Same value as `$mcp_client_name` on server-side MCP events */
+    mcpClientName?: string
 }
 
 /**

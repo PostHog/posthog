@@ -31,6 +31,8 @@ const heatmapsEvents = (): ToolBase<ReturnType<typeof HeatmapsEventsSchema>, Sch
                 limit: params.limit,
                 offset: params.offset,
                 points: params.points,
+                timestamp_from: params.timestamp_from,
+                timestamp_to: params.timestamp_to,
                 type: params.type,
                 url_exact: params.url_exact,
                 url_pattern: params.url_pattern,
@@ -68,6 +70,8 @@ const heatmapsList = (): ToolBase<
                 hide_zero_coordinates: params.hide_zero_coordinates,
                 limit: params.limit,
                 offset: params.offset,
+                timestamp_from: params.timestamp_from,
+                timestamp_to: params.timestamp_to,
                 type: params.type,
                 url_exact: params.url_exact,
                 url_pattern: params.url_pattern,
@@ -423,6 +427,7 @@ const PropertyOperator = z.enum([
     'in',
     'not_in',
     'is_cleaned_path_exact',
+    'is_cleaned_path_not_exact',
     'flag_evaluates_to',
     'semver_eq',
     'semver_neq',
@@ -466,6 +471,14 @@ const SessionPropertyFilter = z.object({
 })
 
 const CohortPropertyFilter = z.object({
+    cohort_deleted: z.coerce
+        .boolean()
+        .describe('Set by the feature flag API when the cohort is deleted or does not exist.')
+        .optional(),
+    cohort_missing: z.coerce
+        .boolean()
+        .describe('Set by the feature flag API when the cohort does not exist, so it cannot be restored.')
+        .optional(),
     cohort_name: z.string().optional(),
     key: z.literal('id').default('id'),
     label: z.string().optional(),

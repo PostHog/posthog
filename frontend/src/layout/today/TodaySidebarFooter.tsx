@@ -42,7 +42,7 @@ export function TodaySidebarFooter(): JSX.Element {
     )
 
     return (
-        <div className="grid flex-none grid-cols-[minmax(0,1fr)_auto] items-center gap-1 border-t border-[var(--border)] px-2 pt-2 pb-4">
+        <div className="grid flex-none grid-cols-[minmax(0,1fr)_auto] items-center gap-1 border-t border-[var(--border)] px-2 pt-2 pb-2">
             {sidebarVisible ? (
                 <NewAccountMenu side="top" align="start" sideOffset={12} renderTrigger={renderTrigger} />
             ) : (

@@ -267,7 +267,9 @@ class Insight(Taggable, RootTeamMixin, FileSystemSyncMixin, models.Model):
             type="insight",  # sync with APIScopeObject in scopes.py
             ref=self.short_id,
             name=self.name or self.derived_name or "Untitled",
-            href=f"/insights/{self.short_id}",
+            href=f"/bi/{self.short_id}"
+            if (self.query or {}).get("kind") == "BIVisualizationNode"
+            else f"/insights/{self.short_id}",
             meta={
                 "created_at": str(self.created_at),
                 "created_by": self.created_by_id,

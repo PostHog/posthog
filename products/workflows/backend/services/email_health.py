@@ -12,6 +12,8 @@ from django.utils import timezone
 import structlog
 
 from posthog.api.app_metrics2 import fetch_app_metric_totals_by_source, fetch_app_metric_totals_by_team_and_source
+from posthog.integrations import IntegrationManager
+from posthog.models.integration import Integration
 
 from products.workflows.backend.facade.contracts import (
     EMAIL_HEALTH_METRIC_NAMES,
@@ -207,3 +209,29 @@ def fetch_isp_metrics(team_id: int, window_days: int, domains: list[str]) -> lis
     ]
     cache.set(cache_key, {"value": value}, ISP_METRICS_CACHE_SECONDS)
     return value
+
+
+def verified_email_domains(*, team_id: int) -> list[str]:
+    """The project's verified sending domains, oldest integration first, without repeats."""
+    return list(
+        dict.fromkeys(
+            domain
+            for domain in (
+                (row.config or {}).get("domain")
+                for row in IntegrationManager.email.credentials.list(team_id, where={"verified": True})
+            )
+            if domain
+        )
+    )
+
+
+def email_domain_sharers(*, team_id: int, domains: Collection[str]) -> dict[str, set[int]]:
+    """For each domain, the other projects that also send from it."""
+    sharers: dict[str, set[int]] = {domain: set() for domain in domains}
+    for domain, sharer_id in (
+        Integration.objects.filter(kind="email", config__verified=True, config__domain__in=list(domains))
+        .exclude(team_id=team_id)
+        .values_list("config__domain", "team_id")
+    ):
+        sharers[domain].add(sharer_id)
+    return sharers

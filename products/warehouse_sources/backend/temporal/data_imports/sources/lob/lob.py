@@ -2,12 +2,16 @@ import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
+from urllib.parse import parse_qsl, urlsplit
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.lob.settings import (
@@ -78,6 +82,9 @@ def _build_initial_url(
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Any,
 ) -> str:
+    if config.pagination == "none":
+        return f"{LOB_BASE_URL}{config.path}"
+
     params: dict[str, str] = {"limit": str(PAGE_SIZE)}
 
     if config.supports_incremental:
@@ -90,6 +97,17 @@ def _build_initial_url(
             params["date_created[gt]"] = _format_date_filter_value(db_incremental_field_last_value)
 
     return f"{LOB_BASE_URL}{config.path}?{_build_query_string(params)}"
+
+
+def _next_offset_url(url: str, page_item_count: int) -> str | None:
+    # Offset-paged lists carry no `next_url`, so a short page is the only end-of-list signal. The
+    # filters stay in the URL we build, so every page keeps the `date_created[gt]` floor.
+    if page_item_count < PAGE_SIZE:
+        return None
+    parts = urlsplit(url)
+    params = dict(parse_qsl(parts.query))
+    params["offset"] = str(int(params.get("offset", "0")) + page_item_count)
+    return f"{parts.scheme}://{parts.netloc}{parts.path}?{_build_query_string(params)}"
 
 
 def _get_headers() -> dict[str, str]:
@@ -108,7 +126,7 @@ def validate_credentials(api_key: str) -> tuple[bool, int | None]:
     return response.status_code == 200, response.status_code
 
 
-@retry(
+@retry_with_deadline(
     retry=retry_if_exception_type((LobRetryableError, requests.ReadTimeout, requests.ConnectionError)),
     stop=stop_after_attempt(5),
     wait=wait_exponential_jitter(initial=1, max=30),
@@ -116,7 +134,7 @@ def validate_credentials(api_key: str) -> tuple[bool, int | None]:
 )
 def _fetch_page(
     session: requests.Session, url: str, api_key: str, headers: dict[str, str], logger: FilteringBoundLogger
-) -> dict:
+) -> dict[str, Any] | list[dict[str, Any]]:
     response = session.get(url, auth=(api_key, ""), headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
 
     if response.status_code == 429 or response.status_code >= 500:
@@ -158,13 +176,18 @@ def get_rows(
     while url:
         data = _fetch_page(session, url, api_key, headers, logger)
 
-        items = data.get("data", [])
+        items = data if isinstance(data, list) else data.get("data", [])
         if not items:
             break
 
         yield items
 
-        next_url = data.get("next_url") or None
+        if config.pagination == "none" or isinstance(data, list):
+            next_url = None
+        elif config.pagination == "offset":
+            next_url = _next_offset_url(url, len(items))
+        else:
+            next_url = data.get("next_url") or None
 
         # Defence-in-depth for incremental endpoints: Lob's `next_url` carries only `limit` + `after`,
         # so if the server were to stop honouring the ascending sort on later pages, the cursor could

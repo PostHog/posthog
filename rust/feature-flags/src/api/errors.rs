@@ -7,6 +7,7 @@ use common_database::{
 use common_hypercache::HyperCacheError;
 use common_redis::CustomRedisError;
 use serde::Serialize;
+use std::sync::Arc;
 use thiserror::Error;
 
 use crate::utils::graph_utils::DependencyType;
@@ -107,6 +108,7 @@ pub enum FlagError {
     /// - `"io_timeout"` - Network/socket timeout
     /// - `"protocol_timeout"` - PostgreSQL protocol timeout
     /// - `"client_timeout"` - Client-side tokio::timeout wrapper
+    /// - `"persons_db_deadline"` - Deadline shared by all persons DB work in one flag evaluation
     /// - `"redis_timeout"` - Redis operation timeout
     /// - `"cache_timeout"` - Cache operation timeout
     /// - `"database_timeout"` - Generic database timeout (fallback when SQLSTATE unavailable)
@@ -117,6 +119,12 @@ pub enum FlagError {
     DependencyNotFound(DependencyType, i64),
     #[error("Flag dependency {0} failed to evaluate")]
     DependencyFailed(i64),
+    #[error("Group type mapping lookup failed: {0}")]
+    GroupTypeLookupFailed(Arc<FlagError>),
+    /// A failed `posthog_cohort` query, wrapping a `FlagError::internal`. Clients see what the
+    /// wrapped error shows them, but the request outcome counts it as a database failure.
+    #[error(transparent)]
+    CohortQueryFailed(Box<FlagError>),
     #[error("Failed to parse cohort filters")]
     CohortFiltersParsingError,
     #[error("Dependency cycle detected: {0} id {1} starts the cycle")]
@@ -138,6 +146,9 @@ pub enum FlagError {
 pub(crate) const CODE_FLAG_DATA_PARSING: &str = "flag_data_parsing_error";
 pub(crate) const CODE_PERSON_NOT_FOUND: &str = "person_not_found";
 pub(crate) const CODE_DEPENDENCY_FAILED: &str = "dependency_failed";
+
+const TIMEOUT_CLIENT: &str = "client_timeout";
+const TIMEOUT_PERSONS_DB_DEADLINE: &str = "persons_db_deadline";
 
 impl FlagError {
     /// The `Internal error: ` prefix reaches customers as the `$feature_flag_reason`
@@ -201,6 +212,18 @@ impl FlagError {
         }
     }
 
+    pub fn client_timeout() -> Self {
+        FlagError::TimeoutError(Some(TIMEOUT_CLIENT.to_string()))
+    }
+
+    pub fn persons_db_deadline() -> Self {
+        FlagError::TimeoutError(Some(TIMEOUT_PERSONS_DB_DEADLINE.to_string()))
+    }
+
+    pub fn is_persons_db_deadline(&self) -> bool {
+        matches!(self, FlagError::TimeoutError(Some(t)) if t == TIMEOUT_PERSONS_DB_DEADLINE)
+    }
+
     /// Returns (error_code, status_code) for this error.
     ///
     /// This consolidates error classification in one place to ensure consistency
@@ -246,6 +269,8 @@ impl FlagError {
             FlagError::RowNotFound => ("row_not_found", 500),
             FlagError::DependencyNotFound(_, _) => ("dependency_not_found", 500),
             FlagError::DependencyFailed(_) => (CODE_DEPENDENCY_FAILED, 500),
+            FlagError::GroupTypeLookupFailed(cause) => cause.error_metadata(),
+            FlagError::CohortQueryFailed(cause) => cause.error_metadata(),
             FlagError::CohortFiltersParsingError => ("cohort_filters_parsing_error", 500),
             FlagError::DependencyCycle(_, _) => ("dependency_cycle", 500),
             FlagError::HashKeyOverrideError => ("hash_key_override_error", 500),
@@ -318,6 +343,7 @@ impl FlagError {
             }
             FlagError::TimeoutError(Some(t)) => format!("timeout:{t}"),
             FlagError::TimeoutError(None) => "timeout_error".to_string(),
+            FlagError::GroupTypeLookupFailed(cause) => cause.evaluation_error_code(),
             FlagError::DependencyNotFound(dependency_type, _) => match dependency_type {
                 DependencyType::Cohort => "dependency_not_found_cohort".to_string(),
                 DependencyType::Flag => "dependency_not_found_flag".to_string(),
@@ -362,6 +388,7 @@ impl FlagError {
                 DependencyType::Flag => "Flag dependency not found".to_string(),
             },
             FlagError::DependencyFailed(_) => "Flag dependency failed to evaluate".to_string(),
+            FlagError::GroupTypeLookupFailed(cause) => cause.evaluation_error_description(),
             FlagError::DependencyCycle(dependency_type, _) => match dependency_type {
                 DependencyType::Cohort => "Cohort dependency cycle detected".to_string(),
                 DependencyType::Flag => "Flag dependency cycle detected".to_string(),
@@ -372,6 +399,41 @@ impl FlagError {
 
     pub fn is_5xx(&self) -> bool {
         self.status_code() >= 500
+    }
+
+    /// A flag failure caused by a database or a timeout, not by the flag's configuration.
+    /// `DependencyFailed` is excluded, because the flag it depends on carries the cause.
+    pub fn is_database_or_timeout_failure(&self) -> bool {
+        match self {
+            FlagError::DatabaseError(..)
+            | FlagError::DatabaseUnavailable
+            | FlagError::TimeoutError(_)
+            | FlagError::HashKeyOverrideError
+            | FlagError::CohortQueryFailed(_)
+            // The lookup reports a failed query, a statement timeout included, as an internal error.
+            | FlagError::GroupTypeLookupFailed(_) => true,
+            FlagError::ClientFacing(_)
+            | FlagError::InternalError { .. }
+            | FlagError::Unavailable { .. }
+            | FlagError::RequestDecodingError(_)
+            | FlagError::PayloadTooLarge { .. }
+            | FlagError::RequestParsingError(_)
+            | FlagError::MissingDistinctId
+            | FlagError::NoTokenError
+            | FlagError::TokenValidationError
+            | FlagError::PersonalApiKeyInvalid
+            | FlagError::PersonalApiKeyInsufficientScopes
+            | FlagError::SecretApiTokenInvalid
+            | FlagError::NoAuthenticationProvided
+            | FlagError::RowNotFound
+            | FlagError::DependencyNotFound(..)
+            | FlagError::DependencyFailed(_)
+            | FlagError::CohortFiltersParsingError
+            | FlagError::DependencyCycle(..)
+            | FlagError::RayonSemaphoreTimeout(_)
+            | FlagError::CookielessError(_)
+            | FlagError::RemoteConfigDecryptFailed(_) => false,
+        }
     }
 }
 
@@ -546,6 +608,15 @@ impl IntoResponse for FlagError {
                 tracing::error!("Flag dependency {dependency_id} failed to evaluate");
                 (StatusCode::INTERNAL_SERVER_ERROR, format!("Flag dependency {dependency_id} failed to evaluate"))
             }
+            FlagError::GroupTypeLookupFailed(cause) => {
+                tracing::error!("Group type mapping lookup failed: {cause:?}");
+                (
+                    StatusCode::from_u16(cause.status_code())
+                        .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
+                    "Group type mapping lookup failed".to_string(),
+                )
+            }
+            FlagError::CohortQueryFailed(cause) => return cause.into_response(),
             FlagError::CohortFiltersParsingError => {
                 tracing::error!("Failed to parse cohort filters: {:?}", self);
                 (StatusCode::INTERNAL_SERVER_ERROR, "Failed to parse cohort filters. Please try again later or contact support if the problem persists.".to_string())
@@ -648,9 +719,7 @@ impl From<CustomRedisError> for FlagError {
 impl From<CustomDatabaseError> for FlagError {
     fn from(e: CustomDatabaseError) -> Self {
         match e {
-            CustomDatabaseError::Timeout(_) => {
-                FlagError::TimeoutError(Some("client_timeout".to_string()))
-            }
+            CustomDatabaseError::Timeout(_) => FlagError::client_timeout(),
             CustomDatabaseError::Other(sqlx_error) => {
                 // Check if it's a timeout-related SQL error
                 if is_timeout_error(&sqlx_error) {
@@ -780,6 +849,27 @@ mod tests {
             let err = FlagError::CookielessError(CookielessManagerError::SaltCacheError(variant));
             assert_eq!(err.is_5xx(), expected_5xx, "is_5xx() mismatch for {err:?}");
         }
+    }
+
+    #[rstest]
+    #[case::database_error(FlagError::DatabaseError(sqlx::Error::PoolClosed, None), true)]
+    #[case::database_unavailable(FlagError::DatabaseUnavailable, true)]
+    #[case::pool_timeout(FlagError::TimeoutError(Some("pool_timeout".to_string())), true)]
+    #[case::persons_db_deadline(FlagError::persons_db_deadline(), true)]
+    #[case::hash_key_override(FlagError::HashKeyOverrideError, true)]
+    #[case::group_type_query_failed(
+        FlagError::GroupTypeLookupFailed(Arc::new(FlagError::internal(anyhow::anyhow!(
+            "canceling statement due to statement timeout"
+        )))),
+        true
+    )]
+    #[case::deleted_cohort(FlagError::DependencyNotFound(DependencyType::Cohort, 1), false)]
+    #[case::failed_flag_dependency(FlagError::DependencyFailed(1), false)]
+    #[case::dependency_cycle(FlagError::DependencyCycle(DependencyType::Flag, 1), false)]
+    #[case::unsupported_filters(FlagError::flag_data_parsing("unsupported format"), false)]
+    #[case::cohort_filters(FlagError::CohortFiltersParsingError, false)]
+    fn test_is_database_or_timeout_failure(#[case] error: FlagError, #[case] expected: bool) {
+        assert_eq!(error.is_database_or_timeout_failure(), expected);
     }
 
     #[test]

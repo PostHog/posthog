@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 
+import { markPaintDone, markPaintPending } from '../paint-state'
 import type {
     ChartDimensions,
     ChartDrawArgs,
@@ -19,8 +20,8 @@ interface UseChartDrawOptions {
     overlayCtx: CanvasRenderingContext2D | null
     dimensions: ChartDimensions | null
     scales: ChartScales | null
-    series: ResolvedSeries[]
-    labels: string[]
+    series?: ResolvedSeries[]
+    labels?: string[]
     hoverIndex: number
     hoverPosition: { x: number; y: number } | null
     theme: ChartTheme
@@ -31,13 +32,17 @@ interface UseChartDrawOptions {
     hoverAnimationMs?: number
 }
 
+// Shared defaults: a fresh `[]` per render would repaint the static layer on every hover.
+const NO_SERIES: ResolvedSeries[] = []
+const NO_LABELS: string[] = []
+
 export function useChartDraw({
     ctx,
     overlayCtx,
     dimensions,
     scales,
-    series,
-    labels,
+    series = NO_SERIES,
+    labels = NO_LABELS,
     hoverIndex,
     hoverPosition,
     theme,
@@ -56,9 +61,15 @@ export function useChartDraw({
             cancelAnimationFrame(staticRafRef.current)
             staticRafRef.current = null
         }
-        if (!ctx || !dimensions || !scales || theme.skipDraw) {
+        if (!ctx) {
             return
         }
+        // Nothing to paint is a settled state too, or a snapshot runner would wait on it.
+        if (!dimensions || !scales || theme.skipDraw) {
+            markPaintDone(ctx.canvas)
+            return
+        }
+        markPaintPending(ctx.canvas)
         staticRafRef.current = requestAnimationFrame(() => {
             staticRafRef.current = null
             clearAndPrepare(ctx, dimensions)
@@ -77,6 +88,7 @@ export function useChartDraw({
                 })
             } finally {
                 ctx.restore()
+                markPaintDone(ctx.canvas)
             }
         })
         return () => {

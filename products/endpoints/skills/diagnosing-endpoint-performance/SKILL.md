@@ -34,15 +34,6 @@ If the question is project-wide ("what should I clean up?"), use `auditing-endpo
 | `endpoints-last-execution-times`    | When was it last called (endpoint-level sanity-check that it is in active use)                 |
 | `execute-sql`                       | Query `query_log` for endpoint-level call frequency and per-call duration/bytes                |
 
-The two AI rewrite tools below are gated behind the `endpoints-ai-materialization-fix`
-feature. When that feature is off, they do not appear in your tool catalog. Step 3 works
-without them — treat them as an accelerator, not a requirement.
-
-| Tool (feature-gated)                  | Purpose                                                                              |
-| ------------------------------------- | ------------------------------------------------------------------------------------ |
-| `endpoint-materialization-suggestion` | Server-side AI rewrite of an ineligible SQL query, validated against the live checks |
-| `endpoint-materialization-conditions` | Source code of the live eligibility checks + the rewrite contract, for DIY rewriting |
-
 ## The decision tree
 
 When deciding what to recommend, walk these in order — the first one that applies is the cheapest
@@ -95,8 +86,9 @@ match it to the bullets below — they summarise the common cases, not every che
 so the raw reason wins when the two disagree. Propose the rewrite by hand:
 
 - **Cohort breakdown / compare mode rejection** → regular property breakdowns materialise fine;
-  only cohort breakdowns and compare mode are blocked. Swap a cohort breakdown for a property
-  breakdown, or drop compare mode (expose the comparison window as a variable instead).
+  only cohort breakdowns are blocked. Swap a cohort breakdown for a property breakdown. Compare
+  mode materialises for Trends endpoints; on any other query kind, drop compare mode (expose the
+  comparison window as a variable instead).
 - **JOINs combined with variables** → a top-level `JOIN` plus a variable filter is rejected for
   materialisation, because applying the variable changes the joined row cardinality and silently
   produces wrong results (e.g. `LEFT JOIN` non-matches lose the variable column). Restructure so the
@@ -115,22 +107,6 @@ so the raw reason wins when the two disagree. Propose the rewrite by hand:
 
 Check `endpoint-versions` to see whether the query was recently changed. Often the regression
 came from a specific commit and reverting that version is faster than rewriting.
-
-**Optional AI accelerator (only if the tools resolve).** When your catalog includes
-`endpoint-materialization-suggestion` — it is gated behind the `endpoints-ai-materialization-fix`
-feature and needs the org's AI data processing approval — you can let PostHog draft the rewrite
-instead. It rewrites the query into a semantically equivalent form and validates it against the
-live checks before returning it. `ok` means the rewrite passes the checks plus variable- and
-output-column parity, but semantic equivalence is the model's claim, not proven. Before applying,
-run the original and the rewrite with the same representative variable values (via `execute-sql`
-or the endpoint playground) and compare the results; only then apply it with `endpoint-update`
-(creates a new version), then confirm with `endpoint-materialization-status`. `cannot_fix` means
-no equivalent rewrite exists (e.g. an `OR {variables.x} = 'all'` optional-variable idiom) — say
-so rather than forcing a change in behaviour. To reason about the rewrite yourself, call
-`endpoint-materialization-conditions` (same feature gate) — it returns the actual source code of
-the checks this instance enforces plus the rewrite contract; treat that as authoritative over the
-bullets above. If neither tool is in your catalog, the feature is off — stay on the manual path
-above and say the AI rewrite is unavailable.
 
 ### Step 4 — Is the slow version even the one being called?
 

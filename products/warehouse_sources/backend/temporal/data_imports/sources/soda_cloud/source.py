@@ -1,5 +1,6 @@
 from typing import cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -43,6 +44,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SodaCloudSource(ResumableSource[SodaCloudSourceConfig, SodaCloudResumeConfig]):
+    codebase_detection = detect(env=("^(SODA_CLOUD|SODACLOUD)_",), pypi=("soda-core",))
+
     lists_tables_without_credentials = True
     supported_versions = ("v1",)
     default_version = "v1"
@@ -100,7 +103,7 @@ class SodaCloudSource(ResumableSource[SodaCloudSourceConfig, SodaCloudResumeConf
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Soda Data (Soda Cloud)",
             iconPath="/static/services/soda_cloud.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="In Soda Cloud, open your avatar, select Profile, then API Keys. Generate a key ID and secret.",
             docsUrl="https://docs.soda.io/reference/soda-apis/generate-api-keys",
             fields=cast(

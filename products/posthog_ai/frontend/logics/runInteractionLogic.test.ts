@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { ApiError } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
@@ -14,8 +15,10 @@ import {
     tasksRunsCommandCreate,
     tasksWarmResumeCreate,
 } from 'products/tasks/frontend/generated/api'
+import { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import type { PermissionRequestRecord } from '../types/streamTypes'
+import type { StoredLogEntry } from '../types/wireTypes'
 import { uploadRunAttachments, uploadStagedTaskAttachments } from '../utils/artifactUpload'
 import { contextItemLine } from '../utils/posthogContextBlock'
 import { attachedContextLogic } from './attachedContextLogic'
@@ -23,6 +26,7 @@ import { composerAttachmentsLogic } from './composerAttachmentsLogic'
 import { runCancellationLogic } from './runCancellationLogic'
 import { runInteractionLogic } from './runInteractionLogic'
 import { runStreamLogic } from './runStreamLogic'
+import { taskCommentContextsLogic } from './taskCommentContextsLogic'
 import { TaskDraftPersistence, taskDraftStorageKey } from './taskDraftPersistence'
 import { toolStreamEventsLogic } from './toolStreamEventsLogic'
 
@@ -46,6 +50,7 @@ jest.mock('./runStreamLogic', () => {
             respondToPermission: (payload: unknown) => ({ payload }),
             cancelRun: (run?: unknown) => ({ run }),
             markTurnComplete: (isReplay: boolean = false) => ({ isReplay }),
+            markRunStarted: true,
             setCurrentMode: (mode: string) => ({ mode }),
             handleTerminalStatus: (status: { status: string }) => status,
             setStubStatus: (status: string | null) => ({ status }),
@@ -61,7 +66,7 @@ jest.mock('./runStreamLogic', () => {
             clearPermissionRequest: true,
             reset: true,
             appendEntries: true,
-            ingestAcpFrame: true,
+            ingestAcpFrame: (entry: unknown, source: string = 'live') => ({ entry, source }),
             closeSse: true,
             bootstrapRun: true,
         }),
@@ -262,6 +267,66 @@ describe('runInteractionLogic', () => {
             expect(attachments.values.uploading).toBe(false)
         })
 
+        it('uploads a comment chip screenshot with the message and names it in the chip block', async () => {
+            ;(uploadRunAttachments as jest.Mock).mockResolvedValue(['art-1', 'art-2'])
+            const comments = taskCommentContextsLogic({ taskId: TASK_ID })
+            comments.mount()
+            const screenshot = new File(['png'], 'comment-1.png', { type: 'image/png' })
+            comments.actions.addCommentToChat(
+                { label: 'chart.png (region)', body: '- **Artifact** chart.png' },
+                'x',
+                screenshot
+            )
+
+            logic.actions.setComposerFormValues({ draft: 'Fix this bar' })
+            await expectLogic(logic, () => logic.actions.submitComposerForm()).toFinishAllListeners()
+
+            expect(uploadRunAttachments).toHaveBeenCalledWith('997', TASK_ID, RUN_ID, [
+                expect.objectContaining({ name: 'rows.csv' }),
+                screenshot,
+            ])
+            expect(tasksRunsCommandCreate).toHaveBeenCalledWith('997', TASK_ID, RUN_ID, {
+                jsonrpc: '2.0',
+                method: 'user_message',
+                params: {
+                    content:
+                        '<comment_context label="chart.png (region)" screenshot="comment-1.png">\n- **Artifact** chart.png\n</comment_context>\nFix this bar',
+                    artifact_ids: ['art-1', 'art-2'],
+                },
+            })
+            comments.unmount()
+        })
+
+        it('keeps the chip screenshot name when a failed send is retried', async () => {
+            ;(uploadRunAttachments as jest.Mock).mockRejectedValueOnce(new Error('S3 said no'))
+            ;(uploadRunAttachments as jest.Mock).mockResolvedValueOnce(['art-1', 'art-2'])
+            const comments = taskCommentContextsLogic({ taskId: TASK_ID })
+            comments.mount()
+            const screenshot = new File(['png'], 'comment-1.png', { type: 'image/png' })
+            comments.actions.addCommentToChat(
+                { label: 'chart.png (region)', body: '- **Artifact** chart.png' },
+                'x',
+                screenshot
+            )
+
+            logic.actions.setComposerFormValues({ draft: 'Fix this bar' })
+            await expectLogic(logic, () => logic.actions.submitComposerForm()).toFinishAllListeners()
+            await expectLogic(logic, () => logic.actions.submitComposerForm()).toFinishAllListeners()
+
+            expect(tasksRunsCommandCreate).toHaveBeenCalledWith(
+                '997',
+                TASK_ID,
+                RUN_ID,
+                expect.objectContaining({
+                    params: expect.objectContaining({
+                        content:
+                            '<comment_context label="chart.png (region)" screenshot="comment-1.png">\n- **Artifact** chart.png\n</comment_context>\nFix this bar',
+                    }),
+                })
+            )
+            comments.unmount()
+        })
+
         it('keeps the files staged when the send fails', async () => {
             ;(uploadRunAttachments as jest.Mock).mockRejectedValue(new Error('S3 said no'))
 
@@ -360,6 +425,57 @@ describe('runInteractionLogic', () => {
             ...userMessageCommand('queued first\n\nqueued second\n\nlast keystroke')
         )
         expect(new TaskDraftPersistence(taskDraftStorageKey('user-1', 997, TASK_ID)).restore()).toBeNull()
+    })
+
+    it('restores the saved draft and its chips, then adds comment text and sends every chip before it', async () => {
+        const comments = taskCommentContextsLogic({ taskId: TASK_ID })
+        comments.mount()
+        new TaskDraftPersistence(taskDraftStorageKey('user-1', 997, TASK_ID)).save({
+            runId: RUN_ID,
+            draft: '<comment_context label="chart.png">\n- **Artifact** chart.png\n</comment_context>\nsaved draft',
+            queuedText: '',
+            recovery: null,
+        })
+        comments.actions.addCommentToChat({ label: 'report.md', body: '- **Artifact** report.md' }, 'Fix the title')
+        logic.actions.applyPendingCommentText()
+        expect(logic.values.composerForm.draft).toBe('')
+
+        logic.actions.enableTaskDraftPersistence('user-1', 997)
+        expect(logic.values.composerForm.draft).toBe('saved draft\n\nFix the title')
+
+        logic.actions.persistTaskDraft()
+        logic.unmount()
+        logic = runInteractionLogic({ taskId: TASK_ID, runId: RUN_ID, onRunStarted })
+        logic.mount()
+        logic.actions.enableTaskDraftPersistence('user-1', 997)
+        expect(comments.values.commentContexts.map((context) => context.label)).toEqual(['chart.png', 'report.md'])
+        expect(logic.values.composerForm.draft).toBe('saved draft\n\nFix the title')
+
+        await expectLogic(logic, () => logic.actions.submitComposerForm()).toFinishAllListeners()
+
+        expect(tasksRunsCommandCreate).toHaveBeenCalledWith(
+            ...userMessageCommand(
+                '<comment_context label="chart.png">\n- **Artifact** chart.png\n</comment_context>\n<comment_context label="report.md">\n- **Artifact** report.md\n</comment_context>\nsaved draft\n\nFix the title'
+            )
+        )
+        expect(comments.values.commentContexts).toEqual([])
+        comments.unmount()
+    })
+
+    it('gives the comment chips back and keeps the XML out of the draft when a send fails', async () => {
+        ;(tasksRunsCommandCreate as jest.Mock).mockRejectedValue(new Error('network'))
+        const comments = taskCommentContextsLogic({ taskId: TASK_ID })
+        comments.mount()
+        comments.actions.addCommentToChat({ label: 'report.md', body: '- **Artifact** report.md' }, 'unused')
+
+        logic.actions.setComposerFormValues({ draft: 'Fix the title' })
+        await expectLogic(logic, () => logic.actions.submitComposerForm()).toFinishAllListeners()
+
+        expect(logic.values.composerForm.draft).toBe('Fix the title')
+        expect(comments.values.commentContexts).toEqual([
+            { id: expect.any(String), label: 'report.md', body: '- **Artifact** report.md' },
+        ])
+        comments.unmount()
     })
 
     it('does not prewarm a recovered terminal draft or copy it into another user or project', async () => {
@@ -962,6 +1078,42 @@ describe('runInteractionLogic', () => {
         expect(logic.values.queueHeld).toBe(false)
     })
 
+    it.each([
+        ['steer', 'steer'],
+        ['stop', 'user_stop'],
+        ['failed stop then steer', 'steer'],
+        ['failed steer', 'unknown'],
+        ['nothing', 'unknown'],
+    ])('reports what came before a cancelled turn: %s', async (trigger, cause) => {
+        const capture = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
+        setThinking(true)
+        if (trigger.includes('stop')) {
+            logic.actions.requestCancellation()
+        }
+        if (trigger.startsWith('failed stop')) {
+            runCancellationLogic({ streamKey: RUN_ID }).actions.cancellationFailed()
+        }
+        if (trigger === 'failed steer') {
+            ;(tasksRunsCommandCreate as jest.Mock).mockRejectedValueOnce(new Error('Connection lost'))
+        }
+        if (trigger.includes('steer')) {
+            logic.actions.enqueueMessage('change course')
+            await expectLogic(logic, () => logic.actions.steerQueue()).toFinishAllListeners()
+        }
+        const turnComplete = (stopReason: string): StoredLogEntry => ({
+            type: 'notification',
+            notification: { method: '_posthog/turn_complete', params: { stopReason } },
+        })
+
+        stream.actions.ingestAcpFrame(turnComplete('cancelled'))
+        stream.actions.ingestAcpFrame(turnComplete('cancelled'))
+
+        const causes = capture.mock.calls
+            .filter(([event]) => event === 'task_run_turn_cancelled')
+            .map(([, properties]) => properties?.cause)
+        expect(causes).toEqual([cause, 'unknown'])
+    })
+
     it('holds an unconfirmed send as its own rows until the user asks for it again', async () => {
         ;(tasksRunsCommandCreate as jest.Mock).mockRejectedValueOnce(new Error('Connection lost'))
         setThinking(true)
@@ -1069,6 +1221,80 @@ describe('runInteractionLogic', () => {
         expect(logic.values.composerForm.draft).toBe('ship it')
         expect(logic.values.sending).toBe(false)
         expect(toolEvents.values.applyBackTargetClaims[RUN_ID]).toBeUndefined()
+    })
+
+    describe('Pi task', () => {
+        let piLogic: ReturnType<typeof runInteractionLogic.build>
+
+        beforeEach(() => {
+            logic.unmount()
+            piLogic = runInteractionLogic({
+                taskId: TASK_ID,
+                runId: RUN_ID,
+                onRunStarted,
+                taskRuntime: TaskRuntimeEnumApi.Pi,
+            })
+            piLogic.mount()
+        })
+
+        afterEach(() => {
+            piLogic.unmount()
+            logic.mount()
+        })
+
+        const configCommand = (configId: string, value: string): [string, string, string, Record<string, unknown>] => [
+            '997',
+            TASK_ID,
+            RUN_ID,
+            { jsonrpc: '2.0', method: 'set_config_option', params: { configId, value } },
+        ]
+
+        it.each([
+            { caseName: 'no pick', pick: () => {}, commands: [] },
+            {
+                caseName: 'a picked model',
+                pick: () => piLogic.actions.setModel('claude-opus-5-5'),
+                commands: [configCommand('model', 'claude-opus-5-5')],
+            },
+            {
+                caseName: 'a picked effort',
+                pick: () => piLogic.actions.setEffort('low'),
+                commands: [configCommand('effort', 'low')],
+            },
+        ])('syncs $caseName to the Pi session before a follow-up', async ({ pick, commands }) => {
+            pick()
+            piLogic.actions.setComposerFormValues({ draft: 'keep going' })
+            await expectLogic(piLogic, () => piLogic.actions.submitComposerForm()).toFinishAllListeners()
+
+            expect((tasksRunsCommandCreate as jest.Mock).mock.calls).toEqual([
+                ...commands,
+                userMessageCommand('keep going'),
+            ])
+        })
+
+        it.each([
+            { caseName: 'no pick', pick: () => {}, selection: {} },
+            {
+                caseName: 'a picked model and effort',
+                pick: () => {
+                    piLogic.actions.setModel('claude-opus-5-5')
+                    piLogic.actions.setEffort('low')
+                },
+                selection: { model: 'claude-opus-5-5', reasoning_effort: 'low' },
+            },
+        ])('resumes a terminal run with $caseName', async ({ pick, selection }) => {
+            setStatus('completed')
+            pick()
+            piLogic.actions.setComposerFormValues({ draft: 'continue from here' })
+            await expectLogic(piLogic, () => piLogic.actions.submitComposerForm()).toFinishAllListeners()
+
+            expect(tasksRunCreate).toHaveBeenCalledWith(
+                '997',
+                TASK_ID,
+                { resume_from_run_id: RUN_ID, pending_user_message: 'continue from here', ...selection },
+                expect.objectContaining({ signal: expect.any(AbortSignal) })
+            )
+        })
     })
 
     it('starts a fresh run seeded with the message when the run is terminal', async () => {

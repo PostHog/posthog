@@ -24,6 +24,7 @@ from products.replay_vision.backend.queries.session_identity import (
     person_display_name,
     person_email,
     person_organization,
+    session_geoip,
 )
 from products.replay_vision.backend.session_limits import (
     MAX_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S,
@@ -41,7 +42,6 @@ from products.replay_vision.backend.temporal.team_context import fetch_event_des
 from products.replay_vision.backend.temporal.types import (
     EventTable,
     FetchSessionEventsInputs,
-    NavigationEntry,
     ScannerLlmInputs,
     SessionGroup,
     SessionIdentity,
@@ -55,7 +55,7 @@ logger = structlog.get_logger(__name__)
 # page through the whole session.
 _EVENTS_PER_PAGE = 2000
 # Eligibility caps active seconds, not event count, so an instrumentation loop or bot can still emit
-# millions of rows. Cap the total we hold in memory, gzip into Redis, and index for the events tool.
+# millions of rows. Cap the total we hold in memory, gzip into Redis, and index for the event lookups.
 _MAX_TOTAL_EVENT_ROWS = 50_000
 
 # Noisy SDK-internal events that add no signal for the LLM.
@@ -81,11 +81,6 @@ _WINDOW_PREFIX = "window"
 _MAX_FIELD_LEN = 2000
 # Fixed-size dedup key — keeps `seen_hashes` bounded on chatty sessions where each row can carry ~KB-sized truncated exception text.
 _DEDUP_HASH_BYTES = 8
-# The preamble's navigation timeline stays a skim-able digest, not a second event dump: bounded per URL, per entry
-# count, and in total URL characters, so a bouncy session with long URLs can't bloat the cached prompt.
-_MAX_NAVIGATION_ENTRIES = 30
-_MAX_NAVIGATION_URL_LEN = 200
-_MAX_NAVIGATION_TOTAL_URL_CHARS = 3000
 
 
 @activity.defn
@@ -118,6 +113,7 @@ def _persist_session_identity(observation_id: Any, payload: ScannerLlmInputs) ->
         recording_subject_email=payload.identity.person_email,
         session_started_at=payload.metadata.start_time,
         session_group_keys=payload.group_keys or None,
+        session_geoip=payload.session_geoip or None,
     )
 
 
@@ -138,15 +134,12 @@ def _resolve_group_keys(team: Team, session_id: str, metadata: RecordingMetadata
         return {}
 
 
-def _resolve_identity(
-    team: Team, session_id: str, metadata: RecordingMetadata, group_keys: dict[int, str]
-) -> SessionIdentity:
+def _resolve_identity(team: Team, properties: dict[str, Any], group_keys: dict[int, str]) -> SessionIdentity:
     """The recorded person and the groups their session belongs to, as far as each can be read.
 
     Every lookup is independent and best-effort: a scanner that only needs the video must not fail because
     the person query returned nothing or the groups query errored.
     """
-    properties = _resolve_person_properties(team, session_id, metadata)
     return SessionIdentity(
         person_email=person_email(properties),
         person_name=person_display_name(properties),
@@ -278,6 +271,7 @@ def fetch_session_payload(team_id: int, session_id: str) -> ScannerLlmInputs | N
 
     group_keys = _resolve_group_keys(team, session_id, metadata)
     distinct_id = metadata.get("distinct_id")
+    subject_properties = _resolve_person_properties(team, session_id, metadata)
 
     return ScannerLlmInputs(
         session_id=session_id,
@@ -288,12 +282,11 @@ def fetch_session_payload(team_id: int, session_id: str) -> ScannerLlmInputs | N
         url_mapping=processed.url_mapping,
         window_mapping=processed.window_mapping,
         event_timestamps=processed.event_timestamps,
-        navigation=processed.navigation,
-        navigation_dropped=processed.navigation_dropped,
         events_truncated=events_truncated,
         distinct_id=distinct_id,
-        identity=_resolve_identity(team, session_id, metadata, group_keys),
+        identity=_resolve_identity(team, subject_properties, group_keys),
         group_keys=group_keys,
+        session_geoip=session_geoip(subject_properties),
         metadata=SessionMetadata(
             start_time=metadata["start_time"],
             end_time=metadata["end_time"],
@@ -319,8 +312,6 @@ class ProcessedEvents:
     url_mapping: dict[str, str]  # token -> actual URL
     window_mapping: dict[str, str]  # token -> actual window UUID
     event_timestamps: dict[str, int]  # event uuid -> ms since session start
-    navigation: list[NavigationEntry]
-    navigation_dropped: int
     # First `$device_type` any event carried; None when no event had one.
     device_type: str | None = None
 
@@ -328,8 +319,8 @@ class ProcessedEvents:
 def _process_events(
     raw_columns: list[str], raw_rows: list[list[Any]], *, session_start: dt.datetime
 ) -> ProcessedEvents:
-    """Dedup, truncate, intern URLs/windows, surface uuid as `event_uuid` for the LLM, build the uuid → relative-ms
-    lookup, and derive the per-window URL-change timeline the preamble renders."""
+    """Dedup, truncate, intern URLs/windows, surface uuid as `event_uuid` for the LLM, and build the uuid → relative-ms
+    lookup."""
     uuid_index = raw_columns.index("uuid") if "uuid" in raw_columns else None
     timestamp_index = raw_columns.index("timestamp") if "timestamp" in raw_columns else None
     device_index = raw_columns.index(_DEVICE_TYPE_COLUMN) if _DEVICE_TYPE_COLUMN in raw_columns else None
@@ -350,8 +341,6 @@ def _process_events(
     event_timestamps: dict[str, int] = {}
     seen_hashes: set[str] = set()
     processed: list[list[Any]] = []
-    # (relative_ms, window token, actual URL) sightings; collapsed into the navigation timeline after the loop.
-    navigation_points: list[tuple[int, str | None, str]] = []
 
     for row in raw_rows:
         visible = list(row)
@@ -368,70 +357,20 @@ def _process_events(
         if uuid_str:
             event_timestamps[uuid_str] = relative_ms
 
-        raw_url = visible[url_index] if url_index is not None else None
         # Intern before truncate so the token map keys on the full value, not a clipped prefix.
         if url_index is not None:
             visible[url_index] = _intern(visible[url_index], url_tokens, _URL_PREFIX)
         if window_index is not None:
             visible[window_index] = _intern(visible[window_index], window_tokens, _WINDOW_PREFIX)
-        if isinstance(raw_url, str) and raw_url:
-            window_token = visible[window_index] if window_index is not None else None
-            navigation_points.append((relative_ms, window_token if isinstance(window_token, str) else None, raw_url))
         processed.append([uuid_str, *(_truncate(v) for v in visible)])
 
-    navigation, navigation_dropped = _build_navigation(navigation_points)
     return ProcessedEvents(
         columns=["event_uuid", *visible_columns],
         rows=processed,
         url_mapping={token: actual for actual, token in url_tokens.items()},
         window_mapping={token: actual for actual, token in window_tokens.items()},
         event_timestamps=event_timestamps,
-        navigation=navigation,
-        navigation_dropped=navigation_dropped,
         device_type=device_type,
-    )
-
-
-def _build_navigation(points: list[tuple[int, str | None, str]]) -> tuple[list[NavigationEntry], int]:
-    """Collapse per-event URL sightings into the ordered URL-change timeline: one entry each time a window's URL
-    changes, kept within the entry and character budgets (the count of dropped tail entries is returned)."""
-    points.sort(key=lambda point: point[0])
-    changes: list[NavigationEntry] = []
-    last_url_by_window: dict[str | None, str] = {}
-    seen_windows: set[str | None] = set()
-    for relative_ms, window, url in points:
-        if not _is_navigable_url(url):
-            continue
-        if last_url_by_window.get(window) == url:
-            continue
-        new_window = bool(seen_windows) and window not in seen_windows
-        seen_windows.add(window)
-        last_url_by_window[window] = url
-        display_url = url if len(url) <= _MAX_NAVIGATION_URL_LEN else url[:_MAX_NAVIGATION_URL_LEN] + "…"
-        changes.append(
-            NavigationEntry(rec_t=relative_ms // 1000, window=window, url=display_url, new_window=new_window)
-        )
-
-    kept: list[NavigationEntry] = []
-    url_chars = 0
-    for entry in changes:
-        if len(kept) >= _MAX_NAVIGATION_ENTRIES or url_chars + len(entry.url) > _MAX_NAVIGATION_TOTAL_URL_CHARS:
-            break
-        kept.append(entry)
-        url_chars += len(entry.url)
-    return kept, len(changes) - len(kept)
-
-
-def _is_navigable_url(url: str) -> bool:
-    """Gate for the prompt timeline. `$current_url` is client-supplied free text rendered into the trusted preamble,
-    so only values shaped like real web URLs get in: http scheme, printable, no whitespace, and no backtick (a raw
-    backtick would escape the prompt's inline-code fencing, and real URLs percent-encode it). Anything else is
-    dropped rather than escaped."""
-    return (
-        url.startswith(("http://", "https://"))
-        and url.isprintable()
-        and "`" not in url
-        and not any(c.isspace() for c in url)
     )
 
 

@@ -3,6 +3,7 @@ from typing import Optional, cast
 
 from posthog.exceptions_capture import capture_exception
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     SourceConfig,
@@ -14,6 +15,9 @@ from products.warehouse_sources.backend.facade.source_config import (
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.errors import (
+    is_transient_egress_proxy_error,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
@@ -37,6 +41,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class VitallySource(SimpleSource[VitallySourceConfig]):
+    codebase_detection = detect(env=("^VITALLY_",), script_hosts=("cdn.vitally.io",))
+
     api_docs_url = "https://docs.vitally.io"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
@@ -88,9 +94,14 @@ class VitallySource(SimpleSource[VitallySourceConfig]):
             except Exception as e:
                 # A 401/403 here is a customer credential problem (invalid/revoked token), not a bug
                 # we can fix — the per-schema sync path already surfaces it and disables the source.
-                # Skip capturing those to avoid spamming error tracking on every discovery run, but
-                # still capture genuinely unexpected discovery failures.
-                if not any(pattern in str(e) for pattern in self.get_non_retryable_errors()):
+                # A transient egress-proxy blip is our own infrastructure being briefly unreachable,
+                # not a sign of a bug either. Skip capturing both to avoid spamming error tracking on
+                # every discovery run, but still capture genuinely unexpected discovery failures.
+                message = str(e)
+                is_known_benign = is_transient_egress_proxy_error(message) or any(
+                    pattern in message for pattern in self.get_non_retryable_errors()
+                )
+                if not is_known_benign:
                     capture_exception(e)
                 definitions = []
 
@@ -164,7 +175,8 @@ class VitallySource(SimpleSource[VitallySourceConfig]):
             partition_mode="datetime",
             partition_format="week",
             partition_keys=["created_at"],
-            sort_mode="desc" if inputs.schema_name == "Messages" else "asc",
+            # `sortBy` carries no direction, so only the Messages read claims an order.
+            sort_mode="desc" if inputs.schema_name == "Messages" else None,
         )
 
     @property

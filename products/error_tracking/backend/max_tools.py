@@ -205,7 +205,7 @@ class SearchErrorTrackingIssuesArgs(BaseModel):
         - "occurrences": Total occurrence count
         - "users": Number of affected users
         - "sessions": Number of affected sessions
-        - "revenue": Revenue impact (if configured)
+        - "severity": Issue severity (critical first when descending, unset last)
 
         ## orderDirection (optional)
         - "DESC": Descending (default, highest/newest first)

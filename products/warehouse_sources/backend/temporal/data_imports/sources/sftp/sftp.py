@@ -1,8 +1,4 @@
-import io
 import re
-import csv
-import gzip
-import json
 import stat
 import socket
 import posixpath
@@ -11,7 +7,7 @@ from collections.abc import Generator, Iterable, Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from io import StringIO
-from typing import IO, Any, Protocol, cast
+from typing import Any, Protocol, cast
 
 import re2
 import paramiko
@@ -20,23 +16,25 @@ from structlog.types import FilteringBoundLogger
 from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.models.ssh_tunnel import from_private_key
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.sftp.settings import (
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.file_parsing import (
     CHUNK_SIZE,
-    CONNECT_TIMEOUT_SECONDS,
-    DEFAULT_DELIMITER,
-    EXTENSION_DELIMITERS,
-    EXTENSION_FORMATS,
     FILE_MODIFIED_AT_COLUMN,
     FILE_PATH_COLUMN,
+    ConfiguredFileFormat,
+    FileDelimiterError,
+    is_format_inferable,
+    iter_file_rows,
+    normalize_delimiter,
+    resolve_file_format,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.sftp.settings import (
+    CONNECT_TIMEOUT_SECONDS,
     MAX_DIRECTORIES,
     MAX_DIRECTORY_DEPTH,
     MAX_FILES,
-    MAX_JSON_DOCUMENT_BYTES,
     MAX_PREFETCH_BYTES,
     READ_TIMEOUT_SECONDS,
-    ConfiguredFileFormat,
-    FileFormat,
 )
 
 # Error message prefixes. `get_non_retryable_errors` matches on these, so they have to stay stable
@@ -48,16 +46,10 @@ DIRECTORY_ERROR = "Couldn't read the remote directory"
 PATTERN_ERROR = "The file pattern isn't a valid regular expression"
 NO_FILES_ERROR = "No remote files are available for table"
 NO_MATCHING_FILES_ERROR = "No importable files were found"
-FORMAT_ERROR = "Can't work out the format of the remote file"
-DELIMITER_ERROR = "The CSV delimiter must be a single character"
 
 
 class SFTPCredentialsError(Exception):
     """A permanent configuration problem: unreachable host, rejected credentials, missing directory."""
-
-
-class SFTPFileFormatError(Exception):
-    """A remote file couldn't be parsed with the configured (or inferred) format."""
 
 
 class RemoteAttributes(Protocol):
@@ -83,32 +75,12 @@ class RemoteFile:
     modified_at: datetime
 
 
-@dataclasses.dataclass(frozen=True)
-class ResolvedFormat:
-    file_format: FileFormat
-    delimiter: str
-    compressed: bool
-
-
 def normalize_remote_path(path: str | None) -> str:
     stripped = (path or "").strip()
     if not stripped:
         return "."
     normalized = posixpath.normpath(stripped)
     return normalized.rstrip("/") or "/"
-
-
-def normalize_delimiter(delimiter: str | None) -> str | None:
-    """Accept a literal tab, an escaped `\\t`, or the word `tab` for tab-separated files."""
-    if delimiter is None:
-        return None
-    if delimiter in ("\\t", "tab", "\t"):
-        return "\t"
-    if delimiter == "":
-        return None
-    if len(delimiter) != 1:
-        raise SFTPCredentialsError(f"{DELIMITER_ERROR} (got {delimiter!r}). Use \\t for tab-separated files.")
-    return delimiter
 
 
 def load_private_key(private_key: str, passphrase: str | None = None) -> paramiko.PKey:
@@ -324,13 +296,6 @@ def group_files_by_table(
     return grouped
 
 
-def is_format_inferable(relative_path: str) -> bool:
-    lowered = relative_path.lower()
-    if lowered.endswith(".gz"):
-        lowered = lowered[: -len(".gz")]
-    return posixpath.splitext(lowered)[1] in EXTENSION_FORMATS
-
-
 def parseable_files(
     files: Iterable[RemoteFile], configured_format: ConfiguredFileFormat | str | None = "infer"
 ) -> list[RemoteFile]:
@@ -344,167 +309,6 @@ def parseable_files(
     return [file for file in files if is_format_inferable(file.relative_path)]
 
 
-def resolve_file_format(
-    relative_path: str,
-    configured_format: ConfiguredFileFormat | str | None = "infer",
-    delimiter: str | None = None,
-) -> ResolvedFormat:
-    lowered = relative_path.lower()
-    compressed = lowered.endswith(".gz")
-    if compressed:
-        lowered = lowered[: -len(".gz")]
-    extension = posixpath.splitext(lowered)[1]
-
-    if configured_format and configured_format != "infer":
-        file_format = cast(FileFormat, configured_format)
-    else:
-        inferred = EXTENSION_FORMATS.get(extension)
-        if inferred is None:
-            raise SFTPFileFormatError(
-                f"{FORMAT_ERROR} '{relative_path}'. Set the file format explicitly, or restrict the file "
-                "pattern to .csv, .json, or .jsonl files."
-            )
-        file_format = inferred
-
-    resolved_delimiter = normalize_delimiter(delimiter) or EXTENSION_DELIMITERS.get(extension, DEFAULT_DELIMITER)
-    return ResolvedFormat(file_format=file_format, delimiter=resolved_delimiter, compressed=compressed)
-
-
-def normalize_column_name(header: str) -> str:
-    """Headers like 'Order Total (USD)' become stable snake_case columns."""
-    normalized = re.sub(r"[^0-9a-zA-Z]+", "_", header).strip("_").lower()
-    return normalized or "column"
-
-
-def _dedupe_headers(headers: list[str]) -> list[str]:
-    seen: dict[str, int] = {}
-    result = []
-    for header in headers:
-        name = normalize_column_name(header)
-        if name in seen:
-            seen[name] += 1
-            name = f"{name}_{seen[name]}"
-        else:
-            seen[name] = 1
-        result.append(name)
-    return result
-
-
-def _decompressed_stream(stream: IO[bytes], compressed: bool) -> IO[bytes]:
-    return cast(IO[bytes], gzip.GzipFile(fileobj=stream)) if compressed else stream
-
-
-def _text_stream(binary: IO[bytes]) -> IO[str]:
-    return io.TextIOWrapper(binary, encoding="utf-8", errors="replace", newline="")
-
-
-def _iter_csv_rows(
-    text: IO[str],
-    delimiter: str,
-    relative_path: str,
-    chunk_size: int,
-    logger: FilteringBoundLogger | None,
-) -> Iterator[list[dict[str, Any]]]:
-    reader = csv.reader(text, delimiter=delimiter)
-    headers: list[str] | None = None
-    chunk: list[dict[str, Any]] = []
-
-    for line_number, row in enumerate(reader, start=1):
-        if headers is None:
-            headers = _dedupe_headers(row)
-            continue
-        if not any(cell.strip() for cell in row):
-            continue
-        if len(row) > len(headers):
-            # More values than headers means the file is malformed or the delimiter is wrong.
-            # Dropping the row keeps the extra values from silently landing in the wrong columns.
-            if logger is not None:
-                logger.warning(
-                    "Skipping SFTP CSV row with more values than headers",
-                    file=relative_path,
-                    line=line_number,
-                    expected=len(headers),
-                    got=len(row),
-                )
-            continue
-        values: list[str | None] = [*row, *([None] * (len(headers) - len(row)))]
-        chunk.append(dict(zip(headers, values)))
-        if len(chunk) >= chunk_size:
-            yield chunk
-            chunk = []
-
-    if chunk:
-        yield chunk
-
-
-def _as_rows(value: Any) -> list[dict[str, Any]]:
-    if isinstance(value, dict):
-        return [value]
-    if isinstance(value, list):
-        return [item if isinstance(item, dict) else {"value": item} for item in value]
-    return [{"value": value}]
-
-
-def _iter_jsonl_rows(text: IO[str], relative_path: str, chunk_size: int) -> Iterator[list[dict[str, Any]]]:
-    chunk: list[dict[str, Any]] = []
-    for line_number, line in enumerate(text, start=1):
-        if not line.strip():
-            continue
-        try:
-            parsed = json.loads(line)
-        except json.JSONDecodeError as e:
-            raise SFTPFileFormatError(
-                f"Line {line_number} of '{relative_path}' isn't valid JSON: {e}. If the file holds one "
-                "JSON document rather than one object per line, set the file format to JSON."
-            ) from e
-        chunk.extend(_as_rows(parsed))
-        if len(chunk) >= chunk_size:
-            yield chunk
-            chunk = []
-    if chunk:
-        yield chunk
-
-
-def _iter_json_rows(binary: IO[bytes], relative_path: str, chunk_size: int) -> Iterator[list[dict[str, Any]]]:
-    # A whole-document JSON file can't be chunked, so it has to fit in memory. Read one decompressed
-    # byte past the limit to detect an oversized (or gzip-bomb) document before materializing it, and
-    # point the user at JSON Lines, which streams. The byte cap is what bounds memory here, so it runs
-    # on the decompressed bytes rather than a decoded-character count.
-    raw = binary.read(MAX_JSON_DOCUMENT_BYTES + 1)
-    if len(raw) > MAX_JSON_DOCUMENT_BYTES:
-        raise SFTPFileFormatError(
-            f"'{relative_path}' is larger than the {MAX_JSON_DOCUMENT_BYTES // (1024 * 1024)} MB limit for a "
-            "single JSON document. Convert it to JSON Lines (one object per line) so it can stream in."
-        )
-    try:
-        parsed = json.loads(raw)
-    except json.JSONDecodeError as e:
-        raise SFTPFileFormatError(
-            f"'{relative_path}' isn't valid JSON: {e}. If the file holds one JSON object per line, "
-            "set the file format to JSON Lines."
-        ) from e
-
-    rows = _as_rows(parsed)
-    for start in range(0, len(rows), chunk_size):
-        yield rows[start : start + chunk_size]
-
-
-def iter_file_rows(
-    stream: IO[bytes],
-    resolved: ResolvedFormat,
-    relative_path: str,
-    chunk_size: int = CHUNK_SIZE,
-    logger: FilteringBoundLogger | None = None,
-) -> Iterator[list[dict[str, Any]]]:
-    binary = _decompressed_stream(stream, resolved.compressed)
-    if resolved.file_format == "csv":
-        yield from _iter_csv_rows(_text_stream(binary), resolved.delimiter, relative_path, chunk_size, logger)
-    elif resolved.file_format == "jsonl":
-        yield from _iter_jsonl_rows(_text_stream(binary), relative_path, chunk_size)
-    else:
-        yield from _iter_json_rows(binary, relative_path, chunk_size)
-
-
 def iter_table_rows(
     client: RemoteClient,
     files: Iterable[RemoteFile],
@@ -514,7 +318,10 @@ def iter_table_rows(
     logger: FilteringBoundLogger | None = None,
 ) -> Iterator[list[dict[str, Any]]]:
     for file in files:
-        resolved = resolve_file_format(file.relative_path, configured_format, delimiter)
+        try:
+            resolved = resolve_file_format(file.relative_path, configured_format, delimiter)
+        except FileDelimiterError as e:
+            raise SFTPCredentialsError(str(e)) from e
         with client.open(file.path, "rb") as handle:
             prefetch = getattr(handle, "prefetch", None)
             if callable(prefetch) and file.size:
@@ -574,7 +381,10 @@ def validate_credentials(
     """
     _compile_pattern(file_pattern)
     # Catch a bad delimiter here rather than on every sync — it's a permanent misconfiguration.
-    normalize_delimiter(delimiter)
+    try:
+        normalize_delimiter(delimiter)
+    except FileDelimiterError as e:
+        raise SFTPCredentialsError(str(e)) from e
     with sftp_connection(host=host, port=port, user=user, auth=auth) as client:
         files = parseable_files(list_remote_files(client, path, file_pattern), configured_format)
 

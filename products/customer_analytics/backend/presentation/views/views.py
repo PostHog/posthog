@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import builtins
+from collections.abc import Callable, Sequence
 from dataclasses import asdict
 from functools import cached_property
 from typing import Any, Protocol, cast
@@ -33,13 +34,13 @@ from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.serializers import BaseSerializer
 from rest_framework.throttling import UserRateThrottle
 
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.tagged_item import TaggedItemViewSetMixin
 from posthog.auth import SessionAuthentication, is_mcp_request
-from posthog.cdp.services.icons import CDPIconsService
 from posthog.event_usage import report_user_action
 from posthog.exceptions import Conflict
 from posthog.helpers.impersonation import is_impersonated
@@ -66,6 +67,7 @@ from products.access_control.backend.facade.user_access_control import (
     model_to_resource,
 )
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
+from products.cdp.backend.presentation.icons import CDPIconsService
 from products.customer_analytics.backend.facade import api, contracts
 from products.customer_analytics.backend.facade.constants import (
     CUSTOMER_ANALYTICS_ACCOUNT_VIEWS_FLAG,
@@ -1128,7 +1130,7 @@ class UserCustomerAnalyticsConfigViewSet(TeamAndOrgViewSetMixin, viewsets.Generi
             "Replace the requesting user's ordered account sidebar properties when pinned_properties is provided, "
             "and change the task digest email preferences when task_digest is provided. "
             "Anything omitted keeps its current value. "
-            "At most 50 account custom properties and relationships can be pinned."
+            "At most 50 account custom properties, relationships, and account fields can be pinned."
         ),
     )
     def partial_update(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
@@ -1267,10 +1269,30 @@ def _profile_config_write_fields(validated, raw_data: dict) -> dict:
     return fields
 
 
+class _DefinitionPaginationMixin(_FacadePaginationMixin):
+    def _paginate_via_facade(
+        self,
+        request: Request,
+        fetch: Callable[..., tuple[Sequence[object], int]],
+        serializer_class: type[BaseSerializer],
+    ) -> Response:
+        if request.query_params.get("pagination") == "none":
+            page, count = fetch(offset=0, limit=None)
+            return Response(
+                {
+                    "count": count,
+                    "next": None,
+                    "previous": None,
+                    "results": serializer_class(instance=page, many=True).data,
+                }
+            )
+        return super()._paginate_via_facade(request, fetch, serializer_class)
+
+
 class CustomPropertyDefinitionViewSet(
     TeamAndOrgViewSetMixin,
     AccessControlViewSetMixin,
-    _FacadePaginationMixin,
+    _DefinitionPaginationMixin,
     mixins.CreateModelMixin,
     mixins.RetrieveModelMixin,
     mixins.UpdateModelMixin,
@@ -1286,6 +1308,16 @@ class CustomPropertyDefinitionViewSet(
     serializer_class = CustomPropertyDefinitionSerializer
     queryset = None  # data is reached through the facade; declared for router/schema only
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="pagination",
+                type=str,
+                enum=["none"],
+                description="Return all definitions in one response when set to none.",
+            )
+        ]
+    )
     def list(self, request: Request, *args, **kwargs) -> Response:
         # Callers without group read authorization don't see group-target definitions.
         exclude_group_targets = not _has_group_scope(request, write=False)
@@ -1456,13 +1488,23 @@ def _custom_property_option_dicts(options) -> list[dict] | None:
 class AccountRelationshipDefinitionViewSet(
     TeamAndOrgViewSetMixin,
     AccessControlViewSetMixin,
-    _FacadePaginationMixin,
+    _DefinitionPaginationMixin,
     viewsets.ModelViewSet,
 ):
     scope_object = "account"
     serializer_class = AccountRelationshipDefinitionSerializer
     queryset = None  # data is reached through the facade; declared for router/schema only
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="pagination",
+                type=str,
+                enum=["none"],
+                description="Return all definitions in one response when set to none.",
+            )
+        ]
+    )
     def list(self, request: Request, *args, **kwargs) -> Response:
         return self._paginate_via_facade(
             request,
@@ -1987,6 +2029,17 @@ class AccountViewSet(
                 enum=["name", "-name", "created_at", "-created_at", "updated_at", "-updated_at"],
                 description="Sort order. Defaults to '-created_at'.",
             ),
+            OpenApiParameter(
+                name="inactive_last",
+                type=OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                default=False,
+                description=(
+                    "When true, active and tracked accounts come before churned or ignored ones, "
+                    "and `ordering` applies within each group. Use with `include_churned` or `include_ignored`."
+                ),
+            ),
         ],
     )
     def list(self, request: Request, *args, **kwargs) -> Response:
@@ -2006,6 +2059,7 @@ class AccountViewSet(
                 include_churned=request.query_params.get("include_churned", "").lower() == "true",
                 include_ignored=request.query_params.get("include_ignored", "").lower() == "true",
                 ordering=ordering,
+                inactive_last=request.query_params.get("inactive_last", "").lower() == "true",
             ),
             AccountSerializer,
         )
@@ -2294,6 +2348,7 @@ class AccountViewSet(
                     tags=_account_tags_input(serializer),
                     slack_summary_cadence=data.slack_summary_cadence,
                     churned_at=data.churned_at,
+                    ignored_at=data.ignored_at,
                 ),
                 user=cast(User, request.user),
                 was_impersonated=is_impersonated(request),
@@ -2329,6 +2384,8 @@ class AccountViewSet(
                     slack_summary_cadence_provided="slack_summary_cadence" in request.data,
                     churned_at=data.churned_at if "churned_at" in request.data else None,
                     churned_at_provided="churned_at" in request.data,
+                    ignored_at=data.ignored_at if "ignored_at" in request.data else None,
+                    ignored_at_provided="ignored_at" in request.data,
                 ),
                 user_access_control=self.user_access_control,
                 required_level=_object_required_level(request, write=True),

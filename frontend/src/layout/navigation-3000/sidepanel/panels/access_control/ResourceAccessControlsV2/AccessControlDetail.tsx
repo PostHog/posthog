@@ -37,12 +37,12 @@ export function AccessControlDetailContent({
 }): JSX.Element {
     const subjectId = getEntryId(entry)
     const subjectNoun = scopeType === 'role' ? 'role' : 'member'
-    const { canEdit } = useValues(accessControlsLogic({ projectId }))
+    const { canEdit, terraformDisabledReason } = useValues(accessControlsLogic({ projectId }))
     const { user } = useValues(userLogic)
 
     // The same gate as the project select and products above, so the whole page greys out together
     // (permissions, self-edits, org admins who always have full access)
-    const cannotEditReason = subjectDisabledReason(entry, canEdit, user?.uuid)
+    const cannotEditReason = terraformDisabledReason ?? subjectDisabledReason(entry, canEdit, user?.uuid)
 
     return (
         <>
@@ -182,7 +182,7 @@ function ProjectAccessSection({
     scopeType: AccessDetailSubjectScope
     entry: AccessControlSettingsEntry
 }): JSX.Element {
-    const { availableProjectLevels, canEdit } = useValues(accessControlsLogic({ projectId }))
+    const { availableProjectLevels, canEdit, terraformDisabledReason } = useValues(accessControlsLogic({ projectId }))
     const { updateAccessControlMembers, updateAccessControlRoles } = useActions(accessControlsLogic({ projectId }))
     const { currentTeam } = useValues(teamLogic)
     const { user } = useValues(userLogic)
@@ -229,7 +229,7 @@ function ProjectAccessSection({
                 level={entry.project.access_level}
                 levels={availableProjectLevels}
                 onChange={onChange}
-                disabledReason={subjectDisabledReason(entry, canEdit, user?.uuid)}
+                disabledReason={terraformDisabledReason ?? subjectDisabledReason(entry, canEdit, user?.uuid)}
                 inherited={inheritedFor(entry.project, 'this project')}
                 // Falls back to a plain "No override" for a subject with nothing above them, which
                 // is the project's own default rather than a member or a role
@@ -305,7 +305,7 @@ function ProductsSection({
     entry: AccessControlSettingsEntry
     subjectNoun: string
 }): JSX.Element {
-    const { availableResourceLevels, canEdit, showAllProducts, productsCollapse } = useValues(
+    const { availableResourceLevels, canEdit, terraformDisabledReason, showAllProducts, productsCollapse } = useValues(
         accessControlsLogic({ projectId })
     )
     const { updateResourceAccessControls, setShowAllProducts } = useActions(accessControlsLogic({ projectId }))
@@ -375,7 +375,9 @@ function ProductsSection({
                                         levels={levels}
                                         minimumLevel={res?.minimum}
                                         onChange={(level) => onResourceChange(resource.key, level)}
-                                        disabledReason={subjectDisabledReason(entry, canEdit, user?.uuid)}
+                                        disabledReason={
+                                            terraformDisabledReason ?? subjectDisabledReason(entry, canEdit, user?.uuid)
+                                        }
                                         inherited={inheritedFor(res, resource.label.toLowerCase())}
                                     />
                                 </div>

@@ -1,5 +1,5 @@
-import type { LoopSchemas } from "@posthog/api-client/loops";
 import type { UserBasic } from "@posthog/shared/domain-types";
+import type { LoopSchemas } from "@posthog/ui/features/loops/loopSchemas";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import type { LoopSpace } from "../loopScopes";
 import { LoopsListViewPresentation } from "./LoopsListView";
@@ -24,16 +24,10 @@ function notifications(
   enabled: Array<keyof LoopSchemas.LoopNotifications>,
   slackChannel = "loops-alerts",
 ): LoopSchemas.LoopNotifications {
-  const events: LoopSchemas.LoopNotificationEventEnum[] = [
-    "run_completed",
-    "run_failed",
-  ];
   return {
-    push: { enabled: enabled.includes("push"), events, params: {} },
-    email: { enabled: enabled.includes("email"), events, params: {} },
+    email: { enabled: enabled.includes("email"), params: {} },
     slack: {
       enabled: enabled.includes("slack"),
-      events,
       params: { channel_id: "C012345", channel_name: slackChannel },
     },
   };
@@ -45,50 +39,29 @@ const SPACES: LoopSpace[] = [
 ];
 
 function inSpace(space: LoopSpace): LoopSchemas.LoopContextTarget {
-  return {
-    channel_id: space.id,
-    name: space.name,
-    outputs: { post_to_feed: true, update_context: false, canvas_id: null },
-  };
+  return { channel_id: space.id, name: space.name };
 }
 
 function loop(
   id: string,
   overrides: Partial<LoopSchemas.Loop> = {},
 ): LoopSchemas.Loop {
-  const visibility = overrides.visibility ?? "personal";
-  const createdById = visibility === "personal" ? 1 : POSTHOG_HOG.id;
   return {
     id,
     team_id: 2,
-    created_by_id: createdById,
+    created_by_id: POSTHOG_HOG.id,
     name: `Loop ${id}`,
     description: "",
-    visibility,
     instructions: "Review recent activity and report anything notable.",
     runtime_adapter: "claude",
     model: "claude-sonnet-4-5",
     reasoning_effort: null,
     repositories: [],
-    sandbox_environment_id: null,
     enabled: true,
-    disabled_reason: null,
-    overlap_policy: "skip",
-    behaviors: {
-      create_prs: false,
-      watch_ci: false,
-      fix_review_comments: false,
-      max_fix_iterations: 3,
-    },
-    connectors: { mcp_installation_ids: [], posthog_mcp_scopes: "read_only" },
     notifications: notifications([]),
     context_target: null,
-    internal: false,
-    origin_product: "user_created",
     last_run_at: null,
     last_run_status: null,
-    last_error: null,
-    consecutive_failures: 0,
     created_at: "2026-07-20T12:00:00Z",
     updated_at: "2026-07-20T12:00:00Z",
     triggers: [
@@ -98,8 +71,6 @@ function loop(
         type: "schedule",
         enabled: true,
         config: { cron_expression: "0 9 * * 1-5", timezone: "UTC" },
-        schedule_sync_status: "synced",
-        last_fired_at: null,
         created_at: "2026-07-20T12:00:00Z",
         updated_at: "2026-07-20T12:00:00Z",
       },
@@ -109,54 +80,43 @@ function loop(
 }
 
 const MIXED_LOOPS: LoopSchemas.Loop[] = [
-  loop("personal-push", {
+  loop("global-email", {
     name: "Daily product pulse",
-    notifications: notifications(["push"]),
+    notifications: notifications(["email"]),
   }),
-  loop("personal-long", {
-    name: "A very long personal loop name that tests truncation without displacing status badges or navigation",
+  loop("global-long", {
+    name: "A very long loop name that tests truncation without displacing status badges or navigation",
     description:
       "This intentionally long description verifies that creator and notification metadata remain visible while descriptive copy truncates independently.",
-    notifications: notifications(["push", "email"]),
+    notifications: notifications(["email"]),
   }),
   loop("team-slack", {
     name: "Agentic-detection rollout monitoring",
-    visibility: "team",
     context_target: inSpace(SPACES[0]),
     notifications: notifications(["slack"], "agentic-rollout"),
   }),
   loop("team-all", {
     name: "Production incident watch",
-    visibility: "team",
     created_by_id: PAUL.id,
-    notifications: notifications(["push", "email", "slack"], "incidents"),
+    notifications: notifications(["email", "slack"], "incidents"),
   }),
   loop("team-none", {
     name: "Paused loop without notifications",
-    visibility: "team",
     enabled: false,
     context_target: inSpace(SPACES[0]),
   }),
   loop("team-personal-space", {
     name: "Open PRs digest",
-    visibility: "team",
     context_target: inSpace(SPACES[1]),
   }),
   loop("team-gone-space", {
     name: "Loop in a space that was deleted",
-    visibility: "team",
-    context_target: {
-      channel_id: "space-gone",
-      name: "old-team",
-      outputs: { post_to_feed: true, update_context: false, canvas_id: null },
-    },
+    context_target: { channel_id: "space-gone", name: "old-team" },
   }),
   loop("team-former-owner", {
     name: "Loop owned by a former organization member",
-    visibility: "team",
     created_by_id: 999,
     last_run_status: "failed",
-    consecutive_failures: 3,
     notifications: notifications(["email"]),
   }),
 ];
@@ -189,17 +149,12 @@ export const Comprehensive: Story = {};
 export const LongMixedList: Story = {
   args: {
     loops: Array.from({ length: 18 }, (_, index) => {
-      const visibility = index % 3 === 0 ? "team" : "personal";
       const channels: Array<keyof LoopSchemas.LoopNotifications> = [];
-      if (index % 2 === 0) channels.push("push");
       if (index % 4 === 0) channels.push("email");
       if (index % 3 === 0) channels.push("slack");
       return loop(`long-list-${index + 1}`, {
         name: `Loop ${String(index + 1).padStart(2, "0")} · ${index % 2 === 0 ? "Monitor product health" : "Summarize customer feedback"}`,
-        visibility,
-        context_target:
-          visibility === "team" ? inSpace(SPACES[index % 2]) : null,
-        created_by_id: visibility === "team" ? POSTHOG_HOG.id : 1,
+        context_target: index % 3 === 0 ? inSpace(SPACES[index % 2]) : null,
         enabled: index % 7 !== 0,
         notifications: notifications(channels, `team-loop-${index + 1}`),
       });

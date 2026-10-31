@@ -1,7 +1,11 @@
-import { TOOL_FILE_SYSTEM_TYPES } from 'scenes/library/libraryUtils'
+import { ANALYTICS_FILE_SYSTEM_TYPES, isFromPostHogItem } from 'scenes/analytics/analyticsUtils'
+import { libraryRowOpensProduct, productObjectType } from 'scenes/library/libraryUtils'
+import { urls } from 'scenes/urls'
 
-import { fileSystemTypes, getTreeItemsMetadata, getTreeItemsProducts } from '~/products'
-import { FileSystemImport } from '~/queries/schema/schema-general'
+import { getDefaultTreePersons } from '~/layout/panel-layout/ProjectTree/defaultTree'
+import { getTreeItemsMetadata, getTreeItemsProducts } from '~/products'
+import { FileSystemImport, ProductItemCategory } from '~/queries/schema/schema-general'
+import { ActivityTab } from '~/types'
 
 export interface ToolGroup {
     category: string
@@ -11,6 +15,22 @@ export interface ToolGroup {
 // Workspaces for building queries come first, apart from the product pages.
 const PINNED_TOOL_ICONS = ['sql_editor']
 export const PINNED_TOOLS_CATEGORY = 'Workspace'
+
+/** The static pages the Products list can show. The current nav links Persons, Cohorts and Activity outside its product list. */
+export function getToolSourceItems(): FileSystemImport[] {
+    return [
+        ...getTreeItemsProducts(),
+        ...getTreeItemsMetadata(),
+        ...getDefaultTreePersons(),
+        {
+            path: 'Activity',
+            category: ProductItemCategory.ANALYTICS,
+            iconType: 'activity',
+            href: urls.activity(ActivityTab.ExploreEvents),
+            sceneKey: 'Activity',
+        },
+    ]
+}
 
 export function toolLabel(tool: FileSystemImport): string {
     return tool.displayLabel || tool.path
@@ -25,29 +45,15 @@ export function toolMatchesSearch(tool: FileSystemImport, search: string): boole
     return !query || `${toolLabel(tool)} ${toolCategory(tool)}`.toLowerCase().includes(query)
 }
 
-// Saved object types live in Library, except the ones that are working pages.
+/** Whether a page gets its own row in the Products list. Library rows and the Views pane open the other pages. */
 export function isToolItem(item: FileSystemImport): boolean {
-    const type = item.type?.split('/')[0] || item.iconType || ''
-    return !!item.href && !(type in fileSystemTypes && !TOOL_FILE_SYSTEM_TYPES.has(type))
-}
-
-export function toolHrefForPath(
-    path: string,
-    tools: Pick<FileSystemImport, 'href'>[] = [...getTreeItemsProducts(), ...getTreeItemsMetadata()].filter(isToolItem)
-): string | null {
-    let match: { href: string; toolPath: string } | null = null
-    for (const { href } of tools) {
-        const toolPath = href?.split(/[?#]/)[0]
-        if (
-            href &&
-            toolPath &&
-            (path === toolPath || path.startsWith(`${toolPath}/`)) &&
-            (!match || toolPath.length > match.toolPath.length)
-        ) {
-            match = { href, toolPath }
-        }
-    }
-    return match?.href ?? null
+    // The ready-made analytics products open from the Analytics pane, so they are not tools as well.
+    return (
+        !!item.href &&
+        !isFromPostHogItem(item) &&
+        !libraryRowOpensProduct(item) &&
+        !ANALYTICS_FILE_SYSTEM_TYPES.has(productObjectType(item))
+    )
 }
 
 export function groupTools(tools: FileSystemImport[], search: string): ToolGroup[] {

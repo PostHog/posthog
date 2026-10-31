@@ -3,25 +3,11 @@ import { type ReactNode, useCallback, useState } from 'react'
 
 import { Card, cn } from '@posthog/quill'
 
+import { pointerMovedRecently, trackPointer } from '~/layout/today/todayPointer'
+
 const OPEN_DELAY_MS = 250
 const CLOSE_DELAY_MS = 120
 const CARD_GAP_PX = 10
-
-const RECENT_MOVE_MS = 1000
-let lastPointerMove = Number.NEGATIVE_INFINITY
-let tracksPointer = false
-
-function trackPointerMoves(): void {
-    if (tracksPointer) {
-        return
-    }
-    tracksPointer = true
-    window.addEventListener('pointermove', () => (lastPointerMove = performance.now()), { passive: true })
-}
-
-function pointerMovedRecently(): boolean {
-    return performance.now() - lastPointerMove < RECENT_MOVE_MS
-}
 
 function cardAnchor(trigger: HTMLElement | null): Element | undefined {
     return trigger?.closest('[data-today-figures]') ?? trigger?.closest('li, p') ?? undefined
@@ -43,7 +29,7 @@ export function TodayHoverMark({
     const [trigger, setTrigger] = useState<HTMLElement | null>(null)
     const [open, setOpen] = useState(false)
     const triggerRef = useCallback((node: HTMLElement | null): void => {
-        trackPointerMoves()
+        trackPointer()
         setTrigger(node)
     }, [])
     return (

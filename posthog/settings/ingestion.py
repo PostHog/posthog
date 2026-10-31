@@ -8,7 +8,6 @@ from posthog.utils import str_to_bool
 
 INGESTION_LAG_METRIC_TEAM_IDS = get_list(os.getenv("INGESTION_LAG_METRIC_TEAM_IDS", ""))
 
-# KEEP IN SYNC WITH plugin-server/src/config/config.ts
 BUFFER_CONVERSION_SECONDS = get_from_env("BUFFER_CONVERSION_SECONDS", default=60, type_cast=int)
 
 # Whether or not random partitioning (i.e. overflow routing) should be allowed.
@@ -161,3 +160,6 @@ AI_RESEARCH_REPLAY_KEY_TABLE = os.getenv("AI_RESEARCH_REPLAY_KEY_TABLE", "")
 AI_RESEARCH_REPLAY_AWS_REGION = os.getenv("AI_RESEARCH_REPLAY_AWS_REGION", "us-east-1")
 AI_RESEARCH_REPLAY_DYNAMODB_ENDPOINT = os.getenv("AI_RESEARCH_REPLAY_DYNAMODB_ENDPOINT", "")
 AI_RESEARCH_REPLAY_KMS_KEY_ARN = os.getenv("AI_RESEARCH_REPLAY_KMS_KEY_ARN", "")
+AI_RESEARCH_V4_KEY_TABLE = os.getenv("AI_RESEARCH_V4_KEY_TABLE", "")
+AI_RESEARCH_V4_AWS_REGION = os.getenv("AI_RESEARCH_V4_AWS_REGION", "us-east-1")
+AI_RESEARCH_V4_DYNAMODB_ENDPOINT = os.getenv("AI_RESEARCH_V4_DYNAMODB_ENDPOINT", "")

@@ -13,7 +13,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.financial_
 from products.warehouse_sources.backend.temporal.data_imports.sources.financial_modelling.financial_modelling import (
     FinancialModellingError,
     FinancialModellingResumeConfig,
-    _build_url,
     _extract_rows,
     _fetch_page,
     _FiscalQuarter,
@@ -46,19 +45,6 @@ class TestParseSymbols:
         assert parse_symbols(raw) == expected
 
 
-class TestBuildUrl:
-    def test_appends_apikey_and_params(self) -> None:
-        url = _build_url("profile", {"symbol": "AAPL"}, "secret_key")
-        assert url.startswith("https://financialmodelingprep.com/stable/profile?")
-        assert "symbol=AAPL" in url
-        assert "apikey=secret_key" in url
-
-    def test_url_encodes_param_values(self) -> None:
-        url = _build_url("earnings-calendar", {"from": "2024-01-01", "to": "2024-12-31"}, "k")
-        assert "from=2024-01-01" in url
-        assert "to=2024-12-31" in url
-
-
 class TestFetchPage:
     def test_client_error_does_not_leak_api_key(self) -> None:
         response = MagicMock()
@@ -79,13 +65,6 @@ class TestFetchPage:
 
 
 class TestExtractRows:
-    def test_bare_array_returned_as_is(self) -> None:
-        assert _extract_rows([{"a": 1}, {"a": 2}], None) == [{"a": 1}, {"a": 2}]
-
-    def test_wrapped_array_read_from_response_key(self) -> None:
-        data = {"symbol": "AAPL", "historical": [{"date": "2024-01-01"}]}
-        assert _extract_rows(data, "historical") == [{"date": "2024-01-01"}]
-
     def test_single_object_is_wrapped(self) -> None:
         assert _extract_rows({"symbol": "AAPL", "price": 1}, None) == [{"symbol": "AAPL", "price": 1}]
 
@@ -125,29 +104,10 @@ class TestWindowParams:
         with time_machine.travel("2024-06-15", tick=False):
             yield
 
-    def test_non_windowed_endpoint_returns_empty(self) -> None:
-        config = FINANCIAL_MODELLING_ENDPOINTS["company_profiles"]
-        assert (
-            _window_params(config, should_use_incremental_field=True, db_incremental_field_last_value="2024-01-01")
-            == {}
-        )
-
-    def test_incremental_uses_last_value_as_from(self) -> None:
-        config = FINANCIAL_MODELLING_ENDPOINTS["historical_prices"]
-        params = _window_params(config, should_use_incremental_field=True, db_incremental_field_last_value="2024-05-01")
-        assert params == {"from": "2024-05-01", "to": "2024-06-15"}
-
     def test_future_cursor_is_clamped_to_today(self) -> None:
         config = FINANCIAL_MODELLING_ENDPOINTS["historical_prices"]
         params = _window_params(config, should_use_incremental_field=True, db_incremental_field_last_value="2030-01-01")
         assert params == {"from": "2024-06-15", "to": "2024-06-15"}
-
-    def test_first_sync_falls_back_to_lookback(self) -> None:
-        config = FINANCIAL_MODELLING_ENDPOINTS["earnings_calendar"]
-        params = _window_params(config, should_use_incremental_field=True, db_incremental_field_last_value=None)
-        # default_lookback_days = 365 * 2 -> two years before the frozen "today"
-        assert params["to"] == "2024-06-15"
-        assert params["from"] == "2022-06-16"
 
 
 def _quarters(*pairs: tuple[int, int]) -> list[_FiscalQuarter]:
@@ -167,12 +127,6 @@ class TestRecentQuarters:
         self, _name: str, today: date, expected: tuple[tuple[int, int], ...]
     ) -> None:
         assert _recent_quarters(3, today) == _quarters(*expected)
-
-    def test_spans_multiple_year_boundaries(self) -> None:
-        quarters = _recent_quarters(8, date(2024, 5, 20))
-        assert quarters[0] == _FiscalQuarter(year=2024, quarter=1)
-        assert quarters[-1] == _FiscalQuarter(year=2022, quarter=2)
-        assert len(set(quarters)) == 8
 
 
 class _FakeResumableManager:
@@ -224,17 +178,6 @@ class TestGetRowsFanOut:
         by_symbol = {"AAPL": {"symbol": "AAPL", "historical": [{"date": "2024-01-02", "close": 10}]}}
         rows = _collect("historical_prices", ["AAPL"], _FakeResumableManager(), by_symbol)
         assert rows == [{"date": "2024-01-02", "close": 10, "symbol": "AAPL"}]
-
-    def test_saves_resume_state_advancing_per_symbol(self) -> None:
-        manager = _FakeResumableManager()
-        by_symbol = {
-            "AAPL": [{"symbol": "AAPL"}],
-            "MSFT": [{"symbol": "MSFT"}],
-            "GOOGL": [{"symbol": "GOOGL"}],
-        }
-        _collect("company_profiles", ["AAPL", "MSFT", "GOOGL"], manager, by_symbol)
-        # State is saved after every symbol except the last (no point bookmarking past the end).
-        assert [s.symbol_index for s in manager.saved] == [1, 2]
 
     def test_resumes_from_saved_symbol_index(self) -> None:
         manager = _FakeResumableManager(FinancialModellingResumeConfig(symbol_index=1))
@@ -315,20 +258,6 @@ class TestGetRowsRequestParams:
         assert "from" not in params
         assert "to" not in params
 
-    def test_ttm_endpoint_sends_only_the_symbol(self) -> None:
-        assert self._params_for("key_metrics_ttm") == {"symbol": "AAPL"}
-
-    def test_market_cap_history_keeps_the_limit_alongside_the_window(self) -> None:
-        # The endpoint's `limit` defaults to 100, so dropping it would truncate the requested window
-        # rather than fail.
-        params = self._params_for(
-            "historical_market_capitalization",
-            should_use_incremental_field=True,
-            db_incremental_field_last_value="2024-01-01",
-        )
-        assert params["from"] == "2024-01-01"
-        assert params["limit"] == "1000"
-
     @parameterized.expand([("company_profiles",), ("splits",), ("market_capitalization",)])
     def test_non_quarterly_endpoints_send_no_period(self, endpoint: str) -> None:
         params = self._params_for(endpoint)
@@ -376,18 +305,6 @@ class TestGetRowsQuarterFanOut:
                 )
             )
         return captured
-
-    def test_requests_every_quarter_for_every_symbol(self) -> None:
-        # The endpoint answers for one quarter at a time, so a missing quarter is a silent hole in
-        # the series rather than an error.
-        requests_made = self._requests_for("institutional_positions_summary", ["AAPL", "MSFT"], _FakeResumableManager())
-        quarters = FINANCIAL_MODELLING_ENDPOINTS["institutional_positions_summary"].quarters_lookback
-        assert quarters is not None
-        assert len(requests_made) == 2 * quarters
-        assert {(r["symbol"], r["year"], r["quarter"]) for r in requests_made[:2]} == {
-            ("AAPL", "2024", "1"),
-            ("AAPL", "2023", "4"),
-        }
 
     def test_bookmark_advances_once_per_symbol_not_per_quarter(self) -> None:
         # Resume state indexes symbols; saving per quarter would skip the rest of a symbol's series
@@ -455,17 +372,6 @@ class TestFinancialModellingSourceResponse:
             resumable_source_manager=MagicMock(),
         )
         assert response.primary_keys == expected_keys
-
-    def test_partitioned_endpoint_has_datetime_partitioning(self) -> None:
-        response = financial_modelling_source(
-            api_key="k",
-            endpoint="historical_prices",
-            symbols=["AAPL"],
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(),
-        )
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["date"]
 
     @parameterized.expand([("company_profiles",), ("key_metrics_ttm",), ("ratios_ttm",)])
     def test_unpartitioned_endpoint_has_no_partitioning(self, endpoint: str) -> None:

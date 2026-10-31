@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -20,6 +21,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.wasabi import WasabiSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.wasabi.settings import (
+    AIR_JOBS,
+    AIR_JOBS_LOOKBACK_SECONDS,
     BUCKET_UTILIZATIONS,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
@@ -37,6 +40,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class WasabiSource(ResumableSource[WasabiSourceConfig, WasabiResumeConfig]):
+    codebase_detection = detect(env=("^WASABI_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://docs.wasabi.com/apidocs/account-control-api"
 
@@ -66,17 +71,19 @@ class WasabiSource(ResumableSource[WasabiSourceConfig, WasabiResumeConfig]):
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # The date-window walk re-reads a boundary day each run, so append syncs would
-        # duplicate rows — utilization endpoints are merge-only.
+        # The date-window walk and the AiR jobs date filter re-read a boundary day each run,
+        # so append syncs would duplicate rows — these endpoints are merge-only.
         schemas = build_endpoint_schemas(
             ENDPOINTS,
             INCREMENTAL_FIELDS,
             names,
-            merge_only=(UTILIZATIONS, BUCKET_UTILIZATIONS),
+            merge_only=(UTILIZATIONS, BUCKET_UTILIZATIONS, AIR_JOBS),
         )
         for schema in schemas:
             if schema.name in (UTILIZATIONS, BUCKET_UTILIZATIONS):
                 schema.default_incremental_lookback_seconds = UTILIZATION_LOOKBACK_SECONDS
+            elif schema.name == AIR_JOBS:
+                schema.default_incremental_lookback_seconds = AIR_JOBS_LOOKBACK_SECONDS
         return schemas
 
     def validate_credentials(
@@ -119,7 +126,7 @@ class WasabiSource(ResumableSource[WasabiSourceConfig, WasabiResumeConfig]):
 
 WACA is available to Wasabi Control Accounts (partners managing sub-accounts). To get an API key, enable Wasabi Account Control API access on your Control Account — see [Wasabi's documentation](https://docs.wasabi.com/apidocs/account-control-api) for details.
 """,
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             docsUrl="https://posthog.com/docs/cdp/sources/wasabi",
             iconPath="/static/services/wasabi.png",
             keywords=["waca", "wasabi account control"],

@@ -2,13 +2,14 @@ import { useActions, useValues } from 'kea'
 import { Suspense, useEffect } from 'react'
 
 import { LemonBanner, LemonButton, LemonTag, Spinner } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { SceneExport } from 'scenes/sceneTypes'
-import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -24,6 +25,7 @@ import { ScannerObservationsTable } from './components/ScannerObservationsTable'
 import { ScannerOverview } from './components/ScannerOverview'
 import { replayScannerLogic } from './replayScannerLogic'
 import { ReplayScannerTab, replayScannerSceneLogic } from './replayScannerSceneLogic'
+import { scannerEditUrl } from './scannerEditorSceneLogic'
 
 const ScannerAlertsTab = lazyWithRetry(() =>
     import('./components/ScannerAlertsTab').then((module) => ({ default: module.ScannerAlertsTab }))
@@ -45,7 +47,7 @@ export const scene: SceneExport = {
 }
 
 export function ReplayScannerSceneComponent(): JSX.Element {
-    const { scannerId, activeTab } = useValues(replayScannerSceneLogic)
+    const { scannerId, activeTab, defaultTab } = useValues(replayScannerSceneLogic)
     const { setActiveTab, setDefaultTab } = useActions(replayScannerSceneLogic)
 
     const scannerLogic = replayScannerLogic({ id: scannerId })
@@ -53,6 +55,7 @@ export function ReplayScannerSceneComponent(): JSX.Element {
 
     const { scanner, scannerLoading } = useValues(scannerLogic)
     const experimentScanners = useFeatureFlag('VISION_EXPERIMENT_SCANNER')
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const isExperimentScanner = experimentScanners && scanner?.scanner_type === 'experiment'
     const loadedScannerId = scanner?.id ?? null
 
@@ -71,6 +74,9 @@ export function ReplayScannerSceneComponent(): JSX.Element {
         )
     }
 
+    const editDisabledReason = getReplayVisionEditDisabledReason(scanner.user_access_level)
+    const editUrl = scannerEditUrl(scannerId, activeTab === defaultTab ? null : activeTab)
+
     return (
         <SceneContent>
             <SceneTitleSection
@@ -78,19 +84,34 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                 description={scanner.description}
                 resourceType={{ type: 'replay_vision' }}
                 actions={
-                    <>
-                        <LemonButton
-                            type="primary"
-                            size="small"
-                            to={urls.replayVisionScannerConfigure(scannerId)}
-                            disabledReason={getReplayVisionEditDisabledReason(scanner.user_access_level)}
-                            data-attr="vision-scanner-edit"
-                            data-ph-capture-attribute-scanner-type={scanner.scanner_type}
-                        >
-                            Edit scanner
-                        </LemonButton>
-                        <ReplayVisionFeedbackButton />
-                    </>
+                    todayRailNav ? (
+                        <>
+                            <Button
+                                variant="primary"
+                                render={<LinkPrimitive to={editDisabledReason ? undefined : editUrl} />}
+                                disabledReason={editDisabledReason}
+                                data-attr="vision-scanner-edit"
+                                data-ph-capture-attribute-scanner-type={scanner.scanner_type}
+                            >
+                                Edit scanner
+                            </Button>
+                            <ReplayVisionFeedbackButton />
+                        </>
+                    ) : (
+                        <>
+                            <LemonButton
+                                type="primary"
+                                size="small"
+                                to={editUrl}
+                                disabledReason={editDisabledReason}
+                                data-attr="vision-scanner-edit"
+                                data-ph-capture-attribute-scanner-type={scanner.scanner_type}
+                            >
+                                Edit scanner
+                            </LemonButton>
+                            <ReplayVisionFeedbackButton />
+                        </>
+                    )
                 }
             />
 

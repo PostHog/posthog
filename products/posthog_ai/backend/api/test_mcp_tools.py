@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 from django.db import OperationalError
 
-from parameterized import parameterized
+from parameterized import param, parameterized
 from psycopg.errors import QueryCanceled
 from rest_framework import status
 from rest_framework.exceptions import APIException, PermissionDenied, ValidationError
@@ -23,7 +23,10 @@ from posthog.hogql.errors import (
 from posthog.errors import (
     CHQueryErrorCorruptedParquetMetadata,
     CHQueryErrorIllegalTypeOfArgument,
+    CHQueryErrorQueryWasCancelled,
+    CHQueryErrorS3Error,
     CHQueryErrorS3FileChangedDuringRead,
+    InternalCHQueryError,
 )
 from posthog.event_usage import EventSource
 from posthog.exceptions import (
@@ -34,6 +37,7 @@ from posthog.exceptions import (
     ClickHouseQuerySizeExceeded,
     ClickHouseQueryTimeOut,
 )
+from posthog.exceptions_capture import ambient_exception_properties, capture_exception
 from posthog.models import Organization, Team
 
 from products.access_control.backend.facade.user_access_control import UserAccessControlError
@@ -108,6 +112,7 @@ class TestMCPToolsAPI(APIBaseTest):
                 "success": False,
                 "content": "Tool failed: MaxToolRetryableError: Invalid connectionId: no direct-query-capable data source with this id in this team, or you don't have access to it.. You may retry with adjusted inputs.",
                 "error_type": "internal",
+                "error_code": "hogql_error",
             },
         )
 
@@ -165,10 +170,58 @@ class TestMCPToolsAPI(APIBaseTest):
         self.assertEqual(run_kwargs["user"], self.user)
         self.assertEqual(run_kwargs["analytics_props"], {"source": EventSource.MCP})
 
+    @parameterized.expand(
+        [
+            (
+                "statement_timeout",
+                None,
+                "timeout",
+                "Tool failed: MaxToolTransientError: Reading the taxonomy timed out. This can happen on large projects. You may retry this operation once without changes.",
+            ),
+            (
+                "query_memory_limit",
+                ClickHouseQueryMemoryLimitExceeded("private backend detail"),
+                "memory_limit",
+                "Tool failed: MaxToolFatalError: Reading the schema ran out of memory. This tool does not support date filters. Use execute-sql with a short, explicit date range for a targeted lookup.",
+            ),
+            (
+                "cluster_memory_limit",
+                ClickHouseClusterMemoryLimitExceeded("private backend detail"),
+                "rate_limited",
+                "Tool failed: MaxToolTransientError: We're under heavy load right now and couldn't finish this query. Please try again in a few minutes. You may retry this operation once without changes.",
+            ),
+            param(
+                "cancelled",
+                CHQueryErrorQueryWasCancelled("private backend detail", code=394),
+                "internal",
+                "The tool raised an internal error. Do not immediately retry the tool call.",
+                error_code="query_was_cancelled",
+            ),
+            param(
+                "unknown",
+                RuntimeError("private backend detail"),
+                "internal",
+                "The tool raised an internal error. Do not immediately retry the tool call.",
+                error_code="unhandled_runtime_error",
+            ),
+        ]
+    )
+    @patch("products.posthog_ai.backend.api.mcp_tools.capture_exception")
     @patch("ee.hogai.utils.helpers.TeamTaxonomyQueryRunner")
-    def test_read_taxonomy_timeout_preserves_recovery_advice(self, mock_runner_cls: Mock) -> None:
-        error = OperationalError("canceling statement due to statement timeout")
-        error.__cause__ = QueryCanceled()
+    def test_read_taxonomy_errors_preserve_recovery_advice(
+        self,
+        _name: str,
+        error: Exception | None,
+        error_type: str,
+        content: str,
+        mock_runner_cls: Mock,
+        mock_capture: Mock,
+        *,
+        error_code: str | None = None,
+    ) -> None:
+        if error is None:
+            error = OperationalError("canceling statement due to statement timeout")
+            error.__cause__ = QueryCanceled()
         mock_runner_cls.return_value.run.side_effect = error
 
         response = self.client.post(
@@ -178,18 +231,49 @@ class TestMCPToolsAPI(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(
-            response.json(),
-            {
-                "success": False,
-                "content": "Tool failed: MaxToolTransientError: Reading the taxonomy timed out. This can happen on large projects. You may retry this operation once without changes.",
-                "error_type": "timeout",
-            },
+        expected = {"success": False, "content": content, "error_type": error_type}
+        if error_code is not None:
+            self.assertEqual(mock_capture.call_args.args, (error,))
+            error_id = mock_capture.call_args.kwargs["properties"]["error_id"]
+            expected["content"] = f"{content} Error id: {error_id}"
+            expected["error_code"] = error_code
+        self.assertEqual(response.json(), expected)
+        mock_runner_cls.return_value.run.assert_called_once()
+
+    @patch("posthoganalytics.api_key", "test-key")
+    @patch("posthoganalytics.capture_exception")
+    @patch("ee.hogai.utils.helpers.TeamTaxonomyQueryRunner")
+    def test_error_id_is_available_to_upstream_exception_capture(self, mock_runner_cls, mock_capture):
+        error = RuntimeError("private backend detail")
+        context_before = ambient_exception_properties().copy()
+
+        def capture_and_raise(*args, **kwargs):
+            capture_exception(error)
+            raise error
+
+        mock_runner_cls.return_value.run.side_effect = capture_and_raise
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/mcp_tools/read_taxonomy/",
+            {"args": {"query": {"kind": "events"}}},
+            format="json",
         )
 
+        self.assertEqual(response.status_code, 200)
+        first_capture = mock_capture.call_args_list[0]
+        self.assertIs(first_capture.args[0], error)
+        error_id = first_capture.kwargs["properties"]["error_id"]
+        self.assertTrue(response.json()["content"].endswith(f"Error id: {error_id}"))
+        self.assertEqual(ambient_exception_properties(), context_before)
+
+    @parameterized.expand(
+        [
+            ("without_code", None, {}),
+            ("with_code", "unknown_identifier", {"error_code": "unknown_identifier"}),
+        ]
+    )
     @patch("ee.hogai.tools.execute_sql.mcp_tool.ExecuteSQLMCPTool.execute", new_callable=AsyncMock)
-    def test_invoke_tool_error_returns_error_response(self, mock_execute):
-        mock_execute.side_effect = MaxToolRetryableError("Query validation failed: syntax error")
+    def test_invoke_tool_error_returns_error_response(self, _name, error_code, expected_extra, mock_execute):
+        mock_execute.side_effect = MaxToolRetryableError("Query validation failed: syntax error", error_code=error_code)
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/mcp_tools/execute_sql/",
@@ -204,6 +288,7 @@ class TestMCPToolsAPI(APIBaseTest):
                 "success": False,
                 "content": "Tool failed: MaxToolRetryableError: Query validation failed: syntax error. You may retry with adjusted inputs.",
                 "error_type": "validation",
+                **expected_extra,
             },
         )
 
@@ -255,69 +340,97 @@ class TestMCPToolsAPI(APIBaseTest):
                 "validation",
                 "Tool failed: MaxToolRetryableError: Invalid query input. You may retry with adjusted inputs.",
             ),
-            (
+            param(
                 HogQLSyntaxError("Unexpected SELECT"),
                 "validation",
                 "Tool failed: MaxToolRetryableError: Unexpected SELECT. You may retry with adjusted inputs.",
+                error_code="hogql_syntax_error",
             ),
-            (
+            param(
                 QueryError("Unknown field: missing_column"),
                 "validation",
                 "Tool failed: MaxToolRetryableError: Unknown field: missing_column. You may retry with adjusted inputs.",
+                error_code="hogql_query_error",
             ),
-            (
+            param(
                 HogQLNotImplementedError("QueryVisitor has no method visit_select_query"),
                 "internal",
                 "Tool failed: MaxToolRetryableError: QueryVisitor has no method visit_select_query. You may retry with adjusted inputs.",
+                error_code="hogql_not_implemented",
             ),
-            (
+            param(
                 CHQueryErrorIllegalTypeOfArgument("Illegal argument type", code=43),
                 "validation",
                 "Tool failed: MaxToolRetryableError: Illegal argument type. You may retry with adjusted inputs.",
+                error_code="illegal_type_of_argument",
             ),
-            (
+            param(
                 CHQueryErrorCorruptedParquetMetadata("Warehouse file metadata is corrupt", code=1001),
                 "internal",
                 "Tool failed: MaxToolRetryableError: Warehouse file metadata is corrupt. You may retry with adjusted inputs.",
+                error_code="std_exception",
             ),
-            (
+            param(
                 CHQueryErrorS3FileChangedDuringRead("Warehouse file changed while reading", code=499),
                 "api_5xx",
                 "Tool failed: MaxToolTransientError: Warehouse file changed while reading. You may retry this operation once without changes.",
+                error_code="s3_error",
+            ),
+            param(
+                CHQueryErrorS3Error("Storage read failed", code=499),
+                "api_5xx",
+                "Tool failed: MaxToolTransientError: Code: 499.\nStorage read failed. You may retry this operation once without changes.",
+                error_code="s3_error",
+            ),
+            param(
+                InternalCHQueryError("Too many parts", code=252, code_name="caller-supplied-name"),
+                "internal",
+                "Tool failed: MaxToolRetryableError: Error executing query: There was an unknown error running this query: Code: 252.\nToo many parts. You may retry with adjusted inputs.",
+                error_code="too_many_parts",
+            ),
+            param(
+                InternalCHQueryError("Unknown failure", code=99999, code_name="s3_error"),
+                "internal",
+                "Tool failed: MaxToolRetryableError: Error executing query: There was an unknown error running this query: Code: 99999.\nUnknown failure. You may retry with adjusted inputs.",
+                error_code="unknown_exception",
             ),
             (
                 _wrapped_hogql_error(TableAccessDeniedError("restricted_table"), "Warehouse table access denied"),
                 "permission",
                 "Tool failed: MaxToolFatalError: Warehouse table access denied.",
             ),
-            (
+            param(
                 _wrapped_hogql_error(
                     _wrapped_hogql_error(QueryError("Invalid query input"), "Query validation failed"),
                     "Warehouse SQL is invalid",
                 ),
                 "validation",
                 "Tool failed: MaxToolRetryableError: Warehouse SQL is invalid. You may retry with adjusted inputs.",
+                error_code="hogql_query_error",
             ),
-            (
+            param(
                 _wrapped_hogql_error(ConnectionError("connection refused"), "Warehouse connection failed"),
                 "internal",
                 "Tool failed: MaxToolRetryableError: Warehouse connection failed. You may retry with adjusted inputs.",
+                error_code="unhandled_connection_error",
             ),
-            (
+            param(
                 ExposedHogQLError("Managed warehouse is not available"),
                 "internal",
                 "Tool failed: MaxToolRetryableError: Managed warehouse is not available. You may retry with adjusted inputs.",
+                error_code="hogql_error",
             ),
-            (
+            param(
                 ValueError("Invalid query result encoding"),
                 "internal",
                 "Tool failed: MaxToolRetryableError: Error executing query: There was an unknown error running this query: Invalid query result encoding. You may retry with adjusted inputs.",
+                error_code="unhandled_value_error",
             ),
         ]
     )
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
     def test_query_failures_preserve_recovery_advice(
-        self, error: Exception, error_type: str, content: str, mock_query: Mock
+        self, error: Exception, error_type: str, content: str, mock_query: Mock, *, error_code: str | None = None
     ) -> None:
         mock_query.side_effect = error
 
@@ -328,7 +441,10 @@ class TestMCPToolsAPI(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json(), {"success": False, "content": content, "error_type": error_type})
+        expected = {"success": False, "content": content, "error_type": error_type}
+        if error_code:
+            expected["error_code"] = error_code
+        self.assertEqual(response.json(), expected)
 
     @parameterized.expand(
         [
@@ -336,19 +452,95 @@ class TestMCPToolsAPI(APIBaseTest):
                 "query_error",
                 None,
                 "Query failed",
+                None,
                 "Tool failed: MaxToolRetryableError: Query failed. You may retry with adjusted inputs.",
             ),
             (
                 "missing_error_message",
                 None,
                 None,
-                "Tool failed: MaxToolRetryableError: Error executing query: There was an unknown error running this query: Query failed. You may retry with adjusted inputs.",
+                None,
+                "Tool failed: MaxToolRetryableError: The query failed because of an internal error. You may retry with adjusted inputs.",
             ),
-            (
+            param(
+                "query_was_cancelled",
+                None,
+                None,
+                "query_was_cancelled",
+                "Tool failed: MaxToolRetryableError: The query failed because of an internal error. You may retry with adjusted inputs.",
+                expected_error_code="query_was_cancelled",
+            ),
+            param(
+                "trino_unsupported",
+                None,
+                "[T001] PIVOT is not supported by the Trino backend",
+                "hogql_trino_unsupported",
+                "Tool failed: MaxToolRetryableError: [T001] PIVOT is not supported by the Trino backend. You may retry with adjusted inputs.",
+                expected_error_code="hogql_trino_unsupported",
+                expected_error_type="validation",
+            ),
+            param(
+                "table_access_denied",
+                None,
+                "Access to the table is denied",
+                "table_access_denied",
+                "Tool failed: MaxToolFatalError: Access to the table is denied.",
+                expected_error_type="permission",
+            ),
+            param(
+                "hogql_query_error",
+                None,
+                "Unable to resolve field: plan",
+                "hogql_query_error",
+                "Tool failed: MaxToolRetryableError: Unable to resolve field: plan. You may retry with adjusted inputs.",
+                expected_error_code="hogql_unresolved_field",
+                expected_error_type="validation",
+            ),
+            param(
+                "storage_error",
+                None,
+                None,
+                "S3_ERROR",
+                "Tool failed: MaxToolRetryableError: PostHog couldn't read from storage while running this query. "
+                "Wait a few minutes, then run the query again. If the problem continues, contact support.. "
+                "You may retry with adjusted inputs.",
+                expected_error_code="s3_error",
+            ),
+            param(
+                "deferred_compatibility_rejection",
+                None,
+                "Function 'greatest' expects 2 arguments, found 3",
+                None,
+                "Tool failed: MaxToolRetryableError: Function 'greatest' expects 2 arguments, found 3\n\n"
+                "<hogql_compatibility_hint>\n"
+                "`greatest` takes exactly 2 arguments in HogQL, unlike ClickHouse. Nest two-argument calls "
+                "instead: greatest(x1, greatest(x2, x3)).\n"
+                "</hogql_compatibility_hint>. You may retry with adjusted inputs.",
+                query_args={"query": "SELECT greatest(1, 2, 3)", "connectionId": "example-connection"},
+            ),
+            param(
+                "memory_limit",
+                None,
+                "Query memory limit exceeded",
+                "clickhouse_memory_limit_exceeded",
+                "Tool failed: MaxToolRetryableError: Query memory limit exceeded. You may retry with adjusted inputs.",
+                expected_error_type="memory_limit",
+                expected_error_code="clickhouse_memory_limit_exceeded",
+            ),
+            param(
+                "legacy_memory_message",
+                None,
+                "Query memory limit exceeded",
+                None,
+                "Tool failed: MaxToolRetryableError: Query memory limit exceeded. You may retry with adjusted inputs.",
+            ),
+            param(
                 "polling_error",
                 ConnectionError("Query status unavailable"),
                 None,
+                None,
                 "Tool failed: MaxToolRetryableError: Error executing query: There was an unknown error running this query: Query status unavailable. You may retry with adjusted inputs.",
+                expected_error_code="unhandled_connection_error",
             ),
         ]
     )
@@ -360,10 +552,15 @@ class TestMCPToolsAPI(APIBaseTest):
         _name: str,
         polling_error: Exception | None,
         error_message: str | None,
+        error_code: str | None,
         content: str,
         mock_query: Mock,
         mock_status: Mock,
         _mock_sleep: AsyncMock,
+        *,
+        expected_error_code: str | None = None,
+        query_args: dict[str, str] | None = None,
+        expected_error_type: str = "internal",
     ) -> None:
         mock_query.return_value = {"query_status": {"id": "test-query-id", "complete": False}}
         mock_status.side_effect = polling_error
@@ -372,19 +569,24 @@ class TestMCPToolsAPI(APIBaseTest):
             "complete": True,
             "error": True,
             "error_message": error_message,
+            "error_code": error_code,
         }
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/mcp_tools/execute_sql/",
-            {"args": {"query": "SELECT 1"}},
+            {"args": query_args or {"query": "SELECT 1"}},
             format="json",
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json(), {"success": False, "content": content, "error_type": "internal"})
+        expected = {"success": False, "content": content, "error_type": expected_error_type}
+        if expected_error_code:
+            expected["error_code"] = expected_error_code
+        self.assertEqual(response.json(), expected)
 
+    @patch("products.posthog_ai.backend.api.mcp_tools.capture_exception")
     @patch("ee.hogai.tools.execute_sql.mcp_tool.ExecuteSQLMCPTool.execute", new_callable=AsyncMock)
-    def test_invoke_tool_unexpected_error_returns_internal_error(self, mock_execute):
+    def test_invoke_tool_unexpected_error_returns_internal_error(self, mock_execute, mock_capture):
         mock_execute.side_effect = RuntimeError("unexpected")
 
         response = self.client.post(
@@ -394,11 +596,14 @@ class TestMCPToolsAPI(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, 200)
+        error_id = mock_capture.call_args.kwargs["properties"]["error_id"]
         self.assertEqual(
             response.json(),
             {
                 "success": False,
-                "content": "The tool raised an internal error. Do not immediately retry the tool call.",
+                "content": f"The tool raised an internal error. Do not immediately retry the tool call. Error id: {error_id}",
+                "error_type": "internal",
+                "error_code": "unhandled_runtime_error",
             },
         )
 

@@ -814,7 +814,6 @@ _BUCKET_SETTINGS_NOT_READABLE_BY_THE_NODE_ROLE = {
     "AI_BLOB_S3_BUCKET": "read via posthog.storage.object_storage (boto3), by ai_observability/backend/api/ai_blob.py",
     "BATCH_EXPORTS_FILE_DOWNLOAD_BUCKET": "written via a pre-signed URL over an assumed STS role, and read via aioboto3 - never by ClickHouse",
     "BILLING_USAGE_REPORTS_S3_BUCKET": "read via posthog.storage.object_storage (boto3), by posthog/temporal/usage_report/storage.py",
-    "DAGSTER_AI_EVALS_S3_BUCKET": "read via boto3 (s3.get_client()) by products/posthog_ai/dags/utils.py",
     "DAGSTER_FAVICONS_S3_BUCKET": "read via boto3 (s3.get_client()) by products/web_analytics/dags/cache_favicons.py",
     "DAGSTER_S3_BUCKET": "read via Dagster's own S3Resource (boto3), the pickle io-manager's storage",
     "INBOX_RANKING_DATASET_S3_BUCKET": "read via boto3 by products/signals/dags/inbox_ranking/common.py",

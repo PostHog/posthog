@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,6 +34,12 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class OctopusDeploySource(ResumableSource[OctopusDeploySourceConfig, OctopusDeployResumeConfig]):
+    codebase_detection = detect(
+        env=("^OCTOPUS_URL$", "^OCTOPUS_API_KEY$", "^OCTOPUS_ACCESS_TOKEN$", "^OCTOPUS_SPACE$"),
+        npm=("@octopusdeploy/api-client",),
+        go=("github.com/OctopusDeploy/go-octopusdeploy", "github.com/octopusdeploy/octopus-permissions-controller"),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -45,7 +52,7 @@ class OctopusDeploySource(ResumableSource[OctopusDeploySourceConfig, OctopusDepl
             name=ExternalDataSourceType.OCTOPUSDEPLOY,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Octopus Deploy",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Octopus Deploy server URL and an API key to pull your deployment data into the PostHog Data warehouse.
 
 Use your Octopus Cloud URL (like `https://your-org.octopus.app`) or your self-hosted server's public URL.

@@ -22,6 +22,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.errors import QueryErrorCategory
 from posthog.slo.types import SloOperation, SloOutcome
 
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.logs.backend.alert_check_query import AlertCheckQuery, BatchedBucketedResult, BucketedCount
 from products.logs.backend.alert_signal_emitter import AlertSignalAction, NotifiedAlert
 from products.logs.backend.alert_state_machine import AlertCheckOutcome, AlertState, CheckResult, NotificationAction
@@ -69,6 +70,26 @@ def _evaluate_and_save_one(
         stats["errored"] += 1
 
 
+def _add_incident_destination(alert: LogsAlertConfiguration) -> None:
+    HogFunction.objects.create(
+        team_id=alert.team_id,
+        type="internal_destination",
+        name="PagerDuty",
+        template_id="template-pagerduty",
+        hog="return event",
+        enabled=True,
+        filters={
+            "source": "internal-events",
+            "events": [{"id": "$logs_alert_incident_closed", "type": "events"}],
+            "properties": [{"key": "alert_id", "value": str(alert.id), "operator": "exact", "type": "event"}],
+        },
+    )
+
+
+def _produced_events(mock_produce: MagicMock) -> list[str]:
+    return [c.kwargs["event_name"] for c in mock_produce.call_args_list if "event_name" in c.kwargs]
+
+
 def _make_stats() -> dict[str, int]:
     return {"checked": 0, "fired": 0, "resolved": 0, "errored": 0}
 
@@ -102,6 +123,7 @@ class TestNotifiedAlertCollection(APIBaseTest):
         alert: LogsAlertConfiguration,
         notification: NotificationAction,
         notification_failed: bool,
+        shadowed: bool = False,
     ) -> _DispatchedAlert:
         evaluation = _AlertEvaluation(
             alert=alert,
@@ -117,7 +139,7 @@ class TestNotifiedAlertCollection(APIBaseTest):
             date_to=datetime(2025, 1, 1, tzinfo=UTC),
             state_before="not_firing",
         )
-        return _DispatchedAlert(evaluation=evaluation, notification_failed=notification_failed)
+        return _DispatchedAlert(evaluation=evaluation, notification_failed=notification_failed, shadowed=shadowed)
 
     def _make_alert(self) -> LogsAlertConfiguration:
         return LogsAlertConfiguration.objects.create(
@@ -142,15 +164,16 @@ class TestNotifiedAlertCollection(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("no_notification", NotificationAction.NONE, False),
-            ("not_signalable", NotificationAction.RESOLVE, False),
-            ("notification_failed", NotificationAction.FIRE, True),
+            ("no_notification", NotificationAction.NONE, False, False),
+            ("not_signalable", NotificationAction.RESOLVE, False, False),
+            ("notification_failed", NotificationAction.FIRE, True, False),
+            ("shadowed_for_the_platform", NotificationAction.FIRE, False, True),
         ]
     )
-    def test_build_notified_from_saved_excludes(self, _name, notification, notification_failed):
+    def test_build_notified_from_saved_excludes(self, _name, notification, notification_failed, shadowed):
         alert = self._make_alert()
 
-        notified = _build_notified_from_saved([self._dispatched(alert, notification, notification_failed)])
+        notified = _build_notified_from_saved([self._dispatched(alert, notification, notification_failed, shadowed)])
 
         assert notified == []
 
@@ -242,6 +265,20 @@ class TestSaveCohortOutcomesFallback(APIBaseTest):
         )
         return _DispatchedAlert(evaluation=evaluation, notification_failed=False)
 
+    def test_a_check_read_before_an_ownership_change_saves_nothing_over_the_carried_state(self):
+        alert = self._make_alert(next_check_at=datetime(2025, 1, 1, 0, 0, tzinfo=UTC))
+        dispatched = self._make_dispatched(alert)
+        handed_over_at = datetime(2025, 1, 1, 0, 0, 30, tzinfo=UTC)
+        LogsAlertConfiguration.objects.filter(id=alert.id).update(
+            state="broken", owner="platform", owner_changed_at=handed_over_at
+        )
+
+        saved, failed = _save_cohort_outcomes([dispatched], datetime(2025, 1, 1, 0, 1, tzinfo=UTC))
+
+        assert (saved, failed) == ([dispatched], [])
+        alert.refresh_from_db()
+        assert (alert.state, alert.last_checked_at) == ("broken", None)
+
     @patch("products.logs.backend.temporal.activities.LogsAlertConfiguration.objects.bulk_update")
     def test_integrity_error_falls_back_to_per_alert(self, mock_bulk_update):
         # First call raises IntegrityError (bulk path); per-alert fallback then saves each alert.
@@ -252,15 +289,24 @@ class TestSaveCohortOutcomesFallback(APIBaseTest):
         dispatched = [self._make_dispatched(a) for a in alerts]
         now = datetime(2025, 1, 1, 0, 1, 0, tzinfo=UTC)
 
-        # Should not raise.
-        _save_cohort_outcomes(dispatched, now)
+        from products.logs.backend.temporal import activities
 
-        # All three alerts should have been saved via per-alert fallback —
-        # advance_next_check_at writes a future next_check_at, so we can verify
-        # the fallback ran by checking each alert was persisted.
+        save_per_alert = activities._save_staged_per_alert
+
+        def cut_over_then_save(staged):
+            # A cutover after the bulk attempt released its locks carries the platform's state onto one row.
+            LogsAlertConfiguration.objects.filter(id=alerts[0].id).update(owner="platform", owner_changed_at=now)
+            return save_per_alert(staged)
+
+        # Should not raise.
+        with patch.object(activities, "_save_staged_per_alert", side_effect=cut_over_then_save):
+            _save_cohort_outcomes(dispatched, now)
+
+        # The other two were saved via per-alert fallback — advance_next_check_at writes a future
+        # next_check_at, so we can verify the fallback ran by checking each alert was persisted.
         for alert in alerts:
             alert.refresh_from_db()
-            assert alert.last_checked_at == now
+        assert [alert.last_checked_at for alert in alerts] == [None, now, now]
 
     @patch("products.logs.backend.temporal.activities.LogsAlertConfiguration.objects.bulk_update")
     def test_operational_error_propagates(self, mock_bulk_update):
@@ -278,28 +324,37 @@ class TestSaveCohortOutcomesFallback(APIBaseTest):
 
 class TestResolveNotificationDeliveries(unittest.TestCase):
     def _dispatched(self, produce_result, notification_failed=False):
+        evaluation = MagicMock(state_before=LogsAlertConfiguration.State.NOT_FIRING)
+        evaluation.outcome.new_state = AlertState.FIRING
         return _DispatchedAlert(
-            evaluation=MagicMock(),
+            evaluation=evaluation,
             notification_failed=notification_failed,
             produce_result=produce_result,
         )
 
     @parameterized.expand(
         [
-            ("delivered", None, False),
-            ("delivery_error", Exception("delivery failed"), True),
-            ("still_pending_after_flush", TimeoutError("undelivered"), True),
+            (f"{outcome}_{field}", field, get_side_effect, expect_failed)
+            for outcome, get_side_effect, expect_failed in (
+                ("delivered", None, False),
+                ("delivery_error", Exception("delivery failed"), True),
+                ("still_pending_after_flush", TimeoutError("undelivered"), True),
+            )
+            for field in ("produce_result", "incident_produce_result")
         ]
     )
     @patch("products.logs.backend.temporal.activities.flush_alert_internal_events")
-    def test_folds_delivery_outcome_into_notification_failed(self, _name, get_side_effect, expect_failed, mock_flush):
+    def test_folds_delivery_outcome_into_notification_failed(
+        self, _name, field, get_side_effect, expect_failed, mock_flush
+    ):
         from products.logs.backend.temporal.activities import _resolve_notification_deliveries
 
         result = MagicMock()
         if get_side_effect is not None:
             result.get.side_effect = get_side_effect
+        dispatched = dataclasses.replace(self._dispatched(None), **{field: result})
 
-        resolved = _resolve_notification_deliveries([self._dispatched(result)])
+        resolved = _resolve_notification_deliveries([dispatched])
 
         assert resolved[0].notification_failed is expect_failed
         mock_flush.assert_called_once()
@@ -698,12 +753,23 @@ class TestEvaluateSingleAlert(APIBaseTest):
         defaults.update(kwargs)
         return LogsAlertConfiguration.objects.create(**defaults)
 
+    @parameterized.expand(
+        [
+            ("without_incident_destination", False, "source", ["$logs_alert_firing"]),
+            ("with_incident_destination", True, "source", ["$logs_alert_firing", "$logs_alert_incident_opened"]),
+            ("owned_by_the_platform", True, "platform", []),
+        ]
+    )
     @time_machine.travel("2025-01-01T00:01:00Z", tick=False)
     @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
     @patch("products.logs.backend.temporal.activities.produce_alert_internal_event")
-    def test_threshold_breached_transitions_to_firing(self, mock_produce, mock_query_cls):
+    def test_threshold_breached_transitions_to_firing(
+        self, _name, has_incident_destination, owner, expected_events, mock_produce, mock_query_cls
+    ):
         _mock_buckets(mock_query_cls, [50])
-        alert = self._make_alert()
+        alert = self._make_alert(owner=owner)
+        if has_incident_destination:
+            _add_incident_destination(alert)
         stats = {"checked": 0, "fired": 0, "resolved": 0, "errored": 0}
         now = datetime(2025, 1, 1, 0, 1, 0, tzinfo=UTC)
 
@@ -711,10 +777,25 @@ class TestEvaluateSingleAlert(APIBaseTest):
 
         alert.refresh_from_db()
         assert alert.state == LogsAlertConfiguration.State.FIRING
+        assert alert.last_notified_at == now
         assert stats["checked"] == 1
         assert stats["fired"] == 1
-        mock_produce.assert_called_once()
-        assert mock_produce.call_args.kwargs["event_name"] == "$logs_alert_firing"
+        assert _produced_events(mock_produce) == expected_events
+
+    @time_machine.travel("2025-01-01T00:01:00Z", tick=False)
+    @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
+    @patch("products.logs.backend.temporal.activities.produce_alert_internal_event")
+    def test_a_check_read_before_a_handback_sends_nothing(self, mock_produce, mock_query_cls):
+        _mock_buckets(mock_query_cls, [50])
+        alert = self._make_alert(owner="platform", owner_changed_at=datetime(2024, 12, 20, tzinfo=UTC))
+        now = datetime(2025, 1, 1, 0, 1, 0, tzinfo=UTC)
+        evaluation = _evaluate_single_alert(alert, now)
+        LogsAlertConfiguration.objects.filter(pk=alert.pk).update(owner="source", owner_changed_at=now)
+
+        dispatched = _dispatch_for_alert(evaluation, now)
+
+        assert dispatched.shadowed
+        assert _produced_events(mock_produce) == []
 
     @time_machine.travel("2025-01-01T00:01:00Z", tick=False)
     @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
@@ -1068,6 +1149,7 @@ class TestEvaluateSingleAlert(APIBaseTest):
             cooldown_minutes=60,
             last_notified_at=datetime(2025, 1, 1, 0, 0, 0, tzinfo=UTC),
         )
+        _add_incident_destination(alert)
         # Create an event row so get_recent_breaches has data
         LogsAlertEvent.objects.create(
             alert=alert,
@@ -1083,8 +1165,9 @@ class TestEvaluateSingleAlert(APIBaseTest):
         alert.refresh_from_db()
         # State transitions to NOT_FIRING regardless of cooldown
         assert alert.state == LogsAlertConfiguration.State.NOT_FIRING
-        # But notification is suppressed by cooldown
-        mock_produce.assert_not_called()
+        # Cooldown suppresses the resolved notification, but never the incident close.
+        assert _produced_events(mock_produce) == ["$logs_alert_incident_closed"]
+        assert mock_produce.call_args.kwargs["properties"]["reason"] == "resolved"
 
     @parameterized.expand(
         [
@@ -1092,6 +1175,14 @@ class TestEvaluateSingleAlert(APIBaseTest):
                 "hits_threshold",
                 4,
                 LogsAlertConfiguration.State.NOT_FIRING,
+                LogsAlertConfiguration.State.BROKEN,
+                5,
+                1,
+            ),
+            (
+                "hits_threshold_while_firing",
+                4,
+                LogsAlertConfiguration.State.FIRING,
                 LogsAlertConfiguration.State.BROKEN,
                 5,
                 1,
@@ -1133,6 +1224,7 @@ class TestEvaluateSingleAlert(APIBaseTest):
             consecutive_failures=initial_failures,
             state=initial_state,
         )
+        _add_incident_destination(alert)
         mock_query_cls.return_value.execute_rolling_checks.side_effect = Exception(
             "Code: 160. DB::Exception: Estimated query execution time is too long"
         )
@@ -1156,6 +1248,12 @@ class TestEvaluateSingleAlert(APIBaseTest):
             # Auto-disabled event surfaces the classified user message, never the raw CH exception.
             assert props["last_error_message"] == "Query is too expensive. Try narrower filters or a shorter window."
             assert "DB::Exception" not in props["last_error_message"]
+        closed_reasons = [
+            c.kwargs["properties"]["reason"]
+            for c in mock_produce.call_args_list
+            if c.kwargs.get("event_name") == "$logs_alert_incident_closed"
+        ]
+        assert closed_reasons == (["broken"] if initial_state == LogsAlertConfiguration.State.FIRING else [])
 
     @time_machine.travel("2025-01-01T00:01:00Z", tick=False)
     @patch("products.logs.backend.temporal.activities.increment_state_transition")
@@ -2103,8 +2201,9 @@ class TestDiscoverCohortsActivity(NonAtomicBaseTest):
         assert len(result.manifests) == 1
         assert len(result.manifests[0].alert_ids) == 2
 
+    @parameterized.expand([("close_delivered", True), ("close_lost", False)])
     @time_machine.travel("2026-05-05T10:00:00Z", tick=False)
-    def test_transitions_alert_with_broken_filter_config_to_broken(self):
+    def test_transitions_alert_with_broken_filter_config_to_broken(self, _name, close_delivered):
         from products.logs.backend.temporal.activities import DiscoverCohortsInput, discover_cohorts_activity
 
         healthy = LogsAlertConfiguration.objects.create(
@@ -2129,22 +2228,49 @@ class TestDiscoverCohortsActivity(NonAtomicBaseTest):
             filters={"filterGroup": [{"type": "AND", "values": []}]},
             enabled=True,
             next_check_at=None,
+            state=LogsAlertConfiguration.State.FIRING,
         )
+        _add_incident_destination(broken)
 
-        result = asyncio.run(discover_cohorts_activity(DiscoverCohortsInput()))
+        with patch("products.logs.backend.alert_incidents.produce_alert_internal_event") as mock_produce:
+            if not close_delivered:
+                mock_produce.return_value.get.side_effect = TimeoutError("undelivered")
+            result = asyncio.run(discover_cohorts_activity(DiscoverCohortsInput()))
 
         manifest_alert_ids = {aid for m in result.manifests for aid in m.alert_ids}
         assert str(healthy.id) in manifest_alert_ids
         assert str(broken.id) not in manifest_alert_ids
-
-        broken.refresh_from_db()
-        assert broken.state == LogsAlertConfiguration.State.BROKEN
+        assert mock_produce.call_args.kwargs["properties"]["reason"] == "broken"
 
         from products.logs.backend.models import LogsAlertEvent
+
+        broken.refresh_from_db()
+        if not close_delivered:
+            # Discovery skips BROKEN alerts, so the alert stays firing until a later cycle delivers the close.
+            assert broken.state == LogsAlertConfiguration.State.FIRING
+            assert not LogsAlertEvent.objects.filter(alert=broken, kind=LogsAlertEvent.Kind.BROKEN_CONFIG).exists()
+            return
+        assert broken.state == LogsAlertConfiguration.State.BROKEN
 
         event = LogsAlertEvent.objects.get(alert=broken, kind=LogsAlertEvent.Kind.BROKEN_CONFIG)
         assert event.state_after == LogsAlertConfiguration.State.BROKEN
         assert event.error_message is not None and "filterGroup" in event.error_message
+        assert _produced_events(mock_produce) == ["$logs_alert_incident_closed"]
+        assert mock_produce.call_args.kwargs["properties"]["alert_id"] == str(broken.id)
+
+    def test_a_close_for_an_alert_cut_over_after_it_was_read_sends_nothing(self) -> None:
+        from products.logs.backend.alert_incidents import close_incident
+        from products.logs.backend.alert_state_machine import IncidentCloseReason
+
+        alert = LogsAlertConfiguration.objects.create(
+            team=self.team, name="read before cutover", filters={"serviceNames": ["ok"]}, state="firing"
+        )
+        LogsAlertConfiguration.objects.filter(pk=alert.pk).update(owner="platform")
+
+        with patch("products.logs.backend.alert_incidents.produce_alert_internal_event") as mock_produce:
+            assert close_incident(alert, IncidentCloseReason.BROKEN) is True
+
+        mock_produce.assert_not_called()
 
 
 class TestCohortFromManifest(unittest.TestCase):

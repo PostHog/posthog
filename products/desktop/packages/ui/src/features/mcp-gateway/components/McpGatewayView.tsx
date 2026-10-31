@@ -14,7 +14,6 @@ import {
 import { useGatewayConfig } from "@posthog/ui/features/mcp-gateway/hooks/useGatewayConfig";
 import { useGatewayServers } from "@posthog/ui/features/mcp-gateway/hooks/useGatewayServers";
 import { DotPatternBackground } from "@posthog/ui/primitives/DotPatternBackground";
-import { Box, Flex, ScrollArea } from "@radix-ui/themes";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 
@@ -114,7 +113,7 @@ export function McpGatewayView() {
   })();
 
   return (
-    <Flex height="100%" className="min-h-0 overflow-hidden">
+    <div className="flex h-full min-h-0 overflow-hidden">
       <GatewayRail
         servers={gateway.servers}
         templatesById={gateway.templatesById}
@@ -123,14 +122,14 @@ export function McpGatewayView() {
         route={route}
         onNavigate={setRoute}
       />
-      <Box className="relative min-h-0 min-w-0 flex-1">
+      <div className="relative min-h-0 min-w-0 flex-1">
         <DotPatternBackground />
-        <ScrollArea className="h-full w-full">
-          <Box p="6" mx="auto" className="relative z-[1] max-w-[960px]">
+        <div className="h-full w-full overflow-y-auto">
+          <div className="relative z-[1] mx-auto max-w-[960px] p-8">
             {mainContent}
-          </Box>
-        </ScrollArea>
-      </Box>
-    </Flex>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }

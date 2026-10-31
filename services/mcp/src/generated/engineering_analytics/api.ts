@@ -262,6 +262,12 @@ export const EngineeringAnalyticsTeamCiHealthQueryParams = () => zod.object({
         .describe(
             "Restrict the roster to one owning team slug (or 'unowned'). The cheap way to read a single team's rollup."
         ),
+    repo: zod
+        .string()
+        .optional()
+        .describe(
+            "'owner\/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository."
+        ),
     source_id: zod
         .string()
         .optional()

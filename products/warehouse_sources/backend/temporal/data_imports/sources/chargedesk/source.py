@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -36,6 +37,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ChargedeskSource(ResumableSource[ChargedeskSourceConfig, ChargedeskResumeConfig]):
+    codebase_detection = detect(env=("^CHARGEDESK_",))
+
     supported_versions = ("v1",)
     default_version = "v1"
     api_docs_url = "https://chargedesk.com/api-docs"
@@ -51,7 +54,7 @@ class ChargedeskSource(ResumableSource[ChargedeskSourceConfig, ChargedeskResumeC
             name=ExternalDataSourceType.CHARGEDESK,
             category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
             label="Chargedesk",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your ChargeDesk secret API key to automatically pull your ChargeDesk data into the PostHog Data warehouse.
 
 Each company has its own secret key. Create one in your ChargeDesk account under **Setup → API / Webhooks → Issue New Key**, and make sure API access is enabled for the company.""",

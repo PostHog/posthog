@@ -5,7 +5,6 @@ import { newAccountMenuLogic } from 'lib/components/Account/newAccountMenuLogic'
 import { commandLogic } from 'lib/components/Command/commandLogic'
 import { openJumpToTimestampModal } from 'lib/components/DateFilter/openJumpToTimestampModal'
 import { helpMenuLogic } from 'lib/components/HelpMenu/helpMenuLogic'
-import { shortcutLogic } from 'lib/components/Shortcuts/shortcutLogic'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { useShortcut } from 'lib/components/Shortcuts/useShortcut'
 import { openCHQueriesDebugModal } from 'lib/components/Shortcuts/utils/DebugCHQueries'
@@ -13,20 +12,13 @@ import { superpowersLogic } from 'lib/components/Superpowers/superpowersLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
 
-import { SidePanelTab } from '~/types'
-
-import { navigation3000Logic } from './navigation-3000/navigationLogic'
+import { sidePanelLogic } from './navigation-3000/sidepanel/sidePanelLogic'
 import { sidePanelStateLogic } from './navigation-3000/sidepanel/sidePanelStateLogic'
 import { themeLogic } from './navigation-3000/themeLogic'
-import { sceneLayoutLogic } from './scenes/sceneLayoutLogic'
 
 export function GlobalShortcuts(): null {
     const { superpowersEnabled, user, excludedFromPostHogTeamCohort } = useValues(superpowersLogic)
     const { setExcludedFromPostHogTeamCohort } = useActions(superpowersLogic)
-    const { shortcutMenuOpen } = useValues(shortcutLogic)
-    const { scenePanelIsPresent } = useValues(sceneLayoutLogic)
-    const { setShortcutMenuOpen } = useActions(shortcutLogic)
-    const { toggleZenMode } = useActions(navigation3000Logic)
     const { toggleCommand } = useActions(commandLogic)
     const { toggleHelpMenu } = useActions(helpMenuLogic)
     const { toggleAccountMenu, toggleProjectSwitcher, toggleOrgSwitcher } = useActions(newAccountMenuLogic)
@@ -35,8 +27,7 @@ export function GlobalShortcuts(): null {
     const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
     const { sidePanelOpen } = useValues(sidePanelStateLogic)
 
-    // Open Info tab if scene has panel content, otherwise default to PostHog AI
-    const defaultTab = scenePanelIsPresent ? SidePanelTab.Info : SidePanelTab.Max
+    const { defaultTab } = useValues(sidePanelLogic)
 
     useShortcut({
         name: 'Search',
@@ -47,14 +38,6 @@ export function GlobalShortcuts(): null {
             toggleCommand('keyboard-shortcut')
         },
         priority: 10,
-    })
-
-    useShortcut({
-        name: 'ToggleShortcutMenu',
-        keybind: [keyBinds.toggleShortcutMenu, keyBinds.toggleShortcutMenuFallback],
-        intent: 'Toggle shortcut menu',
-        interaction: 'function',
-        callback: () => setShortcutMenuOpen(!shortcutMenuOpen),
     })
 
     useShortcut({
@@ -82,14 +65,6 @@ export function GlobalShortcuts(): null {
         interaction: 'function',
         callback: () => setExcludedFromPostHogTeamCohort(!excludedFromPostHogTeamCohort),
         disabled: !user?.is_staff,
-    })
-
-    useShortcut({
-        name: 'ZenMode',
-        keybind: [keyBinds.zenMode],
-        intent: 'Toggle zen mode',
-        interaction: 'function',
-        callback: () => toggleZenMode('shortcut'),
     })
 
     useShortcut({

@@ -6,9 +6,12 @@ from typing import Any
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.linearb.settings import (
@@ -51,7 +54,7 @@ def _sanitize_metric_key(key: str) -> str:
     return _NON_COLUMN_SAFE.sub("_", key).strip("_")
 
 
-@retry(
+@retry_with_deadline(
     retry=retry_if_exception_type(
         (
             LinearbRetryableError,
@@ -129,7 +132,11 @@ def _iter_list_rows(
             params[config.page_size_param] = page_size
             params["offset"] = offset
 
-        response = _request(session, "GET", url, headers, logger, params=params)
+        if config.method == "POST":
+            body = {**(config.request_body or {}), **params}
+            response = _request(session, "POST", url, headers, logger, json_body=body)
+        else:
+            response = _request(session, "GET", url, headers, logger, params=params)
         payload = response.json()
         items = payload.get(config.data_selector, []) if config.data_selector else payload
         if not items:
@@ -216,7 +223,7 @@ def get_rows(
     # redirect target; LinearB's API never legitimately redirects.
     session = make_tracked_session(allow_redirects=False)
 
-    if config.method == "POST":
+    if endpoint == "measurements":
         yield from _iter_measurements_rows(session, headers, logger)
         return
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import uuid
 import asyncio
 import logging
@@ -11,9 +12,12 @@ from typing import TYPE_CHECKING, TypedDict
 import pytest
 from unittest import mock
 
+from django.test import override_settings
+
 import temporalio.worker
 from parameterized import parameterized
 from temporalio import activity, common, workflow
+from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Replayer, UnsandboxedWorkflowRunner, Worker
 
@@ -51,6 +55,7 @@ from posthog.temporal.weekly_digest.workflows import (
     GenerateDigestDataWorkflow,
     SendWeeklyDigestWorkflow,
     WeeklyDigestWorkflow,
+    resolve_redis_host,
 )
 
 if TYPE_CHECKING:
@@ -200,6 +205,30 @@ async def test_weekly_digest_workflow_skip_generate():
 
     assert not _test_state["generate_called"], "Generate workflow should not have been called"
     assert _test_state["send_called"], "Send workflow should have been called"
+
+
+@parameterized.expand(
+    [
+        ("set_in_production", "digest-redis.example.com", False, "digest-redis.example.com"),
+        ("unset_in_local_dev", None, True, "localhost"),
+        ("unset_in_production", None, False, None),
+        ("empty_in_production", "", False, None),
+    ]
+)
+def test_resolve_redis_host(_name: str, env_value: str | None, local_dev: bool, expected: str | None) -> None:
+    env = {} if env_value is None else {"WEEKLY_DIGEST_REDIS_HOST": env_value}
+    with (
+        mock.patch.dict("os.environ", env),
+        override_settings(DEBUG=local_dev, TEST=local_dev),
+    ):
+        if env_value is None:
+            os.environ.pop("WEEKLY_DIGEST_REDIS_HOST", None)
+        if expected is None:
+            with pytest.raises(ApplicationError, match="WEEKLY_DIGEST_REDIS_HOST") as exc_info:
+                resolve_redis_host()
+            assert exc_info.value.non_retryable
+        else:
+            assert resolve_redis_host() == expected
 
 
 @parameterized.expand([(True,), (False,)])

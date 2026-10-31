@@ -213,6 +213,7 @@ WHERE {periods_expression}
             query=query,
             team=self.team,
             user=self.user,
+            bypass_warehouse_access_control=self.bypass_warehouse_access_control,
             timings=self.timings,
             modifiers=self.modifiers,
             limit_context=self.limit_context,
@@ -347,6 +348,8 @@ WHERE {periods_expression}
             results=results,
             modifiers=self.modifiers,
             preComputeStrategy=WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE,
+            preComputeStale=self.lazy_precompute_stale(),
+            preComputedAt=self.lazy_precompute_computed_at_iso(),
         )
 
     def event_properties(self) -> ast.Expr:

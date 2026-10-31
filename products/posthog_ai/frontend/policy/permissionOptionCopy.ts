@@ -17,6 +17,9 @@ export function optionRowLabel(option: ApprovalCardOption): string {
 }
 
 export function optionSublabel(option: ApprovalCardOption): string | null {
+    if (option.hint) {
+        return option.hint
+    }
     if (option.requiresFeedback) {
         return 'The agent adjusts and continues instead of stopping this turn.'
     }

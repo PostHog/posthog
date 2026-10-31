@@ -15,7 +15,7 @@ use posthog_symbol_data::{read_symbol_data_with_byte_count, AppleDsym, ElfDebugI
 use crate::{
     error::{NativeError, ResolveError, UnhandledError},
     metric_consts::SYMBOL_SET_DECOMPRESSED_BYTES,
-    symbolication::symbol_store::{caching::Countable, Fetcher, Parser},
+    symbolication::symbol_store::{caching::Countable, Fetcher, ParsePermit, Parser},
 };
 
 /// Manifest format for source files bundled in the symbol ZIP under `__source/`
@@ -320,11 +320,16 @@ impl Parser for NativeProvider {
     type Set = ParsedNativeSymbols;
     type Err = ResolveError;
 
-    async fn parse(&self, source: Self::Source) -> Result<ParsedNativeSymbols, ResolveError> {
+    async fn parse(
+        &self,
+        source: Self::Source,
+        permit: ParsePermit,
+    ) -> Result<ParsedNativeSymbols, ResolveError> {
         // Debug-info parsing is the heaviest CPU work in the system: zstd
         // decompress, ZIP expansion, DWARF parse, and symcache conversion.
         // Always offload from the tokio runtime.
         tokio::task::spawn_blocking(move || -> Result<ParsedNativeSymbols, ResolveError> {
+            let _permit = permit;
             // Slice selection invariant: CLI dSYM uploads are one single-arch
             // binary per UUID (fat binaries are thinned at upload), so a
             // chunk_id lookup always parses the slice it names. The arm64
@@ -374,6 +379,71 @@ mod test {
                     .collect::<HashMap<_, _>>(),
             ),
             decompressed_bytes: 0,
+        }
+    }
+
+    #[test]
+    fn flutter_debug_symbols_resolve_dart_location_and_source() {
+        use std::io::{Cursor, Write};
+
+        use crate::langs::utils::get_context_lines;
+
+        // The manifest must match the build path embedded in the fixture's DWARF.
+        const SOURCE_PATH: &str =
+            "/fixtures/flutter/native-symbolication-builds/sample/lib/main.dart";
+        const SOURCE: &str = include_str!("../../../../tests/static/native/flutter_sample.dart");
+        let artifacts: [(&[u8], u64); 2] = [
+            (
+                include_bytes!("../../../../tests/static/native/flutter_android_arm64.symbols.zst"),
+                0x205217,
+            ),
+            (
+                include_bytes!("../../../../tests/static/native/flutter_ios_arm64.symbols.zst"),
+                0x14f1f7,
+            ),
+        ];
+
+        for (compressed, address) in artifacts {
+            let dwarf = zstd::decode_all(compressed).unwrap();
+            for home_prefix in [b"/Users/".as_slice(), b"/home/".as_slice()] {
+                assert!(
+                    !dwarf
+                        .windows(home_prefix.len())
+                        .any(|bytes| bytes == home_prefix),
+                    "fixture embeds an unredacted home directory"
+                );
+            }
+            let mut zip = zip::ZipWriter::new(Cursor::new(Vec::new()));
+            let options = zip::write::SimpleFileOptions::default();
+            zip.start_file("dwarf", options).unwrap();
+            zip.write_all(&dwarf).unwrap();
+            zip.start_file("__source/manifest.json", options).unwrap();
+            zip.write_all(
+                serde_json::json!({"version": 1, "files": {SOURCE_PATH: "__source/main.dart"}})
+                    .to_string()
+                    .as_bytes(),
+            )
+            .unwrap();
+            zip.start_file("__source/main.dart", options).unwrap();
+            zip.write_all(SOURCE.as_bytes()).unwrap();
+            let data = zip.finish().unwrap().into_inner();
+
+            let symbols = ParsedNativeSymbols::from_zip_data(data.clone(), data.len()).unwrap();
+            let frame = symbols.lookup(address).unwrap().remove(0);
+            assert_eq!(frame.display_name, "main");
+            assert_eq!(frame.full_path.as_deref(), Some(SOURCE_PATH));
+            assert_eq!(frame.line, 7);
+            let context = get_context_lines(
+                symbols
+                    .get_source(frame.full_path.as_deref().unwrap())
+                    .unwrap()
+                    .lines(),
+                (frame.line - 1) as usize,
+                3,
+            )
+            .unwrap();
+            assert_eq!(context.line.number, 7);
+            assert!(context.line.line.contains("runApp("));
         }
     }
 

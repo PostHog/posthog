@@ -1,24 +1,33 @@
 import dataclasses
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 import requests
+from requests import Request, Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
     rest_api_resource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    build_dependent_resource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    BasePaginator,
     OffsetPaginator,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ResponseAction
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    ClientConfig,
+    ResponseAction,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.elasticemail.settings import (
     ELASTICEMAIL_ENDPOINTS,
     PAGE_SIZE,
+    STATISTICS_LOOKBACK_DAYS,
     ElasticEmailEndpointConfig,
 )
 
@@ -43,11 +52,44 @@ VALIDATION_PATH = "/statistics"
 _AUTH_BODY_TOKENS = ("apikey", "api key", "access token", "unauthorized", "expired")
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class ElasticEmailResumeConfig:
     # Next offset to request. Elastic Email paginates with limit/offset, so the offset alone is enough
     # to resume mid-endpoint; the incremental `from` window is re-derived from the stored cursor each run.
     offset: int = 0
+    fanout_state: Optional[dict[str, Any]] = None
+    next_day: Optional[str] = None
+
+
+class DailyWindowPaginator(BasePaginator):
+    """Requests one UTC day per page, from `start` through `end` inclusive, via `from`/`to`."""
+
+    def __init__(self, start: date, end: date) -> None:
+        super().__init__()
+        self._day = start
+        self._end = end
+
+    def _apply(self, request: Request) -> None:
+        day = self._day.isoformat()
+        request.params = {**(request.params or {}), "from": f"{day}T00:00:00", "to": f"{day}T23:59:59"}
+
+    def init_request(self, request: Request) -> None:
+        self._apply(request)
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        for row in data or []:
+            row["Date"] = self._day.isoformat()
+        self._day += timedelta(days=1)
+        self._has_next_page = self._day <= self._end
+
+    def update_request(self, request: Request) -> None:
+        self._apply(request)
+
+    def get_resume_state(self) -> Optional[dict[str, Any]]:
+        return {"day": self._day.isoformat()}
+
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        self._day = date.fromisoformat(state["day"])
 
 
 def _get_headers(api_key: str) -> dict[str, str]:
@@ -76,6 +118,29 @@ def _clamp_future_value_to_now(value: Any) -> Any:
     if isinstance(value, date):
         return now.date() if value > now.date() else value
     return value
+
+
+def _to_date(value: Any) -> date:
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    return date.fromisoformat(str(value)[:10])
+
+
+def _statistics_start_day(
+    should_use_incremental_field: bool, db_incremental_field_last_value: Any, today: date
+) -> date:
+    if should_use_incremental_field and db_incremental_field_last_value:
+        # Re-fetch the watermark day itself: it was usually still in progress at the last sync, and
+        # rows merge on Date so the refreshed totals replace the partial ones.
+        return min(_to_date(db_incremental_field_last_value), today)
+    return today - timedelta(days=STATISTICS_LOOKBACK_DAYS)
+
+
+def _add_encoded_list_name(row: dict[str, Any]) -> dict[str, Any]:
+    # The fan-out binds the path with str.format, which applies no escaping.
+    return {**row, "EncodedListName": quote(str(row.get("ListName", "")), safe="")}
 
 
 def _build_url(path: str, params: dict[str, Any]) -> str:
@@ -152,6 +217,26 @@ def validate_credentials(
     return not _is_auth_error_body(response.status_code, response.text or "")
 
 
+def _client_config(api_key: str) -> ClientConfig:
+    return {
+        "base_url": ELASTICEMAIL_BASE_URL,
+        # Elastic Email carries the key in the X-ElasticEmail-ApiKey header; framework auth redacts it.
+        "auth": {"type": "api_key", "api_key": api_key, "name": "X-ElasticEmail-ApiKey", "location": "header"},
+        "headers": {"Accept": "application/json"},
+        # limit/offset pagination over a bare JSON array; a short page (data < limit) ends it, just
+        # like the old `len(items) < PAGE_SIZE` check. No total is reported in body or header.
+        "paginator": OffsetPaginator(limit=PAGE_SIZE, total_path=None),
+    }
+
+
+def _load_resume_state(
+    resumable_source_manager: ResumableSourceManager[ElasticEmailResumeConfig],
+) -> Optional[ElasticEmailResumeConfig]:
+    if not resumable_source_manager.can_resume():
+        return None
+    return resumable_source_manager.load_state()
+
+
 def elasticemail_source(
     api_key: str,
     endpoint: str,
@@ -162,17 +247,58 @@ def elasticemail_source(
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = ELASTICEMAIL_ENDPOINTS[endpoint]
+    resume = _load_resume_state(resumable_source_manager)
+
+    if config.fanout is not None:
+        fanout_resource = build_dependent_resource(
+            endpoint_configs=ELASTICEMAIL_ENDPOINTS,
+            child_endpoint=endpoint,
+            fanout=config.fanout,
+            client_config=_client_config(api_key),
+            parent_data_map=_add_encoded_list_name,
+            parent_endpoint_extra={"data_selector_required": True, "response_actions": _auth_response_actions()},
+            child_endpoint_extra={
+                "data_selector_required": True,
+                "response_actions": [{"status_code": 404, "action": "ignore"}, *_auth_response_actions()],
+            },
+            path_format_values={},
+            team_id=team_id,
+            job_id=job_id,
+            db_incremental_field_last_value=None,
+            resume_hook=lambda state: _save_fanout_state(resumable_source_manager, state),
+            initial_paginator_state=resume.fanout_state if resume else None,
+        )
+        return _source_response(endpoint, config, fanout_resource)
+
+    if config.daily_window:
+        today = datetime.now(UTC).date()
+        start = _statistics_start_day(should_use_incremental_field, db_incremental_field_last_value, today)
+        statistics_config: RESTAPIConfig = {
+            "client": _client_config(api_key),
+            "resources": [
+                {
+                    "name": endpoint,
+                    "endpoint": {
+                        "path": config.path,
+                        "params": dict(config.extra_params),
+                        "paginator": DailyWindowPaginator(start=start, end=today),
+                        "response_actions": _auth_response_actions(),
+                    },
+                }
+            ],
+        }
+        statistics_resource = rest_api_resource(
+            statistics_config,
+            team_id,
+            job_id,
+            None,
+            resume_hook=lambda state: _save_next_day(resumable_source_manager, state),
+            initial_paginator_state={"day": resume.next_day} if resume and resume.next_day else None,
+        )
+        return _source_response(endpoint, config, statistics_resource)
 
     rest_config: RESTAPIConfig = {
-        "client": {
-            "base_url": ELASTICEMAIL_BASE_URL,
-            # Elastic Email carries the key in the X-ElasticEmail-ApiKey header; framework auth redacts it.
-            "auth": {"type": "api_key", "api_key": api_key, "name": "X-ElasticEmail-ApiKey", "location": "header"},
-            "headers": {"Accept": "application/json"},
-            # limit/offset pagination over a bare JSON array; a short page (data < limit) ends it, just
-            # like the old `len(items) < PAGE_SIZE` check. No total is reported in body or header.
-            "paginator": OffsetPaginator(limit=PAGE_SIZE, total_path=None),
-        },
+        "client": _client_config(api_key),
         "resources": [
             {
                 "name": endpoint,
@@ -189,12 +315,6 @@ def elasticemail_source(
         ],
     }
 
-    initial_paginator_state: Optional[dict[str, Any]] = None
-    if resumable_source_manager.can_resume():
-        resume = resumable_source_manager.load_state()
-        if resume is not None:
-            initial_paginator_state = {"offset": resume.offset}
-
     def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
         # OffsetPaginator only reports state while more pages remain, so the final short page saves
         # nothing — a crash re-fetches from the last persisted offset rather than skipping rows.
@@ -207,9 +327,26 @@ def elasticemail_source(
         job_id,
         db_incremental_field_last_value if should_use_incremental_field else None,
         resume_hook=save_checkpoint,
-        initial_paginator_state=initial_paginator_state,
+        initial_paginator_state={"offset": resume.offset} if resume is not None else None,
     )
+    return _source_response(endpoint, config, resource)
 
+
+def _save_fanout_state(
+    resumable_source_manager: ResumableSourceManager[ElasticEmailResumeConfig], state: Optional[dict[str, Any]]
+) -> None:
+    if state:
+        resumable_source_manager.save_state(ElasticEmailResumeConfig(fanout_state=state))
+
+
+def _save_next_day(
+    resumable_source_manager: ResumableSourceManager[ElasticEmailResumeConfig], state: Optional[dict[str, Any]]
+) -> None:
+    if state and state.get("day"):
+        resumable_source_manager.save_state(ElasticEmailResumeConfig(next_day=str(state["day"])))
+
+
+def _source_response(endpoint: str, config: ElasticEmailEndpointConfig, resource: Any) -> SourceResponse:
     return SourceResponse(
         name=endpoint,
         items=lambda: resource,
@@ -219,7 +356,7 @@ def elasticemail_source(
         partition_mode="datetime" if config.partition_key else None,
         partition_format="week" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
-        # Events are fetched oldest-first (orderBy=DateAscending); the other endpoints are full refresh
-        # where order does not affect correctness.
+        # Events are fetched oldest-first (orderBy=DateAscending) and statistics day by day ascending;
+        # the other endpoints are full refresh where order does not affect correctness.
         sort_mode="asc",
     )

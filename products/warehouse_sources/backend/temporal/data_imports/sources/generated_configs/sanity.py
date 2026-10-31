@@ -6,4 +6,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 
 @config.config
 class SanitySourceConfig(config.Config):
-    pass
+    project_id: str
+    dataset: str
+    api_token: str

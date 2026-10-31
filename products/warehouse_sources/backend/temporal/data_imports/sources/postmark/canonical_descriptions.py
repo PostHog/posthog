@@ -70,6 +70,23 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "Subject": "Subject line of the message that bounced.",
         },
     },
+    "opens": {
+        "description": "The first open of an outbound message by one recipient, recorded when open tracking is on.",
+        "docs_url": "https://postmarkapp.com/developer/api/messages-api#message-opens",
+        "columns": {
+            "RecordType": "Type of record. Always Open.",
+            "MessageID": "ID of the outbound message that was opened.",
+            "Recipient": "Email address of the recipient who opened the message.",
+            "Tag": "Tag of the message that was opened.",
+            "MessageStream": "Message stream the opened message was sent through.",
+            "ReceivedAt": "Time at which the recipient opened the message.",
+            "Platform": "Platform used to open the message (WebMail, Desktop, Mobile, or Unknown).",
+            "Client": "Email client or browser used to open the message, with its name, company, and family.",
+            "OS": "Operating system used to open the message, with its name, company, and family.",
+            "UserAgent": "Full user-agent header the email client sent when it opened the message.",
+            "Geo": "Location derived from the IP address that opened the message, with country, region, city, and coordinates.",
+        },
+    },
     "templates": {
         "description": "An email template defined in Postmark.",
         "docs_url": "https://postmarkapp.com/developer/api/templates-api",

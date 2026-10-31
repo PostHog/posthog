@@ -1,14 +1,13 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
 
 import { PaginationManual, lemonToast } from '@posthog/lemon-ui'
 
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { delay } from 'lib/utils/async'
 import { cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
+import { cohortSavedToast } from 'scenes/cohorts/cohortSavedToast'
 import { projectLogic } from 'scenes/projectLogic'
-import { urls } from 'scenes/urls'
 
 import { ActorsQuery } from '~/queries/schema/schema-general'
 import { CohortType } from '~/types'
@@ -177,17 +176,11 @@ export const saveToCohortModalContentLogic = kea<saveToCohortModalContentLogicTy
 
                 await delay(500) // just in case the toast is too fast
                 lemonToast.dismiss(toastId)
-                lemonToast.success('Cohort saved', {
-                    toastId: `${toastId}-success`,
-                    button: {
-                        label: 'View cohort',
-                        action: () => router.actions.push(urls.cohort(cohort.id)),
-                    },
-                })
-            } catch (error) {
+                cohortSavedToast(cohort, 'query_results', `${toastId}-success`)
+            } catch (error: any) {
                 console.error('Save to cohort failed:', error)
                 lemonToast.dismiss(toastId)
-                lemonToast.error('Save to cohort failed')
+                lemonToast.error(error.detail || 'Save to cohort failed')
             }
         },
     })),

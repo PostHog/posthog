@@ -257,6 +257,7 @@ export const scorerLogic = kea<scorerLogicType>([
                 isNew ||
                 configChanged ||
                 draft.name.trim() !== definition?.name ||
+                draft.shortName.trim() !== (definition?.short_name || '') ||
                 draft.description.trim() !== definition?.description,
         ],
         willCreateVersion: [
@@ -318,7 +319,11 @@ export const scorerLogic = kea<scorerLogicType>([
         performSave: async (_, breakpoint) => {
             const teamId = getCurrentProjectId()
             const { draft, definition, isNew, willCreateVersion } = values
-            const metadata = { name: draft.name.trim(), description: draft.description.trim() }
+            const metadata = {
+                name: draft.name.trim(),
+                short_name: draft.shortName.trim(),
+                description: draft.description.trim(),
+            }
             const operation = isNew ? 'create' : willCreateVersion ? 'version' : 'metadata'
             actions.setError(null)
             posthog.capture('llma scorer save started', { operation, kind: draft.kind })
@@ -345,9 +350,7 @@ export const scorerLogic = kea<scorerLogicType>([
                 }
                 posthog.capture('llma scorer saved', { operation, kind: saved.kind })
                 lemonToast.success(isNew ? 'Scorer created.' : 'Scorer saved.')
-                if (isNew) {
-                    router.actions.replace(urls.aiObservabilityScorer(saved.id))
-                }
+                router.actions.replace(urls.aiObservabilityScorers())
             } catch (error) {
                 breakpoint()
                 const stale = typeof error === 'object' && error !== null && 'status' in error && error.status === 409

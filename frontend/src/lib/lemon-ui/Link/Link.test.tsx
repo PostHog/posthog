@@ -55,6 +55,24 @@ describe('Link', () => {
         unmountRouter()
     })
 
+    const targetCases: [label: string, to: string, target: string | undefined, expectedTarget: string | null][] = [
+        ['docs link with no target', 'https://posthog.com/docs/feature-flags', undefined, '_blank'],
+        ['www docs link with no target', 'https://www.posthog.com/docs', undefined, '_blank'],
+        ['docs link with an explicit target', 'https://posthog.com/docs/feature-flags', '_self', '_self'],
+        ['non-docs posthog.com link', 'https://posthog.com/pricing', undefined, null],
+        ['docs-like path on another host', 'https://example.com/docs/feature-flags', undefined, null],
+    ]
+
+    it.each(targetCases)('resolves the target of a %s', (label, to, target, expectedTarget) => {
+        render(
+            <Link to={to} target={target}>
+                {label}
+            </Link>
+        )
+
+        expect(screen.getByText(label).closest('a')?.getAttribute('target')).toBe(expectedTarget)
+    })
+
     // The command palette depends on modifier clicks NOT reaching the passed onClick, so it
     // handles them in the capture phase instead. If this ever starts forwarding them, that
     // palette handler and this onClick would both run, opening a new tab and navigating in place.

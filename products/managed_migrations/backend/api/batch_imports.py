@@ -20,6 +20,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.documentation import _FallbackSerializer
+from posthog.api.ordering import StableOrderingFilter
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.exceptions_capture import capture_exception
@@ -31,6 +32,7 @@ from products.managed_migrations.backend.models.batch_imports import (
     DEFAULT_SEND_RATE,
     BatchImport,
     BatchImportConfigBuilder,
+    CommitInFlightError,
     ContentType,
     DateRangeExportSource,
     get_aws_external_id,
@@ -414,12 +416,20 @@ class BatchImportDateRangeSourceCreateSerializer(BatchImportTrialOptionsMixin, B
         required=False,
         allow_blank=True,
         default="",
-        help_text="Source access key / API key. Required for Amplitude; unused for Mixpanel, which authenticates with the project secret alone.",
+        help_text="Source access key / API key. Required for Amplitude. For Mixpanel, the service account username when mixpanel_project_id is set; otherwise unused.",
     )
     secret_key = serializers.CharField(
         write_only=True,
         required=True,
-        help_text="Source secret. For Mixpanel this is the project API secret, found under Project settings → Access keys.",
+        help_text="Source secret. For Mixpanel, the service account secret when mixpanel_project_id is set; otherwise the project API secret, found under Project settings → Access keys.",
+    )
+    mixpanel_project_id = serializers.IntegerField(
+        write_only=True,
+        required=False,
+        allow_null=True,
+        default=None,
+        min_value=1,
+        help_text="Mixpanel project ID. Set it to authenticate with a Mixpanel service account (access_key and secret_key) instead of a project secret.",
     )
     is_eu_region = serializers.BooleanField(write_only=True, required=False, default=False)
     import_events = serializers.BooleanField(write_only=True, required=False, default=True)
@@ -443,6 +453,7 @@ class BatchImportDateRangeSourceCreateSerializer(BatchImportTrialOptionsMixin, B
             "content_type",
             "access_key",
             "secret_key",
+            "mixpanel_project_id",
             "is_eu_region",
             "import_events",
             "generate_identify_events",
@@ -482,8 +493,16 @@ class BatchImportDateRangeSourceCreateSerializer(BatchImportTrialOptionsMixin, B
             if source_type == "amplitude" and (end_date - start_date) < timedelta(hours=1):
                 raise serializers.ValidationError("Date range must be at least 1 hour for Amplitude migrations.")
 
-        # For Amplitude, validate required fields and event-type selection
         source_type = data.get("source_type")
+        if data.get("mixpanel_project_id") is not None:
+            if source_type != "mixpanel":
+                raise serializers.ValidationError("Mixpanel project ID only applies to Mixpanel migrations.")
+            if not data.get("access_key"):
+                raise serializers.ValidationError(
+                    "Service account username is required when a Mixpanel project ID is set."
+                )
+
+        # For Amplitude, validate required fields and event-type selection
         if source_type == "amplitude":
             if not data.get("access_key"):
                 raise serializers.ValidationError("Access key is required for Amplitude migrations.")
@@ -518,6 +537,7 @@ class BatchImportDateRangeSourceCreateSerializer(BatchImportTrialOptionsMixin, B
                 secret_key=validated_data["secret_key"],
                 export_source=DateRangeExportSource(source_type),
                 is_eu_region=validated_data.get("is_eu_region", False),
+                mixpanel_project_id=validated_data.get("mixpanel_project_id"),
             )
 
             # Only apply import_events and generate_identify_events for Amplitude
@@ -668,7 +688,7 @@ class BatchImportViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "INTERNAL"
     queryset = BatchImport.objects.all()
     serializer_class = _FallbackSerializer
-    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, StableOrderingFilter]
     filterset_fields = ["status"]
     search_fields = ["status_message"]
     ordering_fields = ["created_at", "updated_at", "status"]
@@ -873,26 +893,12 @@ class BatchImportViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         """Resume a paused batch import."""
         batch_import = self.get_object()
 
-        if batch_import.status != BatchImport.Status.PAUSED:
+        try:
+            batch_import.resume_from_pause("Resumed by user")
+        except CommitInFlightError as e:
+            return Response({"error": str(e)}, status=status.HTTP_409_CONFLICT)
+        except ValueError:
             return Response({"error": "Only paused imports can be resumed"}, status=status.HTTP_400_BAD_REQUEST)
-
-        batch_import.status = BatchImport.Status.RUNNING
-        batch_import.status_message = "Resumed by user"
-        batch_import.lease_id = None
-        batch_import.leased_until = None
-        batch_import.backoff_attempt = 0
-        batch_import.backoff_until = None
-        batch_import.save(
-            update_fields=[
-                "status",
-                "status_message",
-                "lease_id",
-                "leased_until",
-                "backoff_attempt",
-                "backoff_until",
-                "updated_at",
-            ]
-        )
 
         return Response({"status": "resumed"})
 

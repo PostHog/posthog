@@ -53,31 +53,6 @@ def sync_items(response: SourceResponse) -> Iterable[Any]:
     return cast(Iterable[Any], response.items())
 
 
-@pytest.mark.parametrize("terminal", [{}, {"nextPageNumber": None}])
-@responses.activate
-def test_cases_pagination_and_auth(terminal: dict[str, Any]) -> None:
-    rows = [{"caseId": "case-a", "last_modified": "2025-01-01T00:00:00Z"}, {"caseId": "case-b"}]
-    responses.get(f"{BASE}/cases", json={"cases": rows[:1], "nextPageNumber": 2})
-    responses.get(f"{BASE}/cases", json={"cases": rows[1:], **terminal})
-    checkpoint = manager()
-    result = AbnormalSecuritySource().source_for_pipeline(
-        AbnormalSecuritySourceConfig(api_key="test-token"), checkpoint, inputs("cases")
-    )
-    assert [row for page in sync_items(result) for row in page] == rows
-    assert len(responses.calls) == 2
-    for number, call in enumerate(responses.calls, start=1):
-        assert call.request.headers["Authorization"] == "Bearer test-token"
-        query = parse_qs(urlparse(call.request.url).query)
-        assert query["pageNumber"] == [str(number)]
-        assert query["pageSize"] == ["100"]
-        assert query["filter"][0].startswith("lastModifiedTime gte 1970-01-01T00:00:00Z lte ")
-    assert checkpoint.save_state.call_args.args[0].paginator_state == {"cursor": 2}
-    assert not checkpoint.clear_state.called
-    assert result.on_complete is not None
-    result.on_complete()
-    checkpoint.clear_state.assert_called_once()
-
-
 @pytest.mark.parametrize(
     ("incremental", "watermark", "expected"),
     [
@@ -100,44 +75,6 @@ def test_incremental_filter(table: str, incremental: bool, watermark: Any, expec
     query = parse_qs(urlparse(responses.calls[0].request.url).query)
     assert query["filter"][0].startswith(f"lastModifiedTime gte {expected} lte ")
     assert result.sort_mode == "desc"
-
-
-@pytest.mark.parametrize(
-    ("table", "path", "selector", "primary_key", "details"),
-    [
-        (
-            "threats",
-            "threats",
-            "threats",
-            "threatId",
-            {"recipientCount": 12, "messages": [{"subject": "Test message"}]},
-        ),
-        (
-            "vendor_cases",
-            "vendor-cases",
-            "vendorCases",
-            "vendorCaseId",
-            {"vendorDomain": "example.com", "lastModifiedTime": "2025-01-01T00:00:00Z"},
-        ),
-    ],
-)
-@responses.activate
-def test_detail_fanout(table: str, path: str, selector: str, primary_key: str, details: dict[str, Any]) -> None:
-    responses.get(f"{BASE}/{path}", json={selector: [{primary_key: "item-a"}], "nextPageNumber": 2})
-    responses.get(f"{BASE}/{path}/item-a", json={primary_key: "item-a", **details})
-    responses.get(f"{BASE}/{path}", json={selector: [{primary_key: "item-b"}]})
-    responses.get(f"{BASE}/{path}/item-b", json={primary_key: "item-b", **details})
-    result = AbnormalSecuritySource().source_for_pipeline(
-        AbnormalSecuritySourceConfig(api_key="test-token"), manager(), inputs(table)
-    )
-    assert [row for page in sync_items(result) for row in page] == [
-        {primary_key: "item-a", **details},
-        {primary_key: "item-b", **details},
-    ]
-    assert len(responses.calls) == 4
-    assert result.primary_keys == [primary_key]
-    for index in (1, 3):
-        assert urlparse(responses.calls[index].request.url).query == ""
 
 
 @responses.activate

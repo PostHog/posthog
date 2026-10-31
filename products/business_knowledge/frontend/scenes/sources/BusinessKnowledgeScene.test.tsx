@@ -83,6 +83,7 @@ function makeSource(overrides: Partial<KnowledgeSource> = {}): KnowledgeSource {
         file_content_type: '',
         file_size_bytes: null,
         always_include: false,
+        library_ids: [],
         ...overrides,
     }
 }
@@ -108,6 +109,10 @@ describe('BusinessKnowledgeScene', () => {
             searchTerm: '',
             sourceTypeFilter: 'all',
             addedByFilter: 'all',
+            libraries: [],
+            libraryScope: 'all',
+            savingLibrary: false,
+            libraryDialog: null,
         })
     })
 
@@ -135,6 +140,10 @@ describe('BusinessKnowledgeScene', () => {
             searchTerm: '',
             sourceTypeFilter: 'all',
             addedByFilter: 'all',
+            libraries: [],
+            libraryScope: 'all',
+            savingLibrary: false,
+            libraryDialog: null,
         })
         render(<BusinessKnowledgeScene />)
 

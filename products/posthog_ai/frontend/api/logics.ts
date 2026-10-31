@@ -10,15 +10,23 @@
 // `runStreamLogic` keys on a generic `streamKey` (conversation id for Max, run/task id for a task
 // viewer); read `currentRunStatus` / `isTerminalRunStatus` off it for a status badge with no UI.
 export { runStreamLogic, isTerminalRunStatus, INITIAL_PERMISSION_MODE } from '../logics/runStreamLogic'
+export { prefetchRunStream } from '../logics/runPrefetch'
 export type { RunStreamLogicProps, RunSseStatus, RunStatus } from '../logics/runStreamLogic'
 
 // --- Interaction facade (follow-up / queue) ---
 export { runInteractionLogic } from '../logics/runInteractionLogic'
 export { messageRatingsLogic } from '../logics/messageRatingsLogic'
+export type { MessageRating, MessageRatingOrNull } from '../logics/messageRatingsLogic'
 export type { RunInteractionLogicProps, QueuedMessage } from '../logics/runInteractionLogic'
 
 // --- Thinking-message helpers ---
-export { getThinkingMessageFromResponse, getRandomThinkingMessage, THINKING_MESSAGES } from '../utils/thinkingMessages'
+export {
+    getThinkingMessageFromResponse,
+    getRandomThinkingMessage,
+    getWebSearchResultsByToolUseId,
+    THINKING_MESSAGES,
+} from '../utils/thinkingMessages'
+export type { WebSearchResultsByToolUseId } from '../utils/thinkingMessages'
 
 // --- Composer model/effort helpers (pure — no component imports) ---
 export { resolveEffortForModel, DEFAULT_COMPOSER_MODEL, DEFAULT_COMPOSER_EFFORT } from '../utils/composerModels'
@@ -29,6 +37,11 @@ export { modelCatalogueLogic } from '../logics/modelCatalogueLogic'
 export { taskRunDefaultsLogic } from '../logics/taskRunDefaultsLogic'
 
 export { tasksLogic } from '../logics/tasksLogic'
+
+// --- Chat skin ---
+// Here, not in ./primitives, because surfaces that load eagerly (the composer on the AI-first homepage) read it.
+export { useThreadSkin, ThreadSkinOverrideContext } from '../hooks/useThreadSkin'
+export type { ThreadSkin } from '../components/quill/quillThreadContext'
 
 // --- Attached-context store + injection hook (headless) ---
 // Global registry of on-screen context providers; `contextItems` is what the send paths wrap into the
@@ -91,3 +104,9 @@ export { composerSeedLogic } from '../logics/composerSeedLogic'
 export { composerAttachmentsLogic } from '../logics/composerAttachmentsLogic'
 export { ATTACHMENT_MAX_SIZE_BYTES } from '../utils/attachments'
 export type { ComposerSeed, ComposerSeedLogicProps } from '../logics/composerSeedLogic'
+
+// The staff debug-logs preference, for hosts that render their own overflow menu around it.
+export { debugLogsLogic } from '../logics/debugLogsLogic'
+
+// One task's record, with its archive (delete) loader, for hosts that act on a task outside the runner scene.
+export { taskLogic } from '../logics/taskLogic'

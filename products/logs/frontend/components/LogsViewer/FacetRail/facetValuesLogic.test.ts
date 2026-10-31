@@ -72,15 +72,17 @@ describe('facetValuesLogic', () => {
         expect(selectedLogic.values.facetValuesLoading).toBe(false)
     })
 
-    it('a failed fetch shows in place and clears on the next fetch', async () => {
+    it('a failed fetch shows in place and a retry refetches the same scope', async () => {
         mockFacetValues.mockRejectedValueOnce(new Error('facet values failed'))
         const logic = mountFacet(SERVICE)
         await expectLogic(logic).toDispatchActions(['loadFacetValuesFailure'])
         expect(logic.values.fetchFailed).toBe(true)
 
-        logic.actions.setFacetSearch('api')
+        logic.actions.retryFacetValues()
         await expectLogic(logic).toDispatchActions(['loadFacetValuesSuccess'])
         expect(logic.values.fetchFailed).toBe(false)
+        expect(mockFacetValues).toHaveBeenCalledTimes(2)
+        expect(mockFacetValues.mock.calls[1]).toEqual(mockFacetValues.mock.calls[0])
     })
 
     it('a type-ahead search refetches this facet with the search term', async () => {

@@ -42,9 +42,9 @@ def _run_vercel_event(delivery: WebhookDelivery) -> None:
 def _vercel_ownership(delivery: WebhookDelivery) -> DeliveryOwnership:
     """Which region holds the installation this event is about.
 
-    Both event families ask, because both are processed by the region that holds the
-    installation: only there does `BillingManager` find the `Organization` a billing call needs,
-    and only there is there an installation to delete.
+    Every event type asks, because each is processed by the region that holds the installation:
+    only there does `BillingManager` find the `Organization` a billing call needs, only there is
+    there an installation to delete, and only there is the access token a transfer refresh needs.
     """
     from ee.api.vercel.webhook_events import extract_config_id, installation_is_local  # noqa: PLC0415 - as above
 

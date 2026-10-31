@@ -1,14 +1,25 @@
 import json
+from datetime import timedelta
 
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
+
+from django.utils import timezone
 
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
 
 from posthog.schema import MarkdownBlock, TrendsQuery, VisualizationMessage
 
+from posthog.constants import AvailableFeature
+from posthog.models import OrganizationMembership
+from posthog.models.sharing_configuration import SharingConfiguration
+
+from products.access_control.backend.models.access_control import AccessControl
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.notebooks.backend.facade.collab import apply_utf16_text_changes, markdown_crc
+from products.notebooks.backend.facade.content import build_markdown_notebook_content
+from products.notebooks.backend.facade.contracts import NotebookContentEditNotAllowed
 from products.notebooks.backend.models import Notebook
 from products.posthog_ai.backend.models.assistant import AgentArtifact, Conversation
 
@@ -369,3 +380,100 @@ class TestSaveNotebookToDb(BaseTest):
 
         notebook.refresh_from_db()
         self.assertEqual(notebook.title, "Protected title")
+
+    @parameterized.expand(
+        [
+            ("markdown_denied", "active", False, False, True),
+            ("markdown_allowed", "active", True, False, True),
+            ("unshared", "absent", False, False, True),
+            ("disabled", "disabled", False, False, True),
+            ("expired", "expired", False, False, True),
+            ("admin", "active", False, True, True),
+            ("without_entitlement", "active", False, False, False),
+        ]
+    )
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_save_checks_shared_notebook_content(
+        self,
+        _name: str,
+        sharing: str,
+        allowed: bool,
+        admin: bool,
+        entitled: bool,
+        _feature_enabled: Mock,
+    ) -> None:
+        self.organization.available_product_features = (
+            [{"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}] if entitled else []
+        )
+        self.organization.save()
+        membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        membership.level = OrganizationMembership.Level.ADMIN if admin else OrganizationMembership.Level.MEMBER
+        membership.save()
+        view = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="notebook_summary",
+            query={"kind": "HogQLQuery", "query": "SELECT 7 AS total"},
+            columns={"total": "Integer"},
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="warehouse_view",
+            resource_id=str(view.id),
+            access_level="viewer" if allowed else "none",
+        )
+        parent = self._create_notebook_parent("nsav")
+        original_content = build_markdown_notebook_content("Original")
+        notebook = Notebook.objects.create(
+            team=self.team,
+            short_id=parent.short_id,
+            title="Original",
+            content=original_content,
+            text_content="Original",
+            created_by=self.user,
+            last_modified_by=self.user,
+        )
+        if sharing != "absent":
+            SharingConfiguration.objects.create(
+                team=self.team,
+                notebook=notebook,
+                enabled=sharing != "disabled",
+                expires_at=timezone.now() - timedelta(hours=1) if sharing == "expired" else None,
+            )
+        query = {
+            "kind": "DataTableNode",
+            "source": {"kind": "HogQLQuery", "query": "SELECT total FROM notebook_summary"},
+        }
+        next_markdown = '<Query nodeId="summary" query={' + json.dumps(query) + "} />"
+        original_version = notebook.version
+        original_modified = notebook.last_modified_at
+
+        with patch("ee.hogai.tools.create_notebook.helpers.collab.apublish_notebook_update") as publish:
+
+            def save() -> None:
+                async_to_sync(save_notebook_to_db)(
+                    team=self.team,
+                    user=self.user,
+                    artifact=parent,
+                    blocks=[],
+                    title="Updated",
+                    state_messages=[],
+                    markdown_content=next_markdown,
+                )
+
+            if sharing == "active" and not allowed and not admin and entitled:
+                with self.assertRaisesRegex(NotebookContentEditNotAllowed, "notebook_summary"):
+                    save()
+                notebook.refresh_from_db()
+                self.assertEqual(notebook.content, original_content)
+                self.assertEqual(notebook.title, "Original")
+                self.assertEqual(notebook.text_content, "Original")
+                self.assertEqual(notebook.version, original_version)
+                self.assertEqual(notebook.last_modified_at, original_modified)
+                publish.assert_not_awaited()
+            else:
+                save()
+                notebook.refresh_from_db()
+                self.assertEqual(notebook.title, "Updated")
+                self.assertNotEqual(notebook.content, original_content)
+                self.assertEqual(notebook.version, original_version + 1)
+                publish.assert_awaited_once()

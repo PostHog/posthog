@@ -38,26 +38,24 @@ class CandidateSessionPayload(BaseModel, frozen=True):
 class FindScannerCandidatesOutput(BaseModel, frozen=True):
     candidates: list[CandidateSessionPayload]
     saturated: bool
-    # Settle horizon the query covered; None on short-circuit paths and pre-deploy histories,
-    # which keeps replays deterministic since the empty-sweep advance is gated on it.
+    # Settle horizon the query covered; None on short-circuit paths, which skips the empty-sweep advance.
     swept_through: dt.datetime | None = None
     # Stragglers from the periodic full-events-lookback catch-up pass; dispatch-only, never drive
-    # the fast watermark. Defaults keep pre-deploy histories replaying deterministically.
+    # the fast watermark.
     deep_candidates: list[CandidateSessionPayload] = Field(default_factory=list)
     # Keyset tiebreaker the deep pass stopped on; empty when it finished its window.
     deep_keyset_session_id: str = ""
     # Horizon the deep pass covered; None when it didn't run.
     deep_swept_through: dt.datetime | None = None
     # One-off priming pass for a never-swept scanner; dispatch-only, never drives any watermark.
-    # The default keeps pre-deploy histories replaying deterministically.
     priming_candidates: list[CandidateSessionPayload] = Field(default_factory=list)
     # Last row of the fetched batch, before negative-filter exclusion dropped any of it. Dropping rows
-    # must not regress or stall the keyset. None on pre-deploy histories and on empty batches, where
-    # the workflow falls back to deriving the position from `candidates`/`swept_through`.
+    # must not regress or stall the keyset. None on empty batches, where the workflow falls back to
+    # `swept_through`.
     keyset_end: dt.datetime | None = None
     keyset_session_id: str = ""
     # The balanced per-variant rates this tick's candidates were sampled at (experiment scanners
-    # with balancing on; None otherwise and on pre-deploy histories). Recorded onto each
+    # with balancing on; None otherwise). Recorded onto each
     # observation's snapshot, so even per-variant counts don't read as even traffic.
     variant_sampling_rates: dict[str, float] | None = None
 
@@ -68,7 +66,6 @@ class CheckScannerBudgetInputs(BaseModel, frozen=True):
 
 
 class CheckScannerBudgetOutput(BaseModel, frozen=True):
-    # Defaults to not-capped so a replayed history missing this field decodes to "keep sweeping".
     capped: bool = False
 
 

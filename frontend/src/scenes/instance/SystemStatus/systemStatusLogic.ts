@@ -5,8 +5,8 @@ import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { isUserLoggedIn } from 'lib/utils/getAppContext'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { InstanceSetting, SystemStatus, SystemStatusQueriesResult, SystemStatusRow } from '~/types'
@@ -59,11 +59,10 @@ const EDITABLE_INSTANCE_SETTINGS = [
     'RATE_LIMIT_ENABLED',
     'RATE_LIMITING_ALLOW_LIST_TEAMS',
     'FLAGS_LOG_BODIES_TEAMS',
-    'FLAG_EVALUATIONS_USAGE_TAB_FORCE_EVENTS',
+    'FLAG_EVALUATIONS_READS_FORCE_EVENTS',
     'CLICKHOUSE_KILL_SWITCH',
     'CLICKHOUSE_KILL_SWITCH_LIGHT_TEAMS',
     'CLICKHOUSE_KILL_SWITCH_FULL_TEAMS',
-    'CLICKHOUSE_HEDGED_APP_QUERIES',
     'HOGQL_SHARED_INSIGHT_DATABASE_ENABLED',
     'WEB_ANALYTICS_WARMING_SHARD_THREADS',
     'WEB_ANALYTICS_WARMING_SHARDS',

@@ -11,9 +11,10 @@ Nothing here trains or scores anything. It is the shared vocabulary that `../tra
 
   A training example is a `(person, T0, label)` triple: pick an anchor time `T0` for a person, then `label = 1` if the target event fires in `[T0, T0 + horizon_days)`.
   `T0` is a **deterministic hash of `person_id`**, placed at a fixed fraction of the user's `[first_ts, cutoff_ts)` span, so it is stable across runs and spread across the full lookback rather than clustered at the most-recent feasible point — one row per person, sampled once in their history. A `hash % span` remainder would move every time `cutoff_ts` moved with `now()`.
+  **`T0` is always a UTC midnight**, because every scoring run cuts off at the start of the prediction date in UTC (`ScoringWindow` in `../inference/scoring.py`). The labeler snaps the anchor (`anchor_ts`, or `now()`) to the UTC midnight at or before it, so `cutoff_ts` (the anchor minus the horizon) is a midnight. The hash picks one of the midnights from the first one after `first_ts` up to `cutoff_ts`, so every T0 has at least one event before it. A T0 at any second would give the features part-day activity and a cutoff hour that scoring never has, and inflate the holdout score. `build_eligible_count_sql()` uses the same snapped cutoff. Models trained this way carry `anchor_alignment: "utc_day"` (`ANCHOR_ALIGNMENT`) in their metrics.
   For an event-defined population (`performed_event_within_days` with an event, `ever_performed_event`, `ever_performed_target`), `first_ts` is the user's first population event, not their first event of any kind. The other populations still start the span at the first event of any kind.
 
-  Three call sites share this module so they cannot drift: the wizard's live estimate (sampled), the trainer (full materialization with fold split), and inference (per-person cutoff = `now()`).
+  Three call sites share this module so they cannot drift: the wizard's live estimate (sampled), the trainer (full materialization with fold split), and inference (cutoff = the start of the prediction date in UTC).
   That is why the training-side `labeled_anchors` CTE (inside `build_training_features_sql()`) and `build_inference_anchors_sql()` live here rather than next to their callers.
 
   **Training anchors are case-control sampled above the budget.** `TrainingSample.plan()` keeps every anchor when the labeled population fits `TRAINING_SAMPLE_BUDGET` (`MATERIALIZE_ROW_LIMIT` times `TRAINING_SAMPLE_HEADROOM`), and the SQL is then the unsampled SQL. Above it, the plan keeps every positive and sets the negative sample rate `r` so the expected sample fills the budget. Positives that alone exceed the budget raise `TrainingSampleTooLarge`.
@@ -40,10 +41,10 @@ A pipeline definition is declarative. This package is what turns it into SQL.
 ```text
 pipeline (target, population, horizon, lookback)
    │
-   ├─ build_training_features_sql  → labeled_anchors CTE: one T0 per person, hashed,
+   ├─ build_training_features_sql  → labeled_anchors CTE: one T0 per person, hashed to a UTC midnight,
    │    └─ + labels + fold             spread over lookback — the trainer's labeled population
    │
-   └─ build_inference_anchors_sql  → cutoff = now(), no labels, no folds
+   └─ build_inference_anchors_sql  → cutoff = UTC day start, no labels, no folds
         └─ the scorer's population
 ```
 

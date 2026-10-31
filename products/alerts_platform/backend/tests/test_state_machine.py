@@ -2,6 +2,7 @@ from datetime import UTC, datetime, timedelta
 
 from parameterized import parameterized
 
+from products.alerts_platform.backend.facade.contracts import IncidentAction
 from products.alerts_platform.backend.facade.lifecycle import (
     LOGS_ALERT_POLICY,
     PLATFORM_LOGS_ALERT_POLICY,
@@ -13,6 +14,7 @@ from products.alerts_platform.backend.facade.lifecycle import (
     FiringEpisode,
     NotificationAction,
     decide_firing_episode,
+    decide_incident_action,
     evaluate_alert_check,
 )
 
@@ -481,7 +483,15 @@ class TestFiringEpisode:
                 AlertState.FIRING,
                 episode(STARTED),
             ),
-            ("snoozed_at_rest", LOGS_ALERT_POLICY, AlertState.FIRING, STARTED, AlertState.SNOOZED, None),
+            # Without clear_check_ends_snooze a snooze is an exit from firing, so it ends the firing.
+            (
+                "snoozed_at_rest",
+                LOGS_ALERT_POLICY,
+                AlertState.FIRING,
+                STARTED,
+                AlertState.SNOOZED,
+                episode(STARTED, ended=True),
+            ),
             ("snoozed_while_clear", SNOOZE_UNTIL_CLEAR, AlertState.NOT_FIRING, None, AlertState.SNOOZED, None),
             # PENDING_RESOLVE is inside the firing: the condition cleared and the resolution is
             # not announced yet, so neither leaving nor entering it starts a second firing.
@@ -518,3 +528,32 @@ class TestFiringEpisode:
             )
             == expected
         )
+
+
+class TestIncidentAction:
+    @parameterized.expand(
+        [
+            ("first_fire", LOGS_ALERT_POLICY, AlertState.NOT_FIRING, AlertState.FIRING, IncidentAction.TRIGGER),
+            ("same_firing", LOGS_ALERT_POLICY, AlertState.FIRING, AlertState.FIRING, None),
+            ("resolved", LOGS_ALERT_POLICY, AlertState.FIRING, AlertState.NOT_FIRING, IncidentAction.RESOLVE),
+            ("broken", LOGS_ALERT_POLICY, AlertState.FIRING, AlertState.BROKEN, IncidentAction.RESOLVE),
+            ("never_fired", LOGS_ALERT_POLICY, AlertState.NOT_FIRING, AlertState.NOT_FIRING, None),
+            ("broken_while_clear", LOGS_ALERT_POLICY, AlertState.NOT_FIRING, AlertState.BROKEN, None),
+            # A firing parked in SNOOZED under clear_check_ends_snooze is still the same firing.
+            ("parked", SNOOZE_UNTIL_CLEAR, AlertState.FIRING, AlertState.SNOOZED, None),
+            ("resumed", SNOOZE_UNTIL_CLEAR, AlertState.SNOOZED, AlertState.FIRING, None),
+            ("snoozed_at_rest", LOGS_ALERT_POLICY, AlertState.FIRING, AlertState.SNOOZED, IncidentAction.RESOLVE),
+            ("snoozed_while_clear", SNOOZE_UNTIL_CLEAR, AlertState.NOT_FIRING, AlertState.SNOOZED, None),
+            ("awaiting_resolve", LOGS_ALERT_POLICY, AlertState.FIRING, AlertState.PENDING_RESOLVE, None),
+            ("refired_while_awaiting", LOGS_ALERT_POLICY, AlertState.PENDING_RESOLVE, AlertState.FIRING, None),
+        ]
+    )
+    def test_which_transitions_open_or_close_an_incident(
+        self,
+        _name: str,
+        policy: AlertPolicy,
+        state: AlertState,
+        new_state: AlertState,
+        expected: IncidentAction | None,
+    ) -> None:
+        assert decide_incident_action(state, new_state, policy=policy) == expected

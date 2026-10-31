@@ -36,14 +36,20 @@ from urllib.parse import urlencode
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.sources.care_quality_commission.settings import (
     CQC_ENDPOINTS,
     CQCEndpointConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.boundary_checkpoint import (
+    BoundaryCheckpoint,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
@@ -81,7 +87,7 @@ def _build_url(path: str, params: dict[str, Any]) -> str:
     return f"{url}?{urlencode(filtered)}"
 
 
-@retry(
+@retry_with_deadline(
     retry=retry_if_exception_type((CQCRetryableError, requests.ReadTimeout, requests.ConnectionError)),
     stop=stop_after_attempt(5),
     wait=wait_exponential_jitter(initial=1, max=60),
@@ -159,6 +165,7 @@ def _iter_endpoint_rows(
     start_page: int,
 ) -> Iterator[Any]:
     page = start_page
+    page_checkpoint = BoundaryCheckpoint(batcher, resumable_source_manager)
     while True:
         params: dict[str, Any] = {}
         if config.paginated:
@@ -192,8 +199,9 @@ def _iter_endpoint_rows(
             break
 
         page += 1
-        # Advance the bookmark so a crash between pages resumes on the next page.
-        resumable_source_manager.save_state(CQCResumeConfig(page=page))
+        # Advance the bookmark so a crash between pages resumes on the next page. The batcher can
+        # hold rows of the page just read, and a bookmark at the next page skips them.
+        yield from page_checkpoint.save(CQCResumeConfig(page=page))
 
 
 def get_rows(

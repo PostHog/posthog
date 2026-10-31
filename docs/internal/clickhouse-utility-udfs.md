@@ -12,7 +12,7 @@ Invalid scalar and array `$feature_flags` values are replaced with an empty map 
 map values from failing insertion into the typed JSON column while preserving unrelated properties.
 
 See [the utility UDF README](../../clickhouse-udfs/util/README.md) for build and integration-test commands.
-The utility module and CI use Go 1.27.1, declared in `clickhouse-udfs/util/go.mod`.
+The utility module and CI use Go 1.27.3, declared in `clickhouse-udfs/util/go.mod`.
 Rebuild all utilities for Linux amd64 and arm64 with `./scripts/build.sh` whenever this version changes; CI verifies the checked-in binaries.
 Changes to `posthog/user_scripts` no longer dispatch the separate UDF publishing workflow on pushes to master.
 
@@ -231,6 +231,7 @@ The worker keeps the parsed filter for the most recent key array and parses it a
 Both functions use the `json_drop_keys_udf` executable. The pool entry point uses `--row-binary` with chunk headers.
 RowBinary transport lets the JSON contain raw newlines and tabs.
 Malformed JSON, truncated chunks, a JSON value above 1 GiB, more than 65,536 keys, and a key above 64 KiB fail the query.
+Both functions return an empty string for an empty input value, which legacy events JSON columns can hold.
 
 With 1,000,000 small synthetic rows, `max_threads = 1`, and ClickHouse 26.6.2.158 on an Apple M4 Pro, best of three runs, recorded September 24, 2026:
 

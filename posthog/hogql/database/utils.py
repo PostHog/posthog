@@ -1,3 +1,4 @@
+from functools import lru_cache
 from typing import Optional
 
 from posthog.hogql import ast
@@ -20,14 +21,21 @@ def _extract_join_key_field(expr: ast.Expr) -> Optional[ast.Field]:
     return None
 
 
-def get_join_field_chain(key: str) -> Optional[list[str | int]]:
+@lru_cache(maxsize=4096)
+def _cached_join_field_chain(key: str) -> Optional[tuple[str | int, ...]]:
+    """Parse each join key once and store only its immutable field chain."""
     expr = parse_expr(key)
     field = _extract_join_key_field(expr)
     if field is not None:
-        return field.chain
+        return tuple(field.chain)
 
     capture_exception(Exception(f"Data Warehouse Join HogQL expression should be a Field or Call node: {key}"))
     return None
+
+
+def get_join_field_chain(key: str) -> Optional[list[str | int]]:
+    chain = _cached_join_field_chain(key)
+    return list(chain) if chain is not None else None
 
 
 def qualify_join_key_expr(key: str, table_name: str) -> Optional[ast.Expr]:

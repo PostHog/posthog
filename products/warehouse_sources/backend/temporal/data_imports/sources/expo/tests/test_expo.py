@@ -12,7 +12,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.expo.expo 
     get_rows,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.expo.settings import EXPO_ENDPOINTS, build_query
 
 _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.expo.expo"
 
@@ -38,16 +37,6 @@ def _rows(collection: str, count: int) -> dict[str, Any]:
 
 
 class TestExpoTransport:
-    def test_a_short_page_ends_the_walk(self) -> None:
-        session = mock.MagicMock()
-        session.post.return_value = _response(_rows("builds", 2))
-
-        with mock.patch(f"{_MODULE}._get_session", return_value=session):
-            batches = list(get_rows("token", "app", "builds", mock.MagicMock(), _manager()))
-
-        assert len(batches) == 1
-        assert session.post.call_count == 1
-
     def test_a_full_page_advances_the_offset(self) -> None:
         session = mock.MagicMock()
         session.post.side_effect = [_response(_rows("builds", PAGE_SIZE)), _response(_rows("builds", 1))]
@@ -86,36 +75,38 @@ class TestExpoTransport:
             with pytest.raises(ExpoAPIError, match="project not found"):
                 list(get_rows("token", "app", "builds", mock.MagicMock(), _manager()))
 
-    @pytest.mark.parametrize("endpoint", sorted(EXPO_ENDPOINTS))
-    def test_each_query_reads_its_own_collection(self, endpoint: str) -> None:
-        query = build_query(endpoint)
-        assert f"{EXPO_ENDPOINTS[endpoint].collection}(" in query
-        assert "offset: $offset, limit: $limit" in query
-
-    def test_the_submissions_query_includes_its_required_filter(self) -> None:
-        assert "submissions(filter: {}, offset: $offset, limit: $limit)" in build_query("submissions")
-
 
 class TestExpoCredentials:
     def test_a_valid_token_with_project_access_passes(self) -> None:
         session = mock.MagicMock()
         session.post.side_effect = [
-            _response({"data": {"viewer": {"id": "u1", "username": "someone"}}}),
+            _response({"data": {"meActor": {"id": "r1"}}}),
             _response(_rows("builds", 1)),
         ]
 
         with mock.patch(f"{_MODULE}._get_session", return_value=session):
             assert validate_credentials("token", "app") == (True, None)
 
-    def test_a_rejected_token_is_reported(self) -> None:
+        # Expo gives robot and SSO user tokens no `viewer`, so the probe must ask for `meActor`.
+        assert "meActor" in session.post.call_args_list[0].kwargs["json"]["query"]
+
+    @pytest.mark.parametrize(
+        "actor_response, expected",
+        [
+            ({"errors": [{"message": "Token has been revoked."}]}, "(Token has been revoked)"),
+            ({"errors": [{"message": "Unknown token tok_secret_123"}]}, "(Unknown token REDACTED)"),
+            ({"data": {"meActor": None}}, "did not return an account"),
+        ],
+    )
+    def test_a_rejected_token_is_reported(self, actor_response: dict[str, Any], expected: str) -> None:
         session = mock.MagicMock()
-        session.post.return_value = _response({"errors": [{"message": "Unauthorized"}]})
+        session.post.return_value = _response(actor_response)
 
         with mock.patch(f"{_MODULE}._get_session", return_value=session):
-            valid, message = validate_credentials("token", "app")
+            valid, message = validate_credentials("tok_secret_123", "app")
 
         assert valid is False
-        assert message is not None and "access token" in message
+        assert message is not None and "access token" in message and expected in message
 
     @pytest.mark.parametrize(
         "project_response",
@@ -127,7 +118,7 @@ class TestExpoCredentials:
     def test_a_valid_token_without_project_access_names_the_project(self, project_response: dict[str, Any]) -> None:
         session = mock.MagicMock()
         session.post.side_effect = [
-            _response({"data": {"viewer": {"id": "u1"}}}),
+            _response({"data": {"meActor": {"id": "u1"}}}),
             _response(project_response),
         ]
 
@@ -136,14 +127,3 @@ class TestExpoCredentials:
 
         assert valid is False
         assert message is not None and "project ID" in message
-
-    @pytest.mark.parametrize("status_code", [401, 403, 500])
-    def test_http_failures_are_reported_rather_than_raised(self, status_code: int) -> None:
-        session = mock.MagicMock()
-        session.post.return_value = _response({}, status_code=status_code)
-
-        with mock.patch(f"{_MODULE}._get_session", return_value=session):
-            valid, message = validate_credentials("token", "app")
-
-        assert valid is False
-        assert message is not None

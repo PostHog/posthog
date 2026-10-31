@@ -7,7 +7,7 @@ import { IconFilter, IconGlobe, IconPhone, IconPlus } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDivider, LemonInput, LemonSelect, Popover, Tooltip } from '@posthog/lemon-ui'
 
 import { AuthorizedUrlListType, authorizedUrlListLogic } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
-import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
+import { COMPARE_ALL_TIME_DISABLED_REASON, CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { FilterBar } from 'lib/components/FilterBar'
 import { LiveUserCount } from 'lib/components/LiveUserCount'
@@ -19,7 +19,6 @@ import {
 } from 'lib/components/PropertyFilters/utils'
 import { baseModifier } from 'lib/components/Shortcuts/shortcuts'
 import { useShortcut } from 'lib/components/Shortcuts/useShortcut'
-import { SuppressTaxonomicMenuToggle } from 'lib/components/TaxonomicPopover/TaxonomicMenuToggle'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconLink, IconMonitor, IconWithCount } from 'lib/lemon-ui/icons/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -105,15 +104,11 @@ export const WebAnalyticsFilters = ({ tabs }: { tabs: JSX.Element }): JSX.Elemen
     const { featureFlags } = useValues(featureFlagLogic)
 
     if (featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FILTERS_V2] || featureFlags[FEATURE_FLAGS.CONDENSED_FILTER_BAR]) {
-        return (
-            <SuppressTaxonomicMenuToggle>
-                <CondensedWebAnalyticsFilterBar tabs={tabs} />
-            </SuppressTaxonomicMenuToggle>
-        )
+        return <CondensedWebAnalyticsFilterBar tabs={tabs} />
     }
 
     return (
-        <SuppressTaxonomicMenuToggle>
+        <>
             <IncompatibleFiltersWarning />
 
             <div data-attr="web-analytics-filters">
@@ -155,7 +150,7 @@ export const WebAnalyticsFilters = ({ tabs }: { tabs: JSX.Element }): JSX.Elemen
                     }
                 />
             </div>
-        </SuppressTaxonomicMenuToggle>
+        </>
     )
 }
 
@@ -542,11 +537,7 @@ export const WebAnalyticsCompareFilter = (): JSX.Element | null => {
         <CompareFilter
             compareFilter={compareFilter}
             updateCompareFilter={setCompareFilter}
-            disableReason={
-                dateFilter.dateFrom === 'all'
-                    ? "All time starts at your first event, so there's no earlier period to compare to. Pick a date range to compare."
-                    : null
-            }
+            disableReason={dateFilter.dateFrom === 'all' ? COMPARE_ALL_TIME_DISABLED_REASON : null}
         />
     )
 }

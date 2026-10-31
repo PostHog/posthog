@@ -15,6 +15,8 @@ from pathlib import Path
 from types import FrameType
 from typing import TypedDict, cast
 
+from .harness.retries import DEFAULT_INFRA_RETRIES, infrastructure_retry_delay
+
 logger = logging.getLogger(__name__)
 
 StopCallback = Callable[[], None]
@@ -22,6 +24,10 @@ StopCallback = Callable[[], None]
 
 class SubprocessStartupError(RuntimeError):
     """A managed support subprocess failed to come up (crashed, timed out, or port already bound)."""
+
+
+class SubprocessReadinessTimeout(SubprocessStartupError):
+    pass
 
 
 class ProcessMetadata(TypedDict):
@@ -37,6 +43,7 @@ class LongLivedSubprocessManager:
     """Own support subprocess lifecycle for sandboxed eval sessions."""
 
     def __init__(self) -> None:
+        self.startup_retries = DEFAULT_INFRA_RETRIES
         self._stops: list[StopCallback] = []
         self._stops_lock = threading.Lock()
         self._previous_signal_handlers: dict[int, object] = {}
@@ -44,6 +51,42 @@ class LongLivedSubprocessManager:
         self._handling_termination_signal = False
 
     def start(
+        self,
+        *,
+        name: str,
+        port: int,
+        cmd: list[str],
+        cwd: Path,
+        env: dict[str, str],
+        log_prefix: str,
+        readiness_timeout: float = 30.0,
+    ) -> tuple[subprocess.Popen, StopCallback]:
+        for attempt in range(self.startup_retries + 1):
+            try:
+                return self._start_once(
+                    name=name,
+                    port=port,
+                    cmd=cmd,
+                    cwd=cwd,
+                    env=env,
+                    log_prefix=log_prefix,
+                    readiness_timeout=readiness_timeout,
+                )
+            except SubprocessReadinessTimeout:
+                if attempt == self.startup_retries:
+                    raise
+                delay = infrastructure_retry_delay(attempt)
+                logger.warning(
+                    "STARTUP RETRY %s: readiness timed out; previous process stopped. Attempt %d/%d in %.1fs. No action required.",
+                    name,
+                    attempt + 2,
+                    self.startup_retries + 1,
+                    delay,
+                )
+                time.sleep(delay)
+        raise AssertionError("unreachable")
+
+    def _start_once(
         self,
         *,
         name: str,
@@ -86,6 +129,7 @@ class LongLivedSubprocessManager:
             finally:
                 self._remove_pid_file(port)
                 self._unregister(stop)
+                atexit.unregister(stop)
 
         self._register(stop)
         atexit.register(stop)
@@ -107,7 +151,7 @@ class LongLivedSubprocessManager:
                 time.sleep(0.5)
 
         stop()
-        raise SubprocessStartupError(f"{name} failed to start on port {port} within {readiness_timeout:.0f}s.")
+        raise SubprocessReadinessTimeout(f"{name} failed to start on port {port} within {readiness_timeout:.0f}s.")
 
     def stop_all(self) -> None:
         with self._stops_lock:
@@ -158,7 +202,7 @@ class LongLivedSubprocessManager:
             self._remove_pid_file(port)
             return
 
-        logger.warning("Stopping stale sandboxed eval %s process group %s on port %s", name, pgid, port)
+        logger.info("Stopping stale sandboxed eval %s process group %s on port %s", name, pgid, port)
         self._terminate_process_group(pgid, port)
         self._remove_pid_file(port)
 
@@ -310,7 +354,7 @@ class LongLivedSubprocessManager:
         if proc.stdout is not None:
             threading.Thread(target=pipe_to_logger, args=(proc.stdout, logging.INFO), daemon=True).start()
         if proc.stderr is not None:
-            threading.Thread(target=pipe_to_logger, args=(proc.stderr, logging.WARNING), daemon=True).start()
+            threading.Thread(target=pipe_to_logger, args=(proc.stderr, logging.INFO), daemon=True).start()
 
     def _register(self, stop: StopCallback) -> None:
         self._install_signal_handlers()

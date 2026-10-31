@@ -32,7 +32,9 @@ export function OfflineScoreChooser(props: OfflineExperimentsLogicProps): JSX.El
             width={720}
             footer={
                 <>
-                    <LemonButton onClick={closeChooser}>Cancel</LemonButton>
+                    <LemonButton onClick={closeChooser} data-attr="offline-score-selection-cancel">
+                        Cancel
+                    </LemonButton>
                     <LemonButton type="primary" onClick={saveScorers} data-attr="offline-score-selection-save">
                         Save choices
                     </LemonButton>
@@ -48,6 +50,7 @@ export function OfflineScoreChooser(props: OfflineExperimentsLogicProps): JSX.El
                             type="search"
                             value={scorerSearch}
                             onChange={setScorerSearch}
+                            data-attr="offline-score-selection-search"
                             placeholder="Search scorers"
                         />
                         <div className="h-48 @min-[32rem]:h-64 overflow-y-auto space-y-3">
@@ -65,6 +68,7 @@ export function OfflineScoreChooser(props: OfflineExperimentsLogicProps): JSX.El
                                     {scorerOptions.results.map((scorer) => (
                                         <LemonCheckbox
                                             key={scorer.id}
+                                            data-attr="offline-score-selection-toggle"
                                             checked={draftScorerIds.includes(scorer.id)}
                                             label={`${scorer.name} (${scorer.kind})${scorer.archived ? ' · Archived' : ''}`}
                                             onChange={(checked) =>
@@ -91,6 +95,7 @@ export function OfflineScoreChooser(props: OfflineExperimentsLogicProps): JSX.El
                                             size="small"
                                             disabledReason={scorerOffset === 0 ? 'First page' : undefined}
                                             onClick={() => setScorerOffset(scorerOffset - 50)}
+                                            data-attr="offline-score-selection-previous"
                                         >
                                             Previous
                                         </LemonButton>
@@ -100,6 +105,7 @@ export function OfflineScoreChooser(props: OfflineExperimentsLogicProps): JSX.El
                                                 scorerOffset + 50 >= scorerOptions.count ? 'Last page' : undefined
                                             }
                                             onClick={() => setScorerOffset(scorerOffset + 50)}
+                                            data-attr="offline-score-selection-next"
                                         >
                                             Next
                                         </LemonButton>
@@ -116,13 +122,16 @@ export function OfflineScoreChooser(props: OfflineExperimentsLogicProps): JSX.El
                             )}
                             {draftScorerIds.map((id, index) => (
                                 <div key={id} className="flex items-center gap-1 min-w-0">
-                                    <span className="flex-1 truncate">{scorersById[id]?.name || id}</span>
+                                    <span className="flex-1 truncate">
+                                        {scorersById[id]?.short_name || scorersById[id]?.name || id}
+                                    </span>
                                     <LemonButton
                                         icon={<IconChevronDown className="rotate-180" />}
                                         aria-label="Move score up"
                                         size="xsmall"
                                         disabledReason={index === 0 ? 'Already first' : undefined}
                                         onClick={() => move(index, -1)}
+                                        data-attr="offline-score-selection-move-up"
                                     />
                                     <LemonButton
                                         icon={<IconChevronDown />}
@@ -132,10 +141,12 @@ export function OfflineScoreChooser(props: OfflineExperimentsLogicProps): JSX.El
                                             index === draftScorerIds.length - 1 ? 'Already last' : undefined
                                         }
                                         onClick={() => move(index, 1)}
+                                        data-attr="offline-score-selection-move-down"
                                     />
                                     <LemonButton
                                         icon={<IconX />}
                                         aria-label="Remove score"
+                                        data-attr="offline-score-selection-remove"
                                         size="xsmall"
                                         onClick={() =>
                                             setDraftScorerIds(draftScorerIds.filter((selected) => selected !== id))

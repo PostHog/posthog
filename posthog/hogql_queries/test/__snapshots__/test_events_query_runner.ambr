@@ -303,9 +303,9 @@
   WHERE and(equals(flag_evaluations.team_id, 99999), in(flag_evaluations.uuid,
                                                           (SELECT flag_evaluations.uuid AS uuid
                                                            FROM flag_evaluations
-                                                           WHERE and(equals(flag_evaluations.team_id, 99999), equals(flag_evaluations.event, '$feature_flag_called'), less(flag_evaluations.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), greater(flag_evaluations.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))
+                                                           WHERE and(equals(flag_evaluations.team_id, 99999), equals(flag_evaluations.event, '$feature_flag_called'), less(flag_evaluations.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), greater(flag_evaluations.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), greaterOrEquals(flag_evaluations.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))
                                                            ORDER BY toTimeZone(flag_evaluations.timestamp, 'UTC') ASC, flag_evaluations.uuid ASC
-                                                           LIMIT 101)), and(equals(flag_evaluations.event, '$feature_flag_called'), less(flag_evaluations.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), greater(flag_evaluations.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))))
+                                                           LIMIT 101)), and(equals(flag_evaluations.event, '$feature_flag_called'), less(flag_evaluations.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), greater(flag_evaluations.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), greaterOrEquals(flag_evaluations.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))))
   ORDER BY toTimeZone(flag_evaluations.timestamp, 'UTC') ASC, flag_evaluations.uuid ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,

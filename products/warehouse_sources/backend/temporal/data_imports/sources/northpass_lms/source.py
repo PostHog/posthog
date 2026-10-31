@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -34,6 +35,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class NorthpassLMSSource(ResumableSource[NorthpassLMSSourceConfig, NorthpassResumeConfig]):
+    codebase_detection = detect(env=("^(NORTHPASS_LMS|NORTHPASSLMS)_",))
+
     supported_versions = ("v2",)
     default_version = "v2"
 
@@ -51,7 +54,7 @@ class NorthpassLMSSource(ResumableSource[NorthpassLMSSourceConfig, NorthpassResu
             name=ExternalDataSourceType.NORTHPASSLMS,
             category=DataWarehouseSourceCategory.HR___RECRUITING,
             label="Northpass LMS",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Northpass API key to sync your Northpass (Gainsight Customer Education) learning data into the PostHog Data warehouse.
 
 You can create an API key in your Northpass admin panel under **Apps → API Access**.""",

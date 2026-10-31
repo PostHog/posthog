@@ -49,14 +49,14 @@ export function initPostHog(appName: string, appVersion: string): void {
         client.register({
             $mcp_app_name: appName,
             $mcp_app_version: appVersion,
-            $mcp_app_instance_id: newInstanceId(),
+            $mcp_app_instance_id: newId(),
         })
     } catch (error) {
         log('PostHog register failed', error)
     }
 }
 
-function newInstanceId(): string {
+export function newId(): string {
     if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
         return crypto.randomUUID()
     }
@@ -66,10 +66,14 @@ function newInstanceId(): string {
 /**
  * Identify the user with their PostHog distinct ID from the MCP server.
  */
-export function identifyUser(distinctId: string, toolName?: string): void {
+export function identifyUser(distinctId: string, toolName?: string, mcpClientName?: string): void {
     if (!client) {
         log('PostHog client not initialized while attempting to identify user', { distinctId, toolName })
         return
+    }
+
+    if (mcpClientName) {
+        client.register({ $mcp_client_name: mcpClientName })
     }
 
     if (currentDistinctId === distinctId) {
@@ -84,6 +88,10 @@ export function identifyUser(distinctId: string, toolName?: string): void {
     if (toolName) {
         client.register({ $mcp_tool_name: toolName })
     }
+}
+
+export function isAnalyticsEnabled(): boolean {
+    return client !== null
 }
 
 /**
@@ -140,12 +148,14 @@ export function captureToolResult(params: {
     hasAppData?: boolean | undefined
     contentLength?: number | undefined
     rendered?: boolean | undefined
+    isError?: boolean | undefined
 }): void {
     capture('mcp_ui_app_tool_result', {
         has_structured_content: params.hasStructuredContent,
         has_app_data: params.hasAppData,
         content_length: params.contentLength,
         rendered: params.rendered,
+        is_error: params.isError,
     })
 }
 
@@ -182,6 +192,29 @@ export function captureHostContextChanged(params: {
         has_styles: params.hasStyles,
         has_fonts: params.hasFonts,
         theme: params.theme,
+    })
+}
+
+export function captureInsightViewed(params: {
+    queryKind?: string | undefined
+    querySourceKind?: string | undefined
+    display?: string | undefined
+    funnelVizType?: string | undefined
+    isSupported: boolean
+}): void {
+    capture('mcp_ui_app_insight_viewed', {
+        query_kind: params.queryKind,
+        query_source_kind: params.querySourceKind,
+        display: params.display,
+        funnel_viz_type: params.funnelVizType,
+        is_supported: params.isSupported,
+    })
+}
+
+export function captureInsightDisplayChanged(params: { from: string; to: string }): void {
+    capture('mcp_ui_app_insight_display_changed', {
+        from_display: params.from,
+        to_display: params.to,
     })
 }
 

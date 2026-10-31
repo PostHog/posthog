@@ -1,5 +1,7 @@
 from django.db import models
 
+from products.customer_analytics.backend.facade.enums import CustomPropertyOptionColor
+
 DEFAULT_ACTIVITY_EVENT = {"kind": "EventsNode", "event": "$pageview", "name": "$pageview"}
 
 # Mirrors frontend `SLACK_ARCHIVES_ORIGIN` in accountLinksLogic.ts. PostHog-internal: hardcodes our
@@ -41,8 +43,8 @@ class CustomPropertyDisplayType(models.TextChoices):
 
 CUSTOM_PROPERTY_DISPLAY_TYPE_CHOICES = list(CustomPropertyDisplayType.values)
 
-# Mirrors OPTION_COLOR_TOKENS in the frontend's customPropertyTypes.ts (DataColorToken presets).
-CUSTOM_PROPERTY_OPTION_COLORS = [f"preset-{i}" for i in range(1, 11)]
+
+CUSTOM_PROPERTY_OPTION_COLORS = CustomPropertyOptionColor.values
 
 # Bounds the fan-out so one create can't enqueue an unbounded Slack send loop.
 MAX_ANNOUNCEMENT_CHANNELS = 200
@@ -59,3 +61,6 @@ SLACK_SUMMARY_CADENCE_CHOICES = ["daily", "weekly", "monthly"]
 DELIVERY_IN_FLIGHT_ERROR = "in_flight"
 DELIVERY_RATE_LIMIT_DEFERRED_ERROR = "rate_limited_deferred"
 DELIVERY_INTERRUPTED_ERROR = "interrupted before confirmation; the message may have been delivered"
+
+# Marks an async query status whose stored results are account users, so retrieval repeats the access check.
+ACCOUNT_USERS_QUERY_STATUS_LABEL_PREFIX = "customer-analytics-account-users:"

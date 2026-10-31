@@ -1,7 +1,7 @@
 import { posthogToolMeta } from "@posthog/shared";
 import type { ConversationItem } from "@posthog/ui/features/sessions/components/buildConversationItems";
 import { describe, expect, it } from "vitest";
-import { groupToolRuns } from "./ChatThread";
+import { groupToolRuns } from "./groupToolRuns";
 
 type SessionUpdateItem = Extract<ConversationItem, { type: "session_update" }>;
 

@@ -139,8 +139,14 @@ function countFlushResultMessages(flushResults: { messages: unknown[] }[]): numb
  * These promises handle errors appropriately:
  * - MessageSizeTooLarge: Emits ingestion warning (non-fatal)
  * - Other errors: Propagated to fail the side effect
+ *
+ * Exported so the ingestion API server's shutdown drain can produce a bare
+ * `flush()` result the same way the batch step does.
  */
-function createPersonProducePromises(personsStoreMessages: FlushResult[], outputs: PersonOutputs): Promise<unknown>[] {
+export function createPersonProducePromises(
+    personsStoreMessages: FlushResult[],
+    outputs: PersonOutputs
+): Promise<unknown>[] {
     const promises: Promise<unknown>[] = []
 
     for (const record of personsStoreMessages) {

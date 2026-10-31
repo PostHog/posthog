@@ -1,11 +1,22 @@
+import dataclasses
 from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Optional
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import UNVERSIONED_API_VERSION
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
     DependentEndpointConfig,
 )
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+
+# incident.io versions each resource's path on its own track (/v1, /v2, /v3), so the source-level
+# label is opaque: "v1" is the original endpoint set; "v3" moves follow_ups from GET /v2/follow_ups,
+# which incident.io removes on 2026-12-31, to its GET /v3/follow_ups successor. Every other
+# resource reads the same path under both labels.
+INCIDENT_IO_API_VERSION_V1 = UNVERSIONED_API_VERSION
+INCIDENT_IO_API_VERSION_V3 = "v3"
+INCIDENT_IO_SUPPORTED_VERSIONS = (INCIDENT_IO_API_VERSION_V1, INCIDENT_IO_API_VERSION_V3)
+INCIDENT_IO_DEFAULT_API_VERSION = INCIDENT_IO_API_VERSION_V3
 
 
 @dataclass(frozen=True)
@@ -49,6 +60,8 @@ class IncidentIoEndpointConfig:
     entry_window: Optional[EntryWindow] = None
     # Top-level response fields never written to the warehouse, e.g. credentials.
     excluded_fields: tuple[str, ...] = ()
+    # Top-level column -> nested object whose `id` it copies, for rows keyed only by an embedded object.
+    nested_id_columns: dict[str, str] = field(default_factory=dict)
 
     @property
     def default_incremental_field(self) -> Optional[str]:
@@ -102,6 +115,16 @@ _STATUS_PAGE_INCIDENTS_FANOUT = DependentEndpointConfig(
     resolve_field="id",
     include_from_parent=[],
     parent_params={"page_size": 250},
+)
+
+# Workload rows carry neither the incident's id nor a top-level user id, so the incident id is copied from the parent.
+_INCIDENT_PARTICIPANT_WORKLOADS_FANOUT = DependentEndpointConfig(
+    parent_name="incidents",
+    resolve_param="incident_id",
+    resolve_field="id",
+    include_from_parent=["id"],
+    parent_field_renames={"id": "incident_id"},
+    parent_params={"page_size": 250, "sort_by": "created_at_oldest_first"},
 )
 
 # Full refresh re-reads this window on every sync, so shifts older than the lookback drop out of the table.
@@ -291,8 +314,67 @@ INCIDENT_IO_ENDPOINTS: dict[str, IncidentIoEndpointConfig] = {
         partition_key="published_at",
         fanout=_STATUS_PAGE_INCIDENTS_FANOUT,
     ),
+    "teams": IncidentIoEndpointConfig(
+        name="teams",
+        path="/v3/teams",
+        data_key="teams",
+        paginated=True,
+        page_size=250,
+    ),
+    # Replaces GET /v2/actions, which incident.io removes on 2026-12-31. Rows are ordered by id,
+    # oldest first, and the list takes `created_at[gte]` / `updated_at[gte]` filters.
+    "actions": IncidentIoEndpointConfig(
+        name="actions",
+        path="/v3/actions",
+        data_key="actions",
+        paginated=True,
+        page_size=250,
+        partition_key="created_at",
+        incremental_fields=[
+            _DATETIME_INCREMENTAL_FIELD_UPDATED_AT,
+            _DATETIME_INCREMENTAL_FIELD_CREATED_AT,
+        ],
+    ),
+    "incident_participant_workloads": IncidentIoEndpointConfig(
+        name="incident_participant_workloads",
+        # `{incident_id}` is bound per parent incident row by the fan-out.
+        path="/v2/incident_participant_workloads?incident_id={incident_id}",
+        data_key="incident_participant_workloads",
+        page_size_param=None,
+        primary_keys=["incident_id", "user_id"],
+        fanout=_INCIDENT_PARTICIPANT_WORKLOADS_FANOUT,
+        nested_id_columns={"user_id": "user"},
+    ),
+    "alert_attributes": IncidentIoEndpointConfig(
+        name="alert_attributes",
+        path="/v2/alert_attributes",
+        data_key="alert_attributes",
+    ),
 }
 
+INCIDENT_IO_ENDPOINTS_V3: dict[str, IncidentIoEndpointConfig] = {
+    **INCIDENT_IO_ENDPOINTS,
+    # Same rows as v2 plus a `category` object, now paged by `pagination_meta.after` with a 250 cap.
+    "follow_ups": dataclasses.replace(INCIDENT_IO_ENDPOINTS["follow_ups"], path="/v3/follow_ups"),
+}
+
+INCIDENT_IO_ENDPOINTS_BY_VERSION: dict[str, dict[str, IncidentIoEndpointConfig]] = {
+    INCIDENT_IO_API_VERSION_V1: INCIDENT_IO_ENDPOINTS,
+    INCIDENT_IO_API_VERSION_V3: INCIDENT_IO_ENDPOINTS_V3,
+}
+
+
+def endpoints_for_version(api_version: str) -> dict[str, IncidentIoEndpointConfig]:
+    # An undeclared pin raises rather than falling back, so a sync never drifts onto another version's paths.
+    try:
+        return INCIDENT_IO_ENDPOINTS_BY_VERSION[api_version]
+    except KeyError as e:
+        raise ValueError(
+            f"Unsupported incident.io API version {api_version!r}; supported: {INCIDENT_IO_SUPPORTED_VERSIONS}"
+        ) from e
+
+
+# The table set is identical across versions, so discovery never orphans a table on repin.
 ENDPOINTS = tuple(INCIDENT_IO_ENDPOINTS.keys())
 
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
