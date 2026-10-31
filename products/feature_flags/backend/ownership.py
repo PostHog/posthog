@@ -16,6 +16,11 @@ FLAG_OWNER_SURVEY = "survey"
 FLAG_OWNER_PRODUCT_TOUR = "product_tour"
 FLAG_OWNER_EARLY_ACCESS = "early_access_feature"
 
+# Serializer context key that names the product a create mints its flag for. Only the flag facade
+# sets it, from `create_flag(owner=...)`. Request data never reaches serializer context, so a caller
+# of the public flag API cannot claim an owner to move a flag out of the `feature_flag.*` policies.
+MINTED_OWNER_CONTEXT_KEY = "approval_minted_owner_kind"
+
 _OWNER_LABELS = {
     FLAG_OWNER_EXPERIMENT: "an experiment",
     FLAG_OWNER_SURVEY: "a survey",

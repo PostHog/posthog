@@ -1,6 +1,8 @@
 import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { dayjs } from 'lib/dayjs'
@@ -2498,6 +2500,42 @@ describe('surveyLogic archived response refresh', () => {
         ])
 
         expect(api.surveys.archiveResponse).toHaveBeenCalledWith('test-survey', 'response-1')
+    })
+})
+
+describe('surveyLogic update that needs approval', () => {
+    let logic: ReturnType<typeof surveyLogic.build>
+
+    beforeEach(async () => {
+        initKeaTests()
+
+        useMocks({
+            get: {
+                '/api/projects/:team/surveys/': () => [200, { count: 0, results: [], next: null, previous: null }],
+                '/api/projects/:team/surveys/test-survey/': () => [200, createPersistedSurvey()],
+                '/api/projects/:team/surveys/test-survey/archived-response-uuids/': () => [200, []],
+            },
+        })
+        jest.spyOn(api, 'queryHogQL').mockResolvedValue({ results: [] } as any)
+
+        logic = surveyLogic({ id: 'test-survey' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+    })
+
+    it('tells the user the change waits for approval', async () => {
+        const warning = jest.spyOn(lemonToast, 'warning')
+        jest.spyOn(api.surveys, 'update').mockRejectedValue({
+            status: 409,
+            detail: 'This change needs approval.',
+            data: { change_request_id: 'cr-1', resource_type: 'feature_flag', resource_id: '7' },
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.updateSurvey({ name: 'Renamed' })
+        }).toDispatchActions(['updateSurveyFailure'])
+
+        expect(warning).toHaveBeenCalledWith('This change needs approval.')
     })
 })
 

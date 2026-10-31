@@ -21,6 +21,8 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { isApprovalRequiredError } from 'lib/api-error'
+import { handleApprovalRequired } from 'lib/approvals/utils'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -2013,6 +2015,13 @@ export const surveyLogic = kea<surveyLogicType>([
                 tryShowMCPHint('surveys.create', {
                     derivedPrompt: survey.name ? `Create a ${surveyType}survey called ${survey.name}` : undefined,
                 })
+            },
+            updateSurveyFailure: ({ errorObject }) => {
+                // The global error handler skips 409s, so without this a targeting change that waits
+                // for approval looks like a save that did nothing.
+                if (isApprovalRequiredError(errorObject)) {
+                    handleApprovalRequired(errorObject, errorObject.data.resource_type, errorObject.data.resource_id)
+                }
             },
             updateSurveySuccess: ({ survey }) => {
                 lemonToast.success(<>Survey {survey.name} updated</>)
