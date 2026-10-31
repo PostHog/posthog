@@ -2,7 +2,6 @@ import time
 from copy import deepcopy
 from typing import Any
 
-from django.contrib.auth.models import AnonymousUser
 from django.core.management.base import BaseCommand
 from django.core.paginator import Paginator
 from django.db import transaction
@@ -109,7 +108,8 @@ class Command(BaseCommand):
 
                         # Create a mock request context for the serializer
                         request = RequestFactory().post("/")
-                        request.user = hog_flow.created_by or AnonymousUser()
+                        if hog_flow.created_by:
+                            request.user = hog_flow.created_by
 
                         def get_team_func(flow=hog_flow):
                             return flow.team

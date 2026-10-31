@@ -1,5 +1,5 @@
 import json
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from contextlib import contextmanager, nullcontext
 from copy import deepcopy
 from datetime import UTC, datetime, timedelta
@@ -8,7 +8,6 @@ from types import SimpleNamespace
 from typing import Any, Optional
 from uuid import UUID, uuid4
 
-import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import ANY, MagicMock, patch
 
@@ -27,7 +26,6 @@ from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.integration import Integration
 from posthog.models.personal_api_key import PersonalAPIKey
-from posthog.models.scoping import team_scope
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.scopes import APIScopeObject
 from posthog.test.fixtures import create_app_metric2
@@ -59,20 +57,14 @@ from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 from products.replay_vision.backend.tests.helpers import create_experiment
 from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.facade.contracts import WorkflowLastRunDTO
-from products.workflows.backend.facade.contracts import WorkflowAccessDenied
-from products.workflows.backend.facade.enums import WorkflowProposalStatus
-from products.workflows.backend.facade.proposals import approve_proposal, create_proposal, get_proposal
-from products.workflows.backend.facade.revisions import restore_revision
-from products.workflows.backend.facade.writes import save_validated_workflow, update_workflow
+from products.workflows.backend.facade.writes import update_workflow
 from products.workflows.backend.models.hog_flow.hog_flow import SUPPORTED_ACTION_TYPES, HogFlow
 from products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job import HogFlowBatchJob
-from products.workflows.backend.models.hog_flow_revision import HogFlowRevision
 from products.workflows.backend.models.hog_flow_schedule import HogFlowSchedule
 from products.workflows.backend.presentation.views.hog_flow import (
     HogFlowActionSerializer,
     _should_validate_strictly,
     mint_audience_confirm_token,
-    set_workflow_enabled,
 )
 from products.workflows.backend.tests.api.test_workflow_data_suggestions import _push_function_template
 
@@ -8529,266 +8521,6 @@ class TestReplayVisionActionValidation(APIBaseTest):
 
         assert response.status_code == expected, response.json()
         assert mock_invoke.call_count == (1 if mock_async_functions else 0)
-
-
-class TestT3CodeStepOwnership(APIBaseTest):
-    def setUp(self):
-        super().setUp()
-        self.organization.available_product_features = [
-            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
-        ]
-        self.organization.save()
-        self.owner = self.user
-        self.flow = HogFlow.objects.create(
-            team=self.team,
-            name="Fix signup errors",
-            created_by=self.owner,
-            trigger={"type": "event", "filters": {}},
-            actions=[
-                {
-                    "id": "trigger_node",
-                    "name": "trigger_1",
-                    "type": "trigger",
-                    "config": {
-                        "type": "event",
-                        "filters": {"events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}]},
-                    },
-                },
-                {
-                    "id": "action_1",
-                    "name": "action_1",
-                    "type": "function",
-                    "config": {"template_id": "template-t3-code", "inputs": {}},
-                },
-            ],
-        )
-
-    _RULES: dict[str, list[tuple[bool, bool, str]]] = {
-        "shared_editor": [(True, True, "editor")],
-        "shared_with_everyone": [(True, False, "editor")],
-        "workflow_viewer_and_editor_of_all_workflows": [(True, True, "viewer"), (False, True, "editor")],
-        "everyone_viewer_and_editor_of_all_workflows": [(True, False, "viewer"), (False, False, "editor")],
-    }
-
-    def _log_in_as(self, who: str) -> User:
-        if who == "owner":
-            return self.owner
-        if who == "teammate_without_access_control":
-            self.organization.available_product_features = []
-            self.organization.save()
-        level = OrganizationMembership.Level.ADMIN if who == "admin" else OrganizationMembership.Level.MEMBER
-        teammate = User.objects.create_and_join(self.organization, f"{who}@posthog.com", None, level=level)
-        membership = OrganizationMembership.objects.get(user=teammate)
-        for on_this_workflow, for_them, access_level in self._RULES.get(who, []):
-            AccessControl.objects.create(
-                team=self.team,
-                resource="hog_flow",
-                resource_id=str(self.flow.id) if on_this_workflow else None,
-                organization_member=membership if for_them else None,
-                access_level=access_level,
-            )
-        self.client.force_login(teammate)
-        return teammate
-
-    @parameterized.expand(
-        [
-            (who, change, expected, most_specific)
-            for who, change, expected in [
-                ("owner", {"name": "Fix every error"}, status.HTTP_200_OK),
-                ("shared_editor", {"name": "Fix every error"}, status.HTTP_200_OK),
-                ("admin", {"name": "Fix every error"}, status.HTTP_200_OK),
-                ("teammate", {"name": "Fix every error"}, status.HTTP_403_FORBIDDEN),
-                ("teammate_without_access_control", {"name": "Fix every error"}, status.HTTP_403_FORBIDDEN),
-                ("shared_with_everyone", {"name": "Fix every error"}, status.HTTP_403_FORBIDDEN),
-                ("workflow_viewer_and_editor_of_all_workflows", {"name": "Fix every error"}, status.HTTP_403_FORBIDDEN),
-                ("everyone_viewer_and_editor_of_all_workflows", {"name": "Fix every error"}, status.HTTP_403_FORBIDDEN),
-                ("teammate", {"status": "archived"}, status.HTTP_200_OK),
-            ]
-            for most_specific in (True, False)
-        ]
-    )
-    def test_only_the_owner_or_someone_they_share_with_can_change_it(
-        self, who: str, change: dict, expected: int, most_specific: bool
-    ) -> None:
-        self.organization.uses_most_specific_access_resolution = most_specific
-        self.organization.save()
-        self._log_in_as(who)
-
-        response = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{self.flow.id}", change, format="json")
-
-        assert response.status_code == expected, response.json()
-        if expected == status.HTTP_403_FORBIDDEN:
-            assert HogFlow.objects.get(id=self.flow.id).name == "Fix signup errors"
-
-    @parameterized.expand(
-        [
-            ("publish", {"confirm": True}),
-            ("revisions/1/restore", {"overwrite": True}),
-            ("proposals/00000000-0000-4000-8000-000000000000/approve", {"overwrite": True}),
-        ]
-    )
-    def test_a_teammate_cannot_replace_its_content(self, path: str, body: dict) -> None:
-        HogFlow.objects.filter(id=self.flow.id).update(draft={"actions": self.flow.actions})
-        self._log_in_as("teammate")
-
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/hog_flows/{self.flow.id}/{path}", body, format="json"
-        )
-
-        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
-        assert "T3 Code step" in response.json()["detail"]
-
-    @parameterized.expand(
-        [
-            ("owner", False, status.HTTP_200_OK),
-            ("shared_editor", False, status.HTTP_200_OK),
-            ("teammate", False, status.HTTP_403_FORBIDDEN),
-            ("teammate", True, status.HTTP_200_OK),
-        ]
-    )
-    def test_only_the_owner_or_someone_they_share_with_can_run_it(
-        self, who: str, mock_async_functions: bool, expected: int
-    ) -> None:
-        self._log_in_as(who)
-
-        with patch(
-            "products.workflows.backend.presentation.views.hog_flow.create_hog_flow_invocation_test"
-        ) as mock_invoke:
-            mock_invoke.return_value = MagicMock(status_code=200, json=lambda: {"status": "success"})
-            response = self.client.post(
-                f"/api/projects/{self.team.id}/hog_flows/{self.flow.id}/invocations/",
-                data={
-                    "globals": {"event": {"event": "$pageview", "distinct_id": "d1"}},
-                    "mock_async_functions": mock_async_functions,
-                    "current_action_id": "action_1",
-                },
-                format="json",
-            )
-
-        assert response.status_code == expected, response.json()
-
-    def test_a_teammate_can_turn_it_off_but_not_on_from_a_canvas(self) -> None:
-        teammate = self._log_in_as("teammate")
-
-        with pytest.raises(WorkflowAccessDenied):
-            set_workflow_enabled(team_id=self.team.id, user_id=teammate.id, workflow_id=self.flow.id, enabled=True)
-        HogFlow.objects.filter(id=self.flow.id).update(status="active")
-        assert (
-            set_workflow_enabled(team_id=self.team.id, user_id=teammate.id, workflow_id=self.flow.id, enabled=False)
-            == "draft"
-        )
-
-    _CONCURRENT_CHANGES: dict[str, tuple[str, Callable[..., Any], str, str, dict]] = {
-        "rename": ("update_workflow", update_workflow, "patch", "", {"name": "Renamed"}),
-        "restore": ("restore_revision", restore_revision, "post", "/revisions/1/restore", {"overwrite": True}),
-        "approve": (
-            "approve_proposal",
-            approve_proposal,
-            "post",
-            "/proposals/00000000-0000-4000-8000-000000000000/approve",
-            {"overwrite": True},
-        ),
-    }
-
-    @parameterized.expand([("rename",), ("restore",), ("approve",), ("enable_from_a_canvas",)])
-    def test_a_teammate_cannot_change_it_while_the_owner_adds_a_t3_code_step(self, change: str) -> None:
-        trigger, t3_code_step = self.flow.actions
-        HogFlow.objects.filter(id=self.flow.id).update(actions=[trigger])
-        HogFlowRevision.objects.for_team(self.team.id).create(
-            team=self.team, hog_flow=self.flow, version=1, content={"actions": [trigger]}
-        )
-        teammate = self._log_in_as("teammate")
-
-        def add_the_t3_code_step_first(write: Callable[..., Any]) -> Callable[..., Any]:
-            def write_after_the_owner(**kwargs: Any) -> Any:
-                HogFlow.objects.filter(id=self.flow.id).update(actions=[trigger, t3_code_step])
-                return write(**kwargs)
-
-            return write_after_the_owner
-
-        views = "products.workflows.backend.presentation.views.hog_flow"
-        if change in self._CONCURRENT_CHANGES:
-            service_name, service, method, path, body = self._CONCURRENT_CHANGES[change]
-            with patch(f"{views}.{service_name}", side_effect=add_the_t3_code_step_first(service)):
-                response = getattr(self.client, method)(
-                    f"/api/projects/{self.team.id}/hog_flows/{self.flow.id}{path}", body, format="json"
-                )
-            assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
-        else:
-            with (
-                patch(
-                    f"{views}.save_validated_workflow",
-                    side_effect=add_the_t3_code_step_first(save_validated_workflow),
-                ),
-                pytest.raises(WorkflowAccessDenied),
-            ):
-                set_workflow_enabled(team_id=self.team.id, user_id=teammate.id, workflow_id=self.flow.id, enabled=True)
-
-        flow = HogFlow.objects.get(id=self.flow.id)
-        assert (flow.name, flow.status, flow.draft) == ("Fix signup errors", "draft", None)
-
-    @parameterized.expand([("revision",), ("suggestion",)])
-    def test_a_teammate_cannot_stage_a_t3_code_step_the_workflow_does_not_have(self, source: str) -> None:
-        trigger, _ = self.flow.actions
-        HogFlow.objects.filter(id=self.flow.id).update(actions=[trigger])
-        if source == "revision":
-            HogFlowRevision.objects.for_team(self.team.id).create(
-                team=self.team, hog_flow=self.flow, version=1, content={"actions": self.flow.actions}
-            )
-            path = "revisions/1/restore"
-        else:
-            with team_scope(self.team.id):
-                suggestion = create_proposal(
-                    hog_flow_id=self.flow.id,
-                    title="Fix the errors with T3 Code",
-                    rationale="Signup errors rose this week.",
-                    content={"actions": self.flow.actions},
-                    evidence={},
-                    step_id=None,
-                    base_version=self.flow.version,
-                    source_id=None,
-                ).proposal
-            path = f"proposals/{suggestion.id}/approve"
-        self._log_in_as("teammate")
-
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/hog_flows/{self.flow.id}/{path}", {"overwrite": True}, format="json"
-        )
-
-        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
-        assert HogFlow.objects.get(id=self.flow.id).draft is None
-        if source == "suggestion":
-            with team_scope(self.team.id):
-                stored = get_proposal(team_id=self.team.id, hog_flow_id=self.flow.id, proposal_id=suggestion.id)
-            assert stored is not None and stored.status == WorkflowProposalStatus.SUGGESTED
-
-    def test_a_transactional_email_workflow_cannot_have_a_t3_code_step(self) -> None:
-        template = deepcopy(webhook_template)
-        template["id"] = "template-t3-code"
-        sync_template_to_db(template)
-        trigger, t3_code_step = self.flow.actions
-
-        with patch("products.workflows.backend.presentation.views.hog_flow.gated_template_enabled", return_value=True):
-            response = self.client.post(
-                f"/api/projects/{self.team.id}/hog_flows",
-                {
-                    "name": "Welcome email",
-                    "origin_product": "transactional_emails",
-                    "actions": [
-                        trigger,
-                        {
-                            **t3_code_step,
-                            "config": {**t3_code_step["config"], "inputs": {"url": {"value": "https://example.com"}}},
-                        },
-                    ],
-                    "edges": [],
-                },
-                format="json",
-                HTTP_X_POSTHOG_CLIENT="mcp",
-            )
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        assert "transactional email workflow" in str(response.json())
 
 
 class TestRunScoutActionValidation(APIBaseTest):

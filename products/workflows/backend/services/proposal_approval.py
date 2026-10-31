@@ -12,7 +12,6 @@ from products.workflows.backend.facade.contracts import (
     ProposalApproval,
     WorkflowDraftChanged,
     WorkflowDraftExists,
-    WorkflowEditState,
     WorkflowProposalConflicts,
     WorkflowProposalNotFound,
     WorkflowProposalResolved,
@@ -20,7 +19,6 @@ from products.workflows.backend.facade.contracts import (
 from products.workflows.backend.facade.enums import WorkflowProposalStatus
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.services.hog_flow_content import snapshot_flow_content
-from products.workflows.backend.services.hog_flow_reads import to_edit_state
 from products.workflows.backend.services.hog_flow_writes import field_values
 from products.workflows.backend.services.workflow_proposals import (
     get_proposal,
@@ -42,17 +40,14 @@ def approve_proposal(
     expected_draft_updated_at: Optional[datetime],
     resolved_by_id: Optional[int],
     check_runnable: Callable[[dict], None],
-    authorize: Callable[[WorkflowEditState], None] | None = None,
 ) -> ProposalApproval:
     """Stage the suggestion into the workflow's draft and mark it approved. Approval only stages, like a
     revision restore: publish still previews and confirms. `team_id` scopes the suggestion and
     `workflow_team_id` the workflow row. `check_runnable` receives the merged content and raises when
-    the graph could not run. `authorize` receives the locked workflow and raises to refuse the approval."""
+    the graph could not run."""
     with transaction.atomic():
         # The row lock serializes concurrent approvals; the second sees what the first wrote.
         locked = HogFlow.objects.select_for_update().get(pk=hog_flow_id, team_id=workflow_team_id)
-        if authorize is not None:
-            authorize(to_edit_state(locked))
         proposal = get_proposal(team_id=team_id, hog_flow_id=locked.id, proposal_id=proposal_id)
         if proposal is None:
             raise WorkflowProposalNotFound()

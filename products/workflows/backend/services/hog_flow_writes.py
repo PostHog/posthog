@@ -156,23 +156,13 @@ def _keep_live_sensitivity(before: HogFlow, validated_data: dict) -> dict:
     return {**validated_data, "actions": actions}
 
 
-def save_validated_workflow(
-    *,
-    team_id: int,
-    hog_flow_id: UUID,
-    validated_data: dict,
-    authorize: Optional[Callable[[WorkflowEditState], None]] = None,
-) -> None:
+def save_validated_workflow(*, team_id: int, hog_flow_id: UUID, validated_data: dict) -> None:
     """Write a workflow's validated fields to the live row, with no draft routing, revision bump or
-    follow-ups. For callers outside a request: enabling a workflow and the bytecode refresh.
-    `authorize` receives the locked workflow and raises to refuse the write."""
+    follow-ups. For callers outside a request: enabling a workflow and the bytecode refresh."""
     # The save writes every column. Lock the read so that a concurrent write, such as a staff email
     # sending pause, either lands before this read or waits for this save, and is never overwritten.
     with transaction.atomic():
-        locked = HogFlow.objects.select_for_update().get(team_id=team_id, pk=hog_flow_id)
-        if authorize is not None:
-            authorize(to_edit_state(locked))
-        _save_live(locked, validated_data)
+        _save_live(HogFlow.objects.select_for_update().get(team_id=team_id, pk=hog_flow_id), validated_data)
 
 
 def _derive_from_locked_graph(
@@ -373,7 +363,6 @@ def update_workflow(
     validated_status: str,
     keeps_live_sensitivity: bool = True,
     requested_exit_condition: Optional[str] = None,
-    authorize: Optional[Callable[[WorkflowEditState], None]] = None,
 ) -> WorkflowWriteResult:
     # Optimistic concurrency: a client may send the `updated_at` it last loaded as `base_updated_at`.
     # If the stored row is strictly newer, another channel (a second UI tab, MCP, or the API) wrote in
@@ -387,8 +376,6 @@ def update_workflow(
 
     with transaction.atomic():
         before_update = HogFlow.objects.select_for_update().get(pk=hog_flow_id, team_id=team_id)
-        if authorize is not None:
-            authorize(to_edit_state(before_update))
         # Validation ran before this lock, and a draft validates leniently. If the status moved since
         # and the payload does not set it, that lenient content would land on a live workflow.
         if "status" not in validated_data and before_update.status != validated_status:
