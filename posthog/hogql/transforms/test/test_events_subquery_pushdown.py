@@ -97,6 +97,18 @@ class TestEventsSubqueryPushdown(BaseTest):
                 "or_over_expression_column",
                 f"SELECT count() FROM {STAR_EVENTS} WHERE event = 'x' OR person_id = '00000000-0000-0000-0000-000000000001'",
             ),
+            (
+                "array_join_behind_alias",
+                "SELECT arrayJoin([event, 'x']) AS ev FROM (SELECT event FROM events) WHERE ev = 'x'",
+            ),
+            (
+                "inner_stream_function",
+                "SELECT event, n FROM (SELECT event, rowNumberInAllBlocks() AS n FROM events) WHERE event = 'y'",
+            ),
+            (
+                "outer_stream_function",
+                "SELECT rowNumberInAllBlocks() AS n FROM (SELECT event FROM events) WHERE event = 'y' AND rowNumberInAllBlocks() = 1",
+            ),
         ]
     )
     def test_declines_when_the_rewrite_would_change_rows(self, _name: str, select: str) -> None:

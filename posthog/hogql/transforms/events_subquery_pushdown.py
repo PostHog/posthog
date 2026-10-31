@@ -21,9 +21,10 @@ Two rewrites, each result-equivalent:
 
 1. Every AND-conjunct of the outer WHERE that reads only columns the subquery exports straight from the events table
    (plain columns, and keys of its `properties` blob) moves into the subquery's WHERE. The subquery has to be a pure
-   row filter over events (no DISTINCT, GROUP BY, aggregate, window, ARRAY JOIN, LIMIT, OFFSET, LIMIT BY, SAMPLE or
-   JOIN), so filtering its input returns the same rows as filtering its output. The outer query may attach only
-   INNER / LEFT / CROSS joins to it, which a filter on their left side commutes with.
+   row filter over events (no DISTINCT, GROUP BY, aggregate, window, stream-dependent function, ARRAY JOIN, LIMIT,
+   OFFSET, LIMIT BY, SAMPLE or JOIN), so filtering its input returns the same rows as filtering its output. The outer
+   query may attach only INNER / LEFT / CROSS joins to it, which a filter on their left side commutes with, and must
+   not read the stream itself (`rowNumberInAllBlocks()`), because an earlier filter changes what streams past.
 2. Every remaining outer `properties.<key>` read of the subquery's blob column becomes a column of the subquery that
    reads the key from the events table, and the outer read points at that column. A bare read of the blob is left
    alone, so a consumer of the whole document still gets it.
@@ -63,6 +64,23 @@ logger = structlog.get_logger(__name__)
 # Join types a filter on their left side commutes with. A RIGHT, FULL, RIGHT SEMI / ANTI or PASTE join emits or drops
 # rows depending on which left rows exist, so filtering the left side first changes the result.
 _LEFT_FILTER_SAFE_JOIN_TYPES = frozenset({"JOIN", "INNER JOIN", "LEFT JOIN", "LEFT OUTER JOIN", "CROSS JOIN"})
+
+# Functions whose value depends on the rows that streamed past them, so filtering the input earlier changes it. HogQL
+# exposes the first two today; the rest are ClickHouse's remaining stream-dependent functions, listed so a future
+# mapping keeps the guard.
+_STREAM_DEPENDENT_FUNCTIONS = frozenset(
+    {
+        "rowNumberInBlock",
+        "rowNumberInAllBlocks",
+        "blockNumber",
+        "blockSize",
+        "neighbor",
+        "runningAccumulate",
+        "runningConcurrency",
+        "runningDifference",
+        "runningDifferenceStartingWithFirstValue",
+    }
+)
 
 SubqueryFromType = ast.SelectQueryType | ast.SelectQueryAliasType
 
@@ -255,12 +273,14 @@ class _KeyReadHoister(CloningVisitor):
         return cast(ast.SelectSetQuery, clone_expr(node, clear_types=False))
 
 
-class _AggregateOrWindowFinder(TraversingVisitor):
-    """Finds an aggregate or window function at this query level: either one makes the subquery consume its whole
-    input, so a filter on the input is not a filter on the output."""
+class _RowStreamDependencyFinder(TraversingVisitor):
+    """Finds an expression at this query level whose value depends on the whole input stream rather than on its own
+    row: a stream-dependent function, and with `include_aggregates` an aggregate or window function too. A filter
+    applied before such an expression changes its result, so it is not a filter on the output."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, include_aggregates: bool) -> None:
         super().__init__()
+        self.include_aggregates = include_aggregates
         self.found = False
 
     def visit_field(self, node: ast.Field) -> None:
@@ -273,13 +293,44 @@ class _AggregateOrWindowFinder(TraversingVisitor):
         pass
 
     def visit_window_function(self, node: ast.WindowFunction) -> None:
-        self.found = True
+        if self.include_aggregates:
+            self.found = True
 
     def visit_call(self, node: ast.Call) -> None:
-        if find_hogql_aggregation(node.name):
+        if node.name in _STREAM_DEPENDENT_FUNCTIONS or (self.include_aggregates and find_hogql_aggregation(node.name)):
             self.found = True
         else:
             super().visit_call(node)
+
+
+def _depends_on_row_stream(exprs: list[ast.Expr | None], *, include_aggregates: bool) -> bool:
+    finder = _RowStreamDependencyFinder(include_aggregates=include_aggregates)
+    for expr in exprs:
+        if expr is not None:
+            finder.visit(expr)
+    return finder.found
+
+
+def _outer_expressions(outer: ast.SelectQuery) -> list[ast.Expr | None]:
+    """Every expression slot of a select at its own level, join constraints included; joined tables are their own scope."""
+    exprs: list[ast.Expr | None] = [
+        *outer.select,
+        outer.where,
+        outer.prewhere,
+        outer.having,
+        outer.qualify,
+        *(outer.group_by or []),
+        *(outer.order_by or []),
+        *(outer.array_join_list or []),
+        outer.limit_by,
+        *((outer.window_exprs or {}).values()),
+    ]
+    join = outer.select_from.next_join if outer.select_from is not None else None
+    while join is not None:
+        if join.constraint is not None:
+            exprs.append(join.constraint.expr)
+        join = join.next_join
+    return exprs
 
 
 class EventsSubqueryPushdownTransform(TraversingVisitor):
@@ -325,7 +376,12 @@ class EventsSubqueryPushdownTransform(TraversingVisitor):
         if not columns:
             return "no_exported_events_columns"
 
-        pushed, residual_where = self._split_where(outer, columns)
+        # An outer stream-dependent function sees a different input once the subquery filters earlier, so only the
+        # key reads move then. Aggregates and windows are fine: a WHERE is applied before them either way.
+        pushed: list[ast.Expr] = []
+        residual_where = outer.where
+        if not _depends_on_row_stream(_outer_expressions(outer), include_aggregates=False):
+            pushed, residual_where = self._split_where(outer, columns)
 
         taken_names = set(outer.type.columns) | set(outer.type.aliases) | set(inner.type.columns)
         hoister = _KeyReadHoister(columns, taken_names)
@@ -411,11 +467,8 @@ class EventsSubqueryPushdownTransform(TraversingVisitor):
             or inner.limit_by is not None
         ):
             return "inner_not_row_filter"
-        finder = _AggregateOrWindowFinder()
-        for expr in (*inner.select, *(inner.order_by or [])):
-            finder.visit(expr)
-        if finder.found:
-            return "inner_aggregates"
+        if _depends_on_row_stream([*inner.select, *(inner.order_by or [])], include_aggregates=True):
+            return "inner_depends_on_row_stream"
         return None
 
     def _split_where(self, outer: ast.SelectQuery, columns: _ExportedColumns) -> tuple[list[ast.Expr], ast.Expr | None]:
@@ -439,10 +492,11 @@ class EventsSubqueryPushdownTransform(TraversingVisitor):
         self, conjunct: ast.Expr, columns: _ExportedColumns, visible_aliases: dict[str, ast.Expr]
     ) -> ast.Expr | None:
         """The conjunct rewritten to read the events table, or None when it must stay in the outer query."""
-        # arrayJoin would multiply rows in a different scope; an unresolved IN COHORT becomes a join after this pass.
-        if contains_row_multiplying_function(conjunct) or contains_in_cohort(conjunct):
-            return None
         inlined = SelectAliasInliner(visible_aliases).visit(conjunct)
+        # Checked after alias inlining, because the alias body can hide them. An arrayJoin would multiply rows in a
+        # different scope from the outer copy; an unresolved IN COHORT becomes a join after this pass.
+        if contains_row_multiplying_function(inlined) or contains_in_cohort(inlined):
+            return None
         rewriter = _ConjunctRewriter(columns)
         rewritten = cast(ast.Expr, rewriter.visit(inlined))
         if rewriter.blocked or rewriter.moved == 0:
