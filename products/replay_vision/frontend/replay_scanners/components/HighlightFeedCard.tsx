@@ -305,9 +305,10 @@ export function HighlightFeedRow({ item, position }: HighlightFeedRowProps): JSX
         })
     }
     return (
+        // Fades in from part opacity at the poster's pace, so the slot never goes blank between placeholder and card.
         <article
             ref={rowRef}
-            className="group relative flex min-w-0 flex-col gap-3 rounded-lg border bg-surface-primary p-4 hover:border-accent focus-within:border-accent"
+            className="group relative flex min-w-0 flex-col gap-3 rounded-lg border bg-surface-primary p-4 hover:border-accent focus-within:border-accent duration-300 ease-out starting:opacity-30 motion-safe:transition-opacity"
             data-attr="vision-highlight-feed-row"
         >
             <header className="flex min-w-0 items-center gap-2">
