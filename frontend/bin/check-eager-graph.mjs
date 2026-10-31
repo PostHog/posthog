@@ -91,10 +91,10 @@ const ROOTS = [
             // file that builds a schema. Move the zod-free code of that file into its own module, as
             // sqlEditorDraftCleanup does for sqlEditorDraftStorage.
             'node_modules/zod/',
-            // Billing is for logged-in users, and billingLogic pulls in eventUsageLogic and the credit
-            // purchase UI. A hit means a module on the App path imports billingLogic. Read billing values
-            // from a logic or component that only logged-in pages load.
-            'src/scenes/billing/billingLogic.tsx',
+            // Billing is for logged-in users, and billingLogic pulls in eventUsageLogic. A hit means a
+            // module on the App path imports billingLogic. Read billing values from a logic or component
+            // that only logged-in pages load.
+            'src/lib/logic/billing/billingLogic.tsx',
             // Product setup statuses need a logged-in team, so AuthenticatedShell mounts the preload.
             'src/lib/components/ProductEmptyState/productSetupPreloadLogic.ts',
         ],

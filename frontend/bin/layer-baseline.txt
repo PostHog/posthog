@@ -19,13 +19,11 @@ frontend/src/layout/InternalFeedback/internalFeedbackLogic.ts -> frontend/src/to
 frontend/src/layout/navigation-3000/sidepanel/panels/activity/quill/QuillActivitySubscribeMenu.tsx -> frontend/src/scenes/hog-functions/sub-templates/sub-templates.ts
 frontend/src/layout/navigation-3000/sidepanel/panels/activity/sidePanelNotificationsLogic.tsx -> products/notifications/frontend/resourceEditedLogic.ts
 frontend/src/layout/navigation-3000/sidepanel/panels/max/SidePanelMax.tsx -> frontend/src/scenes/max/maxLogic.tsx
-frontend/src/layout/navigation-3000/sidepanel/panels/support/SidePanelSupport.tsx -> frontend/src/scenes/billing/billingLogic.tsx
 frontend/src/layout/navigation-3000/sidepanel/panels/support/SidePanelSupport.tsx -> products/conversations/frontend/components/SidePanel/SidePanelTickets.tsx
 frontend/src/layout/navigation-3000/sidepanel/panels/support/SidePanelSupport.tsx -> products/conversations/frontend/components/SidePanel/sidepanelTicketsLogic.ts
 frontend/src/layout/navigation-3000/sidepanel/sidePanelTabs.tsx -> products/conversations/frontend/components/SidePanel/SidePanelSupportIcon.tsx
 frontend/src/layout/navigation/projectNoticeLogic.tsx -> frontend/src/scenes/activity/live/liveEventsLogic.tsx
 frontend/src/layout/navigation/projectNoticeLogic.tsx -> frontend/src/scenes/authentication/verify-email/verifyEmailLogic.ts
-frontend/src/layout/navigation/projectNoticeLogic.tsx -> frontend/src/scenes/billing/billingLogic.tsx
 frontend/src/layout/navigation/projectNoticeLogic.tsx -> frontend/src/scenes/insights/EmptyStates/sampleDataStateLogic.ts
 frontend/src/layout/navigation/projectNoticeLogic.tsx -> frontend/src/scenes/welcome/productBranding.ts
 frontend/src/layout/panel-layout/DatabaseTree/DatabaseTree.tsx -> frontend/src/scenes/data-warehouse/editor/ConnectionSelector.tsx
@@ -76,10 +74,8 @@ frontend/src/layout/today/TodaySessionRow.tsx -> products/posthog_ai/frontend/ap
 frontend/src/layout/today/TodaySettingsSidebar.tsx -> frontend/src/scenes/settings/settingsLogic.ts
 frontend/src/layout/today/TodaySettingsSidebar.tsx -> frontend/src/scenes/settings/settingsNavTree.ts
 frontend/src/layout/today/TodaySettingsSidebar.tsx -> frontend/src/scenes/settings/types.ts
-frontend/src/layout/today/TodaySupportPanel.tsx -> frontend/src/scenes/billing/billingLogic.tsx
 frontend/src/layout/today/TodaySupportPanel.tsx -> products/conversations/frontend/components/QuillSidePanel/QuillSupportTickets.tsx
 frontend/src/layout/today/TodaySupportPanel.tsx -> products/conversations/frontend/components/SidePanel/sidepanelTicketsLogic.ts
-frontend/src/layout/today/TodaySupportResponseTimes.tsx -> frontend/src/scenes/billing/billingLogic.tsx
 frontend/src/layout/today/todayAiChatLogic.ts -> frontend/src/scenes/max/mainFocusUrl.ts
 frontend/src/layout/today/todayAiChatLogic.ts -> frontend/src/scenes/max/maxLogic.tsx
 frontend/src/layout/today/todayAnalyticsLogic.ts -> frontend/src/scenes/analytics/analyticsPinnedLogic.ts
@@ -93,12 +89,10 @@ frontend/src/layout/today/todayObjectGlances.ts -> frontend/src/scenes/library/l
 frontend/src/layout/today/todayObjectGlances.ts -> frontend/src/scenes/project-homepage/today/todayNumbers.ts
 frontend/src/layout/today/todayObjectGlances.ts -> products/experiments/frontend/experimentStatus.ts
 frontend/src/layout/today/todayObjectGlances.ts -> products/feature_flags/frontend/featureFlagConfigFormat.ts
-frontend/src/layout/today/todayOrgMenuLogic.ts -> frontend/src/scenes/billing/billingLogic.tsx
 frontend/src/layout/today/todayPaneSearch.ts -> frontend/src/scenes/analytics/analyticsUtils.ts
 frontend/src/layout/today/todayPanelTaskLogic.ts -> products/posthog_ai/frontend/api/logics.ts
 frontend/src/layout/today/todayPreviewCards.ts -> frontend/src/scenes/library/libraryUtils.ts
 frontend/src/layout/today/todayPreviewCards.ts -> products/posthog_ai/frontend/api/taskSource.ts
-frontend/src/layout/today/todayRailStatusLogic.ts -> frontend/src/scenes/billing/billingLogic.tsx
 frontend/src/layout/today/todayShellLogic.ts -> frontend/src/scenes/analytics/analyticsUtils.ts
 frontend/src/layout/today/todayShellLogic.ts -> frontend/src/scenes/library/libraryUtils.ts
 frontend/src/layout/today/todayShellLogic.ts -> frontend/src/scenes/settings/settingsSectionScenes.ts
@@ -112,8 +106,6 @@ frontend/src/lib/api.ts -> frontend/src/lib/apiRequestTiming.ts
 frontend/src/lib/api.ts -> frontend/src/lib/logic/apiStatusLogic.ts
 frontend/src/lib/api.ts -> frontend/src/queries/utils.ts
 frontend/src/lib/api.ts -> frontend/src/scenes/surveys/constants.tsx
-frontend/src/lib/components/Account/AccountMenu.tsx -> frontend/src/scenes/billing/billingLogic.tsx
-frontend/src/lib/components/Account/NewAccountMenu.tsx -> frontend/src/scenes/billing/billingLogic.tsx
 frontend/src/lib/components/Account/ProjectFreshnessIndicator.tsx -> frontend/src/scenes/onboarding/shared/utils.tsx
 frontend/src/lib/components/ActivityLog/ActivityLogSubscribeMenu.tsx -> frontend/src/scenes/hog-functions/sub-templates/sub-templates.ts
 frontend/src/lib/components/ActivityLog/activityDescriptions/tagActivityDescriber.tsx -> frontend/src/scenes/insights/utils.tsx
@@ -132,7 +124,6 @@ frontend/src/lib/components/AnnotationsOverlay/annotationsOverlayLogic.ts -> fro
 frontend/src/lib/components/AnnotationsOverlay/annotationsOverlayLogic.ts -> frontend/src/scenes/insights/insightVizDataLogic.ts
 frontend/src/lib/components/AppMetrics/appMetricsLogic.ts -> frontend/src/queries/utils.ts
 frontend/src/lib/components/AuthorizedUrlList/authorizedUrlListLogic.ts -> frontend/src/queries/utils.ts
-frontend/src/lib/components/BillingUpgradeCTA.tsx -> frontend/src/scenes/billing/billingLogic.tsx
 frontend/src/lib/components/Cards/InsightCard/DashboardInsightDisplayOptions.tsx -> products/product_analytics/frontend/insights/editor/InsightDisplayOptionsPanel.tsx
 frontend/src/lib/components/Cards/InsightCard/DashboardSqlDisplayOptions.tsx -> frontend/src/queries/nodes/DataVisualization/Components/DisplayTab.tsx
 frontend/src/lib/components/Cards/InsightCard/DashboardSqlDisplayOptions.tsx -> frontend/src/queries/nodes/DataVisualization/Components/TableDisplay.tsx
@@ -223,7 +214,6 @@ frontend/src/lib/components/FlagCalledRebuildBanner/flagCalledRebuildBannerLogic
 frontend/src/lib/components/HedgehogMode/HedgehogMode.tsx -> frontend/src/toolbar/shared/toolbarConfigLogic.ts
 frontend/src/lib/components/HedgehogMode/hedgehogModeLogic.ts -> frontend/src/toolbar/shared/toolbarConfigLogic.ts
 frontend/src/lib/components/HedgehogMode/hedgehogModeLogic.ts -> frontend/src/toolbar/shared/toolbarFetch.ts
-frontend/src/lib/components/HelpMenu/HelpMenu.tsx -> frontend/src/scenes/billing/billingLogic.tsx
 frontend/src/lib/components/HighlightedJSONViewer.tsx -> products/ai_observability/frontend/ConversationDisplay/HighlightedContentWrapper.tsx
 frontend/src/lib/components/HogQLDropdown/HogQLDropdown.tsx -> frontend/src/queries/utils.ts
 frontend/src/lib/components/HogQLEditor/HogQLEditor.tsx -> frontend/src/queries/utils.ts
@@ -255,9 +245,7 @@ frontend/src/lib/components/NotFound/index.tsx -> frontend/src/scenes/activity/e
 frontend/src/lib/components/NotFound/index.tsx -> frontend/src/scenes/notebooks/Nodes/NotebookNodeContext.ts
 frontend/src/lib/components/PathCleanFilters/PathRegexModal.tsx -> frontend/src/scenes/session-recordings/components/AiRegexHelper/AiRegexHelper.tsx
 frontend/src/lib/components/PayGateMini/PayGateButton.tsx -> frontend/src/scenes/billing/paymentEntryLogic.ts
-frontend/src/lib/components/PayGateMini/PayGateMini.tsx -> frontend/src/scenes/billing/billingLogic.tsx
 frontend/src/lib/components/PayGateMini/PayGateMini.tsx -> frontend/src/scenes/onboarding/shared/utils.tsx
-frontend/src/lib/components/PayGateMini/payGateMiniLogic.tsx -> frontend/src/scenes/billing/billingLogic.tsx
 frontend/src/lib/components/ProductEmptyState/ProductEmptyState.tsx -> frontend/src/scenes/onboarding/shared/useWizardCommand.ts
 frontend/src/lib/components/PropertiesTable/PropertiesTable.tsx -> products/persons/frontend/components/NewProperty.tsx
 frontend/src/lib/components/PropertyFilters/PropertyFilters.tsx -> frontend/src/scenes/cohorts/CohortFilters/CohortCriteriaRowBuilder.tsx
@@ -287,7 +275,6 @@ frontend/src/lib/components/Scenes/SceneMenuBarAddToNotebook.tsx -> frontend/src
 frontend/src/lib/components/Scenes/SceneMenuBarPinItem.tsx -> frontend/src/scenes/analytics/analyticsPinnedLogic.ts
 frontend/src/lib/components/Scenes/SceneMenuBarPinItem.tsx -> frontend/src/scenes/analytics/analyticsUtils.ts
 frontend/src/lib/components/Search/searchItems.tsx -> products/customer_analytics/frontend/components/Accounts/accountStatusTags.ts
-frontend/src/lib/components/Search/searchListsLogic.tsx -> frontend/src/scenes/billing/billingLogic.tsx
 frontend/src/lib/components/Search/searchListsLogic.tsx -> frontend/src/scenes/settings/flagGating.ts
 frontend/src/lib/components/Search/searchListsLogic.tsx -> frontend/src/scenes/settings/organization/organizationIntegrationsLogic.ts
 frontend/src/lib/components/Search/searchListsLogic.tsx -> frontend/src/scenes/settings/settingsSearch.ts
@@ -307,7 +294,6 @@ frontend/src/lib/components/SmoothingFilter/SmoothingFilter.tsx -> frontend/src/
 frontend/src/lib/components/SmoothingFilter/SmoothingFilter.tsx -> frontend/src/scenes/insights/insightVizDataLogic.ts
 frontend/src/lib/components/SmoothingFilter/SmoothingFilter.tsx -> products/product_analytics/frontend/insights/trends/trendsDataLogic.ts
 frontend/src/lib/components/SocialLoginButton/SocialLoginButton.tsx -> frontend/src/scenes/authentication/shared/passkeyLogic.ts
-frontend/src/lib/components/Superpowers/buildFakeBillingAlert.ts -> frontend/src/scenes/billing/billing-utils.ts
 frontend/src/lib/components/SurveyResponseDisplay/SurveyResponseDisplay.tsx -> frontend/src/scenes/surveys/hooks/useSurveyResponseColumns.tsx
 frontend/src/lib/components/SurveyResponseDisplay/SurveyResponseDisplay.tsx -> frontend/src/scenes/surveys/surveyLogic.tsx
 frontend/src/lib/components/SurveyResponseDisplay/SurveyResponseDisplay.tsx -> frontend/src/scenes/surveys/utils.ts
@@ -333,7 +319,6 @@ frontend/src/lib/components/UnitPicker/UnitPicker.tsx -> frontend/src/scenes/ins
 frontend/src/lib/components/UnitPicker/UnitPicker.tsx -> frontend/src/scenes/insights/insightLogic.tsx
 frontend/src/lib/components/UnitPicker/UnitPicker.tsx -> frontend/src/scenes/insights/insightVizDataLogic.ts
 frontend/src/lib/components/UniversalFilters/universalFiltersLogic.ts -> frontend/src/scenes/session-recordings/filters/sessionRecordingSavedFiltersLogic.ts
-frontend/src/lib/components/UpgradeModal/upgradeModalLogic.ts -> frontend/src/scenes/billing/billingLogic.tsx
 frontend/src/lib/components/ViewRecordingButton/ViewRecordingButton.tsx -> frontend/src/scenes/session-recordings/player/modal/sessionPlayerModalLogic.ts
 frontend/src/lib/components/ViewRecordingButton/ViewRecordingButton.tsx -> frontend/src/scenes/session-recordings/playlist/UnwatchedIndicator.tsx
 frontend/src/lib/components/heatmaps/heatmapDataLogic.ts -> frontend/src/toolbar/shared/toolbarConfigLogic.ts
@@ -556,7 +541,6 @@ frontend/src/queries/nodes/WebVitals/WebVitals.tsx -> frontend/src/scenes/web-an
 frontend/src/queries/nodes/WebVitals/WebVitalsContent.tsx -> frontend/src/scenes/web-analytics/webAnalyticsLogic.tsx
 frontend/src/queries/nodes/WebVitals/WebVitalsPathBreakdown.tsx -> frontend/src/scenes/web-analytics/webAnalyticsLogic.tsx
 frontend/src/queries/query.ts -> frontend/src/exporter/exporterViewLogic.ts
-frontend/src/scenes/AuthenticatedShell.tsx -> frontend/src/scenes/billing/billingLogic.tsx
 frontend/src/scenes/AuthenticatedShell.tsx -> frontend/src/scenes/onboarding/shared/wizard-sync/WizardHandoffDialog.tsx
 frontend/src/scenes/AuthenticatedShell.tsx -> frontend/src/scenes/onboarding/shared/wizard-sync/WizardSyncDebugPanel.tsx
 frontend/src/scenes/AuthenticatedShell.tsx -> products/webmcp/frontend/logics/webmcpLogic.ts
