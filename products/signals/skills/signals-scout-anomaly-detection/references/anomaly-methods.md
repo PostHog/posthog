@@ -35,17 +35,62 @@ configs and a detector-selection guide, read the `anomaly-alerts`, `signals-aler
   use the ensemble.)
 - **Target a time-series insight.** A single-value / BoldNumber insight returns one point and
   scores nothing — point the simulator at a trend displayed over time.
-- **`alert-simulate` only accepts `TrendsQuery` insights.** A SQL-backed saved insight
-  (`DataVisualizationNode` wrapping a `HogQLQuery` — most revenue, MRR/ARR, and LLM-cost
-  insights are this) is rejected outright with `Only TrendsQuery insights are supported`. Don't
-  burn a call discovering this: check the insight's `query.kind` first (via `insight-get`), and
-  if it's a `DataVisualizationNode`, score it with the SQL fallback below instead of the
-  simulator.
+- **SQL insights need a `config`.** A SQL-backed saved insight (`DataVisualizationNode`
+  wrapping a `HogQLQuery`, which is how most revenue, MRR/ARR, and LLM-cost insights are built)
+  goes through the same simulator, and its result rows are the series. Read the insight with
+  `insight-get` first: check `query.kind`, the value column, and the `ORDER BY`. Then tell the
+  simulator which column to score and which end of the result is newest:
+
+  ```json
+  {
+    "insight": "<short_id>",
+    "config": {
+      "type": "HogQLAlertConfig",
+      "column": "<numeric column>",
+      "evaluation": "last_row",
+      "label_column": "<date column>"
+    },
+    "detector_config": {
+      "type": "zscore",
+      "threshold": 0.95,
+      "window": 28,
+      "preprocessing": { "diffs_n": 1 }
+    }
+  }
+  ```
+
+  - **Row direction.** Use `last_row` when the query sorts by date ascending (newest row last)
+    and `first_row` when it sorts descending (newest row first). Either way the response's
+    `data` and `dates` run oldest → newest. `any_row` is refused because its rows are
+    entities, not a time series. A query that is not ordered by a date column is not a time
+    series. Do not simulate it.
+  - **Columns.** Always name `column`. It is optional only when the result has exactly one
+    numeric column. A result with several (`count`, `errors`, `error_rate`) makes the call
+    fail. Set `label_column` to the date column so `dates` comes back filled.
+  - **History.** `date_from`, `series_index`, and `evaluation_delay_intervals` apply to
+    Trends only. The query's own date filter and `LIMIT` set the history. It needs at least
+    `window` rows plus preprocessing headroom, so lower the `window` to fit a short query. The
+    response covers only that trailing slice, so only the newest point or two carry a score.
+  - **Ensembles.** Read `sub_detector_scores`. A member whose scores are all `null` did not
+    vote. `isolation_forest` can come back that way on the short SQL slice, which leaves the
+    verdict to the other members. A standalone `zscore` with `diffs_n: 1` scores reliably.
+  - **Partial buckets.** The simulator scores the rows exactly as the query returns them. If
+    the SQL has no upper bound that excludes the current bucket (e.g.
+    `timestamp < toStartOfDay(now())`), the newest point is the in-progress bucket. Ignore its
+    score and read the second-newest point, the latest complete bucket. If that point has no
+    score, score it with the SQL fallback below.
+  - **Seasonality and data floors still apply.** The detectors use rolling windows, not
+    same-weekday matching. Confirm a hit against the seasonality, minimum-data, and low-count
+    guards below before you emit. A cumulative or month-to-date metric (a running MRR/ARR
+    total) has no comparable daily bucket. Rebuild a daily or hourly series with
+    `execute-sql` and score it with the fallback.
+
 - **Breakdown insights return a per-series block per breakdown value plus a meaningless
   rolled-up total.** `series_index` does not cleanly isolate one breakdown value — read the
   per-series sub-blocks, or prefer a non-breakdown insight for a clean read.
 - **Only points with ≥ `window` history get scored.** On a short series, simulate with a
-  smaller `window` (e.g. ≤ 168) to get scored points; `date_from` controls how far back to go.
+  smaller `window` (e.g. ≤ 168) to get scored points. For Trends, `date_from` controls how far
+  back to go. For SQL, the query's own rows do.
 
 **When to still hand-roll (the fallback below).** `alert-simulate` requires a saved insight,
 and its detectors use rolling windows rather than explicit same-day-of-week / same-hour-of-week
@@ -308,7 +353,8 @@ different metric.
 ### Trends (counts / sums / uniques over time) — primary
 
 This is the bulk of dashboards. Score it with `alert-simulate` on the saved insight; drop to
-the `insight-query` / `execute-sql` fallback only when the simulator doesn't apply.
+the `insight-query` / `execute-sql` fallback only when the simulator doesn't apply. A saved SQL
+time series is scored the same way: pass the `HogQLAlertConfig` from the gotchas above.
 
 ### Funnels — overall conversion rate as the metric
 
