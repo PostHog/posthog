@@ -1715,39 +1715,67 @@ describe('Hog Executor', () => {
                 secret_input: 'signing_secret',
                 webhook_id: '4f6c9f2a-5b1e-4f5b-9d3c-2a7e8c1d0b64',
             }
-            const EXPECTED_SIGNATURE = `sha256=${createHmac('sha256', SECRET).update(BODY).digest('hex')}`
 
-            const createSignedInvocation = async (): Promise<CyclotronJobInvocationHogFunction> =>
-                await createFetchInvocation({
+            type ReceivedRequest = { id: unknown; signature: unknown; body: string }
+
+            const signatureOf = (body: string): string =>
+                `sha256=${createHmac('sha256', SECRET).update(body).digest('hex')}`
+
+            const receiveRequests = (statusCodes: number[] = [200]): ReceivedRequest[] => {
+                const received: ReceivedRequest[] = []
+                mockRequest.mockImplementation((req: any, res: any) => {
+                    let body = ''
+                    req.on('data', (chunk: Buffer) => (body += chunk.toString()))
+                    req.on('end', () => {
+                        received.push({
+                            id: req.headers['webhook-id'],
+                            signature: req.headers['x-hub-signature-256'],
+                            body,
+                        })
+                        res.writeHead(statusCodes[received.length - 1] ?? 200, { 'Content-Type': 'text/plain' })
+                        res.end('ok')
+                    })
+                })
+                return received
+            }
+
+            const createSignedInvocation = async (method = 'POST'): Promise<CyclotronJobInvocationHogFunction> => {
+                const invocation = await createFetchInvocation({
                     url: `${baseUrl}/`,
-                    method: 'POST',
+                    method,
                     body: BODY,
                     headers: { 'Content-Type': 'application/json', 'X-Hub-Signature-256': 'sha256=stale' },
                     hmac_sha256: SIGNING_REFS,
                 })
+                invocation.hogFunction.encrypted_inputs = { signing_secret: { value: SECRET } } as any
+                return invocation
+            }
+
+            it.each(['POST', 'GET'])('signs the bytes a %s request sends', async (method) => {
+                const received = receiveRequests()
+
+                const result = await executor.executeFetch(await createSignedInvocation(method))
+
+                expect(result.error).toBeUndefined()
+                expect(received).toHaveLength(1)
+                expect(received[0].id).toBe(SIGNING_REFS.webhook_id)
+                expect(received[0].signature).toBe(signatureOf(received[0].body))
+            })
 
             it('signs every attempt of one delivery with the same delivery id', async () => {
-                const received: { id: unknown; signature: unknown }[] = []
-                mockRequest.mockImplementation((req: any, res: any) => {
-                    received.push({ id: req.headers['webhook-id'], signature: req.headers['x-hub-signature-256'] })
-                    res.writeHead(received.length === 1 ? 500 : 200, { 'Content-Type': 'text/plain' })
-                    res.end('ok')
-                })
-                const invocation = await createSignedInvocation()
-                invocation.hogFunction.encrypted_inputs = { signing_secret: { value: SECRET } } as any
+                const received = receiveRequests([500, 200])
 
-                const firstAttempt = await executor.executeFetch(invocation)
+                const firstAttempt = await executor.executeFetch(await createSignedInvocation())
                 const retry = await executor.executeFetch(firstAttempt.invocation)
 
                 expect(retry.error).toBeUndefined()
-                expect(received).toEqual([
-                    { id: SIGNING_REFS.webhook_id, signature: EXPECTED_SIGNATURE },
-                    { id: SIGNING_REFS.webhook_id, signature: EXPECTED_SIGNATURE },
-                ])
+                expect(received.map(({ id }) => id)).toEqual([SIGNING_REFS.webhook_id, SIGNING_REFS.webhook_id])
+                expect(received.map(({ signature }) => signature)).toEqual([signatureOf(BODY), signatureOf(BODY)])
             })
 
             it('refuses to send an unsigned request when the secret input is missing', async () => {
                 const invocation = await createSignedInvocation()
+                invocation.hogFunction.encrypted_inputs = {} as any
 
                 const result = await executor.executeFetch(invocation)
 

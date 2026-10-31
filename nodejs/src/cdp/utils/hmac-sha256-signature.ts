@@ -4,17 +4,14 @@ import { CyclotronInvocationQueueParametersFetchHmacSha256Type } from '~/cdp/sch
 
 import { HogFunctionType } from '../types'
 import { resolveHogFunctionInputValue } from './hog-function-inputs'
-
-const SIGNATURE_HEADER = 'x-hub-signature-256'
-const DELIVERY_ID_HEADER = 'webhook-id'
-const SIGNING_HEADERS = new Set([SIGNATURE_HEADER, DELIVERY_ID_HEADER])
+import { mergeSecretHeaders } from './secret-headers'
 
 export type ResolvedHmacSha256Secret = { ok: true; secret: string } | { ok: false; error: string }
 
 export type SignHmacSha256RequestArgs = {
     webhookId: string
-    body?: string | null
-    headers?: Record<string, string>
+    body: string
+    headers: Record<string, string>
     secret: string
 }
 
@@ -40,20 +37,10 @@ export function signHmacSha256Request({
     headers,
     secret,
 }: SignHmacSha256RequestArgs): Record<string, string> {
-    const signature = createHmac('sha256', secret)
-        .update(body ?? '')
-        .digest('hex')
+    const signature = createHmac('sha256', secret).update(body).digest('hex')
 
-    const outHeaders: Record<string, string> = {}
-    for (const [headerKey, headerValue] of Object.entries(headers ?? {})) {
-        if (!SIGNING_HEADERS.has(headerKey.toLowerCase())) {
-            outHeaders[headerKey] = headerValue
-        }
-    }
-
-    return {
-        ...outHeaders,
-        [DELIVERY_ID_HEADER]: webhookId,
-        [SIGNATURE_HEADER]: `sha256=${signature}`,
-    }
+    return mergeSecretHeaders(headers, {
+        'webhook-id': webhookId,
+        'x-hub-signature-256': `sha256=${signature}`,
+    })
 }
