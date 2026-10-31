@@ -19,7 +19,7 @@ keep the dependency map returned by `canvas-source-retrieve` unchanged.
 ## Selection guidance
 
 - Use `@posthog/quill-charts` for charts. Use D3 for a layout, projection, or shape that quill-charts does not
-  provide.
+  provide, following the `drawing-custom-charts` skill.
 - Prefer Quill's `Table` for small static tables. Use TanStack Table for table behavior and TanStack
   Virtual when the rendered row count is large. These libraries provide behavior, not visual styles.
 - Use React Hook Form with Quill inputs. Keep the network submit button disabled while submission is
@@ -60,7 +60,7 @@ The axis charts need a parent like `<div className="flex h-[280px] flex-col">`; 
 | `SlopeChart`                          | Change between two points                                                                                                                                     |
 | `Sparkline`                           | A small trend with no axes. Takes `data` and a `height` prop instead of a sized parent. Its `fill` prop means "fill a flex parent's height", not an area fill |
 | `MetricCard`                          | A headline number with a sparkline and a change pill. It draws no border: put each one in its own `Card`                                                      |
-| `Chart`, `RadialChart`                | The core the charts above are built on. Extend it for a shape that is not listed                                                                              |
+| `Chart`, `RadialChart`                | The core the charts above are built on. Extend it for a shape that is not listed, following the `drawing-custom-charts` skill                                 |
 
 ```tsx
 import dayjs from 'dayjs'
