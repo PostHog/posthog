@@ -36,7 +36,7 @@ jobs:
               with:
                   actions-id-token-request-url: ${{ env.ACTIONS_ID_TOKEN_REQUEST_URL }}
                   push-image: true
-                  aws-role-to-assume: ${{ vars.AWS_ECR_POSTHOG_PRS_PUBLISH_IAM_ROLE }}
+                  aws-role-to-assume: ${{ secrets.AWS_ECR_SHARED_SERVICES_POSTHOG_PRS_PUBLISH_IAM_ROLE }}
                   dockerhub-username: ${{ secrets.DOCKERHUB_USER }}
                   dockerhub-password: ${{ secrets.DOCKERHUB_TOKEN }}
                   pr-number: ${{ github.event.number }}
