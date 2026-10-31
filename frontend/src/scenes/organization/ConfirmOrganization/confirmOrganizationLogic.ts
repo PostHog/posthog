@@ -7,6 +7,7 @@ import api from 'lib/api'
 import { getReferralFollowUp } from 'lib/components/SignupReferralSource'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { getRelativeNextPath } from 'lib/utils/url'
+import { clearAgentSignupGoal, readAgentSignupGoal } from 'scenes/authentication/shared/agentSignupGoal'
 import { readPendingOAuthConnection } from 'scenes/authentication/shared/pendingOAuthConnectionLogic'
 
 export interface ConfirmOrganizationFormValues {
@@ -148,7 +149,7 @@ export const confirmOrganizationLogic = kea<confirmOrganizationLogicType>([
                 role_at_organization: '',
                 // The partner that started the OAuth connection is where this person heard about PostHog
                 referral_source: readPendingOAuthConnection()?.clientName ?? '',
-                referral_source_ai_prompt: '',
+                referral_source_ai_prompt: readAgentSignupGoal() ?? '',
                 referral_source_influencer: '',
             } as ConfirmOrganizationFormValues,
             errors: ({ organization_name, first_name, role_at_organization }) => ({
@@ -167,7 +168,7 @@ export const confirmOrganizationLogic = kea<confirmOrganizationLogicType>([
 
             submit: async (formValues) => {
                 // An answer typed into a follow-up that a later referral source edit hid again must not be sent
-                const followUp = getReferralFollowUp(formValues.referral_source ?? '')
+                const followUp = getReferralFollowUp(formValues.referral_source ?? '', readAgentSignupGoal() !== null)
                 try {
                     // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                     await api.create('api/social_signup/', {
@@ -193,6 +194,7 @@ export const confirmOrganizationLogic = kea<confirmOrganizationLogicType>([
                     // as a successful submit, which hides them again.
                     throw error
                 }
+                clearAgentSignupGoal()
 
                 const nextUrl = getRelativeNextPath(new URLSearchParams(location.search).get('next'), location)
 

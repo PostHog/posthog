@@ -38,6 +38,9 @@ from ee.api.agentic_provisioning.exceptions import ProvisioningError
 from ee.api.agentic_provisioning.regions import region_to_host
 from ee.api.agentic_provisioning.tokens import user_can_access_team
 
+# Same limit as `referral_source_ai_prompt` on the signup serializers
+MAX_GOAL_LENGTH = 1000
+
 
 def partner_label(partner: OAuthApplication | None) -> str:
     """How a partner is named to a user, in the org it provisions and on the consent screen.
@@ -343,6 +346,9 @@ def handle_new_user(
 
     label = partner_label(partner)
     org_name = partner_organization_name(partner, email, configuration.get("organization_name"))
+    # The goal the agent was given, recorded where the signup form records an AI prompt
+    goal = configuration.get("goal")
+    goal = goal.strip()[:MAX_GOAL_LENGTH] if isinstance(goal, str) else ""
 
     if signup_refused(email, call_site="agentic_provisioning"):
         capture_provisioning_event("account_request", "access_blocked", partner=partner, region=region)
@@ -400,6 +406,7 @@ def handle_new_user(
         is_organization_first_user=True,
         backend_processor="AgenticProvisioning",
         social_provider=partner.name,
+        referral_source_ai_prompt=goal,
         user_analytics_metadata=user.get_analytics_metadata(),
         org_analytics_metadata=organization.get_analytics_metadata(),
     )

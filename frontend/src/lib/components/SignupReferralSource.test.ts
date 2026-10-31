@@ -24,4 +24,8 @@ describe('signup referral source follow-up triggers', () => {
     ] as const)('"%s" → %s', (input, followUp) => {
         expect(getReferralFollowUp(input)).toBe(followUp)
     })
+
+    test.each(['', 'a colleague', 'found it on TikTok'])('"%s" from an agent → ai', (input) => {
+        expect(getReferralFollowUp(input, true)).toBe('ai')
+    })
 })
