@@ -669,12 +669,6 @@ CONVERSATIONS_TICKETS_JWT_SECRETS = get_list(
     get_from_env("CONVERSATIONS_TICKETS_JWT_SECRET", "local-dev-conversations-tickets-jwt" if DEBUG or TEST else "")
 )
 
-# Verifies the AI gateway's low-balance call (posthog/api/ai_gateway_reload.py). Comma-separated, newest first.
-# Empty outside dev/test, so the route rejects every request until ops set the secret.
-AI_GATEWAY_RELOAD_JWT_SECRETS = get_list(
-    get_from_env("AI_GATEWAY_RELOAD_JWT_SECRET", "local-dev-ai-gateway-reload-jwt" if DEBUG or TEST else "")
-)
-
 # Account actions and customer task creation share these keys but require distinct JWT audiences.
 # The worker mints, Django verifies. Comma-separated, newest first. Empty outside dev/test,
 # so scoped routes fail closed until provisioned. Account actions retain their legacy auth
