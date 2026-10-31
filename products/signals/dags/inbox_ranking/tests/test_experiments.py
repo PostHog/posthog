@@ -34,7 +34,11 @@ from products.signals.dags.inbox_ranking.dataset.dag import (
 from products.signals.dags.inbox_ranking.multihead.inputs import NetworkConfig
 from products.signals.dags.inbox_ranking.multihead.local import report_vectors
 from products.signals.dags.inbox_ranking.multihead.prototype import ExampleTable, project_context, report_matrix
-from products.signals.dags.inbox_ranking.nn import experiments, pair_lane
+from products.signals.dags.inbox_ranking.nn import (
+    dag as nn_dag,
+    experiments,
+    pair_lane,
+)
 from products.signals.dags.inbox_ranking.nn.dag import NN_EXAMPLES_TABLE
 from products.signals.dags.inbox_ranking.nn.examples import NN_HEAD_NAMES, NN_HEADS, build_examples, examples_arrow
 from products.signals.dags.inbox_ranking.nn.model import network_recipe, onnx_probabilities, vs_baseline_block
@@ -64,6 +68,7 @@ from products.signals.dags.inbox_ranking.training.families import (
     NN_PAIR_BASE_MODEL_NAME,
     NN_PAIR_USER_MODEL_NAME,
     NN_WITH_PRIO_FAMILY,
+    NN_WITH_PRIO_FIXED_FAMILY,
     NN_WITH_PRIO_MODEL_NAME,
     PAIR_GRAIN,
     ModelFamily,
@@ -167,20 +172,29 @@ def test_an_experiment_must_name_a_registered_serving_baseline_and_an_expiry():
     "build",
     [
         lambda: ModelFamily(
-            name="served_fixed",
+            name="served_repeated_kind",
             feature_set=REPORT_EMBEDDINGS_FEATURE_SET,
-            project_vector_kinds=(*PROJECT_VECTOR_KINDS, "fixed"),
+            project_vector_kinds=(*PROJECT_VECTOR_KINDS, "open"),
         ),
         lambda: dataclasses.replace(_pair_experiment("pair_fixed"), project_vector_kinds=("typical", "fixed")),
         lambda: dataclasses.replace(
             _experiment("unknown_kind", datetime.date(2026, 12, 31)), project_vector_kinds=("typical", "seen")
         ),
     ],
-    ids=["serving_family", "pair_experiment", "unknown_kind"],
+    ids=["serving_family_repeated_kind", "pair_experiment", "unknown_kind"],
 )
-def test_only_a_report_experiment_can_read_other_project_vector_kinds(build):
+def test_only_a_report_family_can_read_other_project_vector_kinds(build):
     with pytest.raises(ValueError, match="project vector kinds"):
         build()
+
+
+def test_a_serving_family_reads_fixed_and_trains_after_the_prio_champion():
+    assert NN_WITH_PRIO_FIXED_FAMILY in serving_families()
+    assert NN_WITH_PRIO_FIXED_FAMILY.project_vector_kinds == (*PROJECT_VECTOR_KINDS, "fixed")
+    candidate_deps = {
+        key.to_user_string() for key in nn_dag.inbox_ranking_nn_with_prio_fixed_model_candidate.dependency_keys
+    }
+    assert nn_dag.NN_WITH_PRIO_CHAMPION_ASSET in candidate_deps
 
 
 @pytest.mark.parametrize(

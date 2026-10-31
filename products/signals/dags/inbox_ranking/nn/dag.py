@@ -88,6 +88,7 @@ from products.signals.dags.inbox_ranking.training.families import (
     MODEL_FAMILIES,
     NN_FAMILY,
     NN_WITH_PRIO_FAMILY,
+    NN_WITH_PRIO_FIXED_FAMILY,
     ModelFamily,
 )
 from products.signals.dags.inbox_ranking.training.side_inputs import load_side_inputs
@@ -105,6 +106,8 @@ NN_CANDIDATE_ASSET = "inbox_ranking_nn_model_candidate"
 NN_CHAMPION_ASSET = "inbox_ranking_nn_model_champion"
 NN_WITH_PRIO_CANDIDATE_ASSET = "inbox_ranking_nn_with_prio_model_candidate"
 NN_WITH_PRIO_CHAMPION_ASSET = "inbox_ranking_nn_with_prio_model_champion"
+NN_WITH_PRIO_FIXED_CANDIDATE_ASSET = "inbox_ranking_nn_with_prio_fixed_model_candidate"
+NN_WITH_PRIO_FIXED_CHAMPION_ASSET = "inbox_ranking_nn_with_prio_fixed_model_champion"
 
 # The settings the prototype compared against the champion recipe with.
 NETWORK_CONFIG = NetworkConfig()
@@ -458,7 +461,9 @@ def decide_champion(
             champion,
             holdout_model,
             holdout,
-            network_inputs(holdout, day.extras, day.labels, day.embeddings, family.feature_set),
+            network_inputs(
+                holdout, day.extras, day.labels, day.embeddings, family.feature_set, family.project_vector_kinds
+            ),
         )
 
     return decide_family_champion(context, client, bucket, prefix, partition_key, family, grade_champion=grade_champion)
@@ -505,6 +510,14 @@ _NN_WITH_PRIO_ASSETS = family_assets(
 )
 inbox_ranking_nn_with_prio_model_candidate = _NN_WITH_PRIO_ASSETS.candidate
 inbox_ranking_nn_with_prio_model_champion = _NN_WITH_PRIO_ASSETS.champion
+_NN_WITH_PRIO_FIXED_ASSETS = family_assets(
+    NN_WITH_PRIO_FIXED_FAMILY,
+    candidate_name=NN_WITH_PRIO_FIXED_CANDIDATE_ASSET,
+    champion_name=NN_WITH_PRIO_FIXED_CHAMPION_ASSET,
+    after=[NN_WITH_PRIO_CHAMPION_ASSET],
+)
+inbox_ranking_nn_with_prio_fixed_model_candidate = _NN_WITH_PRIO_FIXED_ASSETS.candidate
+inbox_ranking_nn_with_prio_fixed_model_champion = _NN_WITH_PRIO_FIXED_ASSETS.champion
 
 
 inbox_ranking_nn_training_job = dagster.define_asset_job(
@@ -515,6 +528,8 @@ inbox_ranking_nn_training_job = dagster.define_asset_job(
         NN_CHAMPION_ASSET,
         NN_WITH_PRIO_CANDIDATE_ASSET,
         NN_WITH_PRIO_CHAMPION_ASSET,
+        NN_WITH_PRIO_FIXED_CANDIDATE_ASSET,
+        NN_WITH_PRIO_FIXED_CHAMPION_ASSET,
     ],
     tags={
         **owner_tags,

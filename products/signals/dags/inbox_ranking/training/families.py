@@ -41,6 +41,7 @@ NN_WITH_PRIO_MODEL_NAME = "nn_with_prio_v2"
 NN_WITH_PRIO_SOURCES_MODEL_NAME = "nn_with_prio_sources_v1"
 NN_WITH_PRIO_FIXED_MODEL_NAME = "nn_with_prio_fixed_v1"
 NN_WITH_PRIO_FIXED_NODISMISS_MODEL_NAME = "nn_with_prio_fixed_nodismiss_v1"
+NN_WITH_PRIO_FIXED_SERVING_MODEL_NAME = "nn_with_prio_fixed_v2"
 FIXED_EXPERIMENT_EXPIRES = datetime.date(2026, 11, 27)
 NN_PAIR_BASE_MODEL_NAME = "nn_pair_base_v1"
 NN_PAIR_USER_MODEL_NAME = "nn_pair_user_v1"
@@ -65,7 +66,7 @@ class ModelFamily:
     partition day it trains in `expires`. A serving family has neither.
 
     `project_vector_kinds` are the team context kinds the network reads, in its input order. Only a
-    report-grain experiment can change them. The pair lane reads `PROJECT_VECTOR_KINDS` only.
+    report-grain family can change them. The pair lane reads `PROJECT_VECTOR_KINDS` only.
 
     A pair-grain family is always an experiment and declares its `heads` from `PAIR_HEAD_NAMES`. Its
     `baseline` is another pair experiment, and it names a `baseline`, a `reference`, or both: the
@@ -103,9 +104,9 @@ class ModelFamily:
                 f"family {self.name} declares project vector kinds {list(kinds)}; pick distinct kinds from "
                 f"{list(ALL_PROJECT_VECTOR_KINDS)}"
             )
-        if kinds != PROJECT_VECTOR_KINDS and (not self.experiment or self.grain == PAIR_GRAIN):
+        if kinds != PROJECT_VECTOR_KINDS and self.grain == PAIR_GRAIN:
             raise ValueError(
-                f"family {self.name} declares project vector kinds {list(kinds)}; only a report-grain experiment "
+                f"family {self.name} declares project vector kinds {list(kinds)}; only a report-grain family "
                 f"can read other kinds than {list(PROJECT_VECTOR_KINDS)}"
             )
 
@@ -139,6 +140,8 @@ class ModelFamily:
 # report's signals as of the moment, graded against `nn_with_prio_v2`.
 # `nn_with_prio_fixed_v1` adds a `fixed` project vector to `nn_with_prio_v2`, because fixes reach
 # teams whose UI kinds are thin. `nn_with_prio_fixed_nodismiss_v1` swaps `dismiss` for `fixed`.
+# `nn_with_prio_fixed_v2` is the `nn_with_prio_fixed_v1` recipe as a serving family, so it gets
+# online grades as a challenger. The experiments keep the paired-seed read until they expire.
 # `nn_pair_base_v1` and `nn_pair_user_v1` are the user-history comparison at pair grain: one network,
 # one input shape, the same pairs and seeds, and the same reviewer flag. The base holds every
 # user-history input at zero, so `nn_pair_user_v1` against it is the uplift of the user's history
@@ -152,6 +155,13 @@ MODEL_FAMILIES: tuple[ModelFamily, ...] = (
         feature_set=REPORT_EMBEDDINGS_PRIORITY_FEATURE_SET,
         learner=ONNX_MODEL_KIND,
         location=ML_LOCATION,
+    ),
+    ModelFamily(
+        name=NN_WITH_PRIO_FIXED_SERVING_MODEL_NAME,
+        feature_set=REPORT_EMBEDDINGS_PRIORITY_FEATURE_SET,
+        learner=ONNX_MODEL_KIND,
+        location=ML_LOCATION,
+        project_vector_kinds=ALL_PROJECT_VECTOR_KINDS,
     ),
     ModelFamily(
         name=NN_WITH_PRIO_SOURCES_MODEL_NAME,
@@ -208,6 +218,9 @@ MODEL_FAMILIES: tuple[ModelFamily, ...] = (
 )
 NN_FAMILY = next(family for family in MODEL_FAMILIES if family.name == NN_MODEL_NAME)
 NN_WITH_PRIO_FAMILY = next(family for family in MODEL_FAMILIES if family.name == NN_WITH_PRIO_MODEL_NAME)
+NN_WITH_PRIO_FIXED_FAMILY = next(
+    family for family in MODEL_FAMILIES if family.name == NN_WITH_PRIO_FIXED_SERVING_MODEL_NAME
+)
 
 
 def serving_families(families: Sequence[ModelFamily] = MODEL_FAMILIES) -> tuple[ModelFamily, ...]:
