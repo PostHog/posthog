@@ -96,10 +96,10 @@ def metric_all_zero(ctx: HealthContext) -> CheckOutcome:
 
 
 def _explained_elsewhere(metric: ZeroMetric, ctx: HealthContext, hours_of_data: float) -> bool:
-    # `metric_event_not_ingested` reports an event the project never received. `metric_calculation_failed` and
-    # `zero_exposures` need no rule here: a failed metric has no zero to read, and a result with exposures isn't zero
-    # exposures.
-    if any(ctx.events_received.get(event) is False for event in metric.events):
+    # `metric_event_not_ingested` reports an event the project never received, until the experiment ends.
+    # `metric_calculation_failed` and `zero_exposures` need no rule here: a failed metric has no zero to read, and a
+    # result with exposures isn't zero exposures.
+    if not ctx.has_ended and any(ctx.events_received.get(event) is False for event in metric.events):
         return True
     return _retention_window_not_reached(metric, hours_of_data)
 

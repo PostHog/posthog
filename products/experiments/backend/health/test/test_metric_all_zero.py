@@ -71,7 +71,14 @@ def _outcome(
     return metric_all_zero(replace(RUNNING_CONTEXT, latest_calculation=calculation, **changes))
 
 
-def _variant(*, samples: int, total: float, squares: float | None = None, denominator: float | None = None) -> dict:
+def _variant(
+    *,
+    samples: int,
+    total: float,
+    squares: float | None = None,
+    denominator: float | None = None,
+    denominator_squares: float | None = None,
+) -> dict:
     return {
         "key": "test",
         "method": "bayesian",
@@ -79,11 +86,25 @@ def _variant(*, samples: int, total: float, squares: float | None = None, denomi
         "sum": total,
         "sum_squares": total**2 if squares is None else squares,
         "denominator_sum": denominator,
+        "denominator_sum_squares": denominator_squares,
     }
 
 
-def _result(*, samples: int, total: float, squares: float | None = None, denominator: float | None = None) -> dict:
-    variant = _variant(samples=samples, total=total, squares=squares, denominator=denominator)
+def _result(
+    *,
+    samples: int,
+    total: float,
+    squares: float | None = None,
+    denominator: float | None = None,
+    denominator_squares: float | None = None,
+) -> dict:
+    variant = _variant(
+        samples=samples,
+        total=total,
+        squares=squares,
+        denominator=denominator,
+        denominator_squares=denominator_squares,
+    )
     baseline = {key: value for key, value in variant.items() if key != "method"}
     return {"baseline": {**baseline, "key": "control"}, "variant_results": [variant]}
 
@@ -203,8 +224,14 @@ class TestMetricAllZero(TestCase):
     def test_stays_quiet(self, _name: str, metric: ZeroMetric, hours_of_data: float) -> None:
         self.assertIsNone(_outcome(metric, hours_of_data=hours_of_data))
 
-    def test_stays_quiet_when_the_event_never_arrived(self) -> None:
+    def test_leaves_an_event_that_never_arrived_to_the_check_that_reports_it(self) -> None:
         self.assertIsNone(_outcome(_metric(), events_received={"purchase": False}))
+
+        # `metric_event_not_ingested` stops at the end, so this check is the only one left to explain the zero.
+        outcome = _outcome(_metric(), events_received={"purchase": False}, **ENDED)
+
+        assert isinstance(outcome, ExperimentHealthFinding)
+        self.assertEqual(outcome.severity, ExperimentHealthFindingSeverity.INFO)
 
     def test_a_retention_window_that_started_reads_as_zero(self) -> None:
         definition = {
@@ -358,6 +385,7 @@ class TestMetricAllZeroFromStoredRuns(BaseTest):
     @parameterized.expand(
         [
             ("zero_in_every_variant", _result(samples=1000, total=0), True),
+            ("a_zero_stored_as_a_float", _result(samples=1000, total=0.0), True),
             (
                 "a_value_in_one_variant",
                 {**_result(samples=1000, total=0), "variant_results": [_variant(samples=1000, total=1)]},
@@ -399,6 +427,12 @@ class TestMetricAllZeroFromStoredRuns(BaseTest):
         [finding] = self._findings(experiment)
 
         self.assertIn(words, finding.detail)
+
+    def test_a_denominator_that_cancels_out_is_no_zero(self) -> None:
+        experiment = self._experiment([self._ratio("primary")])
+        self._store(experiment, {"primary": _result(samples=1000, total=20, denominator=0, denominator_squares=8)})
+
+        self.assertEqual(self._findings(experiment), [])
 
     def test_names_only_the_event_of_the_side_that_reads_zero(self) -> None:
         experiment = self._experiment([self._ratio("primary")])

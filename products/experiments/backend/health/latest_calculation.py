@@ -72,7 +72,7 @@ def _load_latest_calculation(experiment: Experiment) -> LatestCalculation:
         )
     metric_errors = run.metric_errors if isinstance(run.metric_errors, dict) else {}
     results = MetricResultStore(experiment_id=experiment.id)
-    rows = {row.metric_uuid: row for row in results.for_run(run)}
+    rows = {row.metric_uuid: row for row in results.for_run(run, with_result=False)}
     failures = tuple(
         failure
         for metric_id, calculation_config in configs.items()
@@ -95,7 +95,9 @@ def _load_latest_calculation(experiment: Experiment) -> LatestCalculation:
         failures=failures,
         completed_count=len(completed),
         completed_exposures_paths=results.exposures_paths(completed) if failures else frozenset(),
-        zero_metrics=_zero_metrics(experiment, [(configs[row.metric_uuid], row) for row in completed]),
+        zero_metrics=_zero_metrics(
+            experiment, [(configs[row.metric_uuid], row) for row in results.with_zero_baseline(completed)]
+        ),
         hours_of_data=(run.query_to - experiment.start_date).total_seconds() / 3600
         if run.query_to is not None and experiment.start_date is not None
         else None,
@@ -146,7 +148,7 @@ def _zero_result(calculation_config: MetricCalculationConfig, row: ExperimentMet
         )
     if numerator_is_zero:
         side: RatioSide = "numerator"
-    elif all(stat.denominator_sum == 0 for stat in stats):
+    elif all(stat.denominator_sum == 0 and not stat.denominator_sum_squares for stat in stats):
         side = "denominator"
     else:
         return None
