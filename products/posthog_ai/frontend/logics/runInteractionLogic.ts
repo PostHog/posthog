@@ -19,8 +19,8 @@ import posthog from 'posthog-js'
 import { ApiError, readableErrorMessage } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { projectLogic } from 'scenes/projectLogic'
-import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 
+import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
 import { type AttachedContextItem, attachedContextItemKey } from '~/layout/ai/attachedContext'
 import { attachedContextLogic } from '~/layout/ai/attachedContextLogic'
 

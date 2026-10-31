@@ -3,8 +3,9 @@ import { useState } from 'react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
+
+import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
 
 import { DEFAULT_MODEL, OBSERVATION_CREDITS_BY_MODEL } from 'products/replay_vision/frontend/replay_scanners/types'
 import { getReplayVisionEditDisabledReason } from 'products/replay_vision/frontend/utils/accessControl'
