@@ -108,7 +108,7 @@ export function SetupTab(): JSX.Element {
 }
 
 function TrainingScheduleSetting({ pipeline }: { pipeline: AutoresearchPipelineApi }): JSX.Element {
-    const { schedule, savingSchedule, saveDisabledReason, agentModelOptions, agentModelOptionsLoading, effortOptions } =
+    const { schedule, savingSchedule, saveDisabledReason, agentModelOptions, agentModelOptionsLoading, effortOptions, limits } =
         useValues(trainingScheduleLogic({ id: pipeline.id }))
     const { setResearchIntervalDays, setIterationsPerRun, setAgentModel, setAgentReasoningEffort, saveSchedule } =
         useActions(trainingScheduleLogic({ id: pipeline.id }))
@@ -126,18 +126,38 @@ function TrainingScheduleSetting({ pipeline }: { pipeline: AutoresearchPipelineA
                     />
                 </label>
                 <label className="flex flex-col gap-1">
-                    <span className="text-sm font-semibold">Experiments per run</span>
+                    <div className="flex items-center gap-2">
+                        <span className="text-sm font-semibold">Experiments per run</span>
+                        {limits && (
+                            <span className="text-xs text-muted font-normal">
+                                (up to {limits.max_iterations_per_run} per run)
+                            </span>
+                        )}
+                    </div>
                     <LemonInput
                         size="small"
                         type="number"
                         min={MIN_ITERATIONS_PER_RUN}
-                        max={MAX_ITERATIONS_PER_RUN}
+                        max={limits?.max_iterations_per_run ?? MAX_ITERATIONS_PER_RUN}
                         className="w-24"
                         value={schedule?.iterations_per_run}
                         onChange={(value) => setIterationsPerRun(value)}
                         data-attr="autoresearch-iterations-per-run"
                     />
                 </label>
+                {limits && (
+                    <div className="text-xs text-muted">
+                        Training runs today:{' '}
+                        <span className="font-semibold tabular-nums">
+                            {limits.training_runs_used_today} / {limits.max_training_runs_per_day}
+                        </span>
+                        {limits.daily_training_cap_exceeded && limits.next_training_slot_opens_at && (
+                            <span className="text-danger ml-1">
+                                (Cap reached; next slot opens at {dayjs(limits.next_training_slot_opens_at).format('h:mm A')})
+                            </span>
+                        )}
+                    </div>
+                )}
                 <label className="flex flex-col gap-1">
                     <span className="text-sm font-semibold">Research model</span>
                     <LemonSelect
@@ -174,7 +194,7 @@ function TrainingScheduleSetting({ pipeline }: { pipeline: AutoresearchPipelineA
                 </LemonButton>
             </div>
             <p className="text-xs text-secondary mb-0">
-                {trainingScheduleStatus(pipeline)} A larger model or more thinking effort costs more per training run.
+                {trainingScheduleStatus(pipeline, limits)} A larger model or more thinking effort costs more per training run.
             </p>
         </div>
     )

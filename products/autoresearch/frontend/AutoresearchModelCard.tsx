@@ -219,9 +219,14 @@ function TrainingBody({ liveRun }: { liveRun: AutoresearchLiveTrainingRunApi | n
 }
 
 function DraftBody({ pipeline }: { pipeline: AutoresearchPipelineApi }): JSX.Element {
-    const { mutatingPipelineIds } = useValues(autoresearchLogic)
+    const { mutatingPipelineIds, limits } = useValues(autoresearchLogic)
     const { startTraining } = useActions(autoresearchLogic)
     const mutating = !!mutatingPipelineIds[pipeline.id]
+    const disabledReason = mutating
+        ? 'Another change is still saving'
+        : limits?.daily_training_cap_exceeded
+          ? `Daily training run limit reached for this project (${limits.training_runs_used_today}/${limits.max_training_runs_per_day})`
+          : undefined
     return (
         <div className="flex items-center justify-between gap-2">
             <span className="text-secondary">Not trained yet</span>
@@ -229,7 +234,7 @@ function DraftBody({ pipeline }: { pipeline: AutoresearchPipelineApi }): JSX.Ele
                 type="primary"
                 size="small"
                 loading={mutating}
-                disabledReason={mutating ? 'Another change is still saving' : undefined}
+                disabledReason={disabledReason}
                 onClick={() => startTraining(pipeline)}
                 data-attr="autoresearch-model-card-train"
             >

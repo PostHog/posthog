@@ -7,10 +7,11 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { AutoresearchPipelineLogicProps, autoresearchPipelineLogic } from './autoresearchPipelineLogic'
-import { autoresearchAgentModelsRetrieve, autoresearchPartialUpdate } from './generated/api'
+import { autoresearchAgentModelsRetrieve, autoresearchLimitsRetrieve, autoresearchPartialUpdate } from './generated/api'
 import type {
     AgentModelOptionsApi,
     AgentReasoningEffortOptionApi,
+    AutoresearchLimitsReportApi,
     AutoresearchPipelineApi,
     ResearchIntervalDaysEnumApi,
 } from './generated/api.schemas'
@@ -27,7 +28,16 @@ export interface TrainingScheduleDraft {
 }
 
 /** One line on what training does next, from the saved schedule. */
-export function trainingScheduleStatus(pipeline: AutoresearchPipelineApi, now: dayjs.Dayjs = dayjs()): string {
+export function trainingScheduleStatus(
+    pipeline: AutoresearchPipelineApi,
+    limits?: AutoresearchLimitsReportApi | null,
+    now: dayjs.Dayjs = dayjs()
+): string {
+    if (limits?.daily_training_cap_exceeded) {
+        const slot = limits.next_training_slot_opens_at ? dayjs(limits.next_training_slot_opens_at) : null
+        const slotText = slot ? ` after ${slot.format('h:mm A')}` : ''
+        return `Daily training cap reached (${limits.training_runs_used_today}/${limits.max_training_runs_per_day} runs used today). Next research run can start${slotText}.`
+    }
     if (pipeline.research_interval_days === null || !pipeline.next_research_at) {
         return 'Training starts only when you ask for it.'
     }
@@ -128,6 +138,17 @@ export const trainingScheduleLogic = kea<trainingScheduleLogicType>([
                         return null
                     }
                     return autoresearchAgentModelsRetrieve(String(values.currentTeamId))
+                },
+            },
+        ],
+        limits: [
+            null as AutoresearchLimitsReportApi | null,
+            {
+                loadLimits: async () => {
+                    if (!values.currentTeamId) {
+                        return null
+                    }
+                    return autoresearchLimitsRetrieve(String(values.currentTeamId))
                 },
             },
         ],
@@ -240,6 +261,7 @@ export const trainingScheduleLogic = kea<trainingScheduleLogicType>([
     })),
     afterMount(({ actions }) => {
         actions.loadAgentModelOptions()
+        actions.loadLimits()
     }),
 ])
 

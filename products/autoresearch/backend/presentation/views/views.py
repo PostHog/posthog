@@ -37,6 +37,7 @@ from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedR
 from products.autoresearch.backend.facade import api
 from products.autoresearch.backend.facade.access import has_autoresearch_access
 from products.autoresearch.backend.facade.contracts import (
+    DailyTrainingCapExceeded,
     ArtifactNotFound,
     ArtifactStorageUnavailable,
     AutoresearchConflict,
@@ -57,6 +58,7 @@ from .serializers import (
     ArtifactPathSerializer,
     ArtifactUploadSerializer,
     AutoresearchIterationSerializer,
+    AutoresearchLimitsReportSerializer,
     AutoresearchModelSerializer,
     AutoresearchPipelineCreateSerializer,
     AutoresearchPipelineSerializer,
@@ -223,6 +225,7 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
         "resolve_template",
         "online_performance",
         "agent_models",
+        "limits",
     ]
     scope_object_write_actions = [
         "create",
@@ -331,7 +334,7 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
             )
         except PipelineNotFound:
             raise NotFound("Pipeline not found.")
-        except AutoresearchConflict as exc:
+        except (AutoresearchConflict, api.LivePipelineCapExceeded) as exc:
             raise ValidationError(str(exc)) from exc
         return Response(AutoresearchPipelineSerializer(instance=pipeline).data)
 
@@ -384,6 +387,16 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
     @action(detail=False, methods=["get"], url_path="agent_models", pagination_class=None)
     def agent_models(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         return Response(AgentModelOptionsSerializer(instance=api.list_agent_model_options()).data)
+
+    @extend_schema(
+        responses={200: AutoresearchLimitsReportSerializer},
+        summary="Get project autoresearch limits and current usage",
+        description="Returns limits (daily runs cap, max iterations, max live pipelines), current usage, and when the next training slot opens.",
+    )
+    @action(detail=False, methods=["get"], url_path="limits", pagination_class=None)
+    def limits(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        report = api.get_team_limits(self.team_id)
+        return Response(AutoresearchLimitsReportSerializer(instance=report).data)
 
     @validated_request(
         request_serializer=ResolveTemplateRequestSerializer,
@@ -491,7 +504,7 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
                 )
             ),
             404: OpenApiResponse(description="The pipeline does not exist or is archived."),
-            429: OpenApiResponse(description="The team is over its PostHog Desktop usage limit."),
+            429: OpenApiResponse(description="The team is over its PostHog Desktop usage limit, or reached the daily training run limit."),
             503: OpenApiResponse(description="PostHog Desktop access could not be checked. Try again."),
         },
         summary="Start a training run",
@@ -531,6 +544,18 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
             raise ValidationError({"target_definition": str(exc)}) from exc
         except AutoresearchConflict as exc:
             raise ValidationError(str(exc)) from exc
+        except DailyTrainingCapExceeded as exc:
+            return Response(
+                {
+                    "type": "rate_limit_error",
+                    "code": "daily_cap_exceeded",
+                    "detail": str(exc),
+                    "runs_used": exc.runs_used,
+                    "limit": exc.limit,
+                    "next_slot_opens_at": exc.next_slot_opens_at.isoformat(),
+                },
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
         return Response(AutoresearchTrainingRunSerializer(instance=training_run).data)
 
     @validated_request(
