@@ -162,8 +162,8 @@ def compute_project_profile(*, team: Team, force: bool = False, defer_surfaces: 
     Concurrent cache misses (several scout runs, or a scout run and the
     `build_signal_project_profile` task, hitting the same team at once) take a Postgres
     advisory lock keyed on team_id and re-check the cache after acquiring it. Without
-    this, a thundering herd would each run `build_inventory` and insert a separate row;
-    the lock collapses them into a single build with the losers returning the winner's freshly persisted row. After persisting, prune so only the
+    this, a thundering herd would each insert a separate row; the lock collapses them
+    into a single row with the losers returning the winner's freshly persisted row. After persisting, prune so only the
     last `PROFILE_KEEP_N` rows survive — the table would otherwise grow unbounded
     (one row per cache miss, ~once per `PROFILE_TTL` per team, forever).
 
