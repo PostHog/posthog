@@ -225,6 +225,128 @@ export const InsightsCreateBody = /* @__PURE__ */ zod
     .record(zod.string(), zod.unknown())
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
+export const insightsExplanationsCreateBodyDataOneSeriesIndexMin = 0
+
+export const insightsExplanationsCreateBodyDataOneChaptersItemRangeItemMin = 0
+
+export const insightsExplanationsCreateBodyDataOneChaptersItemRangeMin = 2
+export const insightsExplanationsCreateBodyDataOneChaptersItemRangeMax = 2
+
+export const InsightsExplanationsCreateBody = /* @__PURE__ */ zod.object({
+    data: zod
+        .object({
+            query: zod.record(zod.string(), zod.unknown()).describe('The TrendsQuery the explanation follows.'),
+            results: zod
+                .array(
+                    zod.object({
+                        label: zod.string().optional().describe('The series name.'),
+                        data: zod.array(zod.number()).optional().describe('One value per point.'),
+                        days: zod
+                            .array(zod.string())
+                            .optional()
+                            .describe("The date of each point, in the query's timezone."),
+                    })
+                )
+                .describe('Every series on the chart when it was explained.'),
+            seriesIndex: zod
+                .number()
+                .min(insightsExplanationsCreateBodyDataOneSeriesIndexMin)
+                .describe('The index in `results` the explanation follows.'),
+            insightName: zod.string().nullable().describe("The insight's name."),
+            lastPointInProgress: zod.boolean().describe("Whether the last point's period had not ended yet."),
+            headline: zod.string().describe('One sentence a person could read in place of the whole explanation.'),
+            chapters: zod
+                .array(
+                    zod.object({
+                        title: zod.string().describe('The moment on the chart this chapter explains.'),
+                        range: zod
+                            .array(zod.number().min(insightsExplanationsCreateBodyDataOneChaptersItemRangeItemMin))
+                            .min(insightsExplanationsCreateBodyDataOneChaptersItemRangeMin)
+                            .max(insightsExplanationsCreateBodyDataOneChaptersItemRangeMax)
+                            .nullable()
+                            .describe(
+                                "Inclusive indexes into the series' points. Null when the chapter's dates match no point."
+                            ),
+                        summary: zod.string().nullable().describe('What happened in this moment.'),
+                        cause: zod.string().nullable().describe('The likely cause of this moment.'),
+                        confidence: zod
+                            .union([
+                                zod
+                                    .enum(['high', 'medium', 'low'])
+                                    .describe(
+                                        '\* `high` - High confidence\n\* `medium` - Medium confidence\n\* `low` - Low confidence'
+                                    ),
+                                zod.null(),
+                            ])
+                            .describe(
+                                'How sure the investigation is of the cause.\n\n\* `high` - High confidence\n\* `medium` - Medium confidence\n\* `low` - Low confidence'
+                            ),
+                        confidenceReason: zod.string().nullable().describe('Why the confidence is what it is.'),
+                        evidence: zod
+                            .array(
+                                zod.object({
+                                    text: zod.string().describe('One fact that supports the chapter.'),
+                                    url: zod.url().nullable().describe('A PostHog link that shows the fact.'),
+                                    query: zod
+                                        .record(zod.string(), zod.unknown())
+                                        .nullish()
+                                        .describe('The query that shows the fact.'),
+                                    queryTool: zod
+                                        .string()
+                                        .nullish()
+                                        .describe('The MCP query tool that can redraw `query`.'),
+                                    chart: zod
+                                        .union([
+                                            zod.object({
+                                                type: zod
+                                                    .enum(['line', 'bar'])
+                                                    .describe('\* `line` - Line\n\* `bar` - Bar')
+                                                    .describe(
+                                                        'How the evidence chart draws its series.\n\n\* `line` - Line\n\* `bar` - Bar'
+                                                    ),
+                                                labels: zod.array(zod.string()).describe('The x-axis points.'),
+                                                ticks: zod
+                                                    .array(zod.string())
+                                                    .optional()
+                                                    .describe(
+                                                        'The axis label of each point, which leaves out a date that repeats.'
+                                                    ),
+                                                series: zod
+                                                    .array(
+                                                        zod.object({
+                                                            name: zod
+                                                                .string()
+                                                                .describe(
+                                                                    'The breakdown value or column this line draws.'
+                                                                ),
+                                                            values: zod
+                                                                .array(zod.number().nullable())
+                                                                .describe(
+                                                                    'One value per label. Null where the breakdown value has no row for that point.'
+                                                                ),
+                                                        })
+                                                    )
+                                                    .describe('The lines or bars to draw.'),
+                                                yAxisLabel: zod
+                                                    .string()
+                                                    .nullable()
+                                                    .describe('The y-axis label, if any.'),
+                                            }),
+                                            zod.null(),
+                                        ])
+                                        .optional()
+                                        .describe('The fact drawn as a chart, from its SQL.'),
+                                })
+                            )
+                            .describe('The facts behind the cause.'),
+                    })
+                )
+                .describe('The moments that stand out, in reading order.'),
+            warnings: zod.array(zod.unknown()).optional().describe("Warnings the chart's query came back with."),
+        })
+        .describe('The chart explanation, as the insight page shows it.'),
+})
+
 export const InsightsUpdateBody = /* @__PURE__ */ zod
     .record(zod.string(), zod.unknown())
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')

@@ -174,7 +174,8 @@ Call `posthog:explain-chart` first. It reports any chapter whose dates match no 
 chart, so fix those dates and call it again.
 When its response says the user already sees the result, the chart explanation is on screen, and you are done.
 Otherwise call `posthog:render-ui` with `tool_name` `explain-chart` and the same input as `tool_input`.
-When the call fails because the tool does not exist, or `render-ui` does not exist either, the user sees nothing, so write the written report instead.
+When `render-ui` does not exist, give the user the link from the `explain-chart` response, which opens the chart explanation in PostHog.
+When the call fails because the tool does not exist, or neither `render-ui` nor a link is available, the user sees nothing, so write the written report instead.
 
 Then reply briefly.
 Say which chapter to look at first, then add only what the chart explanation cannot hold, such as a caveat about the data, a linked fix or a decision that is still open.
