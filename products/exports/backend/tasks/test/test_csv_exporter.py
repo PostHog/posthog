@@ -1791,6 +1791,82 @@ class TestCSVExporter(APIBaseTest):
         assert _format_breakdown_value(["single"]) == "single"
 
 
+def _funnel_step(order: int, name: str | None, action_id: str | None, step_type: str, count: int) -> dict[str, Any]:
+    return {
+        "action_id": action_id,
+        "name": name,
+        "custom_name": None,
+        "order": order,
+        "count": count,
+        "type": step_type,
+        "average_conversion_time": None,
+        "median_conversion_time": None,
+    }
+
+
+class TestFunnelStepRows:
+    @pytest.mark.parametrize(
+        "series,funnels_filter,steps,expected",
+        [
+            pytest.param(
+                [
+                    {"kind": "EventsNode", "event": None},
+                    {"kind": "EventsNode", "event": "checkout started", "name": "checkout started"},
+                ],
+                {"funnelVizType": "steps"},
+                [
+                    _funnel_step(0, None, None, "events", 10),
+                    _funnel_step(1, "checkout started", "checkout started", "events", 4),
+                ],
+                [(None, None, 10), ("checkout started", "checkout started", 4)],
+                id="all events first",
+            ),
+            pytest.param(
+                [
+                    {
+                        "kind": "FunnelsDataWarehouseNode",
+                        "id": "invoices",
+                        "table_name": "invoices",
+                        "id_field": "id",
+                        "timestamp_field": "created_at",
+                        "aggregation_target_field": "customer_id",
+                    },
+                    {"kind": "ActionsNode", "id": 7, "name": "Paid"},
+                ],
+                {"funnelVizType": "steps"},
+                [_funnel_step(0, "invoices", None, "data_warehouse", 25), _funnel_step(1, "Paid", "7", "actions", 9)],
+                [("invoices", None, 25), ("Paid", "7", 9)],
+                id="data warehouse first",
+            ),
+            pytest.param(
+                [
+                    {"kind": "EventsNode", "event": "signed up", "name": "signed up"},
+                    {"kind": "EventsNode", "event": "invited teammate", "name": "invited teammate"},
+                ],
+                {"funnelVizType": "steps", "funnelOrderType": "unordered"},
+                [
+                    _funnel_step(0, "Completed 1 step", None, "events", 12),
+                    _funnel_step(1, "Completed 2 steps", None, "events", 5),
+                ],
+                [("Completed 1 step", None, 12), ("Completed 2 steps", None, 5)],
+                id="unordered",
+            ),
+        ],
+    )
+    def test_exports_funnel_steps_without_a_first_action_id(
+        self,
+        series: list[dict[str, Any]],
+        funnels_filter: dict[str, Any],
+        steps: list[dict[str, Any]],
+        expected: list[tuple[str | None, str | None, int]],
+    ) -> None:
+        query = {"kind": "FunnelsQuery", "series": series, "funnelsFilter": funnels_filter}
+
+        rows = list(_convert_response_to_csv_data({"results": steps}, series_query=query))
+
+        assert [(row["name"], row["action_id"], row["count"]) for row in rows] == expected
+
+
 class TestExcelWriter:
     def test_excel_writer_raises_column_limit_exceeded(self) -> None:
         writer = ExcelWriter()

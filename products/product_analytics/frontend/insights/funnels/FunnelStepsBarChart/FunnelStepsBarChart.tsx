@@ -116,6 +116,7 @@ export function FunnelStepsBarChart({
             <FunnelStepsBarTooltip
                 context={ctx}
                 steps={steps}
+                querySource={querySource}
                 breakdownFilter={breakdownFilter}
                 groupTypeLabel={groupTypeLabel}
                 showPersonsModal={showPersonsModal}
