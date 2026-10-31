@@ -20,6 +20,7 @@ import {
     cn,
     Collapsible,
     CollapsibleContent,
+    CollapsibleHeader,
     CollapsibleTrigger,
     Combobox,
     ComboboxCollection,
@@ -44,7 +45,7 @@ import { ErrorBoundary } from '~/layout/ErrorBoundary'
 
 import { SettingSectionUnavailable } from './components/SettingSectionUnavailable'
 import { SearchResult, settingsLogic } from './settingsLogic'
-import { settingsNavTree } from './settingsNavTree'
+import { firstSettingsNavSection, settingsNavTree } from './settingsNavTree'
 import { SettingLevelNames, SettingSection, SettingsLogicProps } from './types'
 
 export interface SettingOption {
@@ -55,6 +56,8 @@ export interface SettingOption {
         label: React.ReactNode
         open: boolean
         onOpenChange: (open: boolean) => void
+        // Opens the first section, so the header label acts as a link and only the caret collapses
+        onLabelClick?: () => void
     }
 }
 
@@ -225,12 +228,23 @@ export function Settings({
                   }
               }
 
+              const openSection = (section: SettingSection | undefined): (() => void) | undefined =>
+                  section &&
+                  (() => {
+                      if (section.to) {
+                          router.actions.push(section.to)
+                      } else {
+                          selectSection(section.id, level)
+                      }
+                  })
+
               return {
                   key: level,
                   collapsible: {
                       label: SettingLevelNames[level],
                       open: !collapsedLevels[level],
                       onOpenChange: () => toggleLevelCollapse(level),
+                      onLabelClick: openSection(firstSettingsNavSection(items)),
                   },
                   items: items.map((item) =>
                       item.kind === 'section'
@@ -241,6 +255,7 @@ export function Settings({
                                     label: item.label,
                                     open: !collapsedGroups[item.key],
                                     onOpenChange: () => toggleGroupCollapse(item.key),
+                                    onLabelClick: openSection(item.sections[0]),
                                 },
                                 items: item.sections.map(buildSectionOption),
                             }
@@ -473,32 +488,55 @@ const depthMap: Record<number, string> = {
 const OptionGroup = ({ options, depth = 0 }: { options: SettingOption[]; depth?: number }): JSX.Element => {
     return (
         <ul className={cn('gap-y-px px-1', depth === 0 && 'p-1')}>
-            {options.map((option) =>
-                option.collapsible ? (
-                    <li key={option.key} className={clsx(depthMap[depth])}>
+            {options.map(({ key, content, items, collapsible }) =>
+                collapsible ? (
+                    <li key={key} className={clsx(depthMap[depth])}>
                         <Collapsible
-                            open={option.collapsible.open}
-                            onOpenChange={option.collapsible.onOpenChange}
+                            open={collapsible.open}
+                            onOpenChange={collapsible.onOpenChange}
                             className="bg-transparent!"
                             variant="folder"
                         >
-                            <CollapsibleTrigger
-                                render={<Button left className="w-full text-[13px]" />}
-                                className={cn(depth !== 0 && '-ml-2 w-[calc(100%+var(--spacing)*2)]')}
-                            >
-                                <span className="flex-1 truncate text-left font-semibold">
-                                    {option.collapsible.label}
-                                </span>
-                            </CollapsibleTrigger>
+                            {collapsible.onLabelClick ? (
+                                <CollapsibleHeader
+                                    className={cn(depth !== 0 && '-ml-2 w-[calc(100%+var(--spacing)*2)]')}
+                                >
+                                    <CollapsibleTrigger iconOnly data-attr={`settings-nav-toggle-${key}`}>
+                                        {collapsible.open ? 'Collapse' : 'Expand'} {collapsible.label}
+                                    </CollapsibleTrigger>
+                                    <Button
+                                        left
+                                        className="w-full ps-7 text-[13px]"
+                                        onClick={() => {
+                                            if (!collapsible.open) {
+                                                collapsible.onOpenChange(true)
+                                            }
+                                            collapsible.onLabelClick?.()
+                                        }}
+                                        data-attr={`settings-nav-header-${key}`}
+                                    >
+                                        <span className="flex-1 truncate text-left font-semibold">
+                                            {collapsible.label}
+                                        </span>
+                                    </Button>
+                                </CollapsibleHeader>
+                            ) : (
+                                <CollapsibleTrigger
+                                    render={<Button left className="w-full text-[13px]" />}
+                                    className={cn(depth !== 0 && '-ml-2 w-[calc(100%+var(--spacing)*2)]')}
+                                >
+                                    <span className="flex-1 truncate text-left font-semibold">{collapsible.label}</span>
+                                </CollapsibleTrigger>
+                            )}
                             <CollapsibleContent className="pl-0 pr-1 py-1">
-                                {option.items ? <OptionGroup options={option.items} depth={depth + 1} /> : null}
+                                {items ? <OptionGroup options={items} depth={depth + 1} /> : null}
                             </CollapsibleContent>
                         </Collapsible>
                     </li>
                 ) : (
-                    <React.Fragment key={option.key}>
-                        <li className={clsx(depthMap[depth])}>{option.content}</li>
-                        {option.items ? <OptionGroup options={option.items} depth={depth + 1} /> : null}
+                    <React.Fragment key={key}>
+                        <li className={clsx(depthMap[depth])}>{content}</li>
+                        {items ? <OptionGroup options={items} depth={depth + 1} /> : null}
                     </React.Fragment>
                 )
             )}
