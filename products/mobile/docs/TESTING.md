@@ -14,6 +14,9 @@ pnpm test
 `pnpm typecheck` includes this compatibility check automatically.
 CI runs typecheck, lint, and tests; see [CI.md](CI.md).
 
+For inbox pagination, check that an invalid next-page response keeps the loaded reports visible and shows the retry footer.
+Retry after the server returns a valid page and confirm that the remaining reports load.
+
 ## Authenticated local checks
 
 Run the setup in [README.md](../README.md#sign-in-to-the-local-backend) first.
