@@ -1980,6 +1980,18 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 feature_flag_id=validated_data["targeting_flag_id"],
             )
 
+        # Validate before any flag write. A flag minted below commits with the block, so a
+        # rejection after it would leave an active flag that no survey links.
+        iteration_count = validated_data.get("iteration_count", None)
+        if (
+            instance.current_iteration is not None
+            and iteration_count is not None
+            and instance.current_iteration > iteration_count > 0
+        ):
+            raise serializers.ValidationError(
+                f"Cannot change survey recurrence to {iteration_count}, should be at least {instance.current_iteration}"
+            )
+
         # One PATCH can remove the existing targeting flag and ask for new filters. The gate can
         # reject the replacement, so the delete and the write stay in one block. Without it a
         # rejected change leaves the survey with no targeting flag at all.
@@ -2048,16 +2060,6 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                     )
                     validated_data["targeting_flag_id"] = new_flag.id
                 validated_data.pop("targeting_flag_filters")
-
-        iteration_count = validated_data.get("iteration_count", None)
-        if (
-            instance.current_iteration is not None
-            and iteration_count is not None
-            and instance.current_iteration > iteration_count > 0
-        ):
-            raise serializers.ValidationError(
-                f"Cannot change survey recurrence to {iteration_count}, should be at least {instance.current_iteration}"
-            )
 
         if iteration_count is not None:
             instance.iteration_count = iteration_count

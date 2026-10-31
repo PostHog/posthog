@@ -5409,17 +5409,21 @@ class TestSurveysRecurringIterations(APIBaseTest):
         survey.refresh_from_db()
         survey.current_iteration = 2
         survey.save()
+        flags_before = FeatureFlag.objects.filter(team=self.team).count()
         response = self.client.patch(
             f"/api/projects/{self.team.id}/surveys/{survey.id}/",
             data={
                 "start_date": datetime.now() - timedelta(days=1),
                 "iteration_count": 1,
                 "iteration_frequency_days": 30,
+                "targeting_flag_filters": {"groups": [{"properties": [], "rollout_percentage": 25}]},
             },
+            format="json",
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["detail"] == "Cannot change survey recurrence to 1, should be at least 2"
+        assert FeatureFlag.objects.filter(team=self.team).count() == flags_before
 
     @parameterized.expand(
         [
