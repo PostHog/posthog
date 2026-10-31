@@ -6,7 +6,6 @@ import { useAuthStore } from '@/auth/authStore'
 import { useDemoMode } from '@/demo/demoMode'
 
 import { setAnalyticsClient } from './analytics'
-import { initAnalytics } from './posthogClient'
 
 let mockSdkOptions: PostHogOptions = {}
 
@@ -26,6 +25,16 @@ jest.mock('posthog-react-native', () => {
         ),
     }
 })
+
+function initAnalytics(): void {
+    jest.isolateModules(() => {
+        jest.doMock('posthog-react-native', () => ({ __esModule: true, default: PostHog }))
+        jest.doMock('@/auth/authStore', () => ({ useAuthStore }))
+        jest.doMock('@/demo/demoMode', () => ({ useDemoMode }))
+        jest.doMock('./analytics', () => ({ setAnalyticsClient }))
+        jest.requireActual<typeof import('./posthogClient')>('./posthogClient').initAnalytics()
+    })
+}
 
 interface QueuedEvent {
     message: { event: string; properties: Record<string, unknown> }

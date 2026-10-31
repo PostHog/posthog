@@ -13,7 +13,7 @@ import { installAuthProvider, useAuthStore } from '@/auth/authStore'
 import { BootSplash } from '@/auth/BootSplash'
 import { SPLASH_TIMEOUT_MS, shouldHideSplash, useBootGate } from '@/auth/bootGate'
 import { useAuthRedirect } from '@/auth/useAuthRedirect'
-import { useDemoHydrated } from '@/demo/demoMode'
+import { useDemoHydrated, useDemoMode } from '@/demo/demoMode'
 import '@/features/chat/draftPersistence'
 import { AiApprovalDialog } from '@/features/ai/AiApprovalDialog'
 import { useHedgehogWidgetSync } from '@/features/hedgehog/useHedgehogWidgetSync'
@@ -43,6 +43,7 @@ function hideNativeSplash(): void {
 
 export default function RootLayout(): ReactElement {
     const demoHydrated = useDemoHydrated()
+    const demoEnabled = useDemoMode((state) => state.enabled)
     const appearanceHydrated = useAppearanceHydrated()
     const authStatus = useAuthStore((state) => state.status)
     // Screens wait for the saved appearance too, so a Light or Dark override never paints a frame in the device scheme.
@@ -88,7 +89,14 @@ export default function RootLayout(): ReactElement {
     useAutomaticUpdates(ready && segments[0] === '(tabs)')
 
     return (
-        <GestureHandlerRootView style={styles.root}>
+        <GestureHandlerRootView
+            style={styles.root}
+            collapsable={false}
+            importantForAccessibility="no"
+            accessibilityLabel={
+                demoHydrated && demoEnabled && authStatus === 'signed_out' ? undefined : 'ph-no-capture'
+            }
+        >
             <SafeAreaProvider>
                 <KeyboardProvider>
                     <QueryClientProvider client={queryClient}>

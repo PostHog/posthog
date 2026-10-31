@@ -12,3 +12,6 @@ trustPolicy: no-downgrade
 # prebuilt iOS and Android binaries, and `pod install` fails without them.
 onlyBuiltDependencies:
     - '@shopify/react-native-skia'
+
+patchedDependencies:
+    '@posthog/react-native-plugin@2.12.6': patches/@posthog__react-native-plugin@2.12.6.patch
