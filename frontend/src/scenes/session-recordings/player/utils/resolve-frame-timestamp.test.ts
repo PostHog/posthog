@@ -2,6 +2,8 @@ import {
     FrameState,
     initialFrameState,
     resolveFrameTimestamp,
+    shouldForceSkipForward,
+    STUCK_FRAME_THRESHOLD,
     STUCK_TIME_THRESHOLD_MS,
 } from './resolve-frame-timestamp'
 
@@ -148,6 +150,38 @@ describe('resolveFrameTimestamp', () => {
                 expect(result.resolvedTimestamp).toBeCloseTo(currentTs + FPS_1X, 1)
                 currentTs = result.resolvedTimestamp!
                 frameState = result.newState
+            }
+        })
+    })
+
+    describe('shouldForceSkipForward', () => {
+        it.each([
+            { name: 'short rrweb pause', frames: STUCK_FRAME_THRESHOLD, ms: 10 * FPS_1X, expected: false },
+            { name: 'long stall, too few frames', frames: 2, ms: STUCK_TIME_THRESHOLD_MS, expected: false },
+            { name: 'long stall', frames: STUCK_FRAME_THRESHOLD, ms: STUCK_TIME_THRESHOLD_MS, expected: true },
+        ])('$name → $expected', ({ frames, ms, expected }) => {
+            expect(shouldForceSkipForward(frames, ms)).toBe(expected)
+        })
+
+        it('a frozen rrweb clock is recovered by the resolver before a forced skip', () => {
+            let frameState = initialFrameState()
+            let currentTs = 500
+            let repeatedFrames = 0
+            let repeatStartedAt: number | undefined
+
+            for (let i = 0; i < 120; i++) {
+                const now = i * FPS_1X
+                const result = resolveFrameTimestamp(1000, currentTs, 'window', FPS_1X, frameState, now)
+                frameState = result.newState
+                if (result.resolvedTimestamp === currentTs) {
+                    repeatedFrames++
+                    repeatStartedAt ??= now
+                } else {
+                    repeatedFrames = 0
+                    repeatStartedAt = undefined
+                }
+                currentTs = result.resolvedTimestamp!
+                expect(shouldForceSkipForward(repeatedFrames, now - (repeatStartedAt ?? now))).toBe(false)
             }
         })
     })
