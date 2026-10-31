@@ -41,6 +41,9 @@ def build_flaky_tests(
     min_failed_prs: int | None = None,
     limit: int | None = None,
     runner: CITestRunner | None = None,
+    test: str | None = None,
+    branch: str | None = None,
+    pr_number: int | None = None,
 ) -> FlakyTestList:
     parsed_from, parsed_to = _parse_window(
         curated.team, date_from, date_to, default=_DEFAULT_FLAKY_WINDOW, max_days=MAX_FLAKY_WINDOW_DAYS
@@ -60,6 +63,9 @@ def build_flaky_tests(
         min_failed_prs=min_failed_prs,
         limit=limit,
         runner=runner,
+        test=test,
+        branch=branch,
+        pr_number=pr_number,
     )
 
 
@@ -71,7 +77,9 @@ def build_trunk_quarantine(*, curated: CuratedGitHubSource) -> TrunkQuarantineDe
     )
 
 
-def build_broken_tests(*, curated: CuratedGitHubSource) -> BrokenTestsResult:
+def build_broken_tests(
+    *, curated: CuratedGitHubSource, test: str | None = None, branch: str | None = None
+) -> BrokenTestsResult:
     # Fixed windows resolved through the module's relative-date entry point (like current_branch_health):
     # the 2-day analysis window and the 24h sparkline window. The SQL uses now() for the age/span/offset
     # math, so these bounds only floor the scans.
@@ -81,4 +89,6 @@ def build_broken_tests(*, curated: CuratedGitHubSource) -> BrokenTestsResult:
         hourly_from=_parse_date(curated.team, f"-{BROKEN_TEST_SPARKLINE_HOURS}h"),
         window_days=_BROKEN_TESTS_WINDOW_DAYS,
         limit=_BROKEN_TESTS_LIMIT,
+        test=test,
+        branch=branch,
     )
