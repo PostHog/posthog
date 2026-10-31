@@ -549,6 +549,9 @@ class RankingScore(BaseModel):
 DISMISSAL_REASON_WRONG_ASSIGNEE = "wrong_assignee"
 # Shared by the dismissal writer and repository-corrections reader so they cannot drift apart.
 DISMISSAL_REASON_WRONG_REPO = "wrong_repo"
+# Dismissal reason for reports closed automatically due to inactivity. Like wrong_repo, future
+# matching signals start a fresh recurrence report, but it claims no fix.
+DISMISSAL_REASON_INACTIVE = "inactive"
 # Reason codes that claim the issue is fixed, rather than stating a preference about the report.
 # A later matching signal contradicts the claim, so the grouping stage treats these dismissals the
 # way it treats a resolved report: the recurrence gets a fresh report (see `recurrence.py`). The

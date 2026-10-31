@@ -1313,6 +1313,32 @@ def pause_inactive_signal_scouts() -> None:
                 )
 
 
+@shared_task(
+    name="products.signals.backend.tasks.auto_close_inactive_signal_reports",
+    ignore_result=True,
+    max_retries=0,
+)
+@skip_team_scope_audit
+def auto_close_inactive_signal_reports() -> None:
+    """Daily sweep: auto-close inactive inbox signal reports after N days.
+
+    Closes ready or pending_input reports with no activity for N days for teams that
+    have configured `auto_close_inactive_after_days` on SignalTeamConfig.
+    See `report_inactivity.py`.
+    """
+    from products.signals.backend.report_inactivity import sweep_all_teams_inactive_reports
+
+    outcomes = sweep_all_teams_inactive_reports()
+    total_closed = sum(o.closed_count for o in outcomes.values())
+    total_considered = sum(o.candidates_considered for o in outcomes.values())
+    logger.info(
+        "signals_inbox auto_close_inactive_signal_reports completed",
+        teams_count=len(outcomes),
+        candidates_considered=total_considered,
+        closed_count=total_closed,
+    )
+
+
 # Grace before a lapsed scratchpad entry is hard-deleted. Expiry already hides the row from scout
 # searches; the grace keeps it readable through the `include_expired` audit path for two more weeks,
 # so a human can still see what the fleet remembered and when it lapsed before the row is gone.

@@ -120,6 +120,7 @@ from products.notebooks.backend.facade.tasks import cleanup_widget_snapshots
 from products.pulse.backend.tasks import mark_stale_pulse_briefs_failed
 from products.reminders.backend.tasks import process_due_reminders
 from products.signals.backend.tasks import (
+    auto_close_inactive_signal_reports,
     pause_inactive_signal_scouts,
     prune_expired_scratchpad_entries_task,
     reconcile_report_inbox_state_cache,
@@ -494,6 +495,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="6", minute="15"),
         pause_inactive_signal_scouts.s(),
         name="pause inactive signals scouts",
+    )
+
+    # Auto-close inactive signals reports after N days of no activity - daily at 6:20 AM
+    sender.add_periodic_task(
+        crontab(hour="6", minute="20"),
+        auto_close_inactive_signal_reports.s(),
+        name="auto-close inactive signals reports",
     )
 
     # Hard-delete signals scratchpad entries long past their expiry - daily at 6:45 AM
