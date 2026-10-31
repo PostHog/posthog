@@ -17,6 +17,7 @@ import {
     PIE_DISPLAY_TYPES,
 } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { keyForInsightLogicProps } from 'lib/insights/sharedUtils'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dateMapping, is12HoursOrLess, isLessThan2Days } from 'lib/utils/dateFilters'
 import { objectsEqual } from 'lib/utils/objects'
@@ -41,7 +42,6 @@ import {
 import type { SeriesNode } from 'scenes/insights/filters/ActionFilter/seriesNode'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { trendsResultsMatchQuery } from 'scenes/insights/utils/queryUtils'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'

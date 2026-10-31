@@ -138,7 +138,7 @@ def _extract_value_format(query_json: Any) -> dict[str, Any] | None:
     The summarizer uses this to render metric values the way the chart does, so the AI
     summary reads "4d 4h" instead of a raw "360000". Returns None when no non-default
     format is configured. Mirrors the trendsFilter fields read by
-    frontend/src/scenes/insights/aggregationAxisFormat.ts.
+    frontend/src/lib/insights/aggregationAxisFormat.ts.
     """
     if not isinstance(query_json, dict):
         return None

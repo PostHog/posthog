@@ -4,6 +4,7 @@ import { MakeLogicType, actions, connect, events, kea, key, listeners, path, pro
 import { DataColorTheme, DataColorToken } from 'lib/colors'
 import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
 import { dayjs } from 'lib/dayjs'
+import { keyForInsightLogicProps } from 'lib/insights/sharedUtils'
 import { formatDateRange } from 'lib/utils/datetime'
 import {
     BreakdownColorConfig,
@@ -15,7 +16,6 @@ import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { getColorFromToken } from 'scenes/dataThemeLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import type { QuerySourceUpdate } from 'scenes/insights/insightVizDataLogic'
-import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { BREAKDOWN_OTHER_DISPLAY, BREAKDOWN_OTHER_STRING_LABEL, formatBreakdownLabel } from 'scenes/insights/utils'
 import { teamLogic } from 'scenes/teamLogic'
 

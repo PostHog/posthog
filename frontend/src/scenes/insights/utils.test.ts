@@ -1,4 +1,4 @@
-import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
+import { formatAggregationAxisValue } from 'lib/insights/aggregationAxisFormat'
 import {
     compareInsightTopLevelSections,
     extractObjectDiffKeys,

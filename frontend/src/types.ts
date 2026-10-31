@@ -31,11 +31,11 @@ import {
     TeamMembershipLevel,
 } from 'lib/constants'
 import { Dayjs, dayjs } from 'lib/dayjs'
+import { AggregationAxisFormat } from 'lib/insights/aggregationAxisFormat'
 import { PopoverProps } from 'lib/lemon-ui/Popover/Popover'
 import type { ProjectSecretAPIKeyAllowedScope } from 'lib/scopes'
 import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
 import { BreakdownColorConfig } from 'scenes/dashboard/dashboardBreakdownColors'
-import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { Params, Scene, SceneConfig, SceneTab } from 'scenes/sceneTypes'
 import { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { SurveyRatingScaleValue, WEB_SAFE_FONTS } from 'scenes/surveys/constants'

@@ -84,7 +84,6 @@ frontend/src/layout/today/todayContextPanelLogic.ts -> frontend/src/scenes/noteb
 frontend/src/layout/today/todayContextPanelLogic.ts -> products/conversations/frontend/components/SidePanel/sidepanelTicketsLogic.ts
 frontend/src/layout/today/todayObjectGlanceLogic.ts -> frontend/src/scenes/library/libraryUtils.ts
 frontend/src/layout/today/todayObjectGlances.ts -> frontend/src/queries/utils.ts
-frontend/src/layout/today/todayObjectGlances.ts -> frontend/src/scenes/insights/aggregationAxisFormat.ts
 frontend/src/layout/today/todayObjectGlances.ts -> frontend/src/scenes/library/libraryUtils.ts
 frontend/src/layout/today/todayObjectGlances.ts -> frontend/src/scenes/project-homepage/today/todayNumbers.ts
 frontend/src/layout/today/todayObjectGlances.ts -> products/experiments/frontend/experimentStatus.ts
@@ -111,7 +110,6 @@ frontend/src/lib/components/ActivityLog/ActivityLogSubscribeMenu.tsx -> frontend
 frontend/src/lib/components/AddToDashboard/addToDashboardModalLogic.ts -> frontend/src/scenes/dashboard/liveDashboardIds.ts
 frontend/src/lib/components/AddToDashboard/addToDashboardModalLogic.ts -> frontend/src/scenes/dashboard/newDashboardLogic.ts
 frontend/src/lib/components/AddToDashboard/addToDashboardModalLogic.ts -> frontend/src/scenes/insights/insightLogic.tsx
-frontend/src/lib/components/AddToDashboard/addToDashboardModalLogic.ts -> frontend/src/scenes/insights/sharedUtils.ts
 frontend/src/lib/components/Alerting/AlertWizard/alertWizardLogic.ts -> frontend/src/scenes/health/healthCategories.tsx
 frontend/src/lib/components/Alerting/AlertWizard/alertWizardLogic.ts -> frontend/src/scenes/hog-functions/configuration/sampleGlobalsContexts.ts
 frontend/src/lib/components/Alerting/AlertWizard/alertWizardLogic.ts -> frontend/src/scenes/hog-functions/sub-templates/sub-templates.ts
@@ -137,7 +135,6 @@ frontend/src/lib/components/Cards/InsightCard/InsightCard.tsx -> frontend/src/qu
 frontend/src/lib/components/Cards/InsightCard/InsightCard.tsx -> frontend/src/scenes/insights/EmptyStates/index.ts
 frontend/src/lib/components/Cards/InsightCard/InsightCard.tsx -> frontend/src/scenes/insights/insightDataLogic.tsx
 frontend/src/lib/components/Cards/InsightCard/InsightCard.tsx -> frontend/src/scenes/insights/insightLogic.tsx
-frontend/src/lib/components/Cards/InsightCard/InsightCard.tsx -> frontend/src/scenes/insights/sharedUtils.ts
 frontend/src/lib/components/Cards/InsightCard/InsightCard.tsx -> products/business_intelligence/frontend/BIDashboardFilterStatus.tsx
 frontend/src/lib/components/Cards/InsightCard/InsightCard.tsx -> products/business_intelligence/frontend/BIDashboardTile.tsx
 frontend/src/lib/components/Cards/InsightCard/InsightCard.tsx -> products/business_intelligence/frontend/biDashboardCrossFilters.ts
@@ -226,7 +223,6 @@ frontend/src/lib/components/InsightLabel/index.tsx -> frontend/src/scenes/insigh
 frontend/src/lib/components/InsightLabel/index.tsx -> products/product_analytics/frontend/insights/trends/mathsLogic.tsx
 frontend/src/lib/components/InsightLegend/InsightLegend.tsx -> frontend/src/scenes/insights/insightLogic.tsx
 frontend/src/lib/components/InsightLegend/InsightLegend.tsx -> products/product_analytics/frontend/insights/trends/trendsDataLogic.ts
-frontend/src/lib/components/InsightLegend/InsightLegendRow.tsx -> frontend/src/scenes/insights/aggregationAxisFormat.ts
 frontend/src/lib/components/InsightLegend/InsightLegendRow.tsx -> frontend/src/scenes/insights/insightLogic.tsx
 frontend/src/lib/components/InsightLegend/InsightLegendRow.tsx -> frontend/src/scenes/insights/utils.tsx
 frontend/src/lib/components/InsightLegend/InsightLegendRow.tsx -> frontend/src/scenes/insights/utils/resultSeries.ts
@@ -311,7 +307,6 @@ frontend/src/lib/components/TerraformExporter/alertHclExporter.ts -> products/al
 frontend/src/lib/components/TerraformExporter/insightHclExporter.ts -> frontend/src/scenes/dashboard/liveDashboardIds.ts
 frontend/src/lib/components/TerraformExporter/useTerraformExport.ts -> products/alerts/frontend/logic/alertNotifications.ts
 frontend/src/lib/components/TimeSensitiveAuthentication/timeSensitiveAuthenticationLogic.ts -> frontend/src/scenes/authentication/shared/loginErrorMessages.tsx
-frontend/src/lib/components/UnitPicker/UnitPicker.tsx -> frontend/src/scenes/insights/aggregationAxisFormat.ts
 frontend/src/lib/components/UnitPicker/UnitPicker.tsx -> frontend/src/scenes/insights/insightLogic.tsx
 frontend/src/lib/components/UnitPicker/UnitPicker.tsx -> frontend/src/scenes/insights/insightVizDataLogic.ts
 frontend/src/lib/components/UniversalFilters/universalFiltersLogic.ts -> frontend/src/scenes/session-recordings/filters/sessionRecordingSavedFiltersLogic.ts
@@ -419,7 +414,6 @@ frontend/src/queries/nodes/DataTable/renderColumn.tsx -> products/persons/fronte
 frontend/src/queries/nodes/DataVisualization/Components/Charts/SqlMetricCard.tsx -> frontend/src/scenes/insights/EmptyStates/index.ts
 frontend/src/queries/nodes/DataVisualization/Components/Charts/sqlLineGraphAdapter.ts -> products/product_analytics/frontend/insights/trends/shared/goalLinesAdapter.ts
 frontend/src/queries/nodes/DataVisualization/Components/Heatmap/TwoDimensionalHeatmap.tsx -> frontend/src/scenes/insights/EmptyStates/index.ts
-frontend/src/queries/nodes/DataVisualization/Components/SeriesTab.tsx -> frontend/src/scenes/insights/aggregationAxisFormat.ts
 frontend/src/queries/nodes/DataVisualization/Components/SideBar.tsx -> products/business_intelligence/frontend/biTableLayout.ts
 frontend/src/queries/nodes/DataVisualization/Components/Table.tsx -> frontend/src/scenes/insights/EmptyStates/index.ts
 frontend/src/queries/nodes/DataVisualization/Components/Variables/NewVariableModal.tsx -> frontend/src/scenes/data-management/variables/insightColumns.tsx
@@ -478,7 +472,6 @@ frontend/src/queries/nodes/InsightViz/InsightVizDisplay.tsx -> frontend/src/scen
 frontend/src/queries/nodes/InsightViz/InsightVizDisplay.tsx -> frontend/src/scenes/insights/insightDataLogic.tsx
 frontend/src/queries/nodes/InsightViz/InsightVizDisplay.tsx -> frontend/src/scenes/insights/insightLogic.tsx
 frontend/src/queries/nodes/InsightViz/InsightVizDisplay.tsx -> frontend/src/scenes/insights/insightVizDataLogic.ts
-frontend/src/queries/nodes/InsightViz/InsightVizDisplay.tsx -> frontend/src/scenes/insights/sharedUtils.ts
 frontend/src/queries/nodes/InsightViz/InsightVizDisplay.tsx -> frontend/src/scenes/insights/utils/queryUtils.ts
 frontend/src/queries/nodes/InsightViz/InsightVizDisplay.tsx -> products/product_analytics/frontend/insights/InsightNav/insightNavLogic.tsx
 frontend/src/queries/nodes/InsightViz/InsightVizDisplay.tsx -> products/product_analytics/frontend/insights/chartAlternatives/ChartAlternatives.tsx
@@ -505,9 +498,7 @@ frontend/src/queries/nodes/InsightViz/ResultCustomizationsModal.tsx -> frontend/
 frontend/src/queries/nodes/InsightViz/ResultCustomizationsModal.tsx -> frontend/src/scenes/insights/utils/resultSeries.ts
 frontend/src/queries/nodes/InsightViz/ResultCustomizationsModal.tsx -> products/product_analytics/frontend/insights/trends/trendsDataLogic.ts
 frontend/src/queries/nodes/InsightViz/exportAdapters.ts -> frontend/src/scenes/insights/utils/resultSeries.ts
-frontend/src/queries/nodes/InsightViz/insightVizKeys.ts -> frontend/src/scenes/insights/sharedUtils.ts
 frontend/src/queries/nodes/InsightViz/resultCustomizationsModalLogic.ts -> frontend/src/scenes/insights/insightVizDataLogic.ts
-frontend/src/queries/nodes/InsightViz/resultCustomizationsModalLogic.ts -> frontend/src/scenes/insights/sharedUtils.ts
 frontend/src/queries/nodes/InsightViz/resultCustomizationsModalLogic.ts -> frontend/src/scenes/insights/utils.tsx
 frontend/src/queries/nodes/InsightViz/resultCustomizationsModalLogic.ts -> products/product_analytics/frontend/insights/funnels/funnelDataLogic.ts
 frontend/src/queries/nodes/InsightViz/resultCustomizationsModalLogic.ts -> products/product_analytics/frontend/insights/trends/trendsDataLogic.ts
