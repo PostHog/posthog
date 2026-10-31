@@ -1514,6 +1514,7 @@ export interface PatchedTracingViewApi {
 export type TracingRetentionRulesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -1525,6 +1526,7 @@ export type TracingRetentionRulesListParams = {
 export type TracingRetentionRulesReorderCreateParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -1670,6 +1672,7 @@ export const TracingSpansValuesRetrieveAttributeType = {
 export type TracingViewsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**

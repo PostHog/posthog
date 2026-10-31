@@ -16,8 +16,14 @@ export const McpServerInstallationsListParams = () => zod.object({
         ),
 })
 
+export const mcpServerInstallationsListQueryLimitMax = 1000
+
 export const McpServerInstallationsListQueryParams = () => zod.object({
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod
+        .number()
+        .max(mcpServerInstallationsListQueryLimitMax)
+        .optional()
+        .describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 

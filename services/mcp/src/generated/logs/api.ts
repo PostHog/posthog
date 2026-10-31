@@ -16,9 +16,11 @@ export const LogsAlertsListParams = () => zod.object({
         ),
 })
 
+export const logsAlertsListQueryLimitMax = 1000
+
 export const LogsAlertsListQueryParams = () => zod.object({
     created_by: zod.string().optional().describe('Only return log alerts created by the user with this UUID.'),
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod.number().max(logsAlertsListQueryLimitMax).optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
@@ -3834,8 +3836,14 @@ export const LogsAlertsEventsListParams = () => zod.object({
         ),
 })
 
+export const logsAlertsEventsListQueryLimitMax = 1000
+
 export const LogsAlertsEventsListQueryParams = () => zod.object({
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod
+        .number()
+        .max(logsAlertsEventsListQueryLimitMax)
+        .optional()
+        .describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 

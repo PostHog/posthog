@@ -19,8 +19,14 @@ export const StreamlitAppsListParams = () => zod.object({
         ),
 })
 
+export const streamlitAppsListQueryLimitMax = 1000
+
 export const StreamlitAppsListQueryParams = () => zod.object({
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod
+        .number()
+        .max(streamlitAppsListQueryLimitMax)
+        .optional()
+        .describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 

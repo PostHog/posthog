@@ -11000,6 +11000,7 @@ export type DashboardTemplatesListParams = {
     is_featured?: boolean
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -11045,6 +11046,7 @@ export type DashboardsListParams = {
     format?: DashboardsListFormat
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -11462,6 +11464,7 @@ export const DashboardsWidgetCatalogRetrieveWidgetTypeItem = {
 export type DataColorThemesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**

@@ -16,8 +16,14 @@ export const ConversationsListParams = () => zod.object({
         ),
 })
 
+export const conversationsListQueryLimitMax = 1000
+
 export const ConversationsListQueryParams = () => zod.object({
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod
+        .number()
+        .max(conversationsListQueryLimitMax)
+        .optional()
+        .describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 

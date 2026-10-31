@@ -16,8 +16,14 @@ export const HogFunctionTemplatesListParams = () => zod.object({
         ),
 })
 
+export const hogFunctionTemplatesListQueryLimitMax = 1000
+
 export const HogFunctionTemplatesListQueryParams = () => zod.object({
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod
+        .number()
+        .max(hogFunctionTemplatesListQueryLimitMax)
+        .optional()
+        .describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     template_id: zod
         .string()

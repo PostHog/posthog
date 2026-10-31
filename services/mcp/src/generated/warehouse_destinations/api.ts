@@ -22,8 +22,14 @@ export const ExternalDataDestinationsListParams = () => zod.object({
         ),
 })
 
+export const externalDataDestinationsListQueryLimitMax = 1000
+
 export const ExternalDataDestinationsListQueryParams = () => zod.object({
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod
+        .number()
+        .max(externalDataDestinationsListQueryLimitMax)
+        .optional()
+        .describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 

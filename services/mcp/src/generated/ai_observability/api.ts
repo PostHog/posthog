@@ -1344,6 +1344,8 @@ export const EvaluationsListParams = () => zod.object({
         ),
 })
 
+export const evaluationsListQueryLimitMax = 1000
+
 export const EvaluationsListQueryParams = () => zod.object({
     directory_id: zod.string().optional().describe('Filter evaluations by directory UUID.'),
     directory_id__isnull: zod.boolean().optional().describe('Filter evaluations by whether they are at the top level.'),
@@ -1355,7 +1357,7 @@ export const EvaluationsListQueryParams = () => zod.object({
             'Filter by evaluation type\n\n\* `llm_judge` - LLM as a judge\n\* `hog` - Hog\n\* `sentiment` - Sentiment analysis'
         ),
     id__in: zod.array(zod.string()).optional().describe('Multiple values may be separated by commas.'),
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod.number().max(evaluationsListQueryLimitMax).optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     order_by: zod
         .array(zod.string())
@@ -1690,8 +1692,14 @@ export const EvaluationsBackfillsListParams = () => zod.object({
         ),
 })
 
+export const evaluationsBackfillsListQueryLimitMax = 1000
+
 export const EvaluationsBackfillsListQueryParams = () => zod.object({
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod
+        .number()
+        .max(evaluationsBackfillsListQueryLimitMax)
+        .optional()
+        .describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
@@ -2396,8 +2404,14 @@ export const LlmAnalyticsClusteringJobsListParams = () => zod.object({
         ),
 })
 
+export const llmAnalyticsClusteringJobsListQueryLimitMax = 1000
+
 export const LlmAnalyticsClusteringJobsListQueryParams = () => zod.object({
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod
+        .number()
+        .max(llmAnalyticsClusteringJobsListQueryLimitMax)
+        .optional()
+        .describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
@@ -2518,9 +2532,15 @@ export const LlmAnalyticsEvaluationReportsListParams = () => zod.object({
         ),
 })
 
+export const llmAnalyticsEvaluationReportsListQueryLimitMax = 1000
+
 export const LlmAnalyticsEvaluationReportsListQueryParams = () => zod.object({
     evaluation: zod.string().optional().describe('Only return report configs for this evaluation UUID.'),
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod
+        .number()
+        .max(llmAnalyticsEvaluationReportsListQueryLimitMax)
+        .optional()
+        .describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
@@ -2724,8 +2744,14 @@ export const LlmAnalyticsEvaluationReportsRunsListParams = () => zod.object({
         ),
 })
 
+export const llmAnalyticsEvaluationReportsRunsListQueryLimitMax = 1000
+
 export const LlmAnalyticsEvaluationReportsRunsListQueryParams = () => zod.object({
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod
+        .number()
+        .max(llmAnalyticsEvaluationReportsRunsListQueryLimitMax)
+        .optional()
+        .describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
@@ -2774,8 +2800,14 @@ export const LlmAnalyticsProviderKeysListParams = () => zod.object({
         ),
 })
 
+export const llmAnalyticsProviderKeysListQueryLimitMax = 1000
+
 export const LlmAnalyticsProviderKeysListQueryParams = () => zod.object({
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod
+        .number()
+        .max(llmAnalyticsProviderKeysListQueryLimitMax)
+        .optional()
+        .describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
@@ -2796,8 +2828,14 @@ export const LlmAnalyticsReviewQueueItemsListParams = () => zod.object({
         ),
 })
 
+export const llmAnalyticsReviewQueueItemsListQueryLimitMax = 1000
+
 export const LlmAnalyticsReviewQueueItemsListQueryParams = () => zod.object({
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod
+        .number()
+        .max(llmAnalyticsReviewQueueItemsListQueryLimitMax)
+        .optional()
+        .describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     order_by: zod.string().optional().describe('Order by `created_at` or `updated_at`.'),
     queue_id: zod.string().optional().describe('Filter by a specific review queue ID.'),
@@ -2863,8 +2901,14 @@ export const LlmAnalyticsReviewQueuesListParams = () => zod.object({
         ),
 })
 
+export const llmAnalyticsReviewQueuesListQueryLimitMax = 1000
+
 export const LlmAnalyticsReviewQueuesListQueryParams = () => zod.object({
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod
+        .number()
+        .max(llmAnalyticsReviewQueuesListQueryLimitMax)
+        .optional()
+        .describe('Number of results to return per page.'),
     name: zod.string().optional(),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     order_by: zod.string().optional().describe('Order by `name`, `updated_at`, or `created_at`.'),
@@ -2930,13 +2974,19 @@ export const LlmAnalyticsScoreDefinitionsListParams = () => zod.object({
         ),
 })
 
+export const llmAnalyticsScoreDefinitionsListQueryLimitMax = 1000
+
 export const llmAnalyticsScoreDefinitionsListQueryTagMatchDefault = `any`
 
 export const LlmAnalyticsScoreDefinitionsListQueryParams = () => zod.object({
     archived: zod.boolean().optional().describe('Filter by archived state.'),
     created_by: zod.number().optional().describe("Filter by the creator's user ID."),
     kind: zod.string().optional().describe('Filter by scorer kind.'),
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod
+        .number()
+        .max(llmAnalyticsScoreDefinitionsListQueryLimitMax)
+        .optional()
+        .describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     order_by: zod.string().optional().describe('Sort by name, kind, created_at, updated_at, or current_version.'),
     search: zod.string().optional().describe('Search scorers by name, short name, or description.'),
@@ -3424,13 +3474,19 @@ export const LlmAnalyticsTraceReviewsListParams = () => zod.object({
         ),
 })
 
+export const llmAnalyticsTraceReviewsListQueryLimitMax = 1000
+
 export const LlmAnalyticsTraceReviewsListQueryParams = () => zod.object({
     definition_id: zod.string().optional().describe('Filter by a stable scorer definition ID.'),
     definition_id__in: zod
         .string()
         .optional()
         .describe('Filter by multiple scorer definition IDs separated by commas.'),
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod
+        .number()
+        .max(llmAnalyticsTraceReviewsListQueryLimitMax)
+        .optional()
+        .describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     order_by: zod.string().optional().describe('Order by `updated_at` or `created_at`.'),
     search: zod.string().optional().describe('Search trace IDs and comments.'),
@@ -3574,6 +3630,8 @@ export const llmPromptsListQueryArchivedDefault = false
 export const llmPromptsListQueryContentDefault = `full`
 export const llmPromptsListQueryLabelMax = 128
 
+export const llmPromptsListQueryLimitMax = 1000
+
 export const llmPromptsListQueryOrderByDefault = `-created_at`
 
 export const llmPromptsListQueryResolveDefault = true
@@ -3600,7 +3658,7 @@ export const LlmPromptsListQueryParams = () => zod.object({
         .describe(
             "Return each prompt at the version this label points to, e.g. 'production'. Prompts that do not carry the label are omitted. If omitted, the latest version of every prompt is returned."
         ),
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod.number().max(llmPromptsListQueryLimitMax).optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     order_by: zod
         .string()
@@ -3805,10 +3863,12 @@ export const TaggersListParams = () => zod.object({
         ),
 })
 
+export const taggersListQueryLimitMax = 1000
+
 export const TaggersListQueryParams = () => zod.object({
     enabled: zod.boolean().optional().describe('Filter by enabled status'),
     id__in: zod.array(zod.string()).optional().describe('Multiple values may be separated by commas.'),
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod.number().max(taggersListQueryLimitMax).optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     order_by: zod
         .array(zod.string())

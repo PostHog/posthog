@@ -16,12 +16,14 @@ export const HogFunctionsListParams = () => zod.object({
         ),
 })
 
+export const hogFunctionsListQueryLimitMax = 1000
+
 export const HogFunctionsListQueryParams = () => zod.object({
     created_at: zod.iso.datetime({ offset: true }).optional(),
     created_by: zod.number().optional(),
     enabled: zod.boolean().optional(),
     id: zod.string().optional(),
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod.number().max(hogFunctionsListQueryLimitMax).optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     type: zod.array(zod.string()).optional().describe('Multiple values may be separated by commas.'),
     updated_at: zod.iso.datetime({ offset: true }).optional(),
@@ -1209,8 +1211,14 @@ export const HogFunctionsRevisionsListParams = () => zod.object({
         ),
 })
 
+export const hogFunctionsRevisionsListQueryLimitMax = 1000
+
 export const HogFunctionsRevisionsListQueryParams = () => zod.object({
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod
+        .number()
+        .max(hogFunctionsRevisionsListQueryLimitMax)
+        .optional()
+        .describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 

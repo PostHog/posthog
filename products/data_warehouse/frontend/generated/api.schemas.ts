@@ -5956,6 +5956,7 @@ export const DataWarehouseRunningActivityRetrieveKind = {
 export type FixHogqlListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -5974,6 +5975,7 @@ export type InsightVariablesListParams = {
 export type QueryTabStateListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -5992,6 +5994,7 @@ export type QueryTabStateUserRetrieveParams = {
 export type SavedQueryColumnAnnotationsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -6007,6 +6010,7 @@ export type SavedQueryColumnAnnotationsListParams = {
 export type WarehouseColumnAnnotationsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -6022,6 +6026,7 @@ export type WarehouseColumnAnnotationsListParams = {
 export type WarehouseExpressionsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -6067,6 +6072,7 @@ export type WarehouseTablesListParams = {
     include_columns?: boolean
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -6105,6 +6111,7 @@ export type WarehouseTablesUploadFileCreateBody = {
 export type WarehouseViewLinkListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -6120,6 +6127,7 @@ export type WarehouseViewLinkListParams = {
 export type WarehouseViewLinksListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**

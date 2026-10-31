@@ -80,6 +80,28 @@ describe('cohortsModel', () => {
             expect(logic.values.allCohorts.results).toHaveLength(2)
         })
 
+        it('follows next pages until the cohort list is complete', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+            const [firstCohort, secondCohort] = MOCK_COHORTS.results
+            useMocks({
+                get: {
+                    '/api/projects/:team/cohorts/': ({ request }) => {
+                        const offset = Number(new URL(request.url).searchParams.get('offset') ?? 0)
+                        if (offset === 0) {
+                            return { count: 2, next: 'http://localhost/next-page', results: [firstCohort] }
+                        }
+                        return { count: 2, next: null, results: [secondCohort] }
+                    },
+                },
+            })
+
+            await expectLogic(logic, () => logic.actions.loadAllCohorts()).toDispatchActions(['loadAllCohortsSuccess'])
+            expect(logic.values.allCohorts.results.map(({ id }) => id)).toEqual([1, 2])
+
+            await expectLogic(logic, () => logic.actions.loadCohorts()).toDispatchActions(['loadCohortsSuccess'])
+            expect(logic.values.cohorts.results.map(({ id }) => id)).toEqual([1, 2])
+        })
+
         it('sets polling timeout for calculating cohorts when on cohorts page', async () => {
             // Set the current location to the cohorts page
             router.actions.push(urls.cohorts())

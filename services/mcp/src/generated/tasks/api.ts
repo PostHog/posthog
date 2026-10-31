@@ -20,8 +20,10 @@ export const TaskChannelsListParams = () => zod.object({
         ),
 })
 
+export const taskChannelsListQueryLimitMax = 1000
+
 export const TaskChannelsListQueryParams = () => zod.object({
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod.number().max(taskChannelsListQueryLimitMax).optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
@@ -1219,8 +1221,10 @@ export const TasksConfigListParams = () => zod.object({
         ),
 })
 
+export const tasksConfigListQueryLimitMax = 1000
+
 export const TasksConfigListQueryParams = () => zod.object({
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod.number().max(tasksConfigListQueryLimitMax).optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 

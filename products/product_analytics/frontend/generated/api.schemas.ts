@@ -9899,6 +9899,7 @@ export type ColumnConfigurationsListParams = {
     context_key?: string
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -9910,6 +9911,7 @@ export type ColumnConfigurationsListParams = {
 export type ElementsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -10028,6 +10030,7 @@ export type InsightsListParams = {
     last_viewed_date_to?: string
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**

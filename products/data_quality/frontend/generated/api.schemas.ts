@@ -918,6 +918,7 @@ export type DataQualityChecksListParams = {
     check_type?: DataQualityChecksListCheckType
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -1082,6 +1083,7 @@ export const DataQualityChecksSubjectsListSubjectType = {
 export type DataQualityRunsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**

@@ -1022,6 +1022,7 @@ export interface PostHogConnectionTargetErrorApi {
 export type RoleExternalReferencesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -1109,6 +1110,7 @@ export type IntegrationsListParams = {
     kind?: IntegrationsListKind
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**

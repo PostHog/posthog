@@ -79,6 +79,8 @@ export const FeatureFlagsListParams = () => zod.object({
         ),
 })
 
+export const featureFlagsListQueryLimitMax = 1000
+
 export const FeatureFlagsListQueryParams = () => zod.object({
     active: zod
         .enum(['STALE', 'false', 'true'])
@@ -121,7 +123,7 @@ export const FeatureFlagsListQueryParams = () => zod.object({
             "Filter feature flags by presence of evaluation contexts. 'true' returns only flags with at least one evaluation context, 'false' returns only flags without."
         ),
     key: zod.string().optional().describe('Filter by exact feature flag key match. Case insensitive.'),
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod.number().max(featureFlagsListQueryLimitMax).optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     search: zod
         .string()
@@ -1479,8 +1481,14 @@ export const ScheduledChangesListParams = () => zod.object({
         ),
 })
 
+export const scheduledChangesListQueryLimitMax = 1000
+
 export const ScheduledChangesListQueryParams = () => zod.object({
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod
+        .number()
+        .max(scheduledChangesListQueryLimitMax)
+        .optional()
+        .describe('Number of results to return per page.'),
     model_name: zod
         .string()
         .optional()
