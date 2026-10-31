@@ -19,6 +19,8 @@ Scorer models and other provider credentials are unchanged.
 
 Offline API uploads run through the Python SDK independently of `TEST` and `OPT_OUT_CAPTURE`.
 The shared trace client retains its existing `TEST` and `OPT_OUT_CAPTURE` guards for `$ai_generation`, `$ai_span`, and `$ai_trace` events.
+A sandboxed trace has one `$ai_span` per tool call, under the `$ai_generation` that made the call, with the tool's input, output, latency, and error state.
+The `$ai_provider` of agent generations follows `--agent-runtime`: `anthropic` for Claude and `openai` for Codex.
 
 ## Result contents and scope
 
