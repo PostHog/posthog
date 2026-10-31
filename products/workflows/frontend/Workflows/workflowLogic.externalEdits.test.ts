@@ -383,6 +383,45 @@ describe('workflowLogic external edits', () => {
         expect(saved.name).toBe('Typed during the reload')
     })
 
+    it('holds auto-save until the reload lands, so a stale save cannot start a second reload', async () => {
+        let releaseReload: () => void = () => {}
+        const reloadReleased = new Promise<void>((resolve) => {
+            releaseReload = resolve
+        })
+        const sentBases: unknown[] = []
+        useMocks({
+            get: {
+                '/api/environments/:team_id/hog_flows/:id/': async () => {
+                    await reloadReleased
+                    return [200, makeWorkflow({ updated_at: NEWER })]
+                },
+                '/api/projects/:team_id/hog_function_templates/': { results: [], count: 0 },
+            },
+            patch: {
+                '/api/environments/:team_id/hog_flows/:id/': async ({ request }) => {
+                    const body = (await request.json()) as Record<string, any>
+                    sentBases.push(body.base_updated_at)
+                    savedBodies.push(body)
+                    return body.base_updated_at === NEWER
+                        ? [200, { ...makeWorkflow({ updated_at: NEWER }), ...body }]
+                        : [409, { detail: 'stale_update' }]
+                },
+            },
+        })
+        jest.useFakeTimers()
+        logic.actions.setWorkflowValue('name', 'Typed before the reload')
+        resourceEditedLogic.actions.resourceEdited(makeEvent({ updated_at: NEWER }))
+
+        await jest.advanceTimersByTimeAsync(3500)
+        expect(sentBases).toEqual([])
+        releaseReload()
+        await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+        const saved = await flushAutoSave()
+
+        expect(sentBases).toEqual([NEWER])
+        expect(saved.name).toBe('Typed before the reload')
+    })
+
     it('lets the server copy win when the flag is off', async () => {
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_KEEP_LOCAL_EDITS]: false })
         logic.actions.setWorkflowValue('name', 'My local edit')

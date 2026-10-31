@@ -4974,7 +4974,8 @@ export const workflowLogic = kea<workflowLogicType>([
                 props.id === 'new' ||
                 !!props.editTemplateId ||
                 !values.workflowChanged ||
-                values.autoSaveBlockedByValidation
+                values.autoSaveBlockedByValidation ||
+                values.isSyncingExternalEdit
 
             if (shouldSkip) {
                 actions.clearAutoSavePending()
