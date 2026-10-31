@@ -14,7 +14,7 @@ from django.db import models
 
 from products.signals.backend.activity_summary.render import PRODUCT_LABELS, PROFILE_MAX_CHARS, Product, cap_line
 
-PROMPT_VERSION = 6
+PROMPT_VERSION = 7
 
 MAX_THEMES = 6
 # Per-field caps, so one runaway field cannot make the stored summary large. A cut ends at a word boundary.
@@ -49,10 +49,11 @@ The input has these parts:
 - Objects and pages: a list that code computed from the last weeks of activity. Each line starts with a ref. An "o" ref is an object. An object they edited shows the number of days with edits, and "created" when they made it. An object they only opened shows the number of days they opened it, and "not theirs" when someone else made it. A "p" ref is the pages of one product. The list ends with the products they work in and the products they only visit.
 - Tasks: work the person gave to PostHog AI or the Slack agent. Each line has the day, the tags in brackets and the goal. "(xN)" is the number of runs.
 - Things they created or changed in PostHog: each line has the day, the action, the type and the name of the object. "(xN)" is the number of changes. "agent" is the reason their coding agent gave for the change.
+- What their AI agent looked into over MCP: one line per agent session, with the day, the number of calls and the intents the agent stated, in order. The agent looked these up for the person, and changed nothing. Treat them as the person's interests and open questions. Never write that the person built or changed something because of them.
 - Things they opened in PostHog: one line per object, or per product for its pages, with the number of days they opened it and the last day.
 - The previous summary, when there is one.
 
-The tasks and the lines of changes and opens cover only the time since the previous summary. Keep what the previous summary says unless the new activity changes it.
+The tasks and the lines of changes, MCP sessions and opens cover only the time since the previous summary. Keep what the previous summary says unless the new activity changes it.
 
 How to write:
 - Be concrete. Name the dashboards, insights, flags, experiments, accounts, features and goals that matter. Use the names that the input uses.
@@ -72,7 +73,7 @@ Return JSON:
 - `profile`: markdown, at most {profile_max_chars} characters, with these sections in this order:
   - `## Working on`: the threads they build or change, with the objects by name.
   - `## Keeps an eye on`: what they open again and again but do not change.
-  - `## Recently asked about`: what they asked PostHog AI or the Slack agent. Only when there are tasks.
+  - `## Recently asked about`: what they asked PostHog AI or the Slack agent, and what their agent looked into over MCP. Only when there are tasks or MCP sessions.
   - `## Earlier context`: what the previous summary says that the new activity does not repeat. Only when there is a previous summary.
   Leave out a section that has nothing to say. Do not add other sections, such as one for page visits or for evidence.
 - `recent_shift`: one sentence about what changed since the previous summary, or null when there is no previous summary or no real change."""
