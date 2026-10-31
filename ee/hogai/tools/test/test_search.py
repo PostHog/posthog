@@ -21,6 +21,7 @@ from ee.hogai.tools.search import (
     DOC_ITEM_TEMPLATE,
     DOCS_SEARCH_NO_RESULTS_TEMPLATE,
     DOCS_SEARCH_RESULTS_TEMPLATE,
+    SEARCH_TOOL_PROMPT,
     InkeepDocsSearchTool,
     SearchTool,
     format_inkeep_docs_response,
@@ -77,6 +78,24 @@ class TestSearchTool(ClickhouseTestMixin, NonAtomicBaseTest):
         error_message = str(context.exception)
         self.assertIn("Invalid entity kind", error_message)
         self.assertIn("unknown", error_message)
+
+    @parameterized.expand([("ready_sources", True, True), ("flag_off", False, True), ("no_ready_sources", True, False)])
+    async def test_business_knowledge_prompt_is_scoped_to_team_knowledge(
+        self, _name: str, flag_enabled: bool, ready: bool
+    ) -> None:
+        with (
+            patch("ee.hogai.tools.search.has_business_knowledge_feature_flag", return_value=flag_enabled),
+            patch("ee.hogai.tools.search.has_ready_sources", return_value=ready),
+        ):
+            tool = await SearchTool.create_tool_class(team=self.team, user=self.user)
+
+        if flag_enabled and ready:
+            self.assertIn(
+                "Search business knowledge when the user's question needs facts about THIS team's own product, policies, or domain.",
+                tool.description,
+            )
+        else:
+            self.assertEqual(tool.description, SEARCH_TOOL_PROMPT)
 
 
 class TestInkeepDocsSearchTool(ClickhouseTestMixin, NonAtomicBaseTest):
