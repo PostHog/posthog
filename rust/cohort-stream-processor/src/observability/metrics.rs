@@ -50,8 +50,8 @@ pub const CASCADE_FANOUT_CAPPED_TOTAL: &str = "cascade_fanout_capped_total";
 /// offset.
 pub const CASCADE_PRODUCE_ERRORS_TOTAL: &str = "cascade_produce_errors_total";
 /// Cascade messages settled as one group, which share one produce round trip and one `cf_stage2`
-/// write (histogram). Only messages that write a bit count, and a person who repeats in a sub-batch
-/// splits it into groups, so small values mean little batching.
+/// write (histogram). Only messages that write a bit count. A person who repeats in a sub-batch, or a
+/// group that fills, splits the sub-batch into groups, so small values mean little batching.
 pub const CASCADE_BATCH_MESSAGES: &str = "cascade_batch_messages";
 /// The cascade-consumer commit floor pinned by a sticky offset hold, labelled by `partition` (gauge).
 /// Non-zero means a held cascade re-evaluation is stalling the commit. **Alert on a sustained

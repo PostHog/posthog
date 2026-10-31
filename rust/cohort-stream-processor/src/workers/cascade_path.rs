@@ -8,7 +8,8 @@
 //!
 //! **One group per sub-batch.** The messages of a worker sub-batch share one produce round trip and
 //! one `cf_stage2` write batch. A message whose person already has an unwritten bit in the group
-//! settles the group first, so the message reads the written bit instead of the stale one.
+//! settles the group first, so the message reads the written bit instead of the stale one. A group
+//! that holds [`CASCADE_GROUP_WRITES`] writes also settles before its next message.
 //!
 //! **Produce-before-state, per message.** A message's new `cf_stage2` bits are committed only after
 //! all of its records ack; a message with a failed record holds its own offset without writing, so
@@ -44,6 +45,11 @@ use crate::workers::merge_path::MergeWorkerDeps;
 use crate::workers::stage2_path::recompute_and_diff;
 use crate::workers::worker::{produce_cascades, produce_membership};
 
+/// The `cf_stage2` writes at which a cascade group settles before it takes another message. One
+/// message adds at most `fanout_cap` writes, so this bounds the output a group holds in memory,
+/// which the sub-batch length times the fan-out cap would not.
+const CASCADE_GROUP_WRITES: usize = 1_000;
+
 /// Re-evaluate every referrer of the cohorts flipped by one worker sub-batch of
 /// `cohort_cascade_events` messages, emit their flips, continue the chains, and settle the cascade
 /// offsets. `batch` is in offset order.
@@ -72,7 +78,7 @@ pub(crate) async fn handle_cascades(
             else {
                 continue;
             };
-            if group.touched.contains(&person_id) {
+            if group.touched.contains(&person_id) || group.writes >= CASCADE_GROUP_WRITES {
                 std::mem::replace(&mut group, CascadeGroup::open(clock))
                     .settle(partition_id, handle, sink, merge)
                     .await;
@@ -132,6 +138,8 @@ struct CascadeGroup {
     evaluated_at_ms: i64,
     /// The persons of `messages`, whose `cf_stage2` writes are not committed yet.
     touched: HashSet<Uuid>,
+    /// The `cf_stage2` writes across `messages`.
+    writes: usize,
     messages: Vec<Reevaluated>,
 }
 
@@ -150,6 +158,7 @@ impl CascadeGroup {
             evaluated_at_ms: clickhouse_millis(&last_updated),
             last_updated,
             touched: HashSet::new(),
+            writes: 0,
             messages: Vec::new(),
         }
     }
@@ -266,6 +275,7 @@ impl CascadeGroup {
         }
         if !reevaluated.writes.is_empty() {
             self.touched.insert(person_id);
+            self.writes += reevaluated.writes.len();
             self.messages.push(reevaluated);
         }
     }

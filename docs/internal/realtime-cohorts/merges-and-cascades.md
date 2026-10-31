@@ -198,6 +198,7 @@ That answer is wrong for anyone who really is in the untracked cohort.
    For each message it finds every cohort that references the flipped cohort and recomposes each referrer that composes.
    It reads a single-leaf referenced cohort from its leaf state, a composed one from its Stage 2 row, and an untracked one as not a member.
    If a message's person already has an unwritten Stage 2 bit in the group, the group settles first, so the message reads the written bit.
+   A group that holds 1,000 Stage 2 writes also settles before its next message, which bounds the output it holds in memory.
 4. For each referrer that flips, the group collects the membership change and, if the chain may continue, a further cascade message.
    The group produces both topics for all of its messages at once, in one round trip.
 5. A message's new Stage 2 bits are written only after all of its produces are acknowledged.
