@@ -419,18 +419,29 @@ class TestActivitySummaryQueue(BaseTest):
 
         assert sorted(self._select(config)) == sorted([(self.team.id, user.id), (approved.id, user.id)])
 
-    @parameterized.expand([("every_enrolled_team", False), ("listed_organizations", True)])
-    def test_mcp_buffer_team_ids(self, _name: str, listed: bool) -> None:
+    @parameterized.expand(
+        [
+            ("every_enrolled_team", "none", True, {"own", "other"}),
+            ("listed_organizations", "own", True, {"own"}),
+            ("listed_but_not_enrolled", "own", False, set()),
+            ("invalid_listed_id", "invalid", True, set()),
+        ]
+    )
+    def test_mcp_buffer_team_ids(self, _name: str, listed: str, approved: bool, expected: set[str]) -> None:
         other = Team.objects.create(organization=Organization.objects.create(name="Other"), name="Other")
+        self.organization.is_ai_data_processing_approved = approved
+        self.organization.save()
+        listed_ids = {"none": (), "own": (str(self.organization.id),), "invalid": ("not-a-uuid",)}[listed]
         config = ActivitySummaryConfig(
             enabled=True,
             enroll_all_approved=True,
             mcp_buffer_enabled=True,
-            mcp_buffer_organization_ids=(str(self.organization.id),) if listed else (),
+            mcp_buffer_organization_ids=listed_ids,
         )
+        team_ids = {"own": self.team.id, "other": other.id}
 
         assert mcp_buffer_team_ids(dataclasses.replace(config, mcp_buffer_enabled=False)) == []
-        assert set(mcp_buffer_team_ids(config)) == ({self.team.id} if listed else {self.team.id, other.id})
+        assert set(mcp_buffer_team_ids(config)) == {team_ids[name] for name in expected}
 
     def test_selects_nothing_without_ai_data_processing_approval(self) -> None:
         self.organization.is_ai_data_processing_approved = False
