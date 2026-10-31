@@ -1708,6 +1708,55 @@ describe('Hog Executor', () => {
             })
         })
 
+        describe('hmac_sha256', () => {
+            const SECRET = 'a-shared-secret'
+            const BODY = '{"test": 2432232314}'
+            const SIGNING_REFS = {
+                secret_input: 'signing_secret',
+                webhook_id: '4f6c9f2a-5b1e-4f5b-9d3c-2a7e8c1d0b64',
+            }
+            const EXPECTED_SIGNATURE = `sha256=${createHmac('sha256', SECRET).update(BODY).digest('hex')}`
+
+            const createSignedInvocation = async (): Promise<CyclotronJobInvocationHogFunction> =>
+                await createFetchInvocation({
+                    url: `${baseUrl}/`,
+                    method: 'POST',
+                    body: BODY,
+                    headers: { 'Content-Type': 'application/json', 'X-Hub-Signature-256': 'sha256=stale' },
+                    hmac_sha256: SIGNING_REFS,
+                })
+
+            it('signs every attempt of one delivery with the same delivery id', async () => {
+                const received: { id: unknown; signature: unknown }[] = []
+                mockRequest.mockImplementation((req: any, res: any) => {
+                    received.push({ id: req.headers['webhook-id'], signature: req.headers['x-hub-signature-256'] })
+                    res.writeHead(received.length === 1 ? 500 : 200, { 'Content-Type': 'text/plain' })
+                    res.end('ok')
+                })
+                const invocation = await createSignedInvocation()
+                invocation.hogFunction.encrypted_inputs = { signing_secret: { value: SECRET } } as any
+
+                const firstAttempt = await executor.executeFetch(invocation)
+                const retry = await executor.executeFetch(firstAttempt.invocation)
+
+                expect(retry.error).toBeUndefined()
+                expect(received).toEqual([
+                    { id: SIGNING_REFS.webhook_id, signature: EXPECTED_SIGNATURE },
+                    { id: SIGNING_REFS.webhook_id, signature: EXPECTED_SIGNATURE },
+                ])
+            })
+
+            it('refuses to send an unsigned request when the secret input is missing', async () => {
+                const invocation = await createSignedInvocation()
+
+                const result = await executor.executeFetch(invocation)
+
+                expect(mockRequest).not.toHaveBeenCalled()
+                expect(result.error.message).toContain('HMAC-SHA256 signing failed')
+                expect(result.error.message).toContain('signing_secret')
+            })
+        })
+
         describe('secret_headers_input', () => {
             const seedSecretHeadersInput = (invocation: CyclotronJobInvocationHogFunction) => {
                 invocation.hogFunction.encrypted_inputs = {
