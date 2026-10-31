@@ -3,15 +3,17 @@ import clsx from 'clsx'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
 
+import type { FunnelsQuery } from '~/queries/schema/schema-general'
 import { type FunnelStepWithConversionMetrics } from '~/types'
 
 import { FunnelStepPathLinks } from '../shared/FunnelStepPathLinks'
-import { getActionFilterFromFunnelStep } from '../shared/funnelStepTableUtils'
+import { getFunnelStepEntity } from '../shared/funnelStepSeries'
 
 export interface FunnelBarListLabelProps {
     step: FunnelStepWithConversionMetrics
     stepIndex: number
     period?: 'current' | 'previous'
+    querySource: FunnelsQuery | null
     isUnordered: boolean
     isOptional: boolean
     showStepPaths: boolean
@@ -21,6 +23,7 @@ export function FunnelBarListLabel({
     step,
     stepIndex,
     period,
+    querySource,
     isUnordered,
     isOptional,
     showStepPaths,
@@ -31,7 +34,7 @@ export function FunnelBarListLabel({
     const name = isUnordered ? (
         `Completed ${step.order + 1} steps`
     ) : (
-        <EntityFilterInfo filter={getActionFilterFromFunnelStep(step)} />
+        <EntityFilterInfo filter={getFunnelStepEntity(querySource, stepIndex, step)} />
     )
     const nameClassName = clsx(
         '-ml-1 min-w-0 truncate px-1 text-sm leading-4 font-semibold',

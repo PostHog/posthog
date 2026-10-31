@@ -1,6 +1,6 @@
 import type { PointClickData, Series } from '@posthog/quill-charts'
 
-import { EntityTypes, FunnelStepReference, type FunnelStepWithConversionMetrics } from '~/types'
+import { FunnelStepReference, type FunnelStepWithConversionMetrics } from '~/types'
 
 import {
     buildFunnelStepsBarData,
@@ -16,13 +16,11 @@ type StepOverrides = Partial<FunnelStepWithConversionMetrics> & { fromBasisStep:
 
 function makeStep({ fromBasisStep, ...overrides }: StepOverrides): FunnelStepWithConversionMetrics {
     return {
-        action_id: 'action',
         average_conversion_time: null,
         median_conversion_time: null,
         count: 0,
         name: 'Step',
         order: 0,
-        type: EntityTypes.EVENTS,
         converted_people_url: '',
         dropped_people_url: null,
         droppedOffFromPrevious: 0,
