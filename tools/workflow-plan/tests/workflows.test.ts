@@ -5,7 +5,7 @@ import { readdirSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 
-import { evaluateValue, planFunctions } from '../src/expressions.ts'
+import { evaluateCondition, evaluateValue, planFunctions } from '../src/expressions.ts'
 import {
     type Outcome,
     type Scenario,
@@ -189,7 +189,7 @@ const EXPECTATIONS: Expectation[] = [
     ),
     depotBackend(
         { name: 'ready PR, superseded and cancelled', cancelled: true },
-        { results: { django_tests: 'cancelled' } }
+        { results: { django_tests: 'cancelled', 'backend-coverage-report': 'cancelled' } }
     ),
     depotBackend(
         { name: 'draft PR', github: pullRequest({ draft: true }) },
@@ -281,7 +281,7 @@ const EXPECTATIONS: Expectation[] = [
                 },
             },
         },
-        { runs: ['turbo-tests', 'django_tests'], skipped: ['django'] }
+        { runs: ['turbo-tests', 'django_tests', 'backend-coverage-report'], skipped: ['django'] }
     ),
     depotBackend(
         { name: 'draft PR labeled no-ci', github: pullRequest({ draft: true, labels: ['no-ci'] }) },
@@ -306,6 +306,7 @@ const EXPECTATIONS: Expectation[] = [
                 'get_clickhouse_versions',
                 'build_django_matrix',
                 'sdk-major-guard',
+                'backend-coverage-report',
             ],
         }
     ),
@@ -657,6 +658,35 @@ describe('CI workflow run plans', () => {
                 .filter((step) => step.runs && validationSteps.includes(step.name ?? ''))
                 .map((step) => step.name)
         ).toEqual(checks === 'full' ? validationSteps : checks === 'typecheck' ? ['Typecheck'] : [])
+    })
+
+    it.each([
+        ['both skipped', 'skipped', 'skipped', 'full', false],
+        ['core only', 'success', 'skipped', 'full', true],
+        ['products only', 'skipped', 'success', 'full', true],
+        ['failed core shards', 'failure', 'skipped', 'full', true],
+        ['failed product shards', 'skipped', 'failure', 'full', true],
+        ['selected tests', 'success', 'success', 'selected', false],
+    ])('backend coverage reporting with %s', (_name, django, products, mode, runs) => {
+        expect(
+            evaluateCondition(
+                workflow(DEPOT_BACKEND).jobs['backend-coverage-report']!.if,
+                {
+                    github: pullRequest(),
+                    needs: {
+                        django: { result: django },
+                        'turbo-tests': { result: products },
+                        django_tests: { result: 'success' },
+                        'turbo-discover': { outputs: { mode } },
+                    },
+                },
+                planFunctions({
+                    dependenciesSucceeded: django === 'success' && products === 'success',
+                    dependenciesFailed: django === 'failure' || products === 'failure',
+                    cancelled: false,
+                })
+            )
+        ).toBe(runs)
     })
 
     it.each([
