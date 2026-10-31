@@ -1615,7 +1615,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         required_scopes=["warehouse_view:read", "external_data_source:read"],
     )
     def managed_warehouse_data_status(self, request: Request, **kwargs) -> Response:
-        """Get events, persons, and imported source readiness for the managed warehouse."""
+        """Get events, persons, groups, and imported source readiness for the managed warehouse."""
         if (disabled := self._managed_warehouse_disabled_response()) is not None:
             return disabled
         return Response(get_managed_warehouse_data_status(self.team_id, user_access_control=self.user_access_control))
