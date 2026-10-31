@@ -25,13 +25,21 @@ from posthog.dataclasses import frozen
 from posthog.models import Team
 from posthog.models.user import User
 
-from products.apm.backend.facade.api import get_service_map, is_apm_enabled, list_endpoints_health, list_services_health
+from products.apm.backend.facade.api import (
+    get_service_map,
+    is_apm_enabled,
+    list_endpoints_health,
+    list_service_usage,
+    list_services_health,
+)
 from products.apm.backend.presentation.serializers import (
     EndpointsHealthRequestSerializer,
     EndpointsHealthResponseSerializer,
     ServiceMapResponseSerializer,
     ServicesHealthRequestSerializer,
     ServicesHealthResponseSerializer,
+    ServiceUsageResponseSerializer,
+    WindowRequestSerializer,
 )
 
 DEFAULT_WINDOW = timedelta(hours=1)
@@ -52,8 +60,8 @@ class HealthWindow:
     environment: str
 
 
-def _window(params: ServicesHealthRequestSerializer) -> HealthWindow:
-    """The window and environment every APM health route reads, with the same defaults and cap."""
+def _window(params: WindowRequestSerializer) -> HealthWindow:
+    """The window and environment every APM route reads, with the same defaults and cap."""
     params.is_valid(raise_exception=True)
     date_to = params.validated_data.get("date_to") or timezone.now()
     date_from = params.validated_data.get("date_from") or date_to - DEFAULT_WINDOW
@@ -148,3 +156,34 @@ class ServiceMapViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             "date_to": window.date_to,
         }
         return Response(ServiceMapResponseSerializer(payload).data, status=status.HTTP_200_OK)
+
+
+class ServiceUsageViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
+    """How much each service sends across logs, traces, and metrics in a window. Same gate and window as services.
+
+    Usage covers every environment: logs and metrics often carry no environment attribute, so a
+    filter would hide the services that send the most.
+    """
+
+    scope_object = "tracing"
+    # The response carries logs and metrics data too. Scopes gate tokens; access control gates members.
+    required_scopes = ["tracing:read", "logs:read", "metrics:read"]
+
+    @extend_schema(parameters=[WindowRequestSerializer], responses={200: ServiceUsageResponseSerializer})
+    def list(self, request: Request, *args, **kwargs) -> Response:
+        _check_flag(self.team, cast(User, request.user))
+        for resource in ("logs", "metrics"):
+            if not self.user_access_control.check_access_level_for_resource(resource, "viewer"):
+                raise PermissionDenied(f"You do not have access to {resource}.")
+        tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
+        window = _window(WindowRequestSerializer(data=request.query_params))
+
+        result = list_service_usage(team=self.team, date_from=window.date_from, date_to=window.date_to)
+        payload = {
+            "results": [asdict(row) for row in result.services],
+            "totals": asdict(result.totals),
+            "unavailable_signals": [signal.value for signal in result.unavailable_signals],
+            "date_from": window.date_from,
+            "date_to": window.date_to,
+        }
+        return Response(ServiceUsageResponseSerializer(payload).data, status=status.HTTP_200_OK)
