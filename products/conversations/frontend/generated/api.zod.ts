@@ -235,6 +235,22 @@ export const ConversationsTicketsReplyCreateBody = /* @__PURE__ */ zod
     .describe('Payload for posting a reply or internal note to a ticket.')
 
 /**
+ * Soft-delete multiple tickets in a single request. A daily sweeper hard-deletes them after the grace window.
+ *
+ * Other-team UUIDs and already-deleted tickets are silently ignored. With access control
+ * enabled, tickets the caller lacks manager access to are silently skipped, unless the
+ * caller is an organization admin.
+ */
+export const conversationsTicketsBulkDeleteCreateBodyIdsMax = 500
+
+export const ConversationsTicketsBulkDeleteCreateBody = /* @__PURE__ */ zod.object({
+    ids: zod
+        .array(zod.uuid())
+        .max(conversationsTicketsBulkDeleteCreateBodyIdsMax)
+        .describe('List of ticket UUIDs to delete.'),
+})
+
+/**
  * Update the status of multiple tickets in a single request.
  *
  * Only tickets belonging to the current team are affected; other-team UUIDs
