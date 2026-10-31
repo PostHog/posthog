@@ -6,7 +6,6 @@ from collections.abc import Iterator
 from typing import Any, Optional
 
 import requests
-from botocore.auth import SigV4Auth
 from botocore.awsrequest import AWSRequest
 from botocore.credentials import Credentials
 from structlog.types import FilteringBoundLogger
@@ -23,6 +22,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_cost_e
     CE_TARGET_PREFIX,
     DEFAULT_LOOKBACK_DAYS,
     CostExplorerEndpointConfig,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.aws_auth import (
+    aws_redact_values,
+    sign_aws_request,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
     BoundedRetry,
@@ -309,9 +312,8 @@ def error_for_response(response: requests.Response) -> AwsCostExplorerError:
     return AwsCostExplorerError(text, code)
 
 
-def make_session(secret_access_key: str, session_token: Optional[str]) -> requests.Session:
-    redact = tuple(value for value in (secret_access_key, session_token) if value)
-    return make_tracked_session(retry=TRANSPORT_RETRY, redact_values=redact)
+def make_session(credentials: Credentials) -> requests.Session:
+    return make_tracked_session(retry=TRANSPORT_RETRY, redact_values=aws_redact_values(credentials))
 
 
 @retry(
@@ -337,7 +339,7 @@ def send_operation(
             "X-Amz-Target": f"{CE_TARGET_PREFIX}.{operation}",
         },
     )
-    SigV4Auth(credentials, CE_SIGNING_NAME, CE_SIGNING_REGION).add_auth(aws_request)
+    sign_aws_request(aws_request, credentials, CE_SIGNING_NAME, CE_SIGNING_REGION)
 
     response = session.post(
         CE_ENDPOINT_URL,
@@ -370,19 +372,13 @@ VALIDATION_ERROR_MESSAGES: dict[str, str] = {
 TRANSIENT_VALIDATION_ERROR = "AWS Cost Explorer is busy or temporarily unavailable. Wait a moment and try again."
 
 GENERIC_VALIDATION_ERROR = (
-    "AWS didn't accept the Cost Explorer request. Check the access key is active and can read Cost Explorer, "
-    "then try again."
+    "AWS didn't accept the Cost Explorer request. Check that the access key or IAM role can read Cost "
+    "Explorer, then try again."
 )
 
 
-def validate_credentials(
-    aws_access_key_id: str,
-    aws_secret_access_key: str,
-    aws_session_token: Optional[str],
-) -> tuple[bool, Optional[str]]:
+def validate_credentials(credentials: Credentials) -> tuple[bool, Optional[str]]:
     """One cheap `GetCostAndUsage` probe — the exact permission every table needs."""
-    if not aws_access_key_id or not aws_secret_access_key:
-        return False, "AWS access key ID and secret access key are required"
 
     end = dt.datetime.now(dt.UTC).date() + dt.timedelta(days=1)
     payload = {
@@ -393,8 +389,8 @@ def validate_credentials(
 
     try:
         send_operation(
-            make_session(aws_secret_access_key, aws_session_token),
-            Credentials(aws_access_key_id, aws_secret_access_key, aws_session_token or None),
+            make_session(credentials),
+            credentials,
             "GetCostAndUsage",
             payload,
         )
@@ -446,9 +442,7 @@ def list_window_services(session: requests.Session, credentials: Credentials, wi
 
 
 def get_rows(
-    aws_access_key_id: str,
-    aws_secret_access_key: str,
-    aws_session_token: Optional[str],
+    credentials: Credentials,
     start_date: Optional[str],
     endpoint: str,
     resumable_source_manager: ResumableSourceManager[AwsCostExplorerResumeConfig],
@@ -458,8 +452,7 @@ def get_rows(
 ) -> Iterator[list[dict[str, Any]]]:
     endpoint_config = AWS_COST_EXPLORER_ENDPOINTS[endpoint]
 
-    session = make_session(aws_secret_access_key, aws_session_token)
-    credentials = Credentials(aws_access_key_id, aws_secret_access_key, aws_session_token or None)
+    session = make_session(credentials)
 
     # `End` is exclusive. Cost-and-usage operations report today's partial figures (flagged
     # estimated), so their window reaches into tomorrow; the utilization operations have no
@@ -519,9 +512,7 @@ def get_rows(
 
 
 def aws_cost_explorer_source(
-    aws_access_key_id: str,
-    aws_secret_access_key: str,
-    aws_session_token: Optional[str],
+    credentials: Credentials,
     start_date: Optional[str],
     endpoint: str,
     resumable_source_manager: ResumableSourceManager[AwsCostExplorerResumeConfig],
@@ -534,9 +525,7 @@ def aws_cost_explorer_source(
     return SourceResponse(
         name=endpoint,
         items=lambda: get_rows(
-            aws_access_key_id=aws_access_key_id,
-            aws_secret_access_key=aws_secret_access_key,
-            aws_session_token=aws_session_token,
+            credentials=credentials,
             start_date=start_date,
             endpoint=endpoint,
             resumable_source_manager=resumable_source_manager,

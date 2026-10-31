@@ -8,6 +8,7 @@ from unittest import mock
 
 import requests
 import structlog
+from botocore.credentials import Credentials
 from tenacity import wait_none
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.aws_budgets import aws_budgets
@@ -25,9 +26,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_budget
     send_operation,
     validate_credentials,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.aws_budgets.source import AwsBudgetsSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.awsbudgets import (
+    AwsBudgetsSourceConfig,
+)
 
 LOGGER = structlog.get_logger()
+CREDENTIALS = Credentials("key", "secret")
 
 ACCOUNT_ID = "123456789012"
 
@@ -252,9 +258,7 @@ class TestGetBudgetRows:
         ):
             batches = list(
                 get_rows(
-                    aws_access_key_id="key",
-                    aws_secret_access_key="secret",
-                    aws_session_token=None,
+                    credentials=CREDENTIALS,
                     endpoint="budgets",
                     resumable_source_manager=manager,
                     should_use_incremental_field=False,
@@ -316,9 +320,7 @@ class TestGetFanoutRows:
         ):
             batches = list(
                 get_rows(
-                    aws_access_key_id="key",
-                    aws_secret_access_key="secret",
-                    aws_session_token=None,
+                    credentials=CREDENTIALS,
                     endpoint=endpoint,
                     resumable_source_manager=manager,
                     should_use_incremental_field=should_use_incremental_field,
@@ -390,10 +392,11 @@ class TestGetFanoutRows:
 
 class TestValidateCredentials:
     def test_missing_credentials_short_circuit_without_a_request(self) -> None:
+        config = AwsBudgetsSourceConfig.from_dict({"aws_access_key_id": "", "aws_secret_access_key": "secret"})
         with mock.patch.object(aws_budgets, "fetch_account_id") as fetch:
-            assert validate_credentials("", "secret", None) == (
+            assert AwsBudgetsSource().validate_credentials(config, team_id=1) == (
                 False,
-                "AWS access key ID and secret access key are required",
+                "Enter both an AWS access key ID and a secret access key.",
             )
 
         fetch.assert_not_called()
@@ -403,7 +406,7 @@ class TestValidateCredentials:
             mock.patch.object(aws_budgets, "fetch_account_id", return_value=ACCOUNT_ID),
             mock.patch.object(aws_budgets, "send_operation", return_value=budgets_page([])) as send,
         ):
-            assert validate_credentials("key", "secret", None) == (True, None)
+            assert validate_credentials(CREDENTIALS) == (True, None)
 
         assert send.call_args[0][2] == "DescribeBudgets"
 
@@ -411,7 +414,7 @@ class TestValidateCredentials:
         error = AwsBudgetsError("AWS STS request failed: InvalidClientTokenId - bad key")
 
         with mock.patch.object(aws_budgets, "fetch_account_id", side_effect=error):
-            assert validate_credentials("key", "secret", None) == (False, str(error))
+            assert validate_credentials(CREDENTIALS) == (False, str(error))
 
     def test_a_genuine_key_without_budgets_permissions_can_still_connect(self) -> None:
         # Per-table access is reported in the schema picker; blocking source creation would stop a
@@ -424,7 +427,7 @@ class TestValidateCredentials:
                 side_effect=AwsBudgetsError("AWS Budgets request failed: AccessDeniedException - denied"),
             ),
         ):
-            assert validate_credentials("key", "secret", None) == (True, None)
+            assert validate_credentials(CREDENTIALS) == (True, None)
 
     def test_a_denial_for_a_named_schema_is_reported(self) -> None:
         with (
@@ -435,14 +438,14 @@ class TestValidateCredentials:
                 side_effect=AwsBudgetsError("AWS Budgets request failed: AccessDeniedException - denied"),
             ),
         ):
-            valid, reason = validate_credentials("key", "secret", None, schema_name="budgets")
+            valid, reason = validate_credentials(CREDENTIALS, schema_name="budgets")
 
         assert valid is False
         assert reason == "The connected IAM user or role is not allowed to read this table"
 
     def test_a_transport_failure_does_not_leak_internals(self) -> None:
         with mock.patch.object(aws_budgets, "fetch_account_id", side_effect=requests.ConnectionError("boom")):
-            assert validate_credentials("key", "secret", None) == (
+            assert validate_credentials(CREDENTIALS) == (
                 False,
                 "Could not reach AWS to check these credentials. Please try again.",
             )
@@ -458,7 +461,7 @@ class TestProbeEndpointPermissions:
                 side_effect=lambda *args, **kwargs: budgets_page([{"BudgetName": "a", "TimeUnit": "MONTHLY"}]),
             ),
         ):
-            reasons = probe_endpoint_permissions("key", "secret", None, ["budgets", "notifications"])
+            reasons = probe_endpoint_permissions(CREDENTIALS, ["budgets", "notifications"])
 
         assert reasons == {"budgets": None, "notifications": None}
 
@@ -471,7 +474,7 @@ class TestProbeEndpointPermissions:
                 side_effect=AwsBudgetsError("AWS Budgets request failed: AccessDeniedException - denied"),
             ),
         ):
-            reasons = probe_endpoint_permissions("key", "secret", None, ["budgets"])
+            reasons = probe_endpoint_permissions(CREDENTIALS, ["budgets"])
 
         assert reasons == {"budgets": "The connected IAM user or role is not allowed to read this table"}
 
@@ -488,11 +491,11 @@ class TestProbeEndpointPermissions:
             mock.patch.object(aws_budgets, "fetch_account_id", return_value=ACCOUNT_ID),
             mock.patch.object(aws_budgets, "send_operation", side_effect=failure),
         ):
-            assert probe_endpoint_permissions("key", "secret", None, ["budgets"]) == {"budgets": None}
+            assert probe_endpoint_permissions(CREDENTIALS, ["budgets"]) == {"budgets": None}
 
     def test_credentials_aws_will_not_identify_leave_every_endpoint_unjudged(self) -> None:
         with mock.patch.object(aws_budgets, "fetch_account_id", side_effect=requests.ConnectionError("boom")):
-            assert probe_endpoint_permissions("key", "secret", None, ["budgets", "notifications"]) == {
+            assert probe_endpoint_permissions(CREDENTIALS, ["budgets", "notifications"]) == {
                 "budgets": None,
                 "notifications": None,
             }

@@ -8,6 +8,7 @@ from unittest import mock
 
 import requests
 import structlog
+from botocore.credentials import Credentials
 from tenacity import wait_none
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.aws_cost_anomaly_detection import (
@@ -30,7 +31,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_cost_a
 from products.warehouse_sources.backend.temporal.data_imports.sources.aws_cost_anomaly_detection.settings import (
     AWS_COST_ANOMALY_DETECTION_ENDPOINTS,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.aws_cost_anomaly_detection.source import (
+    AwsCostAnomalyDetectionSource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.awscostanomalydetection import (
+    AwsCostAnomalyDetectionSourceConfig,
+)
+
+CREDENTIALS = Credentials("key", "secret")
 
 LOGGER = structlog.get_logger()
 
@@ -215,9 +224,7 @@ class TestGetRows:
         with mock.patch.object(aws_cost_anomaly_detection, "send_operation", side_effect=responses) as send:
             batches = list(
                 get_rows(
-                    aws_access_key_id="key",
-                    aws_secret_access_key="secret",
-                    aws_session_token=None,
+                    credentials=CREDENTIALS,
                     endpoint=endpoint,
                     resumable_source_manager=manager,
                     should_use_incremental_field=should_use_incremental_field,
@@ -280,17 +287,20 @@ class TestGetRows:
 
 class TestValidateCredentials:
     def test_missing_credentials_short_circuit_without_a_billed_request(self) -> None:
+        config = AwsCostAnomalyDetectionSourceConfig.from_dict(
+            {"aws_access_key_id": "", "aws_secret_access_key": "secret"}
+        )
         with mock.patch.object(aws_cost_anomaly_detection, "send_operation") as send:
-            assert validate_credentials("", "secret", None) == (
+            assert AwsCostAnomalyDetectionSource().validate_credentials(config, team_id=1) == (
                 False,
-                "AWS access key ID and secret access key are required",
+                "Enter both an AWS access key ID and a secret access key.",
             )
 
         send.assert_not_called()
 
     def test_a_successful_probe_validates_against_the_cheapest_operation(self) -> None:
         with mock.patch.object(aws_cost_anomaly_detection, "send_operation", return_value={"AnomalyMonitors": []}) as s:
-            assert validate_credentials("key", "secret", None) == (True, None)
+            assert validate_credentials(CREDENTIALS) == (True, None)
 
         assert s.call_args[0][2] == "GetAnomalyMonitors"
         assert s.call_args[0][3] == {"MaxResults": 1}
@@ -301,14 +311,14 @@ class TestValidateCredentials:
         )
 
         with mock.patch.object(aws_cost_anomaly_detection, "send_operation", side_effect=error):
-            assert validate_credentials("key", "secret", None) == (True, None)
+            assert validate_credentials(CREDENTIALS) == (True, None)
 
     @pytest.mark.parametrize("code", ["DataUnavailableException", "BillExpirationException"])
     def test_an_account_without_cost_explorer_is_told_to_enable_it(self, code: str) -> None:
         error = AwsCostAnomalyDetectionError(f"AWS Cost Anomaly Detection request failed: {code} - no data")
 
         with mock.patch.object(aws_cost_anomaly_detection, "send_operation", side_effect=error):
-            assert validate_credentials("key", "secret", None) == (False, ENABLEMENT_MESSAGE)
+            assert validate_credentials(CREDENTIALS) == (False, ENABLEMENT_MESSAGE)
 
     def test_a_rejected_key_is_surfaced_to_the_user(self) -> None:
         error = AwsCostAnomalyDetectionError(
@@ -316,13 +326,13 @@ class TestValidateCredentials:
         )
 
         with mock.patch.object(aws_cost_anomaly_detection, "send_operation", side_effect=error):
-            assert validate_credentials("key", "secret", None) == (False, str(error))
+            assert validate_credentials(CREDENTIALS) == (False, str(error))
 
     def test_a_transport_failure_does_not_leak_internals(self) -> None:
         with mock.patch.object(
             aws_cost_anomaly_detection, "send_operation", side_effect=requests.ConnectionError("boom")
         ):
-            assert validate_credentials("key", "secret", None) == (False, "Could not reach the AWS Cost Explorer API")
+            assert validate_credentials(CREDENTIALS) == (False, "Could not reach the AWS Cost Explorer API")
 
     def test_a_per_schema_check_reports_the_missing_iam_permission(self) -> None:
         error = AwsCostAnomalyDetectionError(
@@ -331,7 +341,7 @@ class TestValidateCredentials:
         )
 
         with mock.patch.object(aws_cost_anomaly_detection, "send_operation", side_effect=error):
-            assert validate_credentials("key", "secret", None, schema_name="anomalies") == (
+            assert validate_credentials(CREDENTIALS, schema_name="anomalies") == (
                 False,
                 "Missing IAM permission ce:GetAnomalies",
             )
@@ -340,7 +350,7 @@ class TestValidateCredentials:
 class TestProbeEndpointPermissions:
     def test_reachable_endpoints_report_no_reason(self) -> None:
         with mock.patch.object(aws_cost_anomaly_detection, "send_operation", return_value={}):
-            assert probe_endpoint_permissions("key", "secret", None, list(AWS_COST_ANOMALY_DETECTION_ENDPOINTS)) == {
+            assert probe_endpoint_permissions(CREDENTIALS, list(AWS_COST_ANOMALY_DETECTION_ENDPOINTS)) == {
                 "anomalies": None,
                 "anomaly_monitors": None,
                 "anomaly_subscriptions": None,
@@ -357,4 +367,4 @@ class TestProbeEndpointPermissions:
     )
     def test_a_throttle_or_network_blip_never_hides_a_table_from_the_picker(self, error: Exception) -> None:
         with mock.patch.object(aws_cost_anomaly_detection, "send_operation", side_effect=error):
-            assert probe_endpoint_permissions("key", "secret", None, ["anomalies"]) == {"anomalies": None}
+            assert probe_endpoint_permissions(CREDENTIALS, ["anomalies"]) == {"anomalies": None}

@@ -43,17 +43,15 @@ def make_inputs(
 class TestAwsCostAnomalyDetectionSource:
     def setup_method(self) -> None:
         self.source = AwsCostAnomalyDetectionSource()
-        self.config = AwsCostAnomalyDetectionSourceConfig(
-            aws_access_key_id="AKIAEXAMPLE",
-            aws_secret_access_key="secret",
-            aws_session_token=None,
+        self.config = AwsCostAnomalyDetectionSourceConfig.from_dict(
+            {"aws_access_key_id": "AKIAEXAMPLE", "aws_secret_access_key": "secret"}
         )
 
     def test_endpoint_permissions_are_probed_per_table_for_the_schema_picker(self) -> None:
         with mock.patch.object(source_module, "probe_endpoint_permissions", return_value={"anomalies": None}) as probe:
             assert self.source.get_endpoint_permissions(self.config, 1, ["anomalies"]) == {"anomalies": None}
 
-        assert probe.call_args[0] == ("AKIAEXAMPLE", "secret", None, ["anomalies"])
+        assert probe.call_args[0][1] == ["anomalies"]
 
     def test_anomalies_partition_on_the_start_date_because_it_never_moves(self) -> None:
         # The end date keeps moving while an anomaly is open, so partitioning on it would rewrite

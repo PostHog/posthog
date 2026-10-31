@@ -5,8 +5,6 @@ from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
     SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.aws_organizations.aws_organizations import (
     AwsOrganizationsResumeConfig,
@@ -19,6 +17,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_organi
     ENDPOINTS,
     INCREMENTAL_FIELDS,
     ORGANIZATIONS_API_VERSION,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.aws_auth import (
+    AWS_AUTH_NON_RETRYABLE_ERRORS,
+    AWS_FLAT_STORED_SELECTS,
+    AwsAuthError,
+    aws_auth_endpoint_reasons,
+    aws_auth_field,
+    resolve_aws_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
@@ -57,20 +63,23 @@ class AwsOrganizationsSource(ResumableSource[AwsOrganizationsSourceConfig, AwsOr
     default_version = ORGANIZATIONS_API_VERSION
     api_docs_url = "https://docs.aws.amazon.com/organizations/latest/APIReference/API_Operations.html"
 
+    flat_stored_selects = AWS_FLAT_STORED_SELECTS
+    credential_kind = "aws-organizations"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.AWSORGANIZATIONS
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
+            **AWS_AUTH_NON_RETRYABLE_ERRORS,
             "AWS Organizations request failed: UnrecognizedClientException": "AWS rejected the access key. Please check the access key ID and secret access key, and that the key is still active.",
             "AWS Organizations request failed: InvalidClientTokenId": "AWS rejected the access key. Please check the access key ID and secret access key, and that the key is still active.",
             "AWS Organizations request failed: SignatureDoesNotMatch": "AWS rejected the request signature. Please re-enter the secret access key.",
             "AWS Organizations request failed: InvalidSignatureException": "AWS rejected the request signature. If you are using temporary credentials, the session token has expired.",
             "AWS Organizations request failed: ExpiredTokenException": "The AWS session token has expired. Please reconnect with fresh credentials.",
             "AWS Organizations request failed: AccessDeniedException": f"These AWS credentials are missing AWS Organizations read permissions. Grant organizations:DescribeOrganization, organizations:ListAccounts, organizations:ListParents, organizations:ListRoots, organizations:ListOrganizationalUnitsForParent, organizations:ListPolicies, organizations:ListTargetsForPolicy, organizations:ListTagsForResource, organizations:ListDelegatedAdministrators and organizations:ListDelegatedServicesForAccount to the IAM user or role. {_MANAGEMENT_ACCOUNT_HINT}",
-            "AWS Organizations request failed: AWSOrganizationsNotInUseException": "This AWS account isn't a member of an organization. Connect a key from an account in an AWS organization.",
-            "AWS access key ID and secret access key are required": "Enter both an AWS access key ID and a secret access key.",
+            "AWS Organizations request failed: AWSOrganizationsNotInUseException": "This AWS account isn't a member of an organization. Connect credentials from an account in an AWS organization.",
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
@@ -98,10 +107,12 @@ class AwsOrganizationsSource(ResumableSource[AwsOrganizationsSourceConfig, AwsOr
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
+        try:
+            credentials = resolve_aws_credentials(config.aws_auth, team_id)
+        except AwsAuthError as error:
+            return False, str(error)
         return validate_aws_organizations_credentials(
-            config.aws_access_key_id,
-            config.aws_secret_access_key,
-            config.aws_session_token,
+            credentials,
             schema_name=schema_name,
             api_version=self.resolve_api_version(api_version),
         )
@@ -113,10 +124,12 @@ class AwsOrganizationsSource(ResumableSource[AwsOrganizationsSourceConfig, AwsOr
         endpoints: list[str],
         api_version: str | None = None,
     ) -> dict[str, str | None]:
+        try:
+            credentials = resolve_aws_credentials(config.aws_auth, team_id)
+        except AwsAuthError as error:
+            return aws_auth_endpoint_reasons(error, endpoints)
         return probe_endpoint_permissions(
-            config.aws_access_key_id,
-            config.aws_secret_access_key,
-            config.aws_session_token,
+            credentials,
             endpoints,
             api_version=self.resolve_api_version(api_version),
         )
@@ -133,9 +146,7 @@ class AwsOrganizationsSource(ResumableSource[AwsOrganizationsSourceConfig, AwsOr
         inputs: SourceInputs,
     ) -> SourceResponse:
         return aws_organizations_source(
-            aws_access_key_id=config.aws_access_key_id,
-            aws_secret_access_key=config.aws_secret_access_key,
-            aws_session_token=config.aws_session_token,
+            credentials=resolve_aws_credentials(config.aws_auth, inputs.team_id),
             endpoint=inputs.schema_name,
             api_version=self.resolve_api_version(inputs.api_version),
             resumable_source_manager=resumable_source_manager,
@@ -150,9 +161,9 @@ class AwsOrganizationsSource(ResumableSource[AwsOrganizationsSourceConfig, AwsOr
             label="AWS Organizations",
             caption="""Sync your AWS organization structure into the PostHog Data warehouse, so cost and usage data can be read by account name, organizational unit, and tag.
 
-Create an IAM user or role with the `organizations:DescribeOrganization`, `organizations:ListAccounts`, `organizations:ListParents`, `organizations:ListRoots`, `organizations:ListOrganizationalUnitsForParent`, `organizations:ListPolicies`, `organizations:ListTargetsForPolicy`, `organizations:ListTagsForResource`, `organizations:ListDelegatedAdministrators` and `organizations:ListDelegatedServicesForAccount` permissions, then paste its access key ID and secret access key. Add a session token too if you are using temporary credentials.
+Create an IAM user or role with the `organizations:DescribeOrganization`, `organizations:ListAccounts`, `organizations:ListParents`, `organizations:ListRoots`, `organizations:ListOrganizationalUnitsForParent`, `organizations:ListPolicies`, `organizations:ListTargetsForPolicy`, `organizations:ListTagsForResource`, `organizations:ListDelegatedAdministrators` and `organizations:ListDelegatedServicesForAccount` permissions. Connect with the IAM role, or paste an access key ID and secret access key. Add a session token too if you are using temporary credentials.
 
-Use a key from the management account or from a member account that is a delegated administrator. Keys from other member accounts can only read the organization table.
+Connect the management account, or a member account that is a delegated administrator. Other member accounts can only read the organization table.
 
 AWS Organizations is a global service, so there is nothing to pick a region for. This source syncs the accounts, organizational units, and policies in the standard AWS partition.""",
             iconPath="/static/services/aws_organizations.png",
@@ -162,31 +173,7 @@ AWS Organizations is a global service, so there is nothing to pick a region for.
             fields=cast(
                 list[FieldType],
                 [
-                    SourceFieldInputConfig(
-                        name="aws_access_key_id",
-                        label="AWS access key ID",
-                        type=SourceFieldInputConfigType.TEXT,
-                        required=True,
-                        placeholder="AKIA...",
-                        secret=False,
-                    ),
-                    SourceFieldInputConfig(
-                        name="aws_secret_access_key",
-                        label="AWS secret access key",
-                        type=SourceFieldInputConfigType.PASSWORD,
-                        required=True,
-                        placeholder="",
-                        secret=True,
-                    ),
-                    SourceFieldInputConfig(
-                        name="aws_session_token",
-                        label="AWS session token",
-                        type=SourceFieldInputConfigType.PASSWORD,
-                        required=False,
-                        placeholder="Only needed for temporary credentials",
-                        caption="Only for temporary credentials. Session tokens expire after a few hours, so scheduled syncs will fail once the token expires. Use a permanent access key (starts with AKIA) for recurring imports.",
-                        secret=True,
-                    ),
+                    aws_auth_field(),
                 ],
             ),
         )
