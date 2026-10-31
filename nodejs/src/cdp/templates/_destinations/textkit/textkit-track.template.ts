@@ -70,7 +70,7 @@ if (inputs.debug) {
             key: 'api_key',
             type: 'string',
             label: 'API key',
-            description: 'A TextKit API key (ssms_sk_...) with the automations scope.',
+            description: 'A TextKit API key (tk_sk_...) with the automations scope.',
             secret: true,
             required: true,
         },

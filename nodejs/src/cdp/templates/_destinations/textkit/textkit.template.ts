@@ -61,7 +61,7 @@ if (inputs.debug) {
             key: 'api_key',
             type: 'string',
             label: 'API key',
-            description: 'A TextKit API key (ssms_sk_...). Create one in the TextKit console.',
+            description: 'A TextKit API key (tk_sk_...). Create one in the TextKit console.',
             secret: true,
             required: true,
         },
