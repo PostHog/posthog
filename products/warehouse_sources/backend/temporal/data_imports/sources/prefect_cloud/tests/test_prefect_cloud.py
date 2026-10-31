@@ -136,6 +136,96 @@ class TestPagination:
         assert [b["offset"] for b in bodies] == [0, PAGE_LIMIT]
 
 
+def _logs(*timestamps: str) -> list[dict[str, Any]]:
+    return [{"id": f"log-{n}", "timestamp": ts} for n, ts in enumerate(timestamps)]
+
+
+class TestLogsKeysetPagination:
+    def test_walks_by_timestamp_and_skips_rows_already_read_at_the_cursor(self) -> None:
+        # The page ends on two rows at T2, then a whole page sits at T2, so the cursor must hold at
+        # T2 and only grow the offset past the rows it already read there.
+        first = _logs(*["T1"] * (PAGE_LIMIT - 2), "T2", "T2")
+        second = _logs(*["T2"] * PAGE_LIMIT)
+        third = _logs("T2", "T3")
+
+        result = _driver().run("logs", [_page(first), _page(second), _page(third)])
+
+        bodies = [r.json() for r in result.requests]
+        assert [b.get("logs") for b in bodies] == [
+            None,
+            {"timestamp": {"after_": "T2"}},
+            {"timestamp": {"after_": "T2"}},
+        ]
+        assert [b["offset"] for b in bodies] == [0, 2, 2 + PAGE_LIMIT]
+        assert all(b["sort"] == "TIMESTAMP_ASC" and b["limit"] == PAGE_LIMIT for b in bodies)
+        assert len(result.rows) == 2 * PAGE_LIMIT + 2
+
+    def test_incremental_starts_at_the_watermark_and_resume_overrides_it(self) -> None:
+        result = _driver().run(
+            "logs",
+            [_page(_logs("T9"))],
+            resume_state=PrefectCloudResumeConfig(after="T5", offset=3),
+            incremental_field="timestamp",
+            db_incremental_field_last_value=datetime(2026, 3, 4, tzinfo=UTC),
+        )
+
+        assert [r.json()["logs"] for r in result.requests] == [{"timestamp": {"after_": "T5"}}]
+        assert [r.json()["offset"] for r in result.requests] == [3]
+
+
+class TestEventsPagination:
+    @parameterized.expand(
+        [
+            ("full_refresh", None, "2020-01-01T00:00:00Z"),
+            ("incremental", datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC), "2026-03-04T02:58:14Z"),
+        ]
+    )
+    def test_posts_the_filter_then_follows_next_page_with_get(
+        self, _name: str, watermark: datetime | None, expected_since: str
+    ) -> None:
+        next_page = f"{_WORKSPACE_URL}/events/filter/next?page-token=abc"
+        result = _driver().run(
+            "events",
+            [
+                ScriptedResponse(json={"events": [{"id": "e1"}], "total": 2, "next_page": next_page}),
+                ScriptedResponse(json={"events": [{"id": "e2"}], "total": 2, "next_page": None}),
+            ],
+            incremental_field="occurred" if watermark else None,
+            db_incremental_field_last_value=watermark,
+        )
+
+        assert [r["id"] for r in result.rows] == ["e1", "e2"]
+        first, second = result.requests
+        assert first.method == "POST"
+        assert first.json()["filter"] == {"order": "ASC", "occurred": {"since": expected_since}}
+        assert (second.method, second.url, second.body) == ("GET", next_page, None)
+
+
+class TestStateHistoryFanout:
+    @parameterized.expand(
+        [
+            ("flow_run_states", "flow_runs", "flow_run_id"),
+            ("task_run_states", "task_runs", "task_run_id"),
+        ]
+    )
+    def test_reads_each_runs_states_and_tags_rows_with_the_run(self, endpoint: str, parent: str, param: str) -> None:
+        result = _driver().run(
+            endpoint,
+            [
+                _page([{"id": "run-a"}, {"id": "run-b"}]),
+                _page([{"id": "s1", "type": "SCHEDULED"}, {"id": "s2", "type": "RUNNING"}]),
+                _page([{"id": "s3", "type": "SCHEDULED"}]),
+            ],
+            incremental_field="timestamp",
+            db_incremental_field_last_value=datetime(2026, 3, 4, tzinfo=UTC),
+        )
+
+        parent_request, *state_requests = result.requests
+        assert parent_request.json()[parent] == {"expected_start_time": {"after_": "2026-03-04T00:00:00Z"}}
+        assert [(r.method, r.param(param)) for r in state_requests] == [("GET", "run-a"), ("GET", "run-b")]
+        assert [(r[param], r["id"]) for r in result.rows] == [("run-a", "s1"), ("run-a", "s2"), ("run-b", "s3")]
+
+
 class TestValidateCredentials:
     @pytest.mark.parametrize(
         "status_code, expected",
