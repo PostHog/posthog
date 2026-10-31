@@ -11,7 +11,7 @@ vi.mock('@/lib/posthog', () => ({
 // PostHog answers 401 for account state as well as for a bad credential. The client used to
 // collapse every 401 to the bare `INVALID_API_KEY` sentinel, so a caller holding a valid,
 // freshly issued token was told to replace it, and the server's own reason never arrived.
-describe('401 handling', () => {
+describe.each(['json', 'text'] as const)('401 handling for %s responses', (responseType) => {
     beforeEach(() => {
         vi.clearAllMocks()
         vi.spyOn(console, 'error').mockImplementation(() => {})
@@ -28,7 +28,7 @@ describe('401 handling', () => {
 
     const requestError = async (): Promise<unknown> =>
         await new ApiClient({ apiToken: 'phx_test', baseUrl: 'https://us.posthog.com' })
-            .request({ method: 'GET', path: '/api/billing/' })
+            .request({ method: 'GET', path: '/api/billing/', responseType })
             .then(
                 () => undefined,
                 (error: unknown) => error
