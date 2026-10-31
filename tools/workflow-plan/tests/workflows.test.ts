@@ -1,5 +1,6 @@
 // These tests check the CI workflows, not the planner. A failure here means a
 // job condition in a workflow file changed what runs; the planner itself is covered by plan.test.ts.
+import { load } from 'js-yaml'
 import { spawnSync } from 'node:child_process'
 import { readdirSync } from 'node:fs'
 import path from 'node:path'
@@ -453,6 +454,34 @@ const pathsFilterJobs = workflowFiles.flatMap((file) =>
 
 const STEP_EXPECTATIONS: StepExpectation[] = [
     ...[
+        { name: 'plan-only PR', mode: 'plan', matrix: [{}], fork: false, failed: false, runs: false },
+        { name: 'upload-mode PR', mode: 'upload', matrix: [{}], fork: false, failed: false, runs: true },
+        { name: 'upload-mode fork PR', mode: 'upload', matrix: [{}], fork: true, failed: false, runs: false },
+        { name: 'upload-mode empty matrix', mode: 'upload', matrix: [], fork: false, failed: false, runs: false },
+        { name: 'failed plan', mode: 'upload', matrix: [{}], fork: false, failed: true, runs: false },
+    ].map(({ name, mode, matrix, fork, failed, runs }) => ({
+        file: 'release.yml',
+        job: 'plan',
+        step: 'cache-dist',
+        scenario: {
+            name,
+            github: pullRequest({ fork }),
+            steps: {
+                plan: {
+                    plan: {
+                        outcome: failed ? ('failure' as const) : ('success' as const),
+                        outputs: {
+                            manifest: JSON.stringify({
+                                ci: { github: { pr_run_mode: mode, artifacts_matrix: { include: matrix } } },
+                            }),
+                        },
+                    },
+                },
+            },
+        },
+        runs,
+    })),
+    ...[
         { name: 'exact schema hit', matched: 'posthog-schema-mig-v2-exact', runs: false },
         { name: 'schema cache miss', matched: '', runs: false },
         { name: 'master snapshot fallback', matched: `posthog-schema-master-${'a'.repeat(40)}`, runs: true },
@@ -562,6 +591,48 @@ const namedJobs = (file: string): Set<string> =>
     )
 
 describe('CI workflow run plans', () => {
+    it.each(['build', 'quality', 'typecheck', 'test'])('Desktop %s shares the fallback detector filters', (name) => {
+        const filters = (file: string): Record<string, string[]> =>
+            load(
+                String(workflow(file).jobs.changes?.steps?.find((step) => step.id === 'filter')?.with?.filters)
+            ) as Record<string, string[]>
+        const shared = filters('desktop-ci.yml')
+        const fallback = filters(`desktop-${name}.yml`)
+        expect(shared[name === 'quality' ? 'quality_code' : 'code']).toEqual(fallback.code)
+        expect(shared.agent).toEqual(fallback.agent)
+        expect(shared[name]).toEqual(fallback.workflow)
+        if (name === 'test') {
+            expect(shared.packages).toEqual(fallback.packages)
+        }
+    })
+
+    it.each(['success', 'failure', 'cancelled', 'skipped'] as const)(
+        'Desktop callers pass shared decisions only after a successful detector (%s)',
+        (result) => {
+            const functions = planFunctions({
+                dependenciesSucceeded: result === 'success' || result === 'skipped',
+                dependenciesFailed: result === 'failure',
+                cancelled: false,
+            })
+            for (const selected of ['true', 'false']) {
+                const needs = {
+                    changes: {
+                        result,
+                        outputs: Object.fromEntries(
+                            ['build', 'quality', 'typecheck', 'test', 'test_e2e'].map((name) => [name, selected])
+                        ),
+                    },
+                }
+                for (const name of ['build', 'quality', 'typecheck', 'test']) {
+                    const caller = workflow('desktop-ci.yml').jobs[name] as { with: Record<string, string> }
+                    for (const input of Object.values(caller.with)) {
+                        expect(evaluateValue(input, { needs }, functions)).toBe(result === 'success' ? selected : '')
+                    }
+                }
+            }
+        }
+    )
+
     it.each([
         {
             name: 'mobile PR',
