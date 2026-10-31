@@ -12,21 +12,25 @@ import { billPersistedSessions, recordPersistedSessionUsage } from './session-us
 describe('session usage', () => {
     let ingested: UsageRecordInput[]
     let usageBatch: UsageRecordBatch
-    let sendFails: boolean
+    // 'stored' is a send that the service kept while the client saw it fail.
+    let sendFailure: 'none' | 'lost' | 'stored'
+
+    function newUsageBatch(): UsageRecordBatch {
+        const client = {
+            ingest: jest.fn((records: UsageRecordInput[]) => {
+                if (sendFailure !== 'lost') {
+                    ingested.push(...records)
+                }
+                return Promise.resolve(sendFailure === 'none' ? records : [])
+            }),
+        } as unknown as UsageIngestionClient
+        return new UsageRecordBatch(client, { unit: 'recordings', isTeamEnabled: () => true })
+    }
 
     beforeEach(() => {
         ingested = []
-        sendFails = false
-        const client = {
-            ingest: jest.fn((records: UsageRecordInput[]) => {
-                if (sendFails) {
-                    return Promise.resolve([])
-                }
-                ingested.push(...records)
-                return Promise.resolve(records)
-            }),
-        } as unknown as UsageIngestionClient
-        usageBatch = new UsageRecordBatch(client, { unit: 'recordings', isTeamEnabled: () => true })
+        sendFailure = 'none'
+        usageBatch = newUsageBatch()
     })
 
     function metadata(snapshotSource: string | null, captureTimestampMs?: number): SessionBlockMetadata {
@@ -86,27 +90,28 @@ describe('session usage', () => {
             redisTtls = new Map()
             redisAvailable = true
             const client = {
-                mget: (keys: string[]) =>
-                    redisAvailable
-                        ? Promise.resolve(keys.map((key) => redisValues.get(key) ?? null))
-                        : Promise.reject(new Error('Redis unavailable')),
                 pipeline: () => {
-                    const writes: [string, string, number][] = []
+                    const commands: (() => string | null)[] = []
                     const pipeline = {
-                        set: (key: string, value: string, _mode: string, ttlSeconds: number) => {
-                            writes.push([key, value, ttlSeconds])
-                            return pipeline
-                        },
-                        exec: () => {
-                            if (!redisAvailable) {
-                                return Promise.reject(new Error('Redis unavailable'))
-                            }
-                            for (const [key, value, ttlSeconds] of writes) {
+                        set: (key: string, value: string, _mode: string, ttlSeconds: number, condition?: string) => {
+                            commands.push(() => {
+                                if (condition === 'NX' && redisValues.has(key)) {
+                                    return null
+                                }
                                 redisValues.set(key, value)
                                 redisTtls.set(key, ttlSeconds)
-                            }
-                            return Promise.resolve([])
+                                return 'OK'
+                            })
+                            return pipeline
                         },
+                        get: (key: string) => {
+                            commands.push(() => redisValues.get(key) ?? null)
+                            return pipeline
+                        },
+                        exec: () =>
+                            redisAvailable
+                                ? Promise.resolve(commands.map((command) => [null, command()]))
+                                : Promise.reject(new Error('Redis unavailable')),
                     }
                     return pipeline
                 },
@@ -129,13 +134,32 @@ describe('session usage', () => {
             expect(ingested).toEqual([expect.objectContaining({ recordId: 'session-1', timestampMs: FIRST_FLUSH })])
         })
 
-        it('bills on the next saved flush when the usage send fails', async () => {
-            sendFails = true
-            await flush([metadata('web', FIRST_FLUSH)])
-            sendFails = false
-            await flush([metadata('web', SECOND_FLUSH)])
+        it.each([
+            ['loses', 'lost', 1],
+            ['stores', 'stored', 2],
+        ] as const)(
+            'bills a failed send on the next saved flush with the first flush time when the service %s it',
+            async (_name, failure, records) => {
+                sendFailure = failure
+                await flush([metadata('web', FIRST_FLUSH)])
+                sendFailure = 'none'
+                await flush([metadata('web', SECOND_FLUSH)])
 
-            expect(ingested).toEqual([expect.objectContaining({ recordId: 'session-1', timestampMs: SECOND_FLUSH })])
+                expect(ingested).toEqual(
+                    Array(records).fill(expect.objectContaining({ recordId: 'session-1', timestampMs: FIRST_FLUSH }))
+                )
+            }
+        )
+
+        it('sends one billing time when two consumers bill a session at once', async () => {
+            await Promise.all([
+                flush([metadata('web', FIRST_FLUSH)]),
+                billPersistedSessions(newUsageBatch(), new SessionTracker(redisPool, 60_000), [
+                    metadata('web', SECOND_FLUSH),
+                ]),
+            ])
+
+            expect(new Set(ingested.map((record) => record.timestampMs))).toEqual(new Set([FIRST_FLUSH]))
         })
 
         it('bills a session saved in only one flush when Redis is unavailable', async () => {

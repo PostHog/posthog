@@ -13,14 +13,45 @@ const DEFAULT_LOCAL_CACHE_MAX_SIZE = 100_000
 // so a session with that value counts as billed.
 const SEEN = 'seen'
 const BILLED_AT_FIRST_SIGHT = '1'
-// The billed mark has its own key because billing must not change how long a session stays seen. The seen state
-// decides whether a session gets a new encryption key or reads its existing one.
-const BILLED = 'billed'
+// The billed key holds the time, in milliseconds, that every usage record for the session carries. The usage table
+// removes a duplicate record only within one UTC day, so one stored time lets it remove every resend of the session.
+// The prefix marks a session whose record reached the usage service. The billed key is separate from the seen key
+// because billing must not change how long a session stays seen. The seen state decides whether a session gets a new
+// encryption key or reads its existing one.
+const BILLED_PREFIX = 'billed:'
+
+export interface BillingClaim {
+    teamId: number
+    sessionId: string
+    /** The time to store when the session has no stored time. */
+    timestampMs: number
+    ttlSeconds: number
+}
 
 export interface BilledSession {
     teamId: number
     sessionId: string
+    timestampMs: number
     ttlSeconds: number
+}
+
+type PipelineResults = [Error | null, unknown][] | null
+
+function pipelineValues(results: PipelineResults, count: number): unknown[] {
+    if (!results || results.length !== count) {
+        throw new Error('Redis pipeline returned an incomplete result')
+    }
+    return results.map(([error, value]) => {
+        if (error) {
+            throw error
+        }
+        return value
+    })
+}
+
+function storedBillingTime(value: unknown): number | undefined {
+    const timestampMs = typeof value === 'string' ? Number(value) : NaN
+    return Number.isSafeInteger(timestampMs) && timestampMs > 0 ? timestampMs : undefined
 }
 
 /**
@@ -191,18 +222,18 @@ export class SessionTracker {
     }
 
     /**
+     * Returns the billing time of each session that has not billed. The first call for a session stores its
+     * candidate time, and every later call, on any consumer, returns the stored time.
      * A session without a billed mark counts as unbilled, because a mark that failed to persist must not stop the bill.
-     * On a Redis error every session outside the local billed cache counts as unbilled. A session saved in only
-     * one flush has no later flush to bill it. The usage table removes a resend on the same UTC day.
+     * On a Redis error every session outside the local billed cache counts as unbilled, with its candidate time. A
+     * session saved in only one flush has no later flush to bill it. The usage table removes a resend only when both
+     * records fall on the same UTC day.
      */
-    public async findUnbilled(sessions: SessionSet): Promise<SessionSet> {
-        const unbilled = new SessionSet()
-        const misses: { teamId: number; sessionId: string }[] = []
-        for (const { teamId, sessionId } of sessions) {
-            if (!this.billedCache.has(this.generateBilledKey(teamId, sessionId))) {
-                misses.push({ teamId, sessionId })
-            }
-        }
+    public async claimBillingTimes(claims: BillingClaim[]): Promise<SessionMap<number>> {
+        const unbilled = new SessionMap<number>()
+        const misses = claims.filter(
+            ({ teamId, sessionId }) => !this.billedCache.has(this.generateBilledKey(teamId, sessionId))
+        )
 
         if (misses.length === 0) {
             return unbilled
@@ -212,27 +243,32 @@ export class SessionTracker {
         let client
         try {
             client = await this.redisPool.acquire()
-            const values = await client.mget(
-                misses.flatMap(({ teamId, sessionId }) => [
-                    this.generateBilledKey(teamId, sessionId),
-                    this.generateKey(teamId, sessionId),
-                ])
-            )
+            const pipeline = client.pipeline()
+            for (const { teamId, sessionId, timestampMs, ttlSeconds } of misses) {
+                const billedKey = this.generateBilledKey(teamId, sessionId)
+                pipeline.set(billedKey, String(timestampMs), 'EX', ttlSeconds, 'NX')
+                pipeline.get(billedKey)
+                pipeline.get(this.generateKey(teamId, sessionId))
+            }
+            const values = pipelineValues(await pipeline.exec(), misses.length * 3)
             for (let i = 0; i < misses.length; i++) {
-                const { teamId, sessionId } = misses[i]
-                const [billedValue, seenValue] = [values[2 * i], values[2 * i + 1]]
-                if (billedValue !== null || seenValue === BILLED_AT_FIRST_SIGHT) {
+                const { teamId, sessionId, timestampMs } = misses[i]
+                const [billedValue, seenValue] = [values[3 * i + 1], values[3 * i + 2]]
+                if (
+                    (typeof billedValue === 'string' && billedValue.startsWith(BILLED_PREFIX)) ||
+                    seenValue === BILLED_AT_FIRST_SIGHT
+                ) {
                     this.billedCache.set(this.generateBilledKey(teamId, sessionId), true)
                 } else {
-                    unbilled.add(teamId, sessionId)
+                    unbilled.set(teamId, sessionId, storedBillingTime(billedValue) ?? timestampMs)
                 }
             }
             return unbilled
         } catch (error) {
-            logger.error('session_tracker_find_unbilled_redis_error', { error: String(error) })
+            logger.error('session_tracker_claim_billing_times_redis_error', { error: String(error) })
             SessionBatchMetrics.incrementSessionTrackerRedisErrors()
-            for (const { teamId, sessionId } of misses) {
-                unbilled.add(teamId, sessionId)
+            for (const { teamId, sessionId, timestampMs } of misses) {
+                unbilled.set(teamId, sessionId, timestampMs)
             }
             return unbilled
         } finally {
@@ -257,10 +293,10 @@ export class SessionTracker {
         try {
             client = await this.redisPool.acquire()
             const pipeline = client.pipeline()
-            for (const { teamId, sessionId, ttlSeconds } of sessions) {
+            for (const { teamId, sessionId, timestampMs, ttlSeconds } of sessions) {
                 const key = this.generateBilledKey(teamId, sessionId)
                 this.billedCache.set(key, true)
-                pipeline.set(key, BILLED, 'EX', ttlSeconds)
+                pipeline.set(key, `${BILLED_PREFIX}${timestampMs}`, 'EX', ttlSeconds)
             }
             await pipeline.exec()
         } catch (error) {

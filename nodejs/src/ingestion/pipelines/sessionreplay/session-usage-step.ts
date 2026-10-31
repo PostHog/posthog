@@ -3,9 +3,9 @@ import {
     SESSION_TRACKER_MOBILE_BILLED_TTL_SECONDS,
     SESSION_TRACKER_REDIS_TTL_SECONDS,
 } from '~/ingestion/pipelines/sessionreplay/constants'
-import { SessionTracker } from '~/ingestion/pipelines/sessionreplay/sessions/session-tracker'
+import { BillingClaim, SessionTracker } from '~/ingestion/pipelines/sessionreplay/sessions/session-tracker'
 import { SessionBlockMetadata } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-block-metadata'
-import { SessionSet } from '~/ingestion/pipelines/sessionreplay/shared/session-map'
+import { SessionMap } from '~/ingestion/pipelines/sessionreplay/shared/session-map'
 
 const MOBILE_METER = 'mobile_replay_recordings'
 
@@ -25,6 +25,10 @@ function billableMeter(snapshotSource: string | null): string {
     return snapshotSource === 'mobile' ? MOBILE_METER : 'session_replay_recordings'
 }
 
+function billedTtlSeconds(meter: string): number {
+    return meter === MOBILE_METER ? SESSION_TRACKER_MOBILE_BILLED_TTL_SECONDS : SESSION_TRACKER_REDIS_TTL_SECONDS
+}
+
 export function recordPersistedSessionUsage(usageBatch: UsageRecordBatch, sessions: SessionBlockMetadata[]): void {
     for (const session of sessions) {
         usageBatch.add(
@@ -40,39 +44,45 @@ export function recordPersistedSessionUsage(usageBatch: UsageRecordBatch, sessio
 
 /**
  * Bills each saved session once. A session counts as billed only after its record reaches the usage service,
- * so a failed send bills on the session's next saved flush.
+ * so a failed send bills on the session's next saved flush. Every send of a session, on any consumer, carries the
+ * billing time that the tracker stored first. The usage table then removes each resend.
  */
 export async function billPersistedSessions(
     usageBatch: UsageRecordBatch,
     sessionTracker: SessionTracker,
     sessions: SessionBlockMetadata[]
 ): Promise<void> {
-    const billable = new SessionSet()
+    const claims = new SessionMap<BillingClaim>()
     for (const session of sessions) {
-        if (usageBatch.accepts(session.teamId)) {
-            billable.add(session.teamId, session.sessionId)
+        if (usageBatch.accepts(session.teamId) && !claims.has(session.teamId, session.sessionId)) {
+            claims.set(session.teamId, session.sessionId, {
+                teamId: session.teamId,
+                sessionId: session.sessionId,
+                timestampMs: session.captureTimestampMs ?? Date.now(),
+                ttlSeconds: billedTtlSeconds(billableMeter(session.snapshotSource)),
+            })
         }
     }
-    if (billable.size === 0) {
+    if (claims.size === 0) {
         return
     }
 
-    const unbilled = await sessionTracker.findUnbilled(billable)
+    const billingTimes = await sessionTracker.claimBillingTimes([...claims.values()])
     recordPersistedSessionUsage(
         usageBatch,
-        sessions.filter((session) => unbilled.has(session.teamId, session.sessionId))
+        sessions.flatMap((session) => {
+            const timestampMs = billingTimes.get(session.teamId, session.sessionId)
+            return timestampMs === undefined ? [] : [{ ...session, captureTimestampMs: timestampMs }]
+        })
     )
     const received = await usageBatch.flush()
     await sessionTracker.markBilled(
-        received
-            .filter((record) => unbilled.has(record.teamId, record.recordId))
-            .map((record) => ({
-                teamId: record.teamId,
-                sessionId: record.recordId,
-                ttlSeconds:
-                    record.usageKey === MOBILE_METER
-                        ? SESSION_TRACKER_MOBILE_BILLED_TTL_SECONDS
-                        : SESSION_TRACKER_REDIS_TTL_SECONDS,
-            }))
+        received.flatMap((record) => {
+            const timestampMs = billingTimes.get(record.teamId, record.recordId)
+            const claim = claims.get(record.teamId, record.recordId)
+            return timestampMs === undefined || !claim
+                ? []
+                : [{ teamId: record.teamId, sessionId: record.recordId, timestampMs, ttlSeconds: claim.ttlSeconds }]
+        })
     )
 }
