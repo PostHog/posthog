@@ -8,6 +8,7 @@ from typing import Any, Literal, Optional, cast
 from django.core.cache import cache
 from django.db import IntegrityError, connections, transaction
 from django.db.models import Field, Manager, Prefetch
+from django.db.models.query import RawQuerySet
 from django.http import Http404
 from django.utils import timezone
 
@@ -168,6 +169,7 @@ def create_event_definitions_sql(
     is_enterprise: bool = False,
     conditions: str = "",
     order_expressions: Optional[list[tuple[str, Literal["ASC", "DESC"]]]] = None,
+    with_total_count: bool = False,
 ) -> str:
     if order_expressions is None:
         order_expressions = []
@@ -183,6 +185,8 @@ def create_event_definitions_sql(
     # every worker emits a different statement text, so pg_stat_statements and Performance Insights
     # split this query's load across hundreds of fingerprints and none of them looks expensive.
     selected_fields = sorted(event_definition_fields)
+    if with_total_count:
+        selected_fields.append("count(*) OVER () AS total_count")
 
     additional_ordering = []
     for order_expression, order_direction in order_expressions:
@@ -551,41 +555,82 @@ class EventDefinitionViewSet(
         params["offset"] = query.validated_data["offset"]
 
         conditions = search_query + filter_query
+        # The page statement counts the matches, so a search reads them once. Terms under 3 characters can
+        # match most of the project, where the page alone stops early and a separate count costs less.
+        search_terms = (search or "").replace("\x00", "").split(" ")
+        page, definition_count = self._page_and_count(
+            event_definition_object_manager,
+            event_type,
+            conditions,
+            order_expressions,
+            params,
+            bounded=bounded,
+            count_in_page=max(len(term) for term in search_terms) >= 3,
+        )
+        fuzzy_term = search.replace("\x00", "").strip() if search else ""
+        if fuzzy_search and definition_count == 0 and 3 <= len(fuzzy_term) <= 200:
+            params["fuzzy_search"] = fuzzy_term
+            # `%` can use the global trigram index; the function form keeps a small project on its own index.
+            fuzzy_predicate = (
+                "posthog_eventdefinition.name %% %(fuzzy_search)s"
+                if large_project
+                else "similarity(posthog_eventdefinition.name, %(fuzzy_search)s) >= show_limit()"
+            )
+            conditions = f" AND {fuzzy_predicate}" + filter_query
+            if "ordering" not in self.request.GET:
+                order_expressions = [("similarity(name, %(fuzzy_search)s)", "DESC"), *order_expressions]
+            page, definition_count = self._page_and_count(
+                event_definition_object_manager,
+                event_type,
+                conditions,
+                order_expressions,
+                params,
+                bounded=False,
+                count_in_page=True,
+            )
+        # Only a count that reached the cap is a lower bound; a filtered large project can be under it.
+        paginator.set_count(definition_count, is_capped=bounded and definition_count >= LARGE_PROJECT_COUNT_CAP)
+        return page
+
+    @staticmethod
+    def _page_and_count(
+        manager: Manager,
+        event_type: EventDefinitionType,
+        conditions: str,
+        order_expressions: list[tuple[str, Literal["ASC", "DESC"]]],
+        params: dict[str, Any],
+        *,
+        bounded: bool,
+        count_in_page: bool,
+    ) -> tuple[RawQuerySet, int]:
+        page = manager.raw(
+            create_event_definitions_sql(
+                event_type,
+                is_enterprise=EE_AVAILABLE,
+                conditions=conditions,
+                order_expressions=order_expressions,
+                with_total_count=count_in_page,
+            ),
+            params=params,
+        )
+        if count_in_page:
+            # The RawQuerySet caches these rows, so the paginator does not run the page statement again.
+            rows = list(page)
+            if rows:
+                return page, rows[0].total_count
+            if not params["offset"]:
+                return page, 0
+            # A page past the last match has no row to carry the count.
         # The count has to run on the connection the page fetch will use, or it describes a
         # different row set than the one it bounds.
         with connections[read_db_alias()].cursor() as cursor:
-            count_sql = create_event_definitions_count_sql(
-                event_type, is_enterprise=EE_AVAILABLE, conditions=conditions, bounded=bounded
+            cursor.execute(
+                create_event_definitions_count_sql(
+                    event_type, is_enterprise=EE_AVAILABLE, conditions=conditions, bounded=bounded
+                ),
+                params,
             )
-            cursor.execute(count_sql, params)
-            definition_count = cursor.fetchone()[0]
-            fuzzy_term = search.replace("\x00", "").strip() if search else ""
-            if fuzzy_search and definition_count == 0 and 3 <= len(fuzzy_term) <= 200:
-                params["fuzzy_search"] = fuzzy_term
-                # `%` can use the global trigram index; the function form keeps a small project on its own index.
-                fuzzy_predicate = (
-                    "posthog_eventdefinition.name %% %(fuzzy_search)s"
-                    if large_project
-                    else "similarity(posthog_eventdefinition.name, %(fuzzy_search)s) >= show_limit()"
-                )
-                conditions = f" AND {fuzzy_predicate}" + filter_query
-                count_sql = create_event_definitions_count_sql(
-                    event_type, is_enterprise=EE_AVAILABLE, conditions=conditions
-                )
-                cursor.execute(count_sql, params)
-                definition_count = cursor.fetchone()[0]
-                if "ordering" not in self.request.GET:
-                    order_expressions = [("similarity(name, %(fuzzy_search)s)", "DESC"), *order_expressions]
-            # Only a count that reached the cap is a lower bound; a filtered large project can be under it.
-            paginator.set_count(definition_count, is_capped=bounded and definition_count >= LARGE_PROJECT_COUNT_CAP)
-
-        sql = create_event_definitions_sql(
-            event_type,
-            is_enterprise=EE_AVAILABLE,
-            conditions=conditions,
-            order_expressions=order_expressions,
-        )
-        return event_definition_object_manager.raw(sql, params=params)
+            return page, cursor.fetchone()[0]
 
     def _tags_filter_from_request(self) -> list[str]:
         tags = self.request.GET.get("tags")
