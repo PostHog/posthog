@@ -441,8 +441,13 @@ export class EmailService {
         this.workflowRunLinkTagTeams = buildIntegerMatcher(this.sesConfig.workflowRunLinkTagTeams, true)
     }
 
-    private tagsLinksWithWorkflowRun(teamId: number, trackingEnabled: boolean, isTest: boolean): boolean {
-        return trackingEnabled && !isTest && this.workflowRunLinkTagTeams(teamId)
+    private tagsLinksWithWorkflowRun(
+        invocation: CyclotronJobInvocationHogFunction,
+        trackingEnabled: boolean,
+        isTest: boolean
+    ): boolean {
+        const sensitive = invocation.hogFunction?.metadata?.sensitive === true
+        return trackingEnabled && !isTest && !sensitive && this.workflowRunLinkTagTeams(invocation.teamId)
     }
 
     // Send email. `isTest` flags sends from the editor's "Run test" path so the tracking code
@@ -746,7 +751,7 @@ export class EmailService {
                       }
                     : paramsWithReplyTo
             const sendParams =
-                utmTaggedParams.html && this.tagsLinksWithWorkflowRun(invocation.teamId, trackingEnabled, isTest)
+                utmTaggedParams.html && this.tagsLinksWithWorkflowRun(invocation, trackingEnabled, isTest)
                     ? {
                           ...utmTaggedParams,
                           html: addWorkflowRunTagToEmail(utmTaggedParams.html, {
