@@ -97,10 +97,42 @@ describe('formatMailbox', () => {
             'Dry\r\nBcc: x@example.com',
             '"DryBcc: x@example.com" <a@example.com>',
         ],
+        [
+            'a non-ASCII name as an RFC 2047 encoded word',
+            'Café Müller',
+            '=?UTF-8?Q?Caf=C3=A9_M=C3=BCller?= <a@example.com>',
+        ],
     ])('formats %s', (_name, name, expected) => {
         expect(formatMailbox(name, 'a@example.com')).toEqual(expected)
     })
+
+    it.each([
+        ['CJK name with a character outside the emoji range', '株式会社山田商事部𠮷田'.repeat(4)],
+        ['emoji name', 'Launch party 🎉🚀 '.repeat(5)],
+    ])('keeps a long %s intact across encoded words', (_desc, name) => {
+        const [displayName, address] = formatMailbox(name, 'a@example.com').split(' <')
+        const encodedWords = displayName.split(' ')
+
+        expect(encodedWords.map(decodeEncodedWord).join('')).toEqual(name.trim())
+        expect(address).toEqual('a@example.com>')
+        expect(encodedWords.length).toBeGreaterThan(1)
+        expect(Math.max(...encodedWords.map((word) => word.length))).toBeLessThanOrEqual(75)
+    })
 })
+
+function decodeEncodedWord(word: string): string {
+    const [, encoding, text] = word.match(/^=\?UTF-8\?([BQ])\?(.*)\?=$/i)!
+    const bytes =
+        encoding.toUpperCase() === 'B'
+            ? Buffer.from(text, 'base64')
+            : Buffer.from(
+                  text
+                      .replace(/_/g, ' ')
+                      .replace(/=([0-9A-F]{2})/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16))),
+                  'latin1'
+              )
+    return bytes.toString('utf8')
+}
 
 describe('parseAddressList', () => {
     it.each([
@@ -374,9 +406,15 @@ describe('EmailService', () => {
                     'test@posthog.com',
                 ],
                 [
-                    'name with header-breaking characters is sanitized',
-                    { name: '"Evil" <fake@evil.com>,\r\n Bcc:' },
-                    '"Evil fake@evil.com, Bcc:" <test@posthog.com>',
+                    'name with quotes, angle brackets and a line break kept inside the quoted name',
+                    { name: '"Evil" <fake@evil.com>,\r\n Bcc:\\' },
+                    '"\\"Evil\\" <fake@evil.com>, Bcc:\\\\" <test@posthog.com>',
+                    'test@posthog.com',
+                ],
+                [
+                    'non-ASCII name with quotes as an RFC 2047 encoded word',
+                    { name: 'Café "Müller"' },
+                    '=?UTF-8?Q?Caf=C3=A9_=22M=C3=BCller=22?= <test@posthog.com>',
                     'test@posthog.com',
                 ],
             ])('applies the %s', async (_desc, fromOverride, expectedFrom, expectedFeedback) => {
@@ -1064,7 +1102,13 @@ describe('EmailService', () => {
             invocation.queueParameters = createEmailParams({ from: { integrationId: 1 } })
             await mailDevAPI.clearEmails()
         })
-        it('should send an email', async () => {
+        it.each([
+            ['a plain recipient name', 'Test User'],
+            ['a non-ASCII recipient name', 'Café "Müller"'],
+        ])('should send an email to %s', async (_desc, recipientName) => {
+            invocation.queueParameters = createEmailParams({
+                to: { email: 'test@example.com', name: recipientName },
+            })
             const result = await service.executeSendEmail(invocation)
             expect(result.error).toBeUndefined()
             await waitForExpect(async () => expect(mailDevAPI.getEmails()).resolves.toHaveLength(1))
@@ -1075,7 +1119,7 @@ describe('EmailService', () => {
                 html: 'Test HTML',
                 subject: 'Test Subject',
                 text: 'Test Text',
-                to: [{ address: 'test@example.com', name: 'Test User' }],
+                to: [{ address: 'test@example.com', name: recipientName }],
             })
         })
         it('should include tracking code in the email with distinct_id', async () => {
