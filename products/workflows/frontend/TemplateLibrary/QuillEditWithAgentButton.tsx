@@ -1,28 +1,22 @@
 import { useActions, useValues } from 'kea'
-import { KeyboardEvent, useRef } from 'react'
+import { useRef } from 'react'
 
 import { IconChevronDown, IconCopy } from '@posthog/icons'
 import {
     Button,
     ButtonGroup,
     ButtonGroupSeparator,
-    Collapsible,
-    CollapsibleContent,
-    CollapsibleTrigger,
     DropdownMenu,
     DropdownMenuContent,
     DropdownMenuItem,
     DropdownMenuTrigger,
-    Field,
-    FieldLabel,
     Popover,
     PopoverContent,
     PopoverTrigger,
-    Text,
-    Textarea,
 } from '@posthog/quill'
 
 import { MessageTemplateLogicProps, messageTemplateLogic } from './messageTemplateLogic'
+import { QuillEditWithAgentPrompt } from './QuillEditWithAgentPrompt'
 
 export function QuillEditWithAgentButton(props: MessageTemplateLogicProps): JSX.Element {
     const logic = messageTemplateLogic(props)
@@ -51,7 +45,7 @@ export function QuillEditWithAgentButton(props: MessageTemplateLogicProps): JSX.
                     aria-label="Edit with your agent"
                     initialFocus={() => focusAtEnd(sentenceRef.current)}
                 >
-                    <QuillAgentPrompt {...props} sentenceRef={sentenceRef} />
+                    <QuillEditWithAgentPrompt {...props} sentenceRef={sentenceRef} />
                 </PopoverContent>
             </Popover>
             <ButtonGroupSeparator />
@@ -84,61 +78,4 @@ export function QuillEditWithAgentButton(props: MessageTemplateLogicProps): JSX.
 function focusAtEnd(field: HTMLTextAreaElement | null): HTMLTextAreaElement | null {
     field?.setSelectionRange(field.value.length, field.value.length)
     return field
-}
-
-interface QuillAgentPromptProps extends MessageTemplateLogicProps {
-    sentenceRef: React.RefObject<HTMLTextAreaElement>
-}
-
-function QuillAgentPrompt({ sentenceRef, ...props }: QuillAgentPromptProps): JSX.Element {
-    const logic = messageTemplateLogic(props)
-    const { changeSentence, agentPrompt, copyAgentPromptDisabledReason } = useValues(logic)
-    const { setChangeSentence, copyAgentPrompt } = useActions(logic)
-
-    const copyOnCmdEnter = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
-        if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
-            event.preventDefault()
-            copyAgentPrompt()
-        }
-    }
-
-    return (
-        <>
-            <Field>
-                <FieldLabel htmlFor="message-template-change-sentence">Describe the change</FieldLabel>
-                <Textarea
-                    id="message-template-change-sentence"
-                    ref={sentenceRef}
-                    value={changeSentence}
-                    onChange={(event) => setChangeSentence(event.target.value)}
-                    onKeyDown={copyOnCmdEnter}
-                    rows={3}
-                    data-attr="message-template-change-sentence"
-                />
-            </Field>
-            <div className="flex justify-end">
-                <Button
-                    variant="primary"
-                    data-attr="message-template-copy-agent-prompt"
-                    onClick={copyAgentPrompt}
-                    disabledReason={copyAgentPromptDisabledReason}
-                >
-                    Copy prompt
-                </Button>
-            </div>
-            <Collapsible>
-                <CollapsibleTrigger>Show full prompt</CollapsibleTrigger>
-                <CollapsibleContent>
-                    <Text
-                        size="xs"
-                        render={<div />}
-                        className="m-0 whitespace-pre-wrap break-words font-mono"
-                        data-attr="message-template-agent-prompt"
-                    >
-                        {agentPrompt}
-                    </Text>
-                </CollapsibleContent>
-            </Collapsible>
-        </>
-    )
 }
