@@ -26,7 +26,7 @@ export function ProductSetupButton(): JSX.Element | null {
         toggle,
         close,
         setSelectedProduct,
-    } = useProductSetupButton()
+    } = useProductSetupButton('scene_title')
 
     if (!shouldShowButton) {
         return null

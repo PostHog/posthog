@@ -17,7 +17,7 @@ import { reverseProxyCheckerLogic } from '../ReverseProxyChecker/reverseProxyChe
 import { globalSetupLogic } from './globalSetupLogic'
 import { getProductSetupConfig, getTasksForProduct } from './productSetupRegistry'
 import type { SetupTaskWithState } from './types'
-import type { ProductSetupConfig, SetupTask } from './types'
+import type { ProductSetupConfig, QuickStartOpenTrigger, SetupTask } from './types'
 
 export interface ProductSetupLogicProps {
     productKey: ProductKey
@@ -64,8 +64,8 @@ export interface productSetupLogicActions {
     markTaskAsSkipped: (taskIdOrIds: SetupTaskId | SetupTaskId[]) => {
         taskIdOrIds: AvailableSetupTaskIdsEnumApi | AvailableSetupTaskIdsEnumApi[]
     } // globalSetupLogic
-    openGlobalSetup: () => {
-        value: true
+    openGlobalSetup: (trigger?: QuickStartOpenTrigger | undefined) => {
+        trigger: QuickStartOpenTrigger | null
     } // globalSetupLogic
     setHighlight: (
         selector: string,
