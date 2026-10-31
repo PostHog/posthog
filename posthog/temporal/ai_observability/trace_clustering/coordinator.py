@@ -224,6 +224,7 @@ class TraceClusteringCoordinatorWorkflow(PostHogWorkflow):
                             event_filters=job.event_filters,
                             job_id=job.job_id,
                             job_name=job.name,
+                            record_skip_status=True,
                         ),
                         id=f"{child_id_prefix}{child_suffix}-{temporalio.workflow.now().isoformat()}",
                         execution_timeout=constants.WORKFLOW_EXECUTION_TIMEOUT,

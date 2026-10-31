@@ -26,6 +26,7 @@ from temporalio import activity
 
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
+from posthog.temporal.ai_observability.clustering_skip_status import clear_skip_status, record_not_enough_items
 from posthog.temporal.ai_observability.evaluation_clustering.aggregates import aggregate_evaluation_metrics
 from posthog.temporal.ai_observability.evaluation_clustering.constants import (
     CLUSTERING_MAX_SAMPLES,
@@ -269,6 +270,7 @@ def _compute_sync(inputs: EvaluationClusteringComputeInputs) -> EvaluationCluste
             count=len(eval_ids),
             min_required=MIN_EMBEDDINGS_FOR_CLUSTERING,
         )
+        record_not_enough_items(inputs.team_id, "evaluation", len(eval_ids), MIN_EMBEDDINGS_FOR_CLUSTERING)
         return EvaluationClusteringComputeResult(
             clustering_run_id=clustering_run_id,
             eval_ids=[],
@@ -280,6 +282,7 @@ def _compute_sync(inputs: EvaluationClusteringComputeInputs) -> EvaluationCluste
             num_noise_points=0,
             skip_reason="not_enough_embeddings",
         )
+    clear_skip_status(inputs.team_id, "evaluation")
 
     embeddings_array = np.array([embeddings_map[eid] for eid in eval_ids])
 

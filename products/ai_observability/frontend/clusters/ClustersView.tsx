@@ -19,6 +19,7 @@ import { ClusterDistributionBar } from './ClusterDistributionBar'
 import { ClusteringAdminModal } from './ClusteringAdminModal'
 import { clusteringJobsLogic } from './clusteringJobsLogic'
 import { ClusteringJobsPanel } from './ClusteringJobsPanel'
+import { ClusteringSkipReasonMessage } from './ClusteringSkipReasonMessage'
 import { clustersAdminLogic } from './clustersAdminLogic'
 import { ClusterScatterPlot } from './ClusterScatterPlot'
 import { clustersLogic } from './clustersLogic'
@@ -45,6 +46,8 @@ export function ClustersView(): JSX.Element {
         propertyFilters,
         shouldFilterTestAccounts,
         propertyFilteredItemIdsLoading,
+        currentSkipReason,
+        skipReasonLoading,
     } = useValues(clustersLogic)
     const { setClusteringLevel, setSelectedRunId, toggleClusterExpanded, toggleScatterPlotExpanded } =
         useActions(clustersLogic)
@@ -128,7 +131,7 @@ export function ClustersView(): JSX.Element {
                     </div>
                 </div>
 
-                <div className="flex flex-col items-center justify-center p-8 text-center">
+                <div className="flex flex-col items-center justify-center gap-2 p-8 text-center">
                     <h3 className="text-lg font-semibold mb-2">
                         No{' '}
                         {clusteringLevel === 'generation'
@@ -138,13 +141,15 @@ export function ClustersView(): JSX.Element {
                               : 'trace'}{' '}
                         clustering runs found
                     </h3>
-                    <p className="text-muted max-w-md">
-                        {clusteringLevel === 'trace'
-                            ? 'Try switching to "Generations" or "Evaluations" to see other clusters, or check back later once more data has been collected.'
-                            : clusteringLevel === 'generation'
-                              ? 'Try switching to "Traces" or "Evaluations" to see other clusters, or check back later once more data has been collected.'
-                              : 'Try switching to "Traces" or "Generations" to see other clusters, or check back later once more data has been collected.'}
-                    </p>
+                    {skipReasonLoading ? (
+                        <Spinner />
+                    ) : (
+                        <ClusteringSkipReasonMessage
+                            clusteringLevel={clusteringLevel}
+                            skipReason={currentSkipReason}
+                            onManageJobs={openJobsPanel}
+                        />
+                    )}
                 </div>
 
                 <ClusteringJobsPanel />

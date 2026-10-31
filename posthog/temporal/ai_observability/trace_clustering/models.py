@@ -52,6 +52,8 @@ class ClusteringWorkflowInputs:
     event_filters: list[dict[str, Any]] = field(default_factory=list)
     job_id: str = ""  # empty = no job (legacy/manual run without a job)
     job_name: str = ""
+    # Only scheduled runs update the skip status the clusters page shows. Manual runs pick their own sample size.
+    record_skip_status: bool = False
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
@@ -83,6 +85,7 @@ class ClusteringActivityInputs:
     event_filters: list[dict[str, Any]] = field(default_factory=list)
     job_id: str = ""
     job_name: str = ""
+    record_skip_status: bool = False
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
