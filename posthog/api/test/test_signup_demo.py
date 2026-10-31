@@ -1,3 +1,5 @@
+from functools import partial
+
 import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
@@ -8,6 +10,8 @@ from django.test import override_settings
 from rest_framework import status
 
 from posthog.models import Organization, User
+
+from products.demo.backend.facade.api import HedgeboxMatrix
 
 
 @override_settings(DEMO=True)
@@ -20,6 +24,10 @@ class TestDemoSignupAPI(APIBaseTest):
         # Do not set up any test data
         pass
 
+    # Seed the matrix so its population is small and the same on every run. Tests write each simulated event
+    # to ClickHouse with its own INSERT, so a large random draw keeps this test's Postgres transaction idle
+    # past idle_in_transaction_session_timeout, and the killed connection fails every later test.
+    @patch("posthog.api.signup.HedgeboxMatrix", partial(HedgeboxMatrix, seed="e"))
     def test_demo_signup(self, *args):
         assert not User.objects.exists()
         assert not Organization.objects.exists()
