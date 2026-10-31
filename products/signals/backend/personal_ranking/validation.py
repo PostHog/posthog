@@ -209,15 +209,13 @@ def validate_ranking(
             kept.append(entry)
     if refs and not kept:
         raise MalformedRankingError("no known ref is ranked")
-    duplicate_refs = len(ordered) - len(kept)
-    beyond_rank_top = max(len(kept) - rank_top, 0)
-    kept = kept[:rank_top]
-    seen = {entry.ref for entry in kept}
+    top = kept[:rank_top]
+    ranked_refs = {entry.ref for entry in top}
 
     entries: list[RankedEntry] = []
     renumbered = tier_corrections = 0
     worst_tier = 0
-    for rank, entry in enumerate(kept, start=1):
+    for rank, entry in enumerate(top, start=1):
         renumbered += entry.rank != rank
         tier_index = max(TIERS.index(entry.tier), worst_tier)
         tier_corrections += tier_index != TIERS.index(entry.tier)
@@ -236,7 +234,7 @@ def validate_ranking(
             )
         )
 
-    missing = [ref for ref in refs if ref not in seen and ref not in folds]
+    missing = [ref for ref in refs if ref not in ranked_refs and ref not in folds]
     for ref in missing:
         entries.append(
             RankedEntry(
@@ -254,10 +252,10 @@ def validate_ranking(
         folded=tuple(folds[ref] for ref in refs if ref in folds),
         counts=ValidationCounts(
             renumbered=renumbered,
-            duplicate_refs=duplicate_refs,
+            duplicate_refs=len(ordered) - len(kept),
             unknown_refs=unknown,
-            missing_refs=len(missing) - beyond_rank_top,
-            beyond_rank_top=beyond_rank_top,
+            missing_refs=len(missing) - (len(kept) - len(top)),
+            beyond_rank_top=len(kept) - len(top),
             tier_corrections=tier_corrections,
             invalid_folds=invalid_folds,
         ),
