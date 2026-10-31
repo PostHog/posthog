@@ -1,6 +1,6 @@
 //! `PyEmitter` — `Emitter` impl that constructs `posthog.hogql.ast` dataclasses directly during parsing, bypassing the `serde_json::Value` intermediate tree.
 //!
-//! Used by the `parse_*_py` PyO3 entry points in [`crate::lib`]. The `parse_*_json` entry points stay on `JsonEmitter` for the future WASM build (no CPython link) and for tests that compare on JSON shape.
+//! Used by the `parse_*_py` PyO3 entry points in [`crate::lib`]. The `parse_*_json` entry points stay on `JsonEmitter` for the WASM build in `rust/hogql/parser-wasm` (no CPython link) and for tests that compare on JSON shape.
 //!
 //! Construction strategy:
 //!  - All `posthog.hogql.ast` classes are looked up *once* at [`PyEmitter::new`] and stored as `Bound<'py, PyAny>` references — a `getattr(ast_module, "Constant")` per node would dominate runtime over the json round-trip we're trying to beat.

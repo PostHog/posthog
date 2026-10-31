@@ -1,4 +1,4 @@
-//! The `Emitter` trait abstracts AST node construction so the parser can emit either `serde_json::Value` (via `JsonEmitter`, used by `parse_*_json` entry points + the future WASM build) or Python `posthog.hogql.ast` dataclass instances directly during parse (via `PyEmitter` in `emit_py.rs`, used by `parse_*_py`).
+//! The `Emitter` trait abstracts AST node construction so the parser can emit either `serde_json::Value` (via `JsonEmitter`, used by `parse_*_json` entry points and the WASM build in `rust/hogql/parser-wasm`) or Python `posthog.hogql.ast` dataclass instances directly during parse (via `PyEmitter` in `emit_py.rs`, used by `parse_*_py`).
 //!
 //! Field names and shapes mirror the dataclasses at [`posthog/hogql/ast.py`]. The Python deserialiser at [`posthog/hogql/json_ast.py`] also builds these dataclasses from the JSON shape, so the two backends produce `__eq__`-equivalent objects.
 
@@ -295,7 +295,7 @@ pub trait Emitter {
 }
 
 // ============================================================================
-// JsonEmitter — `serde_json::Value` impl, mirrors the previous free `emit::xxx` functions. Used by `parse_*_json` entry points and the future WASM build.
+// JsonEmitter — `serde_json::Value` impl, mirrors the previous free `emit::xxx` functions. Used by `parse_*_json` entry points and the WASM build in `rust/hogql/parser-wasm`.
 // ============================================================================
 
 /// Build a JSON object from `"key": value` pairs. `json!` serializes interpolated variables by reference, so every child subtree passed to it is deep-copied and the original is dropped. This macro moves each value into the map instead, so the cost of building a node does not grow with the size of its children.
