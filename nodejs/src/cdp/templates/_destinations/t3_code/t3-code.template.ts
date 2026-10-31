@@ -12,15 +12,6 @@ export const template: HogFunctionTemplate = {
     category: ['Custom'],
     code_language: 'hog',
     code: `
-let failureReasons := {
-  '401': 'T3 Code rejected the signature. Use the same signing secret here and on the T3 Code task.',
-  '404': 'T3 Code has no task at this webhook URL. Copy the current URL from the task in T3 Code.',
-  '409': 'The T3 Code task is turned off. Turn it on in T3 Code.',
-  '410': 'T3 Code skipped the request because it was too old for the task. Raise the maximum delivery age on the T3 Code task.',
-  '413': 'The request is larger than the 1 MB T3 Code accepts. Send less in the payload.',
-  '429': 'T3 Code is limiting requests to this task. Add a delay or a condition before this step so it sends fewer requests.'
-}
-
 let payload := inputs.payload ?? {'event': event, 'person': person}
 if (typeof(payload) != 'object') {
   payload := {'data': payload}
@@ -28,25 +19,23 @@ if (typeof(payload) != 'object') {
 if (not empty(inputs.instructions)) {
   payload.instructions := inputs.instructions
 }
-let body := jsonStringify(payload)
 
-let headers := {
-  'Content-Type': 'application/json',
-  'x-posthog-delivery-id': generateUUIDv4()
+let request := {
+  'method': 'POST',
+  'headers': {
+    'Content-Type': 'application/json',
+    'webhook-id': generateUUIDv4()
+  },
+  'body': payload
 }
 if (not empty(inputs.signing_secret)) {
-  headers['x-hub-signature-256'] := f'sha256={sha256HmacChainHex([inputs.signing_secret, body])}'
+  request.hmac_sha256 := {'secret_input': 'signing_secret'}
 }
 
-let res := fetch(inputs.webhook_url, {
-  'method': 'POST',
-  'headers': headers,
-  'body': body
-})
+let res := fetch(inputs.webhook_url, request)
 
 if (res.status >= 400) {
-  let reason := failureReasons[toString(res.status)] ?? 'T3 Code could not start the task. Check the task in T3 Code.'
-  throw Error(f'{reason} (status {res.status}: {res.body})')
+  throw Error(f'T3 Code did not start the task (status {res.status}: {res.body})')
 }
 
 return res.body
@@ -60,7 +49,7 @@ return res.body
             required: true,
             templating: false,
             description:
-                'The URL of a T3 Code scheduled task that runs on webhook. Copy it from the task in T3 Code under Settings > Scheduled tasks. Set the replay key of the task to {{headers.x-posthog-delivery-id}}, so a retried request does not start a second run.',
+                'The URL of a T3 Code scheduled task that runs on webhook. Copy it from the task in T3 Code under Settings > Scheduled tasks. Set the replay key of the task to {{headers.webhook-id}}, so a retried request does not start a second run.',
         },
         {
             key: 'instructions',
