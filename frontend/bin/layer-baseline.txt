@@ -10,7 +10,6 @@ frontend/src/layout/GlobalModals.tsx -> frontend/src/scenes/organization/CreateO
 frontend/src/layout/GlobalModals.tsx -> frontend/src/scenes/project/CreateProjectModal.tsx
 frontend/src/layout/GlobalModals.tsx -> frontend/src/scenes/session-recordings/player/modal/sessionPlayerModalLogic.ts
 frontend/src/layout/GlobalModals.tsx -> frontend/src/scenes/settings/organization/InviteModal.tsx
-frontend/src/layout/GlobalModals.tsx -> frontend/src/scenes/settings/organization/inviteLogic.ts
 frontend/src/layout/GlobalModals.tsx -> frontend/src/scenes/themes/PreviewingCustomCssModal.tsx
 frontend/src/layout/GlobalModals.tsx -> frontend/src/scenes/welcome/WelcomeDialog.tsx
 frontend/src/layout/GlobalModals.tsx -> products/conversations/frontend/components/ComposeTicket/composeTicketLogic.ts
@@ -28,7 +27,6 @@ frontend/src/layout/navigation/projectNoticeLogic.tsx -> frontend/src/scenes/act
 frontend/src/layout/navigation/projectNoticeLogic.tsx -> frontend/src/scenes/authentication/verify-email/verifyEmailLogic.ts
 frontend/src/layout/navigation/projectNoticeLogic.tsx -> frontend/src/scenes/billing/billingLogic.tsx
 frontend/src/layout/navigation/projectNoticeLogic.tsx -> frontend/src/scenes/insights/EmptyStates/sampleDataStateLogic.ts
-frontend/src/layout/navigation/projectNoticeLogic.tsx -> frontend/src/scenes/settings/organization/inviteLogic.ts
 frontend/src/layout/navigation/projectNoticeLogic.tsx -> frontend/src/scenes/welcome/productBranding.ts
 frontend/src/layout/panel-layout/DatabaseTree/DatabaseTree.tsx -> frontend/src/scenes/data-warehouse/editor/ConnectionSelector.tsx
 frontend/src/layout/panel-layout/DatabaseTree/DatabaseTree.tsx -> frontend/src/scenes/data-warehouse/editor/editorSizingLogic.tsx
@@ -96,7 +94,6 @@ frontend/src/layout/today/todayObjectGlances.ts -> frontend/src/scenes/project-h
 frontend/src/layout/today/todayObjectGlances.ts -> products/experiments/frontend/experimentStatus.ts
 frontend/src/layout/today/todayObjectGlances.ts -> products/feature_flags/frontend/featureFlagConfigFormat.ts
 frontend/src/layout/today/todayOrgMenuLogic.ts -> frontend/src/scenes/billing/billingLogic.tsx
-frontend/src/layout/today/todayOrgMenuLogic.ts -> frontend/src/scenes/settings/organization/inviteLogic.ts
 frontend/src/layout/today/todayPaneSearch.ts -> frontend/src/scenes/analytics/analyticsUtils.ts
 frontend/src/layout/today/todayPanelTaskLogic.ts -> products/posthog_ai/frontend/api/logics.ts
 frontend/src/layout/today/todayPreviewCards.ts -> frontend/src/scenes/library/libraryUtils.ts
@@ -116,10 +113,7 @@ frontend/src/lib/api.ts -> frontend/src/lib/logic/apiStatusLogic.ts
 frontend/src/lib/api.ts -> frontend/src/queries/utils.ts
 frontend/src/lib/api.ts -> frontend/src/scenes/surveys/constants.tsx
 frontend/src/lib/components/Account/AccountMenu.tsx -> frontend/src/scenes/billing/billingLogic.tsx
-frontend/src/lib/components/Account/AccountMenu.tsx -> frontend/src/scenes/settings/organization/inviteLogic.ts
-frontend/src/lib/components/Account/InviteMembersButton.tsx -> frontend/src/scenes/settings/organization/inviteLogic.ts
 frontend/src/lib/components/Account/NewAccountMenu.tsx -> frontend/src/scenes/billing/billingLogic.tsx
-frontend/src/lib/components/Account/NewAccountMenu.tsx -> frontend/src/scenes/settings/organization/inviteLogic.ts
 frontend/src/lib/components/Account/ProjectFreshnessIndicator.tsx -> frontend/src/scenes/onboarding/shared/utils.tsx
 frontend/src/lib/components/ActivityLog/ActivityLogSubscribeMenu.tsx -> frontend/src/scenes/hog-functions/sub-templates/sub-templates.ts
 frontend/src/lib/components/ActivityLog/activityDescriptions/tagActivityDescriber.tsx -> frontend/src/scenes/insights/utils.tsx
@@ -316,7 +310,6 @@ frontend/src/lib/components/PayGateMini/PayGateMini.tsx -> frontend/src/scenes/b
 frontend/src/lib/components/PayGateMini/PayGateMini.tsx -> frontend/src/scenes/onboarding/shared/utils.tsx
 frontend/src/lib/components/PayGateMini/payGateMiniLogic.tsx -> frontend/src/scenes/billing/billingLogic.tsx
 frontend/src/lib/components/ProductEmptyState/ProductEmptyState.tsx -> frontend/src/scenes/onboarding/shared/useWizardCommand.ts
-frontend/src/lib/components/ProductSetup/productSetupLogic.ts -> frontend/src/scenes/settings/organization/inviteLogic.ts
 frontend/src/lib/components/PropertiesTable/PropertiesTable.tsx -> products/persons/frontend/components/NewProperty.tsx
 frontend/src/lib/components/PropertyFilters/PropertyFilters.tsx -> frontend/src/scenes/cohorts/CohortFilters/CohortCriteriaRowBuilder.tsx
 frontend/src/lib/components/PropertyFilters/components/GroupKeyFilterTooltip.tsx -> products/persons/frontend/components/GroupActorDisplay.tsx
@@ -635,7 +628,6 @@ frontend/src/scenes/sceneLogic.tsx -> frontend/src/exporter/exporterViewLogic.ts
 frontend/src/scenes/sceneLogic.tsx -> frontend/src/scenes/authentication/auth/loginLogic.ts
 frontend/src/scenes/sceneLogic.tsx -> frontend/src/scenes/coupons/utils.ts
 frontend/src/scenes/sceneLogic.tsx -> frontend/src/scenes/onboarding/onboardingDelegationState.ts
-frontend/src/scenes/sceneLogic.tsx -> frontend/src/scenes/settings/organization/inviteLogic.ts
 frontend/src/scenes/scenes.ts -> frontend/src/scenes/activity/explore/defaults.ts
 frontend/src/scenes/userLogic.ts -> frontend/src/scenes/authentication/shared/verificationCode.ts
 frontend/src/scenes/userLogic.ts -> products/data_warehouse/frontend/sqlEditorDraftCleanup.ts
