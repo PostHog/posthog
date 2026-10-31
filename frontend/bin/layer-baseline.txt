@@ -196,8 +196,6 @@ frontend/src/lib/components/Cards/TextCard/textCardModalLogic.ts -> products/das
 frontend/src/lib/components/ChartFilter/ChartFilter.tsx -> frontend/src/scenes/insights/insightLogic.tsx
 frontend/src/lib/components/ChartFilter/ChartFilter.tsx -> frontend/src/scenes/insights/insightVizDataLogic.ts
 frontend/src/lib/components/ChartFilter/ChartFilter.tsx -> frontend/src/scenes/insights/utils/queryUtils.ts
-frontend/src/lib/components/ChartFilter/ChartFilter.tsx -> products/product_analytics/frontend/insights/chartAlternatives/ChartDisplayIcon.tsx
-frontend/src/lib/components/ChartFilter/ChartFilter.tsx -> products/product_analytics/frontend/insights/chartAlternatives/chartDisplayOptions.ts
 frontend/src/lib/components/CyclotronJob/CyclotronJobInputs.tsx -> frontend/src/scenes/hog-functions/email-templater/EmailTemplater.tsx
 frontend/src/lib/components/CyclotronJob/CyclotronJobInputsValidation.ts -> frontend/src/scenes/hog-functions/email-templater/types.ts
 frontend/src/lib/components/DateFilter/openJumpToTimestampModal.tsx -> frontend/src/scenes/activity/explore/defaults.ts
@@ -502,13 +500,11 @@ frontend/src/queries/nodes/HogQLQuery/hogQLQueryEditorLogic.tsx -> frontend/src/
 frontend/src/queries/nodes/HogQLQuery/hogQLQueryEditorLogic.tsx -> frontend/src/scenes/data-warehouse/saved_queries/savedQueryNameValidation.ts
 frontend/src/queries/nodes/HogQLQuery/hogQLQueryEditorLogic.tsx -> frontend/src/scenes/data-warehouse/settings/dataWarehouseSettingsSceneLogic.ts
 frontend/src/queries/nodes/HogQLX/render.tsx -> products/mcp_analytics/frontend/components/BrandMarkLabel.tsx
-frontend/src/queries/nodes/InsightQuery/defaults.ts -> products/product_analytics/frontend/insights/journeys/stepSourcePresets.ts
 frontend/src/queries/nodes/InsightViz/ComputationTimeWithRefresh.tsx -> frontend/src/scenes/insights/insightDataLogic.tsx
 frontend/src/queries/nodes/InsightViz/ComputationTimeWithRefresh.tsx -> frontend/src/scenes/insights/insightLogic.tsx
 frontend/src/queries/nodes/InsightViz/FlagCallsRetentionNotice.tsx -> frontend/src/scenes/feature-flags/flagEvaluationsTable.ts
 frontend/src/queries/nodes/InsightViz/InsightResultMetadata.tsx -> frontend/src/scenes/insights/insightLogic.tsx
 frontend/src/queries/nodes/InsightViz/InsightResultMetadata.tsx -> frontend/src/scenes/insights/insightVizDataLogic.ts
-frontend/src/queries/nodes/InsightViz/InsightResultMetadata.tsx -> products/product_analytics/frontend/insights/editor/filters/daysOfWeekFilterUtils.ts
 frontend/src/queries/nodes/InsightViz/InsightViz.tsx -> frontend/src/scenes/insights/insightDataLogic.tsx
 frontend/src/queries/nodes/InsightViz/InsightViz.tsx -> frontend/src/scenes/insights/insightLogic.tsx
 frontend/src/queries/nodes/InsightViz/InsightViz.tsx -> frontend/src/scenes/insights/insightVizDataLogic.ts
@@ -538,7 +534,6 @@ frontend/src/queries/nodes/InsightViz/InsightVizDisplay.tsx -> products/product_
 frontend/src/queries/nodes/InsightViz/InsightVizDisplay.tsx -> products/product_analytics/frontend/insights/retention/RetentionContainer.tsx
 frontend/src/queries/nodes/InsightViz/InsightVizDisplay.tsx -> products/product_analytics/frontend/insights/shared/InsightAIAnalysis.tsx
 frontend/src/queries/nodes/InsightViz/InsightVizDisplay.tsx -> products/product_analytics/frontend/insights/shared/InsightsTable/InsightsTable.tsx
-frontend/src/queries/nodes/InsightViz/InsightVizDisplay.tsx -> products/product_analytics/frontend/insights/shared/insightImageCapture.ts
 frontend/src/queries/nodes/InsightViz/InsightVizDisplay.tsx -> products/product_analytics/frontend/insights/trends/BoxPlot/BoxPlotLegend.tsx
 frontend/src/queries/nodes/InsightViz/InsightVizDisplay.tsx -> products/product_analytics/frontend/insights/trends/BoxPlot/BoxPlotResultsTable.tsx
 frontend/src/queries/nodes/InsightViz/InsightVizDisplay.tsx -> products/product_analytics/frontend/insights/trends/Trends.tsx
