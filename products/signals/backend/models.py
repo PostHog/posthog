@@ -4015,9 +4015,15 @@ class SignalScoutBackgroundBand(TeamScopedRootMixin, UUIDModel):
     """The activity band of one project that can get a background scout, one row per team.
 
     A nightly job (`scout_harness/background_bands.py`) writes the full set and deletes every row
-    for a project that is no longer eligible. The coordinator samples a percentage of each band
-    from the `background.bands` block of the `signals-scout` flag payload.
+    for a project that is no longer eligible. Each background lane samples a percentage of each band
+    from the rows of its own `audience` (see `team_limits.parse_background_lanes`).
     """
+
+    class Audience(models.TextChoices):
+        """The background lanes that can sample the project. A project is in exactly one audience."""
+
+        NOT_SET_UP = "not_set_up", "Not set up"
+        SET_UP = "set_up", "Set up"
 
     # See SignalScoutConfig.all_teams for rationale.
     all_teams = models.Manager()  # noqa: DJ012
@@ -4031,6 +4037,14 @@ class SignalScoutBackgroundBand(TeamScopedRootMixin, UUIDModel):
         related_name="+",
     )
     band = models.PositiveSmallIntegerField()
+    # `db_default` alongside `default` keeps the AddField non-blocking and fills the existing rows,
+    # which the nightly job wrote for projects that did not set Signals up.
+    audience = models.CharField(
+        max_length=20,
+        choices=Audience.choices,
+        default=Audience.NOT_SET_UP,
+        db_default=Audience.NOT_SET_UP,
+    )
     computed_at = models.DateTimeField()
 
     class Meta:
