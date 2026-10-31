@@ -114,6 +114,14 @@ visible while a small spinner beside Previous/Next shows the refresh, then fades
 the navigation controls. Repeat with an unavailable Today page or signals endpoint, and with a failed
 background request. A first load without cached data still shows the full loading state.
 
+## Resolve and dismiss sheets
+
+On Android and iOS, open Resolve and Dismiss for a report with a long title.
+Repeat in portrait and landscape, including a larger text size.
+Scroll through every reason and the optional note. The list must use the available space without clipped rows.
+Select a reason, focus the note, type, and hide the keyboard. The confirm button must stay visible above the keyboard and return to the bottom after it closes.
+Confirm the verdict and check that the report leaves the inbox. Close and reopen a sheet to check that its reason and note reset.
+
 ## Notification checks
 
 Run `pnpm test --watchman=false --runInBand src/features/notifications` for foreground delivery sequences
