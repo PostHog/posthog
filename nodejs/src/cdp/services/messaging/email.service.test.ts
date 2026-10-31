@@ -2178,6 +2178,7 @@ describe('EmailService', () => {
                     trackingEnabled: true,
                     allowlisted: true,
                     isTest: false,
+                    sensitive: false,
                     tagged: true,
                 },
                 {
@@ -2185,6 +2186,7 @@ describe('EmailService', () => {
                     trackingEnabled: true,
                     allowlisted: false,
                     isTest: false,
+                    sensitive: false,
                     tagged: false,
                 },
                 {
@@ -2192,6 +2194,7 @@ describe('EmailService', () => {
                     trackingEnabled: false,
                     allowlisted: true,
                     isTest: false,
+                    sensitive: false,
                     tagged: false,
                 },
                 {
@@ -2199,24 +2202,39 @@ describe('EmailService', () => {
                     trackingEnabled: true,
                     allowlisted: true,
                     isTest: true,
+                    sensitive: false,
                     tagged: false,
                 },
-            ])('$case with the workflow run id', async ({ trackingEnabled, allowlisted, isTest, tagged }) => {
-                const taggingService = createService({ workflowRunLinkTagTeams: allowlisted ? String(team.id) : '' })
-                const send = jest.spyOn(taggingService.sesV2Client!, 'send') as jest.SpyInstance
-                send.mockResolvedValue({ MessageId: 'test-message-id' })
-                invocation.hogFunction.metadata = { tracking_enabled: trackingEnabled }
-                invocation.queueParameters = createEmailParams({
-                    from: { integrationId: 1 },
-                    html: '<a href="https://app.posthog-test.com/">a</a><a href="https://example.com/">b</a>',
-                })
-                const result = await taggingService.executeSendEmail(invocation, isTest)
-                expect(result.error).toBeUndefined()
-                const sentHtml: string = (send.mock.calls[0][0] as { input: any }).input.Content.Simple.Body.Html.Data
-                expect(sentHtml.match(/ph_workflow_run=[^"&]*/g) ?? []).toEqual(
-                    tagged ? ['ph_workflow_run=invocation-1'] : []
-                )
-            })
+                {
+                    case: 'leaves the links of a sensitive email',
+                    trackingEnabled: true,
+                    allowlisted: true,
+                    isTest: false,
+                    sensitive: true,
+                    tagged: false,
+                },
+            ])(
+                '$case with the workflow run id',
+                async ({ trackingEnabled, allowlisted, isTest, sensitive, tagged }) => {
+                    const taggingService = createService({
+                        workflowRunLinkTagTeams: allowlisted ? String(team.id) : '',
+                    })
+                    const send = jest.spyOn(taggingService.sesV2Client!, 'send') as jest.SpyInstance
+                    send.mockResolvedValue({ MessageId: 'test-message-id' })
+                    invocation.hogFunction.metadata = { tracking_enabled: trackingEnabled, sensitive }
+                    invocation.queueParameters = createEmailParams({
+                        from: { integrationId: 1 },
+                        html: '<a href="https://app.posthog-test.com/">a</a><a href="https://example.com/">b</a>',
+                    })
+                    const result = await taggingService.executeSendEmail(invocation, isTest)
+                    expect(result.error).toBeUndefined()
+                    const sentHtml: string = (send.mock.calls[0][0] as { input: any }).input.Content.Simple.Body.Html
+                        .Data
+                    expect(sentHtml.match(/ph_workflow_run=[^"&]*/g) ?? []).toEqual(
+                        tagged ? ['ph_workflow_run=invocation-1'] : []
+                    )
+                }
+            )
 
             it('falls back to the tracked configuration set when no untracked set is configured, still untracked HTML', async () => {
                 const result = await service.executeSendEmail(invocation)
