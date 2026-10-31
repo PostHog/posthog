@@ -667,8 +667,8 @@ tools:
         title: Estimate replay vision scanner volume
         description: >
             Preview how many observations a proposed scanner would generate, and what they would cost, before saving it.
-            Send a `query` (`RecordingsQuery` shape; `date_from`/`date_to` are ignored — the estimate uses a fixed
-            30-day lookback) plus the proposed `sampling_rate`, `sampling_mode` and `model`, and `scanner_id` when
+            Send a `query` (`RecordingsQuery` shape; `date_from`/`date_to` are ignored, because the estimate counts a
+            recent window, `window_days` in the response, and scales it to 30 days) plus the proposed `sampling_rate`, `sampling_mode` and `model`, and `scanner_id` when
             re-estimating an existing scanner so its own projection isn't double-counted. For an experiment scanner,
             pass `experiment` with the same `experiment_id` and `variants` you will save, so the estimate counts only
             exposed sessions. Returns `matched_sessions_in_window`, the `window_days` it was measured over,
@@ -682,7 +682,7 @@ tools:
             - query
         param_overrides:
             query:
-                input_schema: ScannerRecordingsFilterSchema
+                input_schema: ScannerEstimateRecordingsFilterSchema
     vision-scanners-get:
         operation: vision_scanners_retrieve
         enabled: true

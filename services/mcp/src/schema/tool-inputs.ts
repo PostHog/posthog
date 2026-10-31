@@ -1503,7 +1503,7 @@ export const FlagRulesV2UpdateInputSchema = z.preprocess(
 // so this names the parts a scanner filters on and lets each item through for the API to check.
 const RecordingFilterItemsSchema = z.array(z.record(z.string(), z.unknown()))
 
-export const ScannerRecordingsFilterSchema = z
+const ScannerRecordingsFilterFields = z
     .object({
         kind: z.literal('RecordingsQuery').default('RecordingsQuery'),
         events: RecordingFilterItemsSchema.nullish().describe(
@@ -1516,20 +1516,25 @@ export const ScannerRecordingsFilterSchema = z
             'Recording, session, person and cohort filters, such as `{"type": "recording", "key": "visited_page", "value": "/checkout", "operator": "icontains"}` or `{"type": "cohort", "key": "id", "value": 7, "operator": "in"}`.'
         ),
         having_predicates: RecordingFilterItemsSchema.nullish().describe(
-            'Duration filters, such as `{"type": "recording", "key": "active_seconds", "value": 60, "operator": "gt"}`.'
+            'Duration filters, such as `{"type": "recording", "key": "active_seconds", "value": 60, "operator": "gt"}`. These always apply with AND, whatever `operand` says.'
         ),
         console_log_filters: RecordingFilterItemsSchema.nullish().describe(
             'Console log filters, such as `{"type": "log_entry", "key": "level", "value": ["error"], "operator": "exact"}`.'
         ),
-        // Null joins the conditions with OR, the way the recordings query builder reads it.
         operand: z
             .enum(['AND', 'OR'])
             .nullish()
-            .describe('`AND` (the default) keeps recordings that match every condition, `OR` keeps those that match any one.'),
+            .describe(
+                'How `events`, `actions`, `properties` and `console_log_filters` combine. `AND`, the default when omitted, keeps recordings that match every condition. `OR` keeps recordings that match any one. An explicit `null` is read as `OR`. `having_predicates` and `filter_test_accounts` always apply with AND.'
+            ),
         filter_test_accounts: z.boolean().nullish().describe('Leave out recordings from internal and test accounts.'),
     })
     .passthrough()
-    .optional()
-    .describe(
-        'Which recordings the scanner watches, as a `RecordingsQuery`. Omit every filter to watch every new recording. The date range is ignored, because the schedule controls time.'
-    )
+
+export const ScannerRecordingsFilterSchema = ScannerRecordingsFilterFields.optional().describe(
+    'Which recordings the scanner watches, as a `RecordingsQuery`. Omit every filter to watch every new recording. The date range is ignored, because the schedule controls time.'
+)
+
+export const ScannerEstimateRecordingsFilterSchema = ScannerRecordingsFilterFields.optional().describe(
+    'Which recordings to count, as a `RecordingsQuery`. Omit every filter to count every recording. The date range is ignored, because the estimate counts a recent window (`window_days` in the response) and scales it to 30 days.'
+)

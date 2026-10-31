@@ -79,7 +79,7 @@
         },
         "query": {
             "additionalProperties": {},
-            "description": "Which recordings the scanner watches, as a `RecordingsQuery`. Omit every filter to watch every new recording. The date range is ignored, because the schedule controls time.",
+            "description": "Which recordings to count, as a `RecordingsQuery`. Omit every filter to count every recording. The date range is ignored, because the estimate counts a recent window (`window_days` in the response) and scales it to 30 days.",
             "properties": {
                 "actions": {
                     "anyOf": [
@@ -162,7 +162,7 @@
                             "type": "null"
                         }
                     ],
-                    "description": "Duration filters, such as `{\"type\": \"recording\", \"key\": \"active_seconds\", \"value\": 60, \"operator\": \"gt\"}`."
+                    "description": "Duration filters, such as `{\"type\": \"recording\", \"key\": \"active_seconds\", \"value\": 60, \"operator\": \"gt\"}`. These always apply with AND, whatever `operand` says."
                 },
                 "kind": {
                     "const": "RecordingsQuery",
@@ -179,7 +179,7 @@
                             "type": "null"
                         }
                     ],
-                    "description": "`AND` (the default) keeps recordings that match every condition, `OR` keeps those that match any one."
+                    "description": "How `events`, `actions`, `properties` and `console_log_filters` combine. `AND`, the default when omitted, keeps recordings that match every condition. `OR` keeps recordings that match any one. An explicit `null` is read as `OR`. `having_predicates` and `filter_test_accounts` always apply with AND."
                 },
                 "properties": {
                     "anyOf": [

@@ -4,7 +4,7 @@ import { z } from 'zod'
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/replay_vision/api'
 import { withUiApp } from '@/resources/ui-apps'
-import { ScannerRecordingsFilterSchema } from '@/schema/tool-inputs'
+import { ScannerEstimateRecordingsFilterSchema, ScannerRecordingsFilterSchema } from '@/schema/tool-inputs'
 import { castBooleanToString } from '@/tools/cast-helpers'
 import {
     withPostHogUrl,
@@ -1067,7 +1067,7 @@ const visionScannersDuplicate = (): ToolBase<
 
 const VisionScannersEstimateSchema = () => {
     const VisionScannersEstimateCreateBody = orvalSchemas.VisionScannersEstimateCreateBody()
-    return VisionScannersEstimateCreateBody.extend({ query: ScannerRecordingsFilterSchema })
+    return VisionScannersEstimateCreateBody.extend({ query: ScannerEstimateRecordingsFilterSchema })
 }
 
 const visionScannersEstimate = (): ToolBase<
