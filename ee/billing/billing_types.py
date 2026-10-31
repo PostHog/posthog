@@ -202,6 +202,8 @@ class CustomerInfo(TypedDict):
 class BillingStatus(TypedDict):
     license: LicenseInfo
     customer: CustomerInfo
+    computed_at: NotRequired[str]
+    latest_usage_report_date: NotRequired[Optional[str]]
 
 
 class ProductPlan(TypedDict):

@@ -1,3 +1,4 @@
+import copy
 import hmac
 import json
 import math
@@ -966,6 +967,126 @@ class TestBillingManager(BaseTest):
             BillingManager(license=None).update_org_details(organization, cast(BillingStatus, billing_status))
         organization.refresh_from_db()
         assert organization.has_active_subscription is expected
+
+    def _billing_status(self, computed_at: str | None, events_usage: int) -> BillingStatus:
+        billing_status: dict[str, Any] = {
+            "customer": {
+                "usage_summary": {
+                    "events": {"usage": events_usage, "limit": None},
+                    "recordings": {"usage": 0, "limit": None},
+                },
+                "billing_period": {
+                    "current_period_start": "2026-08-01T00:00:00Z",
+                    "current_period_end": "2026-09-01T00:00:00Z",
+                },
+            }
+        }
+        if computed_at:
+            billing_status["computed_at"] = computed_at
+            billing_status["latest_usage_report_date"] = "2026-08-02"
+        return cast(BillingStatus, billing_status)
+
+    @parameterized.expand(
+        [
+            ("newer_status_applies", "2026-08-03T00:00:00Z", 1000, "2026-08-03T00:00:00+00:00", "2026-08-02"),
+            ("redelivered_status_applies", "2026-08-02T00:00:00Z", 1000, "2026-08-02T00:00:00+00:00", "2026-08-02"),
+            ("older_status_is_skipped", "2026-08-01T00:00:00Z", 500, "2026-08-02T00:00:00+00:00", None),
+            ("status_without_stamp_applies", None, 1000, "2026-08-02T00:00:00+00:00", None),
+        ]
+    )
+    def test_update_org_details_skips_a_status_older_than_the_last_applied(
+        self, _name, status_computed_at, expected_events_usage, expected_computed_at, expected_report_date
+    ):
+        organization = self.organization
+        organization.usage = {
+            "events": {"usage": 500, "limit": None, "todays_usage": 0},
+            "recordings": {"usage": 0, "limit": None, "todays_usage": 0},
+            "period": ["2026-08-01T00:00:00Z", "2026-09-01T00:00:00Z"],
+            "billing_status_computed_at": "2026-08-02T00:00:00+00:00",
+        }
+        organization.save()
+
+        BillingManager(license=None).update_org_details(
+            organization, self._billing_status(status_computed_at, events_usage=1000)
+        )
+
+        organization.refresh_from_db()
+        assert organization.usage is not None
+        assert organization.usage["events"]["usage"] == expected_events_usage
+        assert organization.usage["billing_status_computed_at"] == expected_computed_at
+        assert organization.usage.get("billing_latest_usage_report_date") == expected_report_date
+
+    def test_update_org_details_writes_nothing_for_a_status_that_changes_only_the_stamp(self):
+        manager = BillingManager(license=None)
+        manager.update_org_details(self.organization, self._billing_status("2026-08-02T00:00:00Z", events_usage=1000))
+        assert self.organization.usage is not None
+        usage_written_by_quota_run = copy.deepcopy(self.organization.usage)
+        usage_written_by_quota_run["events"]["todays_usage"] = 25
+        Organization.objects.filter(id=self.organization.id).update(usage=usage_written_by_quota_run)
+
+        with patch("ee.billing.billing_manager.update_org_billing_quotas") as update_org_billing_quotas:
+            manager.update_org_details(
+                self.organization, self._billing_status("2026-08-03T00:00:00Z", events_usage=1000)
+            )
+
+        update_org_billing_quotas.assert_not_called()
+        self.organization.refresh_from_db()
+        assert self.organization.usage is not None
+        assert self.organization.usage["events"]["todays_usage"] == 25
+
+    @parameterized.expand(
+        [
+            ("activate_trial", {"type": "autosubscribe", "target": "boost"}, 6, None),
+            ("cancel_trial", {}, None, 6),
+            ("switch_plan", {"from_product_key": "boost", "to_product_key": "scale"}, 6, None),
+        ]
+    )
+    @patch("ee.billing.billing_manager.http_session.get")
+    @patch("ee.billing.billing_manager.http_session.post")
+    def test_plan_change_skips_a_status_queued_before_it(
+        self,
+        manager_method: str,
+        data: dict[str, Any],
+        limit_before: int | None,
+        limit_after: int | None,
+        mock_post: MagicMock,
+        mock_get: MagicMock,
+    ):
+        license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123",
+            plan="enterprise",
+            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
+        )
+
+        def features(projects_limit: int | None) -> list[dict[str, Any]]:
+            return [{"key": "organizations_projects", "name": "Projects", "limit": projects_limit}]
+
+        def status(computed_at: str, projects_limit: int | None) -> BillingStatus:
+            billing_status = cast(dict[str, Any], self._billing_status(computed_at, events_usage=500))
+            billing_status["customer"]["available_product_features"] = features(projects_limit)
+            return cast(BillingStatus, billing_status)
+
+        organization = self.organization
+        organization.usage = {
+            "events": {"usage": 500, "limit": None, "todays_usage": 0},
+            "recordings": {"usage": 0, "limit": None, "todays_usage": 0},
+            "period": ["2026-08-01T00:00:00Z", "2026-09-01T00:00:00Z"],
+        }
+        organization.available_product_features = features(limit_before)
+        organization.save()
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {}
+        mock_get.return_value.status_code = 200
+        mock_get.return_value.json.return_value = status("2026-08-03T00:00:00Z", projects_limit=limit_after)
+
+        manager = BillingManager(license)
+        getattr(manager, manager_method)(organization, data)
+        manager.update_org_details(organization, status("2026-08-02T00:00:00Z", projects_limit=limit_before))
+
+        organization.refresh_from_db()
+        assert organization.available_product_features == features(limit_after)
+        assert organization.usage is not None
+        assert organization.usage["billing_status_computed_at"] == "2026-08-03T00:00:00+00:00"
 
 
 class TestBillingSession(SimpleTestCase):
