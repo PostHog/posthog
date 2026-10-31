@@ -304,7 +304,8 @@ class ClickHouseTestProducer:
             self.logger.debug("Executing query with ID '%s'", query_id)
 
             if isinstance(query_or_model, RecordBatchModel):
-                query, query_parameters = await query_or_model.as_query_with_parameters(interval_start, interval_end)
+                query, context = await query_or_model.as_query_with_parameters(interval_start, interval_end)
+                query_parameters = context.values
             else:
                 query = query_or_model
 

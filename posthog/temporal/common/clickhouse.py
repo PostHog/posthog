@@ -25,6 +25,7 @@ import posthog.temporal.common.asyncpa as asyncpa
 from posthog.clickhouse import query_tagging
 from posthog.clickhouse.client.connection import MAX_QUERY_SIZE_BYTES, ClickHouseCredentials
 from posthog.clickhouse.query_tagging import QueryTags, TemporalTags, get_query_tags
+from posthog.clickhouse.workload import Workload
 from posthog.security.outbound_proxy import internal_requests_session
 
 if typing.TYPE_CHECKING:
@@ -340,9 +341,11 @@ class ClickHouseClient:
         timeout: None | aiohttp.ClientTimeout = None,
         ssl: ssl.SSLContext | bool = True,
         password_file: str | None = None,
+        cluster_name: str | None = None,
         **kwargs,
     ):
         self.url = url
+        self.cluster_name = cluster_name if cluster_name is not None else settings.CLICKHOUSE_CLUSTER
         self.headers: dict[str, str] = {}
         self.params = {}
         self.timeout = timeout
@@ -830,7 +833,7 @@ class ClickHouseClient:
         try:
             results = await self.read_query_as_jsonl(
                 query,
-                query_parameters={"query_id": query_id, "cluster_name": settings.CLICKHOUSE_CLUSTER},
+                query_parameters={"query_id": query_id, "cluster_name": self.cluster_name},
                 query_id=f"{query_id}-CHECK-QUERY-LOG-{uuid.uuid4()}",
             )
         except ClickHouseError as e:
@@ -899,7 +902,7 @@ class ClickHouseClient:
         try:
             results = await self.read_query_as_jsonl(
                 query,
-                query_parameters={"query_id": query_id, "cluster_name": settings.CLICKHOUSE_CLUSTER},
+                query_parameters={"query_id": query_id, "cluster_name": self.cluster_name},
                 query_id=f"{query_id}-GET-WRITTEN-ROWS",
             )
         except ClickHouseError:
@@ -936,7 +939,7 @@ class ClickHouseClient:
         try:
             resp = await self.read_query(
                 query,
-                query_parameters={"query_id": query_id, "cluster_name": settings.CLICKHOUSE_CLUSTER},
+                query_parameters={"query_id": query_id, "cluster_name": self.cluster_name},
                 query_id=f"{query_id}-CHECK-PROCESS-LIST",
             )
         except ClickHouseError as e:
@@ -955,11 +958,11 @@ class ClickHouseClient:
         Arguments:
             query_id: The ID of the query to cancel.
         """
-        query = f"KILL QUERY ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}' WHERE query_id = {{query_id:String}}"
+        query = "KILL QUERY ON CLUSTER %(cluster_name)s WHERE query_id = {query_id:String}"
 
         await self.execute_query(
             query,
-            query_parameters={"query_id": query_id},
+            query_parameters={"query_id": query_id, "cluster_name": self.cluster_name},
             query_id=f"{query_id}-KILL",
         )
 
@@ -1106,7 +1109,11 @@ class ClickHouseClient:
 
 @contextlib.asynccontextmanager
 async def get_client(
-    *, team_id: typing.Optional[int] = None, clickhouse_url: str | None = None, **kwargs
+    *,
+    team_id: typing.Optional[int] = None,
+    clickhouse_url: str | None = None,
+    workload: Workload = Workload.OFFLINE,
+    **kwargs,
 ) -> collections.abc.AsyncIterator[ClickHouseClient]:
     """
     Returns a ClickHouse client based on the aiochclient library. This is an
@@ -1148,9 +1155,18 @@ async def get_client(
     max_block_size = kwargs.pop("max_block_size", None) or default_max_block_size
     http_send_timeout = kwargs.pop("http_send_timeout", 0)
 
-    if clickhouse_url is None:
-        url = settings.CLICKHOUSE_OFFLINE_HTTP_URL
+    database = settings.CLICKHOUSE_DATABASE
+    cluster_name = settings.CLICKHOUSE_CLUSTER
+
+    if workload == Workload.LOGS:
+        secure = settings.CLICKHOUSE_LOGS_CLUSTER_SECURE
+        url = f"{'https' if secure else 'http'}://{settings.CLICKHOUSE_LOGS_CLUSTER_HOST}:{8443 if secure else 8123}/"
+        database = settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE
+        cluster_name = settings.CLICKHOUSE_LOGS_CLUSTER
     else:
+        url = settings.CLICKHOUSE_OFFLINE_HTTP_URL
+
+    if clickhouse_url is not None:
         url = clickhouse_url
 
     async with ClickHouseClient(
@@ -1158,7 +1174,8 @@ async def get_client(
         user=settings.CLICKHOUSE_USER,
         password=settings.CLICKHOUSE_PASSWORD,
         password_file=settings.CLICKHOUSE_PASSWORD_FILE,
-        database=settings.CLICKHOUSE_DATABASE,
+        database=database,
+        cluster_name=cluster_name,
         timeout=timeout,
         ssl=False,
         max_execution_time=settings.CLICKHOUSE_MAX_EXECUTION_TIME,
