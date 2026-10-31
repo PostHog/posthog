@@ -16,7 +16,8 @@
         "mdast-util-from-markdown": "^2.0.3",
         "mdast-util-gfm-table": "^2.0.0",
         "micromark-extension-gfm-table": "^2.1.1",
-        "posthog-js": "catalog:"
+        "posthog-js": "catalog:",
+        "react-intersection-observer": "^9.5.3"
     },
     "devDependencies": {
         "@testing-library/react": "^14.3.1",
