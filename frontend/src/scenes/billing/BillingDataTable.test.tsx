@@ -11,17 +11,18 @@ const DATES = ['2026-01-01', '2026-01-02']
 const seriesOf = (count: number): BillingSeriesType[] =>
     Array.from({ length: count }, (_, id) => ({
         id,
+        key: `Project ${id}`,
         label: `Project ${id}`,
         data: [id, id * 2],
         dates: DATES,
     }))
 
-const renderTable = (series: BillingSeriesType[]): ReturnType<typeof render> =>
+const renderTable = (series: BillingSeriesType[], hiddenSeries: string[] = []): ReturnType<typeof render> =>
     render(
         <BillingDataTable
             series={series}
             dates={DATES}
-            hiddenSeries={[]}
+            hiddenSeries={hiddenSeries}
             toggleSeries={jest.fn()}
             toggleAllSeries={jest.fn()}
         />
@@ -60,8 +61,16 @@ describe('BillingDataTable', () => {
     })
 
     it('totals each series across the range', () => {
-        renderTable([{ id: 7, label: 'Project 7', data: [10, 32], dates: DATES }])
+        renderTable([{ id: 7, key: 'Project 7', label: 'Project 7', data: [10, 32], dates: DATES }])
 
         expect(screen.getByText('42')).toBeTruthy()
+    })
+
+    it('reports every row selected when the only hidden series is not in the current range', () => {
+        const { container } = renderTable(seriesOf(3), ['Project 99'])
+
+        const header = container.querySelector<HTMLInputElement>('thead input[type="checkbox"]')
+        expect(header?.checked).toBe(true)
+        expect(header?.indeterminate).toBe(false)
     })
 })
