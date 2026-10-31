@@ -7,7 +7,7 @@ import { ResourceEditedEvent } from '~/types'
 
 import { resourceEditedLogic } from 'products/notifications/frontend/resourceEditedLogic'
 
-import { HogFlow } from './hogflows/types'
+import { HogFlow, HogFlowAction } from './hogflows/types'
 import { workflowLogic } from './workflowLogic'
 
 const WORKFLOW_ID = 'wf-external-1'
@@ -50,6 +50,32 @@ const makeWorkflow = (overrides: Partial<HogFlow> = {}): HogFlow => ({
     ...overrides,
 })
 
+const emailStep = (id: string, subject: string): HogFlowAction => ({
+    id,
+    type: 'function_email',
+    name: id,
+    description: '',
+    created_at: 0,
+    updated_at: 0,
+    config: { template_id: 'template-email', inputs: { email: { value: { subject } } } },
+})
+
+const withSubject = (action: HogFlowAction, subject: string): HogFlowAction => emailStep(action.id, subject)
+
+const withEmailSteps = (subjects: { welcome: string; followUp: string }, overrides: Partial<HogFlow> = {}): HogFlow =>
+    makeWorkflow({
+        actions: [
+            ...makeWorkflow().actions,
+            emailStep('welcome', subjects.welcome),
+            emailStep('follow_up', subjects.followUp),
+        ],
+        ...overrides,
+    })
+
+const subjectOf = (workflow: HogFlow, actionId: string): string | undefined =>
+    (workflow.actions.find((action) => action.id === actionId)?.config as Record<string, any> | undefined)?.inputs
+        ?.email?.value?.subject
+
 const makeEvent = (overrides: Partial<ResourceEditedEvent> = {}): ResourceEditedEvent => ({
     notification_type: 'resource_edited',
     team_id: 1,
@@ -63,6 +89,18 @@ const makeEvent = (overrides: Partial<ResourceEditedEvent> = {}): ResourceEdited
 describe('workflowLogic external edits', () => {
     let logic: ReturnType<typeof workflowLogic.build>
     let getCalls: number
+
+    const useWorkflowMock = (workflow: HogFlow): void => {
+        useMocks({
+            get: {
+                '/api/environments/:team_id/hog_flows/:id/': () => {
+                    getCalls += 1
+                    return [200, workflow]
+                },
+                '/api/projects/:team_id/hog_function_templates/': { results: [], count: 0 },
+            },
+        })
+    }
 
     beforeEach(async () => {
         getCalls = 0
@@ -97,20 +135,36 @@ describe('workflowLogic external edits', () => {
         expect(logic.values.isSyncingExternalEdit).toBe(false)
     })
 
-    it('reloads (server wins) over unsaved edits that auto-save can flush', async () => {
-        // The unsaved buffer is at most a few seconds old when auto-save is healthy, so an
-        // external edit reconciles silently instead of interrupting with the conflict banner.
-        logic.actions.setWorkflowValue('name', 'My local edit')
-        expect(logic.values.hasUnsavedChanges).toBe(true)
+    it.each([
+        {
+            label: 'another email step',
+            server: { welcome: 'Welcome', followUp: 'Follow-up rewritten elsewhere' },
+            expected: { welcome: 'Welcome, typed here', followUp: 'Follow-up rewritten elsewhere' },
+        },
+        {
+            label: 'the email step being typed in',
+            server: { welcome: 'Welcome rewritten elsewhere', followUp: 'Follow-up' },
+            expected: { welcome: 'Welcome, typed here', followUp: 'Follow-up' },
+        },
+    ])('keeps the email being typed in when an external edit changes $label', async ({ server, expected }) => {
+        useWorkflowMock(withEmailSteps({ welcome: 'Welcome', followUp: 'Follow-up' }))
+        logic.actions.loadWorkflow()
+        await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+
+        const welcome = logic.values.workflow.actions.find((action) => action.id === 'welcome')!
+        logic.actions.setWorkflowActionConfig('welcome', withSubject(welcome, 'Welcome, typed here').config)
+        useWorkflowMock(withEmailSteps(server, { updated_at: NEWER }))
 
         await expectLogic(logic, () => {
             resourceEditedLogic.actions.resourceEdited(makeEvent({ updated_at: NEWER }))
         }).toDispatchActions(['setSyncingExternalEdit', 'loadWorkflow', 'loadWorkflowSuccess'])
 
         expect(logic.values.externallyEdited).toBe(false)
-        expect(getCalls).toBe(2)
-        // The server copy won; the local buffer was dropped.
-        expect(logic.values.workflow.name).toBe('External edits test')
+        expect({
+            welcome: subjectOf(logic.values.workflow, 'welcome'),
+            followUp: subjectOf(logic.values.workflow, 'follow_up'),
+        }).toEqual(expected)
+        expect(logic.values.hasUnsavedChanges).toBe(true)
     })
 
     it('warns instead of clobbering when auto-save is off and there are unsaved local edits', async () => {
@@ -376,5 +430,7 @@ describe('workflowLogic external edits', () => {
         expect(logic.values.externallyEdited).toBe(false)
         expect(logic.values.isSyncingExternalEdit).toBe(false)
         expect(getCalls).toBe(2)
+        expect(logic.values.workflow.name).toBe('Conflicting edit')
+        expect(logic.values.hasUnsavedChanges).toBe(true)
     })
 })
