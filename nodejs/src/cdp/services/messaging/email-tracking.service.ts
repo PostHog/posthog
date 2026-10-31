@@ -3,13 +3,7 @@ import { Counter } from 'prom-client'
 import express from 'ultimate-express'
 
 import { HogFlow } from '~/cdp/schema/hogflow'
-import {
-    CyclotronJobInvocationHogFlow,
-    CyclotronJobInvocationHogFunction,
-    LogEntry,
-    LogEntryLevel,
-    MinimalAppMetric,
-} from '~/cdp/types'
+import { CyclotronJobInvocationHogFunction, LogEntry, LogEntryLevel, MinimalAppMetric } from '~/cdp/types'
 import { ModifiedRequest } from '~/common/api/router'
 import { isDevEnv, isTestEnv } from '~/common/utils/env-utils'
 import { parseJSON } from '~/common/utils/json-parse'
@@ -117,14 +111,11 @@ export const resolveEmailEngagementDistinctId = (
     return invocation.state?.globals?.event?.distinct_id || undefined
 }
 
-// The workflow version that is sending this message, for the tracking code minted below. A flow's
-// email runs as a hog function invocation built by spreading the flow invocation, so `hogFlow` is
-// present at runtime even though the type is the narrower hog function shape. A hog function send
-// has none, and its engagement lands in the version-agnostic series alone.
-export const resolveEmailSendingVersion = (invocation: CyclotronJobInvocationHogFunction): number | undefined => {
-    return 'hogFlow' in invocation
-        ? (invocation as unknown as CyclotronJobInvocationHogFlow).hogFlow.version
-        : undefined
+export const resolveEmailSendingAppSourceVersion = (
+    invocation: CyclotronJobInvocationHogFunction
+): { id: string; version: number } | undefined => {
+    const version = invocation.state.renderedWorkflowVersion
+    return version === undefined ? undefined : { id: invocation.functionId, version }
 }
 
 // HTML attribute values arrive entity-encoded (e.g. `&amp;`, `&#38;`). Decode before
@@ -160,7 +151,7 @@ export const addTrackingToEmail = (
     // The pixel and redirect codes carry the sending version too. SES-attributed opens and clicks
     // read the version off the signed header instead, but a provider we track ourselves has these
     // URLs as its only carrier, and without the version its engagement cannot split by version.
-    const trackingInvocation = { ...invocation, distinctId, workflowVersion: resolveEmailSendingVersion(invocation) }
+    const trackingInvocation = { ...invocation, distinctId, workflowVersion: invocation.state.renderedWorkflowVersion }
     const trackingUrl = signer.pixelUrl(trackingInvocation, isTest)
 
     // Incremented for every anchor LINK_REGEX matches, including ones that turn out to be opted
@@ -400,6 +391,7 @@ export class EmailTrackingService {
                 properties: {
                     $workflow_id: appSourceId,
                     $workflow_action_id: actionId,
+                    $workflow_invocation_id: invocationId,
                     ...(workflowVersion !== undefined ? { $workflow_version: workflowVersion } : {}),
                     ...properties,
                 },
