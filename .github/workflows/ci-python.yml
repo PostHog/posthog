@@ -69,6 +69,7 @@ jobs:
             bin_scripts: ${{ steps.filter.outputs.bin_scripts || 'true' }}
             api_ratchet: ${{ steps.filter.outputs.api_ratchet || 'true' }}
             mypy_cache_key: ${{ steps.filter.outputs.mypy_cache_key || 'false' }}
+            schema_python: ${{ steps.filter.outputs.schema_python || 'true' }}
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
@@ -110,7 +111,26 @@ jobs:
                           - 'uv.lock'
                           - '**/pyproject.toml'
                           - '**/mypy.ini'
+                      schema_python: &schema_python
+                          - 'frontend/src/queries/schema.json'
+                          - 'posthog/schema.py'
+                          - 'posthog/schema_enums.py'
+                          - 'bin/build-schema-python.sh'
+                          - 'bin/patch-schema-array-discriminators.py'
+                          - 'bin/patch-schema-property-filter-discriminator.py'
+                          - 'bin/split-schema-enums.py'
+                          - '**/pyproject.toml'
+                          - '**/ruff.toml'
+                          - '**/.ruff.toml'
+                          - 'uv.lock'
+                          - 'package.json'
+                          - 'pnpm-lock.yaml'
+                          - '.npmrc'
+                          - '.nvmrc'
+                          - '.github/actions/paths-filter/**'
+                          - '.github/workflows/ci-python.yml'
                       python:
+                        - *schema_python
                         # ruff/mypy/ty run repo-wide (`.`) in code-quality, so any Python
                         # file anywhere must trigger this workflow — otherwise an unformatted
                         # file lands undetected and trips the next unrelated PR that does run.
@@ -369,6 +389,7 @@ jobs:
                   key: ${{ steps.mypy-cache.outputs.cache-primary-key }}
 
             - name: Check if "schema.py" is up to date
+              if: github.event_name != 'pull_request' || startsWith(github.head_ref, 'trunk-merge/') || needs.changes.outputs.schema_python != 'false'
               shell: bash
               run: |
                   npm run schema:build:python && git diff --exit-code
