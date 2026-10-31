@@ -3100,6 +3100,11 @@
             "description": "Microsoft Click ID",
             "label": "msclkid"
         },
+        "navigation_type": {
+            "description": "The browser history change that triggered this pageview in a single-page app. posthog-js sets this on $pageview events it captures from history changes.",
+            "examples": ["pushState", "replaceState", "popstate", "hashchange"],
+            "label": "Navigation type"
+        },
         "oppref": {
             "description": "OpenAI Ads Click ID",
             "label": "oppref"
@@ -3165,6 +3170,11 @@
         "sccid": {
             "description": "Snapchat Click ID",
             "label": "sccid"
+        },
+        "title": {
+            "description": "The title of the page (document.title) when the pageview was captured. posthog-js sets this on $pageview events. On other events, title is whatever the app sent, for example a job title.",
+            "examples": ["Pricing - PostHog", "Home"],
+            "label": "Page title"
         },
         "token": {
             "description": "Token used for authentication.",
@@ -7385,6 +7395,11 @@
         "msclkid": {
             "description": "Microsoft Click ID Data from the last time this user was seen.",
             "label": "Latest msclkid"
+        },
+        "navigation_type": {
+            "description": "The browser history change that triggered this pageview in a single-page app. posthog-js sets this on $pageview events it captures from history changes.",
+            "examples": ["pushState", "replaceState", "popstate", "hashchange"],
+            "label": "Navigation type"
         },
         "oppref": {
             "description": "OpenAI Ads Click ID Data from the last time this user was seen.",
