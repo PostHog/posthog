@@ -340,7 +340,6 @@ frontend/src/lib/lemon-ui/LemonColor/LemonColorGlyph.tsx -> frontend/src/lib/log
 frontend/src/lib/lemon-ui/LemonColor/LemonColorPicker.tsx -> frontend/src/lib/logic/dataThemeLogic.tsx
 frontend/src/lib/lemon-ui/LemonInputSelect/LemonInputSelect.tsx -> frontend/src/lib/components/AutoSizer/index.ts
 frontend/src/lib/lemon-ui/LemonMarkdown/LemonMarkdown.tsx -> frontend/src/lib/components/CodeSnippet/index.ts
-frontend/src/lib/lemon-ui/LemonMarkdown/LemonMarkdown.tsx -> frontend/src/lib/components/RichContentEditor/RichContentNodeMention.tsx
 frontend/src/lib/lemon-ui/LemonMarkdown/MermaidDiagram.tsx -> frontend/src/lib/components/CodeSnippet/index.ts
 frontend/src/lib/lemon-ui/LemonMarkdown/MermaidDiagram.tsx -> frontend/src/lib/logic/themeLogic.ts
 frontend/src/lib/lemon-ui/LemonMarkdown/mention.ts -> frontend/src/lib/components/RichContentEditor/types.ts
