@@ -257,27 +257,18 @@ function exposureCriteriaNote({ subcode, evidence }: ExperimentHealthFindingApi)
     return `Not received: ${evidence.event}.`
 }
 
-const EXPOSURE_FILTERS_FINDING_CODES: ReadonlySet<ExperimentHealthFindingApi['code']> = new Set([
-    'exposure_filter_on_dynamic_cohort',
-    'exposure_filter_excludes_events',
-])
-
 function exposureFiltersCheck(input: HealthDebugInput): HealthDebugCheck {
-    const finding = input.health?.findings.find(({ code }) => EXPOSURE_FILTERS_FINDING_CODES.has(code)) ?? null
+    const finding = findingOf(input, 'exposure_filter_on_dynamic_cohort')
     return {
         check: 'exposure_filters',
         source: 'health endpoint',
         reads: ['experiment', 'flag', 'project'],
-        ...serverResult('exposure_filters', input.health, (code) => EXPOSURE_FILTERS_FINDING_CODES.has(code)),
+        ...serverResult('exposure_filters', input.health, (code) => code === 'exposure_filter_on_dynamic_cohort'),
         browser: null,
         browserLabel: BROWSER_RULES,
         ...NO_TIMES,
         difference: null,
-        note: !finding
-            ? null
-            : finding.code === 'exposure_filter_on_dynamic_cohort'
-              ? `Dynamic cohorts: ${finding.evidence.cohort_ids}.`
-              : `Leaves out events by: ${finding.evidence.properties}.`,
+        note: finding ? `Dynamic cohorts: ${finding.evidence.cohort_ids}.` : null,
     }
 }
 
