@@ -51696,6 +51696,8 @@ export namespace Schemas {
       /** @nullable */
       readonly api_version?: string | null;
       readonly supported_api_versions?: string[];
+      /** @nullable */
+      readonly file_name?: string | null;
     } | null;
 
     /**
@@ -51791,6 +51793,11 @@ export namespace Schemas {
       readonly label: string | null;
       /** @nullable */
       readonly table: ExternalDataSchemaTable;
+      /**
+         * The id of the warehouse table this schema syncs into. Set before the first sync for a table the schema already names, such as a migrated one. Null when there is none.
+         * @nullable
+         */
+      readonly table_id: string | null;
       should_sync?: boolean;
       /** @nullable */
       readonly last_synced_at: string | null;
@@ -55070,6 +55077,11 @@ export namespace Schemas {
       readonly supports_webhooks: boolean;
       /** Whether this source supports per-column sync selection via `enabled_columns`. */
       readonly supports_column_selection: boolean;
+      /**
+         * The name of the file a file upload source imports. Null for other sources or when it is unknown.
+         * @nullable
+         */
+      readonly file_name: string | null;
       /**
          * Vendor API version this source is pinned to (an opaque vendor label, e.g. a Stripe date version). Null resolves to the source type's default version at sync time.
          * @nullable
@@ -88508,6 +88520,8 @@ export namespace Schemas {
       /** @nullable */
       readonly api_version?: string | null;
       readonly supported_api_versions?: string[];
+      /** @nullable */
+      readonly file_name?: string | null;
     } | null;
 
     /**
@@ -88520,6 +88534,11 @@ export namespace Schemas {
       readonly label?: string | null;
       /** @nullable */
       readonly table?: PatchedExternalDataSchemaTable;
+      /**
+         * The id of the warehouse table this schema syncs into. Set before the first sync for a table the schema already names, such as a migrated one. Null when there is none.
+         * @nullable
+         */
+      readonly table_id?: string | null;
       should_sync?: boolean;
       /** @nullable */
       readonly last_synced_at?: string | null;
@@ -88731,6 +88750,11 @@ export namespace Schemas {
       readonly supports_webhooks?: boolean;
       /** Whether this source supports per-column sync selection via `enabled_columns`. */
       readonly supports_column_selection?: boolean;
+      /**
+         * The name of the file a file upload source imports. Null for other sources or when it is unknown.
+         * @nullable
+         */
+      readonly file_name?: string | null;
       /**
          * Vendor API version this source is pinned to (an opaque vendor label, e.g. a Stripe date version). Null resolves to the source type's default version at sync time.
          * @nullable
