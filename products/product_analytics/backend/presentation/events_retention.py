@@ -14,9 +14,10 @@ from posthog.models.team.event_retention import events_retention_floor_date, eve
 from posthog.models.user import User
 from posthog.permissions import OrganizationAdminWritePermissions
 
+from products.product_analytics.backend.facade.contracts import OrganizationEventsRetention
 from products.product_analytics.backend.facade.events_retention import (
     organization_events_retention,
-    project_events_retention_months,
+    project_events_retention,
     set_organization_events_retention,
     set_project_events_retention,
 )
@@ -29,11 +30,19 @@ class OrganizationEventsRetentionSerializer(serializers.Serializer):
     organization_retention_months = serializers.IntegerField(
         read_only=True,
         allow_null=True,
-        help_text="The window, in months, that every project without its own window uses. Null while the organization keeps events for its plan's window.",
+        help_text="The window, in months, that every project without its own window uses. Null while the organization uses the default window.",
+    )
+    organization_delete_monthly = serializers.BooleanField(
+        read_only=True,
+        help_text="Whether projects that use the organization's window delete events older than it at every monthly cleanup. When false, they're deleted at the cleanup every 3 months.",
     )
     plan_retention_months = serializers.IntegerField(
         read_only=True,
         help_text="The longest window the organization's plan allows, in months.",
+    )
+    default_retention_months = serializers.IntegerField(
+        read_only=True,
+        help_text="The window, in months, that a project uses when neither it nor the organization sets one: 24 months, or the plan's window if that's shorter.",
     )
     min_retention_months = serializers.IntegerField(
         read_only=True,
@@ -42,6 +51,10 @@ class OrganizationEventsRetentionSerializer(serializers.Serializer):
     max_retention_months = serializers.IntegerField(
         read_only=True,
         help_text="The longest window an admin can set, in months. Never longer than the plan's window.",
+    )
+    next_monthly_cleanup_on = serializers.DateField(
+        read_only=True,
+        help_text="The date of the next monthly cleanup, in the timezone it runs in.",
     )
 
 
@@ -66,14 +79,57 @@ class EventsRetentionSerializer(OrganizationEventsRetentionSerializer):
         allow_null=True,
         help_text="The window, in months, set for this project. Null while the project uses the organization's window.",
     )
+    delete_monthly = serializers.BooleanField(
+        read_only=True,
+        help_text="Whether the project's window deletes older events at every monthly cleanup. When false, they're deleted at the cleanup every 3 months, at least 3 months after the window gets shorter.",
+    )
+    next_deletion_on = serializers.DateField(
+        read_only=True,
+        allow_null=True,
+        help_text="The date of the next cleanup that deletes this project's events. Null while no deletion is scheduled.",
+    )
+    next_deletion_before = serializers.DateField(
+        read_only=True,
+        allow_null=True,
+        help_text="The next cleanup deletes this project's events from before this date. Null while no deletion is scheduled.",
+    )
+    scheduled_pass_on = serializers.DateField(
+        read_only=True,
+        allow_null=True,
+        help_text="The next cleanup every 3 months that deletes this project's events past its current window, whether or not the window deletes monthly. Null while the project has none scheduled.",
+    )
+    first_pass_on = serializers.DateField(
+        read_only=True,
+        help_text="The earliest cleanup every 3 months for a window that is set or made shorter today.",
+    )
+    default_window_deletes = serializers.BooleanField(
+        read_only=True,
+        help_text="Whether the cleanup deletes this project's events past the default window while no window is set.",
+    )
 
 
 class EventsRetentionUpdateSerializer(serializers.Serializer):
     retention_months = serializers.IntegerField(
         allow_null=True,
         min_value=1,
-        help_text="The window in months. Events older than this are deleted on the next monthly cleanup and can't be restored. Null removes the window.",
+        help_text="The window in months. Older events are deleted and can't be restored. Null removes the window.",
     )
+    delete_monthly = serializers.BooleanField(
+        default=False,
+        help_text="Delete events older than the window at every monthly cleanup. When false, they're deleted at the cleanup every 3 months, at least 3 months after the window gets shorter. Needs a window.",
+    )
+
+
+def _organization_fields(organization: OrganizationEventsRetention) -> dict[str, Any]:
+    return {
+        "organization_retention_months": organization.organization_months,
+        "organization_delete_monthly": organization.organization_delete_monthly,
+        "plan_retention_months": organization.plan_months,
+        "default_retention_months": organization.default_months,
+        "min_retention_months": organization.min_months,
+        "max_retention_months": organization.max_months,
+        "next_monthly_cleanup_on": organization.next_cleanup_on,
+    }
 
 
 @extend_schema(tags=["events_retention"])
@@ -87,18 +143,21 @@ class EventsRetentionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         retained_from = (
             events_retention_floor_date(self.team, retention_months) if retention_months is not None else None
         )
-        organization = organization_events_retention(self.organization)
+        project = project_events_retention(self.team)
         return Response(
             EventsRetentionSerializer(
                 {
                     "retention_months": retention_months,
                     "retained_from": retained_from,
                     "docs_url": EVENTS_RETENTION_DOCS_URL,
-                    "project_retention_months": project_events_retention_months(self.team),
-                    "organization_retention_months": organization.organization_months,
-                    "plan_retention_months": organization.plan_months,
-                    "min_retention_months": organization.min_months,
-                    "max_retention_months": organization.max_months,
+                    "project_retention_months": project.project_months,
+                    "delete_monthly": project.delete_monthly,
+                    "next_deletion_on": project.next_deletion.deletes_on if project.next_deletion else None,
+                    "next_deletion_before": project.next_deletion.deletes_before if project.next_deletion else None,
+                    "scheduled_pass_on": project.scheduled_pass_on,
+                    "first_pass_on": project.first_pass_on,
+                    "default_window_deletes": project.default_window_deletes,
+                    **_organization_fields(organization_events_retention(self.organization)),
                 }
             ).data
         )
@@ -108,8 +167,8 @@ class EventsRetentionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         summary="Get the events retention window for a project",
         description=(
             "Returns how far back events stay queryable for this project, the windows set for the project and its "
-            "organization, and the range an admin can set. Both window fields are null while no retention window "
-            "applies to the project."
+            "organization, the range an admin can set, and the project's next deletion. Both queryable window fields "
+            "are null while no retention window applies to the project."
         ),
         responses={200: EventsRetentionSerializer},
     )
@@ -121,8 +180,9 @@ class EventsRetentionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         operation_id="events_retention_update",
         summary="Set the events retention window for a project",
         description=(
-            "Sets how long this project keeps events, overriding the organization's window. Events older than the "
-            "window are deleted on the next monthly cleanup and can't be restored. Organization admins only."
+            "Sets how long this project keeps events, overriding the organization's window, and whether older events "
+            "are deleted at every monthly cleanup or every 3 months. Deleted events can't be restored. Organization "
+            "admins only."
         ),
         responses={
             200: OpenApiResponse(response=EventsRetentionSerializer, description="The project's new window."),
@@ -135,6 +195,7 @@ class EventsRetentionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             set_project_events_retention(
                 self.team,
                 request.validated_data["retention_months"],
+                request.validated_data["delete_monthly"],
                 user=cast(User, request.user),
                 was_impersonated=is_impersonated(request),
             )
@@ -150,15 +211,9 @@ class OrganizationEventsRetentionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSe
     permission_classes = [OrganizationAdminWritePermissions]
 
     def _retention_response(self) -> Response:
-        organization = organization_events_retention(self.organization)
         return Response(
             OrganizationEventsRetentionSerializer(
-                {
-                    "organization_retention_months": organization.organization_months,
-                    "plan_retention_months": organization.plan_months,
-                    "min_retention_months": organization.min_months,
-                    "max_retention_months": organization.max_months,
-                }
+                _organization_fields(organization_events_retention(self.organization))
             ).data
         )
 
@@ -179,8 +234,8 @@ class OrganizationEventsRetentionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSe
         operation_id="organization_events_retention_update",
         summary="Set the organization's events retention window",
         description=(
-            "Sets how long every project without its own window keeps events. Events older than the window are "
-            "deleted on the next monthly cleanup and can't be restored. Organization admins only."
+            "Sets how long every project without its own window keeps events, and whether older events are deleted at "
+            "every monthly cleanup or every 3 months. Deleted events can't be restored. Organization admins only."
         ),
         responses={
             200: OpenApiResponse(
@@ -195,6 +250,7 @@ class OrganizationEventsRetentionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSe
             set_organization_events_retention(
                 self.organization,
                 request.validated_data["retention_months"],
+                request.validated_data["delete_monthly"],
                 user=cast(User, request.user),
                 was_impersonated=is_impersonated(request),
             )

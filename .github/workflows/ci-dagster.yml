@@ -198,6 +198,7 @@ jobs:
                         - 'posthog/cloud_utils.py'
                         - 'posthog/run_mode.py'
                         - 'posthog/ph_client.py'
+                        - 'posthog/tasks/email.py'
                         - 'products/managed_warehouse/backend/**'
                         # Backward compatibility for unrebased PRs; remove after August 14, 2026.
                         - 'posthog/ducklake/**'

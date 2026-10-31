@@ -18,25 +18,26 @@ export function OrganizationEventsRetentionSetting(): JSX.Element | null {
         return null
     }
 
-    const planMonths = organizationRetention.plan_retention_months
+    const defaultMonths = organizationRetention.default_retention_months
 
     return (
         <div>
             <p className="max-w-160 text-sm text-secondary mb-4">
                 Choose how long projects in this organization keep events. A project can set its own window instead.{' '}
-                {organizationRetention.organization_retention_months === null &&
-                    `No window is set, so projects keep events for your plan's window of ${planMonths} months. `}
                 <Link to={projectRetention.docs_url} target="_blank">
                     Learn more
                 </Link>
             </p>
             <EventsRetentionWindowForm
                 retentionMonths={organizationRetention.organization_retention_months}
+                deleteMonthly={organizationRetention.organization_delete_monthly}
+                fallback={{ months: defaultMonths, deleteMonthly: false, isSet: false }}
                 minMonths={organizationRetention.min_retention_months}
                 maxMonths={organizationRetention.max_retention_months}
-                planMonths={planMonths}
+                planMonths={organizationRetention.plan_retention_months}
                 keptBy="Every project without its own window"
-                removedDescription={`Projects without their own window will keep events for your plan's window of ${planMonths} months.`}
+                nextMonthlyCleanupOn={organizationRetention.next_monthly_cleanup_on}
+                passSchedule={projectRetention.project_retention_months === null ? projectRetention : null}
                 saving={organizationRetentionLoading}
                 restrictionReason={restrictionReason}
                 onSave={updateOrganizationRetention}

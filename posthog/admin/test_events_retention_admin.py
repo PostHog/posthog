@@ -18,7 +18,7 @@ class TestEventsRetentionAdmin(BaseTest):
         assert "No team has a deletion retention yet" in empty.content.decode()
 
         OrganizationEventsRetentionConfig.objects.create(
-            organization=self.organization, default_events_retention_months=13
+            organization=self.organization, default_events_retention_months=13, delete_monthly=True
         )
         response = self.client.get(reverse("events-retention"))
 

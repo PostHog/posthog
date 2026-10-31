@@ -27,12 +27,13 @@ class _RetentionRow:
 
 
 def _row(retention: ConfiguredEventsRetention, now: datetime) -> _RetentionRow:
+    cadence = "monthly" if retention.delete_monthly else "every 3 months"
     if retention.team_months is not None:
-        source = "Team setting"
+        source = f"Team setting, deleted {cadence}"
     elif retention.organization_default_months is not None:
-        source = "Organization default"
+        source = f"Organization default, deleted {cadence}"
     else:
-        source = "Not set, events are kept"
+        source = "Not set"
     low, high = retention.organization_min_months, retention.organization_max_months
     months = retention.months
     return _RetentionRow(
@@ -41,7 +42,7 @@ def _row(retention: ConfiguredEventsRetention, now: datetime) -> _RetentionRow:
         allowed_range=describe_months_range(low, high)
         if low is not None or high is not None
         else "any number of months",
-        deletes_before=whole_month_cutoff(now, months) if months is not None else None,
+        deletes_before=whole_month_cutoff(now, months) if months is not None and retention.delete_monthly else None,
     )
 
 

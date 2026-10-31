@@ -7,7 +7,7 @@ import { OrganizationMembershipLevel } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { eventsRetentionSettingsLogic } from './eventsRetentionSettingsLogic'
-import { EventsRetentionWindowForm } from './EventsRetentionWindowForm'
+import { EventsRetentionFallback, EventsRetentionWindowForm } from './EventsRetentionWindowForm'
 
 export function ProjectEventsRetentionSetting(): JSX.Element | null {
     const { projectRetention, projectRetentionLoading } = useValues(eventsRetentionSettingsLogic)
@@ -19,11 +19,18 @@ export function ProjectEventsRetentionSetting(): JSX.Element | null {
     }
 
     const organizationMonths = projectRetention.organization_retention_months
-    const planMonths = projectRetention.plan_retention_months
-    const fallback =
+    const fallback: EventsRetentionFallback =
         organizationMonths !== null
-            ? `the organization's window of ${organizationMonths} months`
-            : `your plan's window of ${planMonths} months`
+            ? {
+                  months: organizationMonths,
+                  deleteMonthly: projectRetention.organization_delete_monthly,
+                  isSet: true,
+              }
+            : {
+                  months: projectRetention.default_retention_months,
+                  deleteMonthly: false,
+                  isSet: false,
+              }
 
     return (
         <div>
@@ -32,22 +39,21 @@ export function ProjectEventsRetentionSetting(): JSX.Element | null {
                 <Link to={urls.settings('organization-details', 'organization-events-retention')}>
                     organization settings
                 </Link>
-                . {projectRetention.project_retention_months === null && `This project uses ${fallback}. `}
+                .{' '}
                 <Link to={projectRetention.docs_url} target="_blank">
                     Learn more
                 </Link>
             </p>
             <EventsRetentionWindowForm
                 retentionMonths={projectRetention.project_retention_months}
+                deleteMonthly={projectRetention.delete_monthly}
+                fallback={fallback}
                 minMonths={projectRetention.min_retention_months}
                 maxMonths={projectRetention.max_retention_months}
-                planMonths={planMonths}
+                planMonths={projectRetention.plan_retention_months}
                 keptBy="This project"
-                removedDescription={
-                    organizationMonths !== null
-                        ? `This project will use ${fallback}. Older events are deleted at the next monthly cleanup and can't be restored.`
-                        : `This project will keep events for ${fallback}.`
-                }
+                nextMonthlyCleanupOn={projectRetention.next_monthly_cleanup_on}
+                passSchedule={projectRetention}
                 saving={projectRetentionLoading}
                 restrictionReason={restrictionReason}
                 onSave={updateProjectRetention}

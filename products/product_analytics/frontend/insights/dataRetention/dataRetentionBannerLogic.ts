@@ -12,6 +12,8 @@ import type { OrganizationType } from '~/types'
 import { eventsRetentionRetrieve } from 'products/product_analytics/frontend/generated/api'
 import type { EventsRetentionApi } from 'products/product_analytics/frontend/generated/api.schemas'
 
+import { planDeletionDateLabel } from './planDeletionDateLabel'
+
 export interface RetentionBannerAction {
     children: string
     to: string
@@ -41,6 +43,7 @@ export interface dataRetentionBannerLogicValues {
     currentTeamId: number | null // teamLogic
     accountAgeEligible: boolean
     isSnoozed: boolean
+    nextDeletionLabel: string | null
     retention: EventsRetentionApi | null
     retentionApplies: boolean
     retentionBannerAction: RetentionBannerAction | null
@@ -78,6 +81,7 @@ export interface dataRetentionBannerLogicActions {
 export interface dataRetentionBannerLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         retentionMonths: (retention: EventsRetentionApi | null) => number | null
+        nextDeletionLabel: (retention: EventsRetentionApi | null) => string | null
         retentionBannerAction: (retention: EventsRetentionApi | null) => RetentionBannerAction | null
         retentionEnforced: (retentionMonths: number | null) => boolean
         retentionPeriodLabel: (retentionMonths: number | null) => string | null
@@ -132,6 +136,10 @@ export const dataRetentionBannerLogic = kea<dataRetentionBannerLogicType>([
         retentionMonths: [
             (s) => [s.retention],
             (retention: EventsRetentionApi | null): number | null => retention?.retention_months ?? null,
+        ],
+        nextDeletionLabel: [
+            (s) => [s.retention],
+            (retention: EventsRetentionApi | null): string | null => planDeletionDateLabel(retention),
         ],
         // Upgrading doesn't help when someone set a window shorter than the plan's, or when the plan is the longest.
         retentionBannerAction: [

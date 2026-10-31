@@ -46921,16 +46921,22 @@ export namespace Schemas {
 
     export interface EventsRetention {
       /**
-         * The window, in months, that every project without its own window uses. Null while the organization keeps events for its plan's window.
+         * The window, in months, that every project without its own window uses. Null while the organization uses the default window.
          * @nullable
          */
       readonly organization_retention_months: number | null;
+      /** Whether projects that use the organization's window delete events older than it at every monthly cleanup. When false, they're deleted at the cleanup every 3 months. */
+      readonly organization_delete_monthly: boolean;
       /** The longest window the organization's plan allows, in months. */
       readonly plan_retention_months: number;
+      /** The window, in months, that a project uses when neither it nor the organization sets one: 24 months, or the plan's window if that's shorter. */
+      readonly default_retention_months: number;
       /** The shortest window an admin can set, in months. */
       readonly min_retention_months: number;
       /** The longest window an admin can set, in months. Never longer than the plan's window. */
       readonly max_retention_months: number;
+      /** The date of the next monthly cleanup, in the timezone it runs in. */
+      readonly next_monthly_cleanup_on: string;
       /**
          * How many months of events stay queryable, counted back from today. Null while no retention window applies to the project.
          * @nullable
@@ -46948,15 +46954,38 @@ export namespace Schemas {
          * @nullable
          */
       readonly project_retention_months: number | null;
+      /** Whether the project's window deletes older events at every monthly cleanup. When false, they're deleted at the cleanup every 3 months, at least 3 months after the window gets shorter. */
+      readonly delete_monthly: boolean;
+      /**
+         * The date of the next cleanup that deletes this project's events. Null while no deletion is scheduled.
+         * @nullable
+         */
+      readonly next_deletion_on: string | null;
+      /**
+         * The next cleanup deletes this project's events from before this date. Null while no deletion is scheduled.
+         * @nullable
+         */
+      readonly next_deletion_before: string | null;
+      /**
+         * The next cleanup every 3 months that deletes this project's events past its current window, whether or not the window deletes monthly. Null while the project has none scheduled.
+         * @nullable
+         */
+      readonly scheduled_pass_on: string | null;
+      /** The earliest cleanup every 3 months for a window that is set or made shorter today. */
+      readonly first_pass_on: string;
+      /** Whether the cleanup deletes this project's events past the default window while no window is set. */
+      readonly default_window_deletes: boolean;
     }
 
     export interface EventsRetentionUpdate {
       /**
-         * The window in months. Events older than this are deleted on the next monthly cleanup and can't be restored. Null removes the window.
+         * The window in months. Older events are deleted and can't be restored. Null removes the window.
          * @minimum 1
          * @nullable
          */
       retention_months: number | null;
+      /** Delete events older than the window at every monthly cleanup. When false, they're deleted at the cleanup every 3 months, at least 3 months after the window gets shorter. Needs a window. */
+      delete_monthly?: boolean;
     }
 
     export interface ExcerptChoice {
@@ -76568,16 +76597,22 @@ export namespace Schemas {
 
     export interface OrganizationEventsRetention {
       /**
-         * The window, in months, that every project without its own window uses. Null while the organization keeps events for its plan's window.
+         * The window, in months, that every project without its own window uses. Null while the organization uses the default window.
          * @nullable
          */
       readonly organization_retention_months: number | null;
+      /** Whether projects that use the organization's window delete events older than it at every monthly cleanup. When false, they're deleted at the cleanup every 3 months. */
+      readonly organization_delete_monthly: boolean;
       /** The longest window the organization's plan allows, in months. */
       readonly plan_retention_months: number;
+      /** The window, in months, that a project uses when neither it nor the organization sets one: 24 months, or the plan's window if that's shorter. */
+      readonly default_retention_months: number;
       /** The shortest window an admin can set, in months. */
       readonly min_retention_months: number;
       /** The longest window an admin can set, in months. Never longer than the plan's window. */
       readonly max_retention_months: number;
+      /** The date of the next monthly cleanup, in the timezone it runs in. */
+      readonly next_monthly_cleanup_on: string;
     }
 
     export interface OrganizationFeatureFlagRow {
