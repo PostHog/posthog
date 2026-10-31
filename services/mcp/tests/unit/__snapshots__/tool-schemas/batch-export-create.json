@@ -981,6 +981,17 @@
                                 }
                             ]
                         },
+                        "pushDownIntoEventsSubqueries": {
+                            "anyOf": [
+                                {
+                                    "type": "boolean"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Move outer WHERE conjuncts and `properties.<key>` reads into a plain events subquery (`FROM (SELECT ... FROM events)`), so the shards filter the scan and read keys as columns instead of exporting whole rows. Unset means on; `false` turns it off."
+                        },
                         "pushDownPredicates": {
                             "anyOf": [
                                 {

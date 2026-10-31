@@ -2854,6 +2854,8 @@ export namespace Schemas {
       personsJoinMode?: PersonsJoinMode | null;
       personsOnEventsMode?: PersonsOnEventsMode | null;
       propertyGroupsMode?: PropertyGroupsMode | null;
+      /** Move outer WHERE conjuncts and `properties.<key>` reads into a plain events subquery (`FROM (SELECT ... FROM events)`), so the shards filter the scan and read keys as columns instead of exporting whole rows. Unset means on; `false` turns it off. */
+      pushDownIntoEventsSubqueries?: boolean | null;
       pushDownPredicates?: boolean | null;
       s3TableUseInvalidColumns?: boolean | null;
       /** Push a `session_id_v7 IN (SELECT … FROM events WHERE …)` predicate into the raw_sessions subquery to limit aggregation to sessions that participate in the outer events filter. */
