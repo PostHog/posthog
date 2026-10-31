@@ -514,6 +514,22 @@ jobs:
             - name: Build frontend (bundle-size + eager-graph report)
               run: pnpm --filter=@posthog/frontend build:with-report
 
+            # Reads the layer report the build above wrote, so it needs no second esbuild pass. It runs
+            # before the base build resets the tree, because the baseline it compares with must be the
+            # PR's. continue-on-error keeps the base build and the CI report running; the last step of
+            # this job turns a failure here into the job's verdict.
+            - name: Check frontend layer imports
+              id: layer-check
+              if: github.event_name == 'pull_request'
+              continue-on-error: true
+              run: |
+                  REPORT="frontend/layer-report-${GITHUB_SHA}.json"
+                  if [ ! -f "$REPORT" ] || ! grep -q -- '--from-report' frontend/bin/check-layers.mjs; then
+                      echo "Skipping frontend layer check, no layer report or check script on this checkout"
+                      exit 0
+                  fi
+                  node frontend/bin/check-layers.mjs --from-report "$REPORT"
+
             # The PR's layer graph, written by build:with-report before the base build replaces it.
             - name: Upload frontend layer graph
               id: layer-graph
@@ -717,6 +733,12 @@ jobs:
                         "event_type": ${{ toJSON(github.event_name) }}
                       }
 
+            - name: Fail on new frontend layer imports
+              if: ${{ !cancelled() && steps.layer-check.outcome == 'failure' }}
+              run: |
+                  echo "::error::The frontend layer check failed. The 'Check frontend layer imports' step names each new upward import or fixed baseline entry, and the command that fixes it."
+                  exit 1
+
     frontend-typescript-checks:
         name: Frontend typechecking
         needs: [changes]
@@ -809,16 +831,6 @@ jobs:
 
                   - name: Validate SetupTaskId completions
                     run: node bin/validate-setup-tasks.mjs
-
-            # Warn-only until the baseline has settled on master; then drop continue-on-error.
-            - name: Check frontend layer imports
-              continue-on-error: true
-              run: |
-                  if [ ! -f frontend/bin/check-layers.mjs ]; then
-                      echo "Skipping frontend layer check, script not present on this checkout"
-                      exit 0
-                  fi
-                  node frontend/bin/check-layers.mjs
 
             # Warn-only until the baseline has settled on master; then drop continue-on-error.
             - name: Check frontend stylesheet imports
