@@ -266,9 +266,11 @@ function rebaseGraph(base: HogFlow, local: HogFlow, remote: HogFlow): Pick<Parti
     if (!reshapedLocally && [...editedById.keys()].every((id) => remoteById.has(id))) {
         return { actions: remote.actions.map((action) => editedById.get(action.id) ?? action) }
     }
+    // Branch configs index their edges, so server copies of steps only fit local edges when the server kept the shape.
+    const serverKeptShape = hasSameShape(base, remote)
     return {
         actions: local.actions.map((action) =>
-            editedById.has(action.id) ? action : (remoteById.get(action.id) ?? action)
+            editedById.has(action.id) || !serverKeptShape ? action : (remoteById.get(action.id) ?? action)
         ),
         edges: local.edges,
     }
