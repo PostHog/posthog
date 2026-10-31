@@ -16,8 +16,6 @@ if TYPE_CHECKING:
 
 
 class ResourceTransferVisitor:
-    __VISITORS: list[type[ResourceTransferVisitor]] = []
-
     kind: ResourceKind
     excluded_fields: list[str]
     immutable: bool
@@ -37,8 +35,6 @@ class ResourceTransferVisitor:
         cls.immutable = immutable
         cls.friendly_name = friendly_name if friendly_name is not None else kind
         cls.user_facing = user_facing
-
-        ResourceTransferVisitor.__VISITORS.append(cls)
 
     @classmethod
     @abstractmethod
@@ -87,21 +83,28 @@ class ResourceTransferVisitor:
 
     @staticmethod
     def get_visitor(kind_or_value: ResourceKind | Any) -> type[ResourceTransferVisitor] | None:
+        # The registry imports every visitor module, and each of them imports this one.
+        from posthog.models.resource_transfer.registry import get_registry  # noqa: PLC0415
+
+        registry = get_registry()
         if isinstance(kind_or_value, str):
-            return next(
-                (visitor for visitor in ResourceTransferVisitor.__VISITORS if visitor.kind == kind_or_value), None
-            )
+            return registry.by_kind.get(kind_or_value)
 
         if isinstance(kind_or_value, type):
-            return next(
-                (visitor for visitor in ResourceTransferVisitor.__VISITORS if visitor.get_model() is kind_or_value),
-                None,
-            )
+            return registry.by_model.get(kind_or_value)
 
-        return next(
-            (visitor for visitor in ResourceTransferVisitor.__VISITORS if visitor.get_model() is type(kind_or_value)),
-            None,
-        )
+        return registry.by_model.get(type(kind_or_value))
+
+    @staticmethod
+    def get_model_for_kind(kind: ResourceKind) -> type[models.Model]:
+        """
+        The model behind a kind, for an edge into a model that the calling module must not import,
+        such as a product's model from a core visitor.
+        """
+        visitor = ResourceTransferVisitor.get_visitor(kind)
+        if visitor is None:
+            raise TypeError(f"No visitor is registered for {kind}")
+        return visitor.get_model()
 
     @classmethod
     def should_touch_field(cls, field_name: str) -> bool:

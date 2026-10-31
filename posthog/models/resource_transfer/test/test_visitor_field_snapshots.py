@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from typing import Any, get_args
+from typing import Any
 
 import pytest
 from posthog.test.base import BaseTest
 
 from parameterized import parameterized
 
-from posthog.models.resource_transfer.types import ResourceKind
+from posthog.models.resource_transfer.registry import get_registry
 from posthog.models.resource_transfer.visitors.base import ResourceTransferVisitor
 
 
@@ -37,12 +37,10 @@ def _classify_fields(visitor: type[ResourceTransferVisitor]) -> dict[str, Any]:
 
 
 def _get_mutable_visitors() -> list[tuple[str, type[ResourceTransferVisitor]]]:
-    visitors: list[tuple[str, type[ResourceTransferVisitor]]] = []
-    for kind in get_args(ResourceKind):
-        visitor = ResourceTransferVisitor.get_visitor(kind)
-        if visitor is not None and not visitor.is_immutable():
-            visitors.append((kind, visitor))
-    return sorted(visitors, key=lambda pair: pair[0])
+    return sorted(
+        ((kind, visitor) for kind, visitor in get_registry().by_kind.items() if not visitor.is_immutable()),
+        key=lambda pair: pair[0],
+    )
 
 
 MUTABLE_VISITORS = _get_mutable_visitors()

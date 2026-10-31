@@ -26,6 +26,7 @@ APPROVED_WIRING_BASES: frozenset[str] = frozenset(
     {
         "ee.hogai.tool.MaxTool",
         "posthog.hogql_queries.query_runner.QueryRunner",
+        "posthog.models.resource_transfer.visitors.base.ResourceTransferVisitor",
         "temporalio.worker.Interceptor",
     }
 )
