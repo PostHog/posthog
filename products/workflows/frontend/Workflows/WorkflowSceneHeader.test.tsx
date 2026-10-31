@@ -1,7 +1,12 @@
+import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
+
 import '@testing-library/jest-dom'
 
 import { act, cleanup, render } from '@testing-library/react'
 import { BindLogic, Provider } from 'kea'
+
+import { dayjs } from 'lib/dayjs'
+import { organizationLogic } from 'scenes/organizationLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -80,7 +85,7 @@ describe('WorkflowSceneHeader', () => {
         logic?.unmount()
     })
 
-    it('keeps the same buttons in the same order when edits make the form dirty', () => {
+    const renderHeader = (): void => {
         render(
             <Provider>
                 <BindLogic logic={workflowLogic} props={{ id: WORKFLOW_ID }}>
@@ -88,6 +93,10 @@ describe('WorkflowSceneHeader', () => {
                 </BindLogic>
             </Provider>
         )
+    }
+
+    it('keeps the same buttons in the same order when edits make the form dirty', () => {
+        renderHeader()
 
         // Auto-save has just landed: a draft is staged and the form is clean.
         const clean = toolbar()
@@ -101,14 +110,21 @@ describe('WorkflowSceneHeader', () => {
         expect(toolbar()).toEqual(clean)
     })
 
+    it('leaves Quick start out of the header even for a new organization with setup tasks left', () => {
+        act(() => {
+            organizationLogic.actions.loadCurrentOrganizationSuccess({
+                ...MOCK_DEFAULT_ORGANIZATION,
+                created_at: dayjs().subtract(1, 'day').toISOString(),
+            })
+        })
+
+        renderHeader()
+
+        expect(document.querySelector('[data-attr^="global-product-setup-button"]')).toBeNull()
+    })
+
     it('keeps Disable clickable on an active workflow while the form is dirty', () => {
-        render(
-            <Provider>
-                <BindLogic logic={workflowLogic} props={{ id: WORKFLOW_ID }}>
-                    <WorkflowSceneHeader id={WORKFLOW_ID} />
-                </BindLogic>
-            </Provider>
-        )
+        renderHeader()
 
         act(() => {
             logic.actions.setWorkflowValue('name', 'Still typing')
