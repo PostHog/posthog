@@ -196,8 +196,6 @@ frontend/src/lib/components/Cards/TextCard/textCardModalLogic.ts -> products/das
 frontend/src/lib/components/ChartFilter/ChartFilter.tsx -> frontend/src/scenes/insights/insightLogic.tsx
 frontend/src/lib/components/ChartFilter/ChartFilter.tsx -> frontend/src/scenes/insights/insightVizDataLogic.ts
 frontend/src/lib/components/ChartFilter/ChartFilter.tsx -> frontend/src/scenes/insights/utils/queryUtils.ts
-frontend/src/lib/components/ChartFilter/ChartFilter.tsx -> products/product_analytics/frontend/insights/chartAlternatives/ChartDisplayIcon.tsx
-frontend/src/lib/components/ChartFilter/ChartFilter.tsx -> products/product_analytics/frontend/insights/chartAlternatives/chartDisplayOptions.ts
 frontend/src/lib/components/CyclotronJob/CyclotronJobInputs.tsx -> frontend/src/scenes/hog-functions/email-templater/EmailTemplater.tsx
 frontend/src/lib/components/CyclotronJob/CyclotronJobInputsValidation.ts -> frontend/src/scenes/hog-functions/email-templater/types.ts
 frontend/src/lib/components/DateFilter/openJumpToTimestampModal.tsx -> frontend/src/scenes/activity/explore/defaults.ts
