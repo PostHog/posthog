@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 
 import { useChartLegend, type ChartLegendRenderProps } from '../../components/Legend/useChartLegend'
 import type { ChartLegendConfig, ChartTheme, Series, ValueDomain, YAxis } from '../../core/types'
+import { DEFAULT_Y_AXIS_ID } from '../../core/types'
 import type { ReferenceLineProps } from '../../overlays/ReferenceLine'
 import type { ValueLabelFormatter } from '../../overlays/ValueLabels'
 import { buildGoalLineReferenceLines, goalLineValueDomain, type GoalLineConfig } from '../../utils/goal-lines'
@@ -14,6 +15,7 @@ import {
     type XAxisConfig,
     type YAxisConfig,
 } from '../../utils/use-axis-formatters'
+import { buildYTickFormatter } from '../../utils/y-formatters'
 import { resolveValueLabelsConfig, useSeriesWithValueLabelAllowlist, type ValueLabelsConfig } from './use-value-labels'
 
 export interface UseTimeSeriesConfig {
@@ -24,6 +26,8 @@ export interface UseTimeSeriesConfig {
     yAxis?: YAxisConfig | YAxisConfig[]
     valueLabels?: boolean | ValueLabelsConfig
     legend?: ChartLegendConfig
+    /** The chart plots shares (percent stack or percent bars), so its axis formats a 0..1 fraction. */
+    isPercent?: boolean
 }
 
 export interface UseTimeSeriesResult<Meta> {
@@ -60,13 +64,14 @@ export function useTimeSeries<Meta>(
     theme: ChartTheme,
     config: UseTimeSeriesConfig
 ): UseTimeSeriesResult<Meta> {
-    const { xAxis, yAxis, valueLabels, legend } = config
+    const { xAxis, yAxis, valueLabels, legend, isPercent = false } = config
     const axisList = useMemo(() => normalizeYAxisList(yAxis), [yAxis])
     const primaryYAxis = useMemo(() => primaryYAxisConfig(axisList), [axisList])
     const yAxes = useMemo(() => (Array.isArray(yAxis) ? buildYAxes(axisList) : undefined), [yAxis, axisList])
     const xTickFormatter = useXTickFormatter(xAxis, labels)
     const yTickFormatter = useYTickFormatter(primaryYAxis)
-    const { visibleSeries, legendProps } = useChartLegend(series, theme, legend)
+    const legendConfig = useLegendAxisFormatter(series, legend, yTickFormatter, yAxes, isPercent)
+    const { visibleSeries, legendProps } = useChartLegend(series, theme, legendConfig)
     const valueLabelsConfig = resolveValueLabelsConfig(valueLabels)
     const chartSeries = useSeriesWithValueLabelAllowlist(visibleSeries, valueLabelsConfig?.seriesKeys)
     const valueLabelFormatter = valueLabelsConfig ? (valueLabelsConfig.formatter ?? yTickFormatter) : undefined
@@ -103,4 +108,29 @@ export function useGoalLines<Meta>(
     const referenceLines = useMemo(() => buildGoalLineReferenceLines(goalLines, series), [goalLines, series])
     const valueDomain = useMemo(() => goalLineValueDomain(referenceLines), [referenceLines])
     return { referenceLines, valueDomain }
+}
+
+/** Defaults a value-column legend's formatter to each series' axis tick format, so a legend value
+ *  reads the same as the axis it is plotted against. A percent axis formats a 0..1 fraction, but
+ *  legend values are raw, so a percent chart keeps the plain number format. */
+function useLegendAxisFormatter(
+    series: Series<unknown>[],
+    legend: ChartLegendConfig | undefined,
+    primaryFormatter: ((value: number) => string) | undefined,
+    yAxes: YAxis[] | undefined,
+    isPercent: boolean
+): ChartLegendConfig | undefined {
+    return useMemo(() => {
+        if (!legend?.values?.length || legend.valueFormatter || isPercent || (!primaryFormatter && !yAxes)) {
+            return legend
+        }
+        const axisByKey = new Map(series.map((s) => [s.key, s.yAxisId ?? DEFAULT_Y_AXIS_ID]))
+        const formatterByAxis = new Map((yAxes ?? []).map((axis) => [axis.id, axis.tickFormatter]))
+        const plain = buildYTickFormatter({})
+        // With several axes, an axis without format fields auto-formats its own ticks, so its
+        // series stay plain rather than borrowing the primary format.
+        const formatterFor = (key: string): ((value: number) => string) =>
+            (yAxes ? formatterByAxis.get(axisByKey.get(key) ?? DEFAULT_Y_AXIS_ID) : primaryFormatter) ?? plain
+        return { ...legend, valueFormatter: (value, item) => formatterFor(item.key)(value) }
+    }, [series, legend, primaryFormatter, yAxes, isPercent])
 }

@@ -27,6 +27,22 @@ describe('SlopeChart', () => {
         expect(chart.yTicks()).toHaveLength(0)
     })
 
+    it('fills legend value columns for its own legend rows and keeps their change text', () => {
+        const { chart } = renderChart(
+            <SlopeChart
+                series={SERIES}
+                labels={LABELS}
+                theme={THEME}
+                config={{ legend: { show: true, values: ['max'] } }}
+            />
+        )
+        expect(chart.legendItems()).toEqual([
+            { label: 'A', secondaryLabel: '+80' },
+            { label: 'B', secondaryLabel: '-60' },
+        ])
+        expect(chart.legendValues()).toEqual([['90'], ['80']])
+    })
+
     it('renders empty state without crashing', () => {
         const { chart } = renderChart(<SlopeChart series={[]} labels={LABELS} theme={THEME} />)
         expect(chart.seriesCount).toBe(0)
