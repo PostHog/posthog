@@ -123,6 +123,9 @@ const ROOTS = [
             'src/layout/today/TodayTopBar.tsx',
             // The rail's pane actions pull in the new-analytics menu and the canvas block library.
             'src/layout/today/todayRailItems.tsx',
+            // The rich text editor stack is for the scenes that edit text. Rendered markdown needs none of it.
+            'node_modules/@tiptap/',
+            'node_modules/prosemirror-',
             // The zod-en-locale-only plugin in common/esbuilder/utils.mjs keeps every locale except
             // `en` out of the build. A hit on another locale means zod moved its locales barrel and
             // the plugin no longer matches it.
