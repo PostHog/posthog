@@ -13,6 +13,8 @@ from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
+from products.slack_app.backend.logic import interview_recruitment
+from products.slack_app.backend.logic.interview_recruitment import BOOKING_URL
 from products.slack_app.backend.services.slack_messages import TURN_FEEDBACK_ACTION_ID, turn_feedback_block
 from products.slack_app.backend.services.slack_user_info import cache_workspace_bot_user_id
 from products.slack_app.backend.services.turn_feedback import (
@@ -173,6 +175,32 @@ class TestTurnFeedback(TestCase):
         kwargs = self.mock_analytics.capture.call_args.kwargs
         assert kwargs["event"] == "$ai_feedback"
         assert kwargs["properties"]["$ai_trace_id"] == trace_id
+
+    def test_every_thumbs_down_modal_links_to_the_interview_booking(self):
+        client = self.mock_slack.return_value.client
+        with patch.object(interview_recruitment, "capture_slack_event") as capture:
+            self._pick(self._thumb_value("negative"))
+            self._pick(self._thumb_value("negative"))
+            view = client.views_open.call_args.kwargs["view"]
+            button = view["blocks"][-1]["accessory"]
+
+            response = self._post(
+                {
+                    "type": "block_actions",
+                    "team": {"id": self.slack_team_id},
+                    "user": {"id": "U_ALICE"},
+                    "view": {"id": "V_MODAL", "type": "modal"},
+                    "actions": [{"type": "button", "action_id": button["action_id"], "value": button["value"]}],
+                }
+            )
+
+        assert client.views_open.call_count == 2
+        assert view["blocks"][0]["block_id"] == _MODAL_TEXT_BLOCK_ID
+        assert button["url"] == BOOKING_URL
+        assert response.status_code == 200
+        assert capture.call_args.args[1] == "slack app interview invite clicked"
+        assert capture.call_args.kwargs["surface"] == "bad_rating_modal"
+        assert capture.call_args.kwargs["task_run_id"] == str(self.task_run.id)
 
     def test_a_run_from_another_project_is_not_rated(self):
         other_org = Organization.objects.create(name="OtherOrg")

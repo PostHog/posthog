@@ -80,6 +80,7 @@ class OpenMeteoSource(ResumableSource[OpenMeteoSourceConfig, OpenMeteoResumeConf
                 [
                     SourceFieldInputConfig(
                         name="locations",
+                        sync_setting=True,
                         label="Locations",
                         type=SourceFieldInputConfigType.TEXTAREA,
                         required=True,
@@ -88,6 +89,7 @@ class OpenMeteoSource(ResumableSource[OpenMeteoSourceConfig, OpenMeteoResumeConf
                     ),
                     SourceFieldInputConfig(
                         name="start_date",
+                        sync_setting=True,
                         label="Historical start date",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,

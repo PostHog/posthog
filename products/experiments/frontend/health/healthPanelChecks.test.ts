@@ -19,6 +19,7 @@ const check = (
 const finding = (severity: HealthPanelFinding['severity']): HealthPanelFinding => ({
     code: 'no_metric',
     subcode: null,
+    reason: null,
     severity,
     title: 'No metrics defined',
     detail: '',
@@ -33,7 +34,7 @@ const EXPOSURES = {
     date_range: { date_from: '2026-10-01', date_to: '2026-10-02' },
     health_findings: [],
     health_checks: [
-        { key: 'zero_exposures', name: 'Exposures', status: 'passed', reason: null },
+        { key: 'zero_exposures', name: 'Exposures not received since launch', status: 'passed', reason: null },
         { key: 'srm', name: 'Split of users across variants', status: 'finding', reason: null },
     ],
 } satisfies ExperimentExposureQueryResponse
@@ -45,15 +46,23 @@ describe('healthPanelChecks', () => {
         {
             name: 'the checks of the exposure answer join those of the experiment read, problems first',
             isExperimentDraft: false,
-            expected: ['srm:finding', 'flag_history:not_checked', 'no_metric:passed', 'zero_exposures:passed'],
+            expected: ['srm:finding', 'split_changed_mid_run:not_checked', 'no_metric:passed', 'zero_exposures:passed'],
         },
         {
             name: 'a draft lists no exposure check that a reset left in the page',
             isExperimentDraft: true,
-            expected: ['flag_history:not_checked', 'no_metric:passed'],
+            expected: ['split_changed_mid_run:not_checked', 'no_metric:passed'],
         },
     ])('$name', ({ isExperimentDraft, expected }) => {
-        const health = { findings: [], checks: [check('no_metric', 'passed'), check('flag_history', 'not_checked')] }
+        // The flag history check is left out: its note and the checks it serves report when it can't read the history.
+        const health = {
+            findings: [],
+            checks: [
+                check('no_metric', 'passed'),
+                check('split_changed_mid_run', 'not_checked'),
+                check('flag_history', 'passed'),
+            ],
+        }
         expect(
             healthPanelChecks(health, EXPOSURES, isExperimentDraft)?.map(({ key, status }) => `${key}:${status}`)
         ).toEqual(expected)
@@ -123,7 +132,7 @@ describe('healthPanelChecks', () => {
             expected: { kind: 'hidden' },
         },
         {
-            name: 'issues lead to the panel and count no info finding',
+            name: 'issues count no info finding',
             findings: [finding('critical'), finding('warning'), finding('info')],
             checks: [],
             exposureChecks: 'ready',
@@ -148,7 +157,7 @@ describe('healthPanelChecks', () => {
             findings: [finding('info')],
             checks: [check('no_metric', 'passed'), check('flag_state', 'passed'), check('srm', 'not_applicable')],
             exposureChecks: 'ready',
-            expected: { kind: 'checks', label: '2\u00a0checks passed · 1\u00a0note' },
+            expected: { kind: 'checks', label: 'No problems found (2\u00a0checks) · 1\u00a0note' },
         },
         {
             name: 'the label says so when no check applies',

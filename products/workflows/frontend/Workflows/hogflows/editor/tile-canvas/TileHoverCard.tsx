@@ -1,5 +1,6 @@
 import { useRef } from 'react'
 
+import { StepImportNotesList } from '../../../import/StepImportNotesList'
 import type { HogFlowAction } from '../../types'
 import { StepPreview } from './step-preview/StepPreview'
 import { StepCountLine } from './StepCountLine'
@@ -39,11 +40,13 @@ export function TileHoverCard({
     action,
     tile,
     count,
+    workflowId,
 }: {
     open: boolean
     action: HogFlowAction
     tile: TileStep
     count: number | undefined
+    workflowId: string
 }): JSX.Element {
     const face = { width: TILE_SIZE, height: TILE_SIZE }
     const width = Math.max(MIN_WIDTH, face.width + 12 + CAPTION_WIDTH + PADDING * 2 + KIND_LABEL_ROOM)
@@ -98,6 +101,11 @@ export function TileHoverCard({
                     {(!showPreview || !PREVIEWS_THAT_SHOW_SETTINGS.has(kind)) && <StepFieldList facts={tile.facts} />}
                     <StepCountLine count={count} />
                 </div>
+                {workflowId && (
+                    <div className="border-t py-3 empty:hidden">
+                        <StepImportNotesList workflowId={workflowId} stepId={action.id} />
+                    </div>
+                )}
                 <div className="border-t pt-2 text-[11px] text-secondary">Click to open the step</div>
             </div>
         </div>

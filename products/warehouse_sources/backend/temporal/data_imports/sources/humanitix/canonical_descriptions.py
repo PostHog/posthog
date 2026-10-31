@@ -104,4 +104,14 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "updatedAt": "The date and time the ticket was last modified.",
         },
     },
+    "check_in_counts": {
+        "description": "The check-in count for one date of a Humanitix event, in total and by ticket type, for tickets that have had sales. The API marks this endpoint as beta.",
+        "docs_url": "https://api.humanitix.com/v1/documentation",
+        "columns": {
+            "eventId": "The ID of the event.",
+            "eventDateId": "The ID of the event date the counts are for.",
+            "checkedIn": "The number of check-ins across all ticket types.",
+            "ticketTypes": "The check-in count for each ticket type with sales, with the ticket type ID and name, sorted by check-ins in descending order.",
+        },
+    },
 }

@@ -1635,6 +1635,28 @@ describe('sqlEditorLogic', () => {
     })
 
     describe('open_query URL parameter', () => {
+        it.each([NodeKind.InsightActorsQuery, NodeKind.FunnelsActorsQuery])(
+            'does not execute a URL-supplied %s',
+            async (kind) => {
+                const performQuery = jest.spyOn(queryRunner, 'performQuery')
+                try {
+                    logic = sqlEditorLogic({ tabId: TAB_ID, monaco: createMockMonaco(), editor: createMockEditor() })
+                    logic.mount()
+                    router.actions.push(urls.sqlEditor(), {
+                        open_query: {
+                            kind: NodeKind.DataTableNode,
+                            source: { kind: NodeKind.ActorsQuery, source: { kind }, select: ['sleep(10)'] },
+                        },
+                    })
+                    await expectLogic(logic).toDispatchActions(['createTab']).toNotHaveDispatchedActions(['runQuery'])
+                    expect(performQuery.mock.calls.some(([query]) => query.kind === NodeKind.ActorsQuery)).toBe(false)
+                    expect(logic.values.insightLoading).toBe(false)
+                } finally {
+                    performQuery.mockRestore()
+                }
+            }
+        )
+
         const STACKED_BAR_NODE: DataVisualizationNode = {
             kind: NodeKind.DataVisualizationNode,
             source: {
@@ -2058,6 +2080,29 @@ describe('sqlEditorLogic', () => {
     })
 
     describe('save dialog selection guard', () => {
+        it('opens the view dialog without checking incremental materialization', async () => {
+            const openForm = jest.spyOn(LemonDialog, 'openForm').mockImplementation(() => {})
+            const checkIncremental = jest.fn(() => [500, { detail: 'Check unavailable' }])
+            useMocks({
+                post: {
+                    '/api/environments/:team_id/warehouse_saved_queries/check_incremental/': checkIncremental,
+                },
+            })
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+            logic.actions.setQueryInput('SELECT 1 AS value')
+
+            await logic.asyncActions.saveAsView()
+
+            expect(openForm).toHaveBeenCalledWith(expect.objectContaining({ title: 'Save as view' }))
+            expect(checkIncremental).not.toHaveBeenCalled()
+            openForm.mockRestore()
+        })
+
         // Monaco reports a non-empty selection after a double-click, which is the editor state
         // that let a single identifier reach the API as the query to save.
         function createEditorWithSelection(selected: string): any {

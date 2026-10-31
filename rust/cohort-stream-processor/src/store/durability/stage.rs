@@ -22,7 +22,7 @@ use super::manifest::OffsetManifest;
 use super::metadata::CheckpointMetadata;
 use super::restore_plan::{ReplayWindow, RestorePlan};
 use crate::observability::metrics::CHECKPOINT_RESTORE_SLICES_RESET_TOTAL;
-use crate::partitions::{AdmittedSplit, InputGroups, InputTopic, ResumeOffset};
+use crate::partitions::{AdmittedSplit, InputGroups, InputTopic, PartitionOwnership, ResumeOffset};
 use crate::store::{CohortStore, StoreError};
 
 /// The marker a published restore carries inside the store directory. RocksDB ignores files it
@@ -174,7 +174,7 @@ impl PendingRestore {
     pub(crate) fn resume(
         live: &Path,
         window: &impl ReplayWindow,
-        partition_count: u16,
+        ownership: &PartitionOwnership,
     ) -> Result<Option<Self>, ResumeError> {
         let marker = live.join(MARKER_FILENAME);
         let bytes = match std::fs::read(&marker) {
@@ -189,8 +189,8 @@ impl PendingRestore {
                 format_args!("restore record version {}", record.version),
             )));
         }
-        let plan = RestorePlan::check(&record.manifest, window, partition_count)
-            .map_err(ResumeError::Window)?;
+        let plan =
+            RestorePlan::check(&record.manifest, window, ownership).map_err(ResumeError::Window)?;
         Ok(Some(Self {
             marker,
             record,
@@ -211,19 +211,15 @@ impl PendingRestore {
         self.record.manifest.captured_at()
     }
 
-    /// Commits each follower's planned positions on the partitions `admitted` owns, with its stamp.
-    /// The other partitions belong to other pods, whose followers keep their own commits. Safe to
-    /// repeat: nothing consumes a follower before the restore finishes.
+    /// Commits the plan's follower positions with `admitted`'s stamp. The plan was checked under
+    /// `admitted`'s split, so it names only this pod's partitions. Safe to repeat before `finish`.
     pub(crate) fn position_followers(
         &self,
         groups: &InputGroups,
         admitted: &AdmittedSplit,
     ) -> KafkaResult<()> {
         for follower in groups.followers() {
-            follower.commit(
-                &admitted.stamp(),
-                &self.plan.positions(follower.topic(), &admitted.ownership()),
-            )?;
+            follower.commit(&admitted.stamp(), &self.plan.positions(follower.topic()))?;
         }
         Ok(())
     }
@@ -470,7 +466,8 @@ mod tests {
         let root = TempDir::new().unwrap();
         let live = root.path().join("store");
         let stage = staged(root.path());
-        let plan = RestorePlan::check(&manifest(), &window(), 1).unwrap();
+        let plan =
+            RestorePlan::check(&manifest(), &window(), &PartitionOwnership::single(1)).unwrap();
 
         let published = ValidatedStage::validate(stage.clone(), local())
             .unwrap()
@@ -488,7 +485,7 @@ mod tests {
         );
         drop(store);
 
-        let resumed = PendingRestore::resume(&live, &window(), 1)
+        let resumed = PendingRestore::resume(&live, &window(), &PartitionOwnership::single(1))
             .unwrap()
             .expect("the marker survives the store's open");
         assert_eq!(resumed.plan(), &plan);
@@ -543,15 +540,17 @@ mod tests {
             Err(FinishError::Commit(_))
         ));
         assert!(
-            PendingRestore::resume(&live, &window(), 1)
+            PendingRestore::resume(&live, &window(), &PartitionOwnership::single(1))
                 .unwrap()
                 .is_some(),
             "a restore that did not finish is still pending",
         );
 
         published.finish(&owned, &held, || Ok(())).unwrap();
-        assert!(PendingRestore::resume(&live, &window(), 1)
-            .unwrap()
-            .is_none());
+        assert!(
+            PendingRestore::resume(&live, &window(), &PartitionOwnership::single(1))
+                .unwrap()
+                .is_none()
+        );
     }
 }

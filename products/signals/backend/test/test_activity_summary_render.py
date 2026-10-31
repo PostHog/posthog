@@ -13,6 +13,7 @@ from products.signals.backend.activity_summary.computed import compute_fields
 from products.signals.backend.activity_summary.prompt import (
     MAX_LABEL_CHARS,
     MAX_RECENT_SHIFT_CHARS,
+    EmptyProfileError,
     MalformedSummaryError,
     normalize_summary,
     summary_text,
@@ -32,6 +33,7 @@ from products.signals.backend.activity_summary.render import (
     ActivityItem,
     Drop,
     Parent,
+    Product,
     RenderLimits,
     TaskItem,
     Unit,
@@ -44,6 +46,7 @@ from products.signals.backend.activity_summary.render import (
     sampling_seed,
     task_units,
     view_units,
+    without_products,
 )
 from products.signals.backend.activity_summary.summaries import PIPELINE_DISTINCT_ID, SummaryPrices, cost_usd, summarize
 
@@ -301,9 +304,9 @@ def test_activity_units_drop_automated_activity(
             '- 2026-10-18 updated Insight "Signup funnel" (agent: Split the funnel by plan)',
         ),
         (
-            "collapsed rows carry the newest intent",
+            "collapsed rows carry their intents newest first",
             ["Add a breakdown", None, "Split the funnel by plan"],
-            '- 2026-10-18 updated Insight "Signup funnel" (x3) (agent: Add a breakdown)',
+            '- 2026-10-18 updated Insight "Signup funnel" (x3) (agent: Add a breakdown; Split the funnel by plan)',
         ),
         (
             "an intent keeps only the host of a link",
@@ -390,6 +393,64 @@ def test_activity_units_group_children_under_their_parent(
     assert dict(drops) == expected_drops
 
 
+def _object_rows(name: str, intents: list[str | None]) -> list[ActivityItem]:
+    return [
+        _change("Insight", "updated", name, days_ago=1 + n / 100, intent=intent, item_id="1")
+        for n, intent in enumerate(intents)
+    ]
+
+
+def _group_rows(name: str, intents: list[str | None]) -> list[ActivityItem]:
+    return [
+        _change("Insight", "updated", f"{name} {n % 2}", days_ago=1 + n / 100, intent=intent, item_id=str(n % 2))
+        for n, intent in enumerate(intents)
+    ]
+
+
+def _count_rows(name: str, intents: list[str | None]) -> list[ActivityItem]:
+    return [
+        _change("Ticket", "updated", f"{name} #{n}", days_ago=0.5 + n / 100, intent=intent, item_id=str(n))
+        for n, intent in enumerate(intents)
+    ]
+
+
+LINE_TYPES = [("object line", _object_rows), ("group line", _group_rows), ("count line", _count_rows)]
+GROUP_PARENTS = {("Insight", "0"): (QUALITY,), ("Insight", "1"): (QUALITY,)}
+
+
+@parameterized.expand(LINE_TYPES)
+def test_an_activity_line_keeps_the_intent_after_a_long_name(_name: str, rows: Any) -> None:
+    intent = "Split the funnel by plan to see which plan dropped after the pricing change"
+    items = rows("word " * 60, [intent, None, None, None])
+
+    [unit] = activity_units(items, Counter(), GROUP_PARENTS)
+
+    assert len(unit.text) <= ACTIVITY_LINE_CHARS
+    assert unit.text.endswith(f" (agent: {intent})")
+    assert unit.intent_chars == len(intent)
+
+
+@parameterized.expand(
+    [
+        (f"{line_type}, {case}", rows, max_intents, expected)
+        for line_type, rows in LINE_TYPES
+        for case, max_intents, expected in [
+            ("two intents", 2, "Add a breakdown; Split by plan"),
+            ("one intent", 1, "Add a breakdown"),
+        ]
+    ]
+)
+def test_an_activity_line_keeps_the_newest_distinct_intents(
+    _name: str, rows: Any, max_intents: int, expected: str
+) -> None:
+    items = rows("Signup funnel", ["Add a breakdown", "Split by plan", "add  a BREAKDOWN", "Fix the date range"])
+    limits = RenderLimits(activity_max_intents=max_intents)
+
+    [unit] = activity_units(items, Counter(), GROUP_PARENTS, limits)
+
+    assert unit.text.endswith(f" (agent: {expected})")
+
+
 def test_a_group_line_lists_the_names_that_fit_and_marks_the_rest() -> None:
     items = [
         _change(
@@ -423,6 +484,20 @@ def test_activity_units_spread_a_burst_across_days(_name: str, older_days: int, 
     assert len(units) == ACTIVITY_LINES
     assert sum(1 for unit in units if "Burst" in unit.text) == expected_burst_lines
     assert drops[Drop.BURST_CAP] + drops[Drop.SAMPLE_CAP] == len(burst) + len(older) - ACTIVITY_LINES
+
+
+def test_without_products_drops_inbox_rows_and_views_and_counts_them() -> None:
+    drops: Counter[str] = Counter()
+    activity, views = without_products(
+        [_change("SignalReport", "updated", "Weekly digest"), _change("Insight", "created", "Signup funnel")],
+        [_view("scene", "Inbox"), _view("scene", "Dashboards"), _view("insight", "abc", "Signup funnel")],
+        frozenset({Product.INBOX}),
+        drops,
+    )
+
+    assert [item.scope for item in activity] == ["Insight"]
+    assert [view.ref for view in views] == ["Dashboards", "abc"]
+    assert drops == {Drop.EXCLUDED_PRODUCT: 2}
 
 
 def test_burst_cap_keeps_the_newest_units_of_a_day() -> None:
@@ -660,6 +735,7 @@ def test_build_input_stays_inside_its_bounds_for_a_very_active_person(_name: str
     assert max(len(line) for line in tasks_text.split("\n")[1:]) <= limits.task_line_chars
     assert max(len(line) for line in activity_text.split("\n")[1:]) <= limits.activity_line_chars
     assert rendered.input_chars <= limits.sections_max_chars
+    assert rendered.intent_lines == limits.activity_lines and rendered.intent_chars > 0
     assert rendered.drops[Drop.BURST_CAP] > 0 and rendered.drops[Drop.SAMPLE_CAP] > 0
 
 
@@ -843,16 +919,20 @@ def test_normalize_summary(_name: str, content: str, had_previous: bool, expecte
 
 @parameterized.expand(
     [
-        ("empty", None),
-        ("not JSON", "Here is the summary: ..."),
-        ("not an object", "[1, 2]"),
-        ("no profile", _answer(profile="  ")),
-        ("no headline", _answer(headline=None)),
+        ("empty", None, False, MalformedSummaryError),
+        ("not JSON", "Here is the summary: ...", False, MalformedSummaryError),
+        ("not an object", "[1, 2]", False, MalformedSummaryError),
+        ("no profile on a first summary", _answer(profile="  "), False, EmptyProfileError),
+        ("no profile with a previous summary", _answer(profile="  "), True, MalformedSummaryError),
+        ("no headline", _answer(headline=None), False, MalformedSummaryError),
+        ("no headline and no profile", _answer(headline=None, profile=""), False, MalformedSummaryError),
     ]
 )
-def test_normalize_summary_rejects_a_malformed_answer(_name: str, content: str | None) -> None:
-    with pytest.raises(MalformedSummaryError):
-        normalize_summary(content, had_previous_summary=False)
+def test_normalize_summary_rejects_a_malformed_answer(
+    _name: str, content: str | None, had_previous: bool, error: type[Exception]
+) -> None:
+    with pytest.raises(error):
+        normalize_summary(content, had_previous_summary=had_previous)
 
 
 def test_summary_text_is_the_headline_and_the_theme_labels_in_order() -> None:
@@ -939,6 +1019,7 @@ _CONNECTION_ERROR = APIConnectionError(request=SimpleNamespace())  # type: ignor
             "api_error: APIConnectionError",
             (None, None),
         ),
+        ("an empty first profile is not retried", [_answer(profile="")], False, 1, None, (100, 20)),
     ]
 )
 def test_summarize_retries_a_malformed_or_truncated_answer_once(
@@ -962,6 +1043,7 @@ def test_summarize_retries_a_malformed_or_truncated_answer_once(
     assert {req["user"] for req in llm.requests} == {PIPELINE_DISTINCT_ID}
     assert {req["max_completion_tokens"] for req in llm.requests} == {MAX_COMPLETION_TOKENS}
     assert (outcome.summary is not None, outcome.error) == (succeeds, error)
+    assert outcome.empty_profile == (not succeeds and error is None)
     assert (outcome.tokens_in, outcome.tokens_out) == tokens
 
 

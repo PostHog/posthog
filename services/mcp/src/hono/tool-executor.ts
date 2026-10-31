@@ -55,6 +55,7 @@ import {
     repairArgumentNesting,
     UNRECOGNIZED_EXEC_TOKEN,
     type ExecCommandMeta,
+    type ExecInnerCallProperties,
     type ExecInnerCallTracker,
 } from '@/tools/exec'
 import { EXECUTE_SQL_TOOL_NAME } from '@/tools/posthogAiTools/executeSql'
@@ -72,6 +73,12 @@ import {
     trackToolsList,
     type ToolCallAnalyticsMeta,
 } from './analytics'
+import {
+    type GuidanceEngine,
+    type GuidanceNotice,
+    guidanceAnalyticsProperties,
+    attachGuidanceNotice,
+} from './guidance/engine'
 import type { InstructionsBuilder } from './instructions'
 import { getEffectiveMCPClientContext, getEffectiveMCPClientIdentity, resolveSessionKey } from './mcp-context'
 import { toolCallDurationSeconds, toolCallsTotal, toolErrorsTotal } from './metrics'
@@ -88,6 +95,7 @@ interface ResolvedTool {
 
 interface ExecMetricState {
     innerToolName: string | undefined
+    innerOutputFormat: ExecInnerCallProperties['output_format'] | undefined
     /** What the agent asked for, merged onto the event whichever verb ran. */
     commandMeta: ExecCommandMeta | undefined
     /**
@@ -158,15 +166,25 @@ export class ToolExecutor {
     private readonly catalog: ToolCatalog
     private readonly instructionsBuilder: InstructionsBuilder
     private readonly skillCatalogService: SkillCatalogService | undefined
+    private readonly guidance: GuidanceEngine | undefined
 
     constructor(
         catalog: ToolCatalog,
         instructionsBuilder: InstructionsBuilder,
-        skillCatalogService?: SkillCatalogService
+        skillCatalogService?: SkillCatalogService,
+        guidance?: GuidanceEngine
     ) {
         this.catalog = catalog
         this.instructionsBuilder = instructionsBuilder
         this.skillCatalogService = skillCatalogService
+        this.guidance = guidance
+    }
+
+    private async guidanceFor(
+        state: ResolvedState,
+        call: Parameters<GuidanceEngine['evaluate']>[1]
+    ): Promise<GuidanceNotice | undefined> {
+        return this.guidance?.evaluate(state, call)
     }
 
     async handleToolsList(state: ResolvedState): Promise<ListToolsResult> {
@@ -191,7 +209,9 @@ export class ToolExecutor {
 
     private buildAdvertisedTools(state: ResolvedState): ListToolsResult['tools'] {
         if (state.useSingleExec) {
-            const renderUiEntry = state.renderUiEnabled ? this.instructionsBuilder.buildRenderUiToolEntry(state) : null
+            const renderUiEntry = state.renderUiEnabled
+                ? this.instructionsBuilder.buildRenderUiToolEntry(this.catalog.getPreBuiltEntries())
+                : null
             return [this.instructionsBuilder.buildExecToolEntry(state), ...(renderUiEntry ? [renderUiEntry] : [])]
         }
 
@@ -215,7 +235,7 @@ export class ToolExecutor {
                 return this.instructionsBuilder.buildExecToolEntry(state)
             }
             if (toolName === 'render-ui' && state.renderUiEnabled) {
-                return this.instructionsBuilder.buildRenderUiToolEntry(state) ?? undefined
+                return this.instructionsBuilder.buildRenderUiToolEntry(this.catalog.getPreBuiltEntries()) ?? undefined
             }
             return undefined
         }
@@ -264,6 +284,7 @@ export class ToolExecutor {
             }
         }
         const callState = stateForToolCall(state, analyticsMeta.intent)
+        callState.carriedContextHandle = carriedContextHandle
         const callParams = { ...params, arguments: args }
 
         const targetToolName =
@@ -512,6 +533,11 @@ export class ToolExecutor {
             stop({ status: 'success' })
 
             const duration = Date.now() - startMs
+            const guidance = await this.guidanceFor(state, {
+                toolName: tool.name,
+                args: validation.data,
+                isError: false,
+            })
 
             let response: ToolResultPayload
             if (isToolCallPayload(handlerResult)) {
@@ -549,6 +575,7 @@ export class ToolExecutor {
                     input_tokens: estimateTokens(validation.data),
                     output_tokens: estimateResponseTokens(response),
                     ...toolResultAnalyticsProperties(response),
+                    ...guidanceAnalyticsProperties(guidance),
                 },
                 analyticsMeta,
                 this.servedToolDescription(tool.name)
@@ -571,11 +598,16 @@ export class ToolExecutor {
                 output: response,
             })
 
-            return response
+            return attachGuidanceNotice(response, guidance)
         } catch (error: unknown) {
             toolCallsTotal.inc({ tool: tool.name, status: 'error' })
             stop({ status: 'error' })
             const classification = classifyToolError(error, tool.name)
+            const guidance = await this.guidanceFor(state, {
+                toolName: tool.name,
+                args: validation.data,
+                isError: true,
+            })
 
             // A skill lookup that misses is not a failure the agent should read as
             // one. The exec dispatcher rewrites the same miss, and a tools-mode
@@ -600,6 +632,7 @@ export class ToolExecutor {
                     ...inputShape,
                     ...errorAnalyticsProperties(classification, error),
                     ...(lookupMiss ? skillLookupMissProperties(lookupMiss.kind) : {}),
+                    ...guidanceAnalyticsProperties(guidance),
                 },
                 analyticsMeta,
                 this.servedToolDescription(tool.name)
@@ -628,16 +661,19 @@ export class ToolExecutor {
             })
 
             if (lookupMiss) {
-                return { content: [{ type: 'text', text: lookupMiss.message }] }
+                return attachGuidanceNotice({ content: [{ type: 'text', text: lookupMiss.message }] }, guidance)
             }
 
             const sessionUuid = await sessionUuidForError(state)
-            return handleToolError(
-                error,
-                tool.name,
-                state.distinctId,
-                sessionUuid,
-                state.suppressAnalytics || isPrivateScoutTrialTool(tool.name)
+            return attachGuidanceNotice(
+                handleToolError(
+                    error,
+                    tool.name,
+                    state.distinctId,
+                    sessionUuid,
+                    state.suppressAnalytics || isPrivateScoutTrialTool(tool.name)
+                ),
+                guidance
             )
         }
     }
@@ -657,6 +693,7 @@ export class ToolExecutor {
     ): Promise<unknown> {
         const execMetrics: ExecMetricState = {
             innerToolName: undefined,
+            innerOutputFormat: undefined,
             commandMeta: undefined,
             innerFailure: undefined,
             skillLookupMissKind: undefined,
@@ -745,6 +782,12 @@ export class ToolExecutor {
             const failureShape = innerFailure
                 ? errorAnalyticsProperties(classifyToolError(innerFailure.error, execToolName()), innerFailure.error)
                 : undefined
+            const guidance = await this.guidanceFor(state, {
+                toolName: execToolName(),
+                execVerb: typeof execShape.$mcp_exec_verb === 'string' ? execShape.$mcp_exec_verb : undefined,
+                args: execMetrics.innerToolName ? parseExecCallInnerArgs(validation.data.command) : validation.data,
+                isError: innerFailure !== undefined,
+            })
 
             void trackToolCall(
                 execToolName(),
@@ -763,12 +806,16 @@ export class ToolExecutor {
                     ...execMetrics.commandMeta,
                     ...(execMetrics.resultEmpty ? { mcp_result_empty: true } : {}),
                     ...toolResultAnalyticsProperties(response),
+                    ...guidanceAnalyticsProperties(guidance),
                 },
                 analyticsMeta,
                 this.servedToolDescription(execToolName())
             )
 
-            return execMetrics.noDataNotice ? prependNoDataNotice(response, execMetrics.noDataNotice.text) : response
+            const guided = attachGuidanceNotice(response, guidance, {
+                jsonOutput: execMetrics.innerOutputFormat === 'json',
+            })
+            return execMetrics.noDataNotice ? prependNoDataNotice(guided, execMetrics.noDataNotice.text) : guided
         } catch (error: unknown) {
             const metricTool = execToolName()
             if (error instanceof NoDataInstallNoticeError) {
@@ -781,6 +828,12 @@ export class ToolExecutor {
                 )
             }
             const classification = classifyToolError(error, metricTool)
+            const guidance = await this.guidanceFor(state, {
+                toolName: metricTool,
+                execVerb: typeof execShape.$mcp_exec_verb === 'string' ? execShape.$mcp_exec_verb : undefined,
+                args: execMetrics.innerToolName ? parseExecCallInnerArgs(validation.data.command) : validation.data,
+                isError: true,
+            })
             if (!execMetrics.innerToolName) {
                 // Match the inner-tool path, which labels rejected input `validation_error`.
                 const status = classification.errorType === 'validation' ? 'validation_error' : 'error'
@@ -797,6 +850,7 @@ export class ToolExecutor {
                     ...execInputShape,
                     ...errorAnalyticsProperties(classification, error),
                     ...execMetrics.commandMeta,
+                    ...guidanceAnalyticsProperties(guidance),
                 },
                 analyticsMeta,
                 this.servedToolDescription(metricTool)
@@ -807,14 +861,17 @@ export class ToolExecutor {
             // not the `exec` wrapper — so the agent-facing `[tool]` label and the 5xx
             // exception fingerprint point at the real source instead of collapsing every
             // exec-routed failure into one opaque `exec` bucket.
-            return handleToolError(
-                error,
-                metricTool,
-                state.distinctId,
-                sessionUuid,
-                state.suppressAnalytics ||
-                    isPrivateScoutTrialTool(metricTool) ||
-                    isPrivateScoutTrialTool(execShape.$mcp_exec_target_tool)
+            return attachGuidanceNotice(
+                handleToolError(
+                    error,
+                    metricTool,
+                    state.distinctId,
+                    sessionUuid,
+                    state.suppressAnalytics ||
+                        isPrivateScoutTrialTool(metricTool) ||
+                        isPrivateScoutTrialTool(execShape.$mcp_exec_target_tool)
+                ),
+                guidance
             )
         }
     }
@@ -931,6 +988,7 @@ export class ToolExecutor {
             // event (now relabelled to the inner tool name, with the inner tool's category
             // derived from it) already carries this call, so a second emit would double-count.
             execMetrics.innerToolName = toolName
+            execMetrics.innerOutputFormat = properties.output_format
             if (!properties.success) {
                 execMetrics.innerFailure = { error: properties.error }
             }

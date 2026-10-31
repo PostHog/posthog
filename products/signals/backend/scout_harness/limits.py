@@ -1,33 +1,15 @@
 from __future__ import annotations
 
-# A regular scout run's hard runtime cap. Enforced via the Temporal activity's
-# `start_to_close_timeout` in `scout_scheduler.py` — if the agent is still going
-# at this point, the activity is killed and the run row is marked failed by the
-# bridge. Also passed to `MultiTurnSession` as the per-turn poll budget
-# (`max_poll_seconds`) so the dropped-finalization salvage fires before the activity's
-# timeout — keep it below `WORKFLOW_HARD_CEILING_S`. Tuning this is a config decision,
-# not a per-run override knob.
-DEFAULT_MAX_RUNTIME_S = 20 * 60
+from products.signals.backend.constants import DEFAULT_MAX_RUNTIME_S
 
-# Slack added on top of `DEFAULT_MAX_RUNTIME_S` for the Temporal activity
-# `start_to_close_timeout`, so heartbeat-based failures get a chance to surface
-# before Temporal's own timeout fires.
-ACTIVITY_SLACK_S = 60
+TRIGGERED_BY_ONBOARDING = "onboarding"
 
-# Hard ceiling on how long a regular scout activity can actually be running. The
-# workflow sets `start_to_close_timeout = DEFAULT_MAX_RUNTIME_S + ACTIVITY_SLACK_S`,
-# providing a heartbeat window before Temporal's own timeout fires. The stale-RUNNING
-# self-heal in `runner.py` uses this as the staleness base.
+# Task teardown can wait up to 15 minutes for spend settlement after the agent stops.
+ACTIVITY_SLACK_S = 15 * 60 + 60
+
 WORKFLOW_HARD_CEILING_S = DEFAULT_MAX_RUNTIME_S + ACTIVITY_SLACK_S
 
-# Age past which an in-flight scout run is treated as orphaned and reaped by the
-# stale-run self-heal in `runner.py`. A run older than the activity's hard ceiling cannot
-# still be legitimately executing — Temporal kills the activity at `WORKFLOW_HARD_CEILING_S`
-# — so a `QUEUED`/`IN_PROGRESS` TaskRun past this cutoff is an orphan left behind by a
-# crashed worker/sandbox that never wrote a terminal status. Set to a generous multiple of
-# the ceiling so a run merely at the wall (about to fail or finish) is never reaped out from
-# under itself; a lane blocked by an orphan then self-clears within one or two coordinator
-# ticks.
+# Leave a margin beyond the activity timeout before reaping an unfinished run.
 STALE_RUN_CUTOFF_S = 2 * WORKFLOW_HARD_CEILING_S
 
 # How many of a lane's newest runs the self-heal checks for orphans. An orphan is a run stuck in
@@ -198,6 +180,7 @@ TRIGGERED_BY_WORKFLOW = "workflow"
 # nothing about it, so it must not stamp `last_run_at` and its failures must not size a breaker
 # threshold derived from that cadence.
 TRIGGERED_BY_CHECK = "check"
+TRIGGERED_BY_MONITORING = "monitoring"
 
 # Minimum gap between two workflow-triggered runs of the same (team, skill), enforced scout-side.
 # The workflow layer has its own first line of defence (trigger masking), but that lives in

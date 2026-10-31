@@ -13,6 +13,9 @@ class PlatformAlertConfigurationSourceKind(LabeledStrEnum):
 
     LOGS = "logs", "Logs"
     INSIGHT = "insight", "Insight"
+    WAREHOUSE_SOURCE = "warehouse_source", "Warehouse source"
+    WAREHOUSE_DESTINATION = "warehouse_destination", "Warehouse destination"
+    METRICS = "metrics", "Metrics"
 
 
 class PlatformAlertOwner(LabeledStrEnum):
@@ -58,3 +61,22 @@ class PlatformAlertConfigurationRecurrenceUnit(LabeledStrEnum):
     DAY = "day", "Day"
     WEEK = "week", "Week"
     MONTH = "month", "Month"
+
+
+class HoldRelease(LabeledStrEnum):
+    """What releasing a held delivery does with it."""
+
+    SEND = "send", "Send"
+    SUPPRESS = "suppress", "Suppress"
+
+
+class HoldReleasedBy(LabeledStrEnum):
+    """Who released a held delivery.
+
+    A release returns the request to a retry only from the caller that released it, so the agent
+    and the safety net cannot both send one evaluation.
+    """
+
+    VERDICT = "verdict", "Verdict"
+    CLAIM_REFUSED = "claim_refused", "Claim refused"
+    SAFETY_NET = "safety_net", "Safety net"

@@ -25,17 +25,17 @@ import { metalyticsLogic } from 'lib/components/Metalytics/metalyticsLogic'
 import { captureImageLogic } from 'lib/components/Scenes/InsightOrDashboard/captureImageLogic'
 import { SceneMenuBarAddToNotebook } from 'lib/components/Scenes/SceneMenuBarAddToNotebook'
 import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
+import { SceneMenuBarPinItem } from 'lib/components/Scenes/SceneMenuBarPinItem'
 import { SceneTagsCombobox } from 'lib/components/Scenes/SceneTagsCombobox'
 import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
-import { INSIGHT_GRAPH_SELECTOR, INSIGHT_SCREENSHOT_KEY } from 'scenes/insights/insightImageCapture'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { NotebookNodeType } from 'scenes/notebooks/types'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { interProjectCopyLogic } from 'scenes/resource-transfer/interProjectCopyLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -72,6 +72,10 @@ import {
 
 import { metricsLogic } from 'products/data_catalog/frontend/metricsLogic'
 import { endpointLogic } from 'products/endpoints/frontend/endpointLogic'
+import {
+    INSIGHT_GRAPH_SELECTOR,
+    INSIGHT_SCREENSHOT_KEY,
+} from 'products/product_analytics/frontend/insights/shared/insightImageCapture'
 import { urlForSubscriptions } from 'products/subscriptions/frontend/components/Subscriptions/utils'
 
 import { insightModalsLogic } from '../insightModalsLogic'
@@ -195,6 +199,8 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
         isSavedInsight /* add-to-dashboard, add-to-notebook, subscribe, alerts, share */
     const showMetadataMenu = true // tags + activity always shown
     const showStateMenu = isSavedInsight // favorite + view-source toggle
+    // The Today layout pins insights per person instead, so the project-wide favorite would read as a duplicate.
+    const showFavorite = !featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV]
     const showStaffMenu = canShowDebugPanel
 
     return (
@@ -408,16 +414,19 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
                             Edit in SQL editor
                         </SceneMenuBarItem>
                     )}
+                    <SceneMenuBarPinItem dataAttrKey={RESOURCE_TYPE} />
                     {showStateMenu && (
                         <>
                             <SceneMenuBarSeparator />
-                            <SceneMenuBarCheckboxItem
-                                checked={!!insight.favorited}
-                                onCheckedChange={(checked) => setInsightMetadata({ favorited: checked })}
-                                data-attr={`${RESOURCE_TYPE}-menubar-favorite`}
-                            >
-                                Favorite
-                            </SceneMenuBarCheckboxItem>
+                            {showFavorite && (
+                                <SceneMenuBarCheckboxItem
+                                    checked={!!insight.favorited}
+                                    onCheckedChange={(checked) => setInsightMetadata({ favorited: checked })}
+                                    data-attr={`${RESOURCE_TYPE}-menubar-favorite`}
+                                >
+                                    Favorite
+                                </SceneMenuBarCheckboxItem>
+                            )}
                             <SceneMenuBarCheckboxItem
                                 checked={showQueryEditor}
                                 onCheckedChange={handleToggleQueryEditorPanel}

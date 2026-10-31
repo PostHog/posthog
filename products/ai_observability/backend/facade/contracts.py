@@ -4,6 +4,8 @@ from typing import Annotated, Any, Literal, get_args
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic.alias_generators import to_camel
 
+from posthog.dataclasses import frozen
+
 
 class Contract(BaseModel):
     # Without `json_schema_serialization_defaults_required`, fields with defaults generate as optional in TypeScript.
@@ -53,6 +55,11 @@ class TracePerson(Contract):
     label: str
 
 
+class TraceGit(Contract):
+    branch: str = Field(description="The git branch checked out when the trace ran.")
+    repo: str | None = Field(description="The repository as owner/name, or null when the branch's event has none.")
+
+
 class Trace(Contract):
     id: str
     name: str | None
@@ -68,6 +75,10 @@ class Trace(Contract):
     thread_node_ids: list[str]
     default_node_id: str
     node_ids_by_alias: dict[str, str]
+    git: TraceGit | None = Field(
+        description="The branch the trace's work ran on: the latest stamped branch other than main or master, else "
+        "the first stamp. Null when no event carries a branch."
+    )
 
 
 class TraceNodeIOKeys(Contract):
@@ -118,6 +129,7 @@ EVALUATION_PASSED_MARKER = "aiEvaluationPassed()"
 
 
 EvaluationOutcome = Literal["pass", "fail", "inconclusive", "unrated"]
+EvaluationRollupOutcome = Literal["pass", "fail", "unrated"]
 
 
 class TraceEvaluationResult(Contract):
@@ -129,13 +141,266 @@ class TraceEvaluationResult(Contract):
     )
     outcome: EvaluationOutcome
     label: str = Field(description='What the result says, such as "True", "0.82", "Positive" or "Skipped".')
+    score: float | None = Field(description="The numeric result of a numeric evaluation, null for every other type.")
     reasoning: str | None
     timestamp: datetime
     is_backfill: bool
 
 
+class TraceNodeEvaluationRollup(Contract):
+    node_id: str = Field(description="The tree node the results grade.")
+    outcome: EvaluationRollupOutcome = Field(
+        description="Fail if any evaluation fails on the node, else pass if any passes, else unrated."
+    )
+
+
+class TraceEvaluationSummary(Contract):
+    """Counts the latest run of each evaluation on each node, by when the run started, so re-runs and backfills
+    count once. Inconclusive results count as unrated. Computed over the results returned, at most 250."""
+
+    passed: int
+    failed: int
+    unrated: int
+    nodes: list[TraceNodeEvaluationRollup] = Field(description="One entry per node with results, sorted by node id.")
+
+
 class TraceEvaluationResults(Contract):
     results: list[TraceEvaluationResult]
+    summary: TraceEvaluationSummary
+
+
+class TraceCluster(Contract):
+    run_id: str = Field(
+        description="The clustering run that put the trace in this cluster. The cluster page is addressed by this id and the cluster id."
+    )
+    run_at: datetime = Field(description="When the run finished.")
+    job_id: str | None = Field(description="The clustering job the run belongs to, null for a run without a job.")
+    job_name: str | None
+    cluster_id: int = Field(description="The cluster's id within its run. -1 is the run's outliers.")
+    title: str | None
+    description: str | None
+    is_outlier: bool = Field(description="The trace fit no cluster in this run.")
+
+
+class TraceClusters(Contract):
+    clusters: list[TraceCluster] = Field(
+        description="The clusters that list the trace: for each clustering job, the newest scheduled run that lists it. "
+        "Manual runs are left out. Clusters come before outliers, then newest first."
+    )
+
+
+class TraceFeedbackScore(Contract):
+    id: str
+    name: str | None
+    value: str = Field(
+        description="The score as text: a string as sent, any other value as compact JSON, such as 0, false or 4.5."
+    )
+    node_id: str = Field(
+        description="The tree node the score targets: the step's event uuid, or the trace id for a trace-level score."
+    )
+    timestamp: datetime
+
+
+class TraceFeedbackText(Contract):
+    kind: Literal["text"]
+    id: str
+    text: str
+    node_id: str = Field(
+        description="The tree node the feedback targets: the step's event uuid, or the trace id for trace-level feedback."
+    )
+    timestamp: datetime
+
+
+class TraceSurvey(Contract):
+    id: str
+    name: str | None = Field(description="Null when the survey no longer exists.")
+
+
+class TraceThumbsAnswer(Contract):
+    kind: Literal["thumbs"]
+    question: str
+    up: bool
+
+
+class TraceRatingAnswer(Contract):
+    kind: Literal["rating"]
+    question: str
+    value: str
+    scale: int | None
+    lower_label: str | None
+    upper_label: str | None
+
+
+class TraceChoiceAnswer(Contract):
+    kind: Literal["choice"]
+    question: str
+    choices: list[str]
+
+
+class TraceTextAnswer(Contract):
+    kind: Literal["text"]
+    question: str
+    text: str
+
+
+TraceSurveyAnswer = Annotated[
+    TraceThumbsAnswer | TraceRatingAnswer | TraceChoiceAnswer | TraceTextAnswer, Field(discriminator="kind")
+]
+
+
+class TraceSurveyResponse(Contract):
+    kind: Literal["survey"]
+    id: str
+    node_id: str = Field(
+        description="The tree node the response targets: the trace id, as a survey response covers the whole trace."
+    )
+    timestamp: datetime
+    survey: TraceSurvey
+    answers: list[TraceSurveyAnswer]
+    complete: bool = Field(description="False when the user left the survey before its end.")
+    unavailable: Literal["survey_not_found", "no_questions"] | None = Field(
+        description="Why the answers cannot be shown: the survey was deleted, or it has no questions."
+    )
+
+
+class TraceUnansweredSurvey(Contract):
+    survey: TraceSurvey
+    timestamp: datetime = Field(description="When the survey was first shown.")
+
+
+TraceSurveyResponsesStatus = Literal["ok", "failed", "not_permitted"]
+
+
+TraceFeedbackResponse = Annotated[TraceFeedbackText | TraceSurveyResponse, Field(discriminator="kind")]
+
+
+class TraceFeedbackSummary(Contract):
+    total: int = Field(description="Scores plus responses.")
+    thumbs_up: int = Field(description="Thumbs up answers to 2-point survey rating questions.")
+    thumbs_down: int = Field(description="Thumbs down answers to 2-point survey rating questions.")
+
+
+class TraceFeedback(Contract):
+    scores: list[TraceFeedbackScore] = Field(description="Oldest first.")
+    responses: list[TraceFeedbackResponse] = Field(description="What users said, oldest first.")
+    unanswered: list[TraceUnansweredSurvey] = Field(
+        description="Surveys shown with the trace and not answered, oldest first."
+    )
+    survey_responses_status: TraceSurveyResponsesStatus = Field(
+        description="ok when survey responses are included, failed when the survey read failed, not_permitted when the token lacks the survey:read and query:read scopes."
+    )
+    summary: TraceFeedbackSummary
+
+
+class TraceSearchMatch(Contract):
+    node_id: str = Field(description="A step whose stored data contains the query. The root's id is the trace id.")
+    count: int = Field(
+        description="How many times the query occurs in the step's stored inputs, outputs, state, tools, name, model, provider and error, ignoring case. Keys of the stored JSON count too."
+    )
+
+
+class TraceSearchResults(Contract):
+    total: int = Field(description="Occurrences of the query across every matching step.")
+    matches: list[TraceSearchMatch] = Field(
+        description="Matching steps in tree order, the root first. Steps without a match are left out."
+    )
+
+
+TraceSummaryStatus = Literal["pending", "ready", "failed"]
+TraceSummaryFailureReason = Literal[
+    "trace_not_found", "too_large", "timeout", "provider_error", "not_approved", "access_changed", "error"
+]
+
+
+@frozen
+class TraceSummaryJob:
+    """What the trace summary job needs to write one summary. Ids only, so the workflow history stays small.
+    `requested_at` is when the pending entry the job fills was written."""
+
+    team_id: int
+    trace_id: str
+    timestamp_hint: datetime | None
+    fingerprint: str
+    requester_id: int
+    requested_at: datetime
+
+
+class TraceSummaryItem(Contract):
+    text: str
+    node_id: str | None = Field(description="The step the item refers to, or null when it names none.")
+
+
+class TraceSummaryContent(Contract):
+    title: str
+    bullets: list[TraceSummaryItem]
+    notes: list[TraceSummaryItem] = Field(description="Details worth a second look, or empty.")
+    flow: str = Field(description="The main steps of the trace as a small text diagram.")
+    model: str = Field(description="The model that wrote the summary.")
+    generated_at: datetime
+
+
+class TraceSummaryFailure(Contract):
+    reason: TraceSummaryFailureReason
+    message: str = Field(description="Why the summary failed, ready to show to the user.")
+
+
+class TraceSummary(Contract):
+    status: TraceSummaryStatus = Field(description="`pending` while the summary is written, then `ready` or `failed`.")
+    content: TraceSummaryContent | None = Field(description="The summary when `status` is `ready`, else null.")
+    failure: TraceSummaryFailure | None = Field(description="Why it failed when `status` is `failed`, else null.")
+
+
+@frozen
+class TraceSummaryRun:
+    """What one run of the trace summary job did, for usage reporting."""
+
+    status: Literal["ready", "failed"]
+    failure_reason: TraceSummaryFailureReason | None
+    duration_ms: int
+    input_characters: int
+    model: str
+    was_sampled: bool
+    distinct_id: str
+    groups: dict[str, str]
+
+
+class TracePullRequest(Contract):
+    repo_owner: str = Field(description="The owner of the pull request's repository.")
+    repo_name: str = Field(description="The name of the pull request's repository.")
+    number: int = Field(description="The pull request number.")
+    title: str | None = Field(description="The pull request title, or null when the synced data has none.")
+
+
+class TracePullRequestLookup(Contract):
+    pull_request: TracePullRequest | None = Field(
+        description="The pull request the trace's git branch belongs to, ranked by engineering analytics, or null "
+        "when the trace has no branch, the project has no GitHub source, or no pull request matches."
+    )
+
+
+TraceExportStatus = Literal["pending", "complete", "failed"]
+TRACE_EXPORT_STATUSES: tuple[TraceExportStatus, ...] = get_args(TraceExportStatus)
+
+
+class TraceExport(Contract):
+    id: int = Field(description="The export id, used to read its status and download the file.")
+    status: TraceExportStatus = Field(description="Whether the file is still being written, ready, or failed.")
+    filename: str = Field(description="The name the downloaded JSON file gets.")
+    created_at: datetime = Field(description="When the export was requested.")
+    expires_after: datetime | None = Field(description="When the file is deleted.")
+    exception: str | None = Field(description="Why the export failed, null unless status is failed.")
+
+
+class TraceExportFile(Contract):
+    trace: Trace = Field(description="The trace as the trace endpoint returns it.")
+    truncated: bool = Field(
+        description="True when the trace has more events than an export reads. The file then holds the earliest "
+        "events only, and leaves out the later steps."
+    )
+    nodes: list[TraceNodeDetail] = Field(
+        description="Every node with its event properties as ingested, inputs and outputs included: the root first, "
+        "then the tree in pre-order."
+    )
 
 
 AttentionReason = Literal["errored", "silent", "worse"]
@@ -260,7 +525,9 @@ class PassRateOverviewEntry(Contract):
 
 
 class PassRateOverview(Contract):
-    entries: list[PassRateOverviewEntry] = Field(description="Enabled pass rate evaluations, lowest rate first.")
+    entries: list[PassRateOverviewEntry] = Field(
+        description="Pass rate evaluations with results in the period, paused ones included, lowest rate first."
+    )
     median: float | None = Field(description="Median of the per-evaluation pass rates without low evidence.")
     median_comparison: PeriodComparison | None = Field(
         description="Median pass rate in each period, over evaluations with results in both. Null when none has."
@@ -300,7 +567,9 @@ class EvaluationsOverview(OverviewPeriodFields):
         "bucket can start before `start`."
     )
     evaluations: list[EvaluationResult]
-    totals: OverviewTotals = Field(description="Totals over the enabled evaluations.")
+    totals: OverviewTotals = Field(
+        description="Totals over every evaluation's results in the period, paused ones included."
+    )
     pass_rate_overview: PassRateOverview
 
 

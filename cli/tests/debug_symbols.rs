@@ -4,6 +4,8 @@ use std::path::{Path, PathBuf};
 use posthog_cli::api::symbol_sets::{dedup_uploads_by_chunk_id, SymbolSetUpload};
 use posthog_cli::debug_symbols::{discover, elf_debug_id, package_dsym_bundles, report_problems};
 use posthog_cli::dsym::source_bundle::extract_source_paths_from_dwarf_bytes;
+#[cfg(unix)]
+use posthog_cli::dsym::source_bundle::read_source_manifest_from_zip;
 use posthog_symbol_data::{read_symbol_data, AppleDsym, ElfDebugInfo};
 
 /// The native ELF fixtures shared with cymbal's symbolication tests; built by
@@ -72,7 +74,8 @@ fn extracts_debug_ids_matching_cymbal_fixtures() {
 
 #[test]
 fn discovers_and_packages_elf_files() {
-    let report = discover(&fixtures_dir()).unwrap();
+    let dir = fixtures_dir();
+    let report = discover(&dir).unwrap();
 
     // The four uncompressed ELF fixtures are found and valid, including the
     // aarch64-linux-android shared object, whose chunk id must match what an
@@ -100,7 +103,7 @@ fn discovers_and_packages_elf_files() {
         .into_iter()
         .find(|f| f.debug_id == "850c70a2-6592-a70c-3e49-c0e443794d23")
         .unwrap();
-    let upload = file.into_upload(None, false).unwrap();
+    let upload = file.into_upload(None, false, None).unwrap();
     assert_eq!(upload.chunk_id, "850c70a2-6592-a70c-3e49-c0e443794d23");
 
     let unwrapped: ElfDebugInfo = read_symbol_data(&upload.data).unwrap();
@@ -109,6 +112,84 @@ fn discovers_and_packages_elf_files() {
     let mut magic = [0u8; 4];
     dwarf.read_exact(&mut magic).unwrap();
     assert_eq!(&magic, b"\x7fELF");
+
+    #[cfg(unix)]
+    {
+        let source_root = tempfile::Builder::new()
+            .prefix("srcpath__")
+            .rand_bytes(6)
+            .tempdir_in("/tmp")
+            .unwrap();
+        let root_path = source_root.path().to_str().unwrap();
+        let fixture_root = "/cymbal_tests/native";
+        assert_eq!(root_path.len(), fixture_root.len());
+        let mut dwarf_data = std::fs::read(dir.join("test_binary_pie")).unwrap();
+        let original_paths = extract_source_paths_from_dwarf_bytes(&dwarf_data).unwrap();
+        let outside_dwarf_path = original_paths
+            .iter()
+            .find(|path| path.ends_with("/elf-init-2.33.c"))
+            .unwrap();
+        let outside_root = tempfile::tempdir_in("/tmp").unwrap();
+        let outside_dwarf_dir = outside_dwarf_path.rsplit_once('/').unwrap().0;
+        let nested_len = outside_dwarf_dir.len() - outside_root.path().to_str().unwrap().len() - 1;
+        let outside_path = outside_root
+            .path()
+            .join("x".repeat(nested_len))
+            .join("elf-init-2.33.c");
+        std::fs::create_dir_all(outside_path.parent().unwrap()).unwrap();
+        std::fs::write(&outside_path, b"outside source").unwrap();
+        let mut rewrite_path = |original: &str, replacement: &str| {
+            assert_eq!(original.len(), replacement.len());
+            let mut replaced = 0;
+            for index in 0..=dwarf_data.len() - original.len() {
+                if &dwarf_data[index..index + original.len()] == original.as_bytes() {
+                    dwarf_data[index..index + original.len()]
+                        .copy_from_slice(replacement.as_bytes());
+                    replaced += 1;
+                }
+            }
+            assert!(replaced > 0, "missing DWARF path: {original}");
+        };
+        rewrite_path(fixture_root, root_path);
+        rewrite_path(
+            outside_dwarf_dir,
+            outside_path.parent().unwrap().to_str().unwrap(),
+        );
+        let source_path = source_root.path().join("test_binary.c");
+        let source_contents = std::fs::read(dir.join("test_binary.c")).unwrap();
+        std::fs::write(&source_path, &source_contents).unwrap();
+        let paths = extract_source_paths_from_dwarf_bytes(&dwarf_data).unwrap();
+        assert!(paths
+            .iter()
+            .any(|path| path == source_path.to_str().unwrap()));
+        assert!(
+            paths
+                .iter()
+                .any(|path| path == outside_path.to_str().unwrap()),
+            "outside={outside_path:?}, extracted={paths:?}"
+        );
+
+        std::fs::write(source_root.path().join("test_binary_pie"), dwarf_data).unwrap();
+        let report = discover(source_root.path()).unwrap();
+        let upload = report
+            .files
+            .into_iter()
+            .next()
+            .unwrap()
+            .into_upload(None, true, Some(source_root.path()))
+            .unwrap();
+        let unwrapped: ElfDebugInfo = read_symbol_data(&upload.data).unwrap();
+        let mut zip = zip::ZipArchive::new(std::io::Cursor::new(unwrapped.data)).unwrap();
+        let manifest = read_source_manifest_from_zip(&mut zip).unwrap();
+        assert_eq!(manifest.files.len(), 1);
+        let zip_path = manifest.files.get(source_path.to_str().unwrap()).unwrap();
+        let mut bundled = Vec::new();
+        zip.by_name(zip_path)
+            .unwrap()
+            .read_to_end(&mut bundled)
+            .unwrap();
+        assert_eq!(bundled, source_contents);
+    }
 }
 
 #[test]
@@ -188,7 +269,7 @@ fn discovers_and_packages_macho_executables() {
     assert_eq!(file.debug_id, elf_debug_id(&path).unwrap().to_uppercase());
 
     // Packaged as an AppleDsym container with the thin Mach-O at `dwarf`.
-    let upload = file.into_upload(None, false).unwrap();
+    let upload = file.into_upload(None, false, None).unwrap();
     let unwrapped: AppleDsym = read_symbol_data(&upload.data).unwrap();
     assert_eq!(dwarf_magic(&unwrapped.data), [0xcf, 0xfa, 0xed, 0xfe]);
 }
@@ -259,7 +340,7 @@ fn discovers_every_fat_macho_slice() {
     // the fat container: the server resolves one thin binary per chunk id.
     for (file, expected_slice) in report.files.into_iter().zip([&thin, &thin_b]) {
         assert_eq!(file.debug_id, file.debug_id.to_uppercase());
-        let upload = file.into_upload(None, false).unwrap();
+        let upload = file.into_upload(None, false, None).unwrap();
         let unwrapped: AppleDsym = read_symbol_data(&upload.data).unwrap();
         let mut zip = zip::ZipArchive::new(std::io::Cursor::new(unwrapped.data)).unwrap();
         let mut dwarf = Vec::new();
@@ -370,9 +451,9 @@ fn packages_elf_and_dsym_from_one_directory() {
     let mut uploads: Vec<SymbolSetUpload> = report
         .files
         .into_iter()
-        .map(|f| f.into_upload(None, false).unwrap())
+        .map(|f| f.into_upload(None, false, None).unwrap())
         .collect();
-    uploads.extend(package_dsym_bundles(&report.dsym_bundles, false));
+    uploads.extend(package_dsym_bundles(&report.dsym_bundles, false, None));
     let uploads = dedup_uploads_by_chunk_id(uploads);
     assert_eq!(uploads.len(), 2, "one ELF + one dSYM upload");
 

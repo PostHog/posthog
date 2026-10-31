@@ -8,7 +8,8 @@ Interval = Literal["hour", "day"]
 # A period this short or shorter is bucketed by hour, so a day or two still draws a line rather than one or two dots.
 MAX_HOURLY_SPAN = timedelta(days=2)
 DEFAULT_DAYS = 14
-MAX_DAYS = 90
+# The longest preset, "Last 90 days", covers today and the 90 days before it.
+MAX_DAYS = 91
 
 
 def _resolve_bound(value: date | datetime, tz: tzinfo, *, is_end: bool) -> datetime:

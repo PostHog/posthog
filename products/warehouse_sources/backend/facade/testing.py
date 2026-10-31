@@ -15,6 +15,7 @@ from typing import Any
 
 _MODULES = {
     "create_data_warehouse_table_from_csv": "products.warehouse_sources.backend.test.utils",
+    "create_synced_table_from_rows": "products.warehouse_sources.backend.test.utils",
     "WarehouseAccessControlTestMixin": "products.warehouse_sources.backend.facade._access_control_base",
     # The table API tests check which table a file upload source's sync adopts.
     "find_replaced_self_managed_table": "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync",

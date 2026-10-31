@@ -418,7 +418,9 @@ async def _run(
         else:
             mock_run_scheduled.assert_called()
         mock_get_data_import_finished_metric.assert_called_with(
-            source_type=source_type, status=ExternalDataJobStatus.COMPLETED.lower()
+            source_type=source_type,
+            status=ExternalDataJobStatus.COMPLETED.lower(),
+            streak="none",
         )
 
         # Assert that app_metrics2 rows were emitted for the successful job — both

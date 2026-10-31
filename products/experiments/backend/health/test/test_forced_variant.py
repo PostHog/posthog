@@ -92,6 +92,7 @@ def _traffic(people_by_set: dict[int, int], *, remotely_evaluated: float = 1.0) 
     calls = 2 * sum(people_by_set.values())
     return ConditionSetTraffic(
         since=datetime(2026, 10, 12, 13, 4, tzinfo=UTC),
+        until=datetime(2026, 10, 19, 13, 4, tzinfo=UTC),
         team_timezone="Europe/Berlin",
         people_by_set=people_by_set,
         calls=calls,
@@ -117,6 +118,11 @@ class TestForcedVariantReleaseCondition(TestCase):
             (
                 "catch_all_override",
                 _context([{**EVERYONE, "variant": "control"}]),
+                ("all_conditions_pinned", ExperimentHealthFindingSeverity.WARNING, "1", "control", None),
+            ),
+            (
+                "draft_catch_all_override",
+                _context([{**EVERYONE, "variant": "control"}], status=DRAFT),
                 ("all_conditions_pinned", ExperimentHealthFindingSeverity.WARNING, "1", "control", None),
             ),
             (
@@ -349,9 +355,7 @@ class TestForcedVariantReleaseCondition(TestCase):
         finding = forced_variant_release_condition(ctx)
 
         assert isinstance(finding, ExperimentHealthFinding)
-        self.assertEqual(
-            (finding.evidence.get("reason"), "can't measure" in finding.detail), (expected_reason, says_not_measurable)
-        )
+        self.assertEqual((finding.reason, "can't measure" in finding.detail), (expected_reason, says_not_measurable))
 
     @parameterized.expand(
         [
