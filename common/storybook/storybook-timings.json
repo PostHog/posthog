@@ -563,7 +563,7 @@
         "chromium": 13.299,
         "webkit": 3.696
     },
-    "frontend/src/lib/lemon-ui/LemonRichContent/LemonRichContentEditor.stories.tsx": {
+    "frontend/src/lib/components/RichContentEditor/LemonRichContentEditor.stories.tsx": {
         "chromium": 5.951,
         "webkit": 3.278
     },
@@ -623,7 +623,7 @@
         "chromium": 20.438,
         "webkit": 4.26
     },
-    "frontend/src/lib/lemon-ui/LemonTextArea/LemonTextAreaMarkdown.stories.tsx": {
+    "frontend/src/lib/components/LemonTextAreaMarkdown/LemonTextAreaMarkdown.stories.tsx": {
         "chromium": 13.195,
         "webkit": 2.75
     },
