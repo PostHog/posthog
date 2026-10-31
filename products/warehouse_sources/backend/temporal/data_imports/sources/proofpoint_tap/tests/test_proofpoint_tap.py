@@ -1,3 +1,4 @@
+import re
 import json
 from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
@@ -31,7 +32,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.proofpoint
 from products.warehouse_sources.backend.temporal.data_imports.sources.proofpoint_tap.source import ProofpointTapSource
 
 NOW = datetime(2026, 1, 8, 12, tzinfo=UTC)
-BASE = "https://tap-api-v2.proofpoint.com/v2/siem"
+ROOT = "https://tap-api-v2.proofpoint.com/v2"
+BASE = f"{ROOT}/siem"
 CONFIG = ProofpointTapSourceConfig.from_dict({"service_principal": "example-principal", "secret": "example-secret"})
 
 
@@ -211,15 +213,19 @@ def test_error_classification_preserves_checkpoint(status: int) -> None:
 
 
 @pytest.mark.parametrize(
-    ("status", "schema", "valid", "message"),
+    ("status", "schema", "valid", "message", "path"),
     [
-        (403, None, True, None),
-        (403, "messages_blocked", False, "Check access in the TAP dashboard"),
+        (403, None, True, None, "/v2/siem/clicks/blocked"),
+        (403, "messages_blocked", False, "Check access in the TAP dashboard", "/v2/siem/messages/blocked"),
+        (200, "threats", True, None, "/v2/siem/all"),
+        (200, "campaigns", True, None, "/v2/siem/clicks/blocked"),
+        (200, "top_clickers", True, None, "/v2/siem/clicks/blocked"),
     ],
 )
-def test_credential_probe_status_mapping(status: int, schema: str | None, valid: bool, message: str | None) -> None:
-    selector = "messagesBlocked" if schema else "clicksBlocked"
-    response = ScriptedResponse(status=status, json={"queryEndTime": NOW.isoformat(), selector: []})
+def test_credential_probe_status_mapping(
+    status: int, schema: str | None, valid: bool, message: str | None, path: str
+) -> None:
+    response = ScriptedResponse(status=status, json={"queryEndTime": NOW.isoformat()})
     with scripted_network([response]) as network:
         result, error = ProofpointTapSource().validate_credentials(CONFIG, 1, schema)
     assert result is valid
@@ -229,7 +235,7 @@ def test_credential_probe_status_mapping(status: int, schema: str | None, valid:
         assert error is not None and message in error
     assert len(network.requests_log) == 1
     request = network.requests_log[0]
-    assert request.path == ("/v2/siem/messages/blocked" if schema else "/v2/siem/clicks/blocked")
+    assert request.path == path
     assert request.query == {"format": ("json",), "sinceSeconds": ("30",)}
 
 
@@ -237,3 +243,123 @@ def test_unexpected_probe_error_is_not_bad_credentials() -> None:
     with scripted_network([ScriptedResponse(status=400, json={})]):
         with pytest.raises(HTTPError):
             ProofpointTapSource().validate_credentials(CONFIG, 1)
+
+
+@time_machine.travel(NOW, tick=False)
+@responses.activate
+def test_threats_resolve_each_siem_threat_once_and_skip_missing() -> None:
+    def siem_all(request: PreparedRequest) -> tuple[int, dict[str, str], str]:
+        end = query(request)["interval"][0].split("/")[1]
+        payload = {
+            "queryEndTime": end,
+            "clicksBlocked": [{"id": "click-a", "threatID": "threat-a"}],
+            "clicksPermitted": [],
+            "messagesBlocked": [
+                {"GUID": "message-a", "threatsInfoMap": [{"threatID": "threat-a"}, {"threatID": "gone"}]}
+            ],
+            "messagesDelivered": [{"GUID": "message-b", "threatsInfoMap": [{"threatID": "threat-b"}]}],
+        }
+        return 200, {"Content-Type": "application/json"}, json.dumps(payload)
+
+    responses.add_callback(responses.GET, f"{BASE}/all", callback=siem_all)
+    for threat_id in ("threat-a", "threat-b"):
+        responses.get(
+            f"{ROOT}/threat/summary/{threat_id}", json={"id": threat_id, "identifiedAt": "2026-01-01T00:00:00Z"}
+        )
+    responses.get(f"{ROOT}/threat/summary/gone", status=404, json={})
+
+    harness = Harness(endpoint="threats")
+    rows = harness.rows()
+
+    assert [(row["id"], row["query_end_time"]) for row in rows] == [
+        ("threat-a", datetime(2026, 1, 8, 10, 59, tzinfo=UTC)),
+        ("threat-b", datetime(2026, 1, 8, 10, 59, tzinfo=UTC)),
+    ]
+    assert [urlparse(call.request.url or "").path for call in responses.calls] == [
+        "/v2/siem/all",
+        "/v2/threat/summary/threat-a",
+        "/v2/threat/summary/gone",
+        "/v2/threat/summary/threat-b",
+        "/v2/siem/all",
+    ]
+    assert [call.args[0].next_start for call in harness.manager.save_state.call_args_list] == [
+        "2026-01-08T09:59:00+00:00",
+        "2026-01-08T10:59:00+00:00",
+    ]
+    assert harness.response.primary_keys == ["id"]
+    assert harness.response.sort_mode is None
+    assert harness.cursor.staged == TapCursor(query_end_time="2026-01-08T11:59:00+00:00")
+
+
+@time_machine.travel(NOW, tick=False)
+@responses.activate
+def test_campaigns_page_through_one_day_windows_and_merge_details() -> None:
+    full_page = [{"id": f"campaign-{i}", "lastUpdatedAt": "2026-01-07T00:00:00Z", "notable": False} for i in range(200)]
+    responses.get(f"{ROOT}/campaign/ids", json={"campaigns": full_page})
+    responses.get(f"{ROOT}/campaign/ids", json={"campaigns": [{"id": "campaign-0"}, {"id": "campaign-x"}]})
+    responses.get(f"{ROOT}/campaign/ids", json={"campaigns": []})
+    responses.add_callback(
+        responses.GET,
+        re.compile(f"{ROOT}/campaign/campaign-.+"),
+        callback=lambda request: (
+            200,
+            {},
+            json.dumps({"id": urlparse(request.url or "").path.rsplit("/", 1)[1], "name": "Example"}),
+        ),
+    )
+
+    harness = Harness(endpoint="campaigns", watermark=NOW - timedelta(days=1, hours=1))
+    rows = harness.rows()
+
+    listings = [
+        query(call.request) for call in responses.calls if call.request.url and "/campaign/ids" in call.request.url
+    ]
+    assert [(q["interval"][0], q["page"], q["size"]) for q in listings] == [
+        ("2026-01-07T10:59:00+00:00/2026-01-08T10:59:00+00:00", ["1"], ["200"]),
+        ("2026-01-07T10:59:00+00:00/2026-01-08T10:59:00+00:00", ["2"], ["200"]),
+        ("2026-01-08T10:59:00+00:00/2026-01-08T11:59:00+00:00", ["1"], ["200"]),
+    ]
+    assert len(rows) == 201
+    assert rows[0] == {
+        "id": "campaign-0",
+        "lastUpdatedAt": "2026-01-07T00:00:00Z",
+        "notable": False,
+        "name": "Example",
+        "query_end_time": datetime(2026, 1, 8, 10, 59, tzinfo=UTC),
+    }
+    assert rows[-1]["id"] == "campaign-x"
+    assert harness.cursor.staged == TapCursor(query_end_time="2026-01-08T11:59:00+00:00")
+
+
+@pytest.mark.parametrize(
+    ("endpoint", "path", "size"),
+    [("very_attacked_people", "people/vap", 1000), ("top_clickers", "people/top-clickers", 200)],
+)
+@responses.activate
+def test_people_walk_pages_and_key_rows_by_identity(endpoint: str, path: str, size: int) -> None:
+    def user(guid: str) -> dict[str, Any]:
+        return {"identity": {"guid": guid, "emails": [f"{guid}@example.com"]}, "threatStatistics": {"attackIndex": 1}}
+
+    interval = "2025-10-10T00:00:00Z/2026-01-08T00:00:00Z"
+    responses.get(f"{ROOT}/{path}", json={"users": [user(f"user-{i}") for i in range(size)], "interval": interval})
+    responses.get(f"{ROOT}/{path}", json={"users": [user("user-0"), user("user-last")], "interval": interval})
+
+    harness = Harness(endpoint=endpoint, incremental=False, watermark=None)
+    rows = harness.rows()
+
+    assert [query(call.request) for call in responses.calls] == [
+        {"window": ["90"], "size": [str(size)], "page": ["1"]},
+        {"window": ["90"], "size": [str(size)], "page": ["2"]},
+    ]
+    assert len(rows) == size + 1
+    assert rows[-1]["guid"] == "user-last"
+    assert rows[-1]["interval"] == interval
+    assert harness.response.primary_keys == ["guid"]
+    assert harness.response.partition_keys is None
+
+
+@responses.activate
+def test_people_user_without_guid_fails() -> None:
+    responses.get(f"{ROOT}/people/vap", json={"users": [{"identity": {}}]})
+    with pytest.raises(ValueError):
+        Harness(endpoint="very_attacked_people", incremental=False, watermark=None).rows()
