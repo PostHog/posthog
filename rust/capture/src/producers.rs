@@ -59,6 +59,10 @@ impl FromStr for ProducerName {
 /// the same name.
 #[derive(Envconfig, Clone, Debug)]
 pub struct ProducerConfig {
+    pub sasl_mechanisms: Option<String>,
+    pub sasl_username: Option<String>,
+    #[envconfig(from = "SASL_PASSWORD")]
+    pub sasl_password: Option<common_kafka::security::KafkaCredential>,
     // `kafka:9092` is the broker in local dev and hobby. A deployment that
     // forgets to wire the slot fails its liveness check instead of producing
     // somewhere unexpected.
@@ -199,6 +203,14 @@ impl ProducerConfig {
             }
         }
 
+        common_kafka::security::KafkaSecurityConfig {
+            kafka_security_protocol: (!self.security_protocol.is_empty())
+                .then(|| self.security_protocol.clone()),
+            kafka_sasl_mechanism: self.sasl_mechanisms.clone(),
+            kafka_sasl_user: self.sasl_username.clone(),
+            kafka_sasl_password: self.sasl_password.clone(),
+        }
+        .apply(&mut client_config, false);
         client_config
     }
 }
@@ -260,7 +272,11 @@ fn create_producer(
     );
 
     let client_config = config.client_config();
-    debug!("rdkafka configuration: {client_config:?}");
+    common_kafka::security::validate_security_config(&client_config)?;
+    debug!(
+        "rdkafka configuration: {:?}",
+        common_kafka::security::redacted_config(&client_config)
+    );
 
     let producer: FutureProducer<KafkaContext> =
         client_config.create_with_context(KafkaContext::new(liveness.clone()))?;
@@ -292,6 +308,26 @@ mod tests {
             .iter()
             .map(|(k, v)| (k.to_string(), v.to_string()))
             .collect()
+    }
+
+    #[test]
+    fn named_producer_forwards_authentication() {
+        let config = ProducerConfig::load(
+            ProducerName::Ingestion,
+            &env(&[
+                ("KAFKA_INGESTION_PRODUCER_SECURITY_PROTOCOL", "SASL_SSL"),
+                ("KAFKA_INGESTION_PRODUCER_SASL_MECHANISMS", "scram-sha-512"),
+                ("KAFKA_INGESTION_PRODUCER_SASL_USERNAME", "00123"),
+                ("KAFKA_INGESTION_PRODUCER_SASL_PASSWORD", "false"),
+            ]),
+        )
+        .unwrap();
+        let client = config.client_config();
+        common_kafka::security::validate_security_config(&client).unwrap();
+        assert_eq!(client.get("security.protocol"), Some("sasl_ssl"));
+        assert_eq!(client.get("sasl.mechanisms"), Some("SCRAM-SHA-512"));
+        assert_eq!(client.get("sasl.username"), Some("00123"));
+        assert_eq!(client.get("sasl.password"), Some("false"));
     }
 
     #[test]

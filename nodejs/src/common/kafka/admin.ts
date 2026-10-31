@@ -25,6 +25,12 @@ export const ensureTopicExists = async (connectionConfig: GlobalConfig, topic: s
                 'sasl.username': connectionConfig['sasl.username'],
                 'sasl.password': connectionConfig['sasl.password'],
                 'enable.ssl.certificate.verification': connectionConfig['enable.ssl.certificate.verification'],
+                'ssl.ca.location': connectionConfig['ssl.ca.location'],
+                'ssl.ca.pem': connectionConfig['ssl.ca.pem'],
+                'ssl.certificate.location': connectionConfig['ssl.certificate.location'],
+                'ssl.key.location': connectionConfig['ssl.key.location'],
+                'ssl.key.password': connectionConfig['ssl.key.password'],
+                'ssl.endpoint.identification.algorithm': connectionConfig['ssl.endpoint.identification.algorithm'],
                 'client.rack': connectionConfig['client.rack'],
             },
             (value) => value !== undefined

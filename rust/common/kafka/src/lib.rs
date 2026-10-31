@@ -4,6 +4,7 @@ pub mod kafka_consumer;
 pub mod kafka_messages;
 pub mod kafka_producer;
 pub mod probe;
+pub mod security;
 pub mod test;
 pub mod transaction;
 
