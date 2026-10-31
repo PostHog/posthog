@@ -48,7 +48,7 @@ function domainOf(target) {
 // universe tells them apart. Without it the dashboard would read every widening
 // as a PR that legitimately claimed every lane, which is the distinction this
 // event exists to make.
-function buildProperties(changedFiles, impactedTargets, universe, crossLane = null) {
+function buildProperties(changedFiles, impactedTargets, universe, crossLane = null, semgrepDomains = null) {
     const targets = Array.isArray(impactedTargets) ? impactedTargets : []
     const isAll = impactedTargets === ALL || (Boolean(universe) && targets.length === universe.length)
     const isProse = targets.length === 1 && targets[0] === 'prose'
@@ -74,7 +74,6 @@ function buildProperties(changedFiles, impactedTargets, universe, crossLane = nu
     // Which blast radius each tripwire claimed, so a domain that turns out to
     // widen more than its share is visible without re-deriving it from paths.
     const tripwireDomains = {}
-    let semgrepDomains = null
     for (const file of tripwireFiles) {
         let domain = tripwireDomain(file)
         if (domain === 'semgrep') {
@@ -131,7 +130,27 @@ function buildProperties(changedFiles, impactedTargets, universe, crossLane = nu
     }
 }
 
-module.exports = { buildProperties }
+function summarizeLane(changedFiles, impactedTargets, context) {
+    let universe = null
+    try {
+        universe = context ? allKnownTargets(context) : null
+    } catch (error) {
+        console.error(`Could not enumerate the target universe (${error.message}); is_all reports the sentinel only`)
+    }
+    let crossLane = null
+    if (context) {
+        try {
+            crossLane = crossLaneFiles(changedFiles, { ...context, deletedFiles: findDeletedFiles(changedFiles) })
+        } catch (error) {
+            console.error(
+                `Could not classify the change set by lane side (${error.message}); cross_lane reports unknown`
+            )
+        }
+    }
+    return buildProperties(changedFiles, impactedTargets, universe, crossLane, context?.semgrepDomains)
+}
+
+module.exports = { buildProperties, summarizeLane }
 
 if (require.main === module) {
     const changedFiles = fs
@@ -146,22 +165,10 @@ if (require.main === module) {
         console.error(`Could not read IMPACTED_TARGETS (${error.message}); reporting the file side only`)
     }
     let context = null
-    let universe = null
     try {
         context = buildContext(REPO_ROOT)
-        universe = allKnownTargets(context)
     } catch (error) {
-        console.error(`Could not enumerate the target universe (${error.message}); is_all reports the sentinel only`)
+        console.error(`Could not build the lane context (${error.message})`)
     }
-    let crossLane = null
-    if (context) {
-        try {
-            crossLane = crossLaneFiles(changedFiles, { ...context, deletedFiles: findDeletedFiles(changedFiles) })
-        } catch (error) {
-            console.error(
-                `Could not classify the change set by lane side (${error.message}); cross_lane reports unknown`
-            )
-        }
-    }
-    process.stdout.write(JSON.stringify(buildProperties(changedFiles, impactedTargets, universe, crossLane)))
+    process.stdout.write(JSON.stringify(summarizeLane(changedFiles, impactedTargets, context)))
 }
