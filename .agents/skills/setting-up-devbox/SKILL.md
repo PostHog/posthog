@@ -184,6 +184,18 @@ hogli devbox:worktree --on-clean stop           # save what worktrees:clean does
 - A box whose worktree was already removed gets the same action on the next `worktrees:clean` run, within that run's `--repo` and `--source` selection. A moved or unmounted worktree does not count as removed.
 - Clear the saved action with `hogli devbox:config:rm worktree-boxes`.
 
+### Run worktree boxes on Hogland
+
+`hogli devbox:worktree --provider hogland` gives the worktree a Hogland devbox, restored from the `devbox-golden` snapshot, instead of a Coder workspace.
+
+- It needs the `hogland` CLI, installed and signed in. A missing CLI fails with the install command.
+- The box is named `wt-<label>`, and Hogland caps the name at 32 characters.
+- hogli writes an SSH entry for `hogland.wt-<label>` under `~/.hogli/hogland-ssh/`, and the mirror goes to `/home/hog/posthog`. Open a shell with `hogland devbox ssh wt-<label>`, and start the stack there with `hogli start -d`.
+- Pass `--provider hogland` with `--auto` to save Hogland as the default, which automatic boxes then use. `hogli devbox:config:rm worktree-provider` goes back to Coder.
+- `worktrees:clean --stop-boxes` hibernates the box, and `--delete-boxes` deletes it.
+- A worktree that still has a box on the other provider is refused until that box is removed.
+- `--clone-from` and `--start-app` are Coder-only.
+
 ### Provision a box for every new worktree
 
 `hogli devbox:worktree --auto claude,phw` saves the worktree sources that get a box automatically.

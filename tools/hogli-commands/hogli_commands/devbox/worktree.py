@@ -7,6 +7,7 @@ import sys
 import hashlib
 import subprocess
 import urllib.parse
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -14,7 +15,7 @@ from typing import Any
 import click
 
 from ..worktrees import worktree_source
-from . import mutagen
+from . import hogland, mutagen
 from .cli import _preferred_region, devbox_clone, devbox_start, resolve_workspace_name
 from .coder import (
     REGION_NAME_SUFFIXES,
@@ -32,6 +33,7 @@ from .coder import (
 from .config import (
     WORKTREE_AUTO_SOURCES,
     WORKTREE_BOX_CLEANUP_ACTIONS,
+    WORKTREE_PROVIDERS,
     WorktreeBoxRecord,
     claim_worktree_box,
     clear_worktree_auto_sources,
@@ -41,10 +43,12 @@ from .config import (
     record_worktree_box,
     save_worktree_auto_sources,
     save_worktree_box_cleanup,
+    save_worktree_provider,
     saved_worktree_auto_sources,
+    saved_worktree_provider,
     worktree_box_claimant,
 )
-from .sync import _REMOTE_REPO_PATH, _detect_local_posthog_checkout, ensure_sync_session
+from .sync import _REMOTE_REPO_PATH, _detect_local_posthog_checkout, ensure_hogland_sync_session, ensure_sync_session
 
 CODER_NAME_MAX_LENGTH = 32
 _HASH_LENGTH = 4
@@ -91,10 +95,13 @@ def _is_linked_worktree(root: Path) -> bool:
     return (root / ".git").is_file()
 
 
-def _current_branch(root: Path) -> str:
+def _checked_out_branch(root: Path) -> str | None:
     result = subprocess.run(["git", "symbolic-ref", "--short", "-q", "HEAD"], cwd=root, capture_output=True, text=True)
-    branch = result.stdout.strip() if result.returncode == 0 else ""
-    return branch or root.name
+    return (result.stdout.strip() if result.returncode == 0 else "") or None
+
+
+def _current_branch(root: Path) -> str:
+    return _checked_out_branch(root) or root.name
 
 
 def parse_auto_sources(value: str) -> tuple[str, ...]:
@@ -148,12 +155,61 @@ class _WorktreeTarget:
     label: str
 
 
+@dataclass(frozen=True)
+class _BoxNaming:
+    provider: str
+    label_budget: int
+    max_length: int
+    name_for: Callable[[str], str]
+    destroy_command: Callable[[str], str]
+
+
+def _coder_naming(cloning: bool, clone_source: str | None) -> _BoxNaming:
+    if cloning:
+        region = region_from_workspace_name(resolve_workspace_name(clone_source)[0])
+    else:
+        region = _preferred_region()
+    return _BoxNaming(
+        provider="Coder",
+        label_budget=label_budget(get_username(), region),
+        max_length=CODER_NAME_MAX_LENGTH,
+        name_for=lambda resolved_label: get_workspace_name(resolved_label, region=region),
+        destroy_command=lambda name: f"hogli devbox:destroy {extract_workspace_label(name) or ''}",
+    )
+
+
+def _hogland_naming() -> _BoxNaming:
+    return _BoxNaming(
+        provider="Hogland",
+        label_budget=hogland.NAME_MAX_LENGTH - len(hogland.NAME_PREFIX),
+        max_length=hogland.NAME_MAX_LENGTH,
+        name_for=hogland.name_for_label,
+        destroy_command=lambda name: f"hogland devbox delete {name}",
+    )
+
+
+def _fail_if_other_provider_box_exists(record: WorktreeBoxRecord) -> None:
+    if record.provider == "hogland":
+        hogland.ensure_cli()
+        live = get_workspace(record.workspace, hogland.fetch_devboxes())
+        command = f"hogland devbox delete {record.workspace}"
+    else:
+        live = get_workspace(record.workspace, _list_workspaces_or_fail())
+        command = f"hogli devbox:destroy {extract_workspace_label(record.workspace) or ''}"
+    if live is not None and record.owns(live):
+        _fail(
+            f"This worktree already has the {record.provider} devbox '{record.workspace}'. "
+            f"Remove it with `{command}` before you switch providers."
+        )
+
+
 def _resolve_target(
     root: Path,
     label: str | None,
-    cloning: bool,
-    clone_source: str | None,
     workspaces: list[dict[str, Any]],
+    provider: str,
+    label_of: Callable[[str], str | None],
+    naming: Callable[[], _BoxNaming],
 ) -> _WorktreeTarget:
     """Return the devbox this worktree uses.
 
@@ -165,27 +221,29 @@ def _resolve_target(
     registered = boxes.get(str(root))
     if registered is not None and registered.worktree_id is not None and not registered.tracks_worktree(_git_dir(root)):
         registered = None
+    if registered is not None and registered.provider != provider:
+        _fail_if_other_provider_box_exists(registered)
+        registered = None
     registered_box = get_workspace(registered.workspace, workspaces) if registered is not None else None
     if registered is not None and registered_box is not None and not registered.may_adopt(registered_box):
         registered = registered_box = None
-    registered_label = extract_workspace_label(registered.workspace) if registered is not None else None
+    registered_label = label_of(registered.workspace) if registered is not None else None
     if registered is not None and registered_label is not None and label in (None, registered_label):
         return _WorktreeTarget(workspace_name=registered.workspace, label=registered_label)
 
-    if cloning:
-        region = region_from_workspace_name(resolve_workspace_name(clone_source)[0])
-    else:
-        region = _preferred_region()
-
-    resolved_label = label or derive_label(_current_branch(root), label_budget(get_username(), region))
-    name = get_workspace_name(resolved_label, region=region)
-    if len(name) > CODER_NAME_MAX_LENGTH:
-        _fail(f"'{name}' is longer than Coder's {CODER_NAME_MAX_LENGTH}-character limit. Pick a shorter `--label`.")
+    box_naming = naming()
+    resolved_label = label or derive_label(_current_branch(root), box_naming.label_budget)
+    name = box_naming.name_for(resolved_label)
+    if len(name) > box_naming.max_length:
+        _fail(
+            f"'{name}' is longer than {box_naming.provider}'s {box_naming.max_length}-character limit. "
+            "Pick a shorter `--label`."
+        )
 
     if registered is not None and registered.workspace != name and registered_box is not None:
         _fail(
             f"This worktree already has devbox '{registered.workspace}'. Remove it with "
-            f"`hogli devbox:destroy {registered_label or ''}` before you pick another label."
+            f"`{box_naming.destroy_command(registered.workspace)}` before you pick another label."
         )
     existing = get_workspace(name, workspaces)
     owner = worktree_box_claimant(boxes, root, name, existing)
@@ -240,6 +298,15 @@ def _list_workspaces_or_fail() -> list[dict[str, Any]]:
         f"{', '.join(WORKTREE_AUTO_SOURCES)}. 'off' turns it off. Only saves the setting."
     ),
 )
+@click.option(
+    "--provider",
+    type=click.Choice(WORKTREE_PROVIDERS),
+    default=None,
+    help=(
+        "Where the box runs. Defaults to the saved provider, or coder. "
+        "With --auto, also saves it for automatic worktree boxes."
+    ),
+)
 @click.option("--dry-run", is_flag=True, help="Print the plan without changing anything")
 @click.option("-y", "--yes", is_flag=True, help="Skip the clone confirmation prompt")
 @click.option("-v", "--verbose", is_flag=True, help="Show full Coder/Terraform build output")
@@ -251,12 +318,16 @@ def devbox_worktree(
     start_app: bool | None,
     on_clean: str | None,
     auto_sources: str | None,
+    provider: str | None,
     dry_run: bool,
     yes: bool,
     verbose: bool,
 ) -> None:
     if auto_sources is not None:
         _save_auto_sources(auto_sources)
+        if provider is not None:
+            save_worktree_provider(provider)
+            click.echo(f"Worktree devboxes now run on {provider}.")
         return
 
     root = _detect_local_posthog_checkout()
@@ -266,11 +337,24 @@ def devbox_worktree(
             "Use `hogli devbox:start` and `hogli devbox:sync` for it."
         )
 
+    if (provider or saved_worktree_provider()) == "hogland":
+        if clone_from is not None or start_app is not None:
+            raise click.UsageError("--clone-from and --start-app work only with --provider coder.")
+        _hogland_worktree(root, label, on_clean, dry_run, verbose)
+        return
+
     ensure_runtime_ready()
     workspaces = _list_workspaces_or_fail()
     cloning = clone_from is not None
     clone_source = None if clone_from in (None, "default") else clone_from
-    target = _resolve_target(root, label, cloning, clone_source, workspaces)
+    target = _resolve_target(
+        root,
+        label,
+        workspaces,
+        "coder",
+        extract_workspace_label,
+        lambda: _coder_naming(cloning, clone_source),
+    )
     existing = get_workspace(target.workspace_name, workspaces)
     has_sync = bool(mutagen.sync_list(label_selector=mutagen.workspace_label_selector(target.workspace_name)))
 
@@ -288,33 +372,9 @@ def devbox_worktree(
         else f"Mirror {root} to coder.{target.workspace_name}:{_REMOTE_REPO_PATH}"
     )
 
-    click.echo(f"Worktree: {root}")
-    click.echo(f"  1. {box_step}")
-    click.echo(f"  2. {sync_step}")
-    if on_clean is not None:
-        click.echo(f"  3. Save worktrees:clean devbox action: {on_clean}")
-    if dry_run:
-        click.echo("[DRY-RUN] Nothing changed.")
+    if not _print_plan(root, box_step, sync_step, on_clean, dry_run):
         return
-
-    git_dir = _git_dir(root)
-    worktree_id = ensure_worktree_id(git_dir)
-    owner = claim_worktree_box(
-        root,
-        WorktreeBoxRecord(
-            workspace=target.workspace_name,
-            git_dir=str(git_dir),
-            workspace_id=None if existing is None else existing.get("id"),
-            worktree_id=worktree_id,
-        ),
-        existing,
-    )
-    if owner is not None:
-        _fail(f"Devbox '{target.workspace_name}' belongs to the worktree at {owner}. Pick another `--label`.")
-    if on_clean == "keep":
-        clear_worktree_box_cleanup()
-    elif on_clean is not None:
-        save_worktree_box_cleanup(on_clean)
+    git_dir, worktree_id = _claim_box(root, target, existing, on_clean, "coder")
 
     region = region_from_workspace_name(target.workspace_name)
     if existing is None and cloning:
@@ -339,6 +399,89 @@ def devbox_worktree(
     ensure_sync_session(target.workspace_name, workspaces, root, verbose=verbose)
     click.echo()
     click.echo(f"App URL, once the stack runs on the box: {_app_url(target.workspace_name)}")
+
+
+def _print_plan(root: Path, box_step: str, sync_step: str, on_clean: str | None, dry_run: bool) -> bool:
+    click.echo(f"Worktree: {root}")
+    click.echo(f"  1. {box_step}")
+    click.echo(f"  2. {sync_step}")
+    if on_clean is not None:
+        click.echo(f"  3. Save worktrees:clean devbox action: {on_clean}")
+    if dry_run:
+        click.echo("[DRY-RUN] Nothing changed.")
+        return False
+    return True
+
+
+def _claim_box(
+    root: Path, target: _WorktreeTarget, existing: dict[str, Any] | None, on_clean: str | None, provider: str
+) -> tuple[Path, str]:
+    git_dir = _git_dir(root)
+    worktree_id = ensure_worktree_id(git_dir)
+    owner = claim_worktree_box(
+        root,
+        WorktreeBoxRecord(
+            workspace=target.workspace_name,
+            git_dir=str(git_dir),
+            workspace_id=None if existing is None else existing.get("id"),
+            worktree_id=worktree_id,
+            provider=provider,
+        ),
+        existing,
+    )
+    if owner is not None:
+        _fail(f"Devbox '{target.workspace_name}' belongs to the worktree at {owner}. Pick another `--label`.")
+    if on_clean == "keep":
+        clear_worktree_box_cleanup()
+    elif on_clean is not None:
+        save_worktree_box_cleanup(on_clean)
+    return git_dir, worktree_id
+
+
+def _hogland_worktree(root: Path, label: str | None, on_clean: str | None, dry_run: bool, verbose: bool) -> None:
+    hogland.ensure_cli()
+    devboxes = hogland.fetch_devboxes()
+    target = _resolve_target(root, label, devboxes, "hogland", hogland.label_of, _hogland_naming)
+    name = target.workspace_name
+    existing = get_workspace(name, devboxes)
+    has_sync = bool(mutagen.sync_list(label_selector=mutagen.workspace_label_selector(name)))
+
+    if existing is None:
+        box_step = f"Create Hogland devbox '{name}'"
+    elif existing["status"] == "running":
+        box_step = f"Use running Hogland devbox '{name}'"
+    else:
+        box_step = f"Wake Hogland devbox '{name}' ({existing['status']})"
+    sync_step = (
+        "Keep the existing sync mirror"
+        if has_sync
+        else f"Mirror {root} to {hogland.ssh_alias(name)}:{hogland.REMOTE_REPO_PATH}"
+    )
+    if not _print_plan(root, box_step, sync_step, on_clean, dry_run):
+        return
+    git_dir, worktree_id = _claim_box(root, target, existing, on_clean, "hogland")
+
+    click.echo(f"Bringing up Hogland devbox '{name}'...")
+    endpoint = hogland.up(name, _checked_out_branch(root))
+    hogland.write_ssh_entry(name, endpoint)
+
+    created = get_workspace(name, hogland.fetch_devboxes())
+    if existing is None and created is not None:
+        record_worktree_box(
+            root,
+            WorktreeBoxRecord(
+                workspace=name,
+                git_dir=str(git_dir),
+                workspace_id=created.get("id"),
+                worktree_id=worktree_id,
+                provider="hogland",
+            ),
+        )
+    ensure_hogland_sync_session(name, root, verbose=verbose)
+    click.echo()
+    click.echo(f"  SSH    hogland devbox ssh {name}")
+    click.echo("  Start  cd ~/posthog && hogli start -d")
+    click.echo(f"  Stop   hogland devbox hibernate {name}")
 
 
 @click.command(
