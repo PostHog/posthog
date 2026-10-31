@@ -27,6 +27,26 @@ const build_inputs = (): HogFunctionInputSchemaType[] => {
             required: false,
         },
         {
+            key: 'gbraid',
+            type: 'string',
+            label: 'Google Click ID for App-to-Web (gbraid)',
+            description:
+                'The Google click ID (gbraid) associated with iOS app-to-web conversions. Sent when gclid is not present.',
+            default: '{person.properties.gbraid ?? person.properties.$initial_gbraid}',
+            secret: false,
+            required: false,
+        },
+        {
+            key: 'wbraid',
+            type: 'string',
+            label: 'Google Click ID for Web-to-App (wbraid)',
+            description:
+                'The Google click ID (wbraid) associated with iOS web-to-app conversions. Sent when gclid and gbraid are not present.',
+            default: '{person.properties.wbraid ?? person.properties.$initial_wbraid}',
+            secret: false,
+            required: false,
+        },
+        {
             key: 'conversionDateTime',
             type: 'string',
             label: 'Conversion Date Time',
@@ -107,8 +127,8 @@ if (not empty(inputs.phone)) {
     userIdentifiers := arrayPushBack(userIdentifiers, {'hashed_phone_number': sha256Hex(lower(trim(inputs.phone)))})
 }
 
-if (empty(inputs.gclid) and empty(userIdentifiers)) {
-    print('No \`gclid\` or user identifiers. Skipping...')
+if (empty(inputs.gclid) and empty(inputs.gbraid) and empty(inputs.wbraid) and empty(userIdentifiers)) {
+    print('No \`gclid\`, \`gbraid\`, \`wbraid\`, or user identifiers. Skipping...')
     return
 }
 
@@ -118,6 +138,10 @@ let conversion := {
 }
 if (not empty(inputs.gclid)) {
     conversion.gclid := inputs.gclid
+} else if (not empty(inputs.gbraid)) {
+    conversion.gbraid := inputs.gbraid
+} else if (not empty(inputs.wbraid)) {
+    conversion.wbraid := inputs.wbraid
 }
 if (not empty(userIdentifiers)) {
     conversion.user_identifiers := userIdentifiers
