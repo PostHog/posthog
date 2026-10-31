@@ -8,6 +8,7 @@ import time_machine
 from unittest.mock import MagicMock, patch
 
 import requests
+from botocore.credentials import Credentials
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.aws_config import aws_config
 from products.warehouse_sources.backend.temporal.data_imports.sources.aws_config.aws_config import (
@@ -28,6 +29,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.awsconfig import (
     AwsConfigSourceConfig,
 )
+
+CREDENTIALS = Credentials("AKIAEXAMPLE", "example-secret", "example-session")
 
 
 def make_config(**overrides: Any) -> AwsConfigSourceConfig:
@@ -75,7 +78,9 @@ def make_manager(state: AwsConfigResumeConfig | None = None) -> MagicMock:
 )
 def test_signed_tracked_request(region: str | None, token: str | None, host: str, signing_region: str) -> None:
     with scripted_network([ScriptedResponse(json={"ConfigRules": []})]) as network:
-        client = AwsConfigClient(make_config(region=region, aws_session_token=token), "2014-11-12")
+        client = AwsConfigClient(
+            make_config(region=region), "2014-11-12", Credentials("AKIAEXAMPLE", "example-secret", token)
+        )
         assert client.request("DescribeConfigRules", {"NextToken": "page-2"}) == {"ConfigRules": []}
         client.close()
 
@@ -104,7 +109,9 @@ def test_signed_tracked_request(region: str | None, token: str | None, host: str
     with scripted_network(
         [ScriptedResponse(status=302, headers={"Location": "https://example.com/"})]
     ) as redirect_network:
-        client = AwsConfigClient(make_config(region=region, aws_session_token=token), "2014-11-12")
+        client = AwsConfigClient(
+            make_config(region=region), "2014-11-12", Credentials("AKIAEXAMPLE", "example-secret", token)
+        )
         with pytest.raises(AwsConfigError):
             client.request("DescribeConfigRules", {})
         client.close()
@@ -165,7 +172,7 @@ def test_full_refresh_paginates_through_empty_and_terminal_pages(
         make_response({result_key: [item]}),
     ]
     manager = make_manager()
-    response = aws_config_source(make_config(), endpoint, "2014-11-12", manager)
+    response = aws_config_source(make_config(), CREDENTIALS, endpoint, "2014-11-12", manager)
     batches = list(cast(Iterable[Any], response.items()))
 
     assert len(batches) == 2
@@ -296,7 +303,7 @@ def test_fan_out_walks_every_parent_and_child_page(
         make_response({child_key: [make_item("c", 3)]}),
     ]
     manager = make_manager()
-    response = aws_config_source(make_config(), endpoint, "2014-11-12", manager)
+    response = aws_config_source(make_config(), CREDENTIALS, endpoint, "2014-11-12", manager)
     batches = list(cast(Iterable[Any], response.items()))
 
     rows = [row for batch in batches for row in batch]
@@ -342,7 +349,10 @@ def test_fan_out_resumes_at_saved_parent(session: MagicMock) -> None:
     ]
     manager = make_manager(AwsConfigResumeConfig(parent_next_token="parent-2", parent_key="b", next_token="child-2"))
     list(
-        cast(Iterable[Any], aws_config_source(make_config(), "rule_evaluation_results", "2014-11-12", manager).items())
+        cast(
+            Iterable[Any],
+            aws_config_source(make_config(), CREDENTIALS, "rule_evaluation_results", "2014-11-12", manager).items(),
+        )
     )
 
     payloads = [json.loads(call.kwargs["data"]) for call in session.post.call_args_list]
@@ -381,7 +391,13 @@ def test_resource_history_walks_composite_parent_keys_and_skips_undiscovered(ses
     ]
     manager = make_manager()
     response = aws_config_source(
-        make_config(), "resource_config_history", "2014-11-12", manager, True, dt.datetime(2025, 1, 1, tzinfo=dt.UTC)
+        make_config(),
+        CREDENTIALS,
+        "resource_config_history",
+        "2014-11-12",
+        manager,
+        True,
+        dt.datetime(2025, 1, 1, tzinfo=dt.UTC),
     )
     rows = [row for batch in cast(Iterable[Any], response.items()) for row in batch]
 
@@ -453,7 +469,7 @@ def test_incremental_start_shapes_request(
     session.post.side_effect = [parent_page, *pages] if endpoint == "resource_config_history" else pages
     manager = make_manager()
     response = aws_config_source(
-        make_config(), endpoint, "2014-11-12", manager, should_use_incremental_field, last_value
+        make_config(), CREDENTIALS, endpoint, "2014-11-12", manager, should_use_incremental_field, last_value
     )
     list(cast(Iterable[Any], response.items()))
 
@@ -479,7 +495,13 @@ def test_resume_keeps_incremental_start_of_interrupted_attempt(session: MagicMoc
         AwsConfigResumeConfig(parent_key='["AWS::S3::Bucket", "bucket-2"]', next_token="history-2", since=1735689600.0)
     )
     response = aws_config_source(
-        make_config(), "resource_config_history", "2014-11-12", manager, True, dt.datetime(2025, 2, 1, tzinfo=dt.UTC)
+        make_config(),
+        CREDENTIALS,
+        "resource_config_history",
+        "2014-11-12",
+        manager,
+        True,
+        dt.datetime(2025, 2, 1, tzinfo=dt.UTC),
     )
     list(cast(Iterable[Any], response.items()))
 
@@ -497,7 +519,7 @@ def test_resume_keeps_incremental_start_of_interrupted_attempt(session: MagicMoc
 def test_fan_out_missing_saved_parent_clears_state_and_fails_attempt(session: MagicMock) -> None:
     session.post.return_value = make_response({"ConfigRules": [{"ConfigRuleName": "a"}]})
     manager = make_manager(AwsConfigResumeConfig(parent_key="deleted", next_token="child-2"))
-    response = aws_config_source(make_config(), "rule_evaluation_results", "2014-11-12", manager)
+    response = aws_config_source(make_config(), CREDENTIALS, "rule_evaluation_results", "2014-11-12", manager)
 
     with pytest.raises(ValueError, match="changed during the sync"):
         list(cast(Iterable[Any], response.items()))
@@ -510,7 +532,7 @@ def test_fan_out_missing_saved_parent_clears_state_and_fails_attempt(session: Ma
 def test_expired_resume_token_clears_state_and_fails_attempt(session: MagicMock) -> None:
     session.post.return_value = make_response({"__type": "InvalidNextTokenException"}, 400)
     manager = make_manager(AwsConfigResumeConfig(next_token="expired-token"))
-    response = aws_config_source(make_config(), "config_rules", "2014-11-12", manager)
+    response = aws_config_source(make_config(), CREDENTIALS, "config_rules", "2014-11-12", manager)
 
     with pytest.raises(AwsConfigError, match="InvalidNextTokenException"):
         list(cast(Iterable[Any], response.items()))
@@ -525,7 +547,9 @@ def test_checkpoint_is_staged_before_yield_and_session_closes_on_interruption(se
         {"ConfigRules": [{"ConfigRuleArn": "arn:example:rule"}], "NextToken": "next"}
     )
     manager = make_manager()
-    rows = aws_config.get_rows(make_config(), aws_config.AWS_CONFIG_ENDPOINTS["config_rules"], "2014-11-12", manager)
+    rows = aws_config.get_rows(
+        make_config(), CREDENTIALS, aws_config.AWS_CONFIG_ENDPOINTS["config_rules"], "2014-11-12", manager
+    )
     next(rows)
     manager.save_state.assert_called_once_with(AwsConfigResumeConfig(next_token="next"))
     manager.safe_point.assert_not_called()
@@ -550,7 +574,12 @@ def test_invalid_page_token_does_not_advance_checkpoint(session: MagicMock, toke
     session.post.return_value = make_response({"ConfigRules": [], "NextToken": token})
     manager = make_manager(AwsConfigResumeConfig(next_token="saved-token"))
     with pytest.raises(ValueError, match="invalid page token"):
-        list(cast(Iterable[Any], aws_config_source(make_config(), "config_rules", "2014-11-12", manager).items()))
+        list(
+            cast(
+                Iterable[Any],
+                aws_config_source(make_config(), CREDENTIALS, "config_rules", "2014-11-12", manager).items(),
+            )
+        )
     manager.save_state.assert_not_called()
     session.close.assert_called_once()
 
@@ -560,7 +589,11 @@ def test_malformed_results_do_not_advance_checkpoint(session: MagicMock, body: A
     session.post.return_value = make_response(body)
     manager = make_manager()
     with pytest.raises(ValueError):
-        list(cast(Iterable[Any], aws_config_source(make_config(), "resources", "2014-11-12", manager).items()))
+        list(
+            cast(
+                Iterable[Any], aws_config_source(make_config(), CREDENTIALS, "resources", "2014-11-12", manager).items()
+            )
+        )
     manager.save_state.assert_not_called()
     session.close.assert_called_once()
 
@@ -596,7 +629,7 @@ def test_body_throttles_retry_without_sleep() -> None:
             ScriptedResponse(json={"ConfigRules": []}),
         ]
     ) as network:
-        client = AwsConfigClient(make_config(), "2014-11-12")
+        client = AwsConfigClient(make_config(), "2014-11-12", CREDENTIALS)
         assert client.request("DescribeConfigRules", {}) == {"ConfigRules": []}
         client.close()
     assert len(network.requests_log) == 2
@@ -606,7 +639,7 @@ def test_body_throttles_retry_without_sleep() -> None:
 @pytest.mark.parametrize("code", ["AccessDenied", "AccessDeniedException"])
 def test_access_denied_only_blocks_selected_table(session: MagicMock, schema_name: str | None, code: str) -> None:
     session.post.return_value = make_response({"__type": code, "message": "Access denied"}, 400)
-    valid, reason = validate_credentials(make_config(), "2014-11-12", schema_name)
+    valid, reason = validate_credentials(make_config(), CREDENTIALS, "2014-11-12", schema_name)
     assert valid is (schema_name is None)
     assert reason is None if schema_name is None else "config:DescribeConfigRules" in (reason or "")
     session.post.assert_called_once()
@@ -626,7 +659,7 @@ def test_access_denied_only_blocks_selected_table(session: MagicMock, schema_nam
 )
 def test_credential_errors_are_actionable(code: str, message: str) -> None:
     with scripted_network([ScriptedResponse(status=400, json={"__type": code, "message": "Vendor error"})]) as network:
-        valid, reason = validate_credentials(make_config(), "2014-11-12")
+        valid, reason = validate_credentials(make_config(), CREDENTIALS, "2014-11-12")
     assert not valid
     assert message in (reason or "")
     assert len(network.requests_log) == 1
@@ -670,7 +703,7 @@ def test_credential_probe_reads_parent_then_one_child(
 ) -> None:
     script = [body if isinstance(body, ScriptedResponse) else ScriptedResponse(json=body) for body in responses]
     with scripted_network(script) as network:
-        assert validate_credentials(make_config(), "2014-11-12", schema) == (True, None)
+        assert validate_credentials(make_config(), CREDENTIALS, "2014-11-12", schema) == (True, None)
     assert [
         (request.headers["x-amz-target"].split(".")[1], request.json().get("Limit", request.json().get("limit")))
         for request in network.requests_log
@@ -686,7 +719,7 @@ def test_fan_out_access_denied_names_child_permission() -> None:
             ScriptedResponse(status=400, json={"__type": "AccessDeniedException", "message": "Denied"}),
         ]
     ):
-        valid, reason = validate_credentials(make_config(), "2014-11-12", "rule_evaluation_results")
+        valid, reason = validate_credentials(make_config(), CREDENTIALS, "2014-11-12", "rule_evaluation_results")
     assert not valid
     assert "config:GetComplianceDetailsByConfigRule" in (reason or "")
 
@@ -694,7 +727,7 @@ def test_fan_out_access_denied_names_child_permission() -> None:
 @pytest.mark.parametrize("region", ["https://example.com", "us-east-1.example.com/path", "us-east-1\n", "../us-east-1"])
 def test_invalid_region_fails_before_transport(region: str) -> None:
     with scripted_network([]) as network:
-        valid, reason = validate_credentials(make_config(region=region), "2014-11-12")
+        valid, reason = validate_credentials(make_config(region=region), CREDENTIALS, "2014-11-12")
     assert not valid
     assert reason == "Enter an AWS region such as us-east-1."
     assert network.requests_log == []
@@ -703,7 +736,7 @@ def test_invalid_region_fails_before_transport(region: str) -> None:
 @pytest.mark.parametrize("field", ["aws_access_key_id", "aws_secret_access_key"])
 def test_missing_credentials_fail_before_transport(field: str) -> None:
     with scripted_network([]) as network:
-        valid, reason = validate_credentials(make_config(**{field: ""}), "2014-11-12")
+        valid, reason = AwsConfigSource().validate_credentials(make_config(**{field: ""}), team_id=1)
     assert not valid
     assert "Enter both" in (reason or "")
     assert network.requests_log == []
@@ -711,11 +744,11 @@ def test_missing_credentials_fail_before_transport(field: str) -> None:
 
 def test_unknown_table_and_version_fail_before_transport() -> None:
     with scripted_network([]) as network:
-        assert validate_credentials(make_config(), "2014-11-12", "unknown") == (
+        assert validate_credentials(make_config(), CREDENTIALS, "2014-11-12", "unknown") == (
             False,
             "Unknown AWS Config table: unknown",
         )
-        valid, reason = validate_credentials(make_config(), "invalid-version")
+        valid, reason = validate_credentials(make_config(), CREDENTIALS, "invalid-version")
     result = SourceDriver(AwsConfigSource(), make_config()).run("unknown", [])
     assert isinstance(result.raised, ValueError)
     assert "Unknown AWS Config table" in str(result.raised)
@@ -727,7 +760,7 @@ def test_unknown_table_and_version_fail_before_transport() -> None:
 
 def test_network_failure_closes_probe_session(session: MagicMock) -> None:
     session.post.side_effect = requests.Timeout()
-    valid, reason = validate_credentials(make_config(), "2014-11-12")
+    valid, reason = validate_credentials(make_config(), CREDENTIALS, "2014-11-12")
     assert not valid
     assert "try again" in (reason or "")
     session.close.assert_called_once()

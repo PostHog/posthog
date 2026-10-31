@@ -569,7 +569,7 @@ def ssh_tunnel_connection_changed(existing: Any, incoming: Any) -> bool:
 # `authentication`) key their selected branch as `selection`; the SourceFieldSwitchGroupConfig
 # one (Billomat's `registered_app`) keys it as `enabled` instead, but the same carried-over-
 # secret check below applies either way.
-_NESTED_AUTH_CONTAINERS = ("auth_method", "auth_type", "authentication", "registered_app")
+_NESTED_AUTH_CONTAINERS = ("auth_method", "auth_type", "authentication", "aws_auth", "registered_app")
 
 # Secrets the edit form can never re-supply (parsed into the individual fields on create, then
 # stripped from API reads and hidden in the edit form), so gating credential re-entry on them would
