@@ -39,7 +39,7 @@ from posthog.persons_seed import insert_seed_group, insert_seed_group_type_mappi
 
 from products.access_control.backend.models.role import Role
 from products.actions.backend.models.action import Action
-from products.aeo.backend.facade.testing import create_citation_check
+from products.aeo.backend.facade.testing import create_citation_check, create_prompt
 from products.ai_observability.backend.models.datasets import Dataset, DatasetItem, DatasetItemVersion, DatasetRevision
 from products.ai_observability.backend.models.evaluation_directories import EvaluationDirectory
 from products.ai_observability.backend.models.evaluations import Evaluation
@@ -1078,6 +1078,7 @@ def _create_business_knowledge_chunk(team: Team, label: str):
 SYSTEM_TABLE_FACTORIES = [
     ("account_relationship_definitions", _create_account_relationship_definition),
     ("aeo_citation_checks", create_citation_check),
+    ("aeo_prompts", create_prompt),
     ("account_relationships", _create_account_relationship),
     ("accounts", _create_account),
     ("activity_logs", _create_activity_log),
@@ -1229,6 +1230,18 @@ class TestSystemTablesTeamIsolation(NonAtomicBaseTest):
         # A factory returns either a model instance or a bare id (error_tracking's testing door returns ids).
         assert str(getattr(obj_team1, "pk", obj_team1)) in ids
         assert str(getattr(obj_team2, "pk", obj_team2)) not in ids
+
+    def test_aeo_checks_join_prompts_within_own_team(self):
+        create_citation_check(self.team, "team1")
+        create_citation_check(self.other_team, "team2")
+
+        response = execute_hogql_query(
+            "SELECT p.prompt FROM system.aeo_citation_checks AS c JOIN system.aeo_prompts AS p ON c.prompt_id = p.id",
+            team=self.team,
+            user=self.user,
+        )
+
+        assert [row[0] for row in response.results] == ["is team1 cited?"]
 
     def test_error_tracking_issue_severity(self):
         create_issue(team_id=self.team.pk, name="high_severity_issue", severity="high")

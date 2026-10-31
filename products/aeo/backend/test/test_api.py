@@ -376,6 +376,39 @@ class TestAEOPromptAPI(APIBaseTest):
         assert [answer.split("\n")[0] for answer in answers] == expected
         assert answers[0] == "c\nwith a line break"
 
+    @parameterized.expand(
+        [
+            (
+                "since_drops_older_checks",
+                "since={since}",
+                status.HTTP_200_OK,
+                [("exa-answer", "c"), ("claude-web-search", "b")],
+            ),
+            (
+                "without_answer_text",
+                "include_answer_text=false",
+                status.HTTP_200_OK,
+                [("exa-answer", None), ("claude-web-search", None), ("exa-answer", None)],
+            ),
+            ("invalid_since", "since=yesterday", status.HTTP_400_BAD_REQUEST, None),
+        ]
+    )
+    def test_checks_list_filters_by_date_and_drops_answer_text_on_request(
+        self, _name: str, query: str, expected_status: int, expected: list[tuple[str, str | None]] | None
+    ) -> None:
+        prompt_id = self._import_one_prompt()
+        self._record_check(prompt_id, "exa-answer", minutes_ago=30, answer_text="a")
+        self._record_check(prompt_id, "claude-web-search", minutes_ago=20, answer_text="b")
+        self._record_check(prompt_id, "exa-answer", minutes_ago=10, answer_text="c")
+        since = (timezone.now() - dt.timedelta(minutes=25)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+        response = self.client.get(f"{self.url}{prompt_id}/checks/?{query.format(since=since)}")
+
+        assert response.status_code == expected_status, response.json()
+        if expected is not None:
+            assert response.json()["count"] == len(expected)
+            assert [(row["engine"], row["answer_text"]) for row in response.json()["results"]] == expected
+
     @parameterized.expand([("default", "", 20), ("capped", "?limit=1000", 100)])
     def test_checks_page_size_is_bounded(self, _name: str, query: str, expected: int) -> None:
         prompt_id = self._import_one_prompt()
