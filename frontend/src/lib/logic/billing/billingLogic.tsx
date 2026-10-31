@@ -758,7 +758,8 @@ export type billingLogicType = MakeLogicType<
 >
 
 export const billingLogic = kea<billingLogicType>([
-    path(['lib', 'logic', 'billing', 'billingLogic']),
+    // pinned: the persisted isCreditCTAHeroDismissed reducer derives its localStorage key from this path
+    path(['scenes', 'billing', 'billingLogic']),
     actions({
         setProductSpecificAlert: (productSpecificAlert: BillingAlertConfig | null) => ({ productSpecificAlert }),
         setScrollToProductKey: (scrollToProductKey: ProductKey | null) => ({ scrollToProductKey }),
