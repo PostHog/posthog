@@ -31,6 +31,7 @@ import {
 } from 'scenes/insights/utils'
 
 import { Noun, groupsModel } from '~/models/groupsModel'
+import { isFunnelWithEnoughSteps, isFunnelWithIncompleteDataWarehouseStep } from '~/queries/nodes/InsightViz/queryUtils'
 import { FunnelExclusion, FunnelExclusionEventsNode, FunnelExclusionSteps } from '~/queries/schema/schema-general'
 import { FunnelsFilter, FunnelsQuery, FunnelsQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 import type {
@@ -91,8 +92,6 @@ import {
     isBreakdownFunnelResults,
     isFunnelStepsBreakdownCompareResult,
     isFunnelStepsCompareResult,
-    isFunnelWithEnoughSteps,
-    isFunnelWithIncompleteDataWarehouseStep,
     stepsWithConversionMetrics,
 } from './funnelUtils'
 

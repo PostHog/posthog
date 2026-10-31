@@ -5,11 +5,11 @@ import { LemonSelect, LemonSelectOption, LemonSelectOptions } from '@posthog/lem
 import { ChartDisplayIcon } from 'lib/components/ChartFilter/ChartDisplayIcon'
 import type { ChartDisplayOption } from 'lib/components/ChartFilter/chartDisplayOptions'
 import { getChartDisplayOptions } from 'lib/components/ChartFilter/chartDisplayOptions'
+import { isBoxPlotMissingProperty } from 'lib/components/ChartFilter/isBoxPlotMissingProperty'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { isBoxPlotMissingProperty } from 'scenes/insights/utils/queryUtils'
 
 import type { TrendsQuery } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
