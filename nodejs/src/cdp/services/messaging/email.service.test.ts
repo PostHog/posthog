@@ -4,19 +4,17 @@ import { MessageRejected, SendingPausedException, TooManyRequestsException } fro
 import { DateTime } from 'luxon'
 import { register } from 'prom-client'
 
-import { createExampleInvocation, insertIntegration } from '~/cdp/_tests/fixtures'
+import { insertIntegration } from '~/cdp/_tests/fixtures'
 import { EmailStatusOutput } from '~/cdp/outputs/outputs'
-import {
-    CyclotronInvocationQueueParametersEmailSchema,
-    CyclotronInvocationQueueParametersEmailType,
-} from '~/cdp/schema/cyclotron'
+import { CyclotronInvocationQueueParametersEmailSchema } from '~/cdp/schema/cyclotron'
 import { TRANSACTIONAL_EMAIL_EVENT } from '~/cdp/services/hogflows/hogflow-sensitivity'
 import { CyclotronJobInvocationHogFunction } from '~/cdp/types'
+import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
-import { EmailInvocationFixture, EmailServiceFixture, createMessageAssetsService } from '~/tests/helpers/email'
 import { parseJSON } from '~/common/utils/json-parse'
 import { UUIDT } from '~/common/utils/utils'
+import { EmailInvocationFixture, EmailServiceFixture, createMessageAssetsService } from '~/tests/helpers/email'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { SesEmailRequest } from '~/tests/helpers/ses'
 import { createTestTeamFixture } from '~/tests/helpers/sql'
@@ -27,7 +25,6 @@ import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.se
 import { RateLimiterService } from '../rate-limiter/rate-limiter.service'
 import { selectEmailSenderIntegrationId } from './email-sender-selection'
 import { EmailStatusService } from './email-status.service'
-import { EmailSuppressionService, emailSuppressionConfigFromEnv } from './email-suppression.service'
 import {
     EmailService,
     formatMailbox,
@@ -36,8 +33,6 @@ import {
     teamEmailCapBuckets,
 } from './email.service'
 import { MailDevAPI } from './helpers/maildev'
-import { EmailTrackingCodeSigner } from './helpers/tracking-code'
-import { MessageAssetsService } from './message-assets.service'
 import { RecipientTokensService } from './recipient-tokens.service'
 
 class ThrottlingException extends Error {
@@ -1016,7 +1011,8 @@ describe('EmailService', () => {
                 { produce } as unknown as IngestionOutputs<EmailStatusOutput>,
                 { EMAIL_STATUS_ENABLED: true }
             )
-            service['emailStatusService'] = emailStatusService
+            service = services.create({ emailStatusService })
+            sendEmailSpy = jest.spyOn(service.sesV2Client!, 'send')
             invocation.id = new UUIDT().toString()
             invocation.state.globals.event.event = triggerEvent
             setup()
@@ -1068,7 +1064,7 @@ describe('EmailService', () => {
 
                 const result = await service.executeSendEmail(invocation)
 
-                const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
+                const sentCommand = new SesEmailRequest(sendEmailSpy)
                 expect(sentCommand.input.Destination).toEqual({
                     ToAddresses: ['cc-1@example.com'],
                     CcAddresses: ['cc-2@example.com'],

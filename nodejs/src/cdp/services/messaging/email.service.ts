@@ -1,7 +1,7 @@
 import { MessageHeader, SESv2Client, SendEmailCommand, SendEmailCommandInput } from '@aws-sdk/client-sesv2'
 import { DateTime } from 'luxon'
 import { SendMailOptions } from 'nodemailer'
-import { Counter } from 'prom-client'
+import { Counter, Histogram } from 'prom-client'
 
 import { CyclotronInvocationQueueParametersEmailType } from '~/cdp/schema/cyclotron'
 import {
@@ -727,8 +727,6 @@ export class EmailService {
         }
 
         return result
-    }
-
     }
 
     // Per-send tracking decision, combining two independent controls:
