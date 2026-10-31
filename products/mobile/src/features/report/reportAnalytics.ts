@@ -5,9 +5,9 @@ import { missingScope } from '@/api/scopeErrors'
 import { track } from '@/lib/analytics'
 
 /** How the report screen was reached. Sent with `mobile_report_opened`, so it travels in the route as `from`. */
-export type ReportOpenSource = 'inbox' | 'push' | 'adjacent' | 'deep_link'
+export type ReportOpenSource = 'inbox' | 'push' | 'adjacent' | 'deep_link' | 'link' | 'slack'
 
-const OPEN_SOURCES: readonly ReportOpenSource[] = ['inbox', 'push', 'adjacent', 'deep_link']
+const OPEN_SOURCES: readonly ReportOpenSource[] = ['inbox', 'push', 'adjacent', 'deep_link', 'link', 'slack']
 
 /** A deep link names no source, so a missing or unknown `from` counts as `deep_link`. */
 export function reportOpenSourceParam(value: string | string[] | undefined): ReportOpenSource {
