@@ -7,7 +7,7 @@ one import and one entry.
 from ..facade.contracts import CheckTypeInfo
 from ..facade.enums import CheckType, SubjectType
 from .spec import CheckTypeSpec
-from .types import accepted_values, custom_sql, freshness, not_null, relationships, row_count, unique
+from .types import accepted_values, custom_sql, freshness, not_null, question, relationships, row_count, unique
 
 _SPECS: dict[CheckType, CheckTypeSpec] = {
     spec.type_name: spec
@@ -19,6 +19,7 @@ _SPECS: dict[CheckType, CheckTypeSpec] = {
         row_count.SPEC,
         freshness.SPEC,
         custom_sql.SPEC,
+        question.SPEC,
     )
 }
 

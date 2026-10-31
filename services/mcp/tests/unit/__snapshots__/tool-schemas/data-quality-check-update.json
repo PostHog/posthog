@@ -7,8 +7,17 @@
             "type": "string"
         },
         "check_type": {
-            "description": "Which assertion to make. Determines the shape of config; see /check_types/.\n\n* `not_null` - not_null\n* `unique` - unique\n* `accepted_values` - accepted_values\n* `relationships` - relationships\n* `row_count` - row_count\n* `freshness` - freshness\n* `custom_sql` - custom_sql",
-            "enum": ["not_null", "unique", "accepted_values", "relationships", "row_count", "freshness", "custom_sql"],
+            "description": "Which assertion to make. Determines the shape of config; see /check_types/.\n\n* `not_null` - not_null\n* `unique` - unique\n* `accepted_values` - accepted_values\n* `relationships` - relationships\n* `row_count` - row_count\n* `freshness` - freshness\n* `custom_sql` - custom_sql\n* `question` - question",
+            "enum": [
+                "not_null",
+                "unique",
+                "accepted_values",
+                "relationships",
+                "row_count",
+                "freshness",
+                "custom_sql",
+                "question"
+            ],
             "type": "string"
         },
         "column_name": {

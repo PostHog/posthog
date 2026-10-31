@@ -30,6 +30,7 @@ export const SubjectTypeEnumApi = {
  * * `row_count` - row_count
  * * `freshness` - freshness
  * * `custom_sql` - custom_sql
+ * * `question` - question
  */
 export type CheckTypeEnumApi = (typeof CheckTypeEnumApi)[keyof typeof CheckTypeEnumApi]
 
@@ -41,6 +42,7 @@ export const CheckTypeEnumApi = {
     RowCount: 'row_count',
     Freshness: 'freshness',
     CustomSql: 'custom_sql',
+    Question: 'question',
 } as const
 
 /**
@@ -170,7 +172,8 @@ export interface DataQualityOverviewCheckApi {
      * * `relationships` - relationships
      * * `row_count` - row_count
      * * `freshness` - freshness
-     * * `custom_sql` - custom_sql */
+     * * `custom_sql` - custom_sql
+     * * `question` - question */
     check_type: CheckTypeEnumApi
     /** Type-specific configuration, validated against the check type's JSON schema. */
     config?: DataQualityOverviewCheckApiConfig
@@ -302,7 +305,8 @@ export interface DataQualityCheckCreateApi {
      * * `relationships` - relationships
      * * `row_count` - row_count
      * * `freshness` - freshness
-     * * `custom_sql` - custom_sql */
+     * * `custom_sql` - custom_sql
+     * * `question` - question */
     check_type: CheckTypeEnumApi
     /** Type-specific configuration, validated against the check type's JSON schema. */
     config?: DataQualityCheckCreateApiConfig
@@ -410,7 +414,8 @@ export interface DataQualityCheckApi {
      * * `relationships` - relationships
      * * `row_count` - row_count
      * * `freshness` - freshness
-     * * `custom_sql` - custom_sql */
+     * * `custom_sql` - custom_sql
+     * * `question` - question */
     check_type: CheckTypeEnumApi
     /** Type-specific configuration, validated against the check type's JSON schema. */
     config?: DataQualityCheckApiConfig
@@ -518,7 +523,8 @@ export interface PatchedDataQualityCheckApi {
      * * `relationships` - relationships
      * * `row_count` - row_count
      * * `freshness` - freshness
-     * * `custom_sql` - custom_sql */
+     * * `custom_sql` - custom_sql
+     * * `question` - question */
     check_type?: CheckTypeEnumApi
     /** Type-specific configuration, validated against the check type's JSON schema. */
     config?: PatchedDataQualityCheckApiConfig
@@ -617,6 +623,32 @@ export interface DataQualitySuiteRunApi {
  */
 export type DataQualityCheckRunApiCheckConfig = { [key: string]: unknown } | null
 
+export interface QuestionRunResultApi {
+    /** passed, failed, errored, or skipped. */
+    status: string
+    /** Source rows covered by completed checkpoints. */
+    examined_row_count: number
+    /** Rows below the probability threshold, including null column inputs. */
+    failed_row_count: number
+    /**
+     * Failed divided by examined rows; null without complete nonempty coverage.
+     * @nullable
+     */
+    failure_rate: number | null
+    /** Distinct non-null evaluator inputs covered. */
+    unique_input_count: number
+    /** Distinct decisions reused from the validated cache. */
+    reused_decision_count: number
+    /** Distinct decisions newly published by completed chunks. */
+    new_decision_count: number
+    /** Durable chunks completed exactly once. */
+    completed_chunk_count: number
+    /** Chunks in the complete frozen snapshot. */
+    total_chunk_count: number
+    /** Only complete coverage can pass or fail; partial coverage errors. */
+    coverage_complete: boolean
+}
+
 export interface DataQualityCheckRunApi {
     readonly id: string
     /**
@@ -629,6 +661,8 @@ export interface DataQualityCheckRunApi {
      * @nullable
      */
     readonly check_name: string | null
+    /** Question coverage and decision reuse counters; null for SQL checks. */
+    readonly question_result: QuestionRunResultApi | null
     readonly suite_run: string
     readonly subject_type: SubjectTypeEnumApi
     readonly subject_uuid: string
@@ -641,7 +675,8 @@ export interface DataQualityCheckRunApi {
      * * `relationships` - relationships
      * * `row_count` - row_count
      * * `freshness` - freshness
-     * * `custom_sql` - custom_sql */
+     * * `custom_sql` - custom_sql
+     * * `question` - question */
     readonly check_type: CheckTypeEnumApi
     readonly column_name: string
     /**
@@ -942,6 +977,7 @@ export const DataQualityChecksListCheckType = {
     CustomSql: 'custom_sql',
     Freshness: 'freshness',
     NotNull: 'not_null',
+    Question: 'question',
     Relationships: 'relationships',
     RowCount: 'row_count',
     Unique: 'unique',
