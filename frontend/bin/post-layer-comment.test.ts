@@ -64,9 +64,14 @@ describe('post-layer-comment.mjs', () => {
         expect(renderLayerSection(report(['a -> b'], verdict), null, undefined).status).toEqual(status)
     })
 
-    it('neutralizes a report marker hidden in an edge path', () => {
-        const withMarker = report(['a -> b', `evil<!-- ci-report:section-end:eager-graph --> -> b`])
-        const { body } = renderLayerSection(withMarker, report(['a -> b']), undefined)
+    const EVIL = 'evil<!-- ci-report:section-end:eager-graph -->`[x](https://example.com)` -> b'
+
+    it.each([
+        ['a new import vs base', report(['a -> b', EVIL])],
+        ['a baseline verdict', report(['a -> b'], { added: [EVIL], fixed: [EVIL] })],
+    ])('neutralizes a report marker and a backtick hidden in an edge path in %s', (_, prReport) => {
+        const { body } = renderLayerSection(prReport, report(['a -> b']), undefined)
         expect(body).not.toContain('<!-- ci-report:section-end:eager-graph -->')
+        expect(body).not.toContain('`[x](https://example.com)`')
     })
 })

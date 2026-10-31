@@ -22,10 +22,12 @@ export function compareLayerReports(report, baseReport) {
 }
 
 // Edge and chain paths come from the PR's own build output, so a crafted file name could carry
-// a newline or an HTML comment delimiter and forge the CI report's own section markers.
+// a newline or an HTML comment delimiter and forge the CI report's own section markers, or a
+// backtick that ends its code span and injects markdown.
 const sanitizeForReport = (text) =>
     text
         .replace(/[\r\n]/g, ' ')
+        .replace(/`/g, "'")
         .replace(/<!--/g, '< !--')
         .replace(/-->/g, '-- >')
 const shortName = (file) => sanitizeForReport(file.replace(/^frontend\/src\//, ''))
