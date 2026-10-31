@@ -1,1 +1,1 @@
-0188_reset_trunkio_v2_failing_tests
+0189_externaldataschema_masked_columns
