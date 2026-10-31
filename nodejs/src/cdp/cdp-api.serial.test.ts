@@ -2361,13 +2361,36 @@ describe('CDP API', () => {
             })
         })
 
-        it('queues a send when the team is over its email quota', async () => {
-            jest.spyOn(api['deps'].quotaLimiting, 'isTeamQuotaLimited').mockResolvedValue(true)
+        it.each<[string, () => { payload: Record<string, unknown>; verify?: () => void }]>([
+            [
+                'the team is over its email quota',
+                () => {
+                    jest.spyOn(api['deps'].quotaLimiting, 'isTeamQuotaLimited').mockResolvedValue(true)
+                    return { payload: body }
+                },
+            ],
+            [
+                "the lookup of the recipient's mail servers fails",
+                () => {
+                    jest.spyOn(api['emailValidationService'], 'getRecipientSkipReason').mockRestore()
+                    const resolveMx = jest.mocked(api['emailValidationService']['resolver'].resolveMx)
+                    resolveMx.mockRejectedValueOnce(Object.assign(new Error('queryMx ETIMEOUT'), { code: 'ETIMEOUT' }))
+                    // A domain no other test sends to, so no cached verdict answers before the lookup.
+                    const domain = `${new UUIDT().toString()}.example.org`
+                    return {
+                        payload: { ...body, to: `user@${domain}` },
+                        verify: () => expect(resolveMx).toHaveBeenCalledWith(domain),
+                    }
+                },
+            ],
+        ])('queues a send when %s', async (_desc, arrange) => {
+            const { payload, verify } = arrange()
             const queuedBefore = await outcomeCount('queued')
 
-            const res = await send(hogFlow.id, { Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` })
+            const res = await send(hogFlow.id, { Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` }, payload)
 
             expect(res.status).toEqual(202)
+            verify?.()
             expect(await outcomeCount('queued')).toEqual(queuedBefore + 1)
             expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
         })
@@ -2480,6 +2503,57 @@ describe('CDP API', () => {
             )
             expect(validationLogs).toHaveLength(expectedStatus === 400 ? 1 : 0)
             expect(JSON.stringify(validationLogs)).not.toContain('example.com')
+        })
+
+        it.each([
+            [
+                'sending_suspended',
+                422,
+                [
+                    'sending_suspended',
+                    'sending_paused',
+                    'recipient_suppressed',
+                    'quota_limited',
+                    'recipient_unreachable',
+                ],
+            ],
+            [
+                'sending_paused',
+                422,
+                ['sending_paused', 'recipient_suppressed', 'quota_limited', 'recipient_unreachable'],
+            ],
+            ['recipient_suppressed', 422, ['recipient_suppressed', 'quota_limited', 'recipient_unreachable']],
+            ['quota_limited', 429, ['quota_limited', 'recipient_unreachable']],
+        ] as const)('refuses with %s when it and every later check would refuse', async (code, status, reasons) => {
+            // Marketing, because a transactional email bypasses the quota.
+            const marketingFlow = await insertHogFlow(transactionalFlow('api', 'active', 'marketing'))
+            const arrange: Record<(typeof reasons)[number], () => void> = {
+                sending_suspended: () =>
+                    jest
+                        .spyOn(api['teamWorkflowsConfigService'], 'getEmailSendingSuspension')
+                        .mockResolvedValue('staff'),
+                sending_paused: () =>
+                    jest
+                        .spyOn(api['hogFlowManager'], 'getHogFlow')
+                        .mockResolvedValue({ ...marketingFlow, email_sending_paused_at: Date.now() }),
+                recipient_suppressed: () =>
+                    jest.spyOn(api['emailSuppressionService'], 'isSuppressed').mockResolvedValue(true),
+                quota_limited: () =>
+                    jest.spyOn(api['deps'].quotaLimiting, 'isTeamQuotaLimited').mockResolvedValue(true),
+                recipient_unreachable: () =>
+                    jest
+                        .spyOn(api['emailValidationService'], 'getRecipientSkipReason')
+                        .mockResolvedValue('Skipping send: the domain has no reachable mail servers.'),
+            }
+            reasons.forEach((reason) => arrange[reason]())
+
+            const res = await send(marketingFlow.id, {
+                Authorization: `Bearer ${mintToken(team.id, marketingFlow.id)}`,
+            })
+
+            expect(res.status).toEqual(status)
+            expect(res.body).toEqual({ error: code })
+            expect(mockQueueInvocations).not.toHaveBeenCalled()
         })
 
         it('sends to a recipient whose only suppression is a spam complaint', async () => {
