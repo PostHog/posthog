@@ -18,6 +18,7 @@ from products.autoresearch.backend.facade.contracts import (
     AgentModelOption,
     AgentModelOptions,
     AgentReasoningEffortOption,
+    AutoresearchLimitsReport,
     AutoresearchConflict,
     Iteration,
     IterationTrailEntry,
@@ -2565,3 +2566,44 @@ class ResolvedTemplateSerializer(serializers.Serializer):
         help_text="Suggested person property name for prediction scores. Pass as 'output_person_property' to autoresearch-create.",
     )
     notes = serializers.CharField(help_text="Usage notes and guidance for interpreting this resolved config.")
+
+
+class AutoresearchLimitsReportSerializer(DataclassSerializer):
+    max_training_runs_per_day = serializers.IntegerField(
+        help_text="Maximum training runs allowed per team in a rolling 24-hour window."
+    )
+    max_iterations_per_run = serializers.IntegerField(
+        help_text="Maximum experiments (iterations) allowed per agent training run."
+    )
+    max_live_pipelines = serializers.IntegerField(
+        help_text="Maximum concurrent active models (bootstrapping, running, converged) allowed for this project."
+    )
+    training_runs_used_today = serializers.IntegerField(
+        help_text="Number of sandbox training runs started in the last 24 hours across all pipelines."
+    )
+    live_pipelines_count = serializers.IntegerField(
+        help_text="Number of currently active models (bootstrapping, running, converged) in this project."
+    )
+    next_training_slot_opens_at = serializers.DateTimeField(
+        allow_null=True,
+        help_text="Timestamp when the next training slot opens if currently capped; null if under the cap.",
+    )
+    daily_training_cap_exceeded = serializers.BooleanField(
+        help_text="True if the team has reached its 24-hour rolling training run cap."
+    )
+    live_pipelines_cap_exceeded = serializers.BooleanField(
+        help_text="True if the project has reached its maximum concurrent live models cap."
+    )
+
+    class Meta:
+        dataclass = AutoresearchLimitsReport
+        fields = [
+            "max_training_runs_per_day",
+            "max_iterations_per_run",
+            "max_live_pipelines",
+            "training_runs_used_today",
+            "live_pipelines_count",
+            "next_training_slot_opens_at",
+            "daily_training_cap_exceeded",
+            "live_pipelines_cap_exceeded",
+        ]

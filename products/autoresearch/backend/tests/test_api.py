@@ -979,6 +979,67 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         # Clamped to default ceiling of 10
         assert data["iteration_budget"] == 10
 
+    def test_resume_pipeline_refused_when_live_pipelines_cap_reached(self):
+        # Create 3 live pipelines
+        for i in range(3):
+            self._make_pipeline(name=f"Live {i}", status=AutoresearchPipeline.Status.RUNNING)
+
+        paused = self._make_pipeline(name="Paused", status=AutoresearchPipeline.Status.PAUSED)
+
+        with patch("products.autoresearch.backend.limits.read_flag_payload", return_value=None):
+            resp = self.client.post(f"{self.base_url}/{paused.id}/resume/")
+
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+        assert "This project already has 3 active models. Pause or archive one to start another." in str(resp.json())
+
+    def test_start_training_on_draft_pipeline_refused_when_live_pipelines_cap_reached(self):
+        # Create 3 live pipelines
+        for i in range(3):
+            self._make_pipeline(name=f"Live {i}", status=AutoresearchPipeline.Status.RUNNING)
+
+        draft = self._make_pipeline(name="Draft", status=AutoresearchPipeline.Status.DRAFT)
+
+        with patch("products.autoresearch.backend.limits.read_flag_payload", return_value=None):
+            resp = self.client.post(f"{self.base_url}/{draft.id}/train/")
+
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+        assert "This project already has 3 active models. Pause or archive one to start another." in str(resp.json())
+
+    def test_create_live_pipeline_refused_when_live_pipelines_cap_reached(self):
+        for i in range(3):
+            self._make_pipeline(name=f"Live {i}", status=AutoresearchPipeline.Status.RUNNING)
+
+        with patch("products.autoresearch.backend.limits.read_flag_payload", return_value=None):
+            try:
+                api.create_pipeline(
+                    self.team.id,
+                    fields={
+                        "name": "Live 4",
+                        "target_event": "$pageview",
+                        "status": AutoresearchPipeline.Status.RUNNING,
+                    },
+                    created_by=self.user,
+                )
+                assert False, "Expected LivePipelineCapExceeded"
+            except api.LivePipelineCapExceeded as exc:
+                assert exc.count == 3
+                assert exc.limit == 3
+
+    def test_limits_endpoint_returns_limits_and_usage(self):
+        self._make_pipeline(name="Live Model", status=AutoresearchPipeline.Status.RUNNING)
+        with patch("products.autoresearch.backend.limits.read_flag_payload", return_value=None):
+            resp = self.client.get(f"{self.base_url}/limits/")
+
+        assert resp.status_code == status.HTTP_200_OK
+        data = resp.json()
+        assert data["max_training_runs_per_day"] == 3
+        assert data["max_iterations_per_run"] == 10
+        assert data["max_live_pipelines"] == 3
+        assert data["live_pipelines_count"] == 1
+        assert data["training_runs_used_today"] == 0
+        assert data["daily_training_cap_exceeded"] is False
+        assert data["live_pipelines_cap_exceeded"] is False
+
     @parameterized.expand(
         [
             ("train", status.HTTP_200_OK),

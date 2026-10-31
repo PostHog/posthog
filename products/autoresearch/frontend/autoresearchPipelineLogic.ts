@@ -47,11 +47,13 @@ import {
     autoresearchTrainingRunsArtifactsGetCreate,
     autoresearchTrainingRunsArtifactsRetrieve,
     autoresearchTrainingRunsList,
+    autoresearchLimitsRetrieve,
     autoresearchTrainCreate,
 } from './generated/api'
 import {
     type AutoresearchModelApi,
     AutoresearchModelRoleEnumApi,
+    type AutoresearchLimitsReportApi,
     type AutoresearchPipelineApi,
     type AutoresearchRunApi,
     type AutoresearchSuggestionApi,
@@ -1152,6 +1154,17 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
         ],
     }),
     loaders(({ actions, values, props }) => ({
+        limits: [
+            null as AutoresearchLimitsReportApi | null,
+            {
+                loadLimits: async () => {
+                    if (!values.currentTeamId) {
+                        return null
+                    }
+                    return autoresearchLimitsRetrieve(String(values.currentTeamId))
+                },
+            },
+        ],
         pipeline: [
             null as AutoresearchPipelineApi | null,
             {
@@ -1458,6 +1471,10 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
         ],
     })),
     selectors({
+        isDailyCapExceeded: [
+            (s) => [s.limits],
+            (limits: AutoresearchLimitsReportApi | null) => !!limits?.daily_training_cap_exceeded,
+        ],
         breadcrumbs: [
             (s) => [s.pipeline],
             (pipeline: AutoresearchPipelineApi | null): Breadcrumb[] => [

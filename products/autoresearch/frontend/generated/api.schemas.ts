@@ -2247,3 +2247,23 @@ export type AutoresearchOnlinePerformanceRetrieveParams = {
      */
     limit?: number
 }
+
+
+export interface AutoresearchLimitsReportApi {
+    /** Maximum training runs allowed per team in a rolling 24-hour window. */
+    max_training_runs_per_day: number
+    /** Maximum experiments (iterations) allowed per agent training run. */
+    max_iterations_per_run: number
+    /** Maximum concurrent active models (bootstrapping, running, converged) allowed for this project. */
+    max_live_pipelines: number
+    /** Number of sandbox training runs started in the last 24 hours across all pipelines. */
+    training_runs_used_today: number
+    /** Number of currently active models (bootstrapping, running, converged) in this project. */
+    live_pipelines_count: number
+    /** Timestamp when the next training slot opens if currently capped; null if under the cap. */
+    next_training_slot_opens_at: string | null
+    /** True if the team has reached its 24-hour rolling training run cap. */
+    daily_training_cap_exceeded: boolean
+    /** True if the project has reached its maximum concurrent live models cap. */
+    live_pipelines_cap_exceeded: boolean
+}
