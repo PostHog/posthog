@@ -35,6 +35,7 @@ pub mod errors;
 pub mod handle;
 pub mod limits;
 mod logprobe;
+pub mod logstats;
 pub mod pkset;
 pub mod prefetch;
 pub mod probecache;

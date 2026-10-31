@@ -16,6 +16,7 @@ import pytest
 
 import pyarrow as pa
 import deltalake
+import pyarrow.compute as pc
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from harness.common import PARTITION_KEY, create_table  # noqa: E402
@@ -95,3 +96,73 @@ def test_initial_open_is_reported_on_the_first_upsert_only(tmp_path):
 
     assert isinstance(first.initial_open_ms, int)
     assert second.initial_open_ms == 0
+
+
+def stat_rows(ids: list[int], names: list[str | None], part: str) -> pa.Table:
+    return pa.table(
+        {
+            "id": pa.array(ids, pa.int64()),
+            "name": pa.array(names, pa.string()),
+            "seen_at": pa.array([1_700_000_000_000_000 + i * 1_000_000 for i in ids], pa.timestamp("us")),
+            "blank": pa.array([None] * len(ids), pa.string()),
+            PARTITION_KEY: pa.array([part] * len(ids), pa.string()),
+        }
+    )
+
+
+def folded_in_python(dt: deltalake.DeltaTable, columns: list[str]) -> dict:
+    """The fold over delta-rs's per-file projection, the way a pyarrow caller computes it."""
+    actions = pa.table(dt.get_add_actions(flatten=True))
+    out = {"num_files": actions.num_rows, "num_records": pc.sum(actions["num_records"]).as_py()}
+    for column in columns:
+        out[f"null_count.{column}"] = pc.sum(actions[f"null_count.{column}"]).as_py()
+        out[f"min.{column}"] = pc.min_max(actions[f"min.{column}"])["min"].as_py()
+        out[f"max.{column}"] = pc.min_max(actions[f"max.{column}"])["max"].as_py()
+    return out
+
+
+@pytest.mark.parametrize("partitioned", [False, True], ids=["unpartitioned", "partitioned"])
+def test_add_action_stats_fold_the_per_file_projection(tmp_path, partitioned):
+    import deltalite
+
+    uri = str(tmp_path / "t")
+    create_table(uri, stat_rows([5, 6], ["pear", None], "p1"), partitioned=partitioned)
+    for batch in (stat_rows([1, 2, 3], ["apple", "zebra", None], "p2"), stat_rows([9], [None], "p1")):
+        deltalake.write_deltalake(uri, batch, mode="append", partition_by=[PARTITION_KEY] if partitioned else None)
+
+    rs = deltalite.DeltaLiteTable.open(uri)
+    dt = deltalake.DeltaTable(uri)
+    # Unpartitioned, the partition key is an ordinary string column and carries statistics.
+    columns = ["id", "name", "seen_at", "blank"] + ([] if partitioned else [PARTITION_KEY])
+    projection = pa.table(dt.get_add_actions(flatten=True))
+
+    stats = rs.add_action_stats()
+    assert stats.num_rows == 1
+    row = stats.to_pylist()[0]
+    assert row == folded_in_python(dt, columns)
+    assert row["num_files"] == 3
+    assert row["num_records"] == 6
+    assert (row["min.id"], row["max.id"], row["null_count.id"]) == (1, 9, 0)
+    assert (row["min.name"], row["max.name"], row["null_count.name"]) == ("apple", "zebra", 3)
+    assert (row["min.blank"], row["max.blank"], row["null_count.blank"]) == (None, None, 6)
+    for column in columns:
+        assert stats.schema.field(f"min.{column}").type == projection.schema.field(f"min.{column}").type
+    if partitioned:
+        # A partition column has no per-file statistics, so it gets no fields.
+        assert not [name for name in stats.schema.names if name.endswith(PARTITION_KEY)]
+
+    subset = rs.add_action_stats(columns=["seen_at", "no_such_column"])
+    assert subset.schema.names == ["num_files", "num_records", "null_count.seen_at", "min.seen_at", "max.seen_at"]
+    assert subset.to_pylist()[0] == {k: row[k] for k in subset.schema.names}
+
+
+def test_add_action_stats_of_an_empty_table_count_zero_files(tmp_path):
+    import deltalite
+
+    uri = str(tmp_path / "t")
+    deltalake.DeltaTable.create(uri, pa.schema([("id", pa.int64()), ("name", pa.string())]))
+
+    row = deltalite.DeltaLiteTable.open(uri).add_action_stats().to_pylist()[0]
+    assert row["num_files"] == 0
+    assert row["num_records"] is None
+    assert all(value is None for key, value in row.items() if key != "num_files")
