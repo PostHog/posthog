@@ -68,7 +68,6 @@ function eagerChainsOf(upward, shellReach) {
     )
 }
 
-// The CI build already writes this report, so CI checks it against the baseline without a second esbuild pass.
 function readReport(reportPath) {
     const report = JSON.parse(fs.readFileSync(reportPath, 'utf8'))
     return { current: report.upward, eagerChains: report.eagerChains ?? {} }
@@ -127,7 +126,6 @@ if (fromReportIndex !== -1) {
             eagerBytes: eager,
             upward: current,
             eagerChains,
-            // The CI report shows the same verdict that fails the blocking layer check.
             baseline: { added, fixed },
         }
         const serialized = JSON.stringify(report)

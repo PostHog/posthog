@@ -22,8 +22,7 @@ export function compareLayerReports(report, baseReport) {
 }
 
 // Edge and chain paths come from the PR's own build output, so a crafted file name could carry
-// a newline or an HTML comment delimiter and forge the CI report's own section markers, or a
-// backtick that ends its code span and injects markdown.
+// a newline, an HTML comment delimiter or a backtick, and forge the CI report's markers or markdown.
 const sanitizeForReport = (text) =>
     text
         .replace(/[\r\n]/g, ' ')
@@ -41,7 +40,6 @@ function listEdges(lines, edges) {
     lines.push('')
 }
 
-// The verdict that fails the blocking layer check in CI, written into the report by check-layers.mjs.
 // A report from before that field existed has no verdict, so it renders as a comparison with the base only.
 function renderBaselineVerdict(lines, verdict) {
     if (verdict.added.length) {
