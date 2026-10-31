@@ -2,7 +2,7 @@
 
 mod common;
 
-use std::collections::{BTreeSet, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::num::{NonZeroU32, NonZeroU64, NonZeroUsize};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -3621,8 +3621,8 @@ async fn a_drain_commits_the_in_flight_messages_before_the_new_owner_reads() {
     harness.stop().await;
 }
 
-fn processed_counts(harness: &Harness) -> std::collections::HashMap<(String, usize), usize> {
-    let mut counts = std::collections::HashMap::new();
+fn processed_counts(harness: &Harness) -> HashMap<(String, usize), usize> {
+    let mut counts = HashMap::new();
     for entry in harness.delivery_log.lock().unwrap().iter() {
         *counts.entry(entry.clone()).or_insert(0) += 1;
     }
@@ -3659,8 +3659,7 @@ async fn a_drain_holds_every_partition_and_dispatches_nothing_until_its_release(
         Duration::from_secs(10),
     )
     .await;
-    // The revoke reaches the first consumer on its next heartbeat, and the
-    // gated requests hold its drain.
+    // The revoke arrives on the next heartbeat; the gated requests hold the drain.
     tokio::time::sleep(Duration::from_secs(2)).await;
     let dispatched = harness.poll_sizes().len();
     for seq in 5..15usize {
@@ -3755,8 +3754,7 @@ async fn a_drain_that_times_out_hands_the_partitions_over_uncommitted() {
     );
     assert_eq!(harness.committed_offset(0), None);
     assert_eq!(harness.committed_offset(1), None);
-    // The release forgets both partitions, and the new assignment forgets
-    // the kept one again.
+    // The release bumps both generations; the new assignment bumps the kept one again.
     wait_until(
         Duration::from_secs(10),
         "the first consumer to apply its new assignment",

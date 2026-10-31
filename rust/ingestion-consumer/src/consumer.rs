@@ -404,7 +404,7 @@ impl IngestionConsumer {
                     self.settlement.on_revoked(&revoked);
                     self.batcher.revoke(revoke, &batcher_partitions(&revoked));
                     poller.on_revoked(&revoked);
-                    self.unassign(unassign);
+                    unassign.apply(&*self.consumer);
                 }
                 Event::Draining {
                     revoke,
@@ -433,13 +433,13 @@ impl IngestionConsumer {
         else {
             return Ok(());
         };
-        let release = Release {
+        let unassign_on_drop = UnassignOnDrop {
             consumer: Arc::clone(&self.consumer),
             unassign: Some(unassign),
         };
         let committed = self.commit_drained(poller, &drained, timeout).await;
         self.settlement.on_revoked(&drained);
-        drop(release);
+        drop(unassign_on_drop);
         let elapsed = started.elapsed();
         counter!("ingestion_consumer_revoke_drains_total", "outcome" => outcome).increment(1);
         histogram!("ingestion_consumer_revoke_drain_seconds").record(elapsed.as_secs_f64());
@@ -450,10 +450,6 @@ impl IngestionConsumer {
             "Rebalance: drained partitions unassigned"
         );
         committed
-    }
-
-    fn unassign(&self, unassign: Unassign) {
-        apply_unassign(&self.consumer, unassign);
     }
 
     async fn commit_drained<P: PollingStrategy>(
@@ -689,23 +685,15 @@ impl IngestionConsumer {
     }
 }
 
-fn apply_unassign(consumer: &StreamConsumer<RebalanceContext>, unassign: Unassign) {
-    if let Err(err) = unassign.apply(consumer) {
-        error!(error = %err, "Could not unassign the revoked partitions");
-    }
-}
-
-/// Applied on drop, so a task cancelled during the drain's commit still
-/// releases the partitions.
-struct Release {
+struct UnassignOnDrop {
     consumer: Arc<StreamConsumer<RebalanceContext>>,
     unassign: Option<Unassign>,
 }
 
-impl Drop for Release {
+impl Drop for UnassignOnDrop {
     fn drop(&mut self) {
         if let Some(unassign) = self.unassign.take() {
-            apply_unassign(&self.consumer, unassign);
+            unassign.apply(&*self.consumer);
         }
     }
 }
@@ -715,7 +703,7 @@ impl Drop for Release {
 impl Drop for IngestionConsumer {
     fn drop(&mut self) {
         for unassign in self.rebalance().on_dropped() {
-            self.unassign(unassign);
+            unassign.apply(&*self.consumer);
         }
     }
 }
@@ -805,7 +793,7 @@ mod tests {
     use rdkafka::config::ClientConfig;
 
     #[tokio::test]
-    async fn a_release_cancelled_during_its_commit_still_unassigns() {
+    async fn a_drain_commit_cancelled_midway_still_unassigns() {
         let consumer: StreamConsumer<RebalanceContext> = ClientConfig::new()
             .set("bootstrap.servers", "127.0.0.1:1")
             .set("group.id", "test")
@@ -815,13 +803,13 @@ mod tests {
         tpl.add_partition("events", 0);
         consumer.assign(&tpl).expect("an assign needs no broker");
         let consumer = Arc::new(consumer);
-        let release = Release {
+        let unassign_on_drop = UnassignOnDrop {
             consumer: Arc::clone(&consumer),
             unassign: Some(Unassign::new(tpl, false)),
         };
 
         let commit = tokio::spawn(async move {
-            let _release = release;
+            let _unassign_on_drop = unassign_on_drop;
             std::future::pending::<()>().await;
         });
         commit.abort();

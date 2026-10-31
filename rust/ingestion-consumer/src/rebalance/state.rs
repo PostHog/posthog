@@ -2,9 +2,9 @@ use std::time::Duration;
 
 use common_kafka_consumer::TopicPartition;
 use rdkafka::consumer::{Consumer, ConsumerContext};
-use rdkafka::error::KafkaResult;
 use rdkafka::TopicPartitionList;
 use tokio::time::Instant;
+use tracing::error;
 
 use crate::batcher::RevokeId;
 
@@ -36,11 +36,14 @@ impl Unassign {
         }
     }
 
-    pub(crate) fn apply<C: ConsumerContext>(self, consumer: &impl Consumer<C>) -> KafkaResult<()> {
-        if self.cooperative {
+    pub(crate) fn apply<C: ConsumerContext>(self, consumer: &impl Consumer<C>) {
+        let applied = if self.cooperative {
             consumer.incremental_unassign(&self.partitions)
         } else {
             consumer.unassign()
+        };
+        if let Err(err) = applied {
+            error!(error = %err, "Could not unassign the revoked partitions");
         }
     }
 }

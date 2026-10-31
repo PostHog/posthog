@@ -103,9 +103,7 @@ impl RebalanceContext {
             Instant::now(),
         );
         if let Some(unassign) = unassign {
-            if let Err(err) = unassign.apply(consumer) {
-                error!(error = %err, "Could not unassign the revoked partitions");
-            }
+            unassign.apply(consumer);
         }
     }
 }
@@ -163,10 +161,7 @@ impl ConsumerContext for RebalanceContext {
             _ => {
                 counter!("ingestion_consumer_rebalances_total", "event" => "error").increment(1);
                 warn!(error = %RDKafkaErrorCode::from(err), "Rebalance error");
-                if let Err(err) = Unassign::new(tpl.clone(), cooperative(consumer)).apply(consumer)
-                {
-                    error!(error = %err, "Could not unassign after a rebalance error");
-                }
+                Unassign::new(tpl.clone(), cooperative(consumer)).apply(consumer);
             }
         }
         self.rebalanced.notify_one();
