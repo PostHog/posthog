@@ -168,7 +168,7 @@ def test_fanout_binds_parent_rows_into_child_paths(
         ({}, "2026-10-24T12:00:00Z"),
         (
             {"incremental_field": "timestamp", "db_incremental_field_last_value": "2026-10-31T10:00:00Z"},
-            "2026-10-31T10:00:00Z",
+            "2026-10-31T09:00:00Z",
         ),
         (
             {"incremental_field": "timestamp", "db_incremental_field_last_value": "2026-01-01T00:00:00Z"},
@@ -198,6 +198,8 @@ def test_cluster_usage_metrics_explode_per_cluster(
         f"/api/monitoring/v1/accounts/{ACCOUNT_ID}/cluster/{CLUSTER_B}/usage-metrics",
     ]
     assert result.params("since") == [None, expected_since, expected_since]
+    assert result.params("until") == [None, "2026-10-31T12:00:00Z", "2026-10-31T12:00:00Z"]
+    assert result.response is not None and result.response.supports_resume is False
     assert result.rows == [
         {"cluster_id": CLUSTER_A, "node_id": "", "metric": "cpu", **point},
         {"cluster_id": CLUSTER_A, "node_id": "node-0", "metric": "ram", **point},

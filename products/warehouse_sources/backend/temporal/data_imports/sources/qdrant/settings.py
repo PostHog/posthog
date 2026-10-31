@@ -16,6 +16,8 @@ MONTHLY_METERINGS_PATH = "/api/metering/v1/accounts/{account_id}/meterings"
 # The usage metrics API defaults to the last hour. Full refreshes and long-paused incremental
 # syncs read at most this far back.
 USAGE_METRICS_LOOKBACK = timedelta(days=7)
+# Incremental syncs re-read this much before the watermark, for points Qdrant records late.
+USAGE_METRICS_OVERLAP = timedelta(hours=1)
 
 
 @frozen

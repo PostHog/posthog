@@ -33,6 +33,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.qdrant.set
     PAGE_SIZE,
     PERMISSION_ERROR,
     USAGE_METRICS_LOOKBACK,
+    USAGE_METRICS_OVERLAP,
     QdrantEndpoint,
     QdrantParent,
 )
@@ -117,12 +118,18 @@ def _list_endpoint(path: str, paginated: bool) -> Endpoint:
     }
 
 
-def usage_metrics_since(should_use_incremental_field: bool, db_incremental_field_last_value: Any) -> str:
-    since = datetime.now(UTC) - USAGE_METRICS_LOOKBACK
+def usage_metrics_window(should_use_incremental_field: bool, db_incremental_field_last_value: Any) -> dict[str, str]:
+    # One `until` for every cluster, so the table-wide watermark never passes a cluster's unread points.
+    until = datetime.now(UTC)
+    since = until - USAGE_METRICS_LOOKBACK
     last_value = parse_datetime_value(db_incremental_field_last_value) if should_use_incremental_field else None
-    if last_value is not None and last_value > since:
-        since = last_value
-    return since.isoformat().replace("+00:00", "Z")
+    if last_value is not None and last_value - USAGE_METRICS_OVERLAP > since:
+        since = last_value - USAGE_METRICS_OVERLAP
+    return {"since": _rfc3339(since), "until": _rfc3339(until)}
+
+
+def _rfc3339(value: datetime) -> str:
+    return value.isoformat().replace("+00:00", "Z")
 
 
 def usage_metric_rows(response: dict[str, Any]) -> list[dict[str, Any]]:
@@ -222,7 +229,7 @@ def qdrant_source(
 
     if settings.parent is not None:
         child_params = (
-            {"since": usage_metrics_since(should_use_incremental_field, db_incremental_field_last_value)}
+            usage_metrics_window(should_use_incremental_field, db_incremental_field_last_value)
             if endpoint == "cluster_usage_metrics"
             else {}
         )
@@ -277,4 +284,6 @@ def qdrant_source(
         partition_mode="datetime" if settings.partition_key else None,
         partition_format="month" if settings.partition_key else None,
         sort_mode=None,
+        # Fan-out tables save no checkpoint, so a handoff would replay every parent.
+        supports_resume=settings.parent is None,
     )

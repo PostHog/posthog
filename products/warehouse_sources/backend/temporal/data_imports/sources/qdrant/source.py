@@ -78,7 +78,7 @@ class QdrantSource(ResumableSource[QdrantSourceConfig, QdrantResumeConfig]):
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # The metrics window starts at the watermark, so the last point comes back on the next sync.
+        # The metrics window re-reads points before the watermark, so append would duplicate them.
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only=INCREMENTAL_FIELDS.keys())
 
     def validate_credentials(
