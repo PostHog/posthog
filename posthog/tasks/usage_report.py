@@ -792,6 +792,7 @@ def get_teams_with_billable_event_count_in_period(
         WHERE timestamp >= %(begin)s AND timestamp < %(end)s
             AND event NOT IN %(excluded_events)s
             AND NOT startsWith(event, %(ai_event_prefix)s)
+            AND NOT startsWith(event, %(mcp_event_prefix)s)
         GROUP BY team_id
     """
 
@@ -800,7 +801,11 @@ def get_teams_with_billable_event_count_in_period(
             begin,
             end,
             query_template,
-            {"excluded_events": BILLABLE_EVENT_EXCLUDED_EVENTS, "ai_event_prefix": AI_EVENT_NAME_PREFIX},
+            {
+                "excluded_events": BILLABLE_EVENT_EXCLUDED_EVENTS,
+                "ai_event_prefix": AI_EVENT_NAME_PREFIX,
+                "mcp_event_prefix": MCP_EVENT_NAME_PREFIX,
+            },
             num_splits=12,
         )
 
@@ -828,6 +833,7 @@ def get_teams_with_billable_enhanced_persons_event_count_in_period(
         WHERE timestamp >= %(begin)s AND timestamp < %(end)s
             AND event NOT IN %(excluded_events)s
             AND NOT startsWith(event, %(ai_event_prefix)s)
+            AND NOT startsWith(event, %(mcp_event_prefix)s)
             AND person_mode IN ('full', 'force_upgrade')
         GROUP BY team_id
     """
@@ -837,7 +843,11 @@ def get_teams_with_billable_enhanced_persons_event_count_in_period(
             begin,
             end,
             query_template,
-            {"excluded_events": BILLABLE_EVENT_EXCLUDED_EVENTS, "ai_event_prefix": AI_EVENT_NAME_PREFIX},
+            {
+                "excluded_events": BILLABLE_EVENT_EXCLUDED_EVENTS,
+                "ai_event_prefix": AI_EVENT_NAME_PREFIX,
+                "mcp_event_prefix": MCP_EVENT_NAME_PREFIX,
+            },
             num_splits=12,
         )
 
@@ -863,6 +873,7 @@ def get_teams_with_event_count_with_groups_in_period(
         WHERE timestamp >= %(begin)s AND timestamp < %(end)s
             AND event NOT IN %(excluded_events)s
             AND NOT startsWith(event, %(ai_event_prefix)s)
+            AND NOT startsWith(event, %(mcp_event_prefix)s)
             AND ({" OR ".join(f"{column} != ''" for column in group_columns)})
         GROUP BY team_id
     """
@@ -872,7 +883,11 @@ def get_teams_with_event_count_with_groups_in_period(
             begin,
             end,
             query_template,
-            {"excluded_events": BILLABLE_EVENT_EXCLUDED_EVENTS, "ai_event_prefix": AI_EVENT_NAME_PREFIX},
+            {
+                "excluded_events": BILLABLE_EVENT_EXCLUDED_EVENTS,
+                "ai_event_prefix": AI_EVENT_NAME_PREFIX,
+                "mcp_event_prefix": MCP_EVENT_NAME_PREFIX,
+            },
             num_splits=12,
         )
 
