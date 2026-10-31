@@ -425,7 +425,7 @@ class TestTransactionalEmail(APIBaseTest):
             "variables": {},
             "send": {
                 "content": {"subject": "Welcome, Jane", "html": "<p>Hi Jane</p>", "text": "Hi Jane"},
-                "from": {"integrationId": self.sender.id},
+                "from": {"integrationId": self.sender.id, "isDefault": True},
                 "tracking": {"captureEngagement": True},
             },
         }
@@ -468,13 +468,18 @@ class TestTransactionalEmail(APIBaseTest):
                 {"capture_engagement": False},
                 {
                     "content": {"subject": "Welcome, Jane", "html": "<p>Hi Jane</p>", "text": "Hi Jane"},
+                    "from": {"isDefault": True},
                     "tracking": {"captureEngagement": False},
                 },
             ),
             (
                 "text_only",
                 {"html": "", "text": "Hi"},
-                {"content": {"subject": "Welcome, Jane", "text": "Hi"}, "tracking": {"captureEngagement": True}},
+                {
+                    "content": {"subject": "Welcome, Jane", "text": "Hi"},
+                    "from": {"isDefault": True},
+                    "tracking": {"captureEngagement": True},
+                },
             ),
         ]
     )
