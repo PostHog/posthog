@@ -254,7 +254,8 @@ class TestLoadFiltersWithoutColumn(BaseTest):
             ),
         }
 
-        filters = load_filters_without_column(experiment)
+        with events_route_scope(HogQLQueryModifiers(useNewEventsSchema=False)):
+            filters = load_filters_without_column(experiment)
 
         assert filters is not None
         self.assertEqual([f"{found.type}:{found.key}{_SOURCE_LABELS[found.source]}" for found in filters], expected)
@@ -272,7 +273,8 @@ class TestLoadFiltersWithoutColumn(BaseTest):
             },
         }
 
-        filters = load_filters_without_column(experiment)
+        with events_route_scope(HogQLQueryModifiers(useNewEventsSchema=False)):
+            filters = load_filters_without_column(experiment)
 
         assert filters is not None
         self.assertEqual(
