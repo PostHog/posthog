@@ -21,6 +21,7 @@ from django.conf import settings
 import structlog
 from pydantic import ValidationError
 
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.dataclasses import frozen
 from posthog.models import Team
 
@@ -235,13 +236,14 @@ class PullRequestOrigin:
 
     @classmethod
     def for_report(cls, *, team: Team, report_id: str, task_id: str, repository: str) -> PullRequestOrigin:
-        sources = fetch_origin_sources_for_report(team, report_id)
+        sources = fetch_origin_sources_for_report(team, report_id, ch_user=ClickHouseUser.SIGNALS)
         return cls(
             report_id=report_id,
             report_url=build_report_url(team.pk, report_id, ReportLinkSource.GITHUB_PR),
             sources=tuple(_source_lines(team.pk, sources)),
             issue_references=tuple(
-                _issue_link(reference, repository) for reference in fetch_source_references_for_report(team, report_id)
+                _issue_link(reference, repository)
+                for reference in fetch_source_references_for_report(team, report_id, ch_user=ClickHouseUser.SIGNALS)
             ),
             scout_label=_scout_label(sources),
             first_seen=min(source.first_seen for source in sources).date() if sources else None,

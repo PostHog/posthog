@@ -2,12 +2,13 @@ import json
 from datetime import UTC, datetime
 
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.models.integration import GitHubIntegration
 
 from products.signals.backend.models import SignalReport, SignalReportArtefact
@@ -225,8 +226,9 @@ class TestPullRequestOrigin(BaseTest):
         )
 
         with (
-            patch("products.signals.backend.pr_origin.fetch_origin_sources_for_report", return_value=[]),
-            patch("products.signals.backend.pr_origin.fetch_source_references_for_report", return_value=[]),
+            patch(
+                "products.signals.backend.signal_metadata.execute_hogql_query", return_value=MagicMock(results=[])
+            ) as query,
             patch.object(
                 GitHubIntegration,
                 "first_for_team_repository",
@@ -241,3 +243,11 @@ class TestPullRequestOrigin(BaseTest):
 
         assert outcome == expected
         assert update.called is verified
+        assert [(call.kwargs["query_type"], call.kwargs["ch_user"]) for call in query.call_args_list] == (
+            [
+                ("SignalsFetchOriginSourcesForReport", ClickHouseUser.SIGNALS),
+                ("SignalsFetchSourceReferencesForReport", ClickHouseUser.SIGNALS),
+            ]
+            if verified
+            else []
+        )
