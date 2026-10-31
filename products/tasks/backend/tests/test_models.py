@@ -685,6 +685,15 @@ class TestTask(TestCase):
             (Task.OriginProduct.IMAGE_BUILDER, None, True),
             (Task.OriginProduct.SIGNALS_SCOUT, None, True),
             (None, NO_GITHUB_PROFILE, False),
+            (
+                None,
+                replace(
+                    BUSINESS_KNOWLEDGE,
+                    key="test.github_with_repository",
+                    github_resolution=GithubResolution.WITH_REPOSITORY,
+                ),
+                False,
+            ),
         ]
     )
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
