@@ -1,7 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonCheckbox } from '@posthog/lemon-ui'
-
+import { ChartOptionSwitch } from 'lib/components/ChartOptions/ChartOptionSwitch'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
@@ -10,17 +9,11 @@ export function ShowAlertThresholdLinesFilter(): JSX.Element | null {
     const { showAlertThresholdLines } = useValues(insightVizDataLogic(insightProps))
     const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
 
-    const toggleShowAlertThresholdLines = (): void => {
-        updateInsightFilter({ showAlertThresholdLines: !showAlertThresholdLines })
-    }
-
     return (
-        <LemonCheckbox
-            className="p-1 px-2"
-            onChange={toggleShowAlertThresholdLines}
+        <ChartOptionSwitch
+            label="Show alert threshold lines"
             checked={!!showAlertThresholdLines}
-            label={<span className="font-normal">Show alert threshold lines</span>}
-            size="small"
+            onChange={(checked) => updateInsightFilter({ showAlertThresholdLines: checked })}
         />
     )
 }

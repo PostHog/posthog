@@ -1,7 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
-
+import { ChartOptionChoice, ChartOptionSelect } from 'lib/components/ChartOptions/ChartOptionSelect'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
@@ -11,7 +10,7 @@ import { annotationScopeToName } from 'products/annotations/frontend/logics/anno
 
 type AnnotationsSelection = AnnotationScope | 'all' | 'none'
 
-const OPTIONS: LemonSelectOptions<AnnotationsSelection> = [
+const OPTIONS: ChartOptionChoice<AnnotationsSelection>[] = [
     { value: 'all', label: 'All' },
     { value: 'none', label: 'None' },
     ...Object.values(AnnotationScope).map((scope) => ({
@@ -26,20 +25,16 @@ export function AnnotationsPicker(): JSX.Element {
     const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
 
     return (
-        <div className="mb-2.5 mx-2">
-            <LemonSelect
-                size="small"
-                fullWidth
-                value={showAnnotations === false ? 'none' : (annotationsScope ?? 'all')}
-                options={OPTIONS}
-                onChange={(selection) =>
-                    updateInsightFilter({
-                        showAnnotations: selection === 'none' ? false : undefined,
-                        annotationsScope: selection === 'all' || selection === 'none' ? undefined : selection,
-                    })
-                }
-                data-attr="insight-annotations-picker"
-            />
-        </div>
+        <ChartOptionSelect
+            value={showAnnotations === false ? 'none' : (annotationsScope ?? 'all')}
+            options={OPTIONS}
+            onChange={(selection) =>
+                updateInsightFilter({
+                    showAnnotations: selection === 'none' ? false : undefined,
+                    annotationsScope: selection === 'all' || selection === 'none' ? undefined : selection,
+                })
+            }
+            data-attr="insight-annotations-picker"
+        />
     )
 }

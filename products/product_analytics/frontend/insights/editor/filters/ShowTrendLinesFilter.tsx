@@ -1,7 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonCheckbox } from '@posthog/lemon-ui'
-
+import { ChartOptionSwitch } from 'lib/components/ChartOptions/ChartOptionSwitch'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
@@ -55,13 +54,11 @@ export function ShowTrendLinesFilter(): JSX.Element {
     }
 
     return (
-        <LemonCheckbox
-            className="p-1 px-2"
-            onChange={toggleShowTrendLines}
+        <ChartOptionSwitch
+            label="Show trend lines"
             checked={!disabledReason && !!showTrendLines}
             disabledReason={disabledReason}
-            label={<span className="font-normal">Show trend lines</span>}
-            size="small"
+            onChange={toggleShowTrendLines}
         />
     )
 }

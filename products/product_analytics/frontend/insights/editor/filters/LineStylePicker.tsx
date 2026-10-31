@@ -1,7 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonSegmentedButton } from '@posthog/lemon-ui'
-
+import { LineStyleOption } from 'lib/components/ChartOptions/LineStyleOption'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
@@ -17,21 +16,10 @@ export function LineStylePicker(): JSX.Element {
     const chartStyle = (insightFilter as TrendsFilter | undefined)?.chartStyle
 
     return (
-        <LemonSegmentedButton
-            className="pb-2 px-2"
-            onChange={(value) =>
-                updateInsightFilter({
-                    chartStyle: { ...chartStyle, curve: value as 'smooth' | 'linear' },
-                })
-            }
+        <LineStyleOption
             // Unset curve falls through to the app default, which is smooth.
             value={chartStyle?.curve || 'smooth'}
-            options={[
-                { value: 'smooth', label: 'Smooth' },
-                { value: 'linear', label: 'Straight' },
-            ]}
-            size="small"
-            fullWidth
+            onChange={(curve) => updateInsightFilter({ chartStyle: { ...chartStyle, curve } })}
         />
     )
 }

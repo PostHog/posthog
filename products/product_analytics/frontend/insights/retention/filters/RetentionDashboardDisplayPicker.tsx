@@ -1,7 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonSelect } from '@posthog/lemon-ui'
-
+import { ChartOptionSelect } from 'lib/components/ChartOptions/ChartOptionSelect'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
@@ -19,28 +18,14 @@ export function RetentionDashboardDisplayPicker(): JSX.Element | null {
     }
 
     return (
-        <LemonSelect
-            className="pb-2 px-2"
+        <ChartOptionSelect
             value={displayType}
-            onChange={(value) => {
-                updateInsightFilter({ dashboardDisplay: value })
-            }}
+            onChange={(value) => updateInsightFilter({ dashboardDisplay: value })}
             options={[
-                {
-                    value: RetentionDashboardDisplayType.TableOnly,
-                    label: 'Show table only',
-                },
-                {
-                    value: RetentionDashboardDisplayType.GraphOnly,
-                    label: 'Show graph only',
-                },
-                {
-                    value: RetentionDashboardDisplayType.All,
-                    label: 'Show both',
-                },
+                { value: RetentionDashboardDisplayType.TableOnly, label: 'Show table only' },
+                { value: RetentionDashboardDisplayType.GraphOnly, label: 'Show graph only' },
+                { value: RetentionDashboardDisplayType.All, label: 'Show both' },
             ]}
-            size="small"
-            fullWidth
         />
     )
 }

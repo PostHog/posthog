@@ -152,7 +152,7 @@ export function useInsightDisplayOptions(): { tabs: DisplayOptionTab[]; count: n
         }
 
         if (isMetric) {
-            displayItems.push(DisplayOptions.MetricSummary, DisplayOptions.MetricShowChange, DisplayOptions.MetricColor)
+            displayItems.push(DisplayOptions.Metric)
         }
         if (isLifecycle) {
             displayItems.push(DisplayOptions.LifecycleStacking)
@@ -217,11 +217,7 @@ export function useInsightDisplayOptions(): { tabs: DisplayOptionTab[]; count: n
         })
     }
     if (showDecimalPlaces) {
-        displaySections.push({
-            key: 'decimal-places',
-            title: 'Decimal places',
-            items: [DisplayOptions.DecimalPrecision],
-        })
+        displaySections.push({ key: 'decimal-places', items: [DisplayOptions.DecimalPrecision] })
     }
     if (isRetention) {
         displaySections.push({
