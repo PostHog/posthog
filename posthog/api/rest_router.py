@@ -428,7 +428,6 @@ from posthog.api.cohort import CohortViewSet, LegacyCohortViewSet  # noqa: E402
 from posthog.api.element import ElementViewSet, LegacyElementViewSet  # noqa: E402
 from posthog.api.event import EventViewSet, LegacyEventViewSet  # noqa: E402
 from posthog.api.person import LegacyPersonViewSet, PersonViewSet  # noqa: E402
-from posthog.api.web_experiment import WebExperimentViewSet  # noqa: E402
 
 # Legacy endpoints CH (to be removed eventually)
 router.register(r"cohort", LegacyCohortViewSet, basename="cohort")
@@ -437,7 +436,6 @@ router.register(r"event", LegacyEventViewSet, basename="event")
 
 # Nested endpoints CH
 projects_router.register(r"events", EventViewSet, "project_events", ["team_id"])
-projects_router.register(r"web_experiments", WebExperimentViewSet, "web_experiments", ["project_id"])
 projects_router.register(r"cohorts", CohortViewSet, "project_cohorts", ["project_id"])
 
 projects_router.register(
