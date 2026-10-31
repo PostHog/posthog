@@ -1,8 +1,41 @@
+import re
 from typing import ClassVar
 
+from posthog.hogql import ast
 from posthog.hogql.database.direct_sql_table import DirectSQLTable
 from posthog.hogql.database.models import FieldOrTable
 from posthog.hogql.errors import QueryError
+from posthog.hogql.visitor import TraversingVisitor
+
+# Catalogs a tenant creates on the managed Trino warehouse. PostHog reads them but never writes.
+MANAGED_TRINO_EXTERNAL_CATALOG_PATTERN = re.compile(r"^ext_.+__.+$")
+
+
+def is_managed_trino_external_catalog(catalog: str) -> bool:
+    return MANAGED_TRINO_EXTERNAL_CATALOG_PATTERN.match(catalog) is not None
+
+
+class _ExternalTableReferenceFinder(TraversingVisitor):
+    def __init__(self) -> None:
+        self.found: str | None = None
+
+    def visit_join_expr(self, node: ast.JoinExpr) -> None:
+        if self.found is None and isinstance(node.table, ast.Field):
+            chain = [str(part) for part in node.table.chain]
+            if len(chain) == 3 and is_managed_trino_external_catalog(chain[0]):
+                self.found = ".".join(chain)
+        super().visit_join_expr(node)
+
+
+def find_managed_trino_external_table_reference(node: ast.AST) -> str | None:
+    """Return the first `ext_*` catalog table the unresolved query reads, if any.
+
+    Works on the parsed AST because a ClickHouse database does not contain these tables,
+    so resolution would only report an unknown table.
+    """
+    finder = _ExternalTableReferenceFinder()
+    finder.visit(node)
+    return finder.found
 
 
 class DirectTrinoTable(DirectSQLTable):
